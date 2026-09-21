@@ -1183,8 +1183,8 @@ final class NavigationStyleProjector
     {
         $values = array();
         foreach ( $anchors as $anchor ) {
-            $item = $anchor->parentNode;
-            if ( ! $item instanceof DOMElement || 'li' !== strtolower($item->tagName) ) {
+            $item = $this->navigationSourceAnchorOwnListItem($anchor, $class, $property);
+            if ( null === $item ) {
                 return null;
             }
 
@@ -1212,6 +1212,79 @@ final class NavigationStyleProjector
         }
 
         return 1 === count($values) ? (string) array_key_first($values) : null;
+    }
+
+    /**
+     * The source `<li>` whose collapsed chain a navigation anchor's classes
+     * land on.
+     *
+     * A mesh menu nests its anchor inside wrapper elements — Wix's stylable
+     * menu renders `li > div > a` — and the collapse hoists every chain
+     * element's classes onto the one rendered item. The anchor's own class is
+     * among them, so the item reset is needed exactly as it is for a direct
+     * `li > a`; requiring a direct parent left the second box in place for
+     * every mesh menu.
+     *
+     * The reset stays sound only while no wrapper between the anchor and its
+     * item painted the property itself: such a wrapper's box was real, its
+     * class rules now reach the rendered item, and a reset would erase paint
+     * the source actually had. A wrapper that carries the anchor class, or
+     * whose resolved presentation paints an overlapping property, therefore
+     * fails closed, as does an anchor that reaches the list root without
+     * finding an item. The zero declarations a global reset stamps on every
+     * element (`margin:0`, `border:0`, `background:0 0`) are not paint and do
+     * not block the reset — refusing them would make the walk refuse every
+     * document that ships a reset stylesheet, which is exactly the mesh
+     * corpus this exists for.
+     */
+    private function navigationSourceAnchorOwnListItem(DOMElement $anchor, string $class, string $property): ?DOMElement
+    {
+        $node = $anchor->parentNode;
+        while ( $node instanceof DOMElement && 'li' !== strtolower($node->tagName) ) {
+            if ( in_array(strtolower($node->tagName), array( 'ul', 'ol', 'menu', 'nav' ), true) ) {
+                return null;
+            }
+
+            $wrapperClasses = preg_split('/\s+/', trim(SourceDom::attr($node, 'class'))) ?: array();
+            if ( in_array($class, $wrapperClasses, true) ) {
+                return null;
+            }
+
+            $wrapperDeclarations = $this->styleResolver->safeVisualDeclarations(
+                $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($node))
+            );
+            foreach ( $wrapperDeclarations as $wrapperProperty => $wrapperValue ) {
+                if ( $this->navigationPropertiesOverlap($property, (string) $wrapperProperty)
+                    && ! $this->navigationDeclarationIsPaintFree((string) $wrapperValue)
+                ) {
+                    return null;
+                }
+            }
+
+            $node = $node->parentNode;
+        }
+
+        return $node instanceof DOMElement ? $node : null;
+    }
+
+    /**
+     * Whether a resolved declaration cannot paint or reserve space: every
+     * token is a zero length, `none`, or `transparent` — the values a global
+     * reset assigns. `auto`, colours, and any nonzero length are paint.
+     */
+    private function navigationDeclarationIsPaintFree(string $value): bool
+    {
+        $tokens = preg_split('/\s+/', trim($value)) ?: array();
+        if ( array() === $tokens ) {
+            return false;
+        }
+        foreach ( $tokens as $token ) {
+            if ( 1 !== preg_match('/^(?:[+-]?0+(?:\.0+)?(?:[a-z]+|%)?|none|transparent)$/i', $token) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function navigationPropertiesOverlap(string $first, string $second): bool
