@@ -397,6 +397,40 @@ $assert(
     $unpaintedMarkup
 );
 
+// A border authored on some sides only lands in `style.border.<side>`. core/button
+// save() spreads getBorderClassesAndStyles() onto the link, and the style engine
+// serializes split borders as `border-<side>-color|style|width`. A link without
+// them does not match save(), so the editor reports invalid content.
+$splitBorderButton = ( new HtmlTransformer() )->transform(
+    '<html><body><div><a class="cta" href="/contact">Contact Us</a></div></body></html>',
+    array( 'static_css' => '.cta{padding:8px 16px;background:#e4f2d4;border-top:1px solid #275f49;border-bottom:1px solid #275f49}' )
+)->toArray();
+$splitBorderStyle = $splitBorderButton['blocks'][0]['innerBlocks'][0]['attrs']['style']['border'] ?? array();
+$splitBorderMarkup = (string) ($splitBorderButton['serialized_blocks'] ?? '');
+preg_match('/<a class="wp-block-button__link[^>]*>/', $splitBorderMarkup, $splitBorderLink);
+$splitBorderLinkTag = $splitBorderLink[0] ?? '';
+
+$assert(
+    isset($splitBorderStyle['top'], $splitBorderStyle['bottom']) && ! isset($splitBorderStyle['color']),
+    'a border authored on two sides normalizes into per-side style.border entries',
+    (string) json_encode($splitBorderStyle)
+);
+$splitBorderExpected = array();
+foreach ( array( 'top', 'bottom' ) as $splitBorderSide ) {
+    foreach ( array( 'color', 'style', 'width' ) as $splitBorderComponent ) {
+        if ( isset($splitBorderStyle[ $splitBorderSide ][ $splitBorderComponent ]) ) {
+            $splitBorderExpected[] = 'border-' . $splitBorderSide . '-' . $splitBorderComponent . ':' . $splitBorderStyle[ $splitBorderSide ][ $splitBorderComponent ];
+        }
+    }
+}
+$assert(
+    array() !== $splitBorderExpected
+        && array() === array_filter($splitBorderExpected, static fn (string $declaration): bool => ! str_contains($splitBorderLinkTag, $declaration))
+        && ! str_contains($splitBorderLinkTag, 'has-border-color'),
+    'every per-side border attribute serializes onto the link the way core/button save() emits it, without the uniform has-border-color class',
+    $splitBorderLinkTag . ' expected ' . implode(';', $splitBorderExpected)
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button style resolver tests: {$failures} failed, {$passes} passed\n");
     exit(1);
