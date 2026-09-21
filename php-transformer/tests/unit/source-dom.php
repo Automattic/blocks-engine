@@ -105,6 +105,17 @@ $assert(SourceDom::safeAnchor('1leading-digit') === '', 'an anchor may not start
 $assert(SourceDom::safeAnchor('has space') === '', 'an anchor may not contain a space');
 $assert(SourceDom::safeAnchor('') === '', 'an empty anchor stays empty');
 
+// anchorAttributeValue() backs the block `anchor` HTML-support attribute,
+// which — unlike safeAnchor()'s CSS-identifier-safe callers — has no
+// character-shape constraint of its own (issue #1625): a captured
+// same-document fragment target's id is authored text, not a generated
+// selector token, and commonly starts with a digit or contains a space.
+$assert(SourceDom::anchorAttributeValue('valid-id_1') === 'valid-id_1', 'a conforming id is preserved');
+$assert(SourceDom::anchorAttributeValue('  Contact Us  ') === 'Contact Us', 'the value is trimmed but its internal space is kept');
+$assert(SourceDom::anchorAttributeValue('Section 10') === 'Section 10', 'a leading-digit-bearing, space-containing captured name is preserved unchanged');
+$assert(SourceDom::anchorAttributeValue('') === '', 'an empty value stays empty');
+$assert(SourceDom::anchorAttributeValue("line\nbreak") === '', 'an embedded control character is rejected');
+
 // --- URL safety -------------------------------------------------------------
 
 $assert(SourceDom::safeFallbackUrl('https://example.test/a', 'href'), 'https is allowed');

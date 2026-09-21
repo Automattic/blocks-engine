@@ -219,7 +219,7 @@ final class StyleResolver implements ElementPresentationResolver
             : $this->cssDeclarations((string) ($this->styleAttributeMapper()->serialize($mapped['style'] ?? array())['style'] ?? ''));
 
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
-            'anchor'    => SourceDom::safeAnchor(SourceDom::attr($element, 'id')),
+            'anchor'    => SourceDom::anchorAttributeValue(SourceDom::attr($element, 'id')),
             'className' => $this->mergePresentationClassNames(
                 $this->inlineStyleDeclaresAllReset($element) ? '' : $this->context->promotedClassName(SourceDom::attr($element, 'class')),
                 $this->editorAnchorClassName($element),
