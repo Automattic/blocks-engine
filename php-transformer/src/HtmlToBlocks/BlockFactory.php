@@ -959,6 +959,16 @@ final class BlockFactory
         if ( isset($border['radius']) && '' !== (string) $border['radius'] ) {
             $declarations[] = 'border-radius:' . (string) $border['radius'];
         }
+        // Split borders: save() emits each side's longhands and no support class,
+        // the same shape StyleAttributeMapper::serialize() writes for other blocks.
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+            $sideBorder = is_array($border[$side] ?? null) ? $border[$side] : array();
+            foreach ( array( 'color', 'style', 'width' ) as $component ) {
+                if ( '' !== trim((string) ($sideBorder[$component] ?? '')) ) {
+                    $declarations[] = 'border-' . $side . '-' . $component . ':' . trim((string) $sideBorder[$component]);
+                }
+            }
+        }
 
         if ( '' !== $text ) {
             $declarations[] = 'color:' . $text;
