@@ -1139,7 +1139,17 @@ final class WordPressSitePlan
     }
 
     private function hasDynamicScriptReferences(string $content): bool { return preg_match('/\bimport\s*\(|\b(?:document\s*\.\s*createElement\s*\(\s*["\']script|appendChild\s*\(|insertBefore\s*\(|\.\s*src\s*=|new\s+URL\s*\()/i', $content) === 1; }
-    private static function pageRoutePath(string $sourcePath, string $entryRoot = ''): string { if (str_contains($sourcePath, '%')) throw new InvalidArgumentException('WordPress site plan page routes reject encoded source paths.'); $relative = self::stripEntryRoot($sourcePath, $entryRoot); $segments = explode('/', preg_replace('/\.[A-Za-z0-9]+$/', '', $relative) ?? $relative); $segments = array_values(array_filter(array_map(static fn(string $segment): string => trim((string) preg_replace('/[^a-z0-9_-]/', '', strtolower(str_replace('_', '-', $segment))), '-'), $segments), static fn(string $segment): bool => '' !== $segment)); if ('index' === end($segments)) array_pop($segments); return '/' . implode('/', $segments); }
+    private static function pageRoutePath(string $sourcePath, string $entryRoot = ''): string { $relative = self::stripEntryRoot($sourcePath, $entryRoot); $segments = explode('/', preg_replace('/\.[A-Za-z0-9]+$/', '', $relative) ?? $relative); $segments = array_values(array_filter(array_map(static fn(string $segment): string => trim((string) preg_replace('/[^a-z0-9_-]/', '', strtolower(str_replace('_', '-', self::decodedRouteSegment($segment)))), '-'), $segments), static fn(string $segment): bool => '' !== $segment)); if ('index' === end($segments)) array_pop($segments); return '/' . implode('/', $segments); }
+    // A source path segment carries the author's page title, so percent sequences
+    // are ordinary punctuation a CMS slugified into a filename: `%3A`, `%2C`, and
+    // `%E2%80%99` must reach the slugifier as `:`, `,`, and `’` and become part of
+    // the author's words. Decoding is a single pass, and that pass must never give
+    // the path structure the raw path did not already have: an encoded separator or
+    // dot segment would silently change route identity, so those still fail closed
+    // on exactly the rules `safePath()` applies to the undecoded path. Anything a
+    // single decode leaves behind (a literal `%`, `%ZZ`, a truncated `%E2%80`) is
+    // inert punctuation the slugifier strips.
+    private static function decodedRouteSegment(string $segment): string { if (!str_contains($segment, '%')) return $segment; $decoded = rawurldecode($segment); if ('.' === $decoded || '..' === $decoded || preg_match('~[/\\\\\x00]~', $decoded)) throw new InvalidArgumentException('WordPress site plan page routes reject encoded path separators and dot segments.'); return $decoded; }
     // The entrypoint document's directory is the site's web root: a `website/`
     // wrapper around `website/index.html` must not become a `/website` route with
     // every other page nested beneath it. Strip that shared root so `index.html`
