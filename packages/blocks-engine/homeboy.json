@@ -3,6 +3,9 @@
   "changelog_target": "CHANGELOG.md",
   "id": "blocks-engine",
   "remote_path": "",
+  "release": {
+    "publish": true
+  },
   "version_targets": [
     {
       "file": "package.json",

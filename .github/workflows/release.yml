@@ -1,0 +1,55 @@
+name: Release components
+
+on:
+  push:
+    branches:
+      - trunk
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Preview the release without changing trunk or publishing packages
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: component-release
+  cancel-in-progress: false
+
+# Keep these jobs serial. Each Homeboy release may commit version/changelog
+# changes and push trunk; the next job must resolve the refreshed trunk tip,
+# not the event SHA that started this workflow.
+jobs:
+  javascript:
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2
+    with:
+      component: packages/blocks-engine
+      dry-run: ${{ inputs.dry-run || false }}
+      release-branch: trunk
+      dispatch-repo: Automattic/static-site-importer
+      dispatch-event: blocks-engine-component-released
+    secrets: inherit
+
+  php:
+    needs: javascript
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2
+    with:
+      component: php-transformer
+      dry-run: ${{ inputs.dry-run || false }}
+      release-branch: trunk
+      dispatch-repo: Automattic/static-site-importer
+      dispatch-event: blocks-engine-component-released
+    secrets: inherit
+
+  figma:
+    needs: php
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2
+    with:
+      component: figma-transformer
+      dry-run: ${{ inputs.dry-run || false }}
+      release-branch: trunk
+    secrets: inherit

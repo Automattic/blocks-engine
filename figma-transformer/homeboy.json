@@ -3,6 +3,9 @@
   "changelog_target": "CHANGELOG.md",
   "id": "figma-transformer",
   "remote_path": "",
+  "release": {
+    "publish": false
+  },
   "version_targets": [
     {
       "file": "VERSION",

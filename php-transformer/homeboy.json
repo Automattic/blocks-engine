@@ -3,6 +3,17 @@
   "changelog_target": "CHANGELOG.md",
   "id": "php-transformer",
   "remote_path": "",
+  "release": {
+    "publish": true,
+    "subtree": [
+      {
+        "prefix": ".",
+        "remote": "https://github.com/Automattic/blocks-engine-php-transformer.git",
+        "branch": "trunk",
+        "tag": true
+      }
+    ]
+  },
   "version_targets": [
     {
       "file": "VERSION",
