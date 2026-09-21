@@ -1184,13 +1184,13 @@ final class WordPressSitePlan
             if ('css' === $asset['kind']) foreach ($asset['scopes'] as $scope) {
                 $condition = self::bootstrapScopeCondition($scope);
                 $media = is_string($asset['media'] ?? null) && '' !== trim($asset['media']) ? ', ' . var_export($asset['media'], true) : '';
-                $lines[] = "    if ( {$condition} ) wp_enqueue_style( '{$handle}', get_theme_file_uri( '{$asset['target_path']}' ), array(), null{$media} );";
+                $lines[] = "    if ( {$condition} ) wp_enqueue_style( " . var_export($handle, true) . ", get_theme_file_uri( " . var_export(self::encodedAssetUrlPath($asset['target_path']), true) . " ), array(), null{$media} );";
             }
         }
         $attributes = array();
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
-            $source = null !== $script['local_target'] ? "get_theme_file_uri( " . var_export($script['local_target'], true) . " ) . " . var_export($script['suffix'], true) : var_export($script['url'], true);
+            $source = null !== $script['local_target'] ? "get_theme_file_uri( " . var_export(self::encodedAssetUrlPath($script['local_target']), true) . " ) . " . var_export($script['suffix'], true) : var_export($script['url'], true);
             $args = array('in_footer' => 'body' === $script['placement']);
             if ($script['async'] && !$script['module']) $args['strategy'] = 'async';
             if ($script['defer'] && !$script['async'] && !$script['module']) $args['strategy'] = 'defer';
@@ -1203,12 +1203,13 @@ final class WordPressSitePlan
         if (array() !== $templateAssetTokens) {
             $lines[] = '$blocks_engine_template_asset_tokens = ' . var_export($templateAssetTokens, true) . ';';
             $lines[] = '$blocks_engine_resolve_template_assets = static function ( string $content ) use ( $blocks_engine_template_asset_tokens ): string {';
-            // A literal `+` is a valid path character but decodes to a space on
-            // serving layers that treat a path like a query string, so a capture
-            // whose filenames contain one resolves on some hosts and 404s on
-            // others. Percent-encode it in the emitted URL only, leaving the
+            // A file-system path and a URL path are different encodings of the
+            // same name: a literal `%` (or a `+`, which some serving layers
+            // decode to a space) in a captured file name resolves on some hosts
+            // and 404s on others once the server URL-decodes the request path.
+            // Percent-encode every segment in the emitted URL only, leaving the
             // on-disk path -- and therefore the theme-file lookup -- untouched.
-            $lines[] = "    \$references = array(); foreach ( \$blocks_engine_template_asset_tokens as \$token => \$path ) { \$uri = get_theme_file_uri( \$path ); \$references[ \$token ] = str_ends_with( \$uri, \$path ) ? substr( \$uri, 0, -strlen( \$path ) ) . str_replace( '+', '%2B', \$path ) : \$uri; }";
+            $lines[] = "    \$references = array(); foreach ( \$blocks_engine_template_asset_tokens as \$token => \$path ) { \$uri = get_theme_file_uri( \$path ); \$references[ \$token ] = str_ends_with( \$uri, \$path ) ? substr( \$uri, 0, -strlen( \$path ) ) . implode( '/', array_map( 'rawurlencode', explode( '/', \$path ) ) ) : \$uri; }";
             $lines[] = '    return strtr( $content, $references );';
             $lines[] = '};';
             $lines[] = "add_filter( 'get_block_file_template', static function ( \$template, string \$id, string \$type ) use ( \$blocks_engine_resolve_template_assets ) { if ( \$template instanceof WP_Block_Template && \$template->has_theme_file && get_stylesheet() === \$template->theme ) \$template->content = \$blocks_engine_resolve_template_assets( \$template->content ); return \$template; }, 10, 3 );";
@@ -1274,6 +1275,13 @@ final class WordPressSitePlan
         }
         return implode("\n", $lines) . "\n";
     }
+    // A file-system path and a URL path are different encodings of the same
+    // name: browsers request exactly what the bootstrap emits and the server
+    // URL-decodes the request path before touching the filesystem, so a
+    // literal `%24` in an on-disk name must be emitted as `%2524` to round-trip
+    // back onto the materialized file. Encode every segment, preserving the
+    // `/` separators.
+    private static function encodedAssetUrlPath(string $path): string { return implode('/', array_map('rawurlencode', explode('/', $path))); }
     /** @param array<string,mixed> $scope */
     private static function bootstrapScopeCondition(array $scope): string
     {
