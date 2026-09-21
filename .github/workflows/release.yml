@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
   issues: write
   pull-requests: write
 
@@ -22,14 +23,16 @@ concurrency:
 
 # Keep these jobs serial. Each Homeboy release may commit version/changelog
 # changes and push trunk; the next job must resolve the refreshed trunk tip,
-# not the event SHA that started this workflow.
+# not the event SHA that started this workflow. Each job's `if: !cancelled()`
+# means a sibling's failure never blocks or skips the others — every
+# component release attempt runs and reports its own outcome independently.
 jobs:
   javascript:
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@d21c46a3a25b16895c36124a6af481a6f97f8636
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc
     with:
       component: packages/blocks-engine
-      action-ref: d21c46a3a25b16895c36124a6af481a6f97f8636
-      extension-ref: b94cad68433a34c9129681b1c1a57e63364719db
+      action-ref: b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc
+      extension-ref: 7f28a979517a96e003d0510d64bc5139c259837d
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
       release-branch: trunk
@@ -37,25 +40,30 @@ jobs:
 
   php:
     needs: javascript
-    if: ${{ always() && (needs.javascript.result == 'success' || needs.javascript.result == 'skipped') }}
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@d21c46a3a25b16895c36124a6af481a6f97f8636
+    if: ${{ !cancelled() }}
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc
     with:
       component: php-transformer
-      action-ref: d21c46a3a25b16895c36124a6af481a6f97f8636
-      extension-ref: b94cad68433a34c9129681b1c1a57e63364719db
+      action-ref: b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc
+      extension-ref: 7f28a979517a96e003d0510d64bc5139c259837d
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
       release-branch: trunk
-    secrets: inherit
+      publisher-known-hosts: |
+        github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+    secrets:
+      HOMEBOY_APP_ID: ${{ secrets.HOMEBOY_APP_ID }}
+      HOMEBOY_APP_PRIVATE_KEY: ${{ secrets.HOMEBOY_APP_PRIVATE_KEY }}
+      PUBLISH_SSH_KEY: ${{ secrets.PHP_TRANSFORMER_MIRROR_DEPLOY_KEY }}
 
   figma:
     needs: php
-    if: ${{ always() && (needs.php.result == 'success' || needs.php.result == 'skipped') }}
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@d21c46a3a25b16895c36124a6af481a6f97f8636
+    if: ${{ !cancelled() }}
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc
     with:
       component: figma-transformer
-      action-ref: d21c46a3a25b16895c36124a6af481a6f97f8636
-      extension-ref: b94cad68433a34c9129681b1c1a57e63364719db
+      action-ref: b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc
+      extension-ref: 7f28a979517a96e003d0510d64bc5139c259837d
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
       release-branch: trunk

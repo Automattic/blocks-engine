@@ -1,9 +1,33 @@
 name: PHP Transformer dev-trunk mirror
 
-# Temporary compatibility bridge for Packagist dev-trunk consumers. Homeboy
-# #14837 owns release-tag publication through release.subtree, but does not yet
-# expose a branch-only shared invocation for non-releasable trunk commits.
-# Remove this bridge when that native endpoint is available.
+# Temporary compatibility bridge for Packagist dev-trunk consumers. The
+# target replacement is one homeboy-action invocation with no consumer
+# ssh-agent, key handling, known-hosts writing, or `git push`:
+#
+#   - uses: Extra-Chill/homeboy-action@<released-tag>
+#     with:
+#       component: php-transformer
+#       commands: git subtree php-transformer ${{ github.sha }} --apply --branch-only
+#       ssh-key: ${{ secrets.PHP_TRANSFORMER_MIRROR_DEPLOY_KEY }}
+#       ssh-known-hosts: |
+#         github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+#       ssh-require-known-hosts: true
+#
+# homeboy-action's native `git` operation routing needed for that single
+# invocation released in v2.19.0 (Extra-Chill/homeboy-action#488). It is not
+# the blocker anymore. The remaining blocker is the Homeboy CLI itself:
+# `homeboy git subtree` (Extra-Chill/homeboy#14837, implemented in
+# Extra-Chill/homeboy#14851) merged to the CLI's main branch but has not yet
+# shipped in a released Homeboy tag as of this change (confirmed by running
+# the actual v0.382.0 release binary: `homeboy git subtree --help` reports
+# "unrecognized subcommand"). Switching this workflow to the invocation above
+# before that ships would break the mirror at runtime. Move to the native
+# invocation the moment a released Homeboy tag contains `homeboy git
+# subtree`; until then this shell-based bridge remains the only working
+# path and must not be replaced by a hand-rolled `homeboy git subtree`
+# invocation with manual ssh-agent/known-hosts setup, which would just
+# reintroduce the same consumer-owned credential handling this bridge exists
+# to retire.
 
 on:
   push:

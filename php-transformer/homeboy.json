@@ -3,12 +3,15 @@
   "changelog_target": "CHANGELOG.md",
   "id": "php-transformer",
   "remote_path": "",
+  "extensions": {
+    "wordpress": {}
+  },
   "release": {
     "publish": true,
     "subtree": [
       {
         "prefix": "php-transformer",
-        "remote": "https://github.com/Automattic/blocks-engine-php-transformer.git",
+        "remote": "git@github.com:Automattic/blocks-engine-php-transformer.git",
         "branch": "trunk",
         "tag": true,
         "tag_template": "v{version}",

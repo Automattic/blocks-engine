@@ -173,7 +173,7 @@ Run the real WordPress materialization integration against a standard WordPress 
 
 ## Release Consumption
 
-The package lives in a subtree of the Blocks Engine repository. Composer cannot discover a package whose `composer.json` is below the repository root from a plain monorepo VCS tag, so releases are published through an automated subtree split: `.github/workflows/php-transformer-split.yml` pushes package-only history to [`Automattic/blocks-engine-php-transformer`](https://github.com/Automattic/blocks-engine-php-transformer), translating each `php-transformer-vX.Y.Z` monorepo tag to `vX.Y.Z` on the mirror. Packagist indexes the mirror.
+The package lives in a subtree of the Blocks Engine repository. Composer cannot discover a package whose `composer.json` is below the repository root from a plain monorepo VCS tag, so releases are published through Homeboy's native subtree publisher to [`Automattic/blocks-engine-php-transformer`](https://github.com/Automattic/blocks-engine-php-transformer), translating each configured monorepo release to the corresponding `vX.Y.Z` mirror tag. Packagist indexes the mirror.
 
 This package intentionally omits `replace` and `provide` declarations for the older downstream package names. Those packages expose their own WordPress plugin bootstraps, functions, hooks, CLI commands, abilities, and product-shaped reports, so the canonical transformer package should not satisfy their Composer requirements directly.
 
