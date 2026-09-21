@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\MissingMediaRecovery;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
@@ -50,9 +51,12 @@ $assert(str_contains($about, '<a href="#">Download</a>') && !str_contains($about
 $localDiagnostics = $linkDiagnostics($localPlan);
 $assert(1 === count($localDiagnostics) && 'neutralized' === $localDiagnostics[0]['resolution'] && './missing.zip' === $localDiagnostics[0]['value'] && !isset($localDiagnostics[0]['resolved_url']), 'The neutralized link is reported with its original value.');
 
-// Asset references remain on the declared-token path: a missing image is not a
-// navigation link and still cannot produce a self-contained plan.
+// Media references stay on the declared-token path rather than the navigation
+// path: a missing image resolves to the placeholder media token, never to a
+// source URL or a neutralized fragment.
 $missingImage = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><img src="missing.png" alt="Missing"></main>'), 'provenance' => array('source_url' => 'https://example.test/')))->toArray();
-$assert(!isset($missingImage['source_reports']['wordpress_site_plan']), 'Unresolved local media references remain rejected.');
+$missingImagePlan = $missingImage['source_reports']['wordpress_site_plan'] ?? array();
+$missingImageMarkup = (string) ($missingImagePlan['pages'][0]['canonical_block_markup'] ?? '');
+$assert(array() !== $missingImagePlan && str_contains($missingImageMarkup, MissingMediaRecovery::placeholderReference()) && !str_contains($missingImageMarkup, 'https://example.test/missing.png') && array() === $linkDiagnostics($missingImagePlan), 'Unresolved local media recovers through the placeholder token instead of the navigation link path.');
 
 echo "unresolved-navigation-links contract passed\n";

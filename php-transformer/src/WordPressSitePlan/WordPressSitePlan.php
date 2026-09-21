@@ -20,6 +20,8 @@ final class WordPressSitePlan
     public const SCHEMA = 'blocks-engine/wordpress-site-plan/v2';
     public const IDENTITY_SCHEMA = 'blocks-engine/wordpress-site-plan-identity/v1';
     public const TOKEN_PREFIX = '{{wordpress-site-plan:asset:';
+    /** Blocks whose serialized `url` attribute names a route rather than an asset. */
+    public const ROUTE_URL_BLOCKS = array('navigation-link', 'navigation-submenu', 'button', 'social-link');
     public const MAX_DOCUMENT_IDENTITY_DIAGNOSTICS = 50;
     /** Generated, document-namespaced class names the projected author CSS selects on. */
     private const GENERATED_CLASS_PATTERN = '/blocks-engine-[a-z-]+-[0-9a-f]{12}-\d+/';
@@ -47,10 +49,17 @@ final class WordPressSitePlan
     /** @var array<string,string|false> */
     private array $routeReferenceCache = array();
     private readonly ShellExtraction $shellExtraction;
+    private MissingMediaRecovery $missingMedia;
 
-    public function __construct()
+    /**
+     * @param bool $strictMissingMedia Rejects the whole plan when a media
+     *        reference names a local file the artifact never packaged, instead
+     *        of recovering it as an explicit placeholder and warning.
+     */
+    public function __construct(private readonly bool $strictMissingMedia = false)
     {
         $this->shellExtraction = new ShellExtraction($this);
+        $this->missingMedia = new MissingMediaRecovery($strictMissingMedia);
     }
 
     /**
@@ -147,7 +156,8 @@ final class WordPressSitePlan
             if ('' !== $sourcePath && '' !== $targetPath) $this->routeSources[$sourcePath] = $targetPath;
             if ('' !== $targetPath) $this->routeTargets['/' === $targetPath ? '/' : '/' . trim($targetPath, '/')] = $targetPath;
         }
-        $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents));
+        $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
+        $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
         // Restore the semantic shell candidates before deriving binding positions.
         // Extracted parts intentionally contain only their inner markup; the page
@@ -195,8 +205,17 @@ final class WordPressSitePlan
         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
-        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens), $this->assetWrites($assets, $references));
-        $linkDiagnostics = $this->unresolvedNavigationDiagnostics();
+        // Asset payloads are the last canonicalization pass, so the placeholder
+        // backing recovered media is declared once every reference is known.
+        $assetWrites = $this->assetWrites($assets, $references);
+        $placeholderAssets = $this->assets($this->missingMedia->assets());
+        if (array() !== $placeholderAssets) {
+            $assets = array_merge($assets, $placeholderAssets);
+            $tokens = array_merge($tokens, $this->tokens($placeholderAssets));
+            $assetWrites = array_merge($assetWrites, $this->assetWrites($placeholderAssets, $references));
+        }
+        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens), $assetWrites);
+        $recoveryDiagnostics = array_merge($this->unresolvedNavigationDiagnostics(), $this->missingMedia->diagnostics());
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => $this->sourceDocumentCatalog($compiled['pages'] ?? array())),
@@ -216,9 +235,9 @@ final class WordPressSitePlan
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
             'runtime_entity_records' => $compiled['runtime_entity_records'] ?? array(),
-            'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $linkDiagnostics),
+            'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $recoveryDiagnostics),
             'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $input->coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy),
-            'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $linkDiagnostics), $surfaces),
+            'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $recoveryDiagnostics), $surfaces),
         );
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
@@ -1745,7 +1764,7 @@ final class WordPressSitePlan
     }
     /** @return array<string,mixed>|null */
     private static function blockCommentAttributes(string $comment): ?array { if (!preg_match('~^\s*wp:[^\s{]+\s+(\{.*\})\s*/?\s*$~s', $comment, $payload)) return null; $attributes = json_decode($payload[1], true); return is_array($attributes) ? $attributes : null; }
-    private static function jsonUrlIsRoute(string $comment): bool { if (!preg_match('~^\s*wp:([^\s{]+)~i', $comment, $block)) return false; return in_array(strtolower($block[1]), array('navigation-link', 'navigation-submenu', 'button', 'social-link'), true); }
+    private static function jsonUrlIsRoute(string $comment): bool { if (!preg_match('~^\s*wp:([^\s{]+)~i', $comment, $block)) return false; return in_array(strtolower($block[1]), self::ROUTE_URL_BLOCKS, true); }
     /** @return array<int,string> */
     private static function srcsetCandidates(string $srcset): array
     {
