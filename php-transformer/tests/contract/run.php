@@ -1443,7 +1443,16 @@ $conditionalLayoutTokenDeclaration = current(array_filter($conditionalLayoutToke
 $conditionalLayoutTokenFallback = current(array_filter($conditionalLayoutTokenArtifact['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
 $conditionalLayoutTokenGraph = $conditionalLayoutTokenFallback['layout_graph'] ?? array();
 $conditionalLayoutTokenNodes = array_column($conditionalLayoutTokenGraph['nodes'] ?? array(), null, 'id');
-$assert('calc(24*1px)' === ($conditionalLayoutTokenNodes['wrapper-1']['layout']['gap'] ?? null) && true === ($conditionalLayoutTokenGraph['truncated'] ?? null) && in_array('conditional_custom_property_layout', $conditionalLayoutTokenGraph['diagnostics'] ?? array(), true) && !isset($conditionalLayoutTokenDeclaration['payload']['entities'][0]['layout_graph']), 'form layout computes inherited chained custom properties at their declaring ancestor and fails closed when a responsive token alone would change an emitted layout fact.');
+// blocks-engine#2079: computing the inherited chained custom property at its
+// declaring ancestor (`.scope`) is what proves `--field-gap` would resolve
+// differently under `(max-width:50rem)`; that ambiguous `gap` fact is
+// dropped from its one node instead of failing the whole graph closed, so
+// `.field`'s other, unconditional facts (`display`/`flex-direction`) still
+// reach the generic/forms/v1 entity.
+$assert(!isset($conditionalLayoutTokenNodes['wrapper-1']['layout']['gap']) && 'flex' === ($conditionalLayoutTokenNodes['wrapper-1']['layout']['display'] ?? null) && 'column' === ($conditionalLayoutTokenNodes['wrapper-1']['layout']['direction'] ?? null) && false === ($conditionalLayoutTokenGraph['truncated'] ?? null) && in_array('conditional_custom_property_layout', $conditionalLayoutTokenGraph['diagnostics'] ?? array(), true), 'form layout computes inherited chained custom properties at their declaring ancestor and drops only the one fact a responsive token alone would change, instead of failing the whole graph closed.');
+$projectedConditionalLayoutTokenGraph = $conditionalLayoutTokenDeclaration['payload']['entities'][0]['layout_graph'] ?? null;
+$projectedConditionalLayoutTokenNodes = array_column($projectedConditionalLayoutTokenGraph['nodes'] ?? array(), null, 'id');
+$assert(is_array($projectedConditionalLayoutTokenGraph) && !isset($projectedConditionalLayoutTokenNodes['wrapper-1']['layout']['gap']) && 'flex' === ($projectedConditionalLayoutTokenNodes['wrapper-1']['layout']['display'] ?? null), 'A graph whose only ambiguity was one dropped conditional custom property still reaches the generic/forms/v1 entity.');
 $cyclicLayoutGraph = (new HtmlTransformer())->transform('<form method="post" action="#"><div class="field"><input name="email"></div></form>', array('static_css' => '.field{--first:var(--second);--second:var(--first);display:flex;gap:var(--first,19px)}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $cyclicLayoutNodes = array_column($cyclicLayoutGraph['nodes'] ?? array(), null, 'id');
 $assert('19px' === ($cyclicLayoutNodes['wrapper-0']['layout']['gap'] ?? null), 'form layout resolves cyclic custom properties as unavailable and retains the consuming declaration fallback.');

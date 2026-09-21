@@ -981,7 +981,22 @@ final class ArtifactCompiler
                 foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null) && preg_match('/^[a-f0-9]{64}$/', $fallback[$identityKey])) $form[$identityKey] = $fallback[$identityKey];
                 if ( is_array($fallback['control_topology'] ?? null) ) $form['control_topology'] = $fallback['control_topology'];
                 if ( is_array($fallback['sibling_relations'] ?? null) && true !== ($fallback['sibling_relations']['truncated'] ?? false) ) $form['sibling_relations'] = $fallback['sibling_relations'];
-                if ( is_array($fallback['layout_graph'] ?? null) && true !== ($fallback['layout_graph']['truncated'] ?? false) ) { FormLayoutGraphBuilder::assertValid($fallback['layout_graph']); $form['layout_graph'] = $fallback['layout_graph']; }
+                // `truncated` still means the builder's own budget or scan
+                // limits could be hiding facts anywhere (see
+                // FormLayoutGraphBuilder::MAX_NODES/MAX_RULES and friends),
+                // so a graph flagged for one of those reasons is correctly
+                // excluded here rather than risk an incomplete picture. A
+                // structurally invalid graph is a distinct, genuine
+                // rejection: instead of letting that corruption crash the
+                // whole compile (or silently vanishing), it is named.
+                if ( is_array($fallback['layout_graph'] ?? null) && true !== ($fallback['layout_graph']['truncated'] ?? false) ) {
+                    try {
+                        FormLayoutGraphBuilder::assertValid($fallback['layout_graph']);
+                        $form['layout_graph'] = $fallback['layout_graph'];
+                    } catch ( \InvalidArgumentException $error ) {
+                        if ( $declarable ) $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'layout_graph', $error->getMessage());
+                    }
+                }
                 if ( is_array($fallback['presentation_graph'] ?? null) && true !== ($fallback['presentation_graph']['truncated'] ?? false) ) { FormPresentationGraphBuilder::assertValid($fallback['presentation_graph']); $form['presentation_graph'] = $fallback['presentation_graph']; }
                 if ( is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ) {
                     $form['bindings'] = array(array_merge($fallback['binding'], array('source_path' => $sourcePath)));
@@ -1044,6 +1059,37 @@ final class ArtifactCompiler
             'control_count' => count($controls),
             'entity_schema' => 'generic/forms/v1',
             'reason_code' => 'runtime_form_declaration_declined',
+            'pattern_family' => 'interactive_form',
+            'repair_bucket' => 'materialize_form_provider',
+            'suggested_repair_class' => 'materialize_form_provider',
+            'source' => self::class,
+        );
+    }
+
+    /**
+     * Name the contract that stopped one optional generic form graph from
+     * reaching the runtime entity, without declining the form declaration
+     * itself. Unlike a missing control topology or binding anchor, a
+     * rejected layout or presentation graph never invalidates the rest of
+     * the entity a provider still needs — dropping only the failed key,
+     * loudly, keeps that entity declarable while naming what was lost.
+     *
+     * @param array<string,mixed> $fallback
+     * @return array<string,mixed>
+     */
+    private function rejectedFormGraphDiagnostic(array $fallback, string $sourcePath, string $selector, string $graph, string $reason): array
+    {
+        $controls = array_values(array_filter(is_array($fallback['controls'] ?? null) ? $fallback['controls'] : array(), 'is_array'));
+        return array(
+            'code' => 'runtime_form_graph_rejected',
+            'severity' => 'warning',
+            'message' => substr('A generic form ' . $graph . ' failed its structural contract and was omitted from the runtime entity because ' . $reason, 0, 256),
+            'source_path' => substr($sourcePath, 0, 256),
+            'selector' => substr($selector, 0, 256),
+            'graph' => $graph,
+            'control_count' => count($controls),
+            'entity_schema' => 'generic/forms/v1',
+            'reason_code' => 'runtime_form_graph_rejected',
             'pattern_family' => 'interactive_form',
             'repair_bucket' => 'materialize_form_provider',
             'suggested_repair_class' => 'materialize_form_provider',

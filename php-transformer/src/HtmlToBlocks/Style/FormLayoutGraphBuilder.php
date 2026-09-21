@@ -109,22 +109,14 @@ final class FormLayoutGraphBuilder
         $variants = array();
         foreach ( $entries as $entry ) {
             $matched = $this->matched($entry['element'], $analysis['rules']);
-            $layout = $this->layout($matched['base'], $entry['element'], null, $customPropertyAnalysis['rules']);
             $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
-            foreach ( $matched['base'] as $property => $fact ) {
-                foreach ( FormCustomPropertyResolver::conditionsChanging($fact['value'], $entry['element'], $customPropertyAnalysis['rules']) as $condition ) {
-                    $encoded = json_encode($condition);
-                    if ( ! isset($conditional[$encoded][$property]) ) {
-                        $this->truncated = true;
-                        $this->diagnostics[] = 'conditional_custom_property_layout';
-                    }
-                }
-            }
+            $base = $this->withoutAmbiguousCustomProperties($matched['base'], $entry['element'], $conditional, $customPropertyAnalysis['rules']);
+            $layout = $this->layout($base, $entry['element'], null, $customPropertyAnalysis['rules']);
             if ( array() === $layout && array() === $conditional ) {
                 continue;
             }
 
-            $nodes[$entry['id']] = $this->node($entry, $layout, $this->provenance($matched['base'], null));
+            $nodes[$entry['id']] = $this->node($entry, $layout, $this->provenance($base, null));
             foreach ( $conditional as $encoded => $facts ) {
                 if ( count($variants) >= self::MAX_VARIANTS ) {
                     $this->truncated = true;
@@ -550,6 +542,10 @@ final class FormLayoutGraphBuilder
     {
         $matched = $this->matched($element, $rules, true);
         $base = array_intersect_key($matched['base'], array_flip(self::SPACING_PROPERTIES));
+        // Hoisted spacing has no conditional-variant counterpart of its own,
+        // so any condition that would change a custom-property-derived
+        // value here is unrepresented by construction.
+        $base = $this->withoutAmbiguousCustomProperties($base, $element, array(), $customPropertyRules);
         $layout = array_intersect_key($this->layout($base, $element, null, $customPropertyRules), array_flip(array( 'gap', 'row_gap' )));
         if ( array() === $layout ) {
             return null;
@@ -564,6 +560,36 @@ final class FormLayoutGraphBuilder
         $base = array_intersect_key($base, array_flip($properties));
 
         return array( 'layout' => $layout, 'provenance' => $this->provenance($base, null) );
+    }
+
+    /**
+     * An unlayered declaration whose value resolves through a custom
+     * property that some media/container/supports condition would change
+     * is only ambiguous for that one property on this one node, not for
+     * the rest of the graph. Emitting a value that is silently wrong under
+     * some other condition would be worse than omitting it, but a budget
+     * or scan limit elsewhere could be hiding anything, so this narrow,
+     * exhaustively-identified ambiguity must not carry that same
+     * document-wide `truncated` consequence: it drops just the affected
+     * property here instead.
+     *
+     * @param array<string, array<string, mixed>> $base
+     * @param array<string, array<string, array<string, mixed>>> $conditional Keyed by encoded condition, then property; a property already represented here for a changing condition is not ambiguous.
+     * @param list<array<string, mixed>> $customPropertyRules
+     * @return array<string, array<string, mixed>>
+     */
+    private function withoutAmbiguousCustomProperties(array $base, DOMElement $element, array $conditional, array $customPropertyRules): array
+    {
+        foreach ( $base as $property => $fact ) {
+            foreach ( FormCustomPropertyResolver::conditionsChanging($fact['value'], $element, $customPropertyRules) as $condition ) {
+                if ( ! isset($conditional[ json_encode($condition) ][ $property ]) ) {
+                    unset($base[$property]);
+                    $this->diagnostics[] = 'conditional_custom_property_layout';
+                    break;
+                }
+            }
+        }
+        return $base;
     }
 
     /**

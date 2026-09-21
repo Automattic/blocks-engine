@@ -402,6 +402,44 @@ $projectedLayoutGraph = $layoutDeclaration['payload']['entities'][0]['layout_gra
 $assert(is_array($projectedLayoutGraph) && RuntimeDeclarations::hash($projectedLayoutGraph) === RuntimeDeclarations::hash($layoutFallback['layout_graph'] ?? null), 'Artifact compiler and WordPress site plan project the generic form layout graph unchanged.');
 $layoutNodes = array_column($projectedLayoutGraph['nodes'] ?? array(), null, 'id');
 $assert('grid' === ($layoutNodes['form']['layout']['display'] ?? null) && '1fr 1fr' === ($layoutNodes['wrapper-0']['layout']['columns'] ?? null) && 'flex' === ($layoutNodes['wrapper-1']['layout']['display'] ?? null) && 'css/style.css' === ($layoutNodes['form']['provenance'][0]['source_path'] ?? null), 'Linked stylesheets retain form, row, and field layout facts with source-path provenance.');
+// blocks-engine#2079: a form's own inline grid placement (its unconditional
+// `display`/`grid-template-columns` and each field's `grid-column` span) is
+// provable directly from source content. An unrelated declaration on the
+// same grid wrapper — `column-gap` referencing a custom property with an
+// unrepresented media-query override — used to flip the whole graph's
+// document-wide `truncated` flag, which silently voided the entity's
+// otherwise-provable placement and left a provider to stack a first/last
+// name row full width instead of restoring its authored side-by-side
+// columns. The ambiguous property alone is now omitted instead of
+// invalidating the graph.
+$ambiguousGapArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<link rel="stylesheet" href="css/style.css"><main><form method="post" class="form" action="/contact"><div class="row-2" style="display:grid;grid-template-columns:repeat(12, 1fr);column-gap:var(--gap,24px)"><div class="field" style="grid-column:1 / span 6"><input name="first"></div><div class="field" style="grid-column:7 / span 6"><input name="last"></div></div><button type="submit">Send</button></form></main>',
+    'css/style.css' => '@media (max-width:640px){.form{--gap:12px}}',
+));
+$ambiguousGapResult = (new ArtifactCompiler())->compile($ambiguousGapArtifact)->toArray();
+$ambiguousGapFallback = current(array_filter($ambiguousGapResult['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
+$ambiguousGapGraph = $ambiguousGapFallback['layout_graph'] ?? array();
+$assert(false === ($ambiguousGapGraph['truncated'] ?? null) && in_array('conditional_custom_property_layout', $ambiguousGapGraph['diagnostics'] ?? array(), true), 'An unrepresented conditional custom property is reported as a diagnostic without flagging the whole graph truncated, matching blocks-engine#2079.');
+$ambiguousGapNodes = array_column($ambiguousGapGraph['nodes'] ?? array(), null, 'id');
+$assert('repeat(12, 1fr)' === ($ambiguousGapNodes['wrapper-0']['layout']['columns'] ?? null) && 'grid' === ($ambiguousGapNodes['wrapper-0']['layout']['display'] ?? null) && ! isset($ambiguousGapNodes['wrapper-0']['layout']['column_gap']), 'The grid wrapper keeps its provable, unconditional display and column-template facts while dropping only the ambiguous column-gap.');
+$ambiguousGapDeclaration = current(array_filter($ambiguousGapResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$projectedAmbiguousGapGraph = $ambiguousGapDeclaration['payload']['entities'][0]['layout_graph'] ?? null;
+$assert(is_array($projectedAmbiguousGapGraph), 'A layout graph carrying only an unrelated ambiguous custom property still reaches the generic/forms/v1 entity instead of being silently omitted.');
+$projectedAmbiguousGapNodes = array_column($projectedAmbiguousGapGraph['nodes'] ?? array(), null, 'id');
+$assert('repeat(12, 1fr)' === ($projectedAmbiguousGapNodes['wrapper-0']['layout']['columns'] ?? null) && '1 / span 6' === ($projectedAmbiguousGapNodes['wrapper-1']['layout']['column'] ?? null) && '7 / span 6' === ($projectedAmbiguousGapNodes['wrapper-2']['layout']['column'] ?? null), 'The provable inline grid-template-columns and per-field grid-column spans reach the manifest, restoring the authored side-by-side placement.');
+$assert(RuntimeDeclarations::hash($projectedAmbiguousGapGraph) === RuntimeDeclarations::hash($ambiguousGapFallback['layout_graph'] ?? null), 'A provable layout graph projects into the WordPress site plan unchanged.');
+$assert(array() === array_values(array_filter($ambiguousGapResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'runtime_form_graph_rejected' === ($diagnostic['code'] ?? null))), 'A merely-diagnosed (not structurally invalid) layout graph is never reported as rejected.');
+// A budget/scan limit is a different kind of incompleteness than one
+// exhaustively-identified ambiguous property: it can hide facts anywhere in
+// the graph, so it still fails closed and excludes the whole layout_graph
+// key from the manifest (see tests/contract/run.php's rule/selector-limit
+// coverage for the matching FormLayoutGraphBuilder-level assertion).
+$budgetLimitCss = str_repeat('.deep-form{display:grid}', 513);
+$budgetLimitHtml = '<main><form method="post" action="#" class="deep-form"><div class="field"><input name="first"></div><div class="field"><input name="last"></div><button type="submit">Send</button></form></main>';
+$budgetLimitArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="style.css">' . $budgetLimitHtml, 'style.css' => $budgetLimitCss)))->toArray();
+$budgetLimitFallback = current(array_filter($budgetLimitArtifact['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
+$budgetLimitDeclaration = current(array_filter($budgetLimitArtifact['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$assert(true === ($budgetLimitFallback['layout_graph']['truncated'] ?? null) && in_array('css_rule_or_selector_limit', $budgetLimitFallback['layout_graph']['diagnostics'] ?? array(), true) && ! isset($budgetLimitDeclaration['payload']['entities'][0]['layout_graph']), 'A genuine rule/selector budget limit still fails closed and omits the layout_graph key, unlike an unrelated ambiguous custom property.');
 // A div pseudo-form is never replaced by the readable block synthesized for it,
 // so its entity must bind to the converted subtree the page actually emits.
 $pseudoFormResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><div class="signup"><div class="field"><input type="email" name="email"></div><button>Subscribe</button></div></main>')))->toArray();
