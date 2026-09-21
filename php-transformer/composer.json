@@ -161,6 +161,7 @@
       "php tests/unit/css-owned-flex-carrier.php",
             "php tests/unit/inline-flex-item-carrier.php",
             "php tests/unit/inline-positioning-carrier.php",
+            "php tests/unit/inline-grid-item-carrier.php",
             "php tests/unit/inline-geometry.php",
             "php tests/unit/floated-image-in-flow-group.php",
       "php tests/unit/inline-author-override-carrier.php",

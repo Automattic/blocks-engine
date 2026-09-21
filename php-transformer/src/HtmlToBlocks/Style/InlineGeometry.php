@@ -104,6 +104,15 @@ final class InlineGeometry
             'flex-basis',
             'flex-grow',
             'flex-shrink',
+            // Grid-item placement is inline geometry too. Converted native
+            // blocks cannot retain these declarations in their saved markup.
+            'grid-area',
+            'grid-column',
+            'grid-column-start',
+            'grid-column-end',
+            'grid-row',
+            'grid-row-start',
+            'grid-row-end',
             'object-fit',
             'object-position',
         ));
