@@ -1566,7 +1566,7 @@ final class WordPressSitePlan
             $absolute = parse_url($value);
             $value = is_array($absolute) && is_string($absolute['path'] ?? null) && '' !== $absolute['path'] ? $absolute['path'] : '/';
         }
-        if (str_contains($value, '%') || str_contains($value, '\\')) return null;
+        if (str_contains($value, '\\')) return null;
         if (str_starts_with($value, '/')) {
             $routePath = '/' . trim($value, '/');
             if ('/' === $value) $routePath = '/';
@@ -1579,11 +1579,25 @@ final class WordPressSitePlan
         $entryRoot = self::entryRootFromDocuments($routes);
         $path = str_starts_with($value, '/') ? ('' === $entryRoot ? ltrim($value, '/') : $entryRoot . '/' . ltrim($value, '/')) : self::resolveRouteSource($origin, $value);
         if (null === $path) return null;
-        if (isset($this->routeSources[$path])) return $this->routeSources[$path] . $suffix;
+        $resolved = $this->routeSourceDocument($path);
+        // Capture layers write encoded punctuation (`%E2%80%99`) literally into
+        // exported file names, so a percent-carrying reference usually matches an
+        // artifact path byte for byte. When it does not, retry the spelling a
+        // standards-compliant author encoded: decode each segment once, on the same
+        // safety rule as `decodedRouteSegment()` — a decode must never give the path
+        // structure the raw reference did not already have, so encoded separators,
+        // dot segments, and NUL leave the reference unresolved instead of decoded.
+        if (null === $resolved && str_contains($path, '%')) { $decodedPath = self::decodedRouteReferencePath($path); if (null !== $decodedPath && $decodedPath !== $path) $resolved = $this->routeSourceDocument($decodedPath); }
+        return null === $resolved ? null : $resolved . $suffix;
+    }
+    private function routeSourceDocument(string $path): ?string
+    {
+        if (isset($this->routeSources[$path])) return $this->routeSources[$path];
         // A directory reference (interactive/, ../) names its index document.
-        foreach (array('index.html', 'index.htm') as $index) { $indexPath = ('' === $path ? '' : rtrim($path, '/') . '/') . $index; if (isset($this->routeSources[$indexPath])) return $this->routeSources[$indexPath] . $suffix; }
+        foreach (array('index.html', 'index.htm') as $index) { $indexPath = ('' === $path ? '' : rtrim($path, '/') . '/') . $index; if (isset($this->routeSources[$indexPath])) return $this->routeSources[$indexPath]; }
         return null;
     }
+    private static function decodedRouteReferencePath(string $path): ?string { $segments = array(); foreach (explode('/', $path) as $segment) { if (!str_contains($segment, '%')) { $segments[] = $segment; continue; } $decoded = rawurldecode($segment); if ('.' === $decoded || '..' === $decoded || preg_match('~[/\\\\\x00]~', $decoded)) return null; $segments[] = $decoded; } return implode('/', $segments); }
     /** @param array<int,mixed> $provenance */
     private function sourceUrlFromProvenance(array $provenance): string
     {
