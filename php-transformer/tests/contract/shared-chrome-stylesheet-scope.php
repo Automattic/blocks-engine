@@ -115,4 +115,32 @@ $malformedGlobal = implode('\n', array_map(static fn(array $asset): string => (s
 $malformedRoute = implode('\n', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($malformed['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && 'global' !== ($asset['scopes'][0]['kind'] ?? null))));
 $assert(!str_contains($malformedGlobal, '.broken') && str_contains($malformedRoute, '.broken'), 'Unparseable selector lists remain on the route asset instead of being dropped or promoted.');
 
+// A shared chrome rule from a linked stylesheet in a subdirectory keeps its
+// relative url() resolvable after projection into the generated global
+// stylesheet, whose synthetic identity is not the rule's source location.
+$linkedDocument = static fn(string $header, string $main): string => '<!doctype html><html><head><link rel="stylesheet" href="/css/chrome.css"></head><body>'
+    . '<div id="site-root"><div id="masterPage">' . $header
+    . '<div id="PAGES_CONTAINER"><div class="route-grid">' . $main . '</div></div></div></div></body></html>';
+$linked = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => $linkedDocument($header('index.html', 'guides/about.html'), '<main id="content"><h1>Home</h1></main>'),
+        'guides/about.html' => $linkedDocument($header('../index.html', 'about.html'), '<main id="content"><h1>About</h1></main>'),
+        'guides/team.html' => $linkedDocument($header('../index.html', 'about.html'), '<main id="content"><h1>Team</h1></main>'),
+        'css/chrome.css' => array('path' => 'css/chrome.css', 'kind' => 'css', 'content' => '[data-chrome=grid]{display:grid;grid-template-columns:200px 1fr;height:120px;background-image:url(../img/texture.png)}'),
+        'img/texture.png' => array('path' => 'img/texture.png', 'kind' => 'image', 'mime_type' => 'image/png', 'content_base64' => base64_encode("\x89PNG\r\n\x1a\n")),
+    ),
+))->toArray();
+$linkedPlan = $linked['source_reports']['wordpress_site_plan'] ?? array();
+$assert('failed' !== ($linked['status'] ?? null), 'A linked shared chrome stylesheet with a relative url() compiles: ' . json_encode(array_values(array_filter($linked['diagnostics'] ?? array(), static fn(array $d): bool => 'unresolved_local_browser_reference' === ($d['reason'] ?? null)))));
+$sharedWrites = array_values(array_filter($linkedPlan['writes'] ?? array(), static fn(array $write): bool => str_contains((string) ($write['target_path'] ?? ''), 'shared-chrome-')));
+$assert(array() !== $sharedWrites, 'The linked shared chrome rule is projected into a generated shared stylesheet.');
+foreach ($sharedWrites as $write) {
+    $payload = (string) ($write['payload']['data'] ?? '');
+    $assert(1 === preg_match('/background-image:url\(\{\{wordpress-site-plan:asset:asset-[a-f0-9]{16}\}\}\)/', $payload) && !str_contains($payload, 'texture.png'), 'The projected shared stylesheet tokenizes its url() reference instead of shipping a raw local path.');
+}
+foreach ($linkedPlan['assets'] ?? array() as $asset) {
+    $assert(!array_key_exists('reference_origin', $asset), 'Reference origins are write-time transport, not part of the plan asset contract.');
+}
+
 fwrite(STDOUT, "shared-chrome-stylesheet-scope contract passed\n");

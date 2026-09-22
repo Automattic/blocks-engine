@@ -211,6 +211,7 @@ final class WordPressSitePlan
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
         $assetWrites = $this->assetWrites($assets, $references);
+        foreach ($assets as &$asset) unset($asset['reference_origin']); unset($asset);
         $placeholderAssets = $this->assets($this->missingMedia->assets());
         if (array() !== $placeholderAssets) {
             $assets = array_merge($assets, $placeholderAssets);
@@ -703,6 +704,9 @@ final class WordPressSitePlan
             $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $shared), 0, 16) . '.css';
             $sharedAsset['target_path'] = $sharedAsset['path'];
             $sharedAsset['source_path'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '') . '.shared-chrome';
+            // Relative url() references still resolve against the stylesheet the
+            // rules were projected from, not the synthetic shared-chrome identity.
+            $sharedAsset['reference_origin'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '');
             $sharedAsset['content'] = $shared;
             $sharedAsset['bytes'] = strlen($shared);
             $sharedAsset['hash'] = hash('sha256', $shared);
@@ -1141,7 +1145,7 @@ final class WordPressSitePlan
         $writes = array();
         $authorStylesheetOrigins = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && 'files' === ($asset['source'] ?? null) && is_string($asset['source_path'] ?? null) ? $asset['source_path'] : null, $assets)));
         foreach ( $assets as $asset ) {
-            $content = is_string($asset['content'] ?? null) ? $references->content($asset['content'], $asset['source_path']) : null;
+            $content = is_string($asset['content'] ?? null) ? $references->content($asset['content'], (string) ($asset['reference_origin'] ?? $asset['source_path'])) : null;
             // Editor-state rules can retain URL-bearing declarations copied from
             // author stylesheets, whose relative origin is not this generated file.
             if ('editor-static-state' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, $authorStylesheetOrigins);
