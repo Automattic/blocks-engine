@@ -1,0 +1,62 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-multi-image-link-keeps-its-images",
+  "description": "A link whose content is images keeps that content whatever the image count. One image stays responsive media, because WordPress crop cannot preserve the link presentation. Several images — with or without insignificant whitespace between them — lower through the link-wrapper group into one core/image per source image, each carrying the anchor's href natively, so the result is a group of linked images rather than one merged image. A link that really wraps nothing is still dropped, but now records an unsupported-element fallback instead of vanishing.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-multi-image-link-keeps-its-images.json",
+    "notes": "Captured from https://www.madalenatavares.net/ (run r52), whose Instagram feed wraps 11 images in one text-less anchor. Every one of them, on all 22 pages, was discarded with the anchor: /about/ rendered 8 of its 15 source images."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "The anchor content was discarded outright before this conversion existed, so there is no legacy output to compare."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><body><a class=\"feed\" href=\"/gallery\"><img src=\"assets/one.jpg\" alt=\"One\" width=\"320\" height=\"240\"><img src=\"assets/two.jpg\" alt=\"Two\" width=\"320\" height=\"240\"></a><a class=\"portrait\" href=\"/profile\"><img src=\"assets/profile.jpg\" alt=\"Profile\" width=\"320\" height=\"240\"></a><a class=\"strip\" href=\"/strip\">\n  <img src=\"assets/three.jpg\" alt=\"Three\" width=\"320\" height=\"240\">\n  <img src=\"assets/four.jpg\" alt=\"Four\" width=\"320\" height=\"240\">\n</a><a class=\"spacer-link\" href=\"/nothing\"></a></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "feed" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "assets/one.jpg", "alt": "One", "href": "/gallery", "linkDestination": "custom" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/image", "attrs": { "url": "assets/two.jpg", "alt": "Two", "href": "/gallery", "linkDestination": "custom" } },
+    { "path": "blocks.1", "name": "custom/responsive-media" },
+    { "path": "blocks.2", "name": "core/group", "attrs": { "className": "strip" } },
+    { "path": "blocks.2.innerBlocks.0", "name": "core/image", "attrs": { "url": "assets/three.jpg", "alt": "Three", "href": "/strip", "linkDestination": "custom" } },
+    { "path": "blocks.2.innerBlocks.1", "name": "core/image", "attrs": { "url": "assets/four.jpg", "alt": "Four", "href": "/strip", "linkDestination": "custom" } }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 3 },
+
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/image" },
+    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "equals", "value": "assets/one.jpg" },
+    { "path": "blocks.0.innerBlocks.0.attrs.href", "assert": "equals", "value": "/gallery" },
+    { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/image" },
+    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "equals", "value": "assets/two.jpg" },
+    { "path": "blocks.0.innerBlocks.1.attrs.href", "assert": "equals", "value": "/gallery" },
+
+    { "path": "blocks.1.blockName", "assert": "equals", "value": "custom/responsive-media" },
+    { "path": "blocks.1.attrs.content", "assert": "contains", "value": "<a class=\"portrait\" href=\"/profile\"><img src=\"assets/profile.jpg\"" },
+
+    { "path": "blocks.2.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.2.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.2.innerBlocks.0.attrs.url", "assert": "equals", "value": "assets/three.jpg" },
+    { "path": "blocks.2.innerBlocks.0.attrs.href", "assert": "equals", "value": "/strip" },
+    { "path": "blocks.2.innerBlocks.1.attrs.url", "assert": "equals", "value": "assets/four.jpg" },
+    { "path": "blocks.2.innerBlocks.1.attrs.href", "assert": "equals", "value": "/strip" },
+
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/gallery\"><img src=\"assets/one.jpg\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/gallery\"><img src=\"assets/two.jpg\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/strip\"><img src=\"assets/three.jpg\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/strip\"><img src=\"assets/four.jpg\"" },
+
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_unsupported_element" },
+    { "path": "fallbacks.0.tag", "assert": "equals", "value": "a" },
+    { "path": "fallbacks.0.selector", "assert": "contains", "value": "a:nth-of-type(4)" },
+    { "path": "fallbacks.0.loss_class", "assert": "equals", "value": "unsupported_element_loss" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+  ]
+}

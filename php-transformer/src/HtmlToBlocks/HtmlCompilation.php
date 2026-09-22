@@ -2893,7 +2893,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // to the button dispatcher before generic inline lowering splits their
         // label and decorative SVG into separate paragraph blocks.
         if ( 'a' === $tagName ) {
-            return $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
+            $anchorBlock = $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
+            if ( null !== $anchorBlock ) {
+                return $anchorBlock;
+            }
+
+            // A null here used to end the anchor's conversion outright: no
+            // block, no fallback, no finding — the subtree simply disappeared,
+            // and nothing downstream could count what was lost. Hand it to the
+            // same terminal recorder every other unconvertible element reaches,
+            // so it is either generated as a custom block or recorded as an
+            // unsupported-element fallback the import report can account for.
+            return $captureUnsupported ? $this->unsupportedRecorder->record($element, $tagName, $fallbacks) : null;
         }
 
         $structuralContentDispatch = $this->structuralContentConverters->convert($element, $tagName, $fallbacks);
