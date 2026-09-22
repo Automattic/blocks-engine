@@ -279,17 +279,38 @@ final class MediaTextPattern implements PatternRecognizerInterface
             }
         }
 
-        // core/media-text's save() only round-trips custom classes on the
-        // outer wrapper. Figure classes describe that wrapper's surface, but
-        // image classes belong to the generated media image and must not leak
-        // onto the whole media-text container.
+        // core/media-text's save() puts `className` on the outer wrapper
+        // `<div>` only — never on the generated `<figure
+        // class="wp-block-media-text__media">` pane. When the matched
+        // container is itself wrapped by a source `<figure>` (a "frame" div,
+        // a link anchor, ...), that figure's classes have nowhere else to
+        // land that an author selector keyed on the figure tag itself
+        // (`figure.is-visible`, a scroll-reveal state class, ...) can still
+        // match: the wrapper is a `<div>`, so it is never a match for
+        // `figure.<class>`, and the media pane is the only `<figure>` left in
+        // the emitted markup. `mediaFigureClassName` carries the source
+        // figure's classes onto that pane; BlockFactory merges it into the
+        // pane's class list and strips the internal key back out of the
+        // serialized comment attrs. This is independent of how many wrapper
+        // levels sit between the source figure and the matched container —
+        // enclosingSourceFigure() walks through all of them — and of how the
+        // enclosing figure itself later gets represented once its own
+        // wrapper coalesces (its class carries forward here regardless).
         $sourceFigure = $this->enclosingSourceFigure($element);
         $figureClassName = $sourceFigure instanceof DOMElement ? trim($this->attr($sourceFigure, 'class')) : '';
+        if ( '' !== $figureClassName ) {
+            $attrs['mediaFigureClassName'] = $figureClassName;
+        }
+
+        // `mediaTextImageMarker` is a distinct carrier for a different
+        // problem: an author selector keyed on the source `<img>` itself
+        // (`img.photo`), which AuthorStylesheetProjector re-targets onto this
+        // marker on the block's own wrapper. Unrelated to the figure-class
+        // carrier above; both may be present at once.
         $mediaTextImageMarker = (string) ($attrs['mediaTextImageMarker'] ?? '');
         unset($attrs['mediaTextImageMarker']);
         $attrs['className'] = SourceDom::mergeClassNames(
             (string) ($attrs['className'] ?? ''),
-            $figureClassName,
             $mediaTextImageMarker
         );
         if ( '' === $attrs['className'] ) {

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MediaTextPattern;
@@ -1047,7 +1048,8 @@ $figureWrappedElement = $elementByClass(
 );
 $figureWrapped = $match($figureWrappedElement, array( $paragraph ), $fallbacks, $record);
 $assertSame('core/media-text', $figureWrapped['blockName'] ?? null, 'Figure-wrapped video pane still matches core/media-text.');
-$assertSame('in', $figureWrapped['attrs']['className'] ?? null, 'Enclosing source figure class reaches the valid outer class carrier.');
+$assertSame('in', $figureWrapped['attrs']['mediaFigureClassName'] ?? null, 'Enclosing source figure class reaches mediaFigureClassName.');
+$assertTrue(! array_key_exists('className', $figureWrapped['attrs'] ?? array()), 'Enclosing source figure class does not leak onto the wrapper className.');
 
 $fallbacks = array();
 $record = array();
@@ -1057,7 +1059,7 @@ $noFigureElement = $elementByClass(
     'vid'
 );
 $noFigure = $match($noFigureElement, array( $paragraph ), $fallbacks, $record);
-$assertTrue(! array_key_exists('className', $noFigure['attrs'] ?? array()), 'No enclosing figure means no added source className.');
+$assertTrue(! array_key_exists('mediaFigureClassName', $noFigure['attrs'] ?? array()), 'No enclosing figure means no mediaFigureClassName.');
 
 $fallbacks = array();
 $record = array();
@@ -1067,7 +1069,7 @@ $unclassedFigureElement = $elementByClass(
     'vid'
 );
 $unclassedFigure = $match($unclassedFigureElement, array( $paragraph ), $fallbacks, $record);
-$assertTrue(! array_key_exists('className', $unclassedFigure['attrs'] ?? array()), 'A classless enclosing figure emits no added source className.');
+$assertTrue(! array_key_exists('mediaFigureClassName', $unclassedFigure['attrs'] ?? array()), 'A classless enclosing figure emits no mediaFigureClassName.');
 
 // A figure that also owns unrelated sibling content is not exclusive to this
 // media/text pane; its classes describe more than the pane, so they are left
@@ -1080,41 +1082,84 @@ $sharedFigureElement = $elementByClass(
     'vid'
 );
 $sharedFigure = $match($sharedFigureElement, array( $paragraph ), $fallbacks, $record);
-$assertTrue(! array_key_exists('className', $sharedFigure['attrs'] ?? array()), 'A figure with a non-wrapper sibling emits no added source className.');
+$assertTrue(! array_key_exists('mediaFigureClassName', $sharedFigure['attrs'] ?? array()), 'A figure with a non-wrapper sibling emits no mediaFigureClassName.');
 
-// End-to-end: source figure classes use the valid outer native class carrier.
-$revealResult = $transformHtml(
-    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></figure>'
-);
-$revealBlock = $revealResult['blocks'][0]['blockName'] ?? null;
-// The wrapping figure/frame divs may themselves fold away or coalesce
-// depending on surrounding structure; what this defect is scoped to is
-// specifically the generated media-text figure carrying the source class.
-$revealMediaTextBlock = null;
-$collectMediaText = static function (array $blocks) use (&$collectMediaText, &$revealMediaTextBlock): void {
+// End-to-end invariant: a source `<figure class="X">` wrapping a video tile
+// must still be matched by a literal `figure.X` author selector once
+// converted — the exact rule shape a scroll-reveal script depends on
+// (`figure { opacity: 0 } figure.X { opacity: 1 }`). Losing this either
+// direction (the source figure not staying a `<figure>`, or the class not
+// landing on a `<figure>`) leaves the base rule permanently in effect and
+// the tile permanently hidden. Only the fix's own `figureSelectorMatches()`
+// helper below asserts this by literally parsing and matching the selector
+// against the emitted markup, independent of which element carries it.
+$figureSelectorMatches = static function (string $selector, string $html): bool {
+    $document = new DOMDocument();
+    $previous = libxml_use_internal_errors(true);
+    $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+    $parsed = CssSelectorMatcher::parse($selector);
+    foreach ( $document->getElementsByTagName('*') as $candidate ) {
+        if ( $candidate instanceof DOMElement && CssSelectorMatcher::matches($candidate, $parsed)['matches'] ) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+$collectMediaText = static function (array $blocks) use (&$collectMediaText): ?array {
     foreach ( $blocks as $block ) {
         if ( ! is_array($block) ) {
             continue;
         }
         if ( 'core/media-text' === ($block['blockName'] ?? null) ) {
-            $revealMediaTextBlock = $block;
-            return;
+            return $block;
         }
         if ( is_array($block['innerBlocks'] ?? null) ) {
-            $collectMediaText($block['innerBlocks']);
+            $found = $collectMediaText($block['innerBlocks']);
+            if ( null !== $found ) {
+                return $found;
+            }
         }
     }
+
+    return null;
 };
-$collectMediaText($revealResult['blocks'] ?? array());
+
+// A single "frame" wrapper between the source figure and the matched
+// media/text container — the exact shape #2087 fixed and #2101 regressed.
+$revealResult = $transformHtml(
+    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></figure>'
+);
+$revealMediaTextBlock = $collectMediaText($revealResult['blocks'] ?? array());
 $assertTrue(is_array($revealMediaTextBlock), 'Reveal fixture converts to a core/media-text block somewhere in the tree.');
 $assertContains(
-    '<div class="wp-block-media-text is-stacked-on-mobile vid in">',
+    '<figure class="wp-block-media-text__media in">',
     (string) ($revealMediaTextBlock['innerHTML'] ?? ''),
-    'Generated media-text wrapper carries the source figure class.'
+    'Generated media-text figure carries the source figure class.'
+);
+$assertTrue(
+    $figureSelectorMatches('figure.in', (string) ($revealMediaTextBlock['innerHTML'] ?? '')),
+    'A literal figure.in author selector matches an element in the emitted media-text markup.'
 );
 $assertTrue(
     ! str_contains(json_encode($revealResult['blocks']), 'mediaFigureClassName'),
     'Internal media figure carrier never leaks into serialized block attrs.'
+);
+
+// Two "frame"-style wrappers between the source figure and the matched
+// container: an even deeper chain than what regressed #2087, proving the
+// carrier does not depend on a specific wrapper count.
+$deeplyWrappedResult = $transformHtml(
+    '<figure class="in"><div class="frame"><div class="inner"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></div></figure>'
+);
+$deeplyWrappedMediaTextBlock = $collectMediaText($deeplyWrappedResult['blocks'] ?? array());
+$assertTrue(is_array($deeplyWrappedMediaTextBlock), 'Deeply wrapped reveal fixture converts to a core/media-text block somewhere in the tree.');
+$assertTrue(
+    $figureSelectorMatches('figure.in', (string) ($deeplyWrappedMediaTextBlock['innerHTML'] ?? '')),
+    'A literal figure.in author selector still matches with two wrapper levels between the source figure and the media/text container.'
 );
 
 // The equivalent image case is unaffected: core/image already puts source
@@ -1125,6 +1170,10 @@ $assertContains(
     '<figure class="wp-block-image is-resized in">',
     (string) ($revealImageResult['blocks'][0]['innerHTML'] ?? ''),
     'Image case keeps preserving the source figure class on its own wrapper figure, exactly as before.'
+);
+$assertTrue(
+    $figureSelectorMatches('figure.in', (string) ($revealImageResult['blocks'][0]['innerHTML'] ?? '')),
+    'A literal figure.in author selector matches the emitted core/image markup too.'
 );
 
 // End-to-end: a video's intrinsic dimensions, poster, and native playback
