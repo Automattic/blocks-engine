@@ -36,7 +36,7 @@ final class EngineSupportCss
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
-    private const LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS = 'blocks-engine-layout-shell-editor-inner-blocks';
+    public const LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS = 'blocks-engine-layout-shell-editor-inner-blocks';
 
     /**
      * @return list<string>
