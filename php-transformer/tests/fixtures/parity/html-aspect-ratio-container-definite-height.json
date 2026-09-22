@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-aspect-ratio-container-definite-height",
+  "description": "Two cards whose media box is `width:100%;height:100%` over a `position:absolute;inset:0` cover image. The first card sizes itself with `aspect-ratio:3/2` and a 100% width, so its block size is definite and the media box's `height:100%` genuinely resolves; the second states no size at all, so its own `height:100%` has nothing to resolve against. The projector demotes a structural `height:100%` to `height:auto` only for the second: an `aspect-ratio` box with a definite inline size derives a definite block size the same bottom-up way a grid container derives one from a definite row track, so demoting it collapses the media box to the image's intrinsic ratio and leaves the card half empty.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-aspect-ratio-container-definite-height.json",
+    "notes": "Regression coverage for a sticky card grid whose ratio-sized cards rendered their cover photo at 637x243 instead of filling the card's 637x425 box."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.cards{display:grid;grid-template-columns:1fr 1fr;align-items:start}.ratio-card{aspect-ratio:3/2;width:100%;display:flex;flex-flow:column;justify-content:center}.ratio-card-media{width:100%;height:100%;position:relative;overflow:hidden}.unsized-card{width:100%;display:flex;flex-flow:column}.unsized-card-media{width:100%;height:100%;position:relative;overflow:hidden}.cover{position:absolute;inset:0%;width:100%;height:100%;object-fit:cover}</style></head><body><section class=\"section-cards\"><div class=\"cards\"><div class=\"ratio-card\"><div class=\"ratio-card-media\"><img class=\"cover\" src=\"https://example.com/lounge.jpg\" width=\"1900\" height=\"1069\" alt=\"Lounge\"></div></div><div class=\"unsized-card\"><div class=\"unsized-card-media\"><img class=\"cover\" src=\"https://example.com/desks.jpg\" width=\"1900\" height=\"1069\" alt=\"Desks\"></div></div></div></section></body></html>"
+  },
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "assets.1.content", "assert": "contains", "value": ".ratio-card{aspect-ratio:3/2;width:100%;display:flex;flex-flow:column;justify-content:center}" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".ratio-card-media{width:100%;height:100%;position:relative;overflow:hidden}" },
+    { "path": "assets.1.content", "assert": "not_contains", "value": ".ratio-card-media{width:100%;position:relative;overflow:hidden;height:auto}" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".unsized-card-media{width:100%;position:relative;overflow:hidden;height:auto}" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group ratio-card-media" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" }
+  ]
+}
