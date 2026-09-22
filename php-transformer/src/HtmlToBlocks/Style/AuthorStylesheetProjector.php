@@ -90,6 +90,10 @@ final class AuthorStylesheetProjector
         $body = $projection['body'];
         $declarations = $projection['declarations'];
         $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
+        $mediaTextImagePrelude = $this->projectMediaTextImagePrelude($prelude, $context);
+        if ( '' !== $mediaTextImagePrelude ) {
+            return $mediaTextImagePrelude . '{' . $body . '}';
+        }
         $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context);
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
         $imageRule = '' === $imagePrelude
@@ -1530,9 +1534,123 @@ final class AuthorStylesheetProjector
             if ( 'svg' === $tagName ) {
                 $projected[] = $this->projectImageSelector($selector, $parsed, $context, true);
             }
-            $projected[] = $this->projectImageSelector($selector, $parsed, $context);
+            $mediaTextImages = array_values(array_filter(
+                $imageMatches,
+                fn (DOMElement $element): bool => $tagName === 'img'
+                    && $this->isMediaTextImage($element)
+                    && '' !== $this->mediaTextImageMarkerForElement($element, $context)
+            ));
+            foreach ( $mediaTextImages as $element ) {
+                $projected[] = $this->projectImageSelector(
+                    $selector,
+                    $parsed,
+                    $context,
+                    false,
+                    true,
+                    $this->mediaTextImageMarkerForElement($element, $context)
+                );
+            }
+            $ordinaryImages = array_values(array_filter(
+                $imageMatches,
+                fn (DOMElement $element): bool => ! in_array($element, $mediaTextImages, true)
+            ));
+            if ( array() !== $ordinaryImages ) {
+                $projected[] = $this->projectImageSelector($selector, $parsed, $context);
+            }
         }
         return implode(',', array_values(array_unique($projected)));
+    }
+
+    private function projectMediaTextImagePrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return '';
+        }
+
+        $projected = array();
+        foreach ( $selectors as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            $matches = $parsed['supported']
+                ? $this->matchingSourceElements($selector, $parsed, $context)
+                : $this->matchingSimpleClassImages($selector, $context);
+            if ( array() === $matches || count(array_filter($matches, fn (DOMElement $element): bool => $this->isMediaTextImage($element))) !== count($matches) ) {
+                continue;
+            }
+            foreach ( $matches as $element ) {
+                $marker = $this->mediaTextImageMarkerForElement($element, $context);
+                if ( '' === $marker ) {
+                    continue;
+                }
+                $projected[] = $parsed['supported']
+                    ? $this->projectImageSelector($selector, $parsed, $context, false, true, $marker)
+                    : ':where(.' . $marker . ') .wp-block-media-text__media > img';
+            }
+        }
+
+        return implode(',', array_values(array_unique($projected)));
+    }
+
+    /** @return array<int, DOMElement> */
+    private function matchingSimpleClassImages(string $selector, AuthorStylesheetProjectionContext $context): array
+    {
+        if ( 1 !== preg_match('/^\.([A-Za-z0-9_-]+\[[^\]]+\])$/', trim($selector), $match) ) {
+            return array();
+        }
+        $matches = array();
+        foreach ( $context->authorStyles->sourceBody()->getElementsByTagName('img') as $image ) {
+            if ( $image instanceof DOMElement && in_array($match[1], preg_split('/\s+/', trim($image->getAttribute('class'))) ?: array(), true) ) {
+                $matches[] = $image;
+            }
+        }
+        return $matches;
+    }
+
+    private function isMediaTextImage(DOMElement $element): bool
+    {
+        if ( 'img' !== strtolower($element->tagName) ) {
+            return false;
+        }
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->mediaTextPresentationStyle($parent));
+            if ( in_array(strtolower(trim((string) ($declarations['display'] ?? ''))), array( 'flex', 'grid' ), true)
+                && $this->hasMediaTextBranches($parent, $element) ) {
+                return true;
+            }
+            if ( 'body' === strtolower($parent->tagName) ) {
+                break;
+            }
+        }
+        return false;
+    }
+
+    private function mediaTextImageMarkerForElement(DOMElement $element, AuthorStylesheetProjectionContext $context): string
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $marker = $context->selectorProjections->mediaTextImageMarker($node->getNodePath() ?? '');
+            if ( '' !== $marker ) {
+                return $marker;
+            }
+        }
+
+        return '';
+    }
+
+    private function hasMediaTextBranches(DOMElement $container, DOMElement $image): bool
+    {
+        $hasImageBranch = false;
+        $hasTextBranch = false;
+        $branchCount = 0;
+        foreach ( $container->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            ++$branchCount;
+            $containsImage = $child === $image || in_array($image, iterator_to_array($child->getElementsByTagName('img')), true);
+            $hasImageBranch = $hasImageBranch || $containsImage;
+            $hasTextBranch = $hasTextBranch || ( ! $containsImage && '' !== trim($child->textContent ?? '') );
+        }
+        return $branchCount >= 2 && $hasImageBranch && $hasTextBranch;
     }
 
     /** @param array<string, string> $declarations */
@@ -1745,8 +1863,20 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed */
-    private function projectImageSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $wrapperOnly = false): string
+    private function projectImageSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $wrapperOnly = false, bool $mediaText = false, string $mediaTextMarker = ''): string
     {
+        if ( $mediaText && ! $wrapperOnly ) {
+            if ( '' === $mediaTextMarker ) {
+                return '';
+            }
+            // The source image's classes are intentionally not copied to the
+            // native media-text wrapper: width constraints there resize the
+            // whole text/image row. The marker is installed on the exact
+            // generated media-text wrapper for this source image, so project
+            // the declaration directly to its generated image.
+            return ':where(.' . $mediaTextMarker . ') .wp-block-media-text__media > img'
+                . $this->selectorSpecificityShims($parsed, $context);
+        }
         $replacements = array(
             (int) $parsed['rightmost_rewrite_end'] => array(
                 'end' => (int) $parsed['rightmost_rewrite_end'],

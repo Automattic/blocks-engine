@@ -65,6 +65,7 @@ $right = $factory->create('core/media-text', array(
     'mediaType'         => 'image',
     'mediaUrl'          => 'https://example.com/photo?a=1&b=2',
     'mediaAlt'          => 'A "quoted" alt',
+    'mediaFigureClassName' => 'h-9 w-auto max-w-[120px] object-contain',
     'mediaWidth'        => 35,
     'verticalAlignment' => 'center',
     'href'              => 'https://example.com/full?a=1&b=2',
@@ -96,6 +97,7 @@ $assertSame(
     $right['innerContent'][2],
     'Media-right closes content before linked figure and escapes attributes.'
 );
+$assertContains('<figure class="wp-block-media-text__media">', $right['innerHTML'], 'Media-text keeps the native media figure save shape.');
 $assertContains('grid-template-columns:auto 35%', $right['innerHTML'], 'Right media width targets second grid track.');
 $assertContains('is-vertically-aligned-center', $right['innerHTML'], 'Vertical alignment class matches core save shape.');
 $assertContains('has-accent-background-color has-background', $right['innerHTML'], 'Top-level preset support classes survive media-text style filtering.');
@@ -172,29 +174,19 @@ $assertSame('pass', $sizedVideoValidity['status'] ?? null, 'Video dimension/post
 $sizedVideoFindings = ( new CanonicalSaveShapeValidator() )->findings(array( $sizedVideo ));
 $assertSame(array(), $sizedVideoFindings, 'Video dimension/poster/playback carrier attrs do not trip the canonical save-shape validator.');
 
-// A source `<figure>` that wraps the media pane has nowhere else to put its
-// classes: core/media-text's save() only reads `className` onto the outer
-// wrapper `<div>`, never onto the generated `<figure
-// class="wp-block-media-text__media">`. `mediaFigureClassName` is the
-// internal-only carrier MediaTextPattern uses for that case; BlockFactory
-// merges it into the media pane's own class list and never serializes it.
+// Native media-text keeps the generated media pane's attribute shape rigid.
+// Source selectors therefore belong on the outer custom class carrier.
 $revealVideo = $factory->create('core/media-text', array(
-    'className'             => 'vid',
-    'mediaType'             => 'video',
-    'mediaUrl'              => 'https://example.com/reveal.mp4',
-    'mediaFigureClassName'  => 'in',
+    'className' => 'vid in',
+    'mediaType' => 'video',
+    'mediaUrl'  => 'https://example.com/reveal.mp4',
 ), array());
 $assertContains(
-    '<figure class="wp-block-media-text__media in"><video controls src="https://example.com/reveal.mp4"></video></figure>',
+    '<figure class="wp-block-media-text__media"><video controls src="https://example.com/reveal.mp4"></video></figure>',
     $revealVideo['innerHTML'],
     'Source figure class merges onto the generated media pane figure, alongside the base block class.'
 );
-$assertContains('wp-block-media-text is-stacked-on-mobile vid', $revealVideo['innerHTML'], 'Wrapper className is unaffected by the media pane class carrier.');
-$assertSame(
-    false,
-    array_key_exists('mediaFigureClassName', $revealVideo['attrs'] ?? array()),
-    'mediaFigureClassName never reaches the serialized block comment attrs.'
-);
+$assertContains('wp-block-media-text is-stacked-on-mobile vid in', $revealVideo['innerHTML'], 'Source classes remain on the valid outer wrapper carrier.');
 $revealVideoValidity = ( new Runtime() )->validateBlockSerialization(array( $revealVideo ));
 $assertSame('pass', $revealVideoValidity['status'] ?? null, 'Media pane class carrier does not trip serialization validators.');
 $revealVideoFindings = ( new CanonicalSaveShapeValidator() )->findings(array( $revealVideo ));
@@ -206,11 +198,7 @@ $revealImage = $factory->create('core/media-text', array(
     'mediaAlt'             => '',
     'mediaFigureClassName' => 'in',
 ), array());
-$assertContains(
-    '<figure class="wp-block-media-text__media in">',
-    $revealImage['innerHTML'],
-    'Source figure class merges onto the generated media pane figure for image media too.'
-);
+$assertContains('<figure class="wp-block-media-text__media">', $revealImage['innerHTML'], 'Image media keeps the native media pane shape.');
 
 $noFigureVideo = $factory->create('core/media-text', array(
     'mediaType' => 'video',

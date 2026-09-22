@@ -48,6 +48,11 @@ final class EngineSupportCss
             // A paragraph is required for valid block markup, but phrasing content
             // did not have paragraph margins in the source document.
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}'
+                // The paragraph is a validity carrier for phrasing content;
+                // it has no source box. Let the source anchor/span remain the
+                // layout participant unless a separate carrier explicitly
+                // owns a box.
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){display:contents}'
                 . "\n" . ':root :where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.has-text-color)>a{color:inherit}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}'

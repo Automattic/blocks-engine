@@ -2672,7 +2672,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
                 fn (string $url): string => $this->resolvedAssetImageUrl($url),
-                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
+                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => array_merge(
+                    $this->styleResolver->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
+                    array( 'mediaTextImageMarker' => '' === $this->authorStyles()->combinedCss()
+                        ? ''
+                        : $this->authorSelectorProjections()->ensureMediaTextImageMarker($sourceElement->getNodePath() ?? '') )
+                ),
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mediaTextPresentationStyle($sourceElement)
             ),
             new ColumnsPatternContext(

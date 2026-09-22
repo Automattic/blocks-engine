@@ -57,6 +57,7 @@ $assert(array() === $css->secondaryBlockRenderRepairCss(''), 'empty serialized b
 $synthetic = $css->beforeAuthorCss(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, 'blocks-engine/layout-shell');
 $assert(1 === count($synthetic), 'synthetic paragraph emits one before-author rule group');
 $assert(str_contains($synthetic[0], ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}'), 'synthetic paragraph margin reset is present');
+$assert(str_contains($synthetic[0], ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){display:contents}'), 'synthetic paragraph carrier is layout-transparent');
 
 $layoutShell = $css->beforeAuthorCss('<!-- wp:blocks-engine/layout-shell -->', 'blocks-engine/layout-shell');
 $assert(1 === count($layoutShell), 'layout-shell comment emits one before-author rule');

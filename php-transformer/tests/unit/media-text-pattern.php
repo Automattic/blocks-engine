@@ -220,6 +220,11 @@ $assertSame('core/image', $iconHeadingBlock['innerBlocks'][0]['blockName'] ?? nu
 $assertSame('core/heading', $iconHeadingBlock['innerBlocks'][1]['blockName'] ?? null, 'Compact icon lockup keeps an editable heading block.');
 $assertSame(array(), $iconHeadingResult['fallbacks'] ?? array(), 'Compact icon lockup emits no HTML fallback.');
 
+$iconLabelResult = $transformHtml('<div class="brand-row" style="display:flex;align-items:center;gap:10px"><img src="icon.png" style="width:40px;height:36px" alt=""><span>Brand</span></div>');
+$assertSame('core/group', $iconLabelResult['blocks'][0]['blockName'] ?? null, 'Compact icon plus inline label falls through to native group lowering.');
+$assertSame('core/image', $iconLabelResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null, 'Compact icon label lockup keeps an editable image block.');
+$assertSame('core/paragraph', $iconLabelResult['blocks'][0]['innerBlocks'][1]['blockName'] ?? null, 'Compact icon label lockup keeps an editable text block.');
+
 $largeHeadingResult = $transformHtml('<section style="display:flex"><img src="feature.jpg" width="640" height="360" alt=""><h2>Feature</h2></section>');
 $assertSame('core/media-text', $largeHeadingResult['blocks'][0]['blockName'] ?? null, 'Legitimate large image plus heading remains media-text.');
 
@@ -1042,7 +1047,7 @@ $figureWrappedElement = $elementByClass(
 );
 $figureWrapped = $match($figureWrappedElement, array( $paragraph ), $fallbacks, $record);
 $assertSame('core/media-text', $figureWrapped['blockName'] ?? null, 'Figure-wrapped video pane still matches core/media-text.');
-$assertSame('in', $figureWrapped['attrs']['mediaFigureClassName'] ?? null, 'Enclosing source figure class reaches mediaFigureClassName.');
+$assertSame('in', $figureWrapped['attrs']['className'] ?? null, 'Enclosing source figure class reaches the valid outer class carrier.');
 
 $fallbacks = array();
 $record = array();
@@ -1052,7 +1057,7 @@ $noFigureElement = $elementByClass(
     'vid'
 );
 $noFigure = $match($noFigureElement, array( $paragraph ), $fallbacks, $record);
-$assertTrue(! array_key_exists('mediaFigureClassName', $noFigure['attrs'] ?? array()), 'No enclosing figure means no mediaFigureClassName.');
+$assertTrue(! array_key_exists('className', $noFigure['attrs'] ?? array()), 'No enclosing figure means no added source className.');
 
 $fallbacks = array();
 $record = array();
@@ -1062,7 +1067,7 @@ $unclassedFigureElement = $elementByClass(
     'vid'
 );
 $unclassedFigure = $match($unclassedFigureElement, array( $paragraph ), $fallbacks, $record);
-$assertTrue(! array_key_exists('mediaFigureClassName', $unclassedFigure['attrs'] ?? array()), 'A classless enclosing figure emits no mediaFigureClassName.');
+$assertTrue(! array_key_exists('className', $unclassedFigure['attrs'] ?? array()), 'A classless enclosing figure emits no added source className.');
 
 // A figure that also owns unrelated sibling content is not exclusive to this
 // media/text pane; its classes describe more than the pane, so they are left
@@ -1075,11 +1080,9 @@ $sharedFigureElement = $elementByClass(
     'vid'
 );
 $sharedFigure = $match($sharedFigureElement, array( $paragraph ), $fallbacks, $record);
-$assertTrue(! array_key_exists('mediaFigureClassName', $sharedFigure['attrs'] ?? array()), 'A figure with a non-wrapper sibling emits no mediaFigureClassName.');
+$assertTrue(! array_key_exists('className', $sharedFigure['attrs'] ?? array()), 'A figure with a non-wrapper sibling emits no added source className.');
 
-// End-to-end: the generated `<figure class="wp-block-media-text__media">`
-// carries the source figure's class, so an author rule keyed on the figure
-// tag itself still matches — matching what the image path already does.
+// End-to-end: source figure classes use the valid outer native class carrier.
 $revealResult = $transformHtml(
     '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></figure>'
 );
@@ -1105,13 +1108,13 @@ $collectMediaText = static function (array $blocks) use (&$collectMediaText, &$r
 $collectMediaText($revealResult['blocks'] ?? array());
 $assertTrue(is_array($revealMediaTextBlock), 'Reveal fixture converts to a core/media-text block somewhere in the tree.');
 $assertContains(
-    '<figure class="wp-block-media-text__media in">',
+    '<div class="wp-block-media-text is-stacked-on-mobile vid in">',
     (string) ($revealMediaTextBlock['innerHTML'] ?? ''),
-    'Generated media-text figure carries the source figure class.'
+    'Generated media-text wrapper carries the source figure class.'
 );
 $assertTrue(
     ! str_contains(json_encode($revealResult['blocks']), 'mediaFigureClassName'),
-    'mediaFigureClassName never leaks into any serialized block attrs.'
+    'Internal media figure carrier never leaks into serialized block attrs.'
 );
 
 // The equivalent image case is unaffected: core/image already puts source

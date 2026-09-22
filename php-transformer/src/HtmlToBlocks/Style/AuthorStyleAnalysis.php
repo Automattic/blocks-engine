@@ -55,7 +55,7 @@ final class AuthorStyleAnalysis
         $this->selectorMatchCache = new CssSelectorMatchCache();
         // Ignore generated-looking markers while hashing each input separately,
         // preserving deterministic identities without duplicating large CSS.
-        $markerPattern = '/blocks-engine-(?:source-[a-z][a-z0-9-]*|control|table|specificity(?:-(?:class|id))?)-[a-f0-9]+-\d+/';
+        $markerPattern = '/blocks-engine-(?:source-[a-z][a-z0-9-]*|control|table|media-text-image|specificity(?:-(?:class|id))?)-[a-f0-9]+-\d+/';
         $normalizedHtml = preg_match($markerPattern, $html) ? (preg_replace($markerPattern, '', $html) ?? '') : $html;
         $normalizedCss = preg_match($markerPattern, $combinedCss) ? (preg_replace($markerPattern, '', $combinedCss) ?? '') : $combinedCss;
         $seed = hash_init('sha256');

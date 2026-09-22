@@ -161,10 +161,10 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return null;
         }
 
-        // A small, explicitly sized image beside a heading is an icon lockup,
+        // A small, explicitly sized image beside short text is an icon lockup,
         // not a two-pane media/text section. Let normal group lowering retain
-        // the authored row so both the image and heading stay editable.
-        if ( 'img' === $mediaType && $this->isCompactIconHeadingPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle) ) {
+        // the authored row so both the image and text stay editable.
+        if ( 'img' === $mediaType && $this->isCompactIconTextPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle) ) {
             return null;
         }
 
@@ -279,25 +279,21 @@ final class MediaTextPattern implements PatternRecognizerInterface
             }
         }
 
-        // core/media-text's save() puts `className` on the outer wrapper
-        // `<div>` only — never on the generated `<figure
-        // class="wp-block-media-text__media">` pane. When the matched
-        // container is itself wrapped by a source `<figure>` (a "frame" div,
-        // a link anchor, ...), that figure's classes have nowhere else to
-        // land that an author selector keyed on the figure tag itself
-        // (`figure.is-visible`, a scroll-reveal state class, ...) can still
-        // match: the wrapper is a `<div>`, so it is never a match for
-        // `figure.<class>`, and the media pane is the only `<figure>` left in
-        // the emitted markup. `mediaFigureClassName` carries the source
-        // figure's classes onto that pane; BlockFactory merges it into the
-        // pane's class list and strips the internal key back out of the
-        // serialized comment attrs.
+        // core/media-text's save() only round-trips custom classes on the
+        // outer wrapper. Figure classes describe that wrapper's surface, but
+        // image classes belong to the generated media image and must not leak
+        // onto the whole media-text container.
         $sourceFigure = $this->enclosingSourceFigure($element);
-        if ( $sourceFigure instanceof DOMElement ) {
-            $figureClassName = trim($this->attr($sourceFigure, 'class'));
-            if ( '' !== $figureClassName ) {
-                $attrs['mediaFigureClassName'] = $figureClassName;
-            }
+        $figureClassName = $sourceFigure instanceof DOMElement ? trim($this->attr($sourceFigure, 'class')) : '';
+        $mediaTextImageMarker = (string) ($attrs['mediaTextImageMarker'] ?? '');
+        unset($attrs['mediaTextImageMarker']);
+        $attrs['className'] = SourceDom::mergeClassNames(
+            (string) ($attrs['className'] ?? ''),
+            $figureClassName,
+            $mediaTextImageMarker
+        );
+        if ( '' === $attrs['className'] ) {
+            unset($attrs['className']);
         }
 
         if ( 'img' === $mediaType && '' !== (string) ($mediaAttributes['alt'] ?? '') ) {
@@ -539,9 +535,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
         return false;
     }
 
-    private function isCompactIconHeadingPair(DOMElement $media, DOMElement $text, string $mediaStyle): bool
+    private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle): bool
     {
-        if ( ! preg_match('/^h[1-6]$/', strtolower($text->tagName)) ) {
+        if ( ! preg_match('/^(?:h[1-6]|p|span)$/', strtolower($text->tagName)) ) {
             return false;
         }
 
