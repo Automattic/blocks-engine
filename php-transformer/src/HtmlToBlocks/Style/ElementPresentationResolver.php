@@ -25,4 +25,7 @@ interface ElementPresentationResolver
      * @return string
      */
     public function bakedTypographyFontSize(DOMElement $element): string;
+
+    /** Return a class that restates responsive text size outside author layers. */
+    public function responsiveTypographyClassName(DOMElement $element): string;
 }

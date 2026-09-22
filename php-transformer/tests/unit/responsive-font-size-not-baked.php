@@ -16,6 +16,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 
 $failures = 0;
 $passes   = 0;
@@ -71,6 +72,54 @@ $assert(
     str_contains($inline, '2rem'),
     'an inline authored font-size still wins over the responsive class set',
     $inline
+);
+
+// Regression evidence for the demonstrated three-width typography shape. The
+// values must remain in the author stylesheet so the browser, rather than the
+// reference-viewport carrier, selects 36px/48px/60px at 390/768/1440px.
+$threeViewport = ( new HtmlTransformer() )->transform(
+    '<style>@layer base{h1{font-size:inherit}}'
+    . '@layer utilities{.conference-title{font-size:36px}'
+    . '@media (min-width:768px){.conference-title{font-size:48px}}'
+    . '@media (min-width:1440px){.conference-title{font-size:60px}}}</style>'
+    . '<main><h1 class="conference-title">International NGO Conference - Canada</h1></main>'
+)->toArray();
+$threeViewportCss = implode("\n", array_map(
+    static fn (array $asset): string => (string) ( $asset['content'] ?? '' ),
+    array_values(array_filter(
+        is_array($threeViewport['assets'] ?? null) ? $threeViewport['assets'] : array(),
+        static fn (array $asset): bool => 'author-css' === ( $asset['source'] ?? '' )
+    ))
+));
+$threeViewportEngineCss = implode("\n", array_map(
+    static fn (array $asset): string => (string) ( $asset['content'] ?? '' ),
+    array_values(array_filter(
+        is_array($threeViewport['assets'] ?? null) ? $threeViewport['assets'] : array(),
+        static fn (array $asset): bool => 'engine-support' === ( $asset['source'] ?? '' )
+    ))
+));
+$assert(
+    str_contains($threeViewportCss, 'font-size:36px')
+        && str_contains($threeViewportCss, 'font-size:48px')
+        && str_contains($threeViewportCss, 'font-size:60px')
+        && str_contains($threeViewportCss, 'min-width:768px')
+        && str_contains($threeViewportCss, 'min-width:1440px'),
+    'the 390/768/1440 authored font-size set remains conditional in author CSS',
+    $threeViewportCss
+);
+$assert(
+    str_contains($threeViewportEngineCss, 'blocks-engine-responsive-typography-')
+        && str_contains($threeViewportEngineCss, 'font-size:36px')
+        && str_contains($threeViewportEngineCss, 'font-size:48px')
+        && str_contains($threeViewportEngineCss, 'font-size:60px'),
+    'the converted heading receives an unlayered responsive typography carrier',
+    $threeViewportEngineCss
+);
+$assert(
+    ! str_contains((string) ( $threeViewport['serialized_blocks'] ?? '' ), 'fontSize')
+        && 'pass' === ( ( new BlockValidityValidator() )->validateBlocks($threeViewport['blocks'] ?? array())['status'] ?? '' ),
+    'the three-viewport heading has no frozen typography attribute and remains Gutenberg-valid',
+    (string) ( $threeViewport['serialized_blocks'] ?? '' )
 );
 
 if ( $failures > 0 ) {

@@ -64,6 +64,11 @@ final class RichTextElementContext
         return $this->presentationResolver->bakedTypographyFontSize($element);
     }
 
+    public function responsiveTypographyClassName(DOMElement $element): string
+    {
+        return $this->presentationResolver->responsiveTypographyClassName($element);
+    }
+
     /**
      * @param array<string, mixed>             $attributes
      * @param array<int, array<string, mixed>> $innerBlocks

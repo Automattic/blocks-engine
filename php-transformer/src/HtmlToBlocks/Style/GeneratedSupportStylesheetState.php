@@ -57,6 +57,9 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, string> */
     private array $buttonWidthRules = array();
 
+    /** @var array<string, array{base: string, conditional: array<string, string>}> */
+    private array $responsiveTypographyRules = array();
+
     public function registerNativeSearchTrigger(string $className, string $rule): void
     {
         $this->nativeSearchTriggerRules[$className] = $rule;
@@ -175,6 +178,15 @@ final class GeneratedSupportStylesheetState
         $this->buttonWidthRules[$marker] = $rule;
     }
 
+    /** @param array<string, string> $conditional */
+    public function registerResponsiveTypography(string $className, string $base, array $conditional): void
+    {
+        $this->responsiveTypographyRules[$className] = array(
+            'base' => $base,
+            'conditional' => $conditional,
+        );
+    }
+
     public function beforeAuthorCss(): string
     {
         return implode("\n", $this->nativeSearchTriggerRules);
@@ -243,6 +255,18 @@ final class GeneratedSupportStylesheetState
         foreach ($this->headerRichTextRules as $marker => $rule) {
             if (str_contains($serializedBlocks, $marker)) {
                 $parts[] = $rule;
+            }
+        }
+        foreach ($this->responsiveTypographyRules as $className => $rules) {
+            if (!str_contains($serializedBlocks, $className)) {
+                continue;
+            }
+            if ('' !== $rules['base']) {
+                $parts[] = ':root .' . $className . '{font-size:' . $rules['base'] . '}';
+            }
+            foreach ($rules['conditional'] as $condition => $value) {
+                $parts[] = $condition . '{:root .' . $className . '{font-size:' . $value . '}'
+                    . str_repeat('}', substr_count($condition, '{') + 1);
             }
         }
         foreach ($this->nativeNavigationToggleRules as $marker => $rule) {
