@@ -303,6 +303,15 @@ final class MediaTextPattern implements PatternRecognizerInterface
         if ( 'img' === $mediaType && '' !== (string) ($mediaAttributes['alt'] ?? '') ) {
             $attrs['mediaAlt'] = (string) $mediaAttributes['alt'];
         }
+        if ( 'img' === $mediaType ) {
+            $imageClassName = trim($this->attr($resolution['media'], 'class'));
+            if ( '' !== $imageClassName ) {
+                // core/media-text has no serialized attribute for classes on
+                // its generated image. Keep source selectors on that image
+                // so authored dimensions and layout participation survive.
+                $attrs['mediaImageClassName'] = $imageClassName;
+            }
+        }
         if ( 1 === $mediaIndex ) {
             $attrs['mediaPosition'] = 'right';
         }

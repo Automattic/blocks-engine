@@ -65,6 +65,7 @@ $right = $factory->create('core/media-text', array(
     'mediaType'         => 'image',
     'mediaUrl'          => 'https://example.com/photo?a=1&b=2',
     'mediaAlt'          => 'A "quoted" alt',
+    'mediaImageClassName' => 'h-9 w-auto max-w-[120px] object-contain',
     'mediaWidth'        => 35,
     'verticalAlignment' => 'center',
     'href'              => 'https://example.com/full?a=1&b=2',
@@ -92,10 +93,11 @@ $assertSame(
     'Media-right opening carries position, stack, vertical, and width attributes.'
 );
 $assertSame(
-    '</div><figure class="wp-block-media-text__media"><a class="media-link" href="https://example.com/full?a=1&amp;b=2" target="_blank" rel="noopener noreferrer"><img src="https://example.com/photo?a=1&amp;b=2" alt="A &quot;quoted&quot; alt"/></a></figure></div>',
+    '</div><figure class="wp-block-media-text__media"><a class="media-link" href="https://example.com/full?a=1&amp;b=2" target="_blank" rel="noopener noreferrer"><img class="h-9 w-auto max-w-[120px] object-contain" src="https://example.com/photo?a=1&amp;b=2" alt="A &quot;quoted&quot; alt"/></a></figure></div>',
     $right['innerContent'][2],
     'Media-right closes content before linked figure and escapes attributes.'
 );
+$assertContains('<img class="h-9 w-auto max-w-[120px] object-contain"', $right['innerHTML'], 'Media-text preserves source image classes on the generated image.');
 $assertContains('grid-template-columns:auto 35%', $right['innerHTML'], 'Right media width targets second grid track.');
 $assertContains('is-vertically-aligned-center', $right['innerHTML'], 'Vertical alignment class matches core save shape.');
 $assertContains('has-accent-background-color has-background', $right['innerHTML'], 'Top-level preset support classes survive media-text style filtering.');

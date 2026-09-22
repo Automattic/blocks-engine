@@ -265,6 +265,20 @@ $assert(str_contains($blockifiedAnchorCss, ':where(p.blocks-engine-synthetic-par
     && 'pass' === ($blockifiedAnchorValidity['source_reports']['wp_block_validity']['status'] ?? ''),
     'a flex or grid parent blockifies its plain anchor children to resolved display:block on the synthetic carrier, while a bare anchor outside any flex/grid parent keeps its ordinary unmarked inline resolution');
 
+$nexusGeometryArtifact = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><footer><div class="flex items-center"><img class="h-9 w-auto max-w-[120px] object-contain" src="/logo.png" alt="Logo"><span>International NGO Conference</span></div></footer><div class="fixed bottom-5 left-5 flex flex-col"><a class="w-12 h-12 flex" href="https://wa.me/example">Chat</a><a class="w-12 h-12 flex" href="https://t.me/example">Telegram</a></div>' ),
+        array( 'path' => 'site.css', 'kind' => 'css', 'content' => '.flex{display:flex}.h-9{height:2.25rem}.w-auto{width:auto}.max-w-[120px]{max-width:120px}.fixed{position:fixed}.bottom-5{bottom:1.25rem}.left-5{left:1.25rem}.flex-col{flex-direction:column}' ),
+    ),
+))->toArray();
+$nexusGeometryMarkup = (string) ($nexusGeometryArtifact['serialized_blocks'] ?? '');
+$nexusGeometryCss = implode("\n", array_column(array_filter($nexusGeometryArtifact['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$nexusGeometryValidity = ( new HtmlTransformer() )->transform('<style>.flex{display:flex}.h-9{height:2.25rem}.w-auto{width:auto}.max-w-[120px]{max-width:120px}.fixed{position:fixed}.bottom-5{bottom:1.25rem}.left-5{left:1.25rem}.flex-col{flex-direction:column}</style><footer><div class="flex items-center"><img class="h-9 w-auto max-w-[120px] object-contain" src="/logo.png" alt="Logo"><span>International NGO Conference</span></div></footer><div class="fixed bottom-5 left-5 flex flex-col"><a class="w-12 h-12 flex" href="https://wa.me/example">Chat</a><a class="w-12 h-12 flex" href="https://t.me/example">Telegram</a></div>')->toArray();
+$assert(str_contains($nexusGeometryMarkup, 'h-9 w-auto max-w-[120px] object-contain')
+    && str_contains($nexusGeometryCss, ':where(p.blocks-engine-synthetic-paragraph){display:contents}')
+    && 'pass' === ($nexusGeometryValidity['source_reports']['wp_block_validity']['status'] ?? ''),
+    'full artifact geometry fixture preserves footer image classes and makes floating link carriers transparent while remaining valid');
+
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><p>Home</p></main>' ),

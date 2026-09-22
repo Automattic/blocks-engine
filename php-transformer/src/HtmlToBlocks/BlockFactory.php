@@ -203,6 +203,7 @@ final class BlockFactory
             // core's save() never reads it back, so it never belongs in the
             // serialized comment.
             unset($attrs['mediaFigureClassName']);
+            unset($attrs['mediaImageClassName']);
             // Internal-only: consumed by mediaTextVideoAttrs() to build the
             // video pane's <video> tag (dimensions, poster, native playback
             // state). core/media-text's save() has no attribute for any of
@@ -647,6 +648,10 @@ final class BlockFactory
                 'src' => $mediaUrl,
                 'alt' => (string) ($attrs['mediaAlt'] ?? ''),
             ), array( 'alt' )) . '/>';
+            $imageClassName = trim((string) ($attrs['mediaImageClassName'] ?? ''));
+            if ( '' !== $imageClassName ) {
+                $image = str_replace('<img ', '<img class="' . htmlspecialchars($imageClassName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" ', $image);
+            }
         }
 
         $href = (string) ($attrs['href'] ?? '');
