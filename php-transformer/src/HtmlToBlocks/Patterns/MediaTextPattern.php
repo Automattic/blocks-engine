@@ -279,38 +279,23 @@ final class MediaTextPattern implements PatternRecognizerInterface
             }
         }
 
-        // core/media-text's save() puts `className` on the outer wrapper
-        // `<div>` only — never on the generated `<figure
-        // class="wp-block-media-text__media">` pane. When the matched
-        // container is itself wrapped by a source `<figure>` (a "frame" div,
-        // a link anchor, ...), that figure's classes have nowhere else to
-        // land that an author selector keyed on the figure tag itself
-        // (`figure.is-visible`, a scroll-reveal state class, ...) can still
-        // match: the wrapper is a `<div>`, so it is never a match for
-        // `figure.<class>`, and the media pane is the only `<figure>` left in
-        // the emitted markup. `mediaFigureClassName` carries the source
-        // figure's classes onto that pane; BlockFactory merges it into the
-        // pane's class list and strips the internal key back out of the
-        // serialized comment attrs.
+        // core/media-text's save() only round-trips custom classes on the
+        // outer wrapper. Keep source figure and image classes there; adding
+        // them to either generated media node makes native save validation
+        // fail because both inner attribute shapes are rigid.
         $sourceFigure = $this->enclosingSourceFigure($element);
-        if ( $sourceFigure instanceof DOMElement ) {
-            $figureClassName = trim($this->attr($sourceFigure, 'class'));
-            if ( '' !== $figureClassName ) {
-                $attrs['mediaFigureClassName'] = $figureClassName;
-            }
+        $figureClassName = $sourceFigure instanceof DOMElement ? trim($this->attr($sourceFigure, 'class')) : '';
+        $attrs['className'] = SourceDom::mergeClassNames(
+            (string) ($attrs['className'] ?? ''),
+            $figureClassName,
+            'img' === $mediaType ? $this->attr($resolution['media'], 'class') : ''
+        );
+        if ( '' === $attrs['className'] ) {
+            unset($attrs['className']);
         }
 
         if ( 'img' === $mediaType && '' !== (string) ($mediaAttributes['alt'] ?? '') ) {
             $attrs['mediaAlt'] = (string) $mediaAttributes['alt'];
-        }
-        if ( 'img' === $mediaType ) {
-            $imageClassName = trim($this->attr($resolution['media'], 'class'));
-            if ( '' !== $imageClassName ) {
-                // core/media-text has no serialized attribute for classes on
-                // its generated image. Keep source selectors on that image
-                // so authored dimensions and layout participation survive.
-                $attrs['mediaImageClassName'] = $imageClassName;
-            }
         }
         if ( 1 === $mediaIndex ) {
             $attrs['mediaPosition'] = 'right';
