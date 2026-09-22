@@ -236,6 +236,27 @@ final class MediaTextPattern implements PatternRecognizerInterface
         $attrs['mediaType'] = 'img' === $mediaType ? 'image' : 'video';
         $attrs['mediaUrl']  = $mediaUrl;
 
+        // core/media-text's save() puts `className` on the outer wrapper
+        // `<div>` only — never on the generated `<figure
+        // class="wp-block-media-text__media">` pane. When the matched
+        // container is itself wrapped by a source `<figure>` (a "frame" div,
+        // a link anchor, ...), that figure's classes have nowhere else to
+        // land that an author selector keyed on the figure tag itself
+        // (`figure.is-visible`, a scroll-reveal state class, ...) can still
+        // match: the wrapper is a `<div>`, so it is never a match for
+        // `figure.<class>`, and the media pane is the only `<figure>` left in
+        // the emitted markup. `mediaFigureClassName` carries the source
+        // figure's classes onto that pane; BlockFactory merges it into the
+        // pane's class list and strips the internal key back out of the
+        // serialized comment attrs.
+        $sourceFigure = $this->enclosingSourceFigure($element);
+        if ( $sourceFigure instanceof DOMElement ) {
+            $figureClassName = trim($this->attr($sourceFigure, 'class'));
+            if ( '' !== $figureClassName ) {
+                $attrs['mediaFigureClassName'] = $figureClassName;
+            }
+        }
+
         if ( 'img' === $mediaType && '' !== (string) ($mediaAttributes['alt'] ?? '') ) {
             $attrs['mediaAlt'] = (string) $mediaAttributes['alt'];
         }
@@ -643,6 +664,34 @@ final class MediaTextPattern implements PatternRecognizerInterface
         }
 
         return $candidate;
+    }
+
+    /**
+     * The nearest ancestor `<figure>` that wraps the matched container
+     * through nothing but a chain of sole-element-child wrappers (a "frame"
+     * div, a link anchor, ...), or null when no such figure exists. Reuses
+     * {@see strictSingleMediaChild()} at each step so the chain matches the
+     * exact wrapper shape the media-resolution walk itself already accepts —
+     * a sibling of any kind (another tile, a caption, ...) stops the walk,
+     * because the figure would then also own content this media-text block
+     * does not represent.
+     */
+    private function enclosingSourceFigure(DOMElement $element): ?DOMElement
+    {
+        $child = $element;
+        $node = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
+        while ( $node instanceof DOMElement ) {
+            if ( $this->strictSingleMediaChild($node) !== $child ) {
+                return null;
+            }
+            if ( 'figure' === strtolower($node->tagName) ) {
+                return $node;
+            }
+            $child = $node;
+            $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null;
+        }
+
+        return null;
     }
 
     /**

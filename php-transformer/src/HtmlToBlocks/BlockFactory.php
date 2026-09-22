@@ -176,6 +176,11 @@ final class BlockFactory
             unset($attrs['minHeightUnit']);
         }
         if ( 'core/media-text' === $name ) {
+            // Internal-only: consumed by mediaTextHtml() to build the media
+            // pane's class list, but not a real core/media-text attribute —
+            // core's save() never reads it back, so it never belongs in the
+            // serialized comment.
+            unset($attrs['mediaFigureClassName']);
             if ( '' === ($attrs['mediaAlt'] ?? null) ) {
                 unset($attrs['mediaAlt']);
             }
@@ -562,7 +567,13 @@ final class BlockFactory
 
         $wrapperOpening = '<div' . $this->blockSupportAttrs($wrapperAttrs, implode(' ', $wrapperClasses), $wrapperStyle) . '>';
         $contentOpening = '<div class="wp-block-media-text__content">';
-        $figure = '<figure class="wp-block-media-text__media">' . $this->mediaTextMediaHtml($attrs) . '</figure>';
+        // `mediaFigureClassName` is an internal-only key (stripped from the
+        // serialized comment attrs in commentAttrs()): core's own save() has
+        // no attribute that reaches this figure, so a source `<figure>`'s
+        // classes are carried here directly rather than dropped. See the
+        // MediaTextPattern::enclosingSourceFigure() call site for why.
+        $mediaFigureClass = SourceDom::mergeClassNames('wp-block-media-text__media', (string) ($attrs['mediaFigureClassName'] ?? ''));
+        $figure = '<figure class="' . htmlspecialchars($mediaFigureClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $this->mediaTextMediaHtml($attrs) . '</figure>';
 
         if ( $mediaOnRight ) {
             return array(
