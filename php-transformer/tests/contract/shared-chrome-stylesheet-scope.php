@@ -70,9 +70,7 @@ foreach ($plan['assets'] as $asset) {
     }
     $isGlobal = false;
     foreach ($asset['scopes'] ?? array() as $scope) {
-        if ('global' === ($scope['kind'] ?? null)) {
-            $isGlobal = true;
-        }
+        if ('global' === ($scope['kind'] ?? null)) $isGlobal = true;
     }
     if ($isGlobal) {
         ++$globalCount;
@@ -81,13 +79,9 @@ foreach ($plan['assets'] as $asset) {
     $pageScoped[] = (string) $asset['target_path'];
 }
 
-// Shared chrome renders on every page that binds the part, so a stylesheet
-// defining its class namespace has to load everywhere. Left page-scoped, the
-// chrome keeps its text but silently loses its authored layout off its origin.
-$assert(0 < $globalCount, 'A stylesheet defining shared chrome classes is loaded on every page.');
-$assert(
-    array() === $pageScoped,
-    'Shared chrome stylesheets cannot stay page scoped: ' . implode(', ', $pageScoped)
-);
+// Shared chrome renders on every page that binds the part, but authored CSS
+// must retain the ownership and cascade boundary of the source document.
+$assert(0 === $globalCount, 'Shared chrome CSS must retain its owning page scope.');
+$assert(0 < count($pageScoped), 'Shared chrome stylesheet retains page ownership: ' . implode(', ', $pageScoped));
 
 fwrite(STDOUT, "shared-chrome-stylesheet-scope contract passed\n");
