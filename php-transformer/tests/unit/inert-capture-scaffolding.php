@@ -68,4 +68,41 @@ $hiddenSourcedIframe = $transform('<main><iframe title="third-party embed" style
 $assert(1 === count($hiddenSourcedIframe['fallbacks'] ?? array()), 'hidden sourced iframe remains preserved');
 $assert(! str_contains((string) ($hiddenSourcedIframe['serialized_blocks'] ?? ''), '<iframe'), 'hidden sourced iframe remains a suppressed runtime island');
 
+// An empty container inside a CSS-owned layout used to lower to an empty
+// `core/group`; enough of them fail the editability policy and abort a whole
+// site. Only a container that nothing renders and nothing addresses is dropped.
+$authoredLayout = '<style>.panel{display:flex;flex-direction:column;justify-content:space-between;align-items:stretch;padding:4px}</style>';
+$emptyContainer = static fn (string $styles, string $markup): array => $transform($authoredLayout . $styles . '<main><div class="panel"><p>Runnable example</p>' . $markup . '</div></main>');
+
+$inertSeparator = $emptyContainer('', '<div class="widget-separator"></div>');
+$assert(! str_contains((string) ($inertSeparator['serialized_blocks'] ?? ''), 'widget-separator'), 'an inert empty container emits no block');
+$assert(array() === ($inertSeparator['fallbacks'] ?? array()), 'an inert empty container emits no fallback');
+
+$paintedRule = $emptyContainer('<style>.rule{height:2px;background:#333}</style>', '<div class="rule"></div>');
+$assert(str_contains((string) ($paintedRule['serialized_blocks'] ?? ''), 'rule'), 'an empty container the author paints and sizes still emits a block');
+
+$generatedContent = $emptyContainer('<style>.glyph::before{content:"\2726"}</style>', '<div class="glyph"></div>');
+$assert(str_contains((string) ($generatedContent['serialized_blocks'] ?? ''), 'glyph blocks-engine-empty-visual-group'), 'an empty container whose pseudo-element draws generated content stays a recognized empty visual');
+
+$anchored = $emptyContainer('', '<div id="section-anchor"></div>');
+$assert(str_contains((string) ($anchored['serialized_blocks'] ?? ''), 'section-anchor'), 'an empty container carrying an anchor id still emits a block');
+
+$responsiveSpacer = $emptyContainer('<style>@media (min-width:600px){.gap{height:40px}}</style>', '<div class="gap"></div>');
+$assert(str_contains((string) ($responsiveSpacer['serialized_blocks'] ?? ''), 'gap'), 'an empty container sized only at another viewport still emits a block');
+
+$animated = $emptyContainer('<style>.pulse{animation:pulse 2s linear infinite}</style>', '<div class="pulse"></div>');
+$assert(str_contains((string) ($animated['serialized_blocks'] ?? ''), 'pulse'), 'an empty container the author animates still emits a block');
+
+$gridCell = $transform('<style>.grid{display:grid;grid-template-columns:1fr 1fr}</style><main><div class="grid"><p>One</p><div class="cell"></div><p>Two</p></div></main>');
+$assert(str_contains((string) ($gridCell['serialized_blocks'] ?? ''), 'cell'), 'an empty grid item owns a track, so it still emits a block');
+
+$gappedItem = $transform('<style>.row{display:flex;gap:16px}</style><main><div class="row"><p>One</p><div class="cell"></div><p>Two</p></div></main>');
+$assert(str_contains((string) ($gappedItem['serialized_blocks'] ?? ''), 'cell'), 'an empty flex item between authored gaps still emits a block');
+
+$distributedItem = $transform('<style>.row{display:flex;justify-content:space-between}</style><main><div class="row"><p>One</p><p>Two</p><div class="cell"></div></div></main>');
+$assert(str_contains((string) ($distributedItem['serialized_blocks'] ?? ''), 'cell'), 'an empty flex item sharing a definite main axis still emits a block');
+
+$labelled = $emptyContainer('', '<div class="status-slot" aria-label="Upload progress"></div>');
+$assert(str_contains((string) ($labelled['serialized_blocks'] ?? ''), 'status-slot'), 'an empty container with an accessible name still emits a block');
+
 echo "OK: inert capture scaffolding passed ({$assertions} assertions)\n";
