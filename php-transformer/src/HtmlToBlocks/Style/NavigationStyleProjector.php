@@ -269,7 +269,7 @@ final class NavigationStyleProjector
                             $selector
                         ) ?? $selector;
                     }
-                    $replacement = self::projectAnchorIds($selector, $ids);
+                    $replacement = $this->projectAnchorIds($selector, $ids);
                     if ( $replacement !== $selector ) {
                         $projected[] = $replacement;
                         $throughInnerBlocks = self::throughEditorInnerBlocks($replacement);
@@ -334,22 +334,34 @@ final class NavigationStyleProjector
      * so projecting only the `#` form left the container a grid while its
      * children lost `grid-area` and stacked in source order.
      *
+     * A `#…` target also carries id specificity, and a bare class does not, so
+     * the restated rule loses to any author rule with more classes than it —
+     * `#bganim{background:…}` (1,0,0) against Bulma's `.hero.is-info.is-bold`
+     * (0,3,0), which leaves the editor canvas painted with the wrong gradient.
+     * Wrap the anchor in `:where()` and restore the id with the shared id
+     * specificity shim, so the projected compound weighs exactly what the
+     * authored one did. The `[id="…"]` spelling already weighs one attribute,
+     * the same as the class it becomes, so it is projected unshimmed.
+     *
      * @param array<string, bool> $ids
      */
-    private static function projectAnchorIds(string $fragment, array $ids, bool $keepSourceClass = false): string
+    private function projectAnchorIds(string $fragment, array $ids, bool $keepSourceClass = false): string
     {
-        $anchor = static function (string $id) use ($ids, $keepSourceClass): ?string {
+        $idSpecificity = ':not(#' . $this->context->authorStyles()->idSpecificityShim() . ')';
+        $anchor = static function (string $id, string $specificity = '') use ($ids, $keepSourceClass): ?string {
             if ( ! isset($ids[$id]) ) {
                 return null;
             }
-            $projected = '.blocks-engine-editor-anchor-' . $id;
+            $projected = '' === $specificity
+                ? '.blocks-engine-editor-anchor-' . $id
+                : ':where(.blocks-engine-editor-anchor-' . $id . ')' . $specificity;
             return $keepSourceClass ? ':is(' . $projected . ',.' . $id . ')' : $projected;
         };
 
         $fragment = preg_replace_callback(
             '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
-            static function (array $match) use ($anchor): string {
-                $projected = $anchor($match[2]);
+            static function (array $match) use ($anchor, $idSpecificity): string {
+                $projected = $anchor($match[2], $idSpecificity);
                 return null === $projected ? $match[0] : $match[1] . $projected;
             },
             $fragment
@@ -379,8 +391,8 @@ final class NavigationStyleProjector
             return null;
         }
 
-        $projectIds = static fn (string $fragment): string => self::projectAnchorIds($fragment, $ids);
-        $projectTargetIds = static fn (string $fragment): string => self::projectAnchorIds($fragment, $ids, true);
+        $projectIds = fn (string $fragment): string => $this->projectAnchorIds($fragment, $ids);
+        $projectTargetIds = fn (string $fragment): string => $this->projectAnchorIds($fragment, $ids, true);
 
         $start = (int) $rightmost['start'];
         $end = (int) $rightmost['end'];
