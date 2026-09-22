@@ -982,6 +982,118 @@ $serializedRoundTrip = $runtime->serializeBlocks(array( $roundTrip ));
 $validity = $runtime->validateBlockSerialization($serializedRoundTrip);
 $assertSame('pass', $validity['status'] ?? null, 'Emitted media-text markup passes serialization validity.');
 
+// A source `<figure>` that exclusively wraps the matched media/text pane
+// through a chain of sole-child wrapper divs has nowhere else to route its
+// classes once the pane becomes core/media-text: the block's own wrapper is
+// a `<div>`, never a `<figure>`, so a class an author selector keys off the
+// figure tag itself (a scroll-reveal state class, `figure.is-visible`, ...)
+// would otherwise be silently dropped, permanently hiding the tile.
+$elementByClass = static function (string $html, string $tagName, string $className): DOMElement {
+    $document = new DOMDocument();
+    $previous = libxml_use_internal_errors(true);
+    $document->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+    foreach ( $document->getElementsByTagName($tagName) as $candidate ) {
+        if ( $candidate instanceof DOMElement && in_array($className, preg_split('/\s+/', trim($candidate->getAttribute('class'))) ?: array(), true) ) {
+            return $candidate;
+        }
+    }
+
+    throw new RuntimeException('Fixture did not produce expected DOMElement.');
+};
+
+$fallbacks = array();
+$record = array();
+$figureWrappedElement = $elementByClass(
+    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></figure>',
+    'div',
+    'vid'
+);
+$figureWrapped = $match($figureWrappedElement, array( $paragraph ), $fallbacks, $record);
+$assertSame('core/media-text', $figureWrapped['blockName'] ?? null, 'Figure-wrapped video pane still matches core/media-text.');
+$assertSame('in', $figureWrapped['attrs']['mediaFigureClassName'] ?? null, 'Enclosing source figure class reaches mediaFigureClassName.');
+
+$fallbacks = array();
+$record = array();
+$noFigureElement = $elementByClass(
+    '<div class="shell"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div>',
+    'div',
+    'vid'
+);
+$noFigure = $match($noFigureElement, array( $paragraph ), $fallbacks, $record);
+$assertTrue(! array_key_exists('mediaFigureClassName', $noFigure['attrs'] ?? array()), 'No enclosing figure means no mediaFigureClassName.');
+
+$fallbacks = array();
+$record = array();
+$unclassedFigureElement = $elementByClass(
+    '<figure><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></figure>',
+    'div',
+    'vid'
+);
+$unclassedFigure = $match($unclassedFigureElement, array( $paragraph ), $fallbacks, $record);
+$assertTrue(! array_key_exists('mediaFigureClassName', $unclassedFigure['attrs'] ?? array()), 'A classless enclosing figure emits no mediaFigureClassName.');
+
+// A figure that also owns unrelated sibling content is not exclusive to this
+// media/text pane; its classes describe more than the pane, so they are left
+// alone rather than misattributed to the generated media-text block.
+$fallbacks = array();
+$record = array();
+$sharedFigureElement = $elementByClass(
+    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div><figcaption>Shared caption</figcaption></figure>',
+    'div',
+    'vid'
+);
+$sharedFigure = $match($sharedFigureElement, array( $paragraph ), $fallbacks, $record);
+$assertTrue(! array_key_exists('mediaFigureClassName', $sharedFigure['attrs'] ?? array()), 'A figure with a non-wrapper sibling emits no mediaFigureClassName.');
+
+// End-to-end: the generated `<figure class="wp-block-media-text__media">`
+// carries the source figure's class, so an author rule keyed on the figure
+// tag itself still matches — matching what the image path already does.
+$revealResult = $transformHtml(
+    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></figure>'
+);
+$revealBlock = $revealResult['blocks'][0]['blockName'] ?? null;
+// The wrapping figure/frame divs may themselves fold away or coalesce
+// depending on surrounding structure; what this defect is scoped to is
+// specifically the generated media-text figure carrying the source class.
+$revealMediaTextBlock = null;
+$collectMediaText = static function (array $blocks) use (&$collectMediaText, &$revealMediaTextBlock): void {
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        if ( 'core/media-text' === ($block['blockName'] ?? null) ) {
+            $revealMediaTextBlock = $block;
+            return;
+        }
+        if ( is_array($block['innerBlocks'] ?? null) ) {
+            $collectMediaText($block['innerBlocks']);
+        }
+    }
+};
+$collectMediaText($revealResult['blocks'] ?? array());
+$assertTrue(is_array($revealMediaTextBlock), 'Reveal fixture converts to a core/media-text block somewhere in the tree.');
+$assertContains(
+    '<figure class="wp-block-media-text__media in">',
+    (string) ($revealMediaTextBlock['innerHTML'] ?? ''),
+    'Generated media-text figure carries the source figure class.'
+);
+$assertTrue(
+    ! str_contains(json_encode($revealResult['blocks']), 'mediaFigureClassName'),
+    'mediaFigureClassName never leaks into any serialized block attrs.'
+);
+
+// The equivalent image case is unaffected: core/image already puts source
+// figure classes on its own wrapper figure, unchanged by this fix.
+$revealImageResult = $transformHtml('<figure class="in"><img src="photo.jpg" width="100" height="100"></figure>');
+$assertSame('core/image', $revealImageResult['blocks'][0]['blockName'] ?? null, 'Image reveal fixture still converts to core/image.');
+$assertContains(
+    '<figure class="wp-block-image is-resized in">',
+    (string) ($revealImageResult['blocks'][0]['innerHTML'] ?? ''),
+    'Image case keeps preserving the source figure class on its own wrapper figure, exactly as before.'
+);
+
 if ( 0 === $failures ) {
     echo "media text pattern ok\n";
 }

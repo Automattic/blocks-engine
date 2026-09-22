@@ -140,6 +140,56 @@ $assertContains('<figure class="wp-block-media-text__media"><video controls src=
 $assertNotContains('is-stacked-on-mobile', $video['innerHTML'], 'Explicit false omits stacked class.');
 $assertNotContains('<a', $video['innerHTML'], 'Video does not use image-only link attributes.');
 
+// A source `<figure>` that wraps the media pane has nowhere else to put its
+// classes: core/media-text's save() only reads `className` onto the outer
+// wrapper `<div>`, never onto the generated `<figure
+// class="wp-block-media-text__media">`. `mediaFigureClassName` is the
+// internal-only carrier MediaTextPattern uses for that case; BlockFactory
+// merges it into the media pane's own class list and never serializes it.
+$revealVideo = $factory->create('core/media-text', array(
+    'className'             => 'vid',
+    'mediaType'             => 'video',
+    'mediaUrl'              => 'https://example.com/reveal.mp4',
+    'mediaFigureClassName'  => 'in',
+), array());
+$assertContains(
+    '<figure class="wp-block-media-text__media in"><video controls src="https://example.com/reveal.mp4"></video></figure>',
+    $revealVideo['innerHTML'],
+    'Source figure class merges onto the generated media pane figure, alongside the base block class.'
+);
+$assertContains('wp-block-media-text is-stacked-on-mobile vid', $revealVideo['innerHTML'], 'Wrapper className is unaffected by the media pane class carrier.');
+$assertSame(
+    false,
+    array_key_exists('mediaFigureClassName', $revealVideo['attrs'] ?? array()),
+    'mediaFigureClassName never reaches the serialized block comment attrs.'
+);
+$revealVideoValidity = ( new Runtime() )->validateBlockSerialization(array( $revealVideo ));
+$assertSame('pass', $revealVideoValidity['status'] ?? null, 'Media pane class carrier does not trip serialization validators.');
+$revealVideoFindings = ( new CanonicalSaveShapeValidator() )->findings(array( $revealVideo ));
+$assertSame(array(), $revealVideoFindings, 'Media pane class carrier does not trip the canonical save-shape validator.');
+
+$revealImage = $factory->create('core/media-text', array(
+    'mediaType'            => 'image',
+    'mediaUrl'             => 'https://example.com/reveal.jpg',
+    'mediaAlt'             => '',
+    'mediaFigureClassName' => 'in',
+), array());
+$assertContains(
+    '<figure class="wp-block-media-text__media in">',
+    $revealImage['innerHTML'],
+    'Source figure class merges onto the generated media pane figure for image media too.'
+);
+
+$noFigureVideo = $factory->create('core/media-text', array(
+    'mediaType' => 'video',
+    'mediaUrl'  => 'https://example.com/plain.mp4',
+), array());
+$assertContains(
+    '<figure class="wp-block-media-text__media"><video',
+    $noFigureVideo['innerHTML'],
+    'Absent mediaFigureClassName leaves the base media pane class unchanged.'
+);
+
 $validity = ( new Runtime() )->validateBlockSerialization(array( $right ));
 $assertSame('pass', $validity['status'] ?? null, 'Media-text block passes serialization validators.');
 $assertSame(0, $validity['summary']['finding_count'] ?? null, 'Media-text block has no serialization findings.');
