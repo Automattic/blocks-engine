@@ -2759,6 +2759,19 @@ final class StyleResolver implements ElementPresentationResolver
                     if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && array() !== $cascadedValueDeclarations) {
                         $analysis['cascaded_values'][] = array('selector' => $selector, 'declarations' => $cascadedValueDeclarations);
                     }
+                    // A `content`-only pseudo-element rule draws generated
+                    // content while declaring no classified property, so it is
+                    // collected before the empty-declaration guard below.
+                    if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {
+                        $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
+                        if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && (array() !== $declarations || isset($rawDeclarations['content']))) {
+                            $pseudoDeclarations = $declarations;
+                            if (isset($rawDeclarations['content'])) {
+                                $pseudoDeclarations['content'] = $rawDeclarations['content'];
+                            }
+                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions);
+                        }
+                    }
                     if (array() === $declarations) {
                         continue;
                     }
@@ -2769,16 +2782,6 @@ final class StyleResolver implements ElementPresentationResolver
                         if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
                             $analysis['navigation_state'][] = array('selector' => $selector, 'base_selector' => $baseSelector, 'state' => $state, 'declarations' => $declarations);
                             $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'state' => $state, 'state_subject_selector' => trim(substr($selector, 0, $offset)), 'declarations' => $rawDeclarations);
-                        }
-                    }
-                    if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {
-                        $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
-                        if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector)) {
-                            $pseudoDeclarations = $declarations;
-                            if (isset($rawDeclarations['content'])) {
-                                $pseudoDeclarations['content'] = $rawDeclarations['content'];
-                            }
-                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions);
                         }
                     }
                 }

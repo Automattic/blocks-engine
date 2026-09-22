@@ -980,7 +980,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->styleResolver,
                 $this->runtimeIslands,
                 $this->sourceElementClassifier,
-                fn (DOMElement $element): ?DOMElement => $this->soleElementChild($element)
+                fn (DOMElement $element): ?DOMElement => $this->soleElementChild($element),
+                fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element)
             ),
             $this->projectedNavigation,
             new PhrasingSvgConverter($this->svgMaterializer, $this),
