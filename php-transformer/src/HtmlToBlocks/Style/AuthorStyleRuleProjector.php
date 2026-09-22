@@ -463,6 +463,10 @@ final class AuthorStyleRuleProjector
      * common in page-builder output that scales a section to the viewport),
      * the container's own auto height is thereby definite too, the same way
      * a real browser's grid track-sizing algorithm resolves it.
+     *
+     * An `aspect-ratio` box reaches a definite block size the same bottom-up
+     * way: with `height` auto, the ratio derives the block size from the
+     * inline size, so the box is exactly as definite as its own width is.
      */
     private function establishesOwnDefiniteBlockSize(DOMElement $element, string $height): bool
     {
@@ -470,12 +474,48 @@ final class AuthorStyleRuleProjector
             return false;
         }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( $this->aspectRatioDerivesBlockSize($element, $declarations) ) {
+            return true;
+        }
         $display = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['display'] ?? '')), $element));
         if ( ! in_array($display, array( 'grid', 'inline-grid' ), true) ) {
             return false;
         }
         $rows = $this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['grid-template-rows'] ?? '')), $element);
         return $this->gridTemplateRowsContainDefiniteTrack($rows);
+    }
+
+    /**
+     * Whether a declared `aspect-ratio` resolves this element's block size.
+     * With `height` auto (the caller's precondition) a real ratio derives the
+     * block axis from the inline one, so it is definite exactly when the
+     * element's own `width` is: a length, or a percentage of the parent's
+     * content width, which for the in-flow boxes this analysis walks is
+     * itself resolved before the block axis is.
+     *
+     * An `auto` width is deliberately not accepted. It is definite only in
+     * normal flow -- a float, an inline-level box, an absolutely positioned
+     * box or a row flex item shrink-to-fit instead, sizing the inline axis
+     * from content -- and this analysis does not model which of those the
+     * element is in.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function aspectRatioDerivesBlockSize(DOMElement $element, array $declarations): bool
+    {
+        $ratio = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+            CssValueInspector::withoutImportant((string) ($declarations['aspect-ratio'] ?? '')),
+            $element
+        ));
+        if ( '' === $ratio || 'auto' === $ratio || str_contains($ratio, 'auto') ) {
+            return false;
+        }
+        if ( 1 !== preg_match('~^[\d.]+(?:\s*/\s*[\d.]+)?$~', trim($ratio)) ) {
+            return false;
+        }
+        $width = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['width'] ?? ''), $element);
+
+        return $this->isDefiniteBlockSize($width) || $this->isPercentageBlockSize($width);
     }
 
     private function gridTemplateRowsContainDefiniteTrack(string $rows): bool
