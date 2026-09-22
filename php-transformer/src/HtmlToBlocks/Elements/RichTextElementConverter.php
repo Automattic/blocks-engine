@@ -97,13 +97,22 @@ final class RichTextElementConverter implements ElementConverter
     private function presentationAttributesWithBakedFontSize(DOMElement $element): array
     {
         $attrs    = $this->context->presentationAttributes($element);
+        $responsiveClass = $this->context->responsiveTypographyClassName($element);
+        if ( '' !== $responsiveClass ) {
+            unset($attrs['style']['typography']['fontSize']);
+            if ( array() === ($attrs['style']['typography'] ?? null) ) {
+                unset($attrs['style']['typography']);
+            }
+            if ( array() === ($attrs['style'] ?? null) ) {
+                unset($attrs['style']);
+            }
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $responsiveClass);
+            return $attrs;
+        }
+
         $fontSize = $this->context->bakedTypographyFontSize($element);
         if ( '' !== $fontSize && ! isset($attrs['style']['typography']['fontSize']) ) {
             $attrs['style']['typography']['fontSize'] = $fontSize;
-        }
-        $responsiveClass = $this->context->responsiveTypographyClassName($element);
-        if ( '' !== $responsiveClass ) {
-            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $responsiveClass);
         }
 
         return $attrs;
