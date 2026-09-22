@@ -264,6 +264,9 @@ final class SvgMaterializer implements SvgElementMaterializer
                     $mediaBox .= ';' . $property . ':' . trim((string) $presentation[$property]);
                 }
             }
+            if ( array() === $dimensions ) {
+                $mediaBox .= $this->unsizedMediaAxisDeclarations($presentation);
+            }
             $carriedProperties = $this->carriedCustomPropertyDeclarations($element, $mediaBox);
             $mediaBox = ( '' === $carriedProperties ? '' : ';' . $carriedProperties ) . $mediaBox;
             $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:baseline' : '') . $mediaBox . '}';
@@ -533,6 +536,38 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return false;
+    }
+
+    /**
+     * Declare every axis the carried media box leaves unsized as `auto`.
+     *
+     * When author CSS owns the box the block carries no intrinsic dimensions,
+     * so the rendered image sizes both axes from the asset. The editor's image
+     * block does not: it writes the asset's natural `width`/`height` onto its
+     * `<img>`, and those presentation attributes give a definite size to every
+     * axis the carried box left free. A box that only limits one axis — the
+     * common `max-height` logo — then shrinks that axis while the other stays
+     * pinned at the natural pixel count, and the artwork stretches.
+     *
+     * `aspect-ratio` cannot take that job: on a replaced element it resolves
+     * one axis from the other only while an axis is `auto`, which is exactly
+     * what the injected attributes remove. Freeing the axis is the primitive.
+     *
+     * The rendered page already computes these axes as `auto`, so declaring it
+     * is inert there and only makes the editor agree.
+     *
+     * @param array<string, string> $presentation
+     */
+    private function unsizedMediaAxisDeclarations(array $presentation): string
+    {
+        $declarations = '';
+        foreach ( array( 'width', 'height' ) as $axis ) {
+            if ( '' === trim((string) ($presentation[$axis] ?? '')) ) {
+                $declarations .= ';' . $axis . ':auto';
+            }
+        }
+
+        return $declarations;
     }
 
     /**
