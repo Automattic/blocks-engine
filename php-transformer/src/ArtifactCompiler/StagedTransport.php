@@ -442,14 +442,17 @@ trait StagedTransport
         if ($hasReceipts && array() !== $expectedPageIds && array_values($expectedPageIds) !== array_keys($seen)) {
             throw new \InvalidArgumentException('Composition requires exactly one compiled page plan for every page declared by the shared plan.');
         }
-        $artifact = $sharedArtifact;
-        $artifact['files'] = self::sortedBySourcePaths(
-            $files,
-            is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array()
-        );
         if (!$hasReceipts) {
             // Legacy prepared envelopes intentionally retain their existing
             // fallback semantics; v2 receipts always use bounded assembly.
+            // Only this path composes an artifact from the merged page files;
+            // receipt composition reduces from $sharedArtifact instead, so
+            // sorting them here would build a copy it never reads.
+            $artifact = $sharedArtifact;
+            $artifact['files'] = self::sortedBySourcePaths(
+                $files,
+                is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array()
+            );
             return $this->compileArtifact($artifact);
         }
         $this->reportProgress($onProgress, 'reduce_receipts', 0, 1);
