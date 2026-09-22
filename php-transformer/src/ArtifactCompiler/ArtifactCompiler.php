@@ -665,7 +665,8 @@ final class ArtifactCompiler
                     $path = $asset['path'];
                 }
                 $assetPathOwnership[$path] = $asset['compilation'] ?? array();
-                $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . $payload . "\0" . json_encode('engine-support' === ($asset['source'] ?? null) ? array() : ($asset['compilation'] ?? array()), JSON_THROW_ON_ERROR));
+                $identityOwnership = 'css' === ($asset['kind'] ?? null) && 'engine-support' !== ($asset['source'] ?? null) ? ($asset['compilation'] ?? array()) : array();
+                $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . $payload . "\0" . json_encode($identityOwnership, JSON_THROW_ON_ERROR));
                 if ( ! isset($assetIndexes[$identity]) ) {
                     $assetIndexes[$identity] = count($assets);
                     $assets[] = $asset;
@@ -726,7 +727,8 @@ final class ArtifactCompiler
                 $deduplicated[] = $asset;
                 continue;
             }
-            $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . $payload . "\0" . json_encode('engine-support' === ($asset['source'] ?? null) ? array() : ($asset['compilation'] ?? array()), JSON_THROW_ON_ERROR));
+            $identityOwnership = 'css' === ($asset['kind'] ?? null) && 'engine-support' !== ($asset['source'] ?? null) ? ($asset['compilation'] ?? array()) : array();
+            $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . $payload . "\0" . json_encode($identityOwnership, JSON_THROW_ON_ERROR));
             if (!isset($indexes[$identity])) {
                 $indexes[$identity] = count($deduplicated);
                 $deduplicated[] = $asset;
