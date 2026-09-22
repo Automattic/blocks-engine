@@ -12,6 +12,31 @@ use DOMNode;
 final class CssSelectorMatcher
 {
     /**
+     * HTML defines these enumerated attribute values as ASCII-case-insensitive
+     * by default, which this matcher does not model.
+     *
+     * Keyed for O(1) membership because every selector match that misses the
+     * cache tests it, and a page can miss hundreds of thousands of times. As a
+     * class constant it is built once at compile time rather than rebuilt on
+     * each of those calls.
+     */
+    private const ENUMERATED_ATTRIBUTES = array(
+        'autocomplete' => true,
+        'contenteditable' => true,
+        'dir' => true,
+        'draggable' => true,
+        'enterkeyhint' => true,
+        'hidden' => true,
+        'inputmode' => true,
+        'kind' => true,
+        'method' => true,
+        'rel' => true,
+        'spellcheck' => true,
+        'translate' => true,
+        'type' => true,
+    );
+
+    /**
      * @return array{supported: bool, reason: string|null, compounds: list<array<string, mixed>>, combinators: list<string>, type_spans: list<array{start: int, end: int, name: string, compound: int}>, rightmost_compound_span: array{start: int, end: int}|null, pseudo_state_suffix_span: array{start: int, end: int}|null, rightmost_rewrite_end: int|null}
      */
     public static function parse(string $selector): array
@@ -727,11 +752,9 @@ final class CssSelectorMatcher
     /** @param list<array<string, mixed>> $compounds */
     private static function hasUnmodeledHtmlAttributeValueSemantics(array $compounds): bool
     {
-        // HTML defines these enumerated values as ASCII-case-insensitive by default.
-        $enumerated = array( 'autocomplete', 'contenteditable', 'dir', 'draggable', 'enterkeyhint', 'hidden', 'inputmode', 'kind', 'method', 'rel', 'spellcheck', 'translate', 'type' );
         foreach ( $compounds as $compound ) {
             foreach ( $compound['attributes'] as $attribute ) {
-                if ( null !== $attribute['operator'] && null === $attribute['flag'] && in_array($attribute['name'], $enumerated, true) ) {
+                if ( null !== $attribute['operator'] && null === $attribute['flag'] && isset(self::ENUMERATED_ATTRIBUTES[ $attribute['name'] ]) ) {
                     return true;
                 }
             }
