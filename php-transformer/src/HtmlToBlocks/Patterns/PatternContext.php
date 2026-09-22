@@ -39,7 +39,8 @@ final class PatternContext
         private readonly ?GalleryPatternContext $galleryContext = null,
         private readonly ?Closure $sourceElementStartsHidden = null,
         private readonly ?Closure $disclosureSummaryMarker = null,
-        private readonly ?Closure $accordionToggleMarker = null
+        private readonly ?Closure $accordionToggleMarker = null,
+        private readonly ?Closure $capturedListboxBlock = null
     ) {
     }
 
@@ -68,6 +69,11 @@ final class PatternContext
     public function disclosureSummaryMarker(DOMElement $summary): string
     {
         return null === $this->disclosureSummaryMarker ? '' : ($this->disclosureSummaryMarker)($summary);
+    }
+
+    public function capturedListboxBlock(DOMElement $details): ?array
+    {
+        return null === $this->capturedListboxBlock ? null : ($this->capturedListboxBlock)($details);
     }
 
     /**

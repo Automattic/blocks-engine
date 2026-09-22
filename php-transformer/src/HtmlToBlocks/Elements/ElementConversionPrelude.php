@@ -39,6 +39,7 @@ final class ElementConversionPrelude
         private readonly ProjectedNavigationConverter $projectedNavigation,
         private readonly PhrasingSvgConverter $phrasingSvg,
         private readonly CapturedDialogConverter $capturedDialog,
+        private readonly CapturedListboxConverter $capturedListbox,
         private readonly CapturedSelectableSetConverter $capturedSelectableSet,
         private readonly ScrollStateConverter $scrollState,
         private readonly ThemeToggleConverter $themeToggle,
@@ -67,6 +68,11 @@ final class ElementConversionPrelude
      */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported): ConversionOutcome
     {
+        $listbox = $this->capturedListbox->convert($element, $tagName, $fallbacks);
+        if ( $listbox->handled ) {
+            return $listbox;
+        }
+
         if ( 'a' === $tagName && $this->requiresWrappedButtonPreservation($element) ) {
             return ConversionOutcome::handled(($this->htmlPreservationBlock)($element));
         }

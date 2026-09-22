@@ -100,6 +100,13 @@ final class ReadableFormControlBlockConverter
             }
         }
 
+        if ( 'button' === $tagName && '' !== SourceDom::attr($element, 'data-dla-listbox-trigger') ) {
+            $listboxBlock = $this->authoredBlockConverter->listbox($element);
+            if ( null !== $listboxBlock ) {
+                return $listboxBlock;
+            }
+        }
+
         if ( 'button' === $tagName ) {
             $buttonBlock = $this->authoredBlockConverter->button($element, $forceNative);
             if ( null !== $buttonBlock ) {

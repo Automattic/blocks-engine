@@ -104,6 +104,69 @@ final class AuthoredFormControlBlockConverter
         )), array( $controlBlock ), null);
     }
 
+    public function listbox(DOMElement $trigger, ?DOMElement $panel = null): ?array
+    {
+        if (!$panel instanceof DOMElement) {
+            $key = trim(SourceDom::attr($trigger, 'data-dla-listbox-trigger'));
+            $document = $trigger->ownerDocument;
+            if ('' === $key || !$document instanceof \DOMDocument) {
+                return null;
+            }
+            foreach ($document->getElementsByTagName('*') as $candidate) {
+                if ($candidate instanceof DOMElement
+                    && $candidate->getAttribute('data-dla-listbox-panel') === $key
+                    && 'listbox' === strtolower(trim($candidate->getAttribute('role')))) {
+                    $panel = $candidate;
+                    break;
+                }
+            }
+        }
+        if (!$panel instanceof DOMElement) {
+            return null;
+        }
+        $triggerLabel = trim(preg_replace('/\s+/', ' ', $trigger->textContent ?? '') ?? '');
+        $options = array();
+        foreach ($panel->getElementsByTagName('*') as $option) {
+            if (!$option instanceof DOMElement || 'option' !== strtolower($option->getAttribute('role'))) {
+                continue;
+            }
+            $label = trim(preg_replace('/\s+/', ' ', $option->textContent ?? '') ?? '');
+            if ('' === $label) {
+                continue;
+            }
+            $value = $option->getAttribute('data-value');
+            $value = '' === $value ? $label : $value;
+            $options[] = array(
+                'label' => $label,
+                'value' => $value,
+                'selected' => 'true' === strtolower(trim($option->getAttribute('aria-selected'))) || $label === $triggerLabel,
+                'disabled' => 'true' === strtolower(trim($option->getAttribute('aria-disabled'))),
+            );
+        }
+        if (array() === $options) {
+            return null;
+        }
+        $selected = array_values(array_filter($options, static fn (array $option): bool => !empty($option['selected'])));
+        $selectedOption = $selected[0] ?? $options[0];
+        $generator = new AuthoredSelectBlockGenerator();
+        $registry = ($this->generatedBlocks)();
+        $registry->register(AuthoredSelectBlockGenerator::class, $generator->definition($registry->namespace()));
+        $attrs = array_filter(array(
+            'id' => SourceDom::attr($trigger, 'id'),
+            'name' => SourceDom::attr($trigger, 'name'),
+            'ariaLabel' => SourceDom::attr($trigger, 'aria-label'),
+            'className' => SourceDom::attr($trigger, 'class'),
+            'style' => SourceDom::attr($trigger, 'style'),
+            'options' => $options,
+            'selectedValue' => (string) ($selectedOption['value'] ?? ''),
+            'selectedLabel' => (string) ($selectedOption['label'] ?? ''),
+            'placeholder' => $triggerLabel,
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
+        $markup = $generator->markup($attrs);
+        $control = array('blockName' => $registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME), 'attrs' => $attrs, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
+        return $this->createBlock->createBlock('core/group', array('className' => 'blocks-engine-authored-select-wrapper'), array($control), null);
+    }
+
     /**
      * Return a compact native input only when the resolved cascade proves
      * authored presentation that a readable paragraph cannot retain.
