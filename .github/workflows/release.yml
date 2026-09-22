@@ -31,14 +31,15 @@ concurrency:
 # the tag directly from its source repo and checking `^{commit}` equality —
 # not assumed from the tag name):
 #
-# - `uses: .../release.yml@v2.19.1` selects the released revision of the
+# - `uses: .../release.yml@v2.20.2` selects the released revision of the
 #   reusable release workflow itself.
-# - `action-ref: v2.19.1` is the homeboy-action revision that workflow
+# - `action-ref: v2.20.2` is the homeboy-action revision that workflow
 #   checks out into `.homeboy-action` for the composite action steps. Kept
-#   in lockstep with the `uses:` pin above. v2.19.1 is released and contains
-#   v2.19.0 (the previously pinned candidate commit
-#   b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc) plus two additional merged,
-#   released fixes (homeboy-action#490, #491); no unreleased commits.
+#   in lockstep with the `uses:` pin above. v2.20.2 carries the fix for
+#   homeboy-action#496: the release guard previously re-derived the default
+#   branch from `refs/remotes/origin/HEAD`, which `actions/checkout` never
+#   creates, and fell back to a hardcoded `main` — refusing every release
+#   from this repository, whose default branch is `trunk`.
 # - `extension-ref` pins the homeboy-extensions monorepo commit each job's
 #   declared extension installs from. It is required, not optional: the
 #   installed homeboy CLI's `install_for_component` path clones the
@@ -59,10 +60,10 @@ concurrency:
 #       valid (but non-current) snapshot of.
 jobs:
   javascript:
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.19.1
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.20.2
     with:
       component: packages/blocks-engine
-      action-ref: v2.19.1
+      action-ref: v2.20.2
       extension-ref: nodejs-v3.7.4
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
@@ -72,10 +73,10 @@ jobs:
   php:
     needs: javascript
     if: ${{ !cancelled() }}
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.19.1
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.20.2
     with:
       component: php-transformer
-      action-ref: v2.19.1
+      action-ref: v2.20.2
       extension-ref: wordpress-v3.48.6
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
@@ -90,10 +91,10 @@ jobs:
   figma:
     needs: php
     if: ${{ !cancelled() }}
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.19.1
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.20.2
     with:
       component: figma-transformer
-      action-ref: v2.19.1
+      action-ref: v2.20.2
       extension-ref: wordpress-v3.48.6
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
