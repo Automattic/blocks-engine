@@ -16,6 +16,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 
 $failures = 0;
@@ -120,6 +121,41 @@ $assert(
         && 'pass' === ( ( new BlockValidityValidator() )->validateBlocks($threeViewport['blocks'] ?? array())['status'] ?? '' ),
     'the three-viewport heading has no frozen typography attribute and remains Gutenberg-valid',
     (string) ( $threeViewport['serialized_blocks'] ?? '' )
+);
+
+// The artifact compiler's page path must not reintroduce the reference-width
+// winner as an inline style after the HTML transformer has created its carrier.
+$artifactResult = ( new ArtifactCompiler() )->compile(array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'entrypoint' => 'website/index.html',
+    'files' => array(array(
+        'path' => 'website/index.html',
+        'content' => '<!doctype html><html><head><style>@layer base{h1{font-size:inherit}}'
+            . '@layer utilities{.text-4xl{font-size:2.25rem}'
+            . '@media (width>=640px){.sm\\:text-5xl{font-size:3rem}}'
+            . '@media (width>=1024px){.lg\\:text-6xl{font-size:3.75rem}}}</style></head>'
+            . '<body><main><h1 class="text-4xl sm:text-5xl lg:text-6xl">International NGO Conference - Canada</h1></main></body></html>',
+    )),
+))->toArray();
+$artifactBlocks = (string) ( $artifactResult['serialized_blocks'] ?? '' );
+$artifactEngineCss = implode("\n", array_map(
+    static fn (array $asset): string => (string) ( $asset['content'] ?? '' ),
+    array_values(array_filter(
+        is_array($artifactResult['assets'] ?? null) ? $artifactResult['assets'] : array(),
+        static fn (array $asset): bool => 'engine-support' === ( $asset['source'] ?? '' )
+    ))
+));
+$assert(
+    ! preg_match('/<h1\b[^>]*style="[^"]*font-size:/i', $artifactBlocks)
+        && str_contains($artifactBlocks, 'blocks-engine-responsive-typography-')
+        && str_contains($artifactEngineCss, 'font-size:3.75rem'),
+    'the artifact compiler keeps the responsive carrier and drops its frozen inline winner',
+    $artifactBlocks
+);
+$assert(
+    'pass' === ( ( new BlockValidityValidator() )->validateBlocks($artifactResult['blocks'] ?? array())['status'] ?? '' ),
+    'the artifact-path responsive heading remains Gutenberg-valid',
+    $artifactBlocks
 );
 
 if ( $failures > 0 ) {

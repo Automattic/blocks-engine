@@ -87,14 +87,15 @@ $heading = $findFirst($result['blocks'] ?? array(), 'core/heading');
 
 $assert(null !== $heading, 'the responsive heading converts to core/heading');
 $assert(
-    'var(--text-7xl)' === $fontSizeOf($heading ?? array()),
-    'the heading bakes the conditional (lg) font-size winner as typography.fontSize — THE BUG: this was previously absent and WP rendered 16px',
-    'got: ' . ('' === $fontSizeOf($heading ?? array()) ? '(missing)' : $fontSizeOf($heading ?? array()))
+    str_contains((string) ($heading['attrs']['className'] ?? ''), 'blocks-engine-responsive-typography-')
+        && '' === $fontSizeOf($heading ?? array()),
+    'the heading carries the conditional font-size winner through a responsive typography carrier',
+    'class: ' . (string) ($heading['attrs']['className'] ?? '')
 );
 $serialized = ( new StyleAttributeMapper() )->serialize(is_array(($heading['attrs']['style'] ?? null)) ? $heading['attrs']['style'] : array());
 $assert(
-    str_contains((string) $serialized['style'], 'font-size:var(--text-7xl)'),
-    'the baked value serializes as an inline font-size declaration, the only authored value that beats unlayered WP heading rules',
+    ! str_contains((string) $serialized['style'], 'font-size:'),
+    'the responsive heading does not serialize a frozen inline font-size',
     (string) $serialized['style']
 );
 
@@ -107,9 +108,10 @@ $semanticCss = '.hero-title{font-size:3rem}'
 $semanticHtml = '<style>' . $semanticCss . '</style><h1 class="hero-title">Hi</h1>';
 $semantic     = $findFirst(( new HtmlTransformer() )->transform($semanticHtml, array())->toArray()['blocks'] ?? array(), 'core/heading');
 $assert(
-    '4.5rem' === $fontSizeOf($semantic ?? array()),
-    'a plainly-named heading with a min-width cascade winner bakes the conditional value',
-    'got: ' . ('' === $fontSizeOf($semantic ?? array()) ? '(missing)' : $fontSizeOf($semantic ?? array()))
+    str_contains((string) ($semantic['attrs']['className'] ?? ''), 'blocks-engine-responsive-typography-')
+        && '' === $fontSizeOf($semantic ?? array()),
+    'a plainly-named heading carries its min-width cascade winner responsively',
+    'class: ' . (string) ($semantic['attrs']['className'] ?? '')
 );
 
 // ---------------------------------------------------------------------
@@ -172,9 +174,10 @@ $paragraphHtml = '<style>:root{--text-lg:1.125rem}.text-base{font-size:1rem}'
     . '<p class="text-base md:text-lg">Intro</p>';
 $paragraph     = $findFirst(( new HtmlTransformer() )->transform($paragraphHtml, array())->toArray()['blocks'] ?? array(), 'core/paragraph');
 $assert(
-    'var(--text-lg)' === $fontSizeOf($paragraph ?? array()),
-    'a responsive paragraph bakes the conditional font-size winner the same way',
-    'got: ' . ('' === $fontSizeOf($paragraph ?? array()) ? '(missing)' : $fontSizeOf($paragraph ?? array()))
+    str_contains((string) ($paragraph['attrs']['className'] ?? ''), 'blocks-engine-responsive-typography-')
+        && '' === $fontSizeOf($paragraph ?? array()),
+    'a responsive paragraph carries the conditional font-size winner the same way',
+    'class: ' . (string) ($paragraph['attrs']['className'] ?? '')
 );
 
 if ( 0 < $failures ) {
