@@ -20,6 +20,16 @@ final class ArtifactNormalizer
     public const MAX_FILES = 5000;
     public const MAX_FILE_BYTES = 10485760;
     public const MAX_TOTAL_BYTES = 335544320;
+    // Reference-backed media is carried as a digest and never read, so it is
+    // bounded on its own budget instead of the budget for parsed source bytes.
+    public const DEFAULT_MAX_MEDIA_FILE_BYTES = 67108864;
+    public const DEFAULT_MAX_MEDIA_TOTAL_BYTES = 536870912;
+    public const MAX_MEDIA_FILE_BYTES = 134217728;
+    public const MAX_MEDIA_TOTAL_BYTES = 1073741824;
+    /** Extensions whose referenced payloads the compiler hydrates and parses. */
+    public const REFERENCE_TEXT_EXTENSIONS = array('css', 'html', 'htm', 'js', 'mjs', 'json', 'md', 'markdown', 'mdx', 'svg');
+    /** Non-`text/*` mime types whose referenced payloads the compiler hydrates. */
+    public const REFERENCE_TEXT_MIME_TYPES = array('application/javascript', 'application/json', 'application/ecmascript');
     private const MAX_REJECTION_SAMPLES = 10;
     private const MAX_REJECTION_SAMPLE_PATH_BYTES = 256;
     private const SAMPLE_ROLES = array('entry', 'document', 'stylesheet', 'script', 'image', 'audio', 'video', 'font', 'data', 'asset');
@@ -39,6 +49,7 @@ final class ArtifactNormalizer
         $rejectionCounts = array();
         $rejectionSamples = array();
         $bytes = 0;
+        $mediaBytes = 0;
         $truncationImpact = null;
         $seenPaths = array();
         $limits = $this->limits($artifact);
@@ -107,14 +118,33 @@ final class ArtifactNormalizer
                 continue;
             }
 
-            if ( $payload['bytes'] > $limits['max_file_bytes'] ) {
+            // A reference-backed media payload is kept closed behind its digest,
+            // so it costs no parsed bytes. Budget it on its own axis instead of
+            // charging it against what the compiler actually reads.
+            $referenceMedia = self::isReferenceBackedBinary(array('path' => $path) + $file);
+
+            if ( $referenceMedia && $payload['bytes'] > $limits['max_media_file_bytes'] ) {
+                ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_media_file_too_large', $file, $path, $payload['bytes']);
+                $diagnostics[] = $this->diagnostic('artifact_media_file_too_large', 'warning', 'A referenced media file was ignored because it exceeds the per-file media byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_media_file_bytes' => $limits['max_media_file_bytes']));
+                continue;
+            }
+
+            if ( ! $referenceMedia && $payload['bytes'] > $limits['max_file_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_file_too_large', $file, $path, $payload['bytes']);
                 $diagnostics[] = $this->diagnostic('artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_file_bytes' => $limits['max_file_bytes']));
                 continue;
             }
 
-            if ( $bytes + $payload['bytes'] > $limits['max_total_bytes'] ) {
+            if ( $referenceMedia && $mediaBytes + $payload['bytes'] > $limits['max_media_total_bytes'] ) {
+                ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_media_total_too_large', $file, $path, $payload['bytes']);
+                $diagnostics[] = $this->diagnostic('artifact_media_total_too_large', 'warning', 'A referenced media file was ignored because the bundle media byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_media_total_bytes' => $limits['max_media_total_bytes']));
+                continue;
+            }
+
+            if ( ! $referenceMedia && ( $bytes - $mediaBytes ) + $payload['bytes'] > $limits['max_total_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_total_too_large', $file, $path, $payload['bytes']);
                 $diagnostics[] = $this->diagnostic('artifact_total_too_large', 'warning', 'An artifact file was ignored because the bundle byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_total_bytes' => $limits['max_total_bytes']));
@@ -219,6 +249,9 @@ final class ArtifactNormalizer
             }
 
             $bytes += $normalized['bytes'];
+            if ( $referenceMedia ) {
+                $mediaBytes += $normalized['bytes'];
+            }
             $files[] = $normalized;
         }
 
@@ -252,6 +285,24 @@ final class ArtifactNormalizer
             'layout_geometry_proof' => $layoutGeometryProof['proof'],
             'truncation_impact' => $truncationImpact,
         );
+    }
+
+    /**
+     * Is this file carried as a portable payload reference the compiler keeps
+     * closed? Such a file contributes no parsed bytes, so it is budgeted as
+     * media. The rule is the single source of truth shared with StagedTransport.
+     *
+     * @param array<string,mixed> $file
+     */
+    public static function isReferenceBackedBinary(array $file): bool
+    {
+        if (!isset($file['payload_reference'])) return false;
+        $mime = strtolower((string) ($file['mime_type'] ?? $file['type'] ?? ''));
+        if ('image/svg+xml' === $mime || str_ends_with(strtolower((string) ($file['path'] ?? '')), '.svg')) return false;
+        $extension = strtolower(pathinfo((string) ($file['path'] ?? ''), PATHINFO_EXTENSION));
+        return !str_starts_with($mime, 'text/')
+            && !in_array($mime, self::REFERENCE_TEXT_MIME_TYPES, true)
+            && !in_array($extension, self::REFERENCE_TEXT_EXTENSIONS, true);
     }
 
     /** @param array<string,int> $counts @param array<int,array<string,mixed>> $samples @param array<string,mixed> $file */
@@ -374,7 +425,7 @@ final class ArtifactNormalizer
         return $impact;
     }
 
-    /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int} */
+    /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int,max_media_file_bytes:int,max_media_total_bytes:int} */
     private function limits(array $artifact): array
     {
         $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
@@ -382,6 +433,8 @@ final class ArtifactNormalizer
             'max_files'       => min(self::MAX_FILES, max(1, (int) ($requested['max_files'] ?? self::DEFAULT_MAX_FILES))),
             'max_file_bytes'  => min(self::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? self::DEFAULT_MAX_FILE_BYTES))),
             'max_total_bytes' => min(self::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? self::DEFAULT_MAX_TOTAL_BYTES))),
+            'max_media_file_bytes'  => min(self::MAX_MEDIA_FILE_BYTES, max(1, (int) ($requested['max_media_file_bytes'] ?? self::DEFAULT_MAX_MEDIA_FILE_BYTES))),
+            'max_media_total_bytes' => min(self::MAX_MEDIA_TOTAL_BYTES, max(1, (int) ($requested['max_media_total_bytes'] ?? self::DEFAULT_MAX_MEDIA_TOTAL_BYTES))),
         );
     }
 

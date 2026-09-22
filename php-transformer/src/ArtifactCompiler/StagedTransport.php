@@ -793,10 +793,22 @@ trait StagedTransport
         $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
         $maxFile = min(ArtifactNormalizer::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES)));
         $maxTotal = min(ArtifactNormalizer::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_TOTAL_BYTES)));
+        $maxMediaFile = min(ArtifactNormalizer::MAX_MEDIA_FILE_BYTES, max(1, (int) ($requested['max_media_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_MEDIA_FILE_BYTES)));
+        $maxMediaTotal = min(ArtifactNormalizer::MAX_MEDIA_TOTAL_BYTES, max(1, (int) ($requested['max_media_total_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_MEDIA_TOTAL_BYTES)));
         $total = 0;
+        $mediaTotal = 0;
         foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $file) {
             if (!is_array($file) || !isset($file['payload_reference'])) continue;
             $reference = $this->payloadReference($file['payload_reference']);
+            // Reference-backed media is never opened by a reader, so its bytes
+            // cannot cause the allocation this budget exists to bound. It is
+            // still bounded, on the media budget, so growth stays refusable.
+            if ($this->isReferenceBackedBinary($file)) {
+                if ($reference['bytes'] > $maxMediaFile) throw new \InvalidArgumentException('A reference-backed media payload exceeds the compiler per-file media byte limit.');
+                $mediaTotal += $reference['bytes'];
+                if ($mediaTotal > $maxMediaTotal) throw new \InvalidArgumentException('Reference-backed media payloads exceed the compiler aggregate media byte limit.');
+                continue;
+            }
             if ($reference['bytes'] > $maxFile) throw new \InvalidArgumentException('A payload reference exceeds the compiler per-file byte limit.');
             $total += $reference['bytes'];
             if ($total > $maxTotal) throw new \InvalidArgumentException('Payload references exceed the compiler aggregate byte limit.');
@@ -855,11 +867,7 @@ trait StagedTransport
     /** @param array<string,mixed> $file */
     private function isReferenceBackedBinary(array $file): bool
     {
-        if (!isset($file['payload_reference'])) return false;
-        $mime = strtolower((string) ($file['mime_type'] ?? $file['type'] ?? ''));
-        if ('image/svg+xml' === $mime || str_ends_with(strtolower((string) ($file['path'] ?? '')), '.svg')) return false;
-        $extension = strtolower(pathinfo((string) ($file['path'] ?? ''), PATHINFO_EXTENSION));
-        return !str_starts_with($mime, 'text/') && !in_array($mime, array('application/javascript', 'application/json', 'application/ecmascript'), true) && !in_array($extension, array('css', 'html', 'htm', 'js', 'mjs', 'json', 'md', 'markdown', 'mdx', 'svg'), true);
+        return ArtifactNormalizer::isReferenceBackedBinary($file);
     }
 
     /** @param array<string,mixed> $hashInput */

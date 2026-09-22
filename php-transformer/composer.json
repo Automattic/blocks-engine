@@ -110,6 +110,7 @@
       "php tests/unit/wordpress-site-plan-composer.php",
       "php tests/unit/style-tag-scanner.php",
       "php tests/unit/artifact-normalizer-source-budget.php",
+      "php tests/unit/artifact-media-budget.php",
       "php tests/unit/subtree-classifier.php",
       "php tests/unit/source-element-classifier.php",
       "php tests/unit/source-dom.php",
