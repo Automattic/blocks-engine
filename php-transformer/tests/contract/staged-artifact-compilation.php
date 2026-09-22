@@ -87,6 +87,39 @@ $assert(!isset($whole['source_reports']['materialization_plan'], $staged['source
 $ordinaryResult = $compiler->compose($shared, array($compiledPages['contact.html'], $compiledPages['index.html'], $compiledPages['about.html']));
 $compiledStaged = $ordinaryResult->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($compiledStaged['source_reports']['wordpress_site_plan'] ?? array()), 'Terminal composition consumes persisted compiled page receipts without changing the canonical site plan.');
+// Composition costs about as much as compiling the pages did, so a caller
+// driving a long batch needs staged completion to tell slow from stalled.
+// Measured wall-clock fields legitimately differ between invocations, so
+// equivalence is asserted on everything else.
+$withoutDurations = static function (array $value) use (&$withoutDurations): array {
+    foreach ( $value as $key => $item ) {
+        if ( str_ends_with((string) $key, '_duration_ms') ) {
+            unset($value[$key]);
+            continue;
+        }
+        if ( is_array($item) ) {
+            $value[$key] = $withoutDurations($item);
+        }
+    }
+    return $value;
+};
+$progress = array();
+$observedResult = $compiler->compose($shared, array($compiledPages['contact.html'], $compiledPages['index.html'], $compiledPages['about.html']), null, static function (string $stage, int $completed, int $total) use (&$progress): void {
+    $progress[] = array($stage, $completed, $total);
+});
+$assert($withoutDurations($observedResult->toArray()) === $withoutDurations($compiledStaged), 'Observing composition does not change what it composes.');
+$assert(array('compose_pages', 0, 3) === $progress[0], 'Composition reports its page total before doing page work.');
+$pageProgress = array_values(array_filter($progress, static fn(array $entry): bool => 'compose_pages' === $entry[0]));
+$assert(array(array('compose_pages', 0, 3), array('compose_pages', 1, 3), array('compose_pages', 2, 3), array('compose_pages', 3, 3)) === $pageProgress, 'Composition reports every page as it folds it in.');
+$assert(in_array(array('reduce_receipts', 1, 1), $progress, true) && in_array(array('finalize_artifact', 1, 1), $progress, true), 'Composition reports the terminal reduce and finalize stages that follow page folding.');
+$assert(array('finalize_artifact', 1, 1) === $progress[count($progress) - 1], 'Composition reports finalize last, so a caller can tell composition finished.');
+
+// An advisory reporter must not be able to fail a composition that succeeded.
+$throwingResult = $compiler->compose($shared, array($compiledPages['contact.html'], $compiledPages['index.html'], $compiledPages['about.html']), null, static function (): void {
+    throw new RuntimeException('reporter exploded');
+});
+$assert($withoutDurations($throwingResult->toArray()) === $withoutDurations($compiledStaged), 'A throwing progress observer cannot fail or alter composition.');
+
 $ordinaryCompactView = (new WordPressSitePlanView())->compact($ordinaryResult->toWordPressSitePlanView());
 $assert($ordinaryCompactView === $ordinaryResult->toCompactWordPressSitePlanView() && 0 === ($ordinaryResult->metrics['html_document_transform_count'] ?? null) && 0 === ($ordinaryResult->metrics['normalization_count'] ?? null), 'Compact staged projection preserves the ordinary result view exactly while retaining terminal metrics on the same composed result.');
 $utf8Description = str_repeat('a', 499) . "\xC3\xA9" . ' retained after the diagnostic boundary';
