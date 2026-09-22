@@ -15,6 +15,8 @@ use DOMElement;
  * |
  * +-- exactly one pure img/video side? -- no --> null
  * |
+ * +-- text side out of flow (overlay)? -- yes -> null
+ * |
  * +-- strict media/layout gates pass? ---- no --> null
  * |
  * +-- convert text child once
@@ -46,7 +48,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
             $media->mediaTextStyle(...),
             SourceDom::htmlAttributes(...),
             $media->resolveImageUrl(...),
-            $context->createBlock(...)
+            $context->createBlock(...),
+            $media->coverStyle(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -61,6 +64,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
      * @param callable(DOMElement): array<string, string> $htmlAttributes
      * @param callable(string): string $resolveAssetUrl
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
+     * @param callable(DOMElement): string $fullPresentationStyle Same source CoverPattern reads background/position
+     *        facts from — a superset of $mergedPresentationStyle's gate-only allow list. Needed here only to see
+     *        `position`, which mediaTextStyle's allow list omits.
      * @return array<string, mixed>|null
      */
     public function match(
@@ -72,7 +78,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
         callable $mergedPresentationStyle,
         callable $htmlAttributes,
         callable $resolveAssetUrl,
-        callable $createBlock
+        callable $createBlock,
+        callable $fullPresentationStyle
     ): ?array {
         $elementChildren = $this->strictElementChildren($element);
         if ( null === $elementChildren || 2 !== count($elementChildren) ) {
@@ -100,6 +107,33 @@ final class MediaTextPattern implements PatternRecognizerInterface
 
         $mediaType = strtolower($resolution['media']->tagName);
         if ( 'video' === $mediaType && $resolution['anchor'] instanceof DOMElement ) {
+            return null;
+        }
+
+        // A sibling taken out of normal flow (`position: absolute`/`fixed`)
+        // can never be a flex/grid item, so it can never be the container's
+        // second pane, no matter what content it holds — a play-button
+        // control laid over a video with `inset:0`, a badge over an image,
+        // etc. Splitting it into media-text's two panes would fabricate a
+        // side-by-side layout the source never renders and steal half the
+        // media's width. Declining here leaves the container to ordinary
+        // flow lowering, which keeps the media and the positioned control
+        // together in one box so the source's positioning CSS still applies
+        // and the control stays reachable. Uses $fullPresentationStyle, not
+        // $mergedPresentationStyle: mediaTextStyle's allow list is a fixed
+        // set of layout-gate properties that omits `position` entirely.
+        try {
+            $textElementStyle = $fullPresentationStyle($elementChildren[ $textIndex ]);
+        } catch ( \Throwable ) {
+            return null;
+        }
+        if ( $this->declaresUnresolvableGateValue($textElementStyle, array( 'position' )) ) {
+            return null;
+        }
+        $textElementPosition = strtolower($this->normalizedCssValue(
+            (string) ($this->styleDeclarations($textElementStyle)['position'] ?? '')
+        ));
+        if ( in_array($textElementPosition, array( 'absolute', 'fixed' ), true) ) {
             return null;
         }
 
