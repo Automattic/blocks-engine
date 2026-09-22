@@ -2901,7 +2901,6 @@ final class ArtifactCompiler
                 ));
                 foreach ($compiled['assets'] as $asset) {
                     if (!is_array($asset)) continue;
-                    $asset['compilation'] = array('scope' => 'shared');
                     $assets[] = $asset;
                 }
                 $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiled['author_stylesheet_projections']);
