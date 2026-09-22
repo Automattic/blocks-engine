@@ -86,6 +86,18 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
             $parts[] = '.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
         }
+        if ( 1 === preg_match('/<figure[^>]*\bwp-block-image\b[^>]*>\s*<a[\s>]/', $serializedBlocks) ) {
+            // core/image serializes a linked image as <figure><a><img></a></figure>.
+            // The author-stylesheet projection bridges a source rule that painted
+            // the <img> onto the generated one with `object-fit:inherit`,
+            // `object-position:inherit` and `border-radius:inherit`, all of which
+            // read the IMMEDIATE parent -- none of the three is an inherited
+            // property. For a linked image that parent is the generated anchor,
+            // which carries none of them, so the bridge resolves to the initial
+            // value and the source's crop is lost. Relay the figure's values
+            // through the anchor so the bridge lands the same either way.
+            $parts[] = ':root :where(.wp-block-image)>a{object-fit:inherit;object-position:inherit;border-radius:inherit}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS) ) {
             $parts[] = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '{display:inline-block}';
         }

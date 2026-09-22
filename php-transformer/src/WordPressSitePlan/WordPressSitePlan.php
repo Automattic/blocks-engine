@@ -11,6 +11,8 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifes
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use InvalidArgumentException;
 
@@ -196,7 +198,8 @@ final class WordPressSitePlan
         $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
-        $assets = self::globalizeSharedChromeStylesheets($assets, $parts);
+        $assets = self::projectSharedChromeStylesheets($assets, $parts);
+        $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
@@ -637,38 +640,86 @@ final class WordPressSitePlan
     }
 
     /**
-     * Shared chrome is extracted from one document but rendered on every page
-     * that binds the part. Its generated class namespace is document-scoped, so
-     * a stylesheet defining those classes cannot stay page-scoped: on every
-     * other page the classes resolve to nothing and the chrome silently loses
-     * its authored layout while still rendering its text. Scope is decided
-     * before shells are known, so promote here, where the parts exist.
+     * Extract only generated rules needed by shared template parts. The source
+     * stylesheet can contain both those projected rules and route-owned rules;
+     * promoting the whole payload changes the cascade on unrelated pages.
      *
      * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $parts
      * @return array<int,array<string,mixed>>
      */
-    private static function globalizeSharedChromeStylesheets(array $assets, array $parts): array
+    private static function projectSharedChromeStylesheets(array $assets, array $parts): array
     {
         $classes = array();
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
             if (!preg_match_all(self::GENERATED_CLASS_PATTERN, (string) ($part['canonical_block_markup'] ?? ''), $matches)) continue;
-            foreach ($matches[0] as $class) $classes['.' . $class] = true;
+            foreach ($matches[0] as $class) $classes[$class] = true;
         }
         if (array() === $classes) return $assets;
-        $classes = array_keys($classes);
-        foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_array($asset['scopes'] ?? null) || array() === $asset['scopes']) continue;
-            foreach ($asset['scopes'] as $scope) if ('global' === ($scope['kind'] ?? null)) continue 2;
-            $content = (string) ($asset['content'] ?? '');
-            if ('' === $content) continue;
-            foreach ($classes as $class) {
-                if (str_contains($content, $class)) { $asset['scopes'] = array(array('kind' => 'global')); continue 2; }
+
+        $projected = array();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content'])) {
+                $projected[] = $asset;
+                continue;
             }
+            $matched = false;
+            $unparseable = false;
+            $shared = (new CssStylesheetTransformer())->transformStyleRules(
+                $asset['content'],
+                static function (string $prelude, string $body) use ($classes, &$matched, &$unparseable): string {
+                    $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+                    if (null === $selectors) {
+                        $unparseable = true;
+                        return '';
+                    }
+                    $kept = array_values(array_filter($selectors, static function (string $selector) use ($classes): bool {
+                        foreach (array_keys($classes) as $class) if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $selector)) return true;
+                        return false;
+                    }));
+                    if (array() === $kept) return '';
+                    $matched = true;
+                    return implode(',', $kept) . '{' . $body . '}';
+                }
+            );
+            if (!$matched || $unparseable) {
+                $projected[] = $asset;
+                continue;
+            }
+            $route = (new CssStylesheetTransformer())->transformStyleRules(
+                $asset['content'],
+                static function (string $prelude, string $body) use ($classes): string {
+                    $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+                    if (null === $selectors) return $prelude . '{' . $body . '}';
+                    $kept = array_values(array_filter($selectors, static function (string $selector) use ($classes): bool {
+                        foreach (array_keys($classes) as $class) if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $selector)) return false;
+                        return true;
+                    }));
+                    return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
+                }
+            );
+            $sharedAsset = $asset;
+            $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $shared), 0, 16) . '.css';
+            $sharedAsset['target_path'] = $sharedAsset['path'];
+            $sharedAsset['source_path'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '') . '.shared-chrome';
+            $sharedAsset['content'] = $shared;
+            $sharedAsset['bytes'] = strlen($shared);
+            $sharedAsset['hash'] = hash('sha256', $shared);
+            $sharedAsset['content_hash'] = $sharedAsset['hash'];
+            $sharedAsset['scopes'] = array(array('kind' => 'global'));
+            $sharedAsset['token'] = 'asset-' . substr(hash('sha256', $sharedAsset['target_path']), 0, 16);
+            $sharedAsset['reconciliation_identity'] = self::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
+            unset($sharedAsset['content_base64']);
+            $asset['content'] = $route;
+            $asset['bytes'] = strlen($route);
+            $asset['hash'] = hash('sha256', $route);
+            $asset['content_hash'] = $asset['hash'];
+            unset($asset['content_base64']);
+            $projected[] = $asset;
+            $projected[] = $sharedAsset;
         }
-        unset($asset);
-        return $assets;
+        return $projected;
     }
 
     /** @param array<int,array<string,mixed>> $assets @param array<int,mixed> $declarations @return array<int,array<string,mixed>> */
