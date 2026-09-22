@@ -140,6 +140,38 @@ $assertContains('<figure class="wp-block-media-text__media"><video controls src=
 $assertNotContains('is-stacked-on-mobile', $video['innerHTML'], 'Explicit false omits stacked class.');
 $assertNotContains('<a', $video['innerHTML'], 'Video does not use image-only link attributes.');
 
+// core/media-text has no block attribute for a video pane's intrinsic
+// dimensions, poster, or native playback state — its save() renders a fixed
+// `<video controls src={mediaUrl} />`. MediaTextPattern still captures those
+// facts under internal-only `mediaVideo*` keys (dropping them collapses the
+// video to the browser's 300x150 default intrinsic size before it can load,
+// shifting every section below it); BlockFactory projects them onto the
+// saved `<video>` tag here and strips the carrier keys from the comment.
+$sizedVideo = $factory->create('core/media-text', array(
+    'mediaType'             => 'video',
+    'mediaUrl'              => 'https://example.com/clip.mp4',
+    'mediaVideoWidth'       => '1280',
+    'mediaVideoHeight'      => '720',
+    'mediaVideoPoster'      => 'https://example.com/clip.jpg',
+    'mediaVideoPreload'     => 'none',
+    'mediaVideoAutoplay'    => true,
+    'mediaVideoLoop'        => true,
+    'mediaVideoMuted'       => true,
+    'mediaVideoPlaysInline' => true,
+), array());
+$assertContains(
+    '<figure class="wp-block-media-text__media"><video controls src="https://example.com/clip.mp4" poster="https://example.com/clip.jpg" preload="none" width="1280" height="720" autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline"></video></figure>',
+    $sizedVideo['innerHTML'],
+    'Video pane emits dimensions, poster, and native playback attributes onto the saved <video> tag.'
+);
+foreach ( array( 'mediaVideoWidth', 'mediaVideoHeight', 'mediaVideoPoster', 'mediaVideoPreload', 'mediaVideoAutoplay', 'mediaVideoLoop', 'mediaVideoMuted', 'mediaVideoPlaysInline' ) as $internalKey ) {
+    $assertSame(false, array_key_exists($internalKey, $sizedVideo['attrs'] ?? array()), $internalKey . ' never reaches the serialized block comment attrs.');
+}
+$sizedVideoValidity = ( new Runtime() )->validateBlockSerialization(array( $sizedVideo ));
+$assertSame('pass', $sizedVideoValidity['status'] ?? null, 'Video dimension/poster/playback carrier attrs do not trip serialization validators.');
+$sizedVideoFindings = ( new CanonicalSaveShapeValidator() )->findings(array( $sizedVideo ));
+$assertSame(array(), $sizedVideoFindings, 'Video dimension/poster/playback carrier attrs do not trip the canonical save-shape validator.');
+
 // A source `<figure>` that wraps the media pane has nowhere else to put its
 // classes: core/media-text's save() only reads `className` onto the outer
 // wrapper `<div>`, never onto the generated `<figure
