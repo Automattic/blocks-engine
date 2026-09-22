@@ -147,7 +147,9 @@ final class AuthoredFormControlBlockConverter
             return null;
         }
         $selected = array_values(array_filter($options, static fn (array $option): bool => !empty($option['selected'])));
-        $selectedOption = $selected[0] ?? $options[0];
+        if (array() === $selected && '' !== $triggerLabel && !in_array($triggerLabel, array_column($options, 'label'), true)) {
+            array_unshift($options, array('label' => $triggerLabel, 'value' => '', 'selected' => true, 'disabled' => true, 'placeholder' => true));
+        }
         $generator = new AuthoredSelectBlockGenerator();
         $registry = ($this->generatedBlocks)();
         $registry->register(AuthoredSelectBlockGenerator::class, $generator->definition($registry->namespace()));
@@ -158,8 +160,6 @@ final class AuthoredFormControlBlockConverter
             'className' => SourceDom::attr($trigger, 'class'),
             'style' => SourceDom::attr($trigger, 'style'),
             'options' => $options,
-            'selectedValue' => (string) ($selectedOption['value'] ?? ''),
-            'selectedLabel' => (string) ($selectedOption['label'] ?? ''),
             'placeholder' => $triggerLabel,
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
         $markup = $generator->markup($attrs);
