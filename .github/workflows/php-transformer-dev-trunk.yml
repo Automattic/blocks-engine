@@ -22,6 +22,13 @@ jobs:
     if: github.repository == 'Automattic/blocks-engine'
 
     steps:
+      # `git subtree` rewrites the component's history onto the mirror, so the
+      # full history must be present. A shallow checkout produces a mirror that
+      # disagrees with the source about every commit before the fetch depth.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: Extra-Chill/homeboy-action@v2.19.1
         with:
           component: php-transformer
