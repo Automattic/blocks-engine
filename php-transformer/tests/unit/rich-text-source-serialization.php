@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
@@ -70,6 +71,19 @@ $assert(
 $assert(
     'pass' === ( ( new BlockValidityValidator() )->validateBlocks($linkedAttachment['blocks'] ?? array())['status'] ?? '' ),
     'A linked image lowered from a paragraph stays Gutenberg-valid.'
+);
+
+$wordBreak = ( new HtmlTransformer() )->transform('<p>Marketing pages<wbr> remain editable.</wbr></p>')->toArray();
+$wordBreakContent = (string) ($wordBreak['blocks'][0]['attrs']['content'] ?? '');
+$wordBreakReport = is_array($wordBreak['source_reports']['editability_report'] ?? null) ? $wordBreak['source_reports']['editability_report'] : array();
+$wordBreakPolicy = ( new EditabilityPolicy() )->evaluate($wordBreakReport);
+$assert(
+    'Marketing pages remain editable.' === $wordBreakContent
+        && ! str_contains($wordBreakContent, 'wbr')
+        && 0 === ($wordBreakReport['metrics']['structural_rich_text_attribute_count'] ?? -1)
+        && 'passed' === ($wordBreakPolicy['status'] ?? '')
+        && 'pass' === ( ( new BlockValidityValidator() )->validateBlocks($wordBreak['blocks'] ?? array())['status'] ?? '' ),
+    'Void wbr presentation hints are removed from RichText without rejecting the editable paragraph.'
 );
 
 if ( 0 === $failures ) {
