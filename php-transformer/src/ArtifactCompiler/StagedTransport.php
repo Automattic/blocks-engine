@@ -365,10 +365,18 @@ trait StagedTransport
     /**
      * Compose independently prepared plans in canonical page-id and path order.
      *
+     * Composition is a single call that costs roughly as much as compiling the
+     * pages did, so a caller driving a long batch has no way to tell a slow
+     * compose from a stalled one. $onProgress reports staged completion so that
+     * caller can surface it. It receives the stage name, the units finished and
+     * the units expected, and is advisory: composition ignores its return value
+     * and never lets a reporting failure change the composed result.
+     *
      * @param array<string,mixed> $sharedPlan
      * @param array<int,array<string,mixed>> $pagePlans
+     * @param null|callable(string,int,int):void $onProgress
      */
-    public function compose(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null): TransformerResult
+    public function compose(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null, ?callable $onProgress = null): TransformerResult
     {
         // A compiler instance may have performed page work previously; terminal
         // receipt metrics describe this invocation only.
@@ -384,6 +392,8 @@ trait StagedTransport
         usort($pagePlans, static fn(array $left, array $right): int => strcmp((string) ($left['page_id'] ?? ''), (string) ($right['page_id'] ?? '')));
         $compiledDocuments = array();
         $reductions = array();
+        $pageTotal = count($pagePlans);
+        $this->reportProgress($onProgress, 'compose_pages', 0, $pageTotal);
         foreach ($pagePlans as $pagePlan) {
             $this->assertPagePlan($pagePlan, $sharedPlan);
             if (isset($seen[$pagePlan['page_id']])) {
@@ -425,6 +435,7 @@ trait StagedTransport
                 $reduction['entry_blocks'] = $pagePlan['compiled_documents'][$entryPath] ?? null;
             }
             $reductions[] = $reduction;
+            $this->reportProgress($onProgress, 'compose_pages', count($reductions), $pageTotal);
         }
         $this->assertUniqueComposedPaths($files);
         $expectedPageIds = is_array($sharedPlan['analysis']['page_ids'] ?? null) ? $sharedPlan['analysis']['page_ids'] : array();
@@ -441,8 +452,34 @@ trait StagedTransport
             // fallback semantics; v2 receipts always use bounded assembly.
             return $this->compileArtifact($artifact);
         }
+        $this->reportProgress($onProgress, 'reduce_receipts', 0, 1);
         $terminalReduction = $this->reduceCompiledReceipts($sharedPlan, $sharedArtifact, $reductions, $compiledDocuments);
-        return $this->finalizeArtifact($terminalReduction['artifact'], $terminalReduction);
+        $this->reportProgress($onProgress, 'reduce_receipts', 1, 1);
+        $this->reportProgress($onProgress, 'finalize_artifact', 0, 1);
+        $result = $this->finalizeArtifact($terminalReduction['artifact'], $terminalReduction);
+        $this->reportProgress($onProgress, 'finalize_artifact', 1, 1);
+        return $result;
+    }
+
+    /**
+     * Report composition progress to an advisory observer.
+     *
+     * Observation must not be able to change what composition produces, so a
+     * throwing observer is swallowed rather than allowed to abort a batch that
+     * had already succeeded. Errors are not rethrown for the same reason.
+     *
+     * @param null|callable(string,int,int):void $onProgress
+     */
+    private function reportProgress(?callable $onProgress, string $stage, int $completed, int $total): void
+    {
+        if (null === $onProgress) {
+            return;
+        }
+        try {
+            $onProgress($stage, $completed, $total);
+        } catch (\Throwable) {
+            // An advisory reporter cannot fail composition.
+        }
     }
 
     /**
