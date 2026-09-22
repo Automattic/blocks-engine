@@ -448,6 +448,10 @@ final class StyleResolver implements ElementPresentationResolver
 
     public function responsiveTypographyClassName(DOMElement $element): string
     {
+        if (isset($this->cssDeclarations(SourceDom::attr($element, 'style'))['font-size'])) {
+            return '';
+        }
+
         $hasConditionalFontSize = false;
         foreach ($this->context->sourceStyles()->conditionalRules() as $rule) {
             if (isset($rule['declarations']['font-size'])) {
