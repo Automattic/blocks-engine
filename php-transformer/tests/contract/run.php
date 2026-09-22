@@ -6108,6 +6108,7 @@ $assert(2 === count($negotiatedLimits['files']), 'artifact compiler accepts file
 $assert(array(
     'max_files' => ArtifactNormalizer::MAX_FILES,
     'max_file_bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1,
+    'max_reference_file_bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1,
     'max_total_bytes' => ArtifactNormalizer::MAX_TOTAL_BYTES,
 ) === ($negotiatedLimits['limits'] ?? null), 'artifact compiler clamps negotiated limits to hard resource ceilings');
 

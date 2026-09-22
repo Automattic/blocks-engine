@@ -20,6 +20,15 @@ final class ArtifactNormalizer
     public const MAX_FILES = 5000;
     public const MAX_FILE_BYTES = 10485760;
     public const MAX_TOTAL_BYTES = 335544320;
+    /**
+     * The per-file ceiling for a payload the compiler transports by
+     * `payload_reference` rather than reads into memory: payload() below
+     * never decodes or parses referenced bytes, so MAX_FILE_BYTES' parse/
+     * allocation rationale does not apply to it. Still bounded -- by the
+     * aggregate ceiling, since no single payload can exceed the whole
+     * artifact's byte budget anyway.
+     */
+    public const MAX_REFERENCE_FILE_BYTES = self::MAX_TOTAL_BYTES;
     private const MAX_REJECTION_SAMPLES = 10;
     private const MAX_REJECTION_SAMPLE_PATH_BYTES = 256;
     private const SAMPLE_ROLES = array('entry', 'document', 'stylesheet', 'script', 'image', 'audio', 'video', 'font', 'data', 'asset');
@@ -27,7 +36,7 @@ final class ArtifactNormalizer
 
     /**
      * @param array<string, mixed> $artifact
-     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, source_hash: string, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>, truncation_impact: array<string,mixed>|null}
+     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_reference_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, source_hash: string, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>, truncation_impact: array<string,mixed>|null}
      */
     public function normalize(array $artifact): array
     {
@@ -107,10 +116,16 @@ final class ArtifactNormalizer
                 continue;
             }
 
-            if ( $payload['bytes'] > $limits['max_file_bytes'] ) {
+            // A file still carrying a payload_reference here was never
+            // decoded or parsed above (payload() returns it opaque); the
+            // parse-oriented ceiling protects nothing for it, so it is
+            // checked against the reference ceiling instead.
+            $isReferencePayload = is_array($payload['payload_reference'] ?? null);
+            $fileByteLimit = $isReferencePayload ? $limits['max_reference_file_bytes'] : $limits['max_file_bytes'];
+            if ( $payload['bytes'] > $fileByteLimit ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_file_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_file_bytes' => $limits['max_file_bytes']));
+                $diagnostics[] = $this->diagnostic('artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_file_bytes' => $fileByteLimit));
                 continue;
             }
 
@@ -374,14 +389,27 @@ final class ArtifactNormalizer
         return $impact;
     }
 
-    /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int} */
+    /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_reference_file_bytes:int,max_total_bytes:int} */
     private function limits(array $artifact): array
     {
         $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
+        // A caller negotiates one requested per-file allowance, clamped to
+        // two different ceilings depending on what the file costs the
+        // compiler to admit (see the payload_reference check above), so
+        // raising it can only ever widen the reference ceiling, never the
+        // parse-oriented one. This method's own output is a valid
+        // compiler_limits input (staged preparation re-normalizes an
+        // already-normalized envelope), so an explicit max_reference_file_bytes
+        // is honored directly rather than re-derived from the
+        // already-narrowed max_file_bytes that round trip would otherwise
+        // collapse it to.
+        $requestedMaxFileBytes = max(1, (int) ($requested['max_file_bytes'] ?? self::DEFAULT_MAX_FILE_BYTES));
+        $requestedMaxReferenceFileBytes = max(1, (int) ($requested['max_reference_file_bytes'] ?? $requestedMaxFileBytes));
         return array(
-            'max_files'       => min(self::MAX_FILES, max(1, (int) ($requested['max_files'] ?? self::DEFAULT_MAX_FILES))),
-            'max_file_bytes'  => min(self::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? self::DEFAULT_MAX_FILE_BYTES))),
-            'max_total_bytes' => min(self::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? self::DEFAULT_MAX_TOTAL_BYTES))),
+            'max_files'                => min(self::MAX_FILES, max(1, (int) ($requested['max_files'] ?? self::DEFAULT_MAX_FILES))),
+            'max_file_bytes'           => min(self::MAX_FILE_BYTES, $requestedMaxFileBytes),
+            'max_reference_file_bytes' => min(self::MAX_REFERENCE_FILE_BYTES, $requestedMaxReferenceFileBytes),
+            'max_total_bytes'          => min(self::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? self::DEFAULT_MAX_TOTAL_BYTES))),
         );
     }
 

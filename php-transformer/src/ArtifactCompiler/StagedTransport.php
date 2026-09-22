@@ -790,17 +790,29 @@ trait StagedTransport
         return $plan;
     }
 
-    /** Reject unbounded reference declarations before a reader can allocate. */
+    /**
+     * Reject unbounded reference declarations before a reader can allocate.
+     *
+     * A reference this stage will hydrate and parse (see isReferenceBackedBinary()
+     * / readPayload() below) keeps the strict, parse-oriented ceiling: that
+     * cost is real. An opaque binary reference is only ever carried by id --
+     * never read here -- so its meaningful bound is the aggregate ceiling,
+     * not the parse ceiling; it is still clamped, just to a larger, caller-
+     * negotiable allowance sized to that aggregate budget.
+     */
     private function assertReferenceLimits(array $artifact): void
     {
         $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
-        $maxFile = min(ArtifactNormalizer::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES)));
+        $requestedMaxFile = max(1, (int) ($requested['max_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES));
+        $maxFile = min(ArtifactNormalizer::MAX_FILE_BYTES, $requestedMaxFile);
+        $maxReferenceFile = min(ArtifactNormalizer::MAX_REFERENCE_FILE_BYTES, $requestedMaxFile);
         $maxTotal = min(ArtifactNormalizer::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_TOTAL_BYTES)));
         $total = 0;
         foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $file) {
             if (!is_array($file) || !isset($file['payload_reference'])) continue;
             $reference = $this->payloadReference($file['payload_reference']);
-            if ($reference['bytes'] > $maxFile) throw new \InvalidArgumentException('A payload reference exceeds the compiler per-file byte limit.');
+            $fileLimit = $this->isReferenceBackedBinary($file) ? $maxReferenceFile : $maxFile;
+            if ($reference['bytes'] > $fileLimit) throw new \InvalidArgumentException('A payload reference exceeds the compiler per-file byte limit.');
             $total += $reference['bytes'];
             if ($total > $maxTotal) throw new \InvalidArgumentException('Payload references exceed the compiler aggregate byte limit.');
         }

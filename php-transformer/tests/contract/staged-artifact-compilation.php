@@ -589,6 +589,60 @@ $oversizedReference = array('entrypoint' => 'index.html', 'files' => array(array
 $throws(static fn() => (new ArtifactCompiler())->prepareShared($oversizedReference, $oversizedReads), 'Oversized declared references are rejected before payload hydration.');
 $assert(0 === $oversizedReads->reads, 'Oversized declared references invoke no payload reader calls.');
 
+// An opaque binary reference (a large media file the compiler transports by
+// id, never parses) is bounded by the aggregate budget once a caller
+// negotiates a larger per-file allowance -- the fix for the real-world
+// failure where two videos of 13.6 MB and 11.5 MB were rejected by a hard
+// 10 MiB per-file ceiling the caller could not raise, despite ~260 MiB of
+// unused headroom in a 320 MiB aggregate budget.
+$mediaBytes = 13 * 1024 * 1024; // Above ArtifactNormalizer::MAX_FILE_BYTES (10 MiB), the old hard ceiling.
+$mediaContent = str_repeat('m', $mediaBytes);
+$noReads = new class implements PayloadReader { public int $reads = 0; public function read(array $reference): string { ++$this->reads; return ''; } };
+$mediaReferenceArtifact = array('entrypoint' => 'index.html', 'compiler_limits' => array('max_file_bytes' => 20 * 1024 * 1024), 'files' => array(
+    array('path' => 'index.html', 'content' => '<main>Video page</main>'),
+    array('path' => 'assets/clip.mp4', 'payload_reference' => array('schema' => 'blocks-engine/payload-reference/v1', 'id' => 'clip', 'bytes' => $mediaBytes, 'sha256' => hash('sha256', $mediaContent)), 'metadata' => array('compilation' => array('scope' => 'shared'))),
+));
+$mediaShared = (new ArtifactCompiler())->prepareShared($mediaReferenceArtifact, $noReads);
+$assert(0 === $noReads->reads, 'An opaque media reference above the old hard per-file ceiling is accepted, within the negotiated bound, without ever being read into memory.');
+$mediaSharedAsset = current(array_filter($mediaShared['artifact']['files'], static fn(array $file): bool => 'assets/clip.mp4' === ($file['path'] ?? null)));
+$assert(is_array($mediaSharedAsset) && isset($mediaSharedAsset['payload_reference']), 'The accepted media file remains reference-backed, never hydrated, in the prepared plan.');
+
+// Without a caller negotiating a larger allowance, the conservative default
+// still applies -- the clamp is raisable, not removed.
+$defaultBoundReference = $mediaReferenceArtifact;
+unset($defaultBoundReference['compiler_limits']);
+$throws(static fn() => (new ArtifactCompiler())->prepareShared($defaultBoundReference, $noReads), 'A media reference above the default per-file allowance is still rejected when the caller has not negotiated a larger one.');
+
+// A caller-requested per-file limit is honored, not silently re-clamped back
+// to the old hard ceiling: a request narrower than the media file's size is
+// still enforced, proving the negotiated value -- not an unconditional
+// maximum -- gates admission.
+$narrowLimitArtifact = $mediaReferenceArtifact;
+$narrowLimitArtifact['compiler_limits']['max_file_bytes'] = $mediaBytes - 1;
+$throws(static fn() => (new ArtifactCompiler())->prepareShared($narrowLimitArtifact, $noReads), 'A caller-negotiated per-file limit narrower than the payload is still enforced.');
+
+// The aggregate ceiling keeps being enforced exactly regardless of the
+// raised per-file allowance: two references that individually fit under a
+// generous per-file bound, but together exceed the negotiated aggregate
+// budget, still throw.
+$aggregateExceededArtifact = array('entrypoint' => 'index.html', 'compiler_limits' => array('max_file_bytes' => 20 * 1024 * 1024, 'max_total_bytes' => 20 * 1024 * 1024), 'files' => array(
+    array('path' => 'index.html', 'content' => '<main>Video page</main>'),
+    array('path' => 'assets/clip-one.mp4', 'payload_reference' => array('schema' => 'blocks-engine/payload-reference/v1', 'id' => 'clip-one', 'bytes' => 13 * 1024 * 1024, 'sha256' => hash('sha256', 'clip-one')), 'metadata' => array('compilation' => array('scope' => 'shared'))),
+    array('path' => 'assets/clip-two.mp4', 'payload_reference' => array('schema' => 'blocks-engine/payload-reference/v1', 'id' => 'clip-two', 'bytes' => 11 * 1024 * 1024, 'sha256' => hash('sha256', 'clip-two')), 'metadata' => array('compilation' => array('scope' => 'shared'))),
+));
+$throws(static fn() => (new ArtifactCompiler())->prepareShared($aggregateExceededArtifact, $noReads), 'Two media references that individually fit the raised per-file bound but together exceed the negotiated aggregate budget still throw.');
+
+// A parse-oriented reference (HTML the compiler hydrates and parses, not an
+// opaque binary) keeps the strict ceiling even once a caller raises
+// max_file_bytes for media: the raised allowance widens only the reference
+// ceiling, never the parse ceiling.
+$parsedReferenceContent = str_repeat('<p>x</p>', 2 * 1024 * 1024);
+$parsedOversizedArtifact = array('entrypoint' => 'index.html', 'compiler_limits' => array('max_file_bytes' => 20 * 1024 * 1024), 'files' => array(
+    array('path' => 'index.html', 'payload_reference' => array('schema' => 'blocks-engine/payload-reference/v1', 'id' => 'parsed', 'bytes' => strlen($parsedReferenceContent), 'sha256' => hash('sha256', $parsedReferenceContent))),
+));
+$throws(static fn() => (new ArtifactCompiler())->prepareShared($parsedOversizedArtifact, $noReads), 'An HTML reference above the parse-oriented ceiling is still rejected even when a caller has raised max_file_bytes for media.');
+$assert(0 === $noReads->reads, 'Rejected references invoke no payload reader calls in any of the preceding cases.');
+
 $deepHtml = '<p>Deep receipt leaf</p>';
 for ($depth = 0; $depth < 40; ++$depth) $deepHtml = '<div class="depth-' . $depth . '">' . $deepHtml . '</div>';
 $deepArtifact = array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'content' => $deepHtml)));

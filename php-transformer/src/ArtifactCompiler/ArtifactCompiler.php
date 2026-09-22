@@ -338,9 +338,10 @@ final class ArtifactCompiler
                 'files_by_intent' => $this->countBy($normalized['files'], 'intent'),
                 'truncation_impact' => $normalized['truncation_impact'],
                 'limits'          => array(
-                    'max_files'       => $normalized['limits']['max_files'],
-                    'max_file_bytes'  => $normalized['limits']['max_file_bytes'],
-                    'max_total_bytes' => $normalized['limits']['max_total_bytes'],
+                    'max_files'                => $normalized['limits']['max_files'],
+                    'max_file_bytes'           => $normalized['limits']['max_file_bytes'],
+                    'max_reference_file_bytes' => $normalized['limits']['max_reference_file_bytes'],
+                    'max_total_bytes'          => $normalized['limits']['max_total_bytes'],
                 ),
                 'source_hash'     => $normalized['source_hash'],
                 'html'            => array(

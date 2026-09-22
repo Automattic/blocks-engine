@@ -107,6 +107,70 @@ $rejectionContext = $rejectionDiagnostic['context'] ?? array();
 $assert('success_with_warnings' === $oversizedResult['status'] && 1 === ($rejectionContext['rejected_count'] ?? null) && 1 === ($rejectionContext['rejected_by_code']['artifact_file_too_large'] ?? null), 'An ordinary compile persists a bounded final warning for an oversized artifact input.');
 $assert(array('code' => 'artifact_file_too_large', 'path' => 'evidence.json', 'bytes' => 16230577, 'declared_type' => 'json') === ($rejectionContext['samples'][0] ?? null) && 0 === ($rejectionContext['samples_omitted'] ?? null), 'The final warning retains only bounded generic artifact facts, not arbitrary declared metadata or rejected payload content.');
 
+// A payload_reference file is an opaque descriptor the normalizer never
+// decodes or parses (payload() below returns it as a reference, not
+// content), so the parse-oriented ceiling above does not protect anything
+// for it. It is bounded by the larger, aggregate-scaled reference ceiling
+// instead, and that ceiling is still raisable by the same caller request.
+$mediaReferenceBytes = 13 * 1024 * 1024; // Above ArtifactNormalizer::MAX_FILE_BYTES (10 MiB), the old hard per-file ceiling.
+$mediaReference = array('schema' => 'blocks-engine/payload-reference/v1', 'id' => 'clip', 'bytes' => $mediaReferenceBytes, 'sha256' => hash('sha256', 'clip-fixture'));
+$referenceLimits = $normalizer->normalize(array(
+    'compiler_limits' => array('max_file_bytes' => 20 * 1024 * 1024),
+    'files' => array(
+        array('path' => 'index.html', 'content' => '<main>Accepted</main>'),
+        array('path' => 'assets/clip.mp4', 'payload_reference' => $mediaReference),
+    ),
+));
+$assert(
+    20 * 1024 * 1024 === $referenceLimits['limits']['max_reference_file_bytes']
+    && ArtifactNormalizer::MAX_FILE_BYTES === $referenceLimits['limits']['max_file_bytes'],
+    'A negotiated per-file request raises only the reference ceiling; the parse-oriented ceiling stays at its hard bound.'
+);
+$assert(
+    0 === $referenceLimits['rejected_count']
+    && in_array('assets/clip.mp4', array_column($referenceLimits['files'], 'path'), true),
+    'A payload reference above the old 10 MiB per-file ceiling is accepted once the caller negotiates a larger allowance.'
+);
+
+// Without negotiation, the parse-oriented default still governs a reference
+// too large for it -- and rejection is not silent: a diagnostic naming the
+// exact bound applied is always surfaced, and the compile-level summary
+// still reports it.
+$unnegotiatedReferenceLimits = $normalizer->normalize(array(
+    'files' => array(
+        array('path' => 'index.html', 'content' => '<main>Accepted</main>'),
+        array('path' => 'assets/clip.mp4', 'payload_reference' => $mediaReference),
+    ),
+));
+$assert(1 === $unnegotiatedReferenceLimits['rejected_count'], 'A payload reference above the default per-file allowance is still rejected without caller negotiation.');
+$referenceRejection = current(array_filter($unnegotiatedReferenceLimits['diagnostics'], static fn(array $diagnostic): bool => 'artifact_file_too_large' === ($diagnostic['code'] ?? null)));
+$assert(
+    is_array($referenceRejection)
+    && 'assets/clip.mp4' === ($referenceRejection['context']['path'] ?? null)
+    && $unnegotiatedReferenceLimits['limits']['max_reference_file_bytes'] === ($referenceRejection['context']['max_file_bytes'] ?? null),
+    'An oversized payload-referenced file is rejected with a surfaced diagnostic naming the reference ceiling actually applied, not silently dropped.'
+);
+$unnegotiatedReferenceCompile = (new ArtifactCompiler())->compile(array(
+    'files' => array(
+        array('path' => 'index.html', 'content' => '<main>Accepted</main>'),
+        array('path' => 'assets/clip.mp4', 'payload_reference' => $mediaReference),
+    ),
+))->toArray();
+$referenceRejectionSummary = current(array_filter($unnegotiatedReferenceCompile['diagnostics'], static fn(array $diagnostic): bool => 'artifact_inputs_rejected' === ($diagnostic['code'] ?? null)));
+$assert(1 === ($referenceRejectionSummary['context']['rejected_by_code']['artifact_file_too_large'] ?? null), 'A whole-artifact compile also surfaces the oversized reference rejection in its bounded final summary.');
+
+// A parse-oriented file (real text content, not a reference) at the same
+// declared byte count keeps the strict ceiling regardless: the fix widens
+// only the reference ceiling.
+$parsedOversized = $normalizer->normalize(array(
+    'compiler_limits' => array('max_file_bytes' => 20 * 1024 * 1024),
+    'files' => array(
+        array('path' => 'index.html', 'content' => '<main>Accepted</main>'),
+        array('path' => 'evidence-large.json', 'content' => str_repeat('x', $mediaReferenceBytes), 'type' => 'json'),
+    ),
+));
+$assert(1 === $parsedOversized['rejected_count'], 'A parsed (non-reference) file above the hard parse-oriented ceiling is rejected even when the caller has raised max_file_bytes for references.');
+
 $manyDroppedFiles = array(array('path' => 'index.html', 'content' => '<main>Accepted</main>'));
 for ($index = 0; $index < 12; ++$index) $manyDroppedFiles[] = array('path' => 'ancillary-' . $index . '.json', 'content' => '{}', 'role' => 'evidence', 'type' => 'json');
 $manyDropped = $normalizer->normalize(array('compiler_limits' => array('max_files' => 1), 'files' => $manyDroppedFiles));
