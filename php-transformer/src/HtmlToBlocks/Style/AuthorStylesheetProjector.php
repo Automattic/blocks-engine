@@ -1563,7 +1563,7 @@ final class AuthorStylesheetProjector
             }
             $projected[] = $parsed['supported']
                 ? $this->projectImageSelector($selector, $parsed, $context, false, true)
-                : $selector . ' .wp-block-media-text__media > img';
+                : '.wp-block-media-text__media > img';
         }
 
         return implode(',', array_values(array_unique($projected)));
@@ -1844,7 +1844,12 @@ final class AuthorStylesheetProjector
                     ));
                 }
             }
-            return $selector . ' .wp-block-media-text__media > img';
+            // The source image's classes are intentionally not copied to the
+            // native media-text wrapper: width constraints there resize the
+            // whole text/image row. All matched source elements are known
+            // media-text images, so project the declaration directly to the
+            // generated image while retaining the source selector's weight.
+            return '.wp-block-media-text__media > img' . $this->selectorSpecificityShims($parsed, $context);
         }
         $replacements = array(
             (int) $parsed['rightmost_rewrite_end'] => array(

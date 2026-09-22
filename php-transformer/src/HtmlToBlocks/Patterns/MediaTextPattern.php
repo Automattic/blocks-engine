@@ -280,15 +280,14 @@ final class MediaTextPattern implements PatternRecognizerInterface
         }
 
         // core/media-text's save() only round-trips custom classes on the
-        // outer wrapper. Keep source figure and image classes there; adding
-        // them to either generated media node makes native save validation
-        // fail because both inner attribute shapes are rigid.
+        // outer wrapper. Figure classes describe that wrapper's surface, but
+        // image classes belong to the generated media image and must not leak
+        // onto the whole media-text container.
         $sourceFigure = $this->enclosingSourceFigure($element);
         $figureClassName = $sourceFigure instanceof DOMElement ? trim($this->attr($sourceFigure, 'class')) : '';
         $attrs['className'] = SourceDom::mergeClassNames(
             (string) ($attrs['className'] ?? ''),
-            $figureClassName,
-            'img' === $mediaType ? $this->attr($resolution['media'], 'class') : ''
+            $figureClassName
         );
         if ( '' === $attrs['className'] ) {
             unset($attrs['className']);
