@@ -3040,6 +3040,22 @@ $expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
 $assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
+// A capture sentinel is not a drawable image. Keep the authored carrier box,
+// but do not turn its unavailable decorative paint into a broken core/image.
+$neutralBackground = ( new HtmlTransformer() )->transform(
+    '<main><div class="hero" style="position:relative;height:400px;background-image:url(about:blank);background-size:cover"></div></main>'
+)->toArray();
+$neutralBackgroundSerialized = (string) ($neutralBackground['serialized_blocks'] ?? '');
+$neutralBackgroundCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $neutralBackground['assets'] ?? array()));
+$assert(str_contains($neutralBackgroundSerialized, 'blocks-engine-empty-visual-group') && ! str_contains($neutralBackgroundSerialized, '<!-- wp:image') && ! str_contains($neutralBackgroundSerialized, 'about:blank'), 'about:blank decorative backgrounds retain their carrier without materializing a broken image');
+$assert(str_contains($neutralBackgroundCss, 'height:400px') && str_contains($neutralBackgroundCss, 'position:relative'), 'about:blank decorative backgrounds retain the carrier geometry');
+$assert(array() === ( new CanonicalSaveShapeValidator() )->findings($neutralBackground['blocks'] ?? array()), 'about:blank decorative background carrier passes save-shape validation');
+$neutralLayeredBackground = ( new HtmlTransformer() )->transform(
+    '<main><div style="height:400px;background:linear-gradient(#fff,#000),url(about:blank)"></div></main>'
+)->toArray();
+$neutralLayeredSerialized = (string) ($neutralLayeredBackground['serialized_blocks'] ?? '');
+$assert(str_contains($neutralLayeredSerialized, 'linear-gradient(#fff,#000),url(about:blank)') && ! str_contains($neutralLayeredSerialized, '<!-- wp:image'), 'neutralized image layers do not discard an accompanying gradient paint');
+
 // Slice 4 L6: support-derived color and spacing declarations retain canonical
 // wrapper attribute order before the cover-owned min-height declaration.
 $styledCoverHero = ( new HtmlTransformer() )->transform(

@@ -30,7 +30,10 @@ final class BackgroundImageExtractor
     private function safeUrl(string $value): string
     {
         $url = trim(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
+        // Capture runtimes use about:blank to neutralize an unavailable
+        // decorative background. It is not an image payload: materializing it
+        // as core/image creates a broken-image box that the source never had.
+        if ( '' === $url || 0 === strcasecmp($url, 'about:blank') || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
             return '';
         }
 
