@@ -471,7 +471,7 @@ $imageCss = (string) ($imageStylesheet['content'] ?? '');
 $assert(str_contains($imageCss, '.photo{position:absolute;width:123px;height:106px;object-fit:cover}') && str_contains($imageCss, '.relative-photo{width:86.356%;height:auto;aspect-ratio:727.431 / 593.583}'), 'source image geometry remains on the canonical core/image wrapper');
 $assert(str_contains($imageCss, '{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}') && ! str_contains($imageCss, '> img{width:123px') && ! str_contains($imageCss, '> img{width:86.356%'), 'canonical nested images fill explicitly owned wrapper geometry instead of applying source dimensions twice');
 $assert(str_contains($imageCss, '{display:block;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}') && ! preg_match('/source-tag-img[^,{]*\.wp-block-image > img\{[^}]*width:100%/', $imageCss), 'generic image presentation selectors do not impose nested image geometry');
-$assert(preg_match('/where\(figure\).*\.photo\.wp-block-image > img\{display:block;max-width:100%/', $imageCss) && preg_match('/blocks-engine-root-child-.*\.wp-block-image > img\{display:block;max-width:100%/', $imageCss), 'type and root-child image selectors project the canonical nested-image bridge without inventing dimensions');
+$assert(preg_match('/where\(figure\).*\.photo\.wp-block-image > img,[^{]*\.wp-block-image > a > img\{display:block;max-width:100%/', $imageCss) && preg_match('/blocks-engine-root-child-.*\.wp-block-image > img,[^{]*\.wp-block-image > a > img\{display:block;max-width:100%/', $imageCss), 'type and root-child image selectors project the canonical nested-image bridge without inventing dimensions');
 $assert('text' === ($imageStylesheet['content_encoding'] ?? '') && ! isset($imageStylesheet['content_base64']) && '' !== $imageCss, 'stylesheet projection drops the stale base64 twin and keeps the rewritten text as the sole payload representation');
 $assert(1 === preg_match('/<!-- wp:image [\s\S]*<figure[^>]*photo[^>]*><img/', (string) ($image['serialized_blocks'] ?? '')), 'image projection preserves canonical core/image figure markup');
 
@@ -485,7 +485,7 @@ $positionedImage = ( new ArtifactCompiler() )->compile(array(
 $positionedImageCss = implode("\n", array_column($positionedImage['assets'] ?? array(), 'content'));
 $assert(str_contains((string) ($positionedImage['serialized_blocks'] ?? ''), 'map be-inline-geometry-'), 'unsupported inline image presentation uses a deterministic carrier class');
 $assert(str_contains($positionedImageCss, 'object-fit:fill !important;object-position:-197.702px -102.702px !important'), 'image presentation carrier preserves source object fit and position for the nested image bridge');
-$assert(str_contains($positionedImageCss, '.map.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}'), 'nested image fills a wrapper with explicitly owned width and height');
+$assert(str_contains($positionedImageCss, '.map.wp-block-image > img,.map.wp-block-image > a > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}'), 'nested image fills a wrapper with explicitly owned width and height, linked or not');
 
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',

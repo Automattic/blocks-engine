@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-linked-fill-image-percentage-height-chain",
+  "description": "Two identical cards whose author CSS fills a fixed-height media box with an absolutely positioned `width:100%;height:100%` image. One card is wrapped in a link, the other is not. core/image serializes a linked image as `<figure><a><img></a></figure>`, so the linked card gains an injected, inline-level, auto-height <a> between the figure that carries the container height and the <img> whose authored percentage height has to resolve against it. Without the link being sized, that percentage resolves against an auto-height box and the image falls back to its intrinsic ratio, rendering short with a gap below it, while the byte-identical unlinked card is correct. The figure-height carrier therefore restates the fill on the injected link, and the projected author rule that bridges the source image's box onto the generated <img> is projected through the link as well so object-fit/object-position/border-radius still reach it. The unlinked card must keep exactly the markup and carrier rule it had before: no link rule is emitted for an image no source ancestor links.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-linked-fill-image-percentage-height-chain.json",
+    "notes": "Regression coverage for a card grid whose linked cover photos rendered at their intrinsic aspect ratio instead of filling the card's fixed-height media box."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.card-grid{display:grid;grid-template-columns:1fr 1fr;grid-column-gap:32px}.card{display:flex;flex-flow:column;grid-row-gap:16px;text-decoration:none}.media{position:relative;width:100%;min-height:300px;border-radius:10px;overflow:hidden}.fill{position:absolute;inset:0%;width:100%;height:100%;object-fit:cover;object-position:50% 0%}</style></head><body><div class=\"card-grid\"><a class=\"card\" href=\"/venues\"><div class=\"media\"><img src=\"https://example.com/venue.jpg\" width=\"2400\" height=\"1350\" alt=\"Venue\" class=\"fill\"></div><div class=\"card-body\"><h3>Global Partner Venues</h3></div></a><div class=\"card\"><div class=\"media\"><img src=\"https://example.com/offsite.jpg\" width=\"2400\" height=\"1350\" alt=\"Off-sites\" class=\"fill\"></div><div class=\"card-body\"><h3>Off-Sites</h3></div></div></div></body></html>"
+  },
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/venues\"><img src=\"https://example.com/venue.jpg\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"width\":\"100%\",\"height\":\"100%\",\"scale\":\"cover\",\"linkDestination\":\"custom\"" },
+    { "path": "assets.0.content", "assert": "contains", "value": ".be-inline-geometry-d0aa3444e7dca1c2c2b3a9c6c01997ef59deb1ff83d02b30fd4ab0496a96eb79{height:100% !important}.be-inline-geometry-d0aa3444e7dca1c2c2b3a9c6c01997ef59deb1ff83d02b30fd4ab0496a96eb79>a{display:block !important;width:100% !important;height:100% !important}" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "be-inline-geometry-d0aa3444e7dca1c2c2b3a9c6c01997ef59deb1ff83d02b30fd4ab0496a96eb79" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".fill.wp-block-image > img,.fill.wp-block-image > a > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}" },
+    { "path": "assets.0.content", "assert": "contains", "value": ".be-inline-geometry-0920923a5c6cf48a9bca3d6610074cb5fe9c0658035c4c9df5b30d867429e15e{height:100% !important}\n" },
+    { "path": "assets.0.content", "assert": "not_contains", "value": ".be-inline-geometry-0920923a5c6cf48a9bca3d6610074cb5fe9c0658035c4c9df5b30d867429e15e>a" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image is-resized fill be-inline-geometry-0920923a5c6cf48a9bca3d6610074cb5fe9c0658035c4c9df5b30d867429e15e blocks-engine-synthetic-image-figure\"><img src=\"https://example.com/offsite.jpg\"" }
+  ]
+}
