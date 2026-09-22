@@ -1,0 +1,33 @@
+name: PHP Transformer dev-trunk mirror
+
+on:
+  push:
+    branches:
+      - trunk
+    paths:
+      - "php-transformer/**"
+      - ".github/workflows/php-transformer-dev-trunk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: component-release
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: Mirror PHP Transformer trunk
+    runs-on: ubuntu-latest
+    if: github.repository == 'Automattic/blocks-engine'
+
+    steps:
+      - uses: Extra-Chill/homeboy-action@v2.19.1
+        with:
+          component: php-transformer
+          version: 0.383.4
+          commands: git subtree php-transformer ${{ github.sha }} --apply --branch-only
+          ssh-key: ${{ secrets.PHP_TRANSFORMER_MIRROR_DEPLOY_KEY }}
+          ssh-known-hosts: |
+            github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+          ssh-require-known-hosts: true
