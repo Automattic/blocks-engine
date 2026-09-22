@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
@@ -107,7 +108,7 @@ final class BlockFactory
         // paths, but do not let display make the stored wrapper diverge from
         // Gutenberg save(); a required authored override remains on its carrier.
         if ( str_starts_with($name, 'core/') && is_string($attrs['inlineGeometryStyle'] ?? null) ) {
-            $attrs['inlineGeometryStyle'] = trim((string) preg_replace('/(?:^|;)\s*display\s*:[^;]*(?:;|$)/i', '', $attrs['inlineGeometryStyle']), ';');
+            $attrs['inlineGeometryStyle'] = $this->withoutDisplayDeclarations($attrs['inlineGeometryStyle']);
             if ( '' === $attrs['inlineGeometryStyle'] ) {
                 unset($attrs['inlineGeometryStyle']);
             }
@@ -140,6 +141,20 @@ final class BlockFactory
         }
 
         return $attrs;
+    }
+
+    private function withoutDisplayDeclarations(string $style): string
+    {
+        $kept = array();
+        foreach ( CssValueSplitter::splitTopLevel($style, array(';')) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false !== $colon && 'display' === strtolower(trim(substr($declaration, 0, $colon))) ) {
+                continue;
+            }
+            $kept[] = $declaration;
+        }
+
+        return implode(';', $kept);
     }
 
     /**

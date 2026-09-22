@@ -16,6 +16,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $failures = 0;
@@ -75,6 +76,42 @@ $assert(
     'a raw transport-only display declaration is reported as a save-shape violation',
     (string) json_encode($rawStyle['findings'] ?? array())
 );
+
+$factory = new BlockFactory();
+$styleCases = array(
+    'middle' => array(
+        'input' => 'width:1px;display:block;height:2px',
+        'expected' => 'width:1px;height:2px',
+    ),
+    'first' => array(
+        'input' => 'display:block;width:1px;height:2px',
+        'expected' => 'width:1px;height:2px',
+    ),
+    'last' => array(
+        'input' => 'width:1px;height:2px;display:block',
+        'expected' => 'width:1px;height:2px',
+    ),
+    'duplicates' => array(
+        'input' => 'display:block;width:1px;display:flex;height:2px;display:none',
+        'expected' => 'width:1px;height:2px',
+    ),
+    'priority' => array(
+        'input' => 'width:1px !important;display:block !important;height:2px !important',
+        'expected' => 'width:1px !important;height:2px !important',
+    ),
+    'functional-value' => array(
+        'input' => 'background:var(--x, ";");display:block;width:1px',
+        'expected' => 'background:var(--x, &quot;;&quot;);width:1px',
+    ),
+);
+foreach ( $styleCases as $caseName => $case ) {
+    $block = $factory->create('core/buttons', array('inlineGeometryStyle' => $case['input']));
+    $assert(
+        str_contains((string) ($block['innerHTML'] ?? ''), 'style="' . $case['expected'] . '"'),
+        'display filter preserves ' . $caseName . ' declarations',
+        (string) ($block['innerHTML'] ?? '')
+    );
+}
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "core block inline geometry save validity FAILED: {$passes} passed, {$failures} failed\n");
