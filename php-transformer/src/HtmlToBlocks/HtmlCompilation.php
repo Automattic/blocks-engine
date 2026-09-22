@@ -41,6 +41,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextInlinePolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedDialogConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedChoiceGroupConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedListboxConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedSelectableSetConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude;
@@ -985,6 +986,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->projectedNavigation,
             new PhrasingSvgConverter($this->svgMaterializer, $this),
              $capturedDialogConverter,
+             new CapturedChoiceGroupConverter(
+                 $this->session,
+                 function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
+                     return $convertChildren($element, $fallbacks, true);
+                 }
+             ),
              new CapturedListboxConverter($this->authoredFormControlBlockConverter),
              new CapturedSelectableSetConverter(
                 $this,

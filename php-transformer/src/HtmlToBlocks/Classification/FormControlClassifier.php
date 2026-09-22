@@ -102,6 +102,17 @@ final class FormControlClassifier
         return false;
     }
 
+    public static function hasCapturedChoiceGroups(DOMElement $form): bool
+    {
+        foreach ( $form->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && 'true' === strtolower($element->getAttribute('data-blocks-engine-choice-group')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function hasFormAncestor(DOMElement $element): bool
     {
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {

@@ -39,6 +39,7 @@ final class ElementConversionPrelude
         private readonly ProjectedNavigationConverter $projectedNavigation,
         private readonly PhrasingSvgConverter $phrasingSvg,
         private readonly CapturedDialogConverter $capturedDialog,
+        private readonly CapturedChoiceGroupConverter $capturedChoiceGroup,
         private readonly CapturedListboxConverter $capturedListbox,
         private readonly CapturedSelectableSetConverter $capturedSelectableSet,
         private readonly ScrollStateConverter $scrollState,
@@ -128,6 +129,11 @@ final class ElementConversionPrelude
         $dialog = $this->capturedDialog->convert($element, $tagName, $fallbacks);
         if ( $dialog->handled ) {
             return $dialog;
+        }
+
+        $choiceGroup = $this->capturedChoiceGroup->convert($element, $tagName, $fallbacks);
+        if ( $choiceGroup->handled ) {
+            return $choiceGroup;
         }
 
         $selectableSet = $this->capturedSelectableSet->convert($element, $tagName, $fallbacks);

@@ -583,13 +583,17 @@ trait StagedTransport
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $capturedDialogsProjection = (new CapturedDialogProjector())->project($normalized['files']);
         $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($capturedDialogsProjection['files']);
-        $scrollStatesProjection = (new ScrollStateProjector())->project($selectableSetsProjection['files']);
+        $choiceGroupsProjection = (new CapturedChoiceGroupProjector())->project($selectableSetsProjection['files']);
+        $scrollStatesProjection = (new ScrollStateProjector())->project($choiceGroupsProjection['files']);
         $capturedDialogs = array(
-            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
+            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
             'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
         );
         if (0 < $selectableSetsProjection['projected_count']) {
             $capturedDialogs['projected_selectable_set_count'] = $selectableSetsProjection['projected_count'];
+        }
+        if (0 < $choiceGroupsProjection['projected_count']) {
+            $capturedDialogs['projected_choice_group_count'] = $choiceGroupsProjection['projected_count'];
         }
         $rawFiles = $scrollStatesProjection['files'];
         // A later partition-envelope normalization must not lose the implicit

@@ -96,6 +96,7 @@
       "php tests/unit/responsive-counterpart-contracts.php",
       "php tests/unit/captured-dialog-projector.php",
        "php tests/unit/captured-selectable-set-projector.php",
+       "php tests/unit/captured-choice-group-projector.php",
        "php tests/unit/captured-listbox-materialization.php",
       "php tests/unit/scroll-state-projector.php",
       "php tests/unit/editability-report.php",
