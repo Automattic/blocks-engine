@@ -89,13 +89,6 @@ $assert(str_contains($listboxMarkup, 'authored-select'), 'captured listbox trigg
 $assert(str_contains($listboxMarkup, '<option value="Canada" selected>Canada</option>'), 'captured listbox materialization carries the selected value and label');
 $assert(!str_contains($listboxMarkup, 'core/details'), 'captured listbox is not degraded to a disclosure block');
 
-$legacyListbox = ( new HtmlTransformer() )->transform(
-    '<details><summary>Select country</summary><div role="option">Afghanistan</div><div role="option">Canada</div></details>'
-)->toArray();
-$legacyMarkup = (string) ( $legacyListbox['serialized_blocks'] ?? '' );
-$assert(str_contains($legacyMarkup, 'authored-select'), 'captured listbox details are materialized through the same companion');
-$assert(!str_contains($legacyMarkup, 'core/details'), 'listbox-shaped details do not retain disclosure semantics');
-
 $disabledAttrs = array(
     'className' => 'authored-select',
     'disabled'  => true,

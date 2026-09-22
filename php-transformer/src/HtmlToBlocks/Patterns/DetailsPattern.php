@@ -19,10 +19,6 @@ final class DetailsPattern implements PatternRecognizerInterface
 
         $fallbacks = array();
         if ( 'details' === strtolower($element->tagName) ) {
-            $listbox = $context->capturedListboxBlock($element);
-            if ( null !== $listbox ) {
-                return new PatternRecognitionResult($listbox, $fallbacks);
-            }
             $block = $this->match(
                 $element,
                 $fallbacks,
