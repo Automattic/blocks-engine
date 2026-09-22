@@ -66,15 +66,16 @@ final class ButtonLinkDispatcher
             return $this->paragraphHost($element);
         }
 
+        // A text-less anchor is not an empty anchor: icons, one image, a whole
+        // image feed, a media carrier — whatever it wraps is content, and the
+        // link-wrapper group is the lowering that keeps it while propagating the
+        // link onto the blocks it becomes. Offer that group to every text-less
+        // anchor rather than only to the svg-only shape it was first added for.
+        // `imageBlockFromAnchor()` above answers for exactly one image; a link
+        // holding several fell past both branches and took its whole subtree
+        // with it.
         if ( '' === trim($element->textContent ?? '') ) {
-            if ( 0 < $element->getElementsByTagName('svg')->length ) {
-                $svgChildren = $this->context->convertLinkWrapperGroup($element, $fallbacks);
-                if ( null !== $svgChildren ) {
-                    return $svgChildren;
-                }
-            }
-
-            return null;
+            return $this->context->convertLinkWrapperGroup($element, $fallbacks);
         }
 
         // Tag-wise inline children can still stack: a linked brand lockup whose
