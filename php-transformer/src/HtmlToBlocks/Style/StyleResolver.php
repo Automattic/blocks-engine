@@ -1582,7 +1582,13 @@ final class StyleResolver implements ElementPresentationResolver
         $consumed = array();
         $inspect = function (DOMElement $target) use (&$consumed, $declared): void {
             foreach ( $this->matchingStyleRules($target, 'static-conditional-pseudo') as $rule ) {
-                $consumed += array_intersect_key($this->customPropertiesReferencedByValues($rule['declarations']), $declared);
+                // Read the rule's UNFILTERED `var()` references. `declarations`
+                // is the `safeVisualDeclarations()` classification allow-list,
+                // which omits `opacity`, `transform`, `filter` and friends — a
+                // reference from one of those was invisible here, so the inline
+                // definition an ancestor declared was judged unused and dropped,
+                // leaving the reader invalid at computed-value time.
+                $consumed += array_intersect_key(array_fill_keys($rule['customPropertyReferences'] ?? array(), true), $declared);
             }
         };
         $inspect($element);
@@ -2705,6 +2711,16 @@ final class StyleResolver implements ElementPresentationResolver
                 // lets paint materialization resolve the same cascade a browser
                 // would, including id/class-scoped custom-property indirection.
                 $cascadedValueDeclarations = $this->cascadeRelevantDeclarations($rawDeclarations);
+                // Which custom properties this rule READS, taken from the same
+                // unfiltered stream. Consumption is not confined to the
+                // classification allow-list — `opacity`, `transform`, `filter`
+                // and `transition` all read `var()` — and an inline definition
+                // an ancestor declares is only carried when the engine can see
+                // a reader for it. Names only: this rides every rule record.
+                $customPropertyReferences = array_keys($this->customPropertiesReferencedByValues($rawDeclarations));
+                $readingCustomProperties = static fn (array $rule): array => array() === $customPropertyReferences
+                    ? $rule
+                    : $rule + array( 'customPropertyReferences' => $customPropertyReferences );
                 $mediaTextDeclarations = array() === $conditions
                     ? array_values(array_filter(
                         $this->mediaTextInlineDeclarationEntries($body),
@@ -2757,23 +2773,23 @@ final class StyleResolver implements ElementPresentationResolver
                     $selectorIsStaticLayerRule = array() !== $selectorConditions
                         && array_reduce($selectorConditions, fn (bool $static, string $condition): bool => $static && $this->conditionResolvesStatically($condition), true);
                     $supportedRestingSelector = ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector);
-                    if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations)) {
-                        $analysis['static'][] = array(
+                    if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations || array() !== $customPropertyReferences)) {
+                        $analysis['static'][] = $readingCustomProperties(array(
                             'selector' => $selector,
                             'declarations' => $declarations,
                             'mediaTextDeclarations' => $mediaTextDeclarations,
                             'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
                             'layer' => $layer,
-                        );
+                        ));
                     }
-                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $selectorConditions && ! $selectorIsStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations)) {
-                        $analysis['conditional'][] = array(
+                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $selectorConditions && ! $selectorIsStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations || array() !== $customPropertyReferences)) {
+                        $analysis['conditional'][] = $readingCustomProperties(array(
                             'selector' => $selector,
                             'declarations' => $declarations,
                             'cascadedDeclarations' => $cascadedValueDeclarations,
                             'conditions' => $selectorConditions,
                             'layer' => $layer,
-                        );
+                        ));
                     }
                     if ($supportedRestingSelector) {
                         foreach ($imageEntries as $entry) {
@@ -2800,7 +2816,7 @@ final class StyleResolver implements ElementPresentationResolver
                             if (isset($rawDeclarations['content'])) {
                                 $pseudoDeclarations['content'] = $rawDeclarations['content'];
                             }
-                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions);
+                            $analysis['pseudo'][] = $readingCustomProperties(array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions));
                         }
                     }
                     if (array() === $declarations) {
