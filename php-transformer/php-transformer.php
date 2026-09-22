@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer
  * Description: Canonical PHP primitives for transforming HTML, Markdown, and website artifacts into WordPress block outputs.
  * Version: 0.16.1
- * Requires PHP: 8.1
+ * Requires PHP: 8.2
  * Author: Automattic
  * License: GPL-3.0-or-later
  * Text Domain: blocks-engine-php-transformer
