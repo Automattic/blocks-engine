@@ -47,6 +47,10 @@ final class RichTextMaterializer implements RichTextMaterialization
     public function content(DOMElement $element, array $excludedTags = array()): string
     {
         $content = array() === $excludedTags ? SourceDom::innerHtml($element) : SourceDom::innerHtmlWithoutTags($element, $excludedTags);
+        // `<wbr>` is a void presentation hint, not editable RichText markup.
+        // Browsers can serialize malformed source as a closing `</wbr>` too;
+        // remove both forms so it cannot become structural HTML in a block.
+        $content = preg_replace('/<\/?wbr\b[^>]*>/i', '', $content) ?? $content;
         if ( '' === $content || ! preg_match('/<(?:span|font|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
             return $content;
         }
