@@ -3316,6 +3316,34 @@ $sharedBodyClassProjection = ( new HtmlTransformer() )->transform(
 $sharedBodyClassCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $sharedBodyClassProjection['assets'] ?? array()));
 $assert(str_contains($sharedBodyClassCss, '.body{padding:4px}'), 'body classes shared with content elements keep their class subject');
 
+// A capture that records responsive document variants copies the source body's
+// classes onto each variant root so body-scoped rules keep applying inside that
+// branch. Those roots stand in for the body rather than sharing its class with
+// content, so body-subject rules must still reach the rendered body instead of
+// painting the projected root blocks over the negative z-index hero layers.
+$variantBodySubject = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><body class="body">'
+    . '<div class="data-liberation-desktop-document body"><div class="main-wrapper"><section class="hero"><figure class="hero-bg" style="position:absolute;inset:0;z-index:-2"><img src="hero.jpg" alt=""></figure><div class="gradient-bg" style="position:absolute;inset:0;z-index:-1"></div><h1>Hero</h1></section></div></div>'
+    . '<div class="data-liberation-mobile-document body"><div class="main-wrapper"><section class="hero"><h1>Hero</h1></section></div></div>'
+    . '</body></html>',
+    array( 'static_css' => '.body{background-color:#f0f0f0;flex-flow:column;font-family:Georgia,serif}.body .hero{position:relative}@media (max-width:479px){.body{display:flex}}' )
+)->toArray();
+$variantBodySubjectSerialized = (string) ($variantBodySubject['serialized_blocks'] ?? '');
+$variantBodySubjectCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $variantBodySubject['assets'] ?? array()));
+$assert(str_contains($variantBodySubjectSerialized, 'data-liberation-desktop-document body'), 'captured document variant roots keep the projected body class for descendant matching');
+$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-[a-f0-9]+-\d+\)\{background-color:#f0f0f0;flex-flow:column;font-family:Georgia,serif\}/', $variantBodySubjectCss), 'every body-element declaration retargets the rendered body when only document variant roots share the class');
+$assert(1 === preg_match('/@media \(max-width:479px\)\{body:not\(\.blocks-engine-specificity-class-[a-f0-9]+-\d+\)\{display:flex\}\}/', $variantBodySubjectCss), 'conditional body-subject rules retarget the rendered body alongside the rest state');
+$assert(! str_contains($variantBodySubjectCss, '.body{'), 'no body-subject paint is left to cover the negative z-index hero layers');
+$assert(str_contains($variantBodySubjectCss, '.body .hero{position:relative}'), 'body-class descendant selectors keep matching inside a captured document variant');
+
+$variantSharedBodyClass = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><body class="body"><div class="data-liberation-desktop-document body"><div class="card"><div class="body">Card body</div></div></div></body></html>',
+    array( 'static_css' => '.body{padding:4px;background-color:#f0f0f0}' )
+)->toArray();
+$variantSharedBodyClassCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $variantSharedBodyClass['assets'] ?? array()));
+$assert(str_contains($variantSharedBodyClassCss, '.body{padding:4px;background-color:#f0f0f0}'), 'a body class genuinely shared with content keeps its subject even beneath a document variant root');
+$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-[a-f0-9]+-\d+\)\{background-color:#f0f0f0\}/', $variantSharedBodyClassCss), 'a shared body class still paints the rendered canvas');
+
 $styledLogo = ( new HtmlTransformer() )->transform(
     '<style>#wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><a class="logo" href="/"><span id="wordmark">Brand Name</span></a>'
 )->toArray();

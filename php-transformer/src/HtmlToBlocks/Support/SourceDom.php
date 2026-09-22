@@ -206,14 +206,28 @@ final class SourceDom
     public static function documentVariantRoot(DOMElement $element): ?DOMElement
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-            foreach ( preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array() as $class ) {
-                if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( 'data-liberation-desktop-document', 'data-liberation-mobile-document' ), true) ) {
-                    return $node;
-                }
+            if ( self::isDocumentVariantRoot($node) ) {
+                return $node;
             }
         }
 
         return null;
+    }
+
+    /**
+     * A captured responsive document variant stands in for the source `<body>`
+     * inside its own viewport branch, so it carries the body's classes without
+     * being a content element of its own.
+     */
+    public static function isDocumentVariantRoot(DOMElement $element): bool
+    {
+        foreach ( preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array() as $class ) {
+            if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( 'data-liberation-desktop-document', 'data-liberation-mobile-document' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static function associatedLabel(DOMElement $control): ?DOMElement

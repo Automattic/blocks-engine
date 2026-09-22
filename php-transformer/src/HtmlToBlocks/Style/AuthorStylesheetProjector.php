@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
 
@@ -827,11 +828,29 @@ final class AuthorStylesheetProjector
         }
         // Matching indexes body descendants only; any match means the class is
         // shared with a content element and the rule must keep its subject.
-        if ( array() !== $this->matchingSourceElements($selector, $parsed, $context) ) {
+        if ( array() !== $this->contentElementsSharingBodySubject($selector, $parsed, $context) ) {
             return $selector;
         }
         $shims = str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', substr_count($subject, '.'));
         return substr($selector, 0, $start) . 'body' . $shims . substr($selector, $end);
+    }
+
+    /**
+     * A capture that records responsive document variants copies the source
+     * body's classes onto each variant root so body-scoped rules keep applying
+     * inside that branch. Such a root is the body of its own document, not a
+     * content element that happens to share the class, so it must not hold a
+     * body-subject rule back from the rendered body.
+     *
+     * @param array<string, mixed> $parsed
+     * @return list<DOMElement>
+     */
+    private function contentElementsSharingBodySubject(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): array
+    {
+        return array_values(array_filter(
+            $this->matchingSourceElements($selector, $parsed, $context),
+            static fn (DOMElement $element): bool => ! SourceDom::isDocumentVariantRoot($element)
+        ));
     }
 
     private function sharedBodyCanvasPaintRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
@@ -859,7 +878,7 @@ final class AuthorStylesheetProjector
         if ( 1 !== preg_match('/^(?:\.(?:' . $classPattern . '))+$/', $subject) ) {
             return '';
         }
-        if ( array() === $this->matchingSourceElements($selector, $parsed, $context) ) {
+        if ( array() === $this->contentElementsSharingBodySubject($selector, $parsed, $context) ) {
             return '';
         }
         $paint = array_intersect_key(
