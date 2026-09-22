@@ -3967,6 +3967,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             );
         }
         $attrs = $this->cssOwnedGroupAttributes($element, false, $topologyChanged);
+        if ( 0 === count($children) && '' === $this->renderedTextContent($element) ) {
+            // Empty source layout containers are visual boundaries, not new
+            // authoring targets. Mark them so the editor suppresses Core's
+            // layout picker without changing their saved frontend box.
+            $attrs['className'] = $this->mergeClassNames(
+                (string) ($attrs['className'] ?? ''),
+                self::EMPTY_VISUAL_GROUP_CLASS
+            );
+            $this->runtimeBehavior()->markEmptyVisualGroupGenerated();
+        }
         $block = $this->createBlock('core/group', $attrs, $children, $element);
         if ($topologyChanged && $this->styleResolver->hasTopologyUnsafeFixedHeight($element)) {
             $this->layoutGeometry()->removeTopologyUnsafeFixedHeightRules(
