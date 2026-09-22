@@ -5902,6 +5902,47 @@ $assert(str_contains($graphicSelectableMarkup, 'Flower Room 1 specification') &&
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($graphicSelectableSet['blocks'] ?? array()), 'graphic-host selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($graphicSelectableSet['blocks'] ?? array())['status'] ?? ''), 'graphic-host selectable-set tabs remain Gutenberg-valid');
 
+$choiceState = static function (int $index, string $html): array {
+    return array(
+        'status' => 'captured',
+        'kind' => 'choice-group',
+        'trigger' => array('selector' => 'body > main > form > div > button:nth-of-type(' . ($index + 1) . ')', 'tag' => 'button', 'ariaHaspopup' => '', 'dataBindings' => array()),
+        'choiceGroup' => array(
+            'group' => array('selector' => 'body > main > form > div', 'tag' => 'div', 'label' => 'Choose one', 'labelSelector' => 'body > main > form > label', 'formSelector' => 'body > main > form'),
+            'choices' => array(
+                array('index' => 0, 'selector' => 'body > main > form > div > button:nth-of-type(1)', 'tag' => 'button', 'value' => null),
+                array('index' => 1, 'selector' => 'body > main > form > div > button:nth-of-type(2)', 'tag' => 'button', 'value' => null),
+            ),
+            'transition' => array('selectedIndex' => $index, 'selected' => array(null, null), 'html' => $html, 'htmlBytes' => strlen($html), 'htmlTruncated' => false),
+        ),
+    );
+};
+$choiceGroupInput = array(
+    'site' => array('name' => 'Captured Choice Group Site', 'slug' => 'captured-choice-group-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><form action="/collect" method="post"><label>Choose one</label><div><button type="button">One</button><button type="button">Two</button></div><textarea name="comment"></textarea><button type="submit">Send</button></form></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.com/', 'states' => array(
+            $choiceState(0, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
+            $choiceState(1, '<div class="choices"><button type="button"><span>One selected</span></button><button type="button"><span>Two</span></button></div>'),
+        )))), JSON_UNESCAPED_SLASHES)),
+    ),
+);
+$choiceGroupArtifact = $compiler->compile($choiceGroupInput)->toArray();
+$choiceMarkup = (string) ($choiceGroupArtifact['serialized_blocks'] ?? '');
+$choiceConfig = (string) (($choiceGroupArtifact['source_reports']['companion_plugin_payload']['blocks'][0]['view_js'] ?? ''));
+$choiceForms = array_values(array_filter($choiceGroupArtifact['source_reports']['artifact']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? '') && 'forms' === ($declaration['type'] ?? '')));
+$assert(1 === ($choiceGroupArtifact['source_reports']['captured_interactions']['projected_choice_group_count'] ?? null), 'captured choice groups report one projected group');
+$assert(str_contains($choiceMarkup, 'captured-choice-group-site/captured-choice-group'), 'captured choice groups serialize as an owned companion block');
+$assert(str_contains($choiceMarkup, 'One') && str_contains($choiceMarkup, 'Two'), 'choice group inner content remains in the editable block tree');
+$assert(str_contains($choiceConfig, 'observed_choice_key') && str_contains($choiceConfig, 'source_value'), 'choice behavior carries observed identity without treating it as a source scalar');
+$assert(1 === count($choiceForms) && 1 === count($choiceForms[0]['payload']['entities'] ?? array()), 'choice-group form association reaches the generic forms collection');
+$choiceEntity = $choiceForms[0]['payload']['entities'][0] ?? array();
+$assert(array_key_exists('source_value', $choiceEntity['choice_groups'][0]['choices'][0] ?? array()) && null === $choiceEntity['choice_groups'][0]['choices'][0]['source_value'], 'generic form metadata preserves an unknown original choice value as null');
+$assert(array() === (new CanonicalSaveShapeValidator())->findings($choiceGroupArtifact['blocks'] ?? array()), 'captured choice groups retain a canonical save shape');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($choiceGroupArtifact['blocks'] ?? array())['status'] ?? ''), 'captured choice groups remain Gutenberg-valid');
+
 // Runtime-island package producer (issue #491 slice 2): preserved runtime
 // islands are packaged into a generic, product-neutral envelope a downstream
 // materializer maps to its own runtime. The package names no host product.

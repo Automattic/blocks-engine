@@ -36,7 +36,8 @@ final class FormDispatcher
             return $this->context->htmlPreservationBlock($element);
         }
 
-        if ( FormControlClassifier::hasDataEntryControls($element) ) {
+        $hasChoiceGroups = FormControlClassifier::hasCapturedChoiceGroups($element);
+        if ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) {
             $composition = $this->context->compose($element, $fallbacks);
             if ( null !== $composition ) {
                 $fallbacks[] = $this->context->buildFallbackFinding($element, $composition['block'], $composition['slot']);
@@ -47,14 +48,14 @@ final class FormDispatcher
 
         $readableFormBlock = $this->context->buildReadableFormBlock($element);
         if ( null !== $readableFormBlock && ! $this->context->requiresPreservation($element) ) {
-            if ( FormControlClassifier::hasDataEntryControls($element) ) {
+            if ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) {
                 $fallbacks[] = $this->context->buildFallbackFinding($element, $readableFormBlock);
             }
 
             return $readableFormBlock;
         }
 
-        if ( FormControlClassifier::hasDataEntryControls($element) ) {
+        if ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) {
             $preservationBlock = $this->context->htmlPreservationBlock($element);
             $fallbacks[] = $this->context->buildFallbackFinding($element, $readableFormBlock, $preservationBlock);
             $this->context->recordForm($element, $readableFormBlock);
@@ -66,7 +67,7 @@ final class FormDispatcher
         $this->context->recordForm($element, $readableFormBlock);
 
         // Surface a finding so consumers can map the preserved controls onto a provider.
-        if ( null === $readableFormBlock || FormControlClassifier::hasDataEntryControls($element) ) {
+        if ( null === $readableFormBlock || FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) {
             $fallbacks[] = $this->context->buildFallbackFinding($element, $readableFormBlock);
         }
 

@@ -77,6 +77,11 @@ final class FormCompositionPlanner
 
     private function controlSlotElement(DOMElement $form): ?DOMElement
     {
+        foreach ( $form->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && 'true' === strtolower($element->getAttribute('data-blocks-engine-choice-group')) ) {
+                return $element;
+            }
+        }
         $controls = array_values(array_filter(
             FormControlClassifier::controlElements($form),
             static fn (DOMElement $control): bool => 'hidden' !== FormControlClassifier::controlType($control)
