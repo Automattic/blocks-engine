@@ -155,6 +155,7 @@
       "php tests/unit/static-css-cascade.php",
       "php tests/unit/inline-declaration-priority.php",
       "php tests/unit/author-selector-semantics.php",
+      "php tests/unit/author-shell-child-combinator-editor-variants.php",
       "php tests/unit/engine-support-css.php",
       "php tests/unit/engine-support-css-asset.php",
       "php tests/unit/engine-support-css-specificity.php",

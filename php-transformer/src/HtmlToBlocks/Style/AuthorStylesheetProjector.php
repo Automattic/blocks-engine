@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -115,7 +116,7 @@ final class AuthorStylesheetProjector
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $svgImageRule . $editorDocumentRootRule;
-            return $css . $this->editorPositionRules($css);
+            return $css . $this->editorPositionRules($css) . $this->editorShellChildCombinatorVariants($css);
         }
 
         $inner = array_diff_key($declarations, $margins);
@@ -127,7 +128,7 @@ final class AuthorStylesheetProjector
             . $imageRule
             . $svgImageRule
             . $editorDocumentRootRule;
-        return $css . $this->editorPositionRules($css);
+        return $css . $this->editorPositionRules($css) . $this->editorShellChildCombinatorVariants($css);
     }
 
     private function editorPositionRules(string $css): string
@@ -173,6 +174,175 @@ final class AuthorStylesheetProjector
                     : implode(',', $editorSelectors) . '{position:' . $position . ( 'absolute' === strtolower($position) ? '!important' : '' ) . '}';
             }
         );
+    }
+
+    /**
+     * The editor canvas renders a layout shell's inner blocks inside one
+     * Gutenberg-owned layer (EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS)
+     * that the saved front-end markup does not have. An authored child
+     * combinator whose two sides land on opposite sides of that layer — a
+     * source wrapper folded into the shell and the root of a block nested
+     * inside it — matches on the front end and silently stops matching in
+     * the editor, so authored cascade decisions such as font-size
+     * inheritance revert to engine projections. Emit editor-scoped variants
+     * whose child combinators reach through the marked layer. The layer
+     * class never exists in saved markup and the editor-styles-wrapper
+     * prefix never matches the front end, so every variant is inert outside
+     * the editor canvas.
+     */
+    private function editorShellChildCombinatorVariants(string $css): string
+    {
+        if ( ! str_contains($css, '>') ) {
+            return '';
+        }
+        return ( new CssStylesheetTransformer() )->transformStyleRules(
+            $css,
+            function (string $prelude, string $body): string {
+                $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+                if ( null === $selectors ) {
+                    return '';
+                }
+                $variants = array();
+                foreach ( $selectors as $selector ) {
+                    foreach ( $this->shellLayerCombinatorVariants(trim($selector)) as $variant ) {
+                        $variants[] = ':root .editor-styles-wrapper ' . $variant;
+                    }
+                }
+                return array() === $variants ? '' : implode(',', $variants) . '{' . $body . '}';
+            }
+        );
+    }
+
+    /** @return list<string> */
+    private function shellLayerCombinatorVariants(string $selector): array
+    {
+        if ( str_contains($selector, EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS) ) {
+            return array();
+        }
+        $combinators = $this->shellCrossingCombinatorOffsets($selector);
+        if ( null === $combinators || array() === $combinators ) {
+            return array();
+        }
+        // One authored selector rarely crosses more than a couple of shell
+        // boundaries, so relax every subset while the count stays small;
+        // past that, single-combinator relaxations keep the emission bounded.
+        $subsets = 3 >= count($combinators)
+            ? $this->combinatorSubsets($combinators)
+            : array_map(static fn (int $offset): array => array($offset), $combinators);
+        $variants = array();
+        foreach ( $subsets as $subset ) {
+            $variants[] = $this->selectorRelaxingChildCombinators($selector, $subset);
+        }
+        return array_values(array_unique($variants));
+    }
+
+    /**
+     * Top-level `>` combinator offsets that could cross the shell layer, or
+     * null when the selector is malformed CSS. Combinators whose child side
+     * addresses native block internals (core/button RichText bridges) are
+     * engine-generated relationships inside one block; the shell layer can
+     * never sit between them.
+     *
+     * @return list<int>|null
+     */
+    private function shellCrossingCombinatorOffsets(string $selector): ?array
+    {
+        $offsets = $this->childCombinatorOffsets($selector);
+        if ( null === $offsets ) {
+            return null;
+        }
+        $length = strlen($selector);
+        return array_values(array_filter(
+            $offsets,
+            static function (int $offset) use ($selector, $length): bool {
+                $state = CssSyntaxScanner::state();
+                $index = $offset + 1;
+                while ( $index < $length && CssSyntaxScanner::isCssWhitespace($selector[ $index ] ) ) {
+                    ++$index;
+                }
+                $compound = '';
+                for ( ; $index < $length; ++$index ) {
+                    $topLevel = CssSyntaxScanner::isTopLevel($state);
+                    $next = CssSyntaxScanner::consume($selector, $index, $state);
+                    if ( null === $next ) {
+                        return true;
+                    }
+                    if ( $topLevel && $next === $index + 1 && in_array($selector[ $index ], array( '>', '+', '~' ), true) ) {
+                        break;
+                    }
+                    if ( $topLevel && $next === $index + 1 && ',' === $selector[ $index ] ) {
+                        break;
+                    }
+                    $compound .= $selector[ $index ];
+                    $index = $next - 1;
+                }
+                return ! str_starts_with(ltrim($compound), ':where(.wp-block-');
+            }
+        ));
+    }
+
+    /**
+     * Top-level `>` combinator offsets, or null when the selector is
+     * malformed CSS. Combinators inside functions, attribute selectors,
+     * strings, or comments never qualify.
+     *
+     * @return list<int>|null
+     */
+    private function childCombinatorOffsets(string $selector): ?array
+    {
+        $state = CssSyntaxScanner::state();
+        $length = strlen($selector);
+        $offsets = array();
+        for ( $index = 0; $index < $length; ++$index ) {
+            $next = CssSyntaxScanner::consume($selector, $index, $state);
+            if ( null === $next ) {
+                return null;
+            }
+            if ( CssSyntaxScanner::isTopLevel($state) && $next === $index + 1 && '>' === $selector[ $index ] ) {
+                $offsets[] = $index;
+            }
+            $index = $next - 1;
+        }
+        return CssSyntaxScanner::isComplete($state) ? $offsets : null;
+    }
+
+    /**
+     * @param list<int> $offsets
+     * @return list<list<int>>
+     */
+    private function combinatorSubsets(array $offsets): array
+    {
+        $subsets = array();
+        $count = count($offsets);
+        for ( $mask = 1; $mask < ( 1 << $count ); ++$mask ) {
+            $subset = array();
+            foreach ( $offsets as $index => $offset ) {
+                if ( $mask & ( 1 << $index ) ) {
+                    $subset[] = $offset;
+                }
+            }
+            $subsets[] = $subset;
+        }
+        return $subsets;
+    }
+
+    /**
+     * @param list<int> $offsets
+     */
+    private function selectorRelaxingChildCombinators(string $selector, array $offsets): string
+    {
+        $insertion = ' :where(.' . EngineSupportCss::LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS . ')>';
+        $relaxed = '';
+        $cursor = 0;
+        foreach ( $offsets as $offset ) {
+            $combinator = $offset;
+            while ( $combinator > $cursor && CssSyntaxScanner::isCssWhitespace($selector[ $combinator - 1 ]) ) {
+                --$combinator;
+            }
+            $relaxed .= substr($selector, $cursor, $combinator - $cursor) . $insertion;
+            $cursor = $offset + 1;
+        }
+        return $relaxed . substr($selector, $cursor);
     }
 
     private function marginSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
