@@ -111,8 +111,6 @@ final class FormFallbackFindingBuilder
             if ( ! is_array($config) || ! is_array($config['group'] ?? null) || ! is_array($config['choices'] ?? null) || ! is_array($config['states'] ?? null) ) {
                 continue;
             }
-            $states = array_values(array_filter($config['states'], 'is_array'));
-            $initial = $states[0] ?? array();
             $choices = array();
             foreach ( $config['choices'] as $choice ) {
                 if ( ! is_array($choice) || ! is_int($choice['index'] ?? null) ) continue;
@@ -133,8 +131,8 @@ final class FormFallbackFindingBuilder
                 'group' => $config['group'],
                 'choices' => $choices,
                 'observed_transition' => array(
-                    'selected_index' => is_int($initial['selectedIndex'] ?? null) ? $initial['selectedIndex'] : null,
-                    'selected' => is_array($initial['selected'] ?? null) ? array_values(array_map(static fn (mixed $value): ?bool => is_bool($value) ? $value : null, $initial['selected'])) : array(),
+                    'selected_index' => null,
+                    'selected' => array_fill(0, count($choices), null),
                 ),
             );
         }

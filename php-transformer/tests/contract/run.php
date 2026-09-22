@@ -5886,6 +5886,9 @@ $choiceState = static function (int $index, string $html): array {
                 array('index' => 1, 'selector' => 'body > main > form > div > button:nth-of-type(2)', 'tag' => 'button', 'value' => null),
             ),
             'transition' => array('selectedIndex' => $index, 'selected' => array(null, null), 'html' => $html, 'htmlBytes' => strlen($html), 'htmlTruncated' => false),
+            'replay' => 'activation-determined',
+            'restoration' => 'verified',
+            'coverage' => 'complete',
         ),
     );
 };
@@ -5897,7 +5900,7 @@ $choiceGroupInput = array(
         array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.com/', 'states' => array(
             $choiceState(0, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
-            $choiceState(1, '<div class="choices"><button type="button"><span>One selected</span></button><button type="button"><span>Two</span></button></div>'),
+            $choiceState(1, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
         )))), JSON_UNESCAPED_SLASHES)),
     ),
 );
@@ -5909,8 +5912,10 @@ $assert(1 === ($choiceGroupArtifact['source_reports']['captured_interactions']['
 $assert(str_contains($choiceMarkup, 'captured-choice-group-site/captured-choice-group'), 'captured choice groups serialize as an owned companion block');
 $assert(str_contains($choiceMarkup, 'One') && str_contains($choiceMarkup, 'Two'), 'choice group inner content remains in the editable block tree');
 $assert(str_contains($choiceConfig, 'observed_choice_key') && str_contains($choiceConfig, 'source_value'), 'choice behavior carries observed identity without treating it as a source scalar');
+$assert(str_contains($choiceConfig, 'bindings') && str_contains($choiceConfig, 'selectedIndex'), 'choice behavior carries bounded state bindings without replaying captured HTML');
 $assert(1 === count($choiceForms) && 1 === count($choiceForms[0]['payload']['entities'] ?? array()), 'choice-group form association reaches the generic forms collection');
 $choiceEntity = $choiceForms[0]['payload']['entities'][0] ?? array();
+$assert(array_key_exists('selected_index', $choiceEntity['choice_groups'][0]['observed_transition'] ?? array()) && null === $choiceEntity['choice_groups'][0]['observed_transition']['selected_index'], 'choice-group form metadata does not infer an initial selection from the first transition');
 $assert(array_key_exists('source_value', $choiceEntity['choice_groups'][0]['choices'][0] ?? array()) && null === $choiceEntity['choice_groups'][0]['choices'][0]['source_value'], 'generic form metadata preserves an unknown original choice value as null');
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($choiceGroupArtifact['blocks'] ?? array()), 'captured choice groups retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($choiceGroupArtifact['blocks'] ?? array())['status'] ?? ''), 'captured choice groups remain Gutenberg-valid');

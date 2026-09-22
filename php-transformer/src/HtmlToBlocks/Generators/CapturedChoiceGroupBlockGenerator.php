@@ -44,13 +44,37 @@ JS;
     function choices( element ) {
         return Array.prototype.slice.call( element.querySelectorAll( 'button,[role="radio"],[role="option"],[role="tab"],input[type="radio"],input[type="checkbox"]' ) );
     }
+    function applyBindings( element, state ) {
+        ( state.bindings || [] ).forEach( function( binding ) {
+            var choice = choices( element )[ binding.choiceIndex ];
+            if ( ! choice ) return;
+            ( binding.nodes || [] ).forEach( function( nodeBinding ) {
+                var node = choice;
+                ( nodeBinding.path || [] ).forEach( function( childIndex ) {
+                    var children = Array.prototype.filter.call( node.children || [], function() { return true; } );
+                    node = children[ childIndex ] || null;
+                } );
+                if ( ! node ) return;
+                Object.keys( nodeBinding.attributes || {} ).forEach( function( name ) {
+                    var value = nodeBinding.attributes[ name ];
+                    if ( value === null ) node.removeAttribute( name );
+                    else node.setAttribute( name, String( value ) );
+                } );
+            } );
+        } );
+    }
     function setSelection( element, state, data ) {
         var nodes = choices( element );
         nodes.forEach( function( node, index ) {
             node.setAttribute( 'data-blocks-engine-choice-index', String( index ) );
+            if ( ! state ) return;
             node.setAttribute( 'data-blocks-engine-choice-active', index === state.selectedIndex ? 'true' : 'false' );
             if ( node.getAttribute( 'aria-pressed' ) !== null ) node.setAttribute( 'aria-pressed', index === state.selectedIndex ? 'true' : 'false' );
         } );
+        if ( ! state ) {
+            element.removeAttribute( 'data-blocks-engine-choice-selection' );
+            return;
+        }
         var choice = ( data.choices || [] )[ state.selectedIndex ] || {};
         element.setAttribute( 'data-blocks-engine-choice-selection', JSON.stringify( { observed_choice_key: choice.observed_choice_key || ( 'choice-' + state.selectedIndex ), source_value: Object.prototype.hasOwnProperty.call( choice, 'source_value' ) ? choice.source_value : null, selected_index: state.selectedIndex } ) );
     }
@@ -61,11 +85,11 @@ JS;
         element.dataset.blocksEngineChoiceMounted = 'true';
         var states = {};
         data.states.forEach( function( state ) { states[ String( state.selectedIndex ) ] = state; } );
-        var current = data.states[ 0 ];
+        var current = null;
         function apply( index, focus ) {
             var state = states[ String( index ) ];
             if ( ! state ) return;
-            element.innerHTML = state.html;
+            applyBindings( element, state );
             current = state;
             setSelection( element, state, data );
             if ( focus ) {
@@ -73,25 +97,28 @@ JS;
                 if ( node && node.focus ) node.focus();
             }
         }
-        function bind() {
-            choices( element ).forEach( function( node, index ) {
-                node.addEventListener( 'click', function() { apply( index, false ); } );
-                node.addEventListener( 'keydown', function( event ) {
-                    var next = index;
-                    if ( event.key === 'ArrowRight' || event.key === 'ArrowDown' ) next = ( index + 1 ) % choices( element ).length;
-                    else if ( event.key === 'ArrowLeft' || event.key === 'ArrowUp' ) next = ( index - 1 + choices( element ).length ) % choices( element ).length;
-                    else if ( event.key === 'Home' ) next = 0;
-                    else if ( event.key === 'End' ) next = choices( element ).length - 1;
-                    else return;
-                    event.preventDefault(); apply( next, true ); bind();
-                } );
-            } );
-        }
         setSelection( element, current, data );
-        bind();
         element.addEventListener( 'click', function( event ) {
             var node = event.target && event.target.closest ? event.target.closest( '[data-blocks-engine-choice-index]' ) : null;
-            if ( node && element.contains( node ) ) apply( Number( node.getAttribute( 'data-blocks-engine-choice-index' ) ) || 0, false );
+            if ( node && element.contains( node ) ) {
+                var index = Number( node.getAttribute( 'data-blocks-engine-choice-index' ) );
+                if ( Number.isInteger( index ) ) apply( index, false );
+            }
+        } );
+        element.addEventListener( 'keydown', function( event ) {
+            var node = event.target && event.target.closest ? event.target.closest( '[data-blocks-engine-choice-index]' ) : null;
+            if ( ! node || ! element.contains( node ) ) return;
+            var index = Number( node.getAttribute( 'data-blocks-engine-choice-index' ) );
+            var count = choices( element ).length;
+            if ( ! Number.isInteger( index ) || ! count ) return;
+            var next = index;
+            if ( event.key === 'ArrowRight' || event.key === 'ArrowDown' ) next = ( index + 1 ) % count;
+            else if ( event.key === 'ArrowLeft' || event.key === 'ArrowUp' ) next = ( index - 1 + count ) % count;
+            else if ( event.key === 'Home' ) next = 0;
+            else if ( event.key === 'End' ) next = count - 1;
+            else return;
+            event.preventDefault();
+            apply( next, true );
         } );
     }
     function mountAll() { document.querySelectorAll( '[data-blocks-engine-choice-group="true"]' ).forEach( mount ); }

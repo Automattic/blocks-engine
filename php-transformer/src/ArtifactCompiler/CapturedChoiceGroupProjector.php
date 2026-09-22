@@ -100,10 +100,17 @@ final class CapturedChoiceGroupProjector
                 continue;
             }
             $selector = is_string($evidence['group']['selector'] ?? null) ? trim($evidence['group']['selector']) : '';
+            $replay = $evidence['replay'] ?? null;
+            $restoration = $evidence['restoration'] ?? null;
+            $coverage = $evidence['coverage'] ?? null;
             $html = is_string($evidence['transition']['html'] ?? null) ? $evidence['transition']['html'] : '';
             $declaredBytes = is_int($evidence['transition']['htmlBytes'] ?? null) ? $evidence['transition']['htmlBytes'] : -1;
             $selectedIndex = is_int($evidence['transition']['selectedIndex'] ?? null) ? $evidence['transition']['selectedIndex'] : -1;
             $selected = $evidence['transition']['selected'] ?? null;
+            if ('activation-determined' !== $replay || 'verified' !== $restoration || 'complete' !== $coverage) {
+                $diagnostics[] = $this->diagnostic('captured_choice_group_ineligible', 'warning', 'A captured choice group was omitted because its producer replay, restoration, or coverage evidence is not eligible for offline replay.', array('source_url' => $sourceUrl, 'selector' => $selector));
+                continue;
+            }
             if ('' === $selector || '' === $html || ! empty($evidence['transition']['htmlTruncated']) || strlen($html) !== $declaredBytes || strlen($html) > self::MAX_STATE_BYTES || ! is_array($selected)) {
                 $diagnostics[] = $this->diagnostic('captured_choice_group_truncated', 'warning', 'A captured choice group was omitted because its bounded transition is incomplete.', array('source_url' => $sourceUrl));
                 continue;
@@ -227,18 +234,27 @@ final class CapturedChoiceGroupProjector
                 $diagnostics[] = $this->diagnostic('captured_choice_group_unmatched', 'warning', 'A captured choice-group selector did not match a source element.', array('source_path' => $sourcePath, 'selector' => $group['group']['selector'] ?? ''));
                 continue;
             }
+            $stateRoots = array();
             $configStates = array();
             foreach ($group['states'] as $state) {
                 $stateRoot = $this->fragmentRoot((string) ($state['html'] ?? ''));
                 if (! $stateRoot instanceof DOMElement) {
                     continue 2;
                 }
+                $stateRoots[] = $stateRoot;
                 $configStates[] = array(
                     'selectedIndex' => $state['selectedIndex'],
                     'selected' => $state['selected'],
                     'html' => $this->innerHtml($stateRoot),
                 );
             }
+            $bindings = $this->stateBindings($stateRoots, $group['choices']);
+            if (null === $bindings) {
+                $diagnostics[] = $this->diagnostic('captured_choice_group_state_invalid', 'warning', 'A captured choice group was omitted because a replay state did not contain its ordered choice controls.', array('source_path' => $sourcePath, 'selector' => $group['group']['selector'] ?? ''));
+                continue;
+            }
+            foreach ($configStates as $index => &$state) $state['bindings'] = $bindings[$index];
+            unset($state);
             $config = array(
                 'group' => $group['group'],
                 'choices' => $group['choices'],
@@ -246,7 +262,7 @@ final class CapturedChoiceGroupProjector
             );
             $encoded = json_encode($config, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
             foreach ($regions['elements'] as $region) {
-                $this->markRegion($region, $encoded, $group['states'][0]['html'] ?? '');
+                $this->markRegion($region, $encoded);
                 ++$projected;
             }
         }
@@ -256,23 +272,101 @@ final class CapturedChoiceGroupProjector
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
     }
 
-    private function markRegion(DOMElement $region, string $config, string $initialHtml): void
+    private function markRegion(DOMElement $region, string $config): void
     {
-        $fragment = $this->fragmentRoot($initialHtml);
-        if ($fragment instanceof DOMElement && $region->parentNode) {
-            $replacement = $region->ownerDocument?->importNode($fragment, true);
-            if ($replacement instanceof DOMElement) {
-                $replacement->setAttribute('data-blocks-engine-choice-group', 'true');
-                $replacement->setAttribute('data-blocks-engine-choice-config', $config);
-                $region->parentNode->replaceChild($replacement, $region);
-                return;
-            }
-        }
         $region->setAttribute('data-blocks-engine-choice-group', 'true');
         $region->setAttribute('data-blocks-engine-choice-config', $config);
-        while ($region->firstChild) {
-            $region->removeChild($region->firstChild);
+    }
+
+    /** @param array<int, DOMElement> $roots @param array<int, array<string, mixed>> $choices @return array<int, array<int, array<string, mixed>>>|null */
+    private function stateBindings(array $roots, array $choices): ?array
+    {
+        $snapshots = array();
+        $content = array();
+        $groupContent = array();
+        foreach ($roots as $root) {
+            $groupContent[] = $this->nodeContentFingerprint($root);
+            $snapshot = array();
+            foreach ($choices as $index => $choice) {
+                $nodes = $this->choiceNodes($root, $choice);
+                if (! isset($nodes[$index])) return null;
+                $snapshot[$index] = $this->nodeSnapshot($nodes[$index]);
+                $content[$index][] = $this->nodeContentFingerprint($nodes[$index]);
+            }
+            $snapshots[] = $snapshot;
         }
+        if (1 < count(array_unique($groupContent, SORT_STRING))) return null;
+        foreach ($content as $fingerprints) if (1 < count(array_unique($fingerprints, SORT_STRING))) return null;
+
+        $bindings = array_fill(0, count($roots), array());
+        foreach ($choices as $choiceIndex => $_choice) {
+            $paths = array();
+            foreach ($snapshots as $snapshot) foreach ($snapshot[$choiceIndex] as $path => $attributes) {
+                $pathKey = (string) $path;
+                $paths[$pathKey] ??= array('path' => array_map('intval', '' === $pathKey ? array() : explode('.', $pathKey)), 'attributes' => array());
+                foreach ($attributes as $name => $value) $paths[$pathKey]['attributes'][$name] = true;
+            }
+            foreach ($paths as $path => $descriptor) {
+                foreach (array_keys($descriptor['attributes']) as $name) {
+                    $values = array_map(static fn(array $snapshot): ?string => $snapshot[$choiceIndex][$path][$name] ?? null, $snapshots);
+                    if (1 === count(array_unique($values, SORT_REGULAR))) continue;
+                    foreach ($snapshots as $stateIndex => $snapshot) {
+                        $nodeIndex = null;
+                        foreach ($bindings[$stateIndex] as $candidateIndex => $candidate) if (($candidate['choiceIndex'] ?? null) === $choiceIndex) { $nodeIndex = $candidateIndex; break; }
+                        if (null === $nodeIndex) { $bindings[$stateIndex][] = array('choiceIndex' => $choiceIndex, 'nodes' => array()); $nodeIndex = array_key_last($bindings[$stateIndex]); }
+                        $bindings[$stateIndex][$nodeIndex]['nodes'][$path] ??= array('path' => $descriptor['path'], 'attributes' => array());
+                        $bindings[$stateIndex][$nodeIndex]['nodes'][$path]['attributes'][$name] = $snapshot[$choiceIndex][$path][$name] ?? null;
+                    }
+                }
+            }
+        }
+        foreach ($bindings as &$stateBindings) {
+            foreach ($stateBindings as &$binding) $binding['nodes'] = array_values($binding['nodes']);
+            unset($binding);
+        }
+        unset($stateBindings);
+        return $bindings;
+    }
+
+    private function nodeContentFingerprint(DOMElement $root): string
+    {
+        $content = strtolower($root->tagName) . '>';
+        foreach ($root->childNodes as $child) {
+            if ($child instanceof DOMElement) $content .= '<' . $this->nodeContentFingerprint($child) . '</' . strtolower($child->tagName) . '>';
+            elseif (XML_TEXT_NODE === $child->nodeType || XML_CDATA_SECTION_NODE === $child->nodeType) $content .= '#' . $child->textContent;
+        }
+
+        return $content;
+    }
+
+    /** @param array<string, mixed> $choice @return array<int, DOMElement> */
+    private function choiceNodes(DOMElement $root, array $choice): array
+    {
+        $tag = strtolower((string) ($choice['tag'] ?? ''));
+        $role = strtolower((string) ($choice['role'] ?? ''));
+        if ('' === $tag) return array();
+        $nodes = array();
+        foreach ($root->getElementsByTagName($tag) as $node) {
+            if ($node instanceof DOMElement && strtolower($node->getAttribute('role')) === $role) $nodes[] = $node;
+        }
+        return $nodes;
+    }
+
+    /** @return array<string, array<string, string>> */
+    private function nodeSnapshot(DOMElement $root): array
+    {
+        $snapshot = array();
+        $walk = function (DOMElement $node, array $path) use (&$walk, &$snapshot): void {
+            $key = implode('.', $path);
+            $snapshot[$key] = array();
+            foreach ($node->attributes as $attribute) $snapshot[$key][strtolower($attribute->name)] = $attribute->value;
+            $elementIndex = 0;
+            foreach ($node->childNodes as $child) {
+                if ($child instanceof DOMElement) $walk($child, array_merge($path, array($elementIndex++)));
+            }
+        };
+        $walk($root, array());
+        return $snapshot;
     }
 
     private function fragmentRoot(string $html): ?DOMElement
