@@ -236,6 +236,49 @@ final class MediaTextPattern implements PatternRecognizerInterface
         $attrs['mediaType'] = 'img' === $mediaType ? 'image' : 'video';
         $attrs['mediaUrl']  = $mediaUrl;
 
+        // core/media-text's save() renders a video pane as a fixed
+        // `<video controls src={mediaUrl} />` — no attribute exists for
+        // intrinsic dimensions, poster, or native playback state. Without
+        // width/height the video collapses to the browser's 300x150 default
+        // intrinsic size before it can load, shifting every section below
+        // it. These facts still have to reach the saved `<video>` markup
+        // without becoming part of the serialized comment (core's save()
+        // never reads them back), so they use the same internal-only carrier
+        // shape as `mediaFigureClassName`: BlockFactory consumes the
+        // `mediaVideo*` keys to build the pane's `<video>` tag and strips
+        // them from the comment attrs before serialization.
+        if ( 'video' === $mediaType ) {
+            $videoAttrs = array_filter(array(
+                'mediaVideoWidth'   => trim($this->attr($resolution['media'], 'width')),
+                'mediaVideoHeight'  => trim($this->attr($resolution['media'], 'height')),
+                'mediaVideoPreload' => trim($this->attr($resolution['media'], 'preload')),
+            ), static fn (string $value): bool => '' !== $value);
+            $attrs = array_merge($attrs, $videoAttrs);
+
+            $poster = trim($this->attr($resolution['media'], 'poster'));
+            if ( '' !== $poster ) {
+                try {
+                    $posterUrl = $this->safeMediaUrl(trim($resolveAssetUrl($poster)));
+                } catch ( \Throwable ) {
+                    $posterUrl = '';
+                }
+                if ( '' !== $posterUrl ) {
+                    $attrs['mediaVideoPoster'] = $posterUrl;
+                }
+            }
+
+            foreach ( array(
+                'autoplay'    => 'mediaVideoAutoplay',
+                'loop'        => 'mediaVideoLoop',
+                'muted'       => 'mediaVideoMuted',
+                'playsinline' => 'mediaVideoPlaysInline',
+            ) as $sourceAttribute => $attributeName ) {
+                if ( $resolution['media']->hasAttribute($sourceAttribute) ) {
+                    $attrs[ $attributeName ] = true;
+                }
+            }
+        }
+
         // core/media-text's save() puts `className` on the outer wrapper
         // `<div>` only — never on the generated `<figure
         // class="wp-block-media-text__media">` pane. When the matched

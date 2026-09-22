@@ -132,6 +132,7 @@
       "php tests/unit/embed-block-factory.php",
       "php tests/unit/embed-height-preservation.php",
       "php tests/unit/media-text-block-factory.php",
+      "php tests/unit/video-element-conversion.php",
       "php tests/unit/rich-text-source-serialization.php",
       "php tests/unit/rich-text-svg-transaction.php",
       "php tests/unit/richtext-type-selector-preservation.php",
