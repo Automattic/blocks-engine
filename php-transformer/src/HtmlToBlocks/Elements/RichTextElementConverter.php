@@ -101,6 +101,10 @@ final class RichTextElementConverter implements ElementConverter
         if ( '' !== $fontSize && ! isset($attrs['style']['typography']['fontSize']) ) {
             $attrs['style']['typography']['fontSize'] = $fontSize;
         }
+        $responsiveClass = $this->context->responsiveTypographyClassName($element);
+        if ( '' !== $responsiveClass ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $responsiveClass);
+        }
 
         return $attrs;
     }

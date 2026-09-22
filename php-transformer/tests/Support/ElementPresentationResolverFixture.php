@@ -27,4 +27,7 @@ final class ElementPresentationResolverFixture implements ElementPresentationRes
 
     public function bakedTypographyFontSize(DOMElement $element): string
     { return null === $this->bakedTypographyFontSize ? '' : ($this->bakedTypographyFontSize)($element); }
+
+    public function responsiveTypographyClassName(DOMElement $element): string
+    { return ''; }
 }

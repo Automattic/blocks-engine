@@ -446,6 +446,45 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->carriedDeclarationValue($this->cascadeFontSizeWinner($element));
     }
 
+    public function responsiveTypographyClassName(DOMElement $element): string
+    {
+        $hasConditionalFontSize = false;
+        foreach ($this->context->sourceStyles()->conditionalRules() as $rule) {
+            if (isset($rule['declarations']['font-size'])) {
+                $hasConditionalFontSize = true;
+                break;
+            }
+        }
+        if (!$hasConditionalFontSize) {
+            return '';
+        }
+
+        $declared = $this->declaredPresentation($element, 'font-size');
+        if (!$declared->isConditional()) {
+            return '';
+        }
+
+        $base = $this->carriedDeclarationValue($declared->base());
+        $conditional = array();
+        foreach ($declared->conditional() as $condition => $value) {
+            $value = $this->carriedDeclarationValue($value);
+            if ('' !== $value) {
+                $conditional[$condition] = $value;
+            }
+        }
+        if ('' === $base && array() === $conditional) {
+            return '';
+        }
+
+        $className = 'blocks-engine-responsive-typography-' . substr(hash(
+            'sha256',
+            $this->geometryStructuralPath($element) . "\n" . $base . "\n" . serialize($conditional)
+        ), 0, 12);
+        $this->context->generatedSupportStyles()->registerResponsiveTypography($className, $base, $conditional);
+
+        return $className;
+    }
+
     /**
      * The cascade-winning authored `font-size` for an element, evaluated at
      * the desktop reference viewport and restricted to declarations that

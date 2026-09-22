@@ -45,6 +45,11 @@ final class StyleResolutionContext
         return $this->session->sourceStyleResolutionState();
     }
 
+    public function generatedSupportStyles(): GeneratedSupportStylesheetState
+    {
+        return $this->session->generatedSupportStylesheetState();
+    }
+
     public function layoutGeometry(): LayoutGeometryState
     {
         return $this->session->layoutGeometryState();
