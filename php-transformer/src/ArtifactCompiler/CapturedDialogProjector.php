@@ -173,6 +173,25 @@ final class CapturedDialogProjector
             }
 
             $identity = substr(hash('sha256', $sourcePath . "\n" . ($state['trigger']['selector'] ?? '') . "\n" . $dialogHtml), 0, 16);
+            if ('listbox' === strtolower(trim((string) ($dialog['role'] ?? '')))) {
+                $key = 'blocks-engine-listbox-' . $identity;
+                foreach ($triggers as $trigger) {
+                    $trigger->setAttribute('data-dla-listbox-trigger', $key);
+                    $trigger->setAttribute('type', 'button');
+                    $trigger->removeAttribute('aria-expanded');
+                    $trigger->removeAttribute('aria-controls');
+                }
+                $listbox = $document->createElement('div');
+                $listbox->setAttribute('hidden', '');
+                $listbox->setAttribute('role', 'listbox');
+                $listbox->setAttribute('data-dla-listbox-panel', $key);
+                foreach ($fragment['nodes'] as $node) {
+                    $listbox->appendChild($document->importNode($node, true));
+                }
+                ($document->getElementsByTagName('body')->item(0) ?? $document->documentElement)?->appendChild($listbox);
+                ++$projected;
+                continue;
+            }
             $triggerIds = array();
             foreach ($triggers as $triggerIndex => $trigger) {
                 $triggerId = trim($trigger->getAttribute('id'));

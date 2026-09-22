@@ -2767,42 +2767,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $result->block();
     }
 
-    private function capturedListboxBlock(DOMElement $details): ?array
-    {
-        if ('details' !== strtolower($details->tagName)) {
-            return null;
-        }
-        $summary = null;
-        foreach ($details->childNodes as $child) {
-            if ($child instanceof DOMElement && 'summary' === strtolower($child->tagName)) {
-                $summary = $child;
-                break;
-            }
-        }
-        if (!$summary instanceof DOMElement) {
-            return null;
-        }
-        foreach ($details->getElementsByTagName('*') as $candidate) {
-            if ($candidate instanceof DOMElement && 'option' === strtolower(trim($candidate->getAttribute('role')))) {
-                return $this->authoredFormControlBlockConverter->listbox($summary, $details);
-            }
-            if ($candidate instanceof DOMElement && str_contains($candidate->getAttribute('content'), 'role="option"')) {
-                $fragment = new DOMDocument('1.0', 'UTF-8');
-                if (@$fragment->loadHTML('<div>' . $candidate->getAttribute('content') . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET)) {
-                    $panel = $details->ownerDocument?->createElement('div');
-                    if ($panel instanceof DOMElement) {
-                        foreach ($fragment->documentElement?->childNodes ?? array() as $node) {
-                            $panel->appendChild($details->ownerDocument->importNode($node, true));
-                        }
-                        return $this->authoredFormControlBlockConverter->listbox($summary, $panel);
-                    }
-                }
-            }
-        }
-
-        return null;
-    }
-
     private function createProbePatternContext(): PatternContext
     {
         return new PatternContext(
@@ -2832,9 +2796,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             sourceElementStartsHidden: fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
                 || $this->sourceElementStartsHidden($sourceElement),
-            disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
-             accordionToggleMarker: fn (DOMElement $control): string => $this->disclosureControlPresentation()->accordionToggleMarker($control),
-             capturedListboxBlock: fn (DOMElement $details): ?array => $this->capturedListboxBlock($details)
+             disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
+             accordionToggleMarker: fn (DOMElement $control): string => $this->disclosureControlPresentation()->accordionToggleMarker($control)
          );
     }
 
