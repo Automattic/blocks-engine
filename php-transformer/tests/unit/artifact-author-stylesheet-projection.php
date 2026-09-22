@@ -555,8 +555,8 @@ $assert($sharedShellHomeElement instanceof DOMElement && $sharedShellAboutElemen
 $sharedShellDesktopCss = $sharedShellPageCss;
 $sharedShellDesktopHome = ( new StaticCssCascade($sharedShellHome, $sharedShellDesktopCss) )->resolve($sharedShellHomeElement, array('display', 'grid-template-columns'), array('width' => 1000));
 $sharedShellDesktopAbout = ( new StaticCssCascade($sharedShellAbout, $sharedShellDesktopCss) )->resolve($sharedShellAboutElement, array('display', 'grid-template-columns'), array('width' => 1000));
-$assert('grid' === ($sharedShellDesktopHome['display'] ?? '') && '1fr 1fr' === ($sharedShellDesktopHome['grid-template-columns'] ?? '') && 'grid' === ($sharedShellDesktopAbout['display'] ?? '') && '1fr 1fr' === ($sharedShellDesktopAbout['grid-template-columns'] ?? ''), 'desktop browser cascade retains two columns independently on both routes');
-$assert(str_contains($sharedShellPageCss, '@media(max-width:700px){.home-grid{grid-template-columns:1fr}}'), 'mobile browser cascade retains the route one-column override');
+$assert('grid' === ($sharedShellDesktopHome['display'] ?? '') && '1fr 1fr' === ($sharedShellDesktopHome['grid-template-columns'] ?? '') && 'grid' === ($sharedShellDesktopAbout['display'] ?? '') && '1fr 1fr' === ($sharedShellDesktopAbout['grid-template-columns'] ?? ''), 'desktop declared cascade retains two columns independently on both routes');
+$assert(str_contains($sharedShellPageCss, '@media(max-width:700px){.home-grid{grid-template-columns:1fr}}'), 'mobile route media rule retains its one-column override');
 
 $siblingSupport = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
