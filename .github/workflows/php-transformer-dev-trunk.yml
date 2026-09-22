@@ -1,57 +1,5 @@
 name: PHP Transformer dev-trunk mirror
 
-# Temporary compatibility bridge for Packagist dev-trunk consumers. The
-# target replacement is one homeboy-action invocation with no consumer
-# ssh-agent, key handling, known-hosts writing, or `git push`:
-#
-#   - uses: Extra-Chill/homeboy-action@v2.19.1
-#     with:
-#       component: php-transformer
-#       commands: git subtree php-transformer ${{ github.sha }} --apply --branch-only
-#       ssh-key: ${{ secrets.PHP_TRANSFORMER_MIRROR_DEPLOY_KEY }}
-#       ssh-known-hosts: |
-#         github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
-#       ssh-require-known-hosts: true
-#
-# Both prior blockers are gone: homeboy-action's native `git` operation
-# routing shipped in v2.19.0 (Extra-Chill/homeboy-action#488), and
-# `homeboy git subtree` itself shipped in Homeboy v0.383.0
-# (Extra-Chill/homeboy#14851) — confirmed by downloading that exact released
-# binary and running it against a disposable bare-repository fixture: preview
-# mutates nothing, `--apply` publishes a tree byte-identical to the source
-# subtree, a re-run is idempotent, `--branch-only` correctly excludes tag
-# publication (and, separately, tag publication works when it's not passed),
-# a `fast_forward` branch_policy correctly refuses to force-push over
-# divergent mirror history, and sibling components (figma-transformer) are
-# never touched by a php-transformer publish or vice versa.
-#
-# The remaining blocker is a new one found during that same verification,
-# not a shape/config problem: v0.383.0's `homeboy git subtree` has a
-# reproducible bug in its OWN result serialization on the SUCCESS path only.
-# Every invocation that actually performs the git subtree split-and-push
-# correctly (preview and apply both) still exits non-zero afterward with
-# `{"success": false, "exit_code": 1, "diagnostics": {"code":
-# "internal.json_error", "message": "JSON error", "details": {"context":
-# "serialize response", "error": "git command output payload must serialize
-# as an object"}}}` — confirmed the underlying push/tag operation itself
-# genuinely succeeded in every case (mirror ref inspected directly after each
-# run) and that this is specific to the success path: pointing the same
-# command at a broken remote produces a normal, correctly serialized
-# `git.command_failed` / exit_code 20 failure result instead. homeboy-action's
-# `scripts/operations/run-operations.sh` (routes `commands: git subtree ...`)
-# has no special case for this — it maps any nonzero `homeboy` exit code
-# straight to a failed step (`RESULTS+={cmd: "fail"}`, `any-failed=true`).
-# Switching this workflow to the invocation above today would therefore turn
-# a currently-working, correctly-reporting bridge into one that silently
-# still publishes the mirror correctly but reports every single run as a
-# failed CI job. Move to the native invocation once a released Homeboy tag
-# fixes `git subtree` success-path result serialization; until then this
-# shell-based bridge remains the only path with a CI status that reflects
-# reality, and must not be replaced by a hand-rolled `homeboy git subtree`
-# invocation with manual ssh-agent/known-hosts setup, which would just
-# reintroduce the same consumer-owned credential handling this bridge exists
-# to retire while ALSO breaking CI status reporting.
-
 on:
   push:
     branches:
@@ -64,8 +12,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Share the release workflow's lock so a release commit cannot race the
-  # compatibility mirror update.
   group: component-release
   cancel-in-progress: false
 
@@ -76,32 +22,12 @@ jobs:
     if: github.repository == 'Automattic/blocks-engine'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: Extra-Chill/homeboy-action@v2.19.1
         with:
-          fetch-depth: 0
-
-      - name: Configure mirror SSH auth
-        env:
-          DEPLOY_KEY: ${{ secrets.PHP_TRANSFORMER_MIRROR_DEPLOY_KEY }}
-        run: |
-          if [ -z "$DEPLOY_KEY" ]; then
-            echo "PHP_TRANSFORMER_MIRROR_DEPLOY_KEY secret is not configured" >&2
-            exit 1
-          fi
-          mkdir -p ~/.ssh
-          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/mirror_deploy_key
-          chmod 600 ~/.ssh/mirror_deploy_key
-          printf '%s\n' \
-            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
-            'github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=' \
-            'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
-            >> ~/.ssh/known_hosts
-
-      - name: Split and push dev-trunk
-        env:
-          GIT_SSH_COMMAND: ssh -i ~/.ssh/mirror_deploy_key -o IdentitiesOnly=yes
-          MIRROR_URL: git@github.com:Automattic/blocks-engine-php-transformer.git
-        run: |
-          set -euo pipefail
-          split_sha=$(php-transformer/tools/packagist-split/split-ref.sh "$GITHUB_SHA")
-          git push "$MIRROR_URL" "${split_sha}:refs/heads/trunk"
+          component: php-transformer
+          version: 0.383.4
+          commands: git subtree php-transformer ${{ github.sha }} --apply --branch-only
+          ssh-key: ${{ secrets.PHP_TRANSFORMER_MIRROR_DEPLOY_KEY }}
+          ssh-known-hosts: |
+            github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+          ssh-require-known-hosts: true

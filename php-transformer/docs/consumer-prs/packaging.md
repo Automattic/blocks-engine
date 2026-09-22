@@ -128,8 +128,13 @@ Before any downstream PR merges, replace draft branch constraints with a tagged 
 
 `automattic/blocks-engine-php-transformer` is published to Packagist through an automated subtree split. The read-only mirror repository is `Automattic/blocks-engine-php-transformer`; Packagist indexes the mirror, never the monorepo.
 
-- `.github/workflows/php-transformer-split.yml` splits `php-transformer/` with `git subtree split` and pushes to the mirror: trunk pushes update the mirror `trunk` (installable as `dev-trunk`), and `php-transformer-vX.Y.Z` tag pushes create translated `vX.Y.Z` mirror tags, which become Packagist releases.
-- The workflow authenticates with a deploy key on the mirror, stored as the `PHP_TRANSFORMER_MIRROR_DEPLOY_KEY` Actions secret in `Automattic/blocks-engine`.
+- `.github/workflows/php-transformer-dev-trunk.yml` invokes released Homeboy
+  `git subtree` support to update the mirror `trunk` (installable as
+  `dev-trunk`). Component releases publish translated `vX.Y.Z` mirror tags
+  through the native `release.subtree` configuration.
+- The action authenticates with a deploy key on the mirror, stored as the
+  `PHP_TRANSFORMER_MIRROR_DEPLOY_KEY` Actions secret in
+  `Automattic/blocks-engine`.
 - `php-transformer/.gitattributes` keeps dist archives lean. The dist carries what a consumer can call plus the contracts describing what those calls return, so `src/`, `resources/`, and `docs/contracts/` ship while the diagnostic and parity harness does not. Harness code lives in `dev/`, mapped through `autoload-dev` rather than the shipped `autoload` block, so an installed package cannot resolve it even where a Composer path repository copies the working tree verbatim.
 - `tests/packaging/dist-shape.php` asserts that shape against `git archive` directly, since no other suite observes export-ignore: parity and contract runs read the working tree, and the install proof's path repository copies it wholesale.
 - The mirror is not a support surface: issues stay disabled there, `composer.json` `support.issues` points at `Automattic/blocks-engine`, and the package README banner marks the mirror read-only.

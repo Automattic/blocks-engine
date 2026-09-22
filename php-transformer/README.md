@@ -238,7 +238,7 @@ Operator-only release checklist after the release-readiness PR merges:
 - Update downstream wrapper/product PRs from review-only constraints to tagged constraints.
 - Decide whether GitHub Releases are part of this first package publication path.
 
-Homeboy owns the local release preflight for this package through `php-transformer/homeboy.json`. Run Homeboy with `php-transformer/` as the component path so release automation detects the monorepo path and uses `php-transformer-v*` tags, without adding wrapper-package names to this package metadata.
+Homeboy owns the local release preflight and subtree publication for this package through `php-transformer/homeboy.json`. Run Homeboy with `php-transformer/` as the component path so release automation detects the monorepo path and uses `php-transformer-v*` tags, without adding wrapper-package names to this package metadata.
 
 Recommended post-merge dry-run:
 

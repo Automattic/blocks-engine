@@ -46,7 +46,7 @@ concurrency:
 #   landing on whatever the source's default branch currently is rather
 #   than a released extension version (verified by reading
 #   crates/homeboy-core/src/extension/lifecycle/{mod,install_sources}.rs at
-#   homeboy v0.383.0). Each job is pinned to the release tag for the
+#   Homeboy v0.383.4). Each job is pinned to the release tag for the
 #   extension IT ACTUALLY DECLARES, not the previous candidate SHA reused
 #   across all three jobs regardless of which extension a job needs:
 #     - php/figma declare `wordpress` (see their homeboy.json) → pinned to
