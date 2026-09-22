@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButto
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) {
@@ -63,6 +64,37 @@ $assert(str_contains($serialized, '<option value="" selected disabled>Select a p
 $assert(str_contains($serialized, '<label class="block">Assistance required<select'), 'PHP markup keeps the wrapping label');
 $assert(str_contains($serialized, '<option value="food">Food &amp; housing</option>'), 'PHP markup escapes option labels');
 $assert($serialized === $saveMarkup($generator, $attrs), 'authored-select save() round-trips the serialized markup Gutenberg validates');
+
+$selectedAttrs = array(
+    'selectedValue' => 'ca',
+    'selectedLabel' => 'Canada',
+    'options' => array(
+        array( 'label' => 'Select country', 'value' => '', 'disabled' => true ),
+        array( 'label' => 'Canada', 'value' => 'ca', 'selected' => true ),
+    ),
+);
+$selectedMarkup = $generator->markup($selectedAttrs);
+$assert(str_contains($selectedMarkup, '<option value="ca" selected>Canada</option>'), 'native select markup preserves the selected option value and label');
+$assert($selectedMarkup === $saveMarkup($generator, $selectedAttrs), 'selected-value companion metadata does not invalidate the saved native select');
+
+$listboxResult = ( new HtmlTransformer() )->transform(
+    '<form><button type="button" data-dla-listbox-trigger="country" aria-expanded="false">Canada</button>'
+    . '<div hidden data-dla-listbox-panel="country" role="listbox">'
+    . '<div role="option" aria-selected="false">Afghanistan</div>'
+    . '<div role="option" aria-selected="true">Canada</div>'
+    . '</div></form>'
+)->toArray();
+$listboxMarkup = (string) ( $listboxResult['serialized_blocks'] ?? '' );
+$assert(str_contains($listboxMarkup, 'authored-select'), 'captured listbox trigger uses the editable native select companion');
+$assert(str_contains($listboxMarkup, '<option value="Canada" selected>Canada</option>'), 'captured listbox materialization carries the selected value and label');
+$assert(!str_contains($listboxMarkup, 'core/details'), 'captured listbox is not degraded to a disclosure block');
+
+$legacyListbox = ( new HtmlTransformer() )->transform(
+    '<details><summary>Select country</summary><div role="option">Afghanistan</div><div role="option">Canada</div></details>'
+)->toArray();
+$legacyMarkup = (string) ( $legacyListbox['serialized_blocks'] ?? '' );
+$assert(str_contains($legacyMarkup, 'authored-select'), 'captured listbox details are materialized through the same companion');
+$assert(!str_contains($legacyMarkup, 'core/details'), 'listbox-shaped details do not retain disclosure semantics');
 
 $disabledAttrs = array(
     'className' => 'authored-select',
