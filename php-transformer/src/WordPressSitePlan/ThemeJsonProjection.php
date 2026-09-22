@@ -53,7 +53,7 @@ final class ThemeJsonProjection
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $path = (string) ($asset['source_path'] ?? $asset['path'] ?? '');
             $hash = (string) ($asset['content_hash'] ?? $asset['hash'] ?? hash('sha256', $asset['content']));
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors) use (&$candidates, &$conditionalProperties, &$fontFamilyStacks, $assetIndex, $path, $hash, $variables): void {
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors) use (&$candidates, &$conditionalProperties, &$unrepresentableProperties, &$fontFamilyStacks, $assetIndex, $path, $hash, $variables): void {
                 // Cascade layers qualify where a declaration sits in the source
                 // cascade but leave it unconditional; media, supports, container,
                 // scope, and starting-style ancestors make it cascade-conditional.

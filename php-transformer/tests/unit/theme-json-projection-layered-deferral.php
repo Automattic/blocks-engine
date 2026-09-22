@@ -28,7 +28,7 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 
 $project = static fn (array $assets): array => ( new ThemeJsonProjection() )->project($assets);
 $cssAsset = static fn (string $css): array => array( 'kind' => 'css', 'source_path' => 'assets/styles.css', 'content' => $css );
-$headingStyles = static fn (array $projected): array => $projected['theme']['styles']['elements']['h1']['typography'] ?? array();
+$headingStyles = static fn (array $projected, string $level = 'h1'): array => $projected['theme']['styles']['elements'][$level]['typography'] ?? array();
 
 // A layered preflight deferral stays source-owned.
 $preflight = $project(array($cssAsset(
@@ -85,9 +85,19 @@ $specificCalculation = $project(array($cssAsset(
     . 'h2{line-height:calc(1.2 * (1 + (1 - var(--heading-size))/25))}'
 )));
 $assert(
-    ! isset($headingStyles($specificCalculation)['lineHeight']),
+    ! isset($headingStyles($specificCalculation, 'h2')['lineHeight']),
     'a non-representable later heading line-height keeps the property source-owned',
-    json_encode($headingStyles($specificCalculation))
+    json_encode($headingStyles($specificCalculation, 'h2'))
+);
+
+$conditionalCalculation = $project(array($cssAsset(
+    'h2{line-height:1.4em}'
+    . '@media (min-width:1px){h2{line-height:calc(1.2 * (1 + (1 - var(--heading-size))/25))}}'
+)));
+$assert(
+    ! isset($headingStyles($conditionalCalculation, 'h2')['lineHeight']),
+    'a conditional non-representable heading line-height keeps the property source-owned',
+    json_encode($headingStyles($conditionalCalculation, 'h2'))
 );
 
 if ( $failures > 0 ) {
