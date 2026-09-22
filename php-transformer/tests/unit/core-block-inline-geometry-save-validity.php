@@ -32,7 +32,7 @@ $assert = static function (bool $ok, string $message, string $detail = '') use (
 $result = ( new HtmlTransformer() )->transform(
     '<style>.btn{display:inline-block;padding:10px 20px;background:#000;color:#fff}.nav-menu{display:none}</style>'
     . '<main><h1>Welcome</h1>'
-    . '<div id="nav-menu" class="nav-menu" style="transition:all, transform 400ms;display:block !important;">'
+    . '<div id="nav-menu" class="wp-block-buttons has-border-color px-4 py-3 space-y-1 nav-menu" style="border-color:hsl(var(--border));border-style:solid;padding-top:.75rem;padding-right:1rem;padding-bottom:.75rem;padding-left:1rem;transition:all, transform 400ms;display:block !important;">'
     . '<a class="btn" href="/events">Event Space</a><a class="btn" href="/contact">Contact us</a></div></main>',
     array()
 )->toArray();
@@ -45,7 +45,12 @@ $css = implode("\n", array_map(
 $assert(1 === preg_match('/<!-- wp:buttons (\{.*?\}) -->(<div[^>]*>)/', $markup, $buttons), 'the source menu converts to core/buttons', $markup);
 $wrapper = $buttons[2] ?? '';
 $attrs = json_decode($buttons[1] ?? '{}', true) ?: array();
-$assert(! str_contains($wrapper, 'style='), 'the core/buttons wrapper carries no raw style', $wrapper);
+$assert(
+    str_contains($wrapper, 'style="border-color:hsl(var(--border));border-style:solid;padding-top:.75rem;padding-right:1rem;padding-bottom:.75rem;padding-left:1rem"')
+        && ! str_contains($wrapper, 'display:block !important'),
+    'the core/buttons wrapper keeps save-supported styles but drops transport-only display',
+    $wrapper
+);
 $assert('nav-menu' === ($attrs['anchor'] ?? null) && str_contains($wrapper, 'id="nav-menu"'), 'the source id is saved through the anchor attribute', $wrapper);
 $assert(
     1 === preg_match('/be-inline-geometry-[0-9a-f]+/', (string) ($attrs['className'] ?? ''), $carrier)
@@ -60,11 +65,14 @@ $assert(array() === ($validity['findings'] ?? array()), 'the serialized page pas
 $reported = $result['source_reports']['wp_block_validity'] ?? array();
 $assert('pass' === ($reported['status'] ?? null), 'the transform receipt reports the page valid', (string) json_encode($reported));
 
-// The validator itself flags the raw wrapper style the old output carried.
-$rawStyle = $runtime->validateBlockSerialization(str_replace($wrapper, substr($wrapper, 0, -1) . ' style="display:block !important">', $markup));
+// The validator itself flags a raw wrapper style when no support attribute can
+// reproduce it, which is the shape emitted before this boundary fix.
+$rawStyle = $runtime->validateBlockSerialization(
+    '<!-- wp:buttons {} --><div class="wp-block-buttons" style="display:block !important"></div><!-- /wp:buttons -->'
+);
 $assert(
     in_array('unexpected_wrapper_style', array_map(static fn (array $finding): string => (string) ($finding['details']['reason'] ?? ''), $rawStyle['findings'] ?? array()), true),
-    'a raw wrapper style without a style attribute is reported as a save-shape violation',
+    'a raw transport-only display declaration is reported as a save-shape violation',
     (string) json_encode($rawStyle['findings'] ?? array())
 );
 
