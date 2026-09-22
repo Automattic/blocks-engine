@@ -531,6 +531,33 @@ $pageSubsetStaged = $pageSubsetCompiler->compose($pageSubsetShared, array_revers
 $pageSubsetStagedAssets = array_column($pageSubsetStaged['source_reports']['wordpress_site_plan']['assets'] ?? array(), null, 'source_path');
 $assert(array('services.html', 'portfolio.html') === array_column($pageSubsetStagedAssets['section.css']['scopes'] ?? array(), 'source_path'), 'staged compilation retains the same subset page scopes as monolithic compilation');
 
+$sharedShellResponsive = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="shared.css"><style>.home-grid{display:grid;grid-template-columns:1fr 1fr}@media(max-width:700px){.home-grid{grid-template-columns:1fr}}</style></head><body><header class="site-chrome">Brand</header><main><div class="home-grid"><div>One</div><div>Two</div></div></main></body></html>' ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="shared.css"><style>.about-grid{display:grid;grid-template-columns:1fr 1fr}@media(max-width:700px){.about-grid{grid-template-columns:1fr}}</style></head><body><header class="site-chrome">Brand</header><main><div class="about-grid"><div>One</div><div>Two</div></div></main></body></html>' ),
+        array( 'path' => 'shared.css', 'kind' => 'css', 'content' => '.site-chrome{display:block;color:#123456}' ),
+    ),
+) )->toArray();
+$sharedShellPlanAssets = $sharedShellResponsive['source_reports']['wordpress_site_plan']['assets'] ?? array();
+$sharedShellPageStyles = array_values(array_filter($sharedShellPlanAssets, static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && 'shared.css' !== ($asset['source_path'] ?? '') && 'global' !== (($asset['scopes'][0]['kind'] ?? null))));
+$sharedShellPageCss = implode("\n", array_column($sharedShellPageStyles, 'content'));
+$sharedShellSharedAsset = array_values(array_filter($sharedShellPlanAssets, static fn (array $asset): bool => 'shared.css' === ($asset['source_path'] ?? '')))[0] ?? array();
+$assert(2 === count($sharedShellSharedAsset['scopes'] ?? array()) && ! str_contains($sharedShellPageCss, 'site-chrome'), 'shared stylesheet remains scoped to its two consuming pages without absorbing route CSS');
+$assert(str_contains($sharedShellPageCss, 'home-grid') && str_contains($sharedShellPageCss, 'about-grid'), 'route-owned responsive styles remain in page-scoped assets after shared-shell extraction');
+$sharedShellHome = new DOMDocument();
+$sharedShellHome->loadHTML('<html><body><div class="home-grid"><div>One</div><div>Two</div></div></body></html>');
+$sharedShellHomeElement = $sharedShellHome->getElementsByTagName('div')->item(0);
+$sharedShellAbout = new DOMDocument();
+$sharedShellAbout->loadHTML('<html><body><div class="about-grid"><div>One</div><div>Two</div></div></body></html>');
+$sharedShellAboutElement = $sharedShellAbout->getElementsByTagName('div')->item(0);
+$assert($sharedShellHomeElement instanceof DOMElement && $sharedShellAboutElement instanceof DOMElement, 'responsive multi-page fixture exposes both grid roots');
+$sharedShellDesktopCss = $sharedShellPageCss;
+$sharedShellDesktopHome = ( new StaticCssCascade($sharedShellHome, $sharedShellDesktopCss) )->resolve($sharedShellHomeElement, array('display', 'grid-template-columns'), array('width' => 1000));
+$sharedShellDesktopAbout = ( new StaticCssCascade($sharedShellAbout, $sharedShellDesktopCss) )->resolve($sharedShellAboutElement, array('display', 'grid-template-columns'), array('width' => 1000));
+$assert('grid' === ($sharedShellDesktopHome['display'] ?? '') && '1fr 1fr' === ($sharedShellDesktopHome['grid-template-columns'] ?? '') && 'grid' === ($sharedShellDesktopAbout['display'] ?? '') && '1fr 1fr' === ($sharedShellDesktopAbout['grid-template-columns'] ?? ''), 'desktop declared cascade retains two columns independently on both routes');
+$assert(str_contains($sharedShellPageCss, '@media(max-width:700px){.home-grid{grid-template-columns:1fr}}'), 'mobile route media rule retains its one-column override');
+
 $siblingSupport = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
