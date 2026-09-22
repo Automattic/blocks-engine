@@ -284,8 +284,25 @@ $assert(! str_contains($nexusGeometryMarkup, 'wp-block-media-text is-stacked-on-
     && ! str_contains($nexusGeometryCss, '.max-w-[120px]{max-width:120px}')
     && ! str_contains($nexusGeometryCss, '.h-9{height:2.25rem}')
     && str_contains($nexusGeometryCss, ':where(p.blocks-engine-synthetic-paragraph){display:contents}')
-    && 'pass' === ($nexusGeometryValidity['source_reports']['wp_block_validity']['status'] ?? ''),
+     && 'pass' === ($nexusGeometryValidity['source_reports']['wp_block_validity']['status'] ?? ''),
     'full artifact geometry fixture preserves footer image classes and makes floating link carriers transparent while remaining valid');
+
+$mediaRoleArtifact = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.first-media{width:80px}.second-media{width:20px}</style><section style="display:flex"><img class="first-media" src="first.jpg"><div><p>First</p></div></section><section style="display:flex"><img class="second-media" src="second.jpg"><div><p>Second</p></div></section>' ),
+    ),
+))->toArray();
+$mediaRoleMarkup = (string) ($mediaRoleArtifact['serialized_blocks'] ?? '');
+$mediaRoleCss = implode("\n", array_column(array_filter($mediaRoleArtifact['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$mediaRoleValidity = ( new HtmlTransformer() )->transform('<style>.first-media{width:80px}.second-media{width:20px}</style><section style="display:flex"><img class="first-media" src="first.jpg"><div><p>First</p></div></section><section style="display:flex"><img class="second-media" src="second.jpg"><div><p>Second</p></div></section>')->toArray();
+preg_match_all('/:where\(\.blocks-engine-media-text-image-[^)]+\) \.wp-block-media-text__media > img[^\{]*\{width:(?:80|20)px\}/', $mediaRoleCss, $mediaRoleRules);
+$assert(2 === count($mediaRoleRules[0] ?? array())
+    && str_contains($mediaRoleCss, 'width:80px')
+    && str_contains($mediaRoleCss, 'width:20px')
+    && ! str_contains($mediaRoleCss, '.wp-block-media-text__media > img{width:80px}')
+    && ! str_contains($mediaRoleCss, '.wp-block-media-text__media > img{width:20px}')
+    && 2 === preg_match_all('/className":"blocks-engine-media-text-image-[^"]+"/', $mediaRoleMarkup)
+    && 'pass' === ($mediaRoleValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'media image declarations bind to each emitted media-text role instead of leaking to every native media image');
 
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'files' => array(

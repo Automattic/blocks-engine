@@ -161,10 +161,10 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return null;
         }
 
-        // A small, explicitly sized image beside a heading is an icon lockup,
+        // A small, explicitly sized image beside short text is an icon lockup,
         // not a two-pane media/text section. Let normal group lowering retain
-        // the authored row so both the image and heading stay editable.
-        if ( 'img' === $mediaType && $this->isCompactIconHeadingPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle) ) {
+        // the authored row so both the image and text stay editable.
+        if ( 'img' === $mediaType && $this->isCompactIconTextPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle) ) {
             return null;
         }
 
@@ -285,9 +285,12 @@ final class MediaTextPattern implements PatternRecognizerInterface
         // onto the whole media-text container.
         $sourceFigure = $this->enclosingSourceFigure($element);
         $figureClassName = $sourceFigure instanceof DOMElement ? trim($this->attr($sourceFigure, 'class')) : '';
+        $mediaTextImageMarker = (string) ($attrs['mediaTextImageMarker'] ?? '');
+        unset($attrs['mediaTextImageMarker']);
         $attrs['className'] = SourceDom::mergeClassNames(
             (string) ($attrs['className'] ?? ''),
-            $figureClassName
+            $figureClassName,
+            $mediaTextImageMarker
         );
         if ( '' === $attrs['className'] ) {
             unset($attrs['className']);
@@ -532,9 +535,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
         return false;
     }
 
-    private function isCompactIconHeadingPair(DOMElement $media, DOMElement $text, string $mediaStyle): bool
+    private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle): bool
     {
-        if ( ! preg_match('/^h[1-6]$/', strtolower($text->tagName)) ) {
+        if ( ! preg_match('/^(?:h[1-6]|p|span)$/', strtolower($text->tagName)) ) {
             return false;
         }
 

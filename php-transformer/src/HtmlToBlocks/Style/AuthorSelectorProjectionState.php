@@ -44,6 +44,9 @@ final class AuthorSelectorProjectionState
     private array $rootChildMarkers = array();
 
     /** @var array<string, string> */
+    private array $mediaTextImageMarkers = array();
+
+    /** @var array<string, string> */
     private array $tableMarkers = array();
 
     /** @var array<int, bool> */
@@ -231,6 +234,16 @@ final class AuthorSelectorProjectionState
     public function rootChildMarker(string $path): string
     {
         return $this->rootChildMarkers[$path] ?? '';
+    }
+
+    public function ensureMediaTextImageMarker(string $path): string
+    {
+        return '' === $path ? '' : ($this->mediaTextImageMarkers[$path] ??= $this->allocateMarker('media-text-image'));
+    }
+
+    public function mediaTextImageMarker(string $path): string
+    {
+        return $this->mediaTextImageMarkers[$path] ?? '';
     }
 
     /** @return list<string> */

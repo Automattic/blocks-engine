@@ -1534,13 +1534,29 @@ final class AuthorStylesheetProjector
             if ( 'svg' === $tagName ) {
                 $projected[] = $this->projectImageSelector($selector, $parsed, $context, true);
             }
-            $projected[] = $this->projectImageSelector(
-                $selector,
-                $parsed,
-                $context,
-                false,
-                $tagName === 'img' && $this->isMediaTextImage($imageMatches[0])
-            );
+            $mediaTextImages = array_values(array_filter(
+                $imageMatches,
+                fn (DOMElement $element): bool => $tagName === 'img'
+                    && $this->isMediaTextImage($element)
+                    && '' !== $this->mediaTextImageMarkerForElement($element, $context)
+            ));
+            foreach ( $mediaTextImages as $element ) {
+                $projected[] = $this->projectImageSelector(
+                    $selector,
+                    $parsed,
+                    $context,
+                    false,
+                    true,
+                    $this->mediaTextImageMarkerForElement($element, $context)
+                );
+            }
+            $ordinaryImages = array_values(array_filter(
+                $imageMatches,
+                fn (DOMElement $element): bool => ! in_array($element, $mediaTextImages, true)
+            ));
+            if ( array() !== $ordinaryImages ) {
+                $projected[] = $this->projectImageSelector($selector, $parsed, $context);
+            }
         }
         return implode(',', array_values(array_unique($projected)));
     }
@@ -1561,9 +1577,15 @@ final class AuthorStylesheetProjector
             if ( array() === $matches || count(array_filter($matches, fn (DOMElement $element): bool => $this->isMediaTextImage($element))) !== count($matches) ) {
                 continue;
             }
-            $projected[] = $parsed['supported']
-                ? $this->projectImageSelector($selector, $parsed, $context, false, true)
-                : '.wp-block-media-text__media > img';
+            foreach ( $matches as $element ) {
+                $marker = $this->mediaTextImageMarkerForElement($element, $context);
+                if ( '' === $marker ) {
+                    continue;
+                }
+                $projected[] = $parsed['supported']
+                    ? $this->projectImageSelector($selector, $parsed, $context, false, true, $marker)
+                    : ':where(.' . $marker . ') .wp-block-media-text__media > img';
+            }
         }
 
         return implode(',', array_values(array_unique($projected)));
@@ -1600,6 +1622,18 @@ final class AuthorStylesheetProjector
             }
         }
         return false;
+    }
+
+    private function mediaTextImageMarkerForElement(DOMElement $element, AuthorStylesheetProjectionContext $context): string
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $marker = $context->selectorProjections->mediaTextImageMarker($node->getNodePath() ?? '');
+            if ( '' !== $marker ) {
+                return $marker;
+            }
+        }
+
+        return '';
     }
 
     private function hasMediaTextBranches(DOMElement $container, DOMElement $image): bool
@@ -1829,27 +1863,19 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed */
-    private function projectImageSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $wrapperOnly = false, bool $mediaText = false): string
+    private function projectImageSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $wrapperOnly = false, bool $mediaText = false, string $mediaTextMarker = ''): string
     {
         if ( $mediaText && ! $wrapperOnly ) {
-            $rightmostType = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;
-            if ( is_string($rightmostType) && in_array(strtolower($rightmostType), array( 'img', 'svg' ), true) ) {
-                $typeSpan = end($parsed['type_spans']);
-                if ( is_array($typeSpan) ) {
-                    return $this->replaceSelectorSpans($selector, array(
-                        (int) $typeSpan['start'] => array(
-                            'end' => (int) $typeSpan['end'],
-                            'value' => '.wp-block-media-text__media > img',
-                        ),
-                    ));
-                }
+            if ( '' === $mediaTextMarker ) {
+                return '';
             }
             // The source image's classes are intentionally not copied to the
             // native media-text wrapper: width constraints there resize the
-            // whole text/image row. All matched source elements are known
-            // media-text images, so project the declaration directly to the
-            // generated image while retaining the source selector's weight.
-            return '.wp-block-media-text__media > img' . $this->selectorSpecificityShims($parsed, $context);
+            // whole text/image row. The marker is installed on the exact
+            // generated media-text wrapper for this source image, so project
+            // the declaration directly to its generated image.
+            return ':where(.' . $mediaTextMarker . ') .wp-block-media-text__media > img'
+                . $this->selectorSpecificityShims($parsed, $context);
         }
         $replacements = array(
             (int) $parsed['rightmost_rewrite_end'] => array(

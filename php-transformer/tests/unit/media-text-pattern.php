@@ -220,6 +220,11 @@ $assertSame('core/image', $iconHeadingBlock['innerBlocks'][0]['blockName'] ?? nu
 $assertSame('core/heading', $iconHeadingBlock['innerBlocks'][1]['blockName'] ?? null, 'Compact icon lockup keeps an editable heading block.');
 $assertSame(array(), $iconHeadingResult['fallbacks'] ?? array(), 'Compact icon lockup emits no HTML fallback.');
 
+$iconLabelResult = $transformHtml('<div class="brand-row" style="display:flex;align-items:center;gap:10px"><img src="icon.png" style="width:40px;height:36px" alt=""><span>Brand</span></div>');
+$assertSame('core/group', $iconLabelResult['blocks'][0]['blockName'] ?? null, 'Compact icon plus inline label falls through to native group lowering.');
+$assertSame('core/image', $iconLabelResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null, 'Compact icon label lockup keeps an editable image block.');
+$assertSame('core/paragraph', $iconLabelResult['blocks'][0]['innerBlocks'][1]['blockName'] ?? null, 'Compact icon label lockup keeps an editable text block.');
+
 $largeHeadingResult = $transformHtml('<section style="display:flex"><img src="feature.jpg" width="640" height="360" alt=""><h2>Feature</h2></section>');
 $assertSame('core/media-text', $largeHeadingResult['blocks'][0]['blockName'] ?? null, 'Legitimate large image plus heading remains media-text.');
 
