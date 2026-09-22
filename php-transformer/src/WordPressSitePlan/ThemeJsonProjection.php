@@ -46,6 +46,7 @@ final class ThemeJsonProjection
         $variables = $this->customProperties($assets);
         $candidates = array();
         $conditionalProperties = array();
+        $unrepresentableProperties = array();
         $fontFamilyStacks = array();
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $assetIndex => $asset) {
@@ -76,7 +77,9 @@ final class ThemeJsonProjection
                 if ($conditional) {
                     foreach ($resolved as $name => $value) {
                         foreach ($targets as $target) {
-                            if ($this->representable($target, $name, $value)) $conditionalProperties[$target . "\n" . $name] = true;
+                            $key = $target . "\n" . $name;
+                            if ($this->representable($target, $name, $value)) $conditionalProperties[$key] = true;
+                            else $unrepresentableProperties[$key] = true;
                         }
                     }
                     return;
@@ -90,7 +93,11 @@ final class ThemeJsonProjection
                     // The deferral stays source-owned.
                     if (array() !== $layer && in_array(strtolower($value), self::CSS_WIDE_KEYWORDS, true)) continue;
                     foreach ($targets as $target) {
-                        if ($this->representable($target, $name, $value)) $candidates[] = array('asset' => $assetIndex, 'path' => $path, 'hash' => $hash, 'selector' => strtolower(trim($prelude)), 'target' => $target, 'property' => $name, 'value' => $value, 'layer' => implode('>', $layer));
+                        if (!$this->representable($target, $name, $value)) {
+                            $unrepresentableProperties[$target . "\n" . $name] = true;
+                            continue;
+                        }
+                        $candidates[] = array('asset' => $assetIndex, 'path' => $path, 'hash' => $hash, 'selector' => strtolower(trim($prelude)), 'target' => $target, 'property' => $name, 'value' => $value, 'layer' => implode('>', $layer));
                     }
                 }
             });
@@ -104,7 +111,7 @@ final class ThemeJsonProjection
         $candidates = array_values(array_filter($candidates, static fn(array $candidate): bool => 1 === count($layers[$candidate['target'] . "\n" . $candidate['property']])));
 
         $counts = array_count_values(array_map(static fn(array $candidate): string => $candidate['property'] . "\n" . strtolower($candidate['value']), $candidates));
-        $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => !isset($conditionalProperties[$candidate['target'] . "\n" . $candidate['property']]) && (1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:'))));
+        $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => !isset($conditionalProperties[$candidate['target'] . "\n" . $candidate['property']]) && !isset($unrepresentableProperties[$candidate['target'] . "\n" . $candidate['property']]) && (1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:'))));
         $presets = $this->presets($selected, $fontFamilyStacks);
 
         return array('assets' => $assets, 'theme' => $this->theme($selected, $presets, $this->fontFaces($assets)), 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets);

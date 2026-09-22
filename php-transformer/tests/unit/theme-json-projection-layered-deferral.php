@@ -78,6 +78,18 @@ $assert(
     json_encode($headingStyles($mixed))
 );
 
+// A representable global declaration must not outrank a later, more specific
+// source declaration that theme.json cannot express (for example, calc()).
+$specificCalculation = $project(array($cssAsset(
+    'h2{font-family:Georgia;line-height:1.4em}'
+    . 'h2{line-height:calc(1.2 * (1 + (1 - var(--heading-size))/25))}'
+)));
+$assert(
+    ! isset($headingStyles($specificCalculation)['lineHeight']),
+    'a non-representable later heading line-height keeps the property source-owned',
+    json_encode($headingStyles($specificCalculation))
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "theme.json layered deferral projection: {$failures} failed, {$passes} passed\n");
     exit(1);
