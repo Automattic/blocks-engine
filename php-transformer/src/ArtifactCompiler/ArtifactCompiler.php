@@ -648,8 +648,7 @@ final class ArtifactCompiler
     {
         $assets = array();
         $assetIndexes = array();
-        $assetPathOwnership = array();
-        $append = static function (array $documentAssets, array $ownership) use (&$assets, &$assetIndexes, &$assetPathOwnership): void {
+        $append = static function (array $documentAssets, array $ownership) use (&$assets, &$assetIndexes): void {
             foreach ( $documentAssets as $asset ) {
                 if ( ! is_array($asset) ) {
                     continue;
@@ -658,15 +657,7 @@ final class ArtifactCompiler
                     $asset['compilation'] ??= $ownership;
                 }
                 $payload = is_string($asset['visual_payload'] ?? null) ? $asset['visual_payload'] : (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? ''));
-                $path = (string) ($asset['path'] ?? '');
-                if ('css' === ($asset['kind'] ?? null) && 'engine-support' !== ($asset['source'] ?? null) && isset($assetPathOwnership[$path]) && $assetPathOwnership[$path] !== $asset['compilation']) {
-                    $asset['path'] = $path . '-owner-' . substr(hash('sha256', json_encode($asset['compilation'] ?? array(), JSON_THROW_ON_ERROR)), 0, 12);
-                    $asset['target_path'] = $asset['path'];
-                    $path = $asset['path'];
-                }
-                $assetPathOwnership[$path] = $asset['compilation'] ?? array();
-                $identityOwnership = 'css' === ($asset['kind'] ?? null) && 'engine-support' !== ($asset['source'] ?? null) ? ($asset['compilation'] ?? array()) : array();
-                $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . $payload . "\0" . json_encode($identityOwnership, JSON_THROW_ON_ERROR));
+                $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . $payload);
                 if ( ! isset($assetIndexes[$identity]) ) {
                     $assetIndexes[$identity] = count($assets);
                     $assets[] = $asset;
@@ -680,7 +671,6 @@ final class ArtifactCompiler
                     $assets[$index]['source_hash'] = $assets[$index]['hash'];
                     $assets[$index]['visual_payload'] = $asset['visual_payload'];
                 }
-                if ('engine-support' === ($asset['source'] ?? null)) $assets[$index]['compilation'] = array('scope' => 'shared');
                 $occurrences = is_array($assets[$index]['component_occurrences'] ?? null) ? $assets[$index]['component_occurrences'] : array();
                 foreach (is_array($asset['component_occurrences'] ?? null) ? $asset['component_occurrences'] : array() as $occurrence) {
                     if (count($occurrences) < 8 && !in_array($occurrence, $occurrences, true)) $occurrences[] = $occurrence;
@@ -692,6 +682,11 @@ final class ArtifactCompiler
                 $assets[$index]['component_occurrences_omitted'] = max(0, array_sum($counts) - count($occurrences));
                 if ( 'css' !== ($asset['kind'] ?? null) ) {
                     continue;
+                }
+                $existingOwnership = $assets[$index]['compilation'] ?? null;
+                $assetOwnership = $asset['compilation'] ?? null;
+                if ( $existingOwnership !== $assetOwnership ) {
+                    $assets[$index]['compilation'] = array('scope' => 'shared');
                 }
             }
         };
@@ -727,8 +722,7 @@ final class ArtifactCompiler
                 $deduplicated[] = $asset;
                 continue;
             }
-            $identityOwnership = 'css' === ($asset['kind'] ?? null) && 'engine-support' !== ($asset['source'] ?? null) ? ($asset['compilation'] ?? array()) : array();
-            $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . $payload . "\0" . json_encode($identityOwnership, JSON_THROW_ON_ERROR));
+            $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . $payload);
             if (!isset($indexes[$identity])) {
                 $indexes[$identity] = count($deduplicated);
                 $deduplicated[] = $asset;
@@ -2907,6 +2901,7 @@ final class ArtifactCompiler
                 ));
                 foreach ($compiled['assets'] as $asset) {
                     if (!is_array($asset)) continue;
+                    $asset['compilation'] = array('scope' => 'shared');
                     $assets[] = $asset;
                 }
                 $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiled['author_stylesheet_projections']);
