@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 
 $assert = static function (bool $condition, string $message): void {
     if (! $condition) {
@@ -56,6 +57,7 @@ $pageScoped = array();
 $globalCount = 0;
 $globalCss = '';
 $routeScoped = false;
+$routeMediaScoped = false;
 foreach ($plan['assets'] as $asset) {
     if ('css' !== ($asset['kind'] ?? null)) {
         continue;
@@ -63,6 +65,9 @@ foreach ($plan['assets'] as $asset) {
     $content = (string) ($asset['content'] ?? '');
     if (str_contains($content, '.route-only')) {
         foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== ($scope['kind'] ?? null)) $routeScoped = true;
+    }
+    if (str_contains($content, '.route-grid') && str_contains($content, '@media (max-width:700px)')) {
+        foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== ($scope['kind'] ?? null)) $routeMediaScoped = true;
     }
     $defines = false;
     foreach (array_keys($classes) as $class) {
@@ -91,5 +96,23 @@ foreach ($plan['assets'] as $asset) {
 $assert(0 < $globalCount, 'Shared chrome receives a global projected stylesheet.');
 $assert(!str_contains($globalCss, '.route-grid'), 'The global shared projection contains no route-owned layout rule.');
 $assert($routeScoped, 'Route-only CSS retains non-global applicability.');
+
+$generatedClass = array_key_first($classes);
+$classToken = is_string($generatedClass) ? ltrim($generatedClass, '.') : '';
+$classPattern = '/' . CssIdent::classSelectorRegex($classToken) . '(?![\w-])/';
+$assert(1 === preg_match($classPattern, '.' . $classToken . '0,.' . $classToken . ':is(.x)'), 'Generated class matching respects CSS identifier boundaries and selector lists.');
+$assert(0 === preg_match($classPattern, '.' . $classToken . '0'), 'A generated class does not match its prefix sibling.');
+$assert($routeMediaScoped, 'Route media rules retain their non-global cascade boundary.');
+
+$malformed = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => '<html><head><style>[data-chrome=grid]{display:flex}:is(.valid,.broken[foo="bar"){color:red}</style></head><body><header data-chrome="grid"><nav>Brand</nav></header><main>Home</main></body></html>',
+        'about.html' => '<html><head><style>[data-chrome=grid]{display:flex}:is(.valid,.broken[foo="bar"){color:red}</style></head><body><header data-chrome="grid"><nav>Brand</nav></header><main>About</main></body></html>',
+    ),
+))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+$malformedGlobal = implode('\n', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($malformed['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && 'global' === ($asset['scopes'][0]['kind'] ?? null))));
+$malformedRoute = implode('\n', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($malformed['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && 'global' !== ($asset['scopes'][0]['kind'] ?? null))));
+$assert(!str_contains($malformedGlobal, '.broken') && str_contains($malformedRoute, '.broken'), 'Unparseable selector lists remain on the route asset instead of being dropped or promoted.');
 
 fwrite(STDOUT, "shared-chrome-stylesheet-scope contract passed\n");

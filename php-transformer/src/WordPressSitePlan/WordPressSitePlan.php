@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifes
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use InvalidArgumentException;
@@ -653,7 +654,7 @@ final class WordPressSitePlan
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
             if (!preg_match_all(self::GENERATED_CLASS_PATTERN, (string) ($part['canonical_block_markup'] ?? ''), $matches)) continue;
-            foreach ($matches[0] as $class) $classes['.' . $class] = true;
+            foreach ($matches[0] as $class) $classes[$class] = true;
         }
         if (array() === $classes) return $assets;
 
@@ -664,13 +665,17 @@ final class WordPressSitePlan
                 continue;
             }
             $matched = false;
+            $unparseable = false;
             $shared = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($classes, &$matched): string {
+                static function (string $prelude, string $body) use ($classes, &$matched, &$unparseable): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-                    if (null === $selectors) return '';
+                    if (null === $selectors) {
+                        $unparseable = true;
+                        return '';
+                    }
                     $kept = array_values(array_filter($selectors, static function (string $selector) use ($classes): bool {
-                        foreach (array_keys($classes) as $class) if (str_contains($selector, $class)) return true;
+                        foreach (array_keys($classes) as $class) if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $selector)) return true;
                         return false;
                     }));
                     if (array() === $kept) return '';
@@ -678,7 +683,7 @@ final class WordPressSitePlan
                     return implode(',', $kept) . '{' . $body . '}';
                 }
             );
-            if (!$matched) {
+            if (!$matched || $unparseable) {
                 $projected[] = $asset;
                 continue;
             }
@@ -686,9 +691,9 @@ final class WordPressSitePlan
                 $asset['content'],
                 static function (string $prelude, string $body) use ($classes): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-                    if (null === $selectors) return '';
+                    if (null === $selectors) return $prelude . '{' . $body . '}';
                     $kept = array_values(array_filter($selectors, static function (string $selector) use ($classes): bool {
-                        foreach (array_keys($classes) as $class) if (str_contains($selector, $class)) return false;
+                        foreach (array_keys($classes) as $class) if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $selector)) return false;
                         return true;
                     }));
                     return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
