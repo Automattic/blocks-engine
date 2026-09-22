@@ -1433,6 +1433,16 @@ final class StyleResolver implements ElementPresentationResolver
      * resolving against the original container box. When the container height
      * is auto the figure percentage computes back to auto, so the carry stays
      * faithful even when the driving rule lives behind a media query.
+     *
+     * An image the source links adds a second injected box to that same chain:
+     * core/image serializes it as <figure><a><img></a></figure>, and that <a>
+     * is an inline-level, auto-height element the source never had. Carrying
+     * the height only as far as the figure leaves the authored percentage
+     * resolving against the link instead, so the image still collapses to its
+     * intrinsic ratio while the identical unlinked image renders correctly.
+     * Restate the fill on the injected link so the chain reaches the image
+     * unbroken. The link box is generated, not authored, so sizing it overrides
+     * nothing the source said.
      */
     public function injectedFigureHeightClassName(DOMElement $image): string
     {
@@ -1441,10 +1451,31 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $rule = 'height:100% !important';
-        $className = $this->context->layoutGeometry()->allocateCarrier('figure-height' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule);
-        $this->context->layoutGeometry()->registerRule($className, '.' . $className . '{' . $rule . '}');
+        $linkRule = $this->hasAncestorLink($image) ? '>a{display:block !important;width:100% !important;' . $rule . '}' : '';
+        $className = $this->context->layoutGeometry()->allocateCarrier('figure-height' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule . $linkRule);
+        $this->context->layoutGeometry()->registerRule(
+            $className,
+            '.' . $className . '{' . $rule . '}' . ('' === $linkRule ? '' : '.' . $className . $linkRule)
+        );
 
         return $className;
+    }
+
+    /**
+     * Whether a source ancestor link can reach this image, and therefore
+     * whether the generated block can carry one. core/image only ever emits
+     * its link anchor around the <img>, so no other element can appear in
+     * between.
+     */
+    private function hasAncestorLink(DOMElement $element): bool
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'a' === strtolower($ancestor->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function authorStylesDriveImageHeight(DOMElement $image): bool
