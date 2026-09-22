@@ -45,8 +45,9 @@ $reader = new class($html) implements PayloadReader {
 };
 
 // A capture whose source text fits the read budget many times over, but whose
-// referenced media dwarfs it: madalenatavares.net (4.9 MiB text, 335 MiB of
-// srcset candidates) and ghestilistes.com (a 49 MB source video).
+// referenced media dwarfs it: madalenatavares.net projects 9.9 MiB of text
+// beside 336.5 MiB of srcset candidates. The per-file case is the same bug on
+// the other budget: one captured source video costs the compiler a digest.
 $mediaFiles = array(
     array('path' => 'index.html', 'payload_reference' => $textReference),
     array('path' => 'media/tour.mp4', 'mime_type' => 'video/mp4', 'payload_reference' => $reference('tour', 49 * 1024 * 1024)),

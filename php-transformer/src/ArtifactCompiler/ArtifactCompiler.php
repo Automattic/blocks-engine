@@ -188,7 +188,8 @@ final class ArtifactCompiler
         $this->layoutGeometryProof = is_array($normalized['layout_geometry_proof'] ?? null) ? $normalized['layout_geometry_proof'] : array();
         $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
         $selectableSets = (new CapturedSelectableSetProjector())->project($capturedDialogs['files']);
-        $scrollStates = (new ScrollStateProjector())->project($selectableSets['files']);
+        $choiceGroups = (new CapturedChoiceGroupProjector())->project($selectableSets['files']);
+        $scrollStates = (new ScrollStateProjector())->project($choiceGroups['files']);
         $normalized['files'] = $scrollStates['files'];
         return $this->finalizeArtifact($artifact, array(
             'normalized' => $normalized,
@@ -198,9 +199,10 @@ final class ArtifactCompiler
             // reporting bucket. Selectable-set counts stay separate so
             // projected_dialog_count is not inflated.
             'captured_dialogs' => array(
-                'diagnostics' => array_merge($capturedDialogs['diagnostics'], $selectableSets['diagnostics'], $scrollStates['diagnostics']),
+                'diagnostics' => array_merge($capturedDialogs['diagnostics'], $selectableSets['diagnostics'], $choiceGroups['diagnostics'], $scrollStates['diagnostics']),
                 'projected_count' => $capturedDialogs['projected_count'] + $scrollStates['projected_count'],
                 'projected_selectable_set_count' => $selectableSets['projected_count'],
+                'projected_choice_group_count' => $choiceGroups['projected_count'],
             ),
         ));
     }
@@ -360,7 +362,10 @@ final class ArtifactCompiler
         if (0 < ($capturedDialogs['projected_selectable_set_count'] ?? 0)) {
             $interactionReport['projected_selectable_set_count'] = $capturedDialogs['projected_selectable_set_count'];
         }
-        if (isset($interactionReport['projected_dialog_count']) || isset($interactionReport['projected_selectable_set_count'])) {
+        if (0 < ($capturedDialogs['projected_choice_group_count'] ?? 0)) {
+            $interactionReport['projected_choice_group_count'] = $capturedDialogs['projected_choice_group_count'];
+        }
+        if (isset($interactionReport['projected_dialog_count']) || isset($interactionReport['projected_selectable_set_count']) || isset($interactionReport['projected_choice_group_count'])) {
             $sourceReports['captured_interactions'] = $interactionReport;
         }
         $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
@@ -988,6 +993,8 @@ final class ArtifactCompiler
                     static fn (array $control): bool => in_array(strtolower((string) ($control['tag'] ?? '')), array('input', 'select', 'textarea'), true)
                         && ! in_array(strtolower((string) ($control['type'] ?? '')), array('button', 'image', 'reset', 'submit'), true)
                 );
+                $choiceGroups = array_values(array_filter(is_array($fallback['choice_groups'] ?? null) ? $fallback['choice_groups'] : array(), 'is_array'));
+                if ( array() !== $choiceGroups ) $declarable = true;
                 if ( true === ($fallback['control_topology']['truncated'] ?? false) ) { if ( $declarable ) $diagnostics[] = $this->declinedFormDeclarationDiagnostic($fallback, $sourcePath, $selector, 'control_topology_truncated', 'its bounded control topology was truncated, so the control graph is incomplete'); continue; }
                 // A control's own field-description candidates that could not be
                 // safely attributed to it (see `FormControlMetadataBuilder`) are an
@@ -1008,6 +1015,7 @@ final class ArtifactCompiler
                     if ( is_array($item) && is_string($item['text'] ?? null) && '' !== trim($item['text']) ) $unrepresentedText[] = array('selector' => $selector, 'text' => $item['text']);
                 }
                 $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => $rawControls);
+                if ( array() !== $choiceGroups ) $form['choice_groups'] = $choiceGroups;
                 foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null) && preg_match('/^[a-f0-9]{64}$/', $fallback[$identityKey])) $form[$identityKey] = $fallback[$identityKey];
                 if ( is_array($fallback['control_topology'] ?? null) ) $form['control_topology'] = $fallback['control_topology'];
                 if ( is_array($fallback['sibling_relations'] ?? null) && true !== ($fallback['sibling_relations']['truncated'] ?? false) ) $form['sibling_relations'] = $fallback['sibling_relations'];

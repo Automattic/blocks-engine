@@ -16,6 +16,15 @@ final class AuthorStylesheetProjector
 {
     public const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
 
+    /**
+     * Every path from a generated image wrapper down to the <img> it holds.
+     * An unlinked image is the wrapper's direct child; a linked one sits
+     * inside the anchor the native block serializes for the link.
+     *
+     * @var list<string>
+     */
+    private const GENERATED_IMAGE_LEAF_PATHS = array( ' > img', ' > a > img' );
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer,
@@ -1545,7 +1554,7 @@ final class AuthorStylesheetProjector
                 foreach ( $imageMatches as $element ) {
                     $marker = $context->selectorProjections->rootChildMarker($element->getNodePath() ?? '');
                     if ( '' !== $marker ) {
-                        $projected[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context) . '.wp-block-image > img';
+                        $projected[] = $this->imageLeafSelectorList($this->projectSemanticLeafSelector($selector, $parsed, $marker, $context) . '.wp-block-image');
                     }
                 }
                 continue;
@@ -1603,7 +1612,7 @@ final class AuthorStylesheetProjector
                 }
                 $projected[] = $parsed['supported']
                     ? $this->projectImageSelector($selector, $parsed, $context, false, true, $marker)
-                    : ':where(.' . $marker . ') .wp-block-media-text__media > img';
+                    : $this->imageLeafSelectorList(':where(.' . $marker . ') .wp-block-media-text__media');
             }
         }
 
@@ -1893,26 +1902,50 @@ final class AuthorStylesheetProjector
             // whole text/image row. The marker is installed on the exact
             // generated media-text wrapper for this source image, so project
             // the declaration directly to its generated image.
-            return ':where(.' . $mediaTextMarker . ') .wp-block-media-text__media > img'
-                . $this->selectorSpecificityShims($parsed, $context);
+            return $this->imageLeafSelectorList(
+                ':where(.' . $mediaTextMarker . ') .wp-block-media-text__media',
+                $this->selectorSpecificityShims($parsed, $context)
+            );
         }
-        $replacements = array(
-            (int) $parsed['rightmost_rewrite_end'] => array(
-                'end' => (int) $parsed['rightmost_rewrite_end'],
-                'value' => $wrapperOnly ? '.wp-block-image' : '.wp-block-image > img',
-            ),
-        );
-        $rightmostType = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;
-        if ( is_string($rightmostType) && in_array(strtolower($rightmostType), array( 'img', 'svg' ), true) ) {
-            $typeSpan = end($parsed['type_spans']);
-            if ( is_array($typeSpan) ) {
-                $replacements[(int) $typeSpan['start']] = array(
-                    'end' => (int) $typeSpan['end'],
-                    'value' => ':where(figure)' . $this->typeSpecificityShim($context),
-                );
+        $projected = array();
+        foreach ( $wrapperOnly ? array( '' ) : self::GENERATED_IMAGE_LEAF_PATHS as $leafPath ) {
+            $replacements = array(
+                (int) $parsed['rightmost_rewrite_end'] => array(
+                    'end' => (int) $parsed['rightmost_rewrite_end'],
+                    'value' => '.wp-block-image' . $leafPath,
+                ),
+            );
+            $rightmostType = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;
+            if ( is_string($rightmostType) && in_array(strtolower($rightmostType), array( 'img', 'svg' ), true) ) {
+                $typeSpan = end($parsed['type_spans']);
+                if ( is_array($typeSpan) ) {
+                    $replacements[(int) $typeSpan['start']] = array(
+                        'end' => (int) $typeSpan['end'],
+                        'value' => ':where(figure)' . $this->typeSpecificityShim($context),
+                    );
+                }
             }
+            $projected[] = $this->replaceSelectorSpans($selector, $replacements);
         }
-        return $this->replaceSelectorSpans($selector, $replacements);
+        return implode(',', $projected);
+    }
+
+    /**
+     * The generated <img> under `$wrapper`, reached through every shape the
+     * native block markup can take. A linked image nests the <img> one level
+     * deeper inside the anchor core/image and core/media-text serialize for
+     * the link, and a rule projected onto the wrapper has to keep reaching it
+     * there: the bridge declarations are what give the generated <img> the
+     * box the source rule sized, so losing them collapses a linked image to
+     * its intrinsic ratio while the identical unlinked image is fine.
+     */
+    private function imageLeafSelectorList(string $wrapper, string $suffix = ''): string
+    {
+        $selectors = array();
+        foreach ( self::GENERATED_IMAGE_LEAF_PATHS as $leafPath ) {
+            $selectors[] = $wrapper . $leafPath . $suffix;
+        }
+        return implode(',', $selectors);
     }
 
     private function typeSpecificityShim(AuthorStylesheetProjectionContext $context): string
