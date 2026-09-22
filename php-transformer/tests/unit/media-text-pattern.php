@@ -74,12 +74,12 @@ $pattern = new MediaTextPattern();
 $matchMethod = new ReflectionMethod(MediaTextPattern::class, 'match');
 $matchParameters = $matchMethod->getParameters();
 $assertSame(
-    array( 'element', 'fallbacks', 'convertChildren', 'convertElement', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock' ),
+    array( 'element', 'fallbacks', 'convertChildren', 'convertElement', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock', 'fullPresentationStyle' ),
     array_map(static fn (ReflectionParameter $parameter): string => $parameter->getName(), $matchParameters),
     'match callback parameter names remain frozen.'
 );
 $assertSame(
-    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable' ),
+    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable' ),
     array_map(static fn (ReflectionParameter $parameter): string => (string) $parameter->getType(), $matchParameters),
     'match callback parameter types remain frozen.'
 );
@@ -114,7 +114,8 @@ $match = static function (
     bool $throwMediaStyle = false,
     ?callable $resolveMediaUrl = null,
     bool $throwCreate = false,
-    ?callable $resolvePresentationStyle = null
+    ?callable $resolvePresentationStyle = null,
+    ?callable $resolveFullPresentationStyle = null
 ) use ($pattern, $htmlAttributes): ?array {
     $record = array(
         'convertCalls'         => 0,
@@ -125,6 +126,10 @@ $match = static function (
 
     $resolveMediaUrl ??= static fn (string $url): string => '/resolved/' . ltrim($url, '/');
     $resolvePresentationStyle ??= static fn (DOMElement $sourceElement): string => $sourceElement->getAttribute('style');
+    // Defaults to the same inline-style read as the gate style: none of the
+    // existing fixtures below author `position` at all, so this only
+    // changes behavior where a test explicitly overrides it.
+    $resolveFullPresentationStyle ??= $resolvePresentationStyle;
 
     return $pattern->match(
         $element,
@@ -172,7 +177,8 @@ $match = static function (
                 'attrs'       => $attrs,
                 'innerBlocks' => $innerBlocks,
             );
-        }
+        },
+        $resolveFullPresentationStyle
     );
 };
 
@@ -1207,6 +1213,178 @@ $assertContains(
     (string) ($plainVideoBlock['innerHTML'] ?? ''),
     'A dimensionless/posterless video keeps emitting the original plain <video controls src> markup.'
 );
+
+// An absolutely-positioned control removed from flow can never be a real
+// flex/grid item, so it can never be the container's second pane — the
+// unit-level gate declines before text conversion, independent of what the
+// control itself contains.
+$fallbacks = array( array( 'reason' => 'existing' ) );
+$record = array();
+$overlayElement = $elementFromHtml('<section style="display:flex;position:relative"><video src="clip.mp4"></video><button class="play" type="button">Play</button></section>');
+$overlayDeclined = $match(
+    $overlayElement,
+    array( $paragraph ),
+    $fallbacks,
+    $record,
+    array(),
+    true,
+    false,
+    null,
+    false,
+    null,
+    static fn (DOMElement $sourceElement): string => 'button' === strtolower($sourceElement->tagName)
+        ? 'position:absolute;inset:0'
+        : $sourceElement->getAttribute('style')
+);
+$assertNull($overlayDeclined, 'Out-of-flow text-side control declines media-text.');
+$assertSame(0, $record['convertCalls'], 'Out-of-flow gate runs before text conversion.');
+$assertSame(array( array( 'reason' => 'existing' ) ), $fallbacks, 'Out-of-flow decline leaves host fallbacks unchanged.');
+
+$fallbacks = array( array( 'reason' => 'existing' ) );
+$record = array();
+$fixedOverlayElement = $elementFromHtml('<section style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></section>');
+$fixedOverlayDeclined = $match(
+    $fixedOverlayElement,
+    array( $paragraph ),
+    $fallbacks,
+    $record,
+    array(),
+    true,
+    false,
+    null,
+    false,
+    null,
+    static fn (DOMElement $sourceElement): string => 'button' === strtolower($sourceElement->tagName)
+        ? 'position:fixed;top:0;left:0'
+        : $sourceElement->getAttribute('style')
+);
+$assertNull($fixedOverlayDeclined, 'Fixed-position text-side control also declines media-text.');
+
+// In-flow positioning (relative/sticky/static, or no position at all) never
+// disqualifies a genuine text pane: only out-of-flow positions do.
+foreach ( array( '', 'position:relative', 'position:sticky;top:0', 'position:static' ) as $inFlowPosition ) {
+    $fallbacks = array();
+    $record = array();
+    $inFlowElement = $elementFromHtml('<section style="display:flex"><video src="clip.mp4"></video><div><p>Watch</p></div></section>');
+    $inFlowBlock = $match(
+        $inFlowElement,
+        array( $paragraph ),
+        $fallbacks,
+        $record,
+        array(),
+        false,
+        false,
+        null,
+        false,
+        null,
+        static fn (DOMElement $sourceElement): string => 'div' === strtolower($sourceElement->tagName)
+            ? $inFlowPosition
+            : $sourceElement->getAttribute('style')
+    );
+    $assertSame('core/media-text', $inFlowBlock['blockName'] ?? null, 'In-flow text-side position remains eligible: ' . json_encode($inFlowPosition));
+}
+
+// An unresolvable `position` on the text side fails closed, exactly like the
+// other strict gates: it might be absolute, so the pattern must not guess.
+$fallbacks = array( array( 'reason' => 'existing' ) );
+$record = array();
+$unresolvablePositionElement = $elementFromHtml('<section style="display:flex"><video src="clip.mp4"></video><div><p>Watch</p></div></section>');
+$unresolvablePositionBlock = $match(
+    $unresolvablePositionElement,
+    array( $paragraph ),
+    $fallbacks,
+    $record,
+    array(),
+    true,
+    false,
+    null,
+    false,
+    null,
+    static fn (DOMElement $sourceElement): string => 'div' === strtolower($sourceElement->tagName)
+        ? 'position:var(--overlay-position)'
+        : $sourceElement->getAttribute('style')
+);
+$assertNull($unresolvablePositionBlock, 'Unresolvable text-side position declines media-text.');
+$assertSame(0, $record['convertCalls'], 'Unresolvable text-side position runs before text conversion.');
+
+// End-to-end: the reported shape — a video with an absolutely-positioned
+// play-button overlay authored entirely through class-based CSS (the
+// overlay is not identified by tag name or class name, only by its own
+// `position: absolute; inset: 0`).
+$overlayStylesheet = '<style>'
+    . '.frame{display:flex;justify-content:center}'
+    . '.vid{position:relative;display:flex;justify-content:center;max-width:100%}'
+    . '.vid .play{position:absolute;inset:0;width:100%;height:100%;display:grid;place-items:center}'
+    . '</style>';
+$overlayVideoResult = $transformHtml(
+    $overlayStylesheet
+    . '<figure class="in"><div class="frame"><div class="vid">'
+    . '<video src="clip.mp4" poster="clip.jpg" width="1280" height="720"></video>'
+    . '<button class="play" type="button" aria-label="Play video"><svg aria-hidden="true"></svg></button>'
+    . '</div></div></figure>'
+);
+$overlayVideoBlocks = $overlayVideoResult['blocks'] ?? array();
+$assertTrue(null === $collectMediaText($overlayVideoBlocks), 'An absolutely-positioned overlay control never produces core/media-text anywhere in the tree.');
+$overlayVideoJson = json_encode($overlayVideoBlocks);
+$assertTrue(is_string($overlayVideoJson) && ! str_contains($overlayVideoJson, '"core/media-text"'), 'Overlay video fixture emits no core/media-text block.');
+$findBlockByName = static function (array $blocks, array $names) use (&$findBlockByName): ?array {
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        if ( in_array($block['blockName'] ?? null, $names, true) ) {
+            return $block;
+        }
+        if ( is_array($block['innerBlocks'] ?? null) ) {
+            $found = $findBlockByName($block['innerBlocks'], $names);
+            if ( null !== $found ) {
+                return $found;
+            }
+        }
+    }
+
+    return null;
+};
+$overlayVideoBlockNode = $findBlockByName($overlayVideoBlocks, array( 'core/video', 'core/html' ));
+$assertTrue(is_array($overlayVideoBlockNode), 'Overlay video fixture still emits a video-carrying block.');
+$overlayVideoMarkup = (string) ($overlayVideoBlockNode['innerHTML'] ?? '');
+$assertContains('width="1280"', $overlayVideoMarkup, 'Video keeps its own source width instead of a 50% media-text pane width.');
+$assertContains('height="720"', $overlayVideoMarkup, 'Video keeps its own source height instead of a media-text pane height.');
+$assertTrue(! str_contains($overlayVideoJson, '"mediaWidth"'), 'No mediaWidth (media-text pane share) attribute is fabricated anywhere in the tree.');
+
+$overlayButtonBlock = $findBlockByName($overlayVideoBlocks, array( 'core/button' ));
+$assertTrue(is_array($overlayButtonBlock), 'The overlay control survives conversion as a real, editable block.');
+$overlayButtonMarkup = (string) ($overlayButtonBlock['innerHTML'] ?? '');
+$assertContains('<button', $overlayButtonMarkup, 'The overlay control keeps a native button role in the saved markup.');
+$assertContains('Play video', $overlayButtonMarkup, 'The overlay control keeps its accessible label text in the saved markup.');
+
+$overlayValidity = ( new Runtime() )->validateBlockSerialization($overlayVideoBlocks);
+$assertSame('pass', $overlayValidity['status'] ?? null, 'Overlay video fixture passes serialization validity.');
+$overlayFindings = ( new \Automattic\BlocksEngine\PhpTransformer\WordPress\CanonicalSaveShapeValidator() )->findings($overlayVideoBlocks);
+$assertSame(array(), $overlayFindings, 'Overlay video fixture passes the canonical save-shape validator.');
+
+// The same shape generalizes to an image with an absolutely-positioned
+// badge: overlays are recognized by their own CSS, not by tag name.
+$overlayImageResult = $transformHtml(
+    '<style>.tile{position:relative;display:flex}.tile .badge{position:absolute;inset:0 auto auto 0}</style>'
+    . '<div class="tile"><img src="photo.jpg" width="640" height="480" alt="Product"><span class="badge">New</span></div>'
+);
+$overlayImageJson = json_encode($overlayImageResult['blocks'] ?? array());
+$assertTrue(is_string($overlayImageJson) && ! str_contains($overlayImageJson, '"core/media-text"'), 'Absolutely-positioned badge over an image never produces core/media-text.');
+
+// Regression: the same container shape with a genuine, in-flow text pane
+// (no positioning CSS anywhere) still converts to core/media-text — the
+// overlay gate must not over-fire on ordinary media/text sections.
+$genuineTwoPaneResult = $transformHtml(
+    '<style>.frame{display:flex;justify-content:center}.vid{display:flex;justify-content:center;max-width:100%}</style>'
+    . '<figure class="in"><div class="frame"><div class="vid">'
+    . '<video src="clip.mp4" width="1280" height="720"></video>'
+    . '<div><h2>About this clip</h2><p>Behind the scenes footage.</p></div>'
+    . '</div></div></figure>'
+);
+$genuineTwoPaneBlock = $collectMediaText($genuineTwoPaneResult['blocks'] ?? array());
+$assertTrue(is_array($genuineTwoPaneBlock), 'A genuine in-flow media/text pair still converts to core/media-text.');
+$assertSame('core/heading', $genuineTwoPaneBlock['innerBlocks'][0]['blockName'] ?? null, 'Genuine two-pane text side keeps its heading identity.');
 
 if ( 0 === $failures ) {
     echo "media text pattern ok\n";
