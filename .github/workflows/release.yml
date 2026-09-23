@@ -51,7 +51,7 @@ concurrency:
 #       (7f28a979517a96e003d0510d64bc5139c259837d) is exactly the earlier
 #       candidate SHA — same content, now referenced by its released tag.
 #     - javascript declares `nodejs` (see packages/blocks-engine/homeboy.json)
-#       → pinned to `nodejs-v3.7.4`, this repo's own extension, not the
+#       → pinned to `nodejs-v3.7.5`, this repo's own extension, not the
 #       wordpress tag the previous candidate SHA happened to also contain a
 #       valid (but non-current) snapshot of.
 jobs:
@@ -60,7 +60,7 @@ jobs:
     with:
       component: packages/blocks-engine
       action-ref: v2.20.4
-      extension-ref: nodejs-v3.7.4
+      extension-ref: nodejs-v3.7.5
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
       release-branch: trunk
