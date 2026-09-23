@@ -522,6 +522,13 @@ final class StyleResolver implements ElementPresentationResolver
             if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
                 continue;
             }
+            // A condition that never holds at the reference viewport (`@media
+            // print` hiding nav chrome) is not the value the document renders
+            // with; letting it through turns an anchored conditional winner
+            // into a resting one.
+            if ( ! $this->conditionsApplyAtReferenceViewport(is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array()) ) {
+                continue;
+            }
             $value = $declared;
         }
 

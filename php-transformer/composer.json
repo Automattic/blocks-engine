@@ -200,6 +200,7 @@
        "php tests/unit/navigation-resolved-projection-spacing.php",
        "php tests/unit/source-target-projection-state.php",
       "php tests/unit/navigation-layout-default.php",
+      "php tests/unit/navigation-vertical-orientation.php",
       "php tests/unit/navigation-source-provenance.php",
       "php tests/unit/navigation-dropped-anchors.php",
       "php tests/unit/navigation-item-scoped-anchor-rules.php",

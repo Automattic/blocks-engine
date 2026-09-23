@@ -124,6 +124,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 $presentationAttributes
             );
         $navigationAttrs = $this->withResolvedNonFlexNavigationLayout($navigationAttrs, $element, $navigationContext);
+        $navigationAttrs = $this->withResolvedVerticalNavigationOrientation($navigationAttrs, $element, $navigationContext);
         $navigationAttrs = $this->withCollapsedItemBand($navigationAttrs, $element, $navigationContext);
         if ( $splitLandmarkOwnership ) {
             // A semantic source list is a vertical stack. Persist that intent on
@@ -917,6 +918,58 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $attrs;
+    }
+
+    /**
+     * Carry a source menu whose cascade stacks its items in a column onto
+     * core/navigation's vertical orientation.
+     *
+     * Without an explicit orientation the generated container renders core's
+     * row default, so a `flex flex-col` menu — Tailwind columns, sidebar
+     * stacks, footer link columns — comes out side by side, and column rules
+     * replayed around core's row markup center the items instead. The source
+     * cross-axis alignment travels as `justifyContent`: in a vertical flex
+     * layout core reads `justifyContent` as the horizontal alignment, so the
+     * stretch default (and an explicit flex-start) is `left`, flex-end is
+     * `right`, and center stays `center`.
+     *
+     * @param array<string, mixed> $attrs @return array<string, mixed>
+     */
+    private function withResolvedVerticalNavigationOrientation(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    {
+        if ( null === $navigationContext || is_array($attrs['layout'] ?? null) ) {
+            return $attrs;
+        }
+
+        $style = $navigationContext->resolvedStyle($element);
+        if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style)
+            || ! preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style) ) {
+            return $attrs;
+        }
+
+        $attrs['layout'] = array(
+            'type' => 'flex',
+            'orientation' => 'vertical',
+            'justifyContent' => $this->verticalNavigationJustification($style),
+        );
+
+        return $attrs;
+    }
+
+    /** The source column's cross-axis alignment, in core's vertical-flex vocabulary. */
+    private function verticalNavigationJustification(string $style): string
+    {
+        if ( preg_match('/(?:^|;)\s*align-items\s*:\s*([^;]+)/', $style, $match) ) {
+            $value = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($match[1]))));
+            if ( str_contains($value, 'flex-end') || preg_match('/(?:^|\s|,)(?:end|self-end)(?:\s|$|,)/', $value) ) {
+                return 'right';
+            }
+            if ( str_contains($value, 'center') ) {
+                return 'center';
+            }
+        }
+
+        return 'left';
     }
 
     private function resolvedStyleDeclaresFamily(string $style, string $family): bool
