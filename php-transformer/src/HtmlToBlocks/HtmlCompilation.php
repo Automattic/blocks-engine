@@ -1642,6 +1642,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'source_target_projections' => $this->session->sourceTargetProjectionState()->correspondences(),
             'responsive_geometry_ambiguities' => $this->transformationEvidence()->responsiveGeometryAmbiguities(),
             'responsive_height_ambiguities' => $this->transformationEvidence()->responsiveHeightAmbiguities(),
+            'grid_placement_carrier_findings' => $this->transformationEvidence()->gridPlacementCarrierFindings(),
             'has_description_list_block' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class),
         ), $blockCompilationOutput);
     }

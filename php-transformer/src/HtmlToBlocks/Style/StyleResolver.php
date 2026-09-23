@@ -42,6 +42,15 @@ final class StyleResolver implements ElementPresentationResolver
     private ?InlineGeometry $inlineGeometry = null;
 
     /**
+     * Whether an element's block keeps a native core grid layout attribute,
+     * keyed by the presentation cache's element key. Parents are queried once
+     * per placed child, so the layout resolution is memoized per transform.
+     *
+     * @var array<string, bool>
+     */
+    private array $coreGridParentCache = array();
+
+    /**
      * Resolved presentation attributes for the active transform, keyed by the
      * DOMElement wrapper object id plus node path. PHP may reuse wrapper object
      * ids within one traversal as transient DOMElement wrappers are released.
@@ -218,6 +227,14 @@ final class StyleResolver implements ElementPresentationResolver
             ? array()
             : $this->cssDeclarations((string) ($this->styleAttributeMapper()->serialize($mapped['style'] ?? array())['style'] ?? ''));
 
+        $nativeGridPlacement = $this->nativeGridChildPlacement($element);
+        if ( array() !== $nativeGridPlacement['excluded'] ) {
+            $excludedGeometryProperties = array_values(array_unique(array_merge(
+                $excludedGeometryProperties,
+                $nativeGridPlacement['excluded']
+            )));
+        }
+
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
             'anchor'    => SourceDom::anchorAttributeValue(SourceDom::attr($element, 'id')),
             'className' => $this->mergePresentationClassNames(
@@ -237,9 +254,136 @@ final class StyleResolver implements ElementPresentationResolver
             'layout'    => $this->inlineGeometry()->layoutAttribute($element, $this->cssDeclarationString($declarations)),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
 
+        if ( array() !== $nativeGridPlacement['placement'] ) {
+            $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+            // The keys are core's child layout values
+            // (wp_get_layout_child_values()), rendered by
+            // wp_get_child_layout_style_rules() for children of a
+            // layout.type=grid container; they do not serialize into the
+            // wrapper's inline style.
+            $style['layout'] = $nativeGridPlacement['placement'];
+            $attrs['style'] = $style;
+        }
+
         $cache->attributes[$cacheKey] = $attrs;
 
         return $attrs;
+    }
+
+    /**
+     * Native core 7.1 grid child placement for this element, from its inline
+     * declarations, when the parent element is emitted as a core grid layout
+     * container (issue #2139 step 1).
+     *
+     * Returns the resolved `style.layout` child values plus the placement
+     * properties that must leave the geometry carrier so the placement is
+     * native data, not duplicated CSS. Placement that stays on the carrier
+     * is recorded as a typed finding on the transformation evidence state.
+     *
+     * @return array{placement: array<string, int>, excluded: list<string>}
+     */
+    private function nativeGridChildPlacement(DOMElement $element): array
+    {
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        $geometry = $this->inlineGeometry();
+        if ( ! $geometry->declaresInlineGridPlacement($inline) ) {
+            return array( 'placement' => array(), 'excluded' => array() );
+        }
+
+        // Absolutely positioned grid children place their containing block
+        // through grid-area; that projection (issue #2139 step 2) is not the
+        // native child layout core renders here.
+        $position = CssValueInspector::comparable(
+            (string) ( $this->structuralPresentationDeclarations($element)['position'] ?? '' )
+        );
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return array( 'placement' => array(), 'excluded' => array() );
+        }
+
+        $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
+        if ( null === $parent || ! $this->parentEmitsCoreGridLayout($parent) ) {
+            $this->recordGridPlacementCarrierFinding($element, 'grid_placement_parent_not_core_grid');
+
+            return array( 'placement' => array(), 'excluded' => array() );
+        }
+
+        $resolution = $geometry->resolveGridChildPlacement($inline);
+        if ( null !== $resolution['reason'] ) {
+            $this->recordGridPlacementCarrierFinding($element, $resolution['reason']);
+        }
+        if ( array() === $resolution['placement'] ) {
+            return array( 'placement' => array(), 'excluded' => array() );
+        }
+
+        if ( $this->hasConditionalGridPlacement($element) ) {
+            // The placement varies under a media query. The transformer has
+            // no destination viewport breakpoint mapping today, so the base
+            // placement becomes native data and the media-query variant
+            // stays on the carrier; the finding records the dropped variant.
+            $this->recordGridPlacementCarrierFinding($element, 'grid_placement_responsive_unmapped');
+        }
+
+        return array( 'placement' => $resolution['placement'], 'excluded' => $resolution['converted'] );
+    }
+
+    /**
+     * Whether the block hosting this element's parent is emitted with a
+     * native `layout.type: grid` attribute, mirroring the layout attribute
+     * and CSS-ownership demotion the emitters apply.
+     */
+    private function parentEmitsCoreGridLayout(DOMElement $parent): bool
+    {
+        $cache = $this->context->presentationResolutionCache();
+        $key = $cache->elementKey($parent) . ':core-grid-parent';
+        if ( isset($this->coreGridParentCache[$key]) ) {
+            return $this->coreGridParentCache[$key];
+        }
+
+        $declarations = $this->classOwnedResponsiveDeclarations(
+            $parent,
+            $this->presentationDeclarations($parent)
+        );
+
+        return $this->coreGridParentCache[$key] = $this->inlineGeometry()->isCoreGridContainerParent(
+            $parent,
+            $this->cssDeclarationString($declarations)
+        );
+    }
+
+    /**
+     * Whether a media-conditional author rule restates this element's grid
+     * placement, so the placement is viewport-dependent in the source.
+     */
+    private function hasConditionalGridPlacement(DOMElement $element): bool
+    {
+        foreach ( $this->styleRuleCandidates($element, 'conditional') as $rule ) {
+            if ( ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
+                continue;
+            }
+            foreach ( array_keys($rule['declarations'] ?? array()) as $property ) {
+                if ( in_array(strtolower(trim((string) $property)), array(
+                    'grid-area',
+                    'grid-column',
+                    'grid-column-start',
+                    'grid-column-end',
+                    'grid-row',
+                    'grid-row-start',
+                    'grid-row-end',
+                ), true) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function recordGridPlacementCarrierFinding(DOMElement $element, string $reason): void
+    {
+        $this->context->transformationEvidence()->recordGridPlacementCarrierFinding(
+            SourceDom::elementSelector($element),
+            $reason
+        );
     }
 
     /**

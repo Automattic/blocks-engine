@@ -497,6 +497,307 @@ final class InlineGeometry
     }
 
     /**
+     * Inline grid-item placement declarations the geometry carrier owns.
+     *
+     * @return list<string>
+     */
+    public function gridItemPlacementProperties(): array
+    {
+        return array(
+            'grid-area',
+            'grid-column',
+            'grid-column-start',
+            'grid-column-end',
+            'grid-row',
+            'grid-row-start',
+            'grid-row-end',
+        );
+    }
+
+    /**
+     * Whether the parent element is emitted as a core grid layout container
+     * whose children WordPress renders through the layout support, so a
+     * child's placement can become native `style.layout` data.
+     *
+     * A structurally grid parent (inline or class-owned `display:grid`) keeps
+     * its native layout attribute only when the track list is exactly
+     * expressible (`minimumColumnWidth`); every other structural grid is
+     * demoted to CSS ownership, which drops the layout attribute. Parents
+     * that reach a grid layout attribute without structural display (a
+     * `data-layout` attribute, an explicit grid class token) are not demoted.
+     */
+    public function isCoreGridContainerParent(DOMElement $parent, string $mergedStyle): bool
+    {
+        $layout = $this->layoutAttribute($parent, $mergedStyle);
+        if ( array() === $layout || 'grid' !== (string) ( $layout['type'] ?? '' ) ) {
+            return false;
+        }
+
+        $display = CssValueInspector::comparable(
+            (string) ( ($this->structuralPresentationDeclarations)($parent)['display'] ?? '' )
+        );
+        if ( in_array($display, array( 'grid', 'inline-grid' ), true) ) {
+            return '' !== (string) ( $layout['minimumColumnWidth'] ?? '' );
+        }
+
+        return true;
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     */
+    public function declaresInlineGridPlacement(array $declarations): bool
+    {
+        foreach ( $this->gridItemPlacementProperties() as $property ) {
+            if ( '' !== trim((string) ( $declarations[ $property ] ?? '' )) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Resolve inline grid-item placement declarations into the core 7.1
+     * child layout values WordPress renders from `style.layout`
+     * (`wp_get_layout_child_values()`,
+     * `wp_get_child_layout_style_rules()`): positive-integer start lines and
+     * `span N`, with start/end line pairs converted to start + span.
+     *
+     * Negative lines and named lines stay on the carrier and return the
+     * matching reason code; other unresolvable forms (functions, `subgrid`,
+     * shorthand/longhand mixes whose source order decides the winner, span
+     * anchored to an end line) also stay on the carrier, silently, because
+     * they are the pre-existing carrier behavior rather than a placement the
+     * native attributes could express but declined to.
+     *
+     * `grid-area` is atomic: it is converted only when every axis resolves,
+     * because the carrier restates the whole shorthand.
+     *
+     * @param array<string, string> $declarations
+     * @return array{placement: array<string, int>, converted: list<string>, reason: ?string}
+     */
+    public function resolveGridChildPlacement(array $declarations): array
+    {
+        $none = array( 'placement' => array(), 'converted' => array(), 'reason' => null );
+        $area = trim((string) ( $declarations['grid-area'] ?? '' ));
+        $axisShorthands = array();
+        foreach ( array( 'column', 'row' ) as $axis ) {
+            $axisShorthands[ $axis ] = array(
+                'shorthand' => trim((string) ( $declarations[ 'grid-' . $axis ] ?? '' )),
+                'start' => trim((string) ( $declarations[ 'grid-' . $axis . '-start' ] ?? '' )),
+                'end' => trim((string) ( $declarations[ 'grid-' . $axis . '-end' ] ?? '' )),
+            );
+        }
+        $hasAxisDeclaration = false;
+        foreach ( $axisShorthands as $axisDeclaration ) {
+            if ( '' !== $axisDeclaration['shorthand'] || '' !== $axisDeclaration['start'] || '' !== $axisDeclaration['end'] ) {
+                $hasAxisDeclaration = true;
+                break;
+            }
+        }
+
+        if ( '' !== $area ) {
+            // grid-area plus an axis shorthand/longhand: the used value
+            // depends on source order, which a flat declaration map cannot
+            // recover.
+            if ( $hasAxisDeclaration ) {
+                return $none;
+            }
+            if ( 'subgrid' === strtolower($area) ) {
+                return $none;
+            }
+            $components = CssValueSplitter::splitTopLevel($area, array( '/' ));
+            if ( array() === $components || 4 < count($components) ) {
+                return $none;
+            }
+            $rowStart = $this->gridPlacementComponent((string) $components[0]);
+            $columnStart = 1 < count($components) ? $this->gridPlacementComponent((string) $components[1]) : null;
+            $rowEnd = 2 < count($components) ? $this->gridPlacementComponent((string) $components[2]) : null;
+            $columnEnd = 3 < count($components) ? $this->gridPlacementComponent((string) $components[3]) : null;
+            $row = $this->resolveGridAxisPlacement('row', $rowStart, $rowEnd);
+            $column = $this->resolveGridAxisPlacement('column', $columnStart, $columnEnd);
+            if ( null !== $row['reason'] ) {
+                return array( 'placement' => array(), 'converted' => array(), 'reason' => $row['reason'] );
+            }
+            if ( null !== $column['reason'] ) {
+                return array( 'placement' => array(), 'converted' => array(), 'reason' => $column['reason'] );
+            }
+            if ( array() === $row['values'] && array() === $column['values'] ) {
+                return $none;
+            }
+            if ( array() === $row['values'] || array() === $column['values'] ) {
+                // One axis of the shorthand is unrepresentable; the carrier
+                // restates the whole shorthand, so nothing converts.
+                return $none;
+            }
+
+            return array(
+                'placement' => $column['values'] + $row['values'],
+                'converted' => array( 'grid-area' ),
+                'reason' => null,
+            );
+        }
+
+        $placement = array();
+        $converted = array();
+        $reason = null;
+        foreach ( $axisShorthands as $axis => $axisDeclaration ) {
+            $properties = array();
+            if ( '' !== $axisDeclaration['shorthand'] ) {
+                if ( '' !== $axisDeclaration['start'] || '' !== $axisDeclaration['end'] ) {
+                    continue;
+                }
+                if ( 'subgrid' === strtolower($axisDeclaration['shorthand']) ) {
+                    continue;
+                }
+                $components = CssValueSplitter::splitTopLevel($axisDeclaration['shorthand'], array( '/' ));
+                if ( array() === $components || 2 < count($components) ) {
+                    continue;
+                }
+                $start = $this->gridPlacementComponent((string) $components[0]);
+                $end = 1 < count($components) ? $this->gridPlacementComponent((string) $components[1]) : null;
+                $properties = array( 'grid-' . $axis );
+            } elseif ( '' !== $axisDeclaration['start'] || '' !== $axisDeclaration['end'] ) {
+                $start = '' !== $axisDeclaration['start'] ? $this->gridPlacementComponent($axisDeclaration['start']) : null;
+                $end = '' !== $axisDeclaration['end'] ? $this->gridPlacementComponent($axisDeclaration['end']) : null;
+                $properties = array();
+                if ( '' !== $axisDeclaration['start'] ) {
+                    $properties[] = 'grid-' . $axis . '-start';
+                }
+                if ( '' !== $axisDeclaration['end'] ) {
+                    $properties[] = 'grid-' . $axis . '-end';
+                }
+            } else {
+                continue;
+            }
+
+            $resolved = $this->resolveGridAxisPlacement($axis, $start, $end);
+            if ( null !== $resolved['reason'] ) {
+                $reason = $resolved['reason'];
+                continue;
+            }
+            if ( array() !== $resolved['values'] ) {
+                $placement = $placement + $resolved['values'];
+                $converted = array_merge($converted, $properties);
+            }
+        }
+
+        if ( null !== $reason ) {
+            return array( 'placement' => $placement, 'converted' => $converted, 'reason' => $reason );
+        }
+
+        if ( array() === $placement ) {
+            return $none;
+        }
+
+        return array( 'placement' => $placement, 'converted' => $converted, 'reason' => null );
+    }
+
+    /**
+     * Convert one axis's start/end placement components into the native
+     * start/span pair. Only forms WordPress's child layout support can
+     * render back (`<start>`, `span N`, `<start> / span N`, `<start> / <end>`
+     * with end > start) are representable.
+     *
+     * @param array{kind: string, line?: int, span?: int}|null $start
+     * @param array{kind: string, line?: int, span?: int}|null $end
+     * @return array{values: array<string, int>, reason: ?string}
+     */
+    private function resolveGridAxisPlacement(string $axis, ?array $start, ?array $end): array
+    {
+        $unresolved = static fn (): array => array( 'values' => array(), 'reason' => null );
+        foreach ( array( $start, $end ) as $component ) {
+            if ( null === $component ) {
+                continue;
+            }
+            if ( 'negative' === $component['kind'] ) {
+                return array( 'values' => array(), 'reason' => 'grid_placement_negative_line' );
+            }
+            if ( 'named' === $component['kind'] ) {
+                return array( 'values' => array(), 'reason' => 'grid_placement_named_lines' );
+            }
+            if ( 'other' === $component['kind'] ) {
+                return $unresolved();
+            }
+        }
+
+        $startKind = $start['kind'] ?? null;
+        $endKind = $end['kind'] ?? null;
+        $startKey = 'row' === $axis ? 'rowStart' : 'columnStart';
+        $spanKey = 'row' === $axis ? 'rowSpan' : 'columnSpan';
+
+        $values = static fn (?int $line, ?int $span): array => array_filter(
+            array( $startKey => $line, $spanKey => $span ),
+            static fn ($value): bool => null !== $value
+        );
+
+        if ( 'line' === $startKind && 'span' === $endKind ) {
+            return array( 'values' => $values($start['line'], $end['span']), 'reason' => null );
+        }
+        if ( 'line' === $startKind && ( null === $endKind || 'auto' === $endKind ) ) {
+            return array( 'values' => $values($start['line'], null), 'reason' => null );
+        }
+        if ( 'line' === $startKind && 'line' === $endKind ) {
+            // An end line at or before the start is ignored by the grid
+            // placement algorithm, so the start stands alone.
+            if ( $end['line'] > $start['line'] ) {
+                return array( 'values' => $values($start['line'], $end['line'] - $start['line']), 'reason' => null );
+            }
+
+            return array( 'values' => $values($start['line'], null), 'reason' => null );
+        }
+        if ( 'span' === $startKind && ( null === $endKind || 'auto' === $endKind ) ) {
+            return array( 'values' => $values(null, $start['span']), 'reason' => null );
+        }
+        if ( 'span' === $endKind && ( null === $startKind || 'auto' === $startKind ) ) {
+            return array( 'values' => $values(null, $end['span']), 'reason' => null );
+        }
+
+        // A bare end line anchors the box backwards from that line, and a
+        // span in the start position with an end line counts back from it;
+        // neither has a native start/span representation. `auto`/`auto`
+        // carries no placement at all.
+        return $unresolved();
+    }
+
+    /**
+     * Parse one grid line placement component into its kind.
+     *
+     * @return array{kind: string, line?: int, span?: int}|null
+     */
+    private function gridPlacementComponent(string $component): ?array
+    {
+        $component = strtolower(trim((string) ( preg_replace('/\s*!\s*important\s*$/i', '', $component) ?? $component )));
+        if ( '' === $component ) {
+            return null;
+        }
+        if ( 'auto' === $component ) {
+            return array( 'kind' => 'auto' );
+        }
+        if ( in_array($component, array( 'subgrid', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'dense' ), true) ) {
+            return array( 'kind' => 'other' );
+        }
+        if ( 1 === preg_match('/^span(?:\s+([0-9]+))?$/', $component, $matches) ) {
+            return array( 'kind' => 'span', 'span' => max(1, (int) ( $matches[1] ?? 1 )) );
+        }
+        if ( 1 === preg_match('/^span\s+[0-9]+\s+\S/', $component) || 1 === preg_match('/^span\s+[^0-9\s]/', $component) ) {
+            return array( 'kind' => 'named' );
+        }
+        if ( 1 === preg_match('/^([0-9]+)$/', $component, $matches) ) {
+            return array( 'kind' => 'line', 'line' => (int) $matches[1] );
+        }
+        if ( 1 === preg_match('/^-[0-9]+$/', $component) ) {
+            return array( 'kind' => 'negative' );
+        }
+        if ( 1 === preg_match('/^[a-z_][a-z0-9_-]*$/', $component) ) {
+            return array( 'kind' => 'named' );
+        }
+
+        return array( 'kind' => 'other' );
+    }
+
+    /**
      * @return array<string, string>
      */
     public function layoutAttribute(DOMElement $element, string $mergedStyle = ''): array
