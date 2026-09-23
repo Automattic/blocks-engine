@@ -31,9 +31,9 @@ concurrency:
 # the tag directly from its source repo and checking `^{commit}` equality —
 # not assumed from the tag name):
 #
-# - `uses: .../release.yml@v2.20.3` selects the released revision of the
+# - `uses: .../release.yml@v2.20.4` selects the released revision of the
 #   reusable release workflow itself.
-# - `action-ref: v2.20.3` is the homeboy-action revision that workflow
+# - `action-ref: v2.20.4` is the homeboy-action revision that workflow
 #   checks out into `.homeboy-action` for the composite action steps. Kept
 #   in lockstep with the `uses:` pin above.
 # - `extension-ref` pins the homeboy-extensions monorepo commit each job's
@@ -56,10 +56,10 @@ concurrency:
 #       valid (but non-current) snapshot of.
 jobs:
   javascript:
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.20.3
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.20.4
     with:
       component: packages/blocks-engine
-      action-ref: v2.20.3
+      action-ref: v2.20.4
       extension-ref: nodejs-v3.7.4
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
@@ -69,10 +69,10 @@ jobs:
   php:
     needs: javascript
     if: ${{ !cancelled() }}
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.20.3
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.20.4
     with:
       component: php-transformer
-      action-ref: v2.20.3
+      action-ref: v2.20.4
       extension-ref: wordpress-v3.48.6
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
@@ -87,10 +87,10 @@ jobs:
   figma:
     needs: php
     if: ${{ !cancelled() }}
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.20.3
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.20.4
     with:
       component: figma-transformer
-      action-ref: v2.20.3
+      action-ref: v2.20.4
       extension-ref: wordpress-v3.48.6
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
