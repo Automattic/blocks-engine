@@ -451,6 +451,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * rule makes that anchor inherit its host block's colour instead.
      */
     private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = 'blocks-engine-propagated-link-color';
+    public const PROPAGATED_LINK_CARRIER_CLASS = 'blocks-engine-propagated-link';
 
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
@@ -10031,6 +10032,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $replacementAttrs['style'] = $style;
         }
 
+        // The injected anchor wraps every child of the source element. When
+        // those children include elements (an icon beside a label), it must
+        // not become the element's only layout child, or a flex/grid source
+        // row collapses into the anchor's inline flow. Plain text is unaffected.
+        if ( str_contains($content, '<') ) {
+            $replacementAttrs['className'] = $this->mergeClassNames(
+                (string) ($replacementAttrs['className'] ?? ''),
+                self::PROPAGATED_LINK_CARRIER_CLASS
+            );
+        }
         $block = $this->rebuildBlock($block, $replacementAttrs);
         return true;
     }
