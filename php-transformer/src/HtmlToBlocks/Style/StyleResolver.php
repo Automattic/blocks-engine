@@ -469,6 +469,85 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * The inline projection a class-retaining rich-text carrier may keep.
+     *
+     * A rich-text carrier keeps the author's classes as selector hooks, so a
+     * media-conditional rule continues to address it after conversion — but an
+     * inline declaration out-ranks every stylesheet rule. Projecting the static
+     * cascade winner inline would freeze the base breakpoint's value onto the
+     * carrier and silence that responsive rule at every other width. The same
+     * demotion `classOwnedResponsiveDeclarations()` applies to block wrappers,
+     * scoped to conditional rules the carrier will still answer after the
+     * transform: ones naming a class token the carrier retains.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    public function stripResponsiveClassOwnedDeclarations(DOMElement $element, array $declarations): array
+    {
+        if (array() === $declarations || array() === $this->context->sourceStyles()->conditionalRules()) {
+            return $declarations;
+        }
+
+        $classes = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
+        if (array() === $classes) {
+            return $declarations;
+        }
+
+        $responsiveFamilies = $this->responsiveClassFamiliesInPlay($element, $classes);
+        if (array() === $responsiveFamilies) {
+            return $declarations;
+        }
+
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        foreach (array_keys($declarations) as $property) {
+            $family = $this->responsivePropertyFamily($property);
+            if (! isset($responsiveFamilies[$family]) || $this->inlineOwnsResponsiveProperty($property, $family, $inline)) {
+                continue;
+            }
+            unset($declarations[$property]);
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * Property families the media-conditional rules put in play for this
+     * element through a selector naming one of its class tokens — the rules a
+     * class-retaining carrier keeps answering after conversion.
+     *
+     * @param list<string> $classes
+     * @return array<string, true>
+     */
+    private function responsiveClassFamiliesInPlay(DOMElement $element, array $classes): array
+    {
+        $families = array();
+        foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
+            $selector = (string) ($rule['selector'] ?? '');
+            if (! $this->matchesCssSelector($element, $selector) || ! $this->selectorNamesAnyRetainedClass($selector, $classes)) {
+                continue;
+            }
+            foreach (array_keys($rule['declarations']) as $property) {
+                $families[$this->responsivePropertyFamily($property)] = true;
+            }
+        }
+
+        return $families;
+    }
+
+    /** @param list<string> $classes */
+    private function selectorNamesAnyRetainedClass(string $selector, array $classes): bool
+    {
+        foreach ($classes as $class) {
+            if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Property families a conditional (media-scoped) rule puts in play for
      * this element: rules the matcher evaluates as matching, plus rules whose
      * selectors the matcher cannot evaluate but which name the element by id
