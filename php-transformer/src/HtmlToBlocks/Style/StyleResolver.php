@@ -162,7 +162,8 @@ final class StyleResolver implements ElementPresentationResolver
             $this->geometryStructuralPath(...),
             $this->structuralPresentationDeclarations(...),
             $this->hasConditionalStyleFamily(...),
-            $this->responsivePropertyFamily(...)
+            $this->responsivePropertyFamily(...),
+            $this->hasConditionalGridTemplateColumns(...)
         );
     }
 
@@ -260,8 +261,12 @@ final class StyleResolver implements ElementPresentationResolver
             // (wp_get_layout_child_values()), rendered by
             // wp_get_child_layout_style_rules() for children of a
             // layout.type=grid container; they do not serialize into the
-            // wrapper's inline style.
-            $style['layout'] = $nativeGridPlacement['placement'];
+            // wrapper's inline style. Merged rather than assigned: other
+            // resolution on this element may already have populated
+            // style.layout (e.g. selfStretch/flexSize for a flex-item child),
+            // and grid placement must not clobber it.
+            $existingChildLayout = is_array($style['layout'] ?? null) ? $style['layout'] : array();
+            $style['layout'] = array_merge($existingChildLayout, $nativeGridPlacement['placement']);
             $attrs['style'] = $style;
         }
 
@@ -271,43 +276,60 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Native core 7.1 grid child placement for this element, from its inline
-     * declarations, when the parent element is emitted as a core grid layout
-     * container (issue #2139 step 1).
+     * Native core 7.1 grid child placement for this element, when the parent
+     * element is emitted as a core grid layout container (issue #2139 step
+     * 1).
      *
-     * Returns the resolved `style.layout` child values plus the placement
-     * properties that must leave the geometry carrier so the placement is
-     * native data, not duplicated CSS. Placement that stays on the carrier
-     * is recorded as a typed finding on the transformation evidence state.
+     * Placement resolves from the resting cascaded-value stream (matched
+     * non-conditional author rules plus the inline style), so class-authored
+     * and inline placement convert alike. Author rules are never rewritten:
+     * converted properties leave only the per-element inline geometry
+     * carrier, and a class-owned rule is restated natively from the same
+     * resolved value. Placement with a media-query variant stays entirely
+     * author/carrier owned.
+     *
+     * The parent check runs first because it is memoized and most elements
+     * are not grid items. Under a parent that is not a core grid, only inline
+     * placement is diagnosed; the parent keeps the subtree CSS-owned, so
+     * class-authored placement there loses nothing.
      *
      * @return array{placement: array<string, int>, excluded: list<string>}
      */
     private function nativeGridChildPlacement(DOMElement $element): array
     {
-        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
-        $geometry = $this->inlineGeometry();
-        if ( ! $geometry->declaresInlineGridPlacement($inline) ) {
+        $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
+        if ( null === $parent || ! $this->parentEmitsCoreGridLayout($parent) ) {
+            $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+            if ( $this->inlineGeometry()->declaresGridPlacement($inline) ) {
+                $this->recordGridPlacementCarrierFinding($element, 'grid_placement_parent_not_core_grid');
+            }
+
             return array( 'placement' => array(), 'excluded' => array() );
         }
+
+        $geometry = $this->inlineGeometry();
+        // Grid placement is outside the classification allow-list that feeds
+        // structuralPresentationDeclarations(), so it resolves from the
+        // generic cascaded-value stream: matched resting author rules plus
+        // the inline style, without media-conditional rules.
+        $placementDeclarations = array_intersect_key(
+            $this->matchedCascadedDeclarations($element),
+            array_fill_keys($geometry->gridItemPlacementProperties(), true)
+        );
+        if ( ! $geometry->declaresGridPlacement($placementDeclarations) ) {
+            return array( 'placement' => array(), 'excluded' => array() );
+        }
+        $resolved = $this->structuralPresentationDeclarations($element);
 
         // Absolutely positioned grid children place their containing block
         // through grid-area; that projection (issue #2139 step 2) is not the
         // native child layout core renders here.
-        $position = CssValueInspector::comparable(
-            (string) ( $this->structuralPresentationDeclarations($element)['position'] ?? '' )
-        );
+        $position = CssValueInspector::comparable((string) ( $resolved['position'] ?? '' ));
         if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
             return array( 'placement' => array(), 'excluded' => array() );
         }
 
-        $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-        if ( null === $parent || ! $this->parentEmitsCoreGridLayout($parent) ) {
-            $this->recordGridPlacementCarrierFinding($element, 'grid_placement_parent_not_core_grid');
-
-            return array( 'placement' => array(), 'excluded' => array() );
-        }
-
-        $resolution = $geometry->resolveGridChildPlacement($inline);
+        $resolution = $geometry->resolveGridChildPlacement($placementDeclarations);
         if ( null !== $resolution['reason'] ) {
             $this->recordGridPlacementCarrierFinding($element, $resolution['reason']);
         }
@@ -316,11 +338,15 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         if ( $this->hasConditionalGridPlacement($element) ) {
-            // The placement varies under a media query. The transformer has
-            // no destination viewport breakpoint mapping today, so the base
-            // placement becomes native data and the media-query variant
-            // stays on the carrier; the finding records the dropped variant.
+            // The placement varies under a media query and the transformer
+            // has no destination viewport breakpoint mapping. Core's
+            // unconditional child-layout rule and the author's media-query
+            // rule tie on specificity, so emitting the base placement natively
+            // could override the responsive variant depending on stylesheet
+            // order. The whole placement stays author/carrier owned.
             $this->recordGridPlacementCarrierFinding($element, 'grid_placement_responsive_unmapped');
+
+            return array( 'placement' => array(), 'excluded' => array() );
         }
 
         return array( 'placement' => $resolution['placement'], 'excluded' => $resolution['converted'] );
@@ -356,21 +382,44 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function hasConditionalGridPlacement(DOMElement $element): bool
     {
+        return $this->hasConditionalDeclarationForProperties($element, $this->inlineGeometry()->gridItemPlacementProperties());
+    }
+
+    /**
+     * Whether a media-conditional author rule restates this element's
+     * `grid-template-columns`, so a track list otherwise exactly expressible
+     * as native `columnCount` grid layout (issue #2139 step 1) has a
+     * viewport-dependent variant the transformer has no breakpoint mapping
+     * for. The element keeps its base track list under CSS ownership instead
+     * of losing the responsive variant to a native attribute the transformer
+     * cannot make responsive.
+     */
+    private function hasConditionalGridTemplateColumns(DOMElement $element): bool
+    {
+        return $this->hasConditionalDeclarationForProperties($element, array( 'grid-template-columns' ));
+    }
+
+    /**
+     * Whether a media-conditional author rule matching this element declares
+     * any of the given properties.
+     *
+     * @param list<string> $properties
+     */
+    private function hasConditionalDeclarationForProperties(DOMElement $element, array $properties): bool
+    {
+        $wanted = array_fill_keys(array_map('strtolower', $properties), true);
         foreach ( $this->styleRuleCandidates($element, 'conditional') as $rule ) {
             if ( ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
                 continue;
             }
-            foreach ( array_keys($rule['declarations'] ?? array()) as $property ) {
-                if ( in_array(strtolower(trim((string) $property)), array(
-                    'grid-area',
-                    'grid-column',
-                    'grid-column-start',
-                    'grid-column-end',
-                    'grid-row',
-                    'grid-row-start',
-                    'grid-row-end',
-                ), true) ) {
-                    return true;
+            // Classification properties live in `declarations`; properties
+            // outside that allow-list (grid-item placement) ride the
+            // conditional rule's `cascadedDeclarations` stream.
+            foreach ( array( $rule['declarations'] ?? array(), $rule['cascadedDeclarations'] ?? array() ) as $declarations ) {
+                foreach ( array_keys($declarations) as $property ) {
+                    if ( isset($wanted[ strtolower(trim((string) $property)) ]) ) {
+                        return true;
+                    }
                 }
             }
         }
@@ -3193,6 +3242,15 @@ final class StyleResolver implements ElementPresentationResolver
             'stroke-width' => true,
             'animation' => true,
             'animation-name' => true,
+            // Grid-item placement: resolved for native core grid child
+            // layout (Automattic/blocks-engine#2139).
+            'grid-area' => true,
+            'grid-column' => true,
+            'grid-column-start' => true,
+            'grid-column-end' => true,
+            'grid-row' => true,
+            'grid-row-start' => true,
+            'grid-row-end' => true,
         );
 
         $filtered = array();

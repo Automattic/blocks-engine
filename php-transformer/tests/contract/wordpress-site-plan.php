@@ -246,7 +246,11 @@ $corruptByteStylesheet = (new ArtifactCompiler())->compile(array('entrypoint' =>
 $corruptByteDeclaration = current(array_filter($corruptByteStylesheet['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $corruptByteProvenance = $corruptByteDeclaration['payload']['entities'][0]['layout_graph']['nodes'][0]['provenance'][0]['source_path'] ?? null;
 $assert('assets/%FFform.css' === $corruptByteProvenance && isset($corruptByteStylesheet['source_reports']['wordpress_site_plan']), 'Malformed percent-encoded stylesheet bytes retain canonical ASCII provenance through runtime declaration hashing.');
-$authorLayoutPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>.ex-row{display:grid;grid-template-columns:repeat(5,1fr);gap:1rem}</style><main><section class="ex-row"><div>One</div><div>Two</div><div>Three</div><div>Four</div><div>Five</div></section></main>')))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+// repeat(5, minmax(120px,1fr)) — not a bare/repeat(N,1fr) or
+// repeat(auto-fill, minmax(...)) track list, so it stays under CSS ownership
+// (Automattic/blocks-engine#2139 step 1 only promotes an exactly-equal-1fr
+// or auto-fill track list to native grid layout).
+$authorLayoutPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>.ex-row{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:1rem}</style><main><section class="ex-row"><div>One</div><div>Two</div><div>Three</div><div>Four</div><div>Five</div></section></main>')))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 $authorLayoutMarkup = (string) (($authorLayoutPlan['pages'][0]['canonical_block_markup'] ?? ''));
 $authorLayoutAssets = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $authorLayoutPlan['assets'] ?? array()));
 $assert(str_contains($authorLayoutMarkup, 'wp-block-group ex-row blocks-engine-css-owned-layout blocks-engine-css-owned-grid') && str_contains($authorLayoutMarkup, '<section ') && ! str_contains($authorLayoutMarkup, '<!-- wp:blocks-engine/author-layout') && ! str_contains($authorLayoutMarkup, 'wp-block-blocks-engine-author-layout') && str_contains($authorLayoutAssets, 'margin-block-start:0;margin-block-end:0'), 'Canonical site plans retain author-owned grid topology through core/group without a companion block.');

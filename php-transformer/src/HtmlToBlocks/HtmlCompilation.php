@@ -4046,11 +4046,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $carryOwnTextAlignment ? array( 'text-align' ) : array()
         );
         $layout = $attrs['layout'] ?? null;
-        if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '') && '' !== (string) ($layout['minimumColumnWidth'] ?? '') ) {
+        if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '')
+            && ( '' !== (string) ($layout['minimumColumnWidth'] ?? '') || isset($layout['columnCount']) )
+        ) {
             // The source track list is exactly expressible as native grid
-            // layout, so WordPress owns the track geometry. Group save markup
-            // does not serialize blockGap, so source gap remains stylesheet
-            // owned by the normalization in createBlock().
+            // layout (repeat(auto-fill, minmax(<width>,1fr)) as
+            // minimumColumnWidth, or N equal 1fr tracks as columnCount), so
+            // WordPress owns the track geometry. Group save markup does not
+            // serialize blockGap, so source gap remains stylesheet owned by
+            // the normalization in createBlock().
             $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
             $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
             unset($style['spacing']['blockGap']);

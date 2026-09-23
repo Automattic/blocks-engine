@@ -32,6 +32,7 @@ final class InlineGeometry
      * @param Closure(DOMElement): array<string, string> $structuralPresentationDeclarations
      * @param Closure(DOMElement, string): bool $hasConditionalStyleFamily
      * @param Closure(string): string $responsivePropertyFamily
+     * @param Closure(DOMElement): bool $hasConditionalGridTemplateColumns
      */
     public function __construct(
         private readonly StyleResolutionContext $context,
@@ -46,7 +47,8 @@ final class InlineGeometry
         private readonly Closure $geometryStructuralPath,
         private readonly Closure $structuralPresentationDeclarations,
         private readonly Closure $hasConditionalStyleFamily,
-        private readonly Closure $responsivePropertyFamily
+        private readonly Closure $responsivePropertyFamily,
+        private readonly Closure $hasConditionalGridTemplateColumns
     ) {
     }
 
@@ -521,10 +523,11 @@ final class InlineGeometry
      *
      * A structurally grid parent (inline or class-owned `display:grid`) keeps
      * its native layout attribute only when the track list is exactly
-     * expressible (`minimumColumnWidth`); every other structural grid is
-     * demoted to CSS ownership, which drops the layout attribute. Parents
-     * that reach a grid layout attribute without structural display (a
-     * `data-layout` attribute, an explicit grid class token) are not demoted.
+     * expressible (`minimumColumnWidth` or `columnCount`); every other
+     * structural grid is demoted to CSS ownership, which drops the layout
+     * attribute. Parents that reach a grid layout attribute without
+     * structural display (a `data-layout` attribute, an explicit grid class
+     * token) are not demoted.
      */
     public function isCoreGridContainerParent(DOMElement $parent, string $mergedStyle): bool
     {
@@ -537,16 +540,22 @@ final class InlineGeometry
             (string) ( ($this->structuralPresentationDeclarations)($parent)['display'] ?? '' )
         );
         if ( in_array($display, array( 'grid', 'inline-grid' ), true) ) {
-            return '' !== (string) ( $layout['minimumColumnWidth'] ?? '' );
+            return '' !== (string) ( $layout['minimumColumnWidth'] ?? '' ) || isset( $layout['columnCount'] );
         }
 
         return true;
     }
 
     /**
+     * Whether a resolved declaration map (inline plus matching non-conditional
+     * author rules; see {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver::structuralPresentationDeclarations()})
+     * states any grid-item placement property, regardless of whether the
+     * winning declaration came from the element's own `style` attribute or a
+     * matched class/id selector.
+     *
      * @param array<string, string> $declarations
      */
-    public function declaresInlineGridPlacement(array $declarations): bool
+    public function declaresGridPlacement(array $declarations): bool
     {
         foreach ( $this->gridItemPlacementProperties() as $property ) {
             if ( '' !== trim((string) ( $declarations[ $property ] ?? '' )) ) {
@@ -850,11 +859,14 @@ final class InlineGeometry
             return array( 'type' => 'flex' );
         }
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
-            $minimumColumnWidth = $this->autoRepeatMinimumColumnWidth(
-                (string) ($mergedDeclarations['grid-template-columns'] ?? $inlineDeclarations['grid-template-columns'] ?? '')
-            );
+            $trackList = (string) ($mergedDeclarations['grid-template-columns'] ?? $inlineDeclarations['grid-template-columns'] ?? '');
+            $minimumColumnWidth = $this->autoRepeatMinimumColumnWidth($trackList);
             if ( '' !== $minimumColumnWidth ) {
                 return array( 'type' => 'grid', 'minimumColumnWidth' => $minimumColumnWidth );
+            }
+            $columnCount = $this->equalFlexibleTrackColumnCount($trackList);
+            if ( 0 < $columnCount && ! ($this->hasConditionalGridTemplateColumns)($element) ) {
+                return array( 'type' => 'grid', 'columnCount' => $columnCount );
             }
             if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $inlineStyle) && $this->hasOwnStyleHook($element) ) {
                 return array();
@@ -1086,6 +1098,50 @@ final class InlineGeometry
         }
 
         return '';
+    }
+
+    /**
+     * A track list of exactly N equal flexible tracks — `repeat(N, 1fr)`,
+     * `repeat(N, minmax(0, 1fr))`, or N space-separated `1fr` tokens — is
+     * natively expressible as WordPress grid layout: core renders
+     * `columnCount` as `repeat(N, minmax(0, 1fr))`
+     * (wp-includes/block-supports/layout.php).
+     *
+     * `1fr` and `minmax(0, 1fr)` differ only when a track's own content is
+     * wider than its flexible share: a bare `1fr` track can grow past that
+     * share to fit oversized content, `minmax(0, 1fr)` cannot grow past it.
+     * That divergence is accepted only for the three forms above, where the
+     * source already declared every track identical — the same idiom core's
+     * own `columnCount` rendering uses. Every other track list (mixed sizes,
+     * fixed tracks, `auto`, named lines, `grid-template-areas`, a single
+     * `repeat()` mixing non-1fr sizes) stays under CSS ownership.
+     */
+    private function equalFlexibleTrackColumnCount(string $tracks): int
+    {
+        $trimmed = trim($tracks);
+        if ( '' === $trimmed ) {
+            return 0;
+        }
+
+        if ( 1 === preg_match(
+            '/^repeat\(\s*([1-9][0-9]*)\s*,\s*(?:1fr|minmax\(\s*0(?:px)?\s*,\s*1fr\s*\))\s*\)$/i',
+            $trimmed,
+            $matches
+        ) ) {
+            return (int) $matches[1];
+        }
+
+        $trackList = CssValueSplitter::splitTopLevelWhitespace($trimmed);
+        if ( array() === $trackList ) {
+            return 0;
+        }
+        foreach ( $trackList as $track ) {
+            if ( '1fr' !== strtolower(trim($track)) ) {
+                return 0;
+            }
+        }
+
+        return count($trackList);
     }
 
     /**

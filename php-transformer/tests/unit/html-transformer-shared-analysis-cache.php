@@ -160,7 +160,12 @@ $sourceSelectorResult = (new HtmlTransformer(analysisCache: $sourceSelectorCache
 $assert(6 === $sourceSelectorCache->sourceSelectorMatchExecutions && 4 === $sourceSelectorCache->sourceSelectorMatchHits, 'Indexed general style resolution executes six matcher calls and reuses four repeated element-selector results.');
 $assert(5 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 10 === $sourceSelectorCache->sourceSelectorClassTokenHits && 12 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
 $assert(4 === $sourceSelectorCache->sourceStructuralDeclarationBuilds && 8 === $sourceSelectorCache->sourceStructuralDeclarationHits, 'Structural declaration resolution builds each source state once and reuses repeated element results.');
-$assert(4 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 6 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 2 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 9 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
+// style_rule_candidate_cache_hits is one higher than before native grid
+// child placement (Automattic/blocks-engine#2139 step 1): resolving whether
+// the `<p>` child's parent is a core grid container looks up the parent
+// `<section>`'s static-rule candidates once, an additional cache-eligible
+// lookup the parent's own presentation resolution had not already primed.
+$assert(4 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 6 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 3 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 9 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
 
 $candidateCache = new HtmlTransformerAnalysisCache();
 $noiseRules = array();
@@ -217,10 +222,16 @@ $assert(
     && 8201 === $pressureCache->sourceStructuralDeclarationHits,
     'Read-only conversion retains selector and structural declaration results across repeated passes.'
 );
+// The candidate-cache misses/hits/evictions are each one higher than before
+// native grid child placement (Automattic/blocks-engine#2139 step 1): the
+// same single extra parent static-rule-candidate lookup as above, resolving
+// once whether the root `<main>` is a core grid container for its first
+// `<p>` child, then reused (a cache hit) by every further child from the
+// memoized parent result.
 $assert(
-    12297 === ($pressureMetrics['style_rule_candidate_cache_misses'] ?? null)
-    && 3 === ($pressureMetrics['style_rule_candidate_cache_hits'] ?? null)
-    && 8201 === ($pressureMetrics['style_rule_candidate_cache_evictions'] ?? null)
+    12298 === ($pressureMetrics['style_rule_candidate_cache_misses'] ?? null)
+    && 4 === ($pressureMetrics['style_rule_candidate_cache_hits'] ?? null)
+    && 8202 === ($pressureMetrics['style_rule_candidate_cache_evictions'] ?? null)
     && 4096 === ($pressureMetrics['style_rule_candidate_cache_peak_entries'] ?? null)
     && 4096 === ($pressureMetrics['style_rule_candidate_cache_peak_rule_references'] ?? null),
     'Repeated hot candidate lists remain bounded while the transform exceeds both candidate-list and rule-reference capacities.'
