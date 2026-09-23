@@ -304,6 +304,36 @@ final class InlineGeometry
     }
 
     /**
+     * A carrier restating ONLY an element's inline background paint.
+     *
+     * The standard carrier above declines background properties for childless
+     * elements, because a childless painted box is normally lowered to a
+     * background image block by the flow-container path. An author-owned layout
+     * container keeps a childless painted box as its own visual boundary
+     * instead — there the inline paint is the reason the box exists, so it
+     * must ride: restate exactly the background declarations through the same
+     * generated stylesheet, tiering, and URL rewriting as the standard
+     * carrier. Every other inline property is excluded, so class-owned rules
+     * and the preserved className keep owning the box's geometry.
+     */
+    public function emptyElementBackgroundCarrierClassName(DOMElement $element): string
+    {
+        $declarations = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
+        $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
+        if ( ! preg_match('/\burl\s*\(/i', $inlineBackground) ) {
+            return '';
+        }
+
+        $excludedProperties = array_values(array_unique(array_merge(
+            $this->geometryProperties(),
+            $this->positioningCarrierProperties(),
+            $this->namedFragmentTargetProperties()
+        )));
+
+        return $this->className($element, $excludedProperties, $this->backgroundCarrierProperties());
+    }
+
+    /**
      * Core supports cannot serialize arbitrary box dimensions. Keep only source
      * inline geometry in a generated stylesheet; class-owned declarations are
      * already retained by author stylesheet materialization.

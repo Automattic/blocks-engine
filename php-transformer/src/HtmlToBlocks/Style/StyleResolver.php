@@ -942,6 +942,16 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * A generated carrier class restating only the element's inline background
+     * paint, for empty source containers kept as visual boundaries. '' when the
+     * inline style paints no image.
+     */
+    public function emptyElementBackgroundCarrierClassName(DOMElement $element): string
+    {
+        return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element);
+    }
+
+    /**
      * `core/embed`'s save() is a rigid, two-level `<figure><div
      * class="wp-block-embed__wrapper">` shape with no attribute path onto
      * that inner wrapper div at all — `customClassName` only ever reaches
