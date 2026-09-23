@@ -1677,6 +1677,16 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
+        if ( null !== $navigationContext ) {
+            $boxMarker = $navigationContext->navigationLinkBoxMarker(
+                $anchor,
+                $item->isSameNode($anchor) ? null : $item
+            );
+            if ( '' !== $boxMarker ) {
+                $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $boxMarker);
+            }
+        }
+
         if ( $isCurrentNavigationItem ) {
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' blocks-engine-current-navigation-item');
             if ( '' !== $textColor ) {
@@ -1950,7 +1960,9 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     /**
      * Carry inheritable anchor paint and typography through core's dynamic link.
-     * Box styles remain owned by the source classes and companion stylesheet.
+     * The anchor's own box travels separately, as a marker class the projector
+     * restates on the rendered anchor ({@see NavigationPatternContext::navigationLinkBoxMarker()}),
+     * because the classes core renders on the item cannot hold it there.
      *
      * @param array<string, mixed> $anchorAttrs
      * @return array<string, mixed>
