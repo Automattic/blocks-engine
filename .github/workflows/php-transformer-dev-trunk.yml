@@ -29,7 +29,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: Extra-Chill/homeboy-action@v2.20.3
+      - uses: Extra-Chill/homeboy-action@v2.20.4
         with:
           component: php-transformer
           version: 0.383.4
