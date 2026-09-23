@@ -106,6 +106,11 @@ final class RichTextMaterializer implements RichTextMaterialization
                 }
                 $inline['--blocks-engine-richtext-marker'] = $marker;
             }
+            // The serialized inline keeps the author's classes as selector hooks,
+            // and an inline declaration out-ranks every stylesheet rule — a base
+            // value projected here would freeze the breakpoint it came from onto
+            // the carrier and silence the responsive class rule at every width.
+            $inline = $this->styleResolver->stripResponsiveClassOwnedDeclarations($sourceInline, $inline);
             if ( array() === $inline ) {
                 continue;
             }

@@ -4657,7 +4657,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // ordinary styled text as highlighted/marked content it never was.
         $sourceTagWasMark = 'mark' === strtolower($element->tagName);
 
+        // Whether the carrier replaces the source element (span/font/mark) or is
+        // nested inside it (format tags). Only a replacing carrier keeps the
+        // author's classes, so only there can a media-conditional class rule
+        // keep answering after conversion.
+        $carrierReplacesSource = in_array(strtolower($element->tagName), array( 'span', 'font', 'mark' ), true);
+
         $declarations = $this->richTextMaterializer->inlineVisualDeclarations($element);
+        if ( $carrierReplacesSource ) {
+            // The mark keeps the author's classes, and an inline declaration
+            // out-ranks every stylesheet rule — a base value projected here
+            // would freeze the breakpoint it came from onto the mark and
+            // silence the responsive class rule at every other width.
+            $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $declarations);
+        }
         $existingDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         $marker = trim((string) ($existingDeclarations['--blocks-engine-richtext-marker'] ?? ''));
         if ( '' === $marker ) {
@@ -4700,7 +4713,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
-        if ( in_array(strtolower($element->tagName), array( 'span', 'font', 'mark' ), true) ) {
+        if ( $carrierReplacesSource ) {
             $parent->replaceChild($mark, $element);
             return true;
         }
