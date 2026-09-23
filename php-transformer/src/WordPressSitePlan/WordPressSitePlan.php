@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifes
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
@@ -41,9 +42,13 @@ final class WordPressSitePlan
     private string $sourceOrigin = '';
     private string $sourceUrl = '';
     private const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
+    private const MAX_ROUTE_COLLISION_DIAGNOSTICS = 50;
     /** @var array<string,array<string,mixed>> */
     private array $unresolvedNavigationDiagnostics = array();
     private int $omittedUnresolvedNavigationDiagnostics = 0;
+    /** @var array<int,array<string,mixed>> */
+    private array $routeCollisions = array();
+    private int $omittedRouteCollisionDiagnostics = 0;
     /** @var array<string,string> */
     private array $routeSources = array();
     /** @var array<string,string> */
@@ -219,7 +224,7 @@ final class WordPressSitePlan
             $assetWrites = array_merge($assetWrites, $this->assetWrites($placeholderAssets, $references));
         }
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages), $assetWrites);
-        $recoveryDiagnostics = array_merge($this->unresolvedNavigationDiagnostics(), $this->missingMedia->diagnostics());
+        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->missingMedia->diagnostics());
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => $this->sourceDocumentCatalog($compiled['pages'] ?? array())),
@@ -342,12 +347,16 @@ final class WordPressSitePlan
             if ($part['content_hash'] !== self::contentHash($part['canonical_block_markup'])) throw new InvalidArgumentException('WordPress site plan template part has a stale content hash.');
             self::unique($partSlugs, $part['slug'], 'template part slug');
         }
-        $pagePaths = array(); $pagesBySource = array(); $documentIdentities = array();
+        $pagePaths = array(); $pagesBySource = array(); $documentIdentities = array(); $routePaths = array();
         $entryRoot = self::entryRootFromDocuments($plan['pages']);
         foreach ( $plan['pages'] as $page ) {
             self::assertDocument($page, 'page', false, $tokens);
             if ($page['content_hash'] !== self::contentHash($page['canonical_block_markup'])) throw new InvalidArgumentException('WordPress site plan page has a stale content hash.');
             self::assertRoute($page, $entryRoot);
+            // Route disambiguation is what keeps a collision from costing the
+            // whole plan, so the uniqueness it exists to preserve is asserted.
+            if (isset($routePaths[$page['route']['path']])) throw new InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both resolve to %s.', $routePaths[$page['route']['path']], (string) $page['source_path'], (string) $page['route']['path']));
+            $routePaths[$page['route']['path']] = (string) $page['source_path'];
             self::unique($pagePaths, $page['source_path'], 'page source');
             self::unique($documentIdentities, $page['reconciliation_identity'], 'page reconciliation identity');
             $pagesBySource[$page['source_path']] = $page;
@@ -987,15 +996,98 @@ final class WordPressSitePlan
     /** @param array<string,mixed> $compiled @param array<string,mixed> $data @param array<string,mixed> $coreHtmlFallbackEvidence @return array<string,mixed> */
     private function reporting(array $pages, array $data, array $coreHtmlFallbackEvidence, array $scriptDiagnostics = array(), array $surfaces = array()): array { $documents = array(); foreach ($pages as $page) if (is_array($page)) $documents[] = array('source_path' => $page['source_path'] ?? '', 'kind' => 'page', 'body_format' => 'blocks', 'block_document' => true, 'provenance' => $page['provenance'] ?? array()); foreach ($surfaces as $surface) $documents[] = array('source_path' => $surface['source_path'] ?? '', 'kind' => 'template_surface', 'body_format' => 'blocks', 'block_document' => true, 'template_surface' => $surface['template_surface'] ?? array(), 'provenance' => $surface['provenance'] ?? array()); return array('source_documents' => $documents, 'metrics' => array('source_document_count' => count($documents), 'block_document_count' => count($documents), 'native_block_count' => $data['metrics']['block_count'] ?? 0, 'fallback_count' => $data['metrics']['fallback_count'] ?? 0), 'core_html_fallback_evidence' => $coreHtmlFallbackEvidence, 'diagnostic_codes' => array_values(array_map(static fn(array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), array_merge($data['diagnostics'], $scriptDiagnostics)))); }
 
-    /** @param mixed $documents @param array<int,array<string,mixed>> $legacyRoutes @return array<int,array<string,mixed>> */
-    private function canonicalRoutes(mixed $documents, array $legacyRoutes): array { if (!is_array($documents)) throw new InvalidArgumentException('Compiled site documents must be an array.'); $legacy = array(); foreach ($legacyRoutes as $route) if (is_array($route) && is_string($route['source_path'] ?? null)) $legacy[$route['source_path']] = $route; $entryRoot = self::entryRootFromDocuments($documents); $routes = array(); $paths = array(); foreach ($documents as $order => $document) { if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site route source is invalid.'); $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array(); $explicitRoute = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path']; if ('' !== $entryRoot && ! str_starts_with((string) $document['source_path'], $entryRoot . '/') && !$explicitRoute) throw new InvalidArgumentException('Compiled site document is outside the entrypoint content root.'); $path = $explicitRoute ? self::canonicalRoutePath($metadata['route_path']) : self::pageRoutePath($document['source_path'], $entryRoot); if (isset($paths[$path])) throw new InvalidArgumentException('WordPress site plan has colliding page routes.'); $paths[$path] = true; $previous = $legacy[$document['source_path']] ?? array(); $routes[] = array('kind' => 'route', 'source_path' => $document['source_path'], 'target_path' => $path, 'target_slug' => self::value($document, 'slug', self::routeSlug($path)), 'title' => self::value($document, 'title'), 'parent_source_path' => self::value($metadata, 'parent_source_path'), 'source_relation' => !empty($document['entrypoint']) ? 'entrypoint' : ($previous['source_relation'] ?? 'document'), 'order' => $order); } return $routes; }
+    /**
+     * The canonical source-path-to-route map, and the only place a route
+     * identity is decided.
+     *
+     * A collision here is information about two pages, not about the plan: a
+     * CMS that slugifies author-written titles into filenames routinely emits
+     * two paths that derive one slug (a duplicated page whose copy kept a
+     * trailing `_`), and aborting costs every other page in the site. So the
+     * first occurrence in document order keeps the route and later ones take a
+     * deterministic `-2`, `-3` suffix, exactly as WordPress resolves a
+     * duplicate `post_name`, with one warning naming both source paths.
+     *
+     * Two identities are not the plan's to rename, and both are reserved before
+     * any derived route is assigned: an authored `metadata.route_path`, where
+     * two explicit values naming one route are a contradiction that still fails
+     * closed, and the entrypoint, which must keep `/` or the site has no front
+     * page.
+     *
+     * @param mixed $documents @param array<int,array<string,mixed>> $legacyRoutes @return array<int,array<string,mixed>>
+     */
+    private function canonicalRoutes(mixed $documents, array $legacyRoutes): array
+    {
+        if (!is_array($documents)) throw new InvalidArgumentException('Compiled site documents must be an array.');
+        $legacy = array(); foreach ($legacyRoutes as $route) if (is_array($route) && is_string($route['source_path'] ?? null)) $legacy[$route['source_path']] = $route;
+        $entryRoot = self::entryRootFromDocuments($documents);
+        $this->routeCollisions = array(); $this->omittedRouteCollisionDiagnostics = 0;
+        $derived = array(); $explicit = array();
+        foreach ($documents as $order => $document) {
+            if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site route source is invalid.');
+            $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
+            $explicit[$order] = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path'];
+            if ('' !== $entryRoot && ! str_starts_with((string) $document['source_path'], $entryRoot . '/') && !$explicit[$order]) throw new InvalidArgumentException('Compiled site document is outside the entrypoint content root.');
+            $derived[$order] = $explicit[$order] ? self::canonicalRoutePath($metadata['route_path']) : self::pageRoutePath($document['source_path'], $entryRoot);
+        }
+        $taken = array(); $reserved = array();
+        foreach ($derived as $order => $path) if ($explicit[$order]) {
+            if (isset($taken[$path])) throw new InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both declare %s.', $taken[$path], (string) $documents[$order]['source_path'], $path));
+            $taken[$path] = (string) $documents[$order]['source_path']; $reserved[$order] = true;
+        }
+        foreach ($derived as $order => $path) if (!$explicit[$order] && !empty($documents[$order]['entrypoint']) && !isset($taken[$path])) { $taken[$path] = (string) $documents[$order]['source_path']; $reserved[$order] = true; }
+        $routes = array();
+        foreach ($documents as $order => $document) {
+            $sourcePath = (string) $document['source_path'];
+            $path = $derived[$order];
+            if (!isset($reserved[$order])) {
+                if (isset($taken[$path])) { $kept = $taken[$path]; $path = self::disambiguatedRoutePath($path, $taken); $this->recordRouteCollision($kept, $sourcePath, $derived[$order], $path); }
+                $taken[$path] = $sourcePath;
+            }
+            $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
+            $previous = $legacy[$sourcePath] ?? array();
+            $routes[] = array('kind' => 'route', 'source_path' => $document['source_path'], 'target_path' => $path, 'target_slug' => self::value($document, 'slug', self::routeSlug($path)), 'title' => self::value($document, 'title'), 'parent_source_path' => self::value($metadata, 'parent_source_path'), 'source_relation' => !empty($document['entrypoint']) ? 'entrypoint' : ($previous['source_relation'] ?? 'document'), 'order' => $order);
+        }
+        return $routes;
+    }
+    /** @param array<string,string> $taken */
+    private static function disambiguatedRoutePath(string $path, array $taken): string
+    {
+        // The front page has no segment to number, so its duplicates take the
+        // slug WordPress gives a directory index.
+        $base = '/' === $path ? '/index' : $path;
+        for ($suffix = 2; ; ++$suffix) if (!isset($taken[$base . '-' . $suffix])) return $base . '-' . $suffix;
+    }
+    private function recordRouteCollision(string $keptSourcePath, string $sourcePath, string $routePath, string $resolvedPath): void
+    {
+        if (count($this->routeCollisions) >= self::MAX_ROUTE_COLLISION_DIAGNOSTICS) { ++$this->omittedRouteCollisionDiagnostics; return; }
+        $this->routeCollisions[] = array(
+            'code' => 'wordpress_site_plan_colliding_page_route',
+            'severity' => 'warning',
+            'message' => substr(sprintf('%s derives the same route as %s (%s); it materializes at %s instead.', $sourcePath, $keptSourcePath, $routePath, $resolvedPath), 0, 256),
+            'source_path' => substr($sourcePath, 0, 256),
+            'colliding_source_path' => substr($keptSourcePath, 0, 256),
+            'route_path' => substr($routePath, 0, 256),
+            'resolved_route_path' => substr($resolvedPath, 0, 256),
+            'reason_code' => 'colliding_page_route',
+            'pattern_family' => 'site_plan_route',
+            'repair_bucket' => 'restore_canonical_route_identity',
+        );
+    }
+    /** @return array<int,array<string,mixed>> */
+    private function routeCollisionDiagnostics(): array
+    {
+        $diagnostics = $this->routeCollisions;
+        if ($this->omittedRouteCollisionDiagnostics > 0) $diagnostics[] = array('code' => 'wordpress_site_plan_colliding_page_route', 'severity' => 'warning', 'message' => sprintf('%d more colliding page routes were disambiguated; omitted from this diagnostic list.', $this->omittedRouteCollisionDiagnostics), 'reason' => 'truncated', 'reason_code' => 'colliding_page_route', 'pattern_family' => 'site_plan_route', 'repair_bucket' => 'restore_canonical_route_identity', 'omitted_count' => $this->omittedRouteCollisionDiagnostics);
+        return $diagnostics;
+    }
     /** @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $routes @return array<int,array<string,mixed>> */
     private function pageHierarchy(array $pages, array $routes): array
     {
         $byRoute = array(); $sources = array(); foreach ($pages as $page) $sources[$page['source_path']] = true;
         foreach ($pages as $index => &$page) {
             $route = array_values(array_filter($routes, static fn(array $route): bool => $route['source_path'] === $page['source_path']))[0] ?? null; if (!is_array($route)) throw new InvalidArgumentException('WordPress site plan page lacks a canonical route.'); $path = $route['target_path'];
-            if (isset($byRoute[$path])) throw new InvalidArgumentException('WordPress site plan has colliding page routes.');
+            if (isset($byRoute[$path])) throw new InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both resolve to %s.', (string) ($pages[$byRoute[$path]]['source_path'] ?? ''), (string) $page['source_path'], $path));
             $page['route'] = array('path' => $path, 'parent_path' => self::parentRoutePath($path), 'slug' => self::routeSlug($path));
             if ('/' !== $path) $page['slug'] = $page['route']['slug'];
             $page['reconciliation_identity'] = self::identity('page', $page['source_path'], $path);
@@ -1213,7 +1305,12 @@ final class WordPressSitePlan
     }
 
     private function hasDynamicScriptReferences(string $content): bool { return preg_match('/\bimport\s*\(|\b(?:document\s*\.\s*createElement\s*\(\s*["\']script|appendChild\s*\(|insertBefore\s*\(|\.\s*src\s*=|new\s+URL\s*\()/i', $content) === 1; }
-    private static function pageRoutePath(string $sourcePath, string $entryRoot = ''): string { $relative = self::stripEntryRoot($sourcePath, $entryRoot); $segments = explode('/', preg_replace('/\.[A-Za-z0-9]+$/', '', $relative) ?? $relative); $segments = array_values(array_filter(array_map(static fn(string $segment): string => trim((string) preg_replace('/[^a-z0-9_-]/', '', strtolower(str_replace('_', '-', self::decodedRouteSegment($segment)))), '-'), $segments), static fn(string $segment): bool => '' !== $segment)); if ('index' === end($segments)) array_pop($segments); return '/' . implode('/', $segments); }
+    // Each path segment carries the author's words, so the route grammar folds
+    // what it cannot spell instead of deleting it: `RouteSlug` applies
+    // WordPress's own `remove_accents()` plus `sanitize_title_with_dashes()`
+    // rule, which is what keeps distinct pages on distinct routes and keeps the
+    // slug readable. See that class for why deleting was non-injective.
+    private static function pageRoutePath(string $sourcePath, string $entryRoot = ''): string { $relative = self::stripEntryRoot($sourcePath, $entryRoot); $segments = explode('/', preg_replace('/\.[A-Za-z0-9]+$/', '', $relative) ?? $relative); $segments = array_values(array_filter(array_map(static fn(string $segment): string => RouteSlug::segment(self::decodedRouteSegment($segment)), $segments), static fn(string $segment): bool => '' !== $segment)); if ('index' === end($segments)) array_pop($segments); return '/' . implode('/', $segments); }
     // A source path segment carries the author's page title, so percent sequences
     // are ordinary punctuation a CMS slugified into a filename: `%3A`, `%2C`, and
     // `%E2%80%99` must reach the slugifier as `:`, `,`, and `’` and become part of
@@ -1936,7 +2033,21 @@ final class WordPressSitePlan
             if (array_key_exists('resolved_url', $declaration)) throw new InvalidArgumentException('WordPress site plan external metadata URL must not carry a resolved alias.');
         }
     }
-    private static function assertRoute(array $page, string $entryRoot = ''): void { $route = $page['route'] ?? null; $expected = is_string($page['metadata']['route_path'] ?? null) && '' !== $page['metadata']['route_path'] ? self::canonicalRoutePath($page['metadata']['route_path']) : self::pageRoutePath($page['source_path'], $entryRoot); if (!is_array($route) || !is_string($route['path'] ?? null) || !preg_match('~^/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*)?$~', $route['path']) || !is_string($route['parent_path'] ?? null) || !is_string($route['slug'] ?? null) || self::parentRoutePath($route['path']) !== $route['parent_path'] || self::routeSlug($route['path']) !== $route['slug'] || (!isset($page['synthetic']) && $route['path'] !== $expected) || (isset($page['synthetic']) && (true !== $page['synthetic'] || !str_starts_with((string) ($page['source_path'] ?? ''), 'wordpress-site-plan/routes/')))) throw new InvalidArgumentException('WordPress site plan page route is invalid.'); }
+    /**
+     * A page keeps its derived route, or the deterministic `-2`, `-3` variant a
+     * route collision gave it (see {@see canonicalRoutes()}). Validation cannot
+     * recompute which page won the collision without the whole document order,
+     * so it pins the weaker but checkable property — the route is the derived
+     * one or a numbered variant of it — while route uniqueness is asserted
+     * across the page set.
+     */
+    private static function isDerivedRoute(string $path, string $expected): bool
+    {
+        if ($path === $expected) return true;
+        $base = '/' === $expected ? '/index' : $expected;
+        return 1 === preg_match('~^' . preg_quote($base, '~') . '-([0-9]+)$~', $path, $suffix) && (int) $suffix[1] >= 2;
+    }
+    private static function assertRoute(array $page, string $entryRoot = ''): void { $route = $page['route'] ?? null; $expected = is_string($page['metadata']['route_path'] ?? null) && '' !== $page['metadata']['route_path'] ? self::canonicalRoutePath($page['metadata']['route_path']) : self::pageRoutePath($page['source_path'], $entryRoot); if (!is_array($route) || !is_string($route['path'] ?? null) || !preg_match('~^/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*)?$~', $route['path']) || !is_string($route['parent_path'] ?? null) || !is_string($route['slug'] ?? null) || self::parentRoutePath($route['path']) !== $route['parent_path'] || self::routeSlug($route['path']) !== $route['slug'] || (!isset($page['synthetic']) && !self::isDerivedRoute($route['path'], $expected)) || (isset($page['synthetic']) && (true !== $page['synthetic'] || !str_starts_with((string) ($page['source_path'] ?? ''), 'wordpress-site-plan/routes/')))) throw new InvalidArgumentException('WordPress site plan page route is invalid.'); }
     /** @param array<string,string> $tokens */
     private static function assertDocument(mixed $document, string $kind, bool $part, array $tokens): void { if(!is_array($document)||!self::safePath($document['source_path']??null)||!is_string($document['slug']??null)||!is_string($document['title']??null)||!is_string($document['post_type']??null)||!is_string($document['parent_source_path']??null)||!is_bool($document['entrypoint']??null)||!is_string($document['canonical_block_markup']??null)||''===trim($document['canonical_block_markup'])||!is_array($document['metadata']??null)||!is_array($document['document_metadata']??null)||!is_array($document['provenance']??null)||!self::hash($document['reconciliation_identity']??null)||!self::hash($document['content_hash']??null)||($part&&(!is_string($document['area']??null)||''===$document['area']||!is_array($document['placement']??null)))||(!$part&&(null!==($document['area']??null)||null!==($document['placement']??null))))throw new InvalidArgumentException("WordPress site plan {$kind} is structurally invalid.");if($part&&$document['reconciliation_identity']!==self::identity('template-part',$document['source_path'],'parts/'.$document['slug'].'.html'))throw new InvalidArgumentException('WordPress site plan template part identity is invalid.');if($part&&in_array($document['placement']['kind']??null,array('entry_shell','shared_shell'),true)&&(!is_string($document['placement']['source_path']??null)||!is_array($document['placement']['template_slugs']??null)||array()=== $document['placement']['template_slugs']))throw new InvalidArgumentException('WordPress site plan template part placement is invalid.');if(!$part)self::assertContentDecision($document);self::assertDocumentMetadata($document['document_metadata'],$tokens,$document['source_path'],$kind);self::assertTokens($document['canonical_block_markup'],$tokens);self::assertNoLocalBrowserReferences($document['canonical_block_markup'],$document['source_path'],$kind); }
     /** @param array<string,mixed> $document */

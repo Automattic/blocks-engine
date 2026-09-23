@@ -99,6 +99,11 @@ and `WordPressSitePlanResolver::resolve()`.
   `nested/index.*` is `/nested`, and nested documents retain every directory segment.
   A declared lowercase `metadata.route_path` with the same safe shape is preserved as
   the explicit canonical route.
+  Each derived segment follows WordPress's own title sanitization: Latin diacritics
+  fold onto ASCII, dots and whitespace become a single `-`, WordPress's punctuation
+  is dropped, and a segment left empty by that fold (one written entirely outside
+  ASCII) keeps a stable token derived from its own bytes instead of disappearing
+  from the route.
   This map is computed before document projection and is the sole input for exported
   `routes`, page hierarchy operations, document link and metadata-href rewriting,
   resolver/report projections, and page-scoped script conditions. Relative and
@@ -109,7 +114,15 @@ and `WordPressSitePlanResolver::resolve()`.
   `provenance.source_url` site, or becomes `#` when no source URL is recorded; each
   such link is reported once as a `wordpress_site_plan_unresolved_navigation_link`
   warning in `diagnostics` rather than failing the plan.
-  The plan rejects colliding, traversal, encoded-separator, and unsafe route identities.
+  The plan rejects traversal, encoded-separator, and unsafe route identities. Two
+  documents deriving one route cost those two documents and not the plan: the first
+  in document order keeps the route, later ones take a deterministic `-2`, `-3`
+  suffix as WordPress resolves a duplicate `post_name`, and each is reported once as
+  a `wordpress_site_plan_colliding_page_route` warning in `diagnostics` naming both
+  source paths and the shared route. An authored `metadata.route_path` and the
+  entrypoint's `/` are never renamed, and two explicit declarations naming one route
+  remain an authored contradiction that fails closed, naming both paths. Page routes
+  are unique across the materialized page set.
   Missing directory parents are explicit synthetic pages with stable source and
   reconciliation identities; a physical directory index takes precedence over a
   synthetic parent.
