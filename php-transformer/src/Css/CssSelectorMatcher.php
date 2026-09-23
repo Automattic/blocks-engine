@@ -156,7 +156,9 @@ final class CssSelectorMatcher
 
         $specificity = 100 * $ids + 10 * $classes + $types;
         foreach ( $compound['not'] as $negated ) {
-            $specificity += self::compoundSpecificity($negated);
+            foreach ( $negated['compounds'] as $negatedCompound ) {
+                $specificity += self::compoundSpecificity($negatedCompound);
+            }
         }
 
         return $specificity;
@@ -329,8 +331,8 @@ final class CssSelectorMatcher
                     continue;
                 }
                 if ( 'not' === $lowerName && '(' === ($source[ $offset ] ?? '') ) {
-                    $closing = strpos($source, ')', $offset + 1);
-                    if ( false === $closing ) {
+                    $closing = self::matchingParenthesis($source, $offset);
+                    if ( null === $closing ) {
                         return null;
                     }
                     $argument = trim(substr($source, $offset + 1, $closing - $offset - 1));
@@ -342,11 +344,24 @@ final class CssSelectorMatcher
                         $hasSimple = true;
                         continue;
                     }
-                    $negated = self::parseCompound($argument, 0, false);
-                    if ( null === $negated || null !== $negated['suffix'] || array() !== $negated['compound']['not'] ) {
+                    // Selectors Level 4 allows complex selectors — arguments
+                    // carrying descendant, child, or sibling combinators —
+                    // inside `:not()`. Parsing the argument as one compound
+                    // silently dropped those combinators, so a source
+                    // exclusion such as `.a:not(.wrapper .a)` was evaluated
+                    // as `.a:not(.wrapper.a)` and flipped into a false
+                    // match. Parse the argument as a full selector and
+                    // evaluate it against the source DOM instead; anything
+                    // the matcher cannot parse keeps the whole selector
+                    // unsupported so the declaration stays source-owned.
+                    if ( '' === $argument ) {
                         return null;
                     }
-                    $compound['not'][] = $negated['compound'];
+                    $negated = self::parseUncached($argument);
+                    if ( ! ($negated['supported'] ?? false) || null !== ($negated['pseudo_state_suffix_span'] ?? null) ) {
+                        return null;
+                    }
+                    $compound['not'][] = array( 'compounds' => $negated['compounds'], 'combinators' => $negated['combinators'] );
                     $offset = $closing + 1;
                     $hasSimple = true;
                     continue;
@@ -440,10 +455,48 @@ final class CssSelectorMatcher
         return $hasSimple ? array( 'compound' => $compound, 'suffix' => $suffix, 'type_span' => $typeSpan ) : null;
     }
 
+    /**
+     * Offset of the `)` closing the `(` at $open, or null when it never
+     * closes. The scan ignores parentheses inside strings, comments, and
+     * nested functional pseudo-classes, so a `:not()` argument such as
+     * `:where(.a)` or `[title="x)"]` extracts intact.
+     */
+    private static function matchingParenthesis(string $source, int $open): ?int
+    {
+        $state = CssSyntaxScanner::state();
+        $depth = 1;
+        $length = strlen($source);
+        // Consume the opening parenthesis so the scanner's own paren counter
+        // stays balanced for the rest of the scan.
+        $offset = CssSyntaxScanner::consume($source, $open, $state);
+        if ( null === $offset ) {
+            return null;
+        }
+        for ( ; $offset < $length; ) {
+            $character = $source[ $offset ];
+            $before = $state['parens'];
+            $next = CssSyntaxScanner::consume($source, $offset, $state);
+            if ( null === $next ) {
+                return null;
+            }
+            // The scanner's own paren counter only moves for structural
+            // parentheses, so a depth change on a raw bracket byte marks one.
+            if ( $next === $offset + 1 && '(' === $character && $state['parens'] === $before + 1 ) {
+                ++$depth;
+            } elseif ( $next === $offset + 1 && ')' === $character && $state['parens'] === $before - 1 ) {
+                --$depth;
+                if ( 0 === $depth ) {
+                    return $offset;
+                }
+            }
+            $offset = $next;
+        }
+        return null;
+    }
+
     /** @return array{name: string, operator: string|null, value: string|null, flag: string|null}|null */
     private static function attribute(string $source, int &$offset): ?array
-    {
-        ++$offset;
+    {        ++$offset;
         self::skipIgnorable($source, $offset);
         $name = self::identifier($source, $offset);
         if ( null === $name ) {
@@ -681,7 +734,7 @@ final class CssSelectorMatcher
             }
         }
         foreach ( $compound['not'] as $negated ) {
-            if ( self::matchesCompound($element, $negated, $cache) ) {
+            if ( self::matchesAt($element, $negated['compounds'], $negated['combinators'], count($negated['compounds']) - 1, $cache) ) {
                 return false;
             }
         }

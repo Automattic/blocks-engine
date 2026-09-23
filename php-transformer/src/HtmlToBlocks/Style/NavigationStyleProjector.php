@@ -947,7 +947,9 @@ final class NavigationStyleProjector
                 ++$specificity[2];
             }
             foreach ( $compound['not'] ?? array() as $negated ) {
-                $addCompound($negated);
+                foreach ( $negated['compounds'] ?? array() as $negatedCompound ) {
+                    $addCompound($negatedCompound);
+                }
             }
         };
         foreach ( $parsed['compounds'] ?? array() as $compound ) {

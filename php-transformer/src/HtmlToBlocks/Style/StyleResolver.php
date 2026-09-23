@@ -3331,7 +3331,11 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ( $this->context->authorStyles()->styleRules() as $rule ) {
             foreach ( $rule['selectors'] as $selector ) {
                 foreach ( $selector['parsed']['compounds'] ?? array() as $compound ) {
-                    foreach ( array_merge(array($compound), $compound['not'] ?? array()) as $part ) {
+                    $parts = array_merge(array($compound));
+                    foreach ( $compound['not'] ?? array() as $negated ) {
+                        array_push($parts, ...($negated['compounds'] ?? array()));
+                    }
+                    foreach ( $parts as $part ) {
                         if ( in_array($className, $part['classes'] ?? array(), true) ) {
                             return true;
                         }
