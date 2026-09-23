@@ -1036,12 +1036,18 @@ final class WordPressSitePlan
             $taken[$path] = (string) $documents[$order]['source_path']; $reserved[$order] = true;
         }
         foreach ($derived as $order => $path) if (!$explicit[$order] && !empty($documents[$order]['entrypoint']) && !isset($taken[$path])) { $taken[$path] = (string) $documents[$order]['source_path']; $reserved[$order] = true; }
+        // Every first claimant keeps its own route before any suffix is handed
+        // out, so a renamed duplicate cannot take the route a later page derived
+        // for itself: `x_` beside a real `x` and `x-2` becomes `/x-3`, not `/x-2`.
+        foreach ($derived as $order => $path) if (!isset($reserved[$order]) && !isset($taken[$path])) { $taken[$path] = (string) $documents[$order]['source_path']; $reserved[$order] = true; }
         $routes = array();
         foreach ($documents as $order => $document) {
             $sourcePath = (string) $document['source_path'];
             $path = $derived[$order];
             if (!isset($reserved[$order])) {
-                if (isset($taken[$path])) { $kept = $taken[$path]; $path = self::disambiguatedRoutePath($path, $taken); $this->recordRouteCollision($kept, $sourcePath, $derived[$order], $path); }
+                $kept = $taken[$path];
+                $path = self::disambiguatedRoutePath($path, $taken);
+                $this->recordRouteCollision($kept, $sourcePath, $derived[$order], $path);
                 $taken[$path] = $sourcePath;
             }
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
