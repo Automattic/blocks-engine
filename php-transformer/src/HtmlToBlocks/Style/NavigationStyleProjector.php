@@ -1438,6 +1438,59 @@ final class NavigationStyleProjector
     }
 
     /**
+     * Carry a navigation-link's resolved source box to the anchor core renders.
+     *
+     * core/navigation-link renders the block's className on its item, where
+     * core's own `.wp-block-navigation .wp-block-navigation-item` background
+     * rule outranks the utility classes that painted the source anchor, and
+     * the rendered `.wp-block-navigation-item__content` anchor receives
+     * neither the fill nor the padding a button-styled link declares. The
+     * carried padding sides are reset on the item, to the source item's own
+     * winner, so the box is not painted twice.
+     *
+     * Tagged {@see CascadeLayer::SOURCE_STYLE_PROJECTION}.
+     *
+     * @return list<CascadeRule>
+     */
+    public function navigationLinkBoxRules(string $serializedBlocks): array
+    {
+        $prefix = 'blocks-engine-navigation-link-box-';
+        if ( ! str_contains($serializedBlocks, $prefix)
+            || ! preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches, PREG_SET_ORDER)
+        ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
+                if ( ! str_starts_with($class, $prefix) ) {
+                    continue;
+                }
+                $box = $this->context->generatedSupportStyles()->navigationLinkBox($class);
+                if ( '' === $box['content'] ) {
+                    continue;
+                }
+                $item = '.wp-block-navigation .wp-block-navigation-item.' . $class;
+                $rules[$class . ':content'] = $item . '>.wp-block-navigation-item__content{' . $box['content'] . '}';
+                if ( '' !== $box['item_reset'] ) {
+                    $rules[$class . ':item'] = $item . '{' . $box['item_reset'] . '}';
+                }
+            }
+        }
+
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::SOURCE_STYLE_PROJECTION, $css),
+            array_values($rules)
+        );
+    }
+
+    /**
      * Restore a navigation icon beside a label core/navigation-link kept.
      *
      * Unlike {@see self::navigationLinkIconRules()}'s icon-only replacement,
