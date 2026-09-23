@@ -4,6 +4,11 @@ All notable changes to `@automattic/blocks-engine` will be documented in this fi
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1] - 2026-09-23
+
+### Fixed
+- keep source block margins on paragraphs lowered from non-paragraph text
+
 ## Versioning
 
 This package uses [Semantic Versioning](https://semver.org/). Deprecations are warned one minor version ahead of removal.

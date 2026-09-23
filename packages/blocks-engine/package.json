@@ -1,6 +1,6 @@
 {
   "name": "@automattic/blocks-engine",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "packageManager": "pnpm@11.14.0",
   "description": "Convert HTML and static sites into WordPress block markup and block themes.",
   "keywords": ["wordpress", "blocks", "gutenberg", "block-theme", "html", "static-site"],
