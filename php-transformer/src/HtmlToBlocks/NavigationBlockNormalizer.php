@@ -239,17 +239,65 @@ final class NavigationBlockNormalizer
         $source = is_int($provenanceId) ? ( $sourceProvenance[$provenanceId] ?? array() ) : array();
         $attributes = is_array($source['source_attributes'] ?? null) ? $source['source_attributes'] : array();
         $context = is_array($source['context'] ?? null) ? $source['context'] : array();
-        $classNames = is_array($context['class_names'] ?? null) ? implode(' ', $context['class_names']) : '';
-        $ancestorClassNames = is_array($context['ancestor_class_names'] ?? null) ? implode(' ', $context['ancestor_class_names']) : '';
+        $classNames = is_array($context['class_names'] ?? null) ? $context['class_names'] : array();
+        $ancestorClassNames = is_array($context['ancestor_class_names'] ?? null) ? $context['ancestor_class_names'] : array();
 
-        $haystack = strtolower(trim(implode(' ', array(
-            (string) ($attributes['class'] ?? ''),
-            (string) ($attributes['id'] ?? ''),
-            $classNames,
-            $ancestorClassNames,
-        ))));
+        // Identity is judged one class/id token at a time. A keyword proves a
+        // mobile copy only when it shares its class with a navigation term:
+        // breakpoint utilities key unrelated declarations to the same
+        // vocabulary, and a visible footer nav under a container class like
+        // `px-container-padding-mobile` is the page's own menu, not a drawer
+        // copy of one already emitted.
+        foreach ( $this->identityTokens($attributes, $classNames, $ancestorClassNames) as $token ) {
+            if ( $this->namesResponsiveNavigationCopy($token) ) {
+                return true;
+            }
+        }
 
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|collapsed|hamburger|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $haystack);
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $attributes
+     * @param array<int, mixed> $classNames
+     * @param array<int, mixed> $ancestorClassNames
+     * @return list<string>
+     */
+    private function identityTokens(array $attributes, array $classNames, array $ancestorClassNames): array
+    {
+        $tokens = array();
+        foreach ( array( (string) ($attributes['class'] ?? ''), (string) ($attributes['id'] ?? '') ) as $raw ) {
+            foreach ( preg_split('/\s+/', strtolower(trim($raw))) ?: array() as $token ) {
+                if ( '' !== $token ) {
+                    $tokens[] = $token;
+                }
+            }
+        }
+        foreach ( array_merge($classNames, $ancestorClassNames) as $token ) {
+            $token = strtolower(trim((string) $token));
+            if ( '' !== $token ) {
+                $tokens[] = $token;
+            }
+        }
+
+        return array_values(array_unique($tokens));
+    }
+
+    /**
+     * Whether one class/id value names the branch a responsive (mobile,
+     * collapsed, overlay…) copy of a navigation menu. The responsive word
+     * must be corroborated by a navigation/menu term in the same class: the
+     * words overlap with generic utilities (`overlay`, `collapsed`, and
+     * breakpoint suffixes like the `mobile` in `px-container-padding-mobile`),
+     * while `mobile-nav`, `overlay-menu`, or `nav-drawer` speak of a menu.
+     */
+    private function namesResponsiveNavigationCopy(string $token): bool
+    {
+        if ( ! preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|collapsed|hamburger|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $token) ) {
+            return false;
+        }
+
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:nav|navigation|menu|hamburger|drawer|offcanvas|panel)(?:[^a-z0-9]|$)/', $token);
     }
 
     /** @param array<string, mixed> $block @return array<string, mixed> */
