@@ -17,7 +17,7 @@
       "files": [
         {
           "path": "index.html",
-          "content": "<!doctype html><html><head><title>Styled Portfolio</title><style>:root{--accent:#c4a35a}.hero{min-height:100vh;color:var(--accent)}.work-grid{display:grid;grid-template-columns:repeat(3,1fr)}</style></head><body><main><section class=\"hero\"><h1>Styled Portfolio</h1><p>Visual classes need their stylesheet.</p></section><section class=\"work-grid\"><article><h2>Case Study</h2></article></section></main></body></html>",
+          "content": "<!doctype html><html><head><title>Styled Portfolio</title><style>:root{--accent:#c4a35a}.hero{min-height:100vh;color:var(--accent)}.work-grid{display:grid;grid-template-columns:2fr 1fr 1fr}</style></head><body><main><section class=\"hero\"><h1>Styled Portfolio</h1><p>Visual classes need their stylesheet.</p></section><section class=\"work-grid\"><article><h2>Case Study</h2></article></section></main></body></html>",
           "kind": "html"
         }
       ]
