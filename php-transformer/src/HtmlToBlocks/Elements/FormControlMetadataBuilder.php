@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
@@ -432,50 +433,7 @@ final class FormControlMetadataBuilder
     /** The element that labels this control, by `for`, by wrapping, or by field position. */
     public function labelElement(DOMElement $control): ?DOMElement
     {
-        $label = $this->associatedLabel($control);
-        if ( $label instanceof DOMElement ) {
-            return $label;
-        }
-        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( 'label' === strtolower($parent->tagName) ) {
-                return $parent;
-            }
-        }
-        return $this->fieldWrapperLabel($control);
-    }
-
-    /**
-     * Markup rendered by a client framework routinely omits both `id` and `for`
-     * and states the association by position alone: one label and one control
-     * inside the same field wrapper. That is the only association the source
-     * makes, so read it instead of reporting the control as unlabelled.
-     */
-    private function fieldWrapperLabel(DOMElement $control): ?DOMElement
-    {
-        $depth = 0;
-        for ( $wrapper = $control->parentNode; $wrapper instanceof DOMElement && $depth < self::FIELD_WRAPPER_DEPTH; $wrapper = $wrapper->parentNode, ++$depth ) {
-            if ( in_array(strtolower($wrapper->tagName), array( 'form', 'fieldset', 'body', 'html' ), true) ) {
-                return null;
-            }
-
-            $controls = FormControlClassifier::controlElements($wrapper);
-            // A wrapper shared with another control cannot say which one a label belongs to.
-            if ( 1 !== count($controls) || ! $controls[0]->isSameNode($control) ) {
-                return null;
-            }
-
-            $labels = array();
-            foreach ( $wrapper->getElementsByTagName('label') as $label ) {
-                if ( $label instanceof DOMElement && '' === SourceDom::attr($label, 'for') ) {
-                    $labels[] = $label;
-                }
-            }
-            if ( 1 === count($labels) ) {
-                return $labels[0];
-            }
-        }
-
-        return null;
+        return FormControlLabel::element($control);
     }
 
     /**
@@ -487,7 +445,7 @@ final class FormControlMetadataBuilder
      * the specific control it describes, not folded into a form-wide bucket
      * it cannot be positioned from.
      *
-     * Read it the same way `fieldWrapperLabel()` reads a positional label:
+     * Read it the same way `FormControlLabel::element()` reads a positional label:
      * only from a wrapper this control exclusively owns, so the text cannot
      * actually belong to a sibling field instead. More than one qualifying
      * candidate in that wrapper cannot be safely attributed either, so it is

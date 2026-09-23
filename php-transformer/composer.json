@@ -235,6 +235,7 @@
       "php tests/unit/escaped-class-token-fidelity.php",
       "php tests/unit/form-field-list-spacing.php",
       "php tests/unit/form-field-label-control-gap.php",
+      "php tests/unit/form-presentation-positional-label.php",
       "php tests/unit/form-select-control-presentation.php",
       "php tests/unit/named-fragment-target-geometry.php",
       "php tests/unit/button-wrapper-keyword-width.php",

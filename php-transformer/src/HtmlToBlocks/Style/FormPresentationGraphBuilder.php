@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -443,12 +444,7 @@ final class FormPresentationGraphBuilder
 
     private function label(DOMElement $control): ?DOMElement
     {
-        $label = SourceDom::associatedLabel($control);
-        if ( $label instanceof DOMElement ) {
-            return $label;
-        }
-        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) if ( 'label' === strtolower($parent->tagName) ) return $parent;
-        return null;
+        return FormControlLabel::element($control);
     }
 
     /** @return list<array{part: array<string,mixed>, variants: list<array<string,mixed>>, group?: array<string,mixed>, group_variants?: list<array<string,mixed>>}> */
