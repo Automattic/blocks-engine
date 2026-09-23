@@ -8,11 +8,41 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 This package uses [Semantic Versioning](https://semver.org/). Deprecations are warned one minor version ahead of removal.
 
-## [Unreleased]
+## [0.3.0] - 2026-09-23
+
+### Added
+- configure native component releases
+- add region effect manifest
+
+### Changed
+- add provider-neutral form materializer seam
+- centralize theme asset URL policy
+- share one @font-face source parser
+- run pnpm 11 on Node 22
+- Preserve responsive site fidelity in artifact imports
+- update canonicalize pool sentinel
+- assert fixture87 round-trip output, not the fixture itself
+- cover region manifest export
+- Reduce decorative SVG preserve-dom fallbacks
+- Preserve source nav anchor CSS on core navigation
+- figma-transformer: improve FSE responsive parity
+- blocks-engine: structured convert report (envelope + fallback inventory + metrics)
 
 ### Fixed
 
 - `analyzeRuntimeRegionEffects` (unreleased) now fails closed on unparseable source — the manifest carries a single whole-source unit with `reason: 'parse_failed'` instead of an empty, effect-free-looking unit list — and its shared-state detection registers every binding a top-level statement contributes outside function bodies (destructuring, `function`/`class` declarations, loop heads, nested blocks), which previously escaped it and could mark shared-state effects as independently suppressible. `getElementById` targets that are not plain CSS identifiers are emitted as escaped `[id="…"]` selectors.
+- declare the Node 22.13 floor pnpm 11 requires
+- preserve button label span boundaries
+- derive reveal neutralization from runtime evidence
+- preserve core file validity
+- normalize standalone SVG namespaces
+- keep media-forward heroes native
+- generate query loop for posts index
+- aggregate repeated conversion diagnostics
+- project flex anchor selectors through markers [AI: OpenAI GPT-5.6 Terra via OpenCode]
+- keep flex button classes save-compatible [AI: OpenAI GPT-5.6 Terra via OpenCode]
+- make region-effect analyzer fail closed and typed
+- preserve custom property paint through Gutenberg save
 
 ## [0.2.2] - 2026-06-30
 
