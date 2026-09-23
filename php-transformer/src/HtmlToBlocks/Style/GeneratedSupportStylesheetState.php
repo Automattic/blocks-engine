@@ -36,6 +36,9 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, string> */
     private array $navigationLinkColors = array();
 
+    /** @var array<string, array{content: string, item_reset: string}> */
+    private array $navigationLinkBoxes = array();
+
     /** @var array<string, string> */
     private array $navigationLinkIcons = array();
 
@@ -110,6 +113,28 @@ final class GeneratedSupportStylesheetState
     public function navigationLinkColor(string $className): string
     {
         return $this->navigationLinkColors[$className] ?? '';
+    }
+
+    /**
+     * The source anchor's box restated on the anchor core/navigation-link
+     * renders, plus the carried padding sides reset on the item so the box is
+     * not painted twice.
+     */
+    public function registerNavigationLinkBox(string $className, string $content, string $itemReset = ''): void
+    {
+        $this->navigationLinkBoxes[$className] = array(
+            'content' => $content,
+            'item_reset' => $itemReset,
+        );
+    }
+
+    /** @return array{content: string, item_reset: string} */
+    public function navigationLinkBox(string $className): array
+    {
+        return $this->navigationLinkBoxes[$className] ?? array(
+            'content' => '',
+            'item_reset' => '',
+        );
     }
 
     public function registerDisclosureSummaryPresentation(string $className, string $declarations): void

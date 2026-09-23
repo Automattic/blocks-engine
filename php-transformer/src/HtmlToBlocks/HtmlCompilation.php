@@ -428,6 +428,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
 
     public const EMPTY_VISUAL_GROUP_CLASS = 'blocks-engine-empty-visual-group';
+    /**
+     * Marks a core/paragraph lowered from a margin-styled text-only div. The
+     * source div has no user-agent block margins, but the emitted <p> would
+     * gain the paragraph's 1em UA margin on any side the author left unset.
+     */
+    public const LOWERED_PARAGRAPH_CLASS = 'blocks-engine-lowered-paragraph';
+
 
     /**
      * Marks an emptied block that exists only as a runtime target. Emitted
@@ -2195,6 +2202,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // declared layer once every contribution below has been collected.
         $afterAuthorCss->absorb($engineSupportCss->generatedMarkupRepairCss($serializedBlocks));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks));
+        $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkBoxRules($serializedBlocks));
         $afterAuthorCss->addAll(CascadeLayer::SOURCE_STYLE_PROJECTION, $this->session->sourceTargetProjectionState()->rules());
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkLeadingIconRules($serializedBlocks));
@@ -3978,6 +3986,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 self::EMPTY_VISUAL_GROUP_CLASS
             );
             $this->runtimeBehavior()->markEmptyVisualGroupGenerated();
+            // An inline background paint is the reason an empty boundary box
+            // exists. The standard carrier declines backgrounds for childless
+            // elements because the flow-container path lowers those to a
+            // background image block; this path keeps the box itself, so
+            // restate the paint on a dedicated carrier.
+            $attrs['className'] = $this->mergeClassNames(
+                (string) $attrs['className'],
+                $this->styleResolver->emptyElementBackgroundCarrierClassName($element)
+            );
         }
         $block = $this->createBlock('core/group', $attrs, $children, $element);
         if ($topologyChanged && $this->styleResolver->hasTopologyUnsafeFixedHeight($element)) {
@@ -4649,7 +4666,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // ordinary styled text as highlighted/marked content it never was.
         $sourceTagWasMark = 'mark' === strtolower($element->tagName);
 
+        // Whether the carrier replaces the source element (span/font/mark) or is
+        // nested inside it (format tags). Only a replacing carrier keeps the
+        // author's classes, so only there can a media-conditional class rule
+        // keep answering after conversion.
+        $carrierReplacesSource = in_array(strtolower($element->tagName), array( 'span', 'font', 'mark' ), true);
+
         $declarations = $this->richTextMaterializer->inlineVisualDeclarations($element);
+        if ( $carrierReplacesSource ) {
+            // The mark keeps the author's classes, and an inline declaration
+            // out-ranks every stylesheet rule — a base value projected here
+            // would freeze the breakpoint it came from onto the mark and
+            // silence the responsive class rule at every other width.
+            $declarations = $this->styleResolver->stripResponsiveClassOwnedDeclarations($element, $declarations);
+        }
         $existingDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         $marker = trim((string) ($existingDeclarations['--blocks-engine-richtext-marker'] ?? ''));
         if ( '' === $marker ) {
@@ -4692,7 +4722,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
-        if ( in_array(strtolower($element->tagName), array( 'span', 'font', 'mark' ), true) ) {
+        if ( $carrierReplacesSource ) {
             $parent->replaceChild($mark, $element);
             return true;
         }
@@ -5389,6 +5419,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $this->isEmptyVisualInlineCandidate($element) ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::EMPTY_VISUAL_GROUP_CLASS);
             $this->runtimeBehavior()->markEmptyVisualGroupGenerated();
+            // An inline background paint is the reason this boundary box exists;
+            // restate it on a dedicated carrier so the saved group renders it.
+            $attrs['className'] = $this->mergeClassNames(
+                (string) $attrs['className'],
+                $this->styleResolver->emptyElementBackgroundCarrierClassName($element)
+            );
             $block = $this->createBlock('core/group', $attrs, array(), $element);
             $block['_editability_visual_owned'] = true;
             return $block;
@@ -5869,9 +5905,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) {
+            $attrs = $this->styleResolver->presentationAttributes($element);
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::LOWERED_PARAGRAPH_CLASS);
             return $this->createBlock(
                 'core/paragraph',
-                array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )),
+                array_merge($attrs, array( 'content' => $content )),
                 array(),
                 $element
             );

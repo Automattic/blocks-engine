@@ -75,6 +75,95 @@ final class NavigationPatternContext
         );
     }
 
+    /**
+     * Marker for a navigation anchor whose resolved box core/navigation-link
+     * cannot keep on the element it styles.
+     *
+     * core renders the block's className on its item, where core's own
+     * `.wp-block-navigation .wp-block-navigation-item` background rule
+     * outranks the class utilities, and the rendered
+     * `.wp-block-navigation-item__content` anchor receives neither the fill
+     * nor the padding a source CTA styled through its own classes. The
+     * anchor's resolved background and padding are carried here and restated
+     * on that anchor by the projector; the padding sides the carry moves are
+     * reset on the item to the source item's own winner, so the box is not
+     * painted twice now that it lives on the anchor again.
+     *
+     * Background and padding are never inherited, so a value resolved here was
+     * owned by the source anchor itself: a box authored on the source list
+     * item resolves nothing here and stays where the author put it.
+     *
+     * @param ?DOMElement $sourceItem The source element core's item stands in
+     *                                for, when it is not the anchor itself.
+     */
+    public function navigationLinkBoxMarker(DOMElement $anchor, ?DOMElement $sourceItem): string
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver
+            || ! $this->session instanceof HtmlTransformerSession
+        ) {
+            return '';
+        }
+
+        $declarations = $this->styleResolver->cssDeclarations($this->resolvedStyle($anchor));
+        $content = array();
+        $paddingSides = array();
+        $background = trim((string) ($declarations['background-color'] ?? ''));
+        if ( $this->safeNavigationBoxValue('background-color', $background) ) {
+            $content[] = 'background-color:' . $background;
+        }
+        foreach ( array( 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ) as $side ) {
+            $value = trim((string) ($declarations[$side] ?? ''));
+            if ( ! $this->safeNavigationBoxValue($side, $value) ) {
+                continue;
+            }
+            $content[] = $side . ':' . $value;
+            $paddingSides[] = $side;
+        }
+        if ( array() === $content ) {
+            return '';
+        }
+
+        $reset = array();
+        $itemDeclarations = null === $sourceItem
+            ? array()
+            : $this->styleResolver->cssDeclarations($this->resolvedStyle($sourceItem));
+        foreach ( $paddingSides as $side ) {
+            $itemValue = trim((string) ( $itemDeclarations[$side] ?? '' ));
+            $reset[] = $side . ':' . ( $this->safeNavigationBoxValue($side, $itemValue) ? $itemValue : '0' );
+        }
+
+        $marker = 'blocks-engine-navigation-link-box-' . hash('sha256', implode(';', $content));
+        $this->session->generatedSupportStylesheetState()->registerNavigationLinkBox(
+            $marker,
+            implode(';', $content),
+            implode(';', $reset)
+        );
+
+        return $marker;
+    }
+
+    /** A box declaration only carries when it paints or pads visibly and safely. */
+    private function safeNavigationBoxValue(string $property, string $value): bool
+    {
+        $lower = strtolower(trim($value));
+        if ( '' === $lower
+            || 1 === preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $value)
+        ) {
+            return false;
+        }
+        if ( in_array($lower, array( 'inherit', 'unset', 'initial', 'revert', 'revert-layer' ), true) ) {
+            return false;
+        }
+        if ( 'background-color' === $property && in_array($lower, array( 'transparent', 'none' ), true) ) {
+            return false;
+        }
+        if ( str_starts_with($property, 'padding') && preg_match('/^(?:0|0px|auto)$/', $lower) ) {
+            return false;
+        }
+
+        return true;
+    }
+
     public function resolvedDisplay(DOMElement $element): string
     {
         return $this->styleResolver?->resolvedConditionalDisplay($element) ?? '';

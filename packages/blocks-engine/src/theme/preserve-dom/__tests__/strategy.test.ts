@@ -84,13 +84,14 @@ describe('preserveDomStrategy', () => {
         '<section id="media-panel" class="wp-block-group alignfull media shell lib-i42aa6d9c6f"><!-- wp:image {"className":"photo lib-i0466783d98"} -->\n' +
         '<figure class="wp-block-image photo lib-i0466783d98"><img src="/photo.jpg" alt="Photo"/></figure>\n' +
         '<!-- /wp:image -->\n' +
-        '<!-- wp:paragraph {"className":"caption lib-ie3ec02ace9"} -->\n' +
-        '<p class="caption lib-ie3ec02ace9">Caption</p>\n' +
+        '<!-- wp:paragraph {"className":"caption lib-ie3ec02ace9 is-lowered-text"} -->\n' +
+        '<p class="caption lib-ie3ec02ace9 is-lowered-text">Caption</p>\n' +
         '<!-- /wp:paragraph --></section>\n' +
         '<!-- /wp:group -->',
     ]);
     expect(aggregate.dedup).toEqual({
       cssRules: [
+        ':where(p.is-lowered-text){margin-block-start:0;margin-block-end:0}',
         '.lib-i0466783d98{width:100%}',
         '.lib-i42aa6d9c6f{padding:2rem}',
         '.lib-ie3ec02ace9{font-weight:700}',
@@ -116,8 +117,8 @@ describe('preserveDomStrategy', () => {
     expect(aggregate.sectionMarkup).toEqual([
       '<!-- wp:group {"anchor":"nested-panel","tagName":"section","align":"full","className":"shell"} -->\n' +
         '<section id="nested-panel" class="wp-block-group alignfull shell"><!-- wp:group {"anchor":"card","className":"card"} -->\n' +
-        '<div id="card" class="wp-block-group card"><!-- wp:paragraph {"className":"label"} -->\n' +
-        '<p class="label">Nested</p>\n' +
+        '<div id="card" class="wp-block-group card"><!-- wp:paragraph {"className":"label is-lowered-text"} -->\n' +
+        '<p class="label is-lowered-text">Nested</p>\n' +
         '<!-- /wp:paragraph --></div>\n' +
         '<!-- /wp:group --></section>\n' +
         '<!-- /wp:group -->',
@@ -225,6 +226,60 @@ describe('preserveDomStrategy', () => {
     expect(markup).toContain('<svg class="chart" viewBox="0 0 100 20">');
     expect(markup).toContain('>Chart<');
     expect(aggregate.sections[0]?.coverage.lost).toBe(false);
+  });
+
+  it('lowers a text-only div to a paragraph that keeps the source box block margins (issue #2156)', () => {
+    const aggregate = reconstructNativeAggregate(
+      [
+        sectionSpec({
+          sectionIndex: 9,
+          bodyText: ['Handcrafted in small batches since 2019.', 'A real paragraph from a p tag.'],
+          sectionHtml:
+            '<section class="site-footer">' +
+            '<div class="mt-12 pt-6 border-t text-center text-sm">Handcrafted in small batches since 2019.</div>' +
+            '<p class="real-copy">A real paragraph from a p tag.</p>' +
+            '</section>',
+        }),
+      ],
+      { strategy: preserveDomStrategy },
+    );
+
+    const markup = aggregate.sectionMarkup[0] ?? '';
+    // The div carries its source classes onto the lowered paragraph plus the engine
+    // marker class, so the support rule keeps its block margins at 0 (the source div
+    // had none) while any authored margin utility still wins the cascade.
+    expect(markup).toContain(
+      '<!-- wp:paragraph {"className":"mt-12 pt-6 border-t text-center text-sm is-lowered-text"} -->',
+    );
+    expect(markup).toContain('<p class="mt-12 pt-6 border-t text-center text-sm is-lowered-text">');
+    // A real <p> source is untouched — its UA block margins are part of the source.
+    expect(markup).toContain('<!-- wp:paragraph {"className":"real-copy"} -->');
+    expect(markup).toContain('<p class="real-copy">');
+    expect(markup).not.toContain('real-copy is-lowered-text');
+    // Drain ships the zero-specificity support rule only because lowered text exists.
+    expect(aggregate.dedup?.cssRules).toEqual([
+      ':where(p.is-lowered-text){margin-block-start:0;margin-block-end:0}',
+    ]);
+  });
+
+  it('marks stray inline text paragraphs as lowered so UA margins do not apply', () => {
+    const aggregate = reconstructNativeAggregate(
+      [
+        sectionSpec({
+          sectionIndex: 10,
+          bodyText: ['Bare note'],
+          sectionHtml: '<section class="notes">Bare note</section>',
+        }),
+      ],
+      { strategy: preserveDomStrategy },
+    );
+
+    expect(aggregate.sectionMarkup[0]).toContain(
+      '<p class="is-lowered-text">Bare note</p>',
+    );
+    expect(aggregate.dedup?.cssRules).toContain(
+      ':where(p.is-lowered-text){margin-block-start:0;margin-block-end:0}',
+    );
   });
 
   it('freezes lib-i hash parity for max-width declarations', () => {
