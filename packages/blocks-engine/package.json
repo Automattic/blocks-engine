@@ -14,7 +14,7 @@
   "homepage": "https://github.com/Automattic/blocks-engine/tree/trunk/packages/blocks-engine#readme",
   "bugs": "https://github.com/Automattic/blocks-engine/issues",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "publishConfig": {
     "access": "public",
