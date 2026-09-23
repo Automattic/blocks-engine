@@ -255,10 +255,20 @@ final class GeneratedBlockStyleProjector
             // An inline-level control sizes to its content, so the wrapper
             // standing in its place has to do the same. A block-level wrapper
             // stretches to its container instead, which both moves the control
-            // and steals the width its siblings were sharing.
+            // and steals the width its siblings were sharing. When the control
+            // is centered only through inherited text-align, the synthesized
+            // core/buttons wrapper restates that centering as flex
+            // justification — which needs a wrapper that fills its parent to
+            // have room to act, mirroring the full-width block the source
+            // centered the control inside of.
             } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
-                $outerWrapperDeclarations[] = 'width:max-content';
-                $outerWrapperDeclarations[] = 'max-width:100%';
+                if ( 'center' === $inheritedTextAlignment ) {
+                    $outerWrapperDeclarations[] = 'width:100%';
+                    $outerWrapperDeclarations[] = 'max-width:100%';
+                } else {
+                    $outerWrapperDeclarations[] = 'width:max-content';
+                    $outerWrapperDeclarations[] = 'max-width:100%';
+                }
                 $intrinsicWrapperDeclarations[] = 'width:max-content';
                 $intrinsicWrapperDeclarations[] = 'max-width:100%';
                 $declarations[] = 'box-sizing:border-box';
