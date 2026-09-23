@@ -236,6 +236,7 @@
       "php tests/unit/button-link-min-content.php",
       "php tests/unit/button-wrapper-inner-fill.php",
       "php tests/unit/positioned-button-containing-block.php",
+      "php tests/unit/inherited-text-align-button-justification.php",
       "php tests/unit/standalone-layout-button-wrapper.php",
       "php tests/unit/layout-participation.php",
       "php tests/unit/neutralized-flex-button-row.php",
