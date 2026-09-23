@@ -428,6 +428,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
 
     public const EMPTY_VISUAL_GROUP_CLASS = 'blocks-engine-empty-visual-group';
+    /**
+     * Marks a core/paragraph lowered from a margin-styled text-only div. The
+     * source div has no user-agent block margins, but the emitted <p> would
+     * gain the paragraph's 1em UA margin on any side the author left unset.
+     */
+    public const LOWERED_PARAGRAPH_CLASS = 'blocks-engine-lowered-paragraph';
+
 
     /**
      * Marks an emptied block that exists only as a runtime target. Emitted
@@ -5868,9 +5875,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) {
+            $attrs = $this->styleResolver->presentationAttributes($element);
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::LOWERED_PARAGRAPH_CLASS);
             return $this->createBlock(
                 'core/paragraph',
-                array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )),
+                array_merge($attrs, array( 'content' => $content )),
                 array(),
                 $element
             );

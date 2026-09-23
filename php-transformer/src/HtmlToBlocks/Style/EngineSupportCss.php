@@ -186,6 +186,12 @@ final class EngineSupportCss
             // must not cover native controls after its source runtime is absent.
             $parts[] = ':where(.' . HtmlCompilation::EMPTY_VISUAL_GROUP_CLASS . '){pointer-events:none!important}';
         }
+        if ( str_contains($serializedBlocks, HtmlCompilation::LOWERED_PARAGRAPH_CLASS) ) {
+            // A paragraph lowered from a margin-less source element (e.g. a
+            // text-only div) must not gain the UA 1em paragraph margins. This
+            // precedes author CSS so authored margin utilities still win.
+            $parts[] = ':root :where(p.' . HtmlCompilation::LOWERED_PARAGRAPH_CLASS . '){margin-block-start:0;margin-block-end:0}';
+        }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             // Core flow spacing is not part of a source grid or flex contract.
             // This precedes author CSS so source child margins remain authoritative.

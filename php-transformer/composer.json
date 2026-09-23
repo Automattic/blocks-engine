@@ -176,6 +176,7 @@
       "php tests/unit/auto-fit-grid-carrier.php",
       "php tests/unit/responsive-grid-track-container-safety.php",
       "php tests/unit/css-owned-grid-item-min-width-safety.php",
+      "php tests/unit/lowered-paragraph-margin.php",
       "php tests/unit/artifact-author-stylesheet-projection.php",
       "php tests/unit/fallback-finding-normalizer.php",
             "php tests/unit/editor-anchor-attribute-id-projection.php",
