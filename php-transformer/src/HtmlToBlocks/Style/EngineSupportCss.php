@@ -269,6 +269,13 @@ final class EngineSupportCss
             $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '{display:flex;flex-wrap:nowrap;gap:0}'
                 . "\n" . ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column{box-sizing:border-box;min-width:0}';
         }
+        if ( str_contains($serializedBlocks, HtmlCompilation::PROPAGATED_LINK_CARRIER_CLASS) ) {
+            // A propagated card link wraps all of the block's source children.
+            // Layout-transparent, so the source element's flex/grid row still
+            // lays out those children directly; the link stays clickable
+            // through them.
+            $parts[] = ':root :where(.' . HtmlCompilation::PROPAGATED_LINK_CARRIER_CLASS . ')>a:only-child{display:contents}';
+        }
         if ( str_contains($serializedBlocks, self::PROPAGATED_LINK_COLOR_CARRIER_CLASS) ) {
             // The source painted this text; the anchor around it only exists
             // because a content-wrapping link was pushed into the block. It
