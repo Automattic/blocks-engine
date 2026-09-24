@@ -73,7 +73,14 @@ $assert($match(':is(p.item)[data-value]', $byId('one'))['matches'], 'matches a s
 $assert($match(':where(#root) [data-value]', $byId('one'))['matches'], 'matches a single-simple-selector where() ancestry compound');
 $assert($match(':where(p.item)[data-value]', $byId('one'))['matches'], 'matches a single-simple-selector where() rightmost compound');
 
-foreach ( array( ':disabled', ':is(.x,.y)', ':where(.x,.y)', ':has(.x)', ':nth-child(0)', ':nth-child(2n+1)', ':nth-child()', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
+$assert($match('section > :is(.missing, .a)', $byId('one'))['matches'] && ! $match('section > :is(.missing, .a)', $byId('two'))['matches'], 'matches an is() selector list when any alternative matches');
+$assert($match('#root :where(.missing, section) > .item', $byId('two'))['matches'], 'matches a where() selector list in ancestry');
+$assert($match(':is(.missing, div .outer) > .final', $byId('target'))['matches'], 'matches a complex is() alternative against the whole document');
+$assert(10 === CssSelectorMatcher::specificity(CssSelectorMatcher::parse(':is(p, .a)')), 'weighs an is() selector list as its most specific alternative');
+$assert(10 === CssSelectorMatcher::specificity(CssSelectorMatcher::parse('.a:where(#one, .b)')), 'weighs a where() selector list as zero');
+$assert(array( 'ids' => 1, 'classes' => 0, 'types' => 0 ) === CssSelectorMatcher::selectorListArgumentSpecificity(CssSelectorMatcher::parse(':is(.a, #one)')['compounds'][0]), 'splits an is() selector list weight into simple-selector counts');
+
+foreach ( array( ':disabled', ':is(.x,:has(.y))', ':where(.x,)', ':is(.x,.y:hover)', ':has(.x)', ':nth-child(0)', ':nth-child(2n+1)', ':nth-child()', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
     $assert(! CssSelectorMatcher::parse($selector)['supported'], "rejects unsupported or malformed {$selector}");
 }
 
