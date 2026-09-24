@@ -16,7 +16,7 @@
     "content": "<html><head><style>.h-10{height:2.5rem}.w-auto{width:auto}.max-w-\\[200px\\]{max-width:200px}.w-8{width:2rem}.h-8{height:2rem}</style></head><body><figure><img src=\"https://example.com/logo.png\" width=\"1536\" height=\"1024\" alt=\"Logo\" class=\"h-10 w-auto max-w-[200px]\"></figure><figure><img src=\"https://example.com/icon.png\" width=\"64\" height=\"64\" alt=\"Icon\" class=\"w-8 h-8\"></figure></body></html>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "h-10 w-auto max-w-[200px] is-resized be-inline-geometry-860a8b829543450919fdebb0113310ec2b156a074633313531c632ee97509950", "url": "https://example.com/logo.png", "alt": "Logo", "height": "2.5rem" } },
+    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "h-10 w-auto max-w-[200px] is-resized be-inline-geometry-860a8b8295434509", "url": "https://example.com/logo.png", "alt": "Logo", "height": "2.5rem" } },
     { "path": "blocks.1", "name": "core/image", "attrs": { "className": "w-8 h-8 is-resized", "url": "https://example.com/icon.png", "alt": "Icon", "width": "2rem", "height": "2rem" } }
   ],
   "expected_fallbacks": [],

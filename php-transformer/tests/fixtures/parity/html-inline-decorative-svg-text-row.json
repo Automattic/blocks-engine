@@ -16,7 +16,7 @@
     "content": "<div class=\"utility-left\"><span class=\"utility-current\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"></circle></svg> Current patient? Call <a href=\"tel:+15035551870\">(503) 555-1870</a></span></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/paragraph", "attrs": { "className": "utility-left blocks-engine-synthetic-paragraph", "content": "<mark class=\"utility-current\" style=\"background-color:transparent;color:inherit\" role=\"none\"><img src=\"assets/materialized-svg/inline-svg-13d0f475cfcc2321.svg\" alt=\"\" class=\"be-inline-geometry-25d33ba8f36ae19e9d6c95fd27aded5ec7fb444bb77d087ec283f19de54ff9d0\" style=\"width:24px;height:24px\" /> Current patient? Call <a href=\"tel:+15035551870\">(503) 555-1870</a></mark>" } }
+    { "path": "blocks.0", "name": "core/paragraph", "attrs": { "className": "utility-left blocks-engine-synthetic-paragraph", "content": "<mark class=\"utility-current\" style=\"background-color:transparent;color:inherit\" role=\"none\"><img src=\"assets/materialized-svg/inline-svg-13d0f475cfcc2321.svg\" alt=\"\" class=\"be-inline-geometry-25d33ba8f36ae19e\" style=\"width:24px;height:24px\" /> Current patient? Call <a href=\"tel:+15035551870\">(503) 555-1870</a></mark>" } }
   ],
   "expected_fallbacks": [],
   "expect": [

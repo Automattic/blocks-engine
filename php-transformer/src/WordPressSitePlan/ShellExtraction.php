@@ -535,7 +535,7 @@ final class ShellExtraction
     {
         $markup = self::withoutCurrentNavigationState($markup, true);
         $markup = preg_replace('/\s*blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control|specificity-class|disclosure-summary)-[a-f0-9]{6,}(?:-\d+)?/', '', $markup) ?? $markup;
-        $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{64}/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
         $markup = preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
         $markup = preg_replace('/(?:\.\.\/)+assets\//', 'assets/', $markup) ?? $markup;
         return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup);
@@ -620,7 +620,7 @@ final class ShellExtraction
                 if (($current || $semanticIdentity) && preg_match('/^blocks-engine-navigation-current-color-[a-f0-9]{64}$/', $class)) return false;
                 if ($current && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class)) return false;
                 if ($semanticIdentity && $current && 1 === ($stateCarrierCounts[$class] ?? 0)) return false;
-                if ($current && preg_match('/^be-inline-geometry-[a-f0-9]{64}$/', $class)) return false;
+                if ($current && preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class)) return false;
                 return true;
             }));
             if ($semanticIdentity && $current && $isLink) {
@@ -670,7 +670,7 @@ final class ShellExtraction
         return implode(' ', array_values(array_filter($classes, static function (string $class): bool {
             return !in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), true)
                 && !preg_match('/^blocks-engine-navigation-(?:current|link)-color-[a-f0-9]{64}$/', $class)
-                && !preg_match('/^be-inline-geometry-[a-f0-9]{64}$/', $class);
+                && !preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class);
         })));
     }
 }

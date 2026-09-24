@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 
 $blocks = array(array(
     'blockName' => 'core/group',
-    'attrs' => array('className' => 'blocks-engine-source-div-a be-inline-geometry-' . str_repeat('b', 64)),
+    'attrs' => array('className' => 'blocks-engine-source-div-a be-inline-geometry-' . str_repeat('b', 16)),
     'innerBlocks' => array(
         array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => ''),
         array('blockName' => 'core/paragraph', 'attrs' => array('content' => 'Editable <strong>copy</strong>'), 'innerBlocks' => array(), 'innerHTML' => '<p>Editable <strong>copy</strong></p>'),
@@ -32,7 +32,7 @@ if (array('depth' => 2, 'block_path' => '0.0', 'block_name' => 'core/image', 'se
 $aggregate = (new EditabilityReport())->fromDocuments(array('b.html' => array('blocks' => $blocks, 'serialized_blocks' => 'bb', 'template_surface' => array('role' => 'single'), 'provenance' => array('source_path' => 'b.html')), 'a.html' => array('blocks' => array(), 'serialized_blocks' => 'a')));
 if (2 !== $aggregate['metrics']['document_count'] || 3 !== $aggregate['metrics']['serialized_bytes'] || 'a.html' !== $aggregate['documents'][0]['source_path']) throw new RuntimeException('Artifact editability reports must aggregate documents in stable source order.');
 if ('single' !== ($aggregate['documents'][1]['template_surface_declaration']['role'] ?? null) || 'b.html' !== ($aggregate['documents'][1]['provenance']['source_path'] ?? null)) throw new RuntimeException('Artifact editability reports retain declared template role and source provenance.');
-$selected = (new EditabilityReport())->withTemplateSurfaceSelection($aggregate, array(array('source_path' => 'b.html', 'template_surface' => array('role' => 'single', 'slug' => 'single', 'source_variants' => array(array('source_path' => 'b.html', 'source_hash' => str_repeat('a', 64), 'source_provenance' => array('source_path' => 'b.html', 'source' => 'files', 'hash' => str_repeat('a', 64)))), 'declaration_provenance' => array('kind' => 'artifact_metadata'), 'source_provenance' => array('hash' => str_repeat('a', 64))))));
+$selected = (new EditabilityReport())->withTemplateSurfaceSelection($aggregate, array(array('source_path' => 'b.html', 'template_surface' => array('role' => 'single', 'slug' => 'single', 'source_variants' => array(array('source_path' => 'b.html', 'source_hash' => str_repeat('a', 16), 'source_provenance' => array('source_path' => 'b.html', 'source' => 'files', 'hash' => str_repeat('a', 16)))), 'declaration_provenance' => array('kind' => 'artifact_metadata'), 'source_provenance' => array('hash' => str_repeat('a', 16))))));
 if ('single' !== ($selected['documents'][1]['template_surface_selection']['role'] ?? null) || 'b.html' !== ($selected['documents'][1]['template_surface_selection']['selected_source_path'] ?? null)) throw new RuntimeException('Editability evidence retains selected template role and provenance.');
 
 $emptyGroups = array_fill(0, 101, array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => ''));
@@ -92,10 +92,10 @@ $intentionalEmpties = (new EditabilityReport())->fromBlocks(array(
     array('blockName' => 'core/group', 'attrs' => array('style' => array('color' => array('text' => '#123456'))), 'innerBlocks' => array(), 'innerHTML' => ''),
     array('blockName' => 'core/group', 'attrs' => array('style' => array('color' => array('background' => '#123456'))), 'innerBlocks' => array(), 'innerHTML' => ''),
     array('blockName' => 'core/group', 'attrs' => array('style' => array('shadow' => '0 1px 2px #000')), 'innerBlocks' => array(), 'innerHTML' => ''),
-    array('blockName' => 'core/group', 'attrs' => array('className' => 'be-inline-geometry-' . str_repeat('a', 64)), 'innerBlocks' => array(), 'innerHTML' => ''),
+    array('blockName' => 'core/group', 'attrs' => array('className' => 'be-inline-geometry-' . str_repeat('a', 16)), 'innerBlocks' => array(), 'innerHTML' => ''),
     array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => ''),
     array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => ''),
-), '', '', '.be-inline-geometry-' . str_repeat('a', 64) . '{height:1px}', array('blocks.5'));
+), '', '', '.be-inline-geometry-' . str_repeat('a', 16) . '{height:1px}', array('blocks.5'));
 if (3 !== $intentionalEmpties['metrics']['empty_visual_group_count'] || 1 !== $intentionalEmpties['metrics']['empty_runtime_group_count'] || 3 !== $intentionalEmpties['metrics']['empty_wrapper_count'] || 2 !== $intentionalEmpties['metrics']['generated_geometry_class_count'] || array('empty_wrapper', 'empty_wrapper', 'empty_visual_group', 'empty_visual_group', 'empty_visual_group', 'empty_runtime_group', 'empty_wrapper') !== array_column($intentionalEmpties['signals'], 'kind')) throw new RuntimeException('Text-only color, spoofed tokens, visual styles, verified carriers, and explicit runtime ownership remain distinct while geometry-prefix metrics remain compatible.');
 
 $textOnlyPolicy = (new EditabilityPolicy())->evaluate((new EditabilityReport())->fromBlocks(array_fill(0, 11, array('blockName' => 'core/group', 'attrs' => array('style' => array('color' => array('text' => '#123456'))), 'innerBlocks' => array(), 'innerHTML' => ''))));

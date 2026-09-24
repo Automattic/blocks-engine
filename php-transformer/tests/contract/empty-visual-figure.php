@@ -54,7 +54,7 @@ foreach (array(1, 11) as $count) {
     $geometryMetrics = $geometryGroups['source_reports']['editability_report']['metrics'] ?? array();
     $geometryPolicy = (new \Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy())->evaluate($geometryGroups['source_reports']['editability_report'] ?? array());
     $geometryMarkup = (string) ($geometryGroups['serialized_blocks'] ?? '');
-    preg_match('/be-inline-geometry-[a-f0-9]{64}/', $geometryMarkup, $geometryClass);
+    preg_match('/be-inline-geometry-[a-f0-9]{16}/', $geometryMarkup, $geometryClass);
     $geometryCss = implode("\n", array_map(static fn (array $asset): string => 'engine-support' === ($asset['source'] ?? '') ? (string) ($asset['content'] ?? '') : '', $geometryGroups['assets'] ?? array()));
     $assert($count === ($geometryMetrics['empty_visual_group_count'] ?? null) && 0 === ($geometryMetrics['empty_wrapper_count'] ?? null) && 'passed' === ($geometryPolicy['status'] ?? null) && isset($geometryClass[0]) && str_contains($geometryCss, '.' . $geometryClass[0] . '{'), 'Direct transformer verifies generated carrier CSS for ' . $count . ' empty height/geometry group(s) before editability policy evaluation.');
 }

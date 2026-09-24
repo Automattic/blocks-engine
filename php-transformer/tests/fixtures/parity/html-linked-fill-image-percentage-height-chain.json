@@ -40,12 +40,12 @@
     {
       "path": "assets.0.content",
       "assert": "contains",
-      "value": ".be-inline-geometry-d0aa3444e7dca1c2c2b3a9c6c01997ef59deb1ff83d02b30fd4ab0496a96eb79{height:100% !important}.be-inline-geometry-d0aa3444e7dca1c2c2b3a9c6c01997ef59deb1ff83d02b30fd4ab0496a96eb79>a{display:block !important;width:100% !important;height:100% !important}"
+      "value": ".be-inline-geometry-d0aa3444e7dca1c2{height:100% !important}.be-inline-geometry-d0aa3444e7dca1c2>a{display:block !important;width:100% !important;height:100% !important}"
     },
     {
       "path": "serialized_blocks",
       "assert": "contains",
-      "value": "be-inline-geometry-d0aa3444e7dca1c2c2b3a9c6c01997ef59deb1ff83d02b30fd4ab0496a96eb79"
+      "value": "be-inline-geometry-d0aa3444e7dca1c2"
     },
     {
       "path": "assets.1.content",
@@ -55,17 +55,17 @@
     {
       "path": "assets.0.content",
       "assert": "contains",
-      "value": ".be-inline-geometry-0920923a5c6cf48a9bca3d6610074cb5fe9c0658035c4c9df5b30d867429e15e{height:100% !important}\n"
+      "value": ".be-inline-geometry-0920923a5c6cf48a{height:100% !important}\n"
     },
     {
       "path": "assets.0.content",
       "assert": "not_contains",
-      "value": ".be-inline-geometry-0920923a5c6cf48a9bca3d6610074cb5fe9c0658035c4c9df5b30d867429e15e>a"
+      "value": ".be-inline-geometry-0920923a5c6cf48a>a"
     },
     {
       "path": "serialized_blocks",
       "assert": "contains",
-      "value": "<figure class=\"wp-block-image is-resized fill top-crop be-inline-geometry-0920923a5c6cf48a9bca3d6610074cb5fe9c0658035c4c9df5b30d867429e15e blocks-engine-synthetic-image-figure\"><img src=\"https://example.com/offsite.jpg\""
+      "value": "<figure class=\"wp-block-image is-resized fill top-crop be-inline-geometry-0920923a5c6cf48a blocks-engine-synthetic-image-figure\"><img src=\"https://example.com/offsite.jpg\""
     },
     {
       "path": "assets.0.content",
