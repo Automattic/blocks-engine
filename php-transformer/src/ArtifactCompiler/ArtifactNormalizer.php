@@ -26,6 +26,15 @@ final class ArtifactNormalizer
     public const DEFAULT_MAX_MEDIA_TOTAL_BYTES = 536870912;
     public const MAX_MEDIA_FILE_BYTES = 134217728;
     public const MAX_MEDIA_TOTAL_BYTES = 1073741824;
+    // A capture report the artifact declares in `reports` is evidence about the
+    // capture, not page source: only the few reports a projector names are ever
+    // decoded, and none of them is converted to blocks or rewritten. Its bytes
+    // are hydrated, so they stay bounded, but on their own budget rather than
+    // the one sized for what the compiler parses.
+    public const DEFAULT_MAX_REPORT_FILE_BYTES = 16777216;
+    public const DEFAULT_MAX_REPORT_TOTAL_BYTES = 67108864;
+    public const MAX_REPORT_FILE_BYTES = 33554432;
+    public const MAX_REPORT_TOTAL_BYTES = 134217728;
     /** Extensions whose referenced payloads the compiler hydrates and parses. */
     public const REFERENCE_TEXT_EXTENSIONS = array('css', 'html', 'htm', 'js', 'mjs', 'json', 'md', 'markdown', 'mdx', 'svg');
     /** Non-`text/*` mime types whose referenced payloads the compiler hydrates. */
@@ -50,9 +59,11 @@ final class ArtifactNormalizer
         $rejectionSamples = array();
         $bytes = 0;
         $mediaBytes = 0;
+        $reportBytes = 0;
         $truncationImpact = null;
         $seenPaths = array();
         $limits = $this->limits($artifact);
+        $declaredReports = self::declaredReports($artifact);
 
         foreach ( array('entrypoint', 'entry', 'main') as $key ) {
             if ( is_string($artifact[$key] ?? null) ) {
@@ -122,6 +133,9 @@ final class ArtifactNormalizer
             // so it costs no parsed bytes. Budget it on its own axis instead of
             // charging it against what the compiler actually reads.
             $referenceMedia = self::isReferenceBackedBinary(array('path' => $path) + $file);
+            // A declared capture report is hydrated but never converted, so it
+            // is bounded on the report budget rather than the parse budget.
+            $capturedReport = ! $referenceMedia && isset($declaredReports[$path]);
 
             if ( $referenceMedia && $payload['bytes'] > $limits['max_media_file_bytes'] ) {
                 ++$rejected;
@@ -130,7 +144,21 @@ final class ArtifactNormalizer
                 continue;
             }
 
-            if ( ! $referenceMedia && $payload['bytes'] > $limits['max_file_bytes'] ) {
+            if ( $capturedReport && $payload['bytes'] > $limits['max_report_file_bytes'] ) {
+                ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_report_file_too_large', $file, $path, $payload['bytes']);
+                $diagnostics[] = $this->diagnostic('artifact_report_file_too_large', 'warning', 'A declared capture report was ignored because it exceeds the per-file report byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_file_bytes' => $limits['max_report_file_bytes']));
+                continue;
+            }
+
+            if ( $capturedReport && $reportBytes + $payload['bytes'] > $limits['max_report_total_bytes'] ) {
+                ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_report_total_too_large', $file, $path, $payload['bytes']);
+                $diagnostics[] = $this->diagnostic('artifact_report_total_too_large', 'warning', 'A declared capture report was ignored because the bundle report byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_total_bytes' => $limits['max_report_total_bytes']));
+                continue;
+            }
+
+            if ( ! $referenceMedia && ! $capturedReport && $payload['bytes'] > $limits['max_file_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_file_too_large', $file, $path, $payload['bytes']);
                 $diagnostics[] = $this->diagnostic('artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_file_bytes' => $limits['max_file_bytes']));
@@ -144,7 +172,7 @@ final class ArtifactNormalizer
                 continue;
             }
 
-            if ( ! $referenceMedia && ( $bytes - $mediaBytes ) + $payload['bytes'] > $limits['max_total_bytes'] ) {
+            if ( ! $referenceMedia && ! $capturedReport && ( $bytes - $mediaBytes - $reportBytes ) + $payload['bytes'] > $limits['max_total_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_total_too_large', $file, $path, $payload['bytes']);
                 $diagnostics[] = $this->diagnostic('artifact_total_too_large', 'warning', 'An artifact file was ignored because the bundle byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_total_bytes' => $limits['max_total_bytes']));
@@ -251,6 +279,8 @@ final class ArtifactNormalizer
             $bytes += $normalized['bytes'];
             if ( $referenceMedia ) {
                 $mediaBytes += $normalized['bytes'];
+            } elseif ( $capturedReport ) {
+                $reportBytes += $normalized['bytes'];
             }
             $files[] = $normalized;
         }
@@ -425,7 +455,7 @@ final class ArtifactNormalizer
         return $impact;
     }
 
-    /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int,max_media_file_bytes:int,max_media_total_bytes:int} */
+    /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int,max_media_file_bytes:int,max_media_total_bytes:int,max_report_file_bytes:int,max_report_total_bytes:int} */
     private function limits(array $artifact): array
     {
         $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
@@ -435,7 +465,31 @@ final class ArtifactNormalizer
             'max_total_bytes' => min(self::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? self::DEFAULT_MAX_TOTAL_BYTES))),
             'max_media_file_bytes'  => min(self::MAX_MEDIA_FILE_BYTES, max(1, (int) ($requested['max_media_file_bytes'] ?? self::DEFAULT_MAX_MEDIA_FILE_BYTES))),
             'max_media_total_bytes' => min(self::MAX_MEDIA_TOTAL_BYTES, max(1, (int) ($requested['max_media_total_bytes'] ?? self::DEFAULT_MAX_MEDIA_TOTAL_BYTES))),
+            'max_report_file_bytes'  => min(self::MAX_REPORT_FILE_BYTES, max(1, (int) ($requested['max_report_file_bytes'] ?? self::DEFAULT_MAX_REPORT_FILE_BYTES))),
+            'max_report_total_bytes' => min(self::MAX_REPORT_TOTAL_BYTES, max(1, (int) ($requested['max_report_total_bytes'] ?? self::DEFAULT_MAX_REPORT_TOTAL_BYTES))),
         );
+    }
+
+    /**
+     * The capture reports this artifact declares, as a path lookup set.
+     *
+     * `reports` is the same declaration the source manifest already carries for
+     * these files; it is what keeps them addressable at the artifact root
+     * instead of under the website tree. Reusing it here means one declaration
+     * decides both where a report lives and which budget bounds it.
+     *
+     * @param array<string,mixed> $artifact
+     * @return array<string,true>
+     */
+    public static function declaredReports(array $artifact): array
+    {
+        $reports = array();
+        foreach (is_array($artifact['reports'] ?? null) ? $artifact['reports'] : array() as $report) {
+            if (!is_string($report)) continue;
+            $path = ArtifactPath::safeRelativePath($report);
+            if ('' !== $path) $reports[$path] = true;
+        }
+        return $reports;
     }
 
     /**

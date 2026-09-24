@@ -573,7 +573,7 @@ trait StagedTransport
      * Partition an envelope before normalization so preparing one stage never
      * parses, expands, or transforms payloads owned by another stage.
      *
-     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,layout_geometry_proof:array<string,mixed>,schema:string,input_keys:array<int,string>,identity:array<string,string>,source_paths:array<int,string>}
+     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,layout_geometry_proof:array<string,mixed>,schema:string,reports:array<int,string>,input_keys:array<int,string>,identity:array<string,string>,source_paths:array<int,string>}
      */
     private function stagePartition(array $artifact, string $scope, string $pageId = ''): array
     {
@@ -634,6 +634,10 @@ trait StagedTransport
             'runtime_declarations' => $normalized['runtime_declarations'],
             'layout_geometry_proof' => $normalized['layout_geometry_proof'],
             'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
+            // Every stage re-normalizes its own envelope, so the report
+            // declaration has to travel with it or a partition would budget a
+            // declared report as page source.
+            'reports' => array_keys(ArtifactNormalizer::declaredReports($artifact)),
             'input_keys' => array_values(array_filter(array_keys($artifact), 'is_string')),
             'identity' => $identity,
             'source_paths' => $sourcePaths,
@@ -650,7 +654,7 @@ trait StagedTransport
     }
 
     /**
-     * @param array{entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,layout_geometry_proof:array<string,mixed>,schema:string,input_keys:array<int,string>} $partition
+     * @param array{entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,layout_geometry_proof:array<string,mixed>,schema:string,reports:array<int,string>,input_keys:array<int,string>} $partition
      * @param array<int,array<string,mixed>> $files
      * @return array<string,mixed>
      */
@@ -665,6 +669,9 @@ trait StagedTransport
             // serialized staged transport without exposing a consumer identity.
             'source_operation' => array('schema' => 'blocks-engine/php-transformer/source-operation/v1', 'input_keys' => $partition['input_keys']),
         );
+        if (array() !== ($partition['reports'] ?? array())) {
+            $artifact['reports'] = $partition['reports'];
+        }
         if ('' !== $partition['schema']) {
             $artifact['schema'] = $partition['schema'];
         }
@@ -802,8 +809,12 @@ trait StagedTransport
         $maxTotal = min(ArtifactNormalizer::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_TOTAL_BYTES)));
         $maxMediaFile = min(ArtifactNormalizer::MAX_MEDIA_FILE_BYTES, max(1, (int) ($requested['max_media_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_MEDIA_FILE_BYTES)));
         $maxMediaTotal = min(ArtifactNormalizer::MAX_MEDIA_TOTAL_BYTES, max(1, (int) ($requested['max_media_total_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_MEDIA_TOTAL_BYTES)));
+        $maxReportFile = min(ArtifactNormalizer::MAX_REPORT_FILE_BYTES, max(1, (int) ($requested['max_report_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_REPORT_FILE_BYTES)));
+        $maxReportTotal = min(ArtifactNormalizer::MAX_REPORT_TOTAL_BYTES, max(1, (int) ($requested['max_report_total_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_REPORT_TOTAL_BYTES)));
+        $reports = ArtifactNormalizer::declaredReports($artifact);
         $total = 0;
         $mediaTotal = 0;
+        $reportTotal = 0;
         foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $file) {
             if (!is_array($file) || !isset($file['payload_reference'])) continue;
             $reference = $this->payloadReference($file['payload_reference']);
@@ -814,6 +825,15 @@ trait StagedTransport
                 if ($reference['bytes'] > $maxMediaFile) throw new \InvalidArgumentException('A reference-backed media payload exceeds the compiler per-file media byte limit.');
                 $mediaTotal += $reference['bytes'];
                 if ($mediaTotal > $maxMediaTotal) throw new \InvalidArgumentException('Reference-backed media payloads exceed the compiler aggregate media byte limit.');
+                continue;
+            }
+            // A declared capture report is hydrated, so it stays bounded, but on
+            // the report budget: it is evidence about the capture, not page
+            // source the compiler converts.
+            if (isset($reports[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))])) {
+                if ($reference['bytes'] > $maxReportFile) throw new \InvalidArgumentException('A declared capture report exceeds the compiler per-file report byte limit.');
+                $reportTotal += $reference['bytes'];
+                if ($reportTotal > $maxReportTotal) throw new \InvalidArgumentException('Declared capture reports exceed the compiler aggregate report byte limit.');
                 continue;
             }
             if ($reference['bytes'] > $maxFile) throw new \InvalidArgumentException('A payload reference exceeds the compiler per-file byte limit.');

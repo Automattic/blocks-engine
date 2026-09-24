@@ -6185,6 +6185,8 @@ $negotiatedLimits = (new ArtifactNormalizer())->normalize(array(
         'max_total_bytes' => PHP_INT_MAX,
         'max_media_file_bytes' => PHP_INT_MAX,
         'max_media_total_bytes' => PHP_INT_MAX,
+        'max_report_file_bytes' => PHP_INT_MAX,
+        'max_report_total_bytes' => PHP_INT_MAX,
     ),
     'files' => array(
         'index.html' => '<main>OK</main>',
@@ -6198,6 +6200,8 @@ $assert(array(
     'max_total_bytes' => ArtifactNormalizer::MAX_TOTAL_BYTES,
     'max_media_file_bytes' => ArtifactNormalizer::MAX_MEDIA_FILE_BYTES,
     'max_media_total_bytes' => ArtifactNormalizer::MAX_MEDIA_TOTAL_BYTES,
+    'max_report_file_bytes' => ArtifactNormalizer::MAX_REPORT_FILE_BYTES,
+    'max_report_total_bytes' => ArtifactNormalizer::MAX_REPORT_TOTAL_BYTES,
 ) === ($negotiatedLimits['limits'] ?? null), 'artifact compiler clamps negotiated limits to hard resource ceilings');
 
 assertSame('core/group', $result['blocks'][0]['blockName'], 'main wrapper should preserve multiple supported child blocks in a group.');
