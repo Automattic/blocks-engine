@@ -134,6 +134,18 @@ $utf8Staged = (new ArtifactCompiler())->compose($utf8Shared, $utf8Receipts)->toA
 $utf8MetadataDiagnostic = current(array_filter($utf8Staged['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'html_head_metadata_not_carried' === ($diagnostic['code'] ?? null)));
 $utf8Content = $utf8MetadataDiagnostic['entries'][0]['content'] ?? null;
 $assert(str_repeat('a', 499) === $utf8Content && 499 === strlen($utf8Content) && 1 === preg_match('//u', $utf8Content), 'Serialized shared, page, and compiled checkpoints retain the 500-byte metadata diagnostic bound at a UTF-8 character boundary without replacement or conversion.');
+$utf8FragmentParagraphs = '<p>' . str_repeat("\xC3\xA9", 400) . '</p><p>a' . str_repeat("\xC3\xA9", 400) . '</p>';
+$utf8FragmentArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<!doctype html><html><body><main>' . $utf8FragmentParagraphs . '</main></body></html>'),
+));
+$utf8FragmentShared = json_decode(json_encode((new ArtifactCompiler())->prepareShared($utf8FragmentArtifact), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$utf8FragmentPages = json_decode(json_encode((new ArtifactCompiler())->preparePages($utf8FragmentArtifact, $utf8FragmentShared), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$utf8FragmentReceipts = (new ArtifactCompiler())->compilePreparedPages($utf8FragmentShared, $utf8FragmentPages);
+$utf8Fragments = array();
+array_walk_recursive($utf8FragmentReceipts, static function (mixed $value, int|string $key) use (&$utf8Fragments): void { if ('source_fragment' === $key) $utf8Fragments[] = $value; });
+$assert(array() !== $utf8Fragments && array() === array_filter($utf8Fragments, static fn (mixed $fragment): bool => !is_string($fragment) || 1 !== preg_match('//u', $fragment) || strlen($fragment) > 503), 'Truncated source fragments stay within the 500-byte diagnostic bound at a UTF-8 character boundary.');
+$assert(in_array(502, array_map('strlen', $utf8Fragments), true), 'The UTF-8 source fragment fixture places a multibyte character across the 500-byte truncation boundary.');
+$assert(is_string(json_encode($utf8FragmentReceipts)), 'Compiled page receipts with truncated multibyte source fragments serialize.');
 $largeOptions = '';
 $largeOptionValue = str_repeat('choice-', 16);
 for ($index = 0; $index < 6400; ++$index) $largeOptions .= '<option value="' . $largeOptionValue . '">' . $largeOptionValue . '</option>';

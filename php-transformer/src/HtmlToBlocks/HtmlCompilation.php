@@ -6217,7 +6217,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $html = preg_replace('/\s+(href|src)\s*=\s*("\s*javascript:[^"]*"|\'\s*javascript:[^\']*\'|javascript:[^\s>]+)/i', '', $html) ?? '';
 
         if ( strlen($html) > 500 ) {
-            return substr($html, 0, 500) . '...';
+            return $this->utf8Prefix($html, 500) . '...';
         }
 
         return $html;
