@@ -93,6 +93,7 @@
       "php tests/unit/companion-plugin-namespace.php",
       "php tests/unit/generated-artifact-provenance.php",
       "php tests/unit/scroll-state-block.php",
+      "php tests/unit/inline-custom-property-scroll-state-carry.php",
       "php tests/unit/responsive-document-variants.php",
       "php tests/unit/responsive-counterpart-contracts.php",
       "php tests/unit/captured-dialog-projector.php",

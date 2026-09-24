@@ -1846,10 +1846,23 @@ final class StyleResolver implements ElementPresentationResolver
             $declarations,
             $this->inlineCustomPropertiesConsumedByAuthorStyles($element, $declarations) + $this->customPropertiesReferencedByValues($geometryValues)
         );
+        // Most callers case-fold declaration keys for matching, but custom
+        // property names are case-sensitive: `--headerBg` and `--headerbg` are
+        // different properties, so the carrier must declare the name the
+        // author wrote or every `var(--headerBg)` reader falls back to its
+        // :root default. A key that already is an authored name stays as is.
+        $authoredNames = array();
+        foreach (CssValueSplitter::splitTopLevel(SourceDom::attr($element, 'style'), array(';')) as $declaration) {
+            $name = trim(explode(':', $declaration, 2)[0]);
+            if (str_starts_with($name, '--')) {
+                $authoredNames[$name] = $name;
+                $authoredNames[strtolower($name)] ??= $name;
+            }
+        }
         $customProperties = array();
         foreach ($declarations as $property => $value) {
             if (str_starts_with($property, '--') && isset($required[$property])) {
-                $customProperties[$property] = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->context->resolvedAssetImageUrl($url));
+                $customProperties[$authoredNames[$property] ?? $property] = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->context->resolvedAssetImageUrl($url));
             }
         }
         ksort($customProperties, SORT_STRING);
