@@ -1472,6 +1472,22 @@ final class WordPressSitePlan
             $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
         }
+        // Gutenberg pads every saved block with newlines. Imported presentation can
+        // preserve white-space (Wix rich text uses break-spaces), so that padding
+        // renders as blank lines once a page is saved. Drop serializer newline runs
+        // at block edges and between inner blocks; text inside blocks is untouched.
+        $lines[] = "add_filter( 'render_block_data', static function ( array \$block ): array {";
+        $lines[] = "    \$content = \$block['innerContent'] ?? null; if ( ! is_array( \$content ) ) return \$block;";
+        $lines[] = "    if ( null === ( \$block['blockName'] ?? null ) ) { if ( '' === trim( (string) ( \$block['innerHTML'] ?? '' ) ) ) { \$block['innerHTML'] = ''; \$block['innerContent'] = array(); } return \$block; }";
+        $lines[] = "    \$last = count( \$content ) - 1;";
+        $lines[] = "    foreach ( \$content as \$index => \$chunk ) {";
+        $lines[] = "        if ( ! is_string( \$chunk ) ) continue;";
+        $lines[] = "        if ( 0 === \$index || null === \$content[ \$index - 1 ] ) \$chunk = preg_replace( '/^\\s*\\n[ \\t\\r\\f]*/', '', \$chunk ) ?? \$chunk;";
+        $lines[] = "        if ( \$last === \$index || null === \$content[ \$index + 1 ] ) \$chunk = preg_replace( '/[ \\t\\r\\f]*\\n\\s*\$/', '', \$chunk ) ?? \$chunk;";
+        $lines[] = "        \$content[ \$index ] = \$chunk;";
+        $lines[] = "    }";
+        $lines[] = "    \$block['innerContent'] = \$content; return \$block;";
+        $lines[] = "}, 10, 1 );";
         $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export(self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
