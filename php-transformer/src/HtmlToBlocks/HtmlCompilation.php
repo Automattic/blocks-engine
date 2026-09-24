@@ -1414,6 +1414,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
         $this->projectedSelectorBindings = array();
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
+        $this->session->installSourcePath($this->currentSourcePath);
         $this->sharedStylesheetPaths = array();
         foreach ( is_array($options['shared_stylesheet_paths'] ?? null) ? $options['shared_stylesheet_paths'] : array() as $path ) {
             if ( is_string($path) && '' !== $path ) {
