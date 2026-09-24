@@ -79,6 +79,11 @@ $structuralFixtureReport = (new EditabilityReport())->fromBlocks($structuralFixt
 $structuralSignals = array_values(array_filter($structuralFixtureReport['signals'], static fn(array $signal): bool => 'structural_rich_text_attribute' === ($signal['kind'] ?? '')));
 if (3 !== ($structuralFixtureReport['metrics']['structural_rich_text_attribute_count'] ?? null) || array('0', '1', '2') !== array_column($structuralSignals, 'block_path') || array('core/paragraph', 'core/heading', 'core/list-item') !== array_column($structuralSignals, 'block_name') || array('.quote > span', '.feature > em', '.cards > li') !== array_column($structuralSignals, 'source_selector') || !str_contains((string) ($structuralSignals[2]['source_fragment'] ?? ''), 'card.jpg')) throw new RuntimeException('Structural RichText fixtures attribute every affected attribute to its block, selector, and bounded source fragment.');
 
+$utf8Fragment = '<span>' . str_repeat('a', 505) . "\xC3\xA9" . '</span>';
+$utf8FragmentReport = (new EditabilityReport())->fromBlocks(array($structuralFixture[0]), 'fixture.html', '', '', array(), array(), array(array('block_path' => 'blocks.0', 'selector' => '.quote > span', 'source_fragment' => $utf8Fragment)));
+$utf8Signal = (string) ($utf8FragmentReport['signals'][0]['source_fragment'] ?? '');
+if (substr($utf8Fragment, 0, 511) !== $utf8Signal || 1 !== preg_match('//u', $utf8Signal) || false === json_encode($utf8FragmentReport)) throw new RuntimeException('Editability signals bound source fragments at a UTF-8 character boundary so the report stays serializable.');
+
 $noisySignals = (new EditabilityReport())->fromBlocks(array_merge(array_fill(0, 100, array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => '')), $structuralFixture), 'fixture.html', '', '', array(), array(), $structuralProvenance)['signals'];
 if (3 !== count(array_filter($noisySignals, static fn(array $signal): bool => 'structural_rich_text_attribute' === ($signal['kind'] ?? '')))) throw new RuntimeException('Bounded evidence retains every structural RichText finding ahead of lower-priority wrapper signals.');
 

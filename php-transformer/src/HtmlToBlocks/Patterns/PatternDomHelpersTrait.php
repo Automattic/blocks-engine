@@ -44,13 +44,45 @@ trait PatternDomHelpersTrait
         return $element->hasAttribute($name) ? trim($element->getAttribute($name)) : '';
     }
 
+    /**
+     * The phrasing label of a disclosure control, without its decorative icon.
+     *
+     * The target block (core/accordion-heading, core/details) stores the label
+     * as RichText and draws its own toggle icon, so the source icon — an svg,
+     * an aria-hidden subtree, or a text-less flow wrapper such as
+     * `div > div > div + div` — is removed from a clone of the DOM before
+     * serializing. Removing whole nodes keeps the label balanced whatever the
+     * icon's nesting.
+     */
     private function disclosureLabelHtml(DOMElement $element, callable $innerHtml): string
     {
-        $html = $innerHtml($element);
-        $html = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html;
-        $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>.*?<\/\1>/is', '', $html) ?? $html;
+        $label = $element->cloneNode(true);
+        if ( ! $label instanceof DOMElement ) {
+            return '';
+        }
 
-        return trim($html);
+        $decorative = array();
+        foreach ( $label->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->isDecorativeDisclosureIcon($descendant) ) {
+                $decorative[] = $descendant;
+            }
+        }
+        foreach ( $decorative as $node ) {
+            $node->parentNode?->removeChild($node);
+        }
+
+        return trim($innerHtml($label));
+    }
+
+    private function isDecorativeDisclosureIcon(DOMElement $element): bool
+    {
+        if ( 'svg' === strtolower($element->tagName) || 'true' === strtolower($this->trimmedAttribute($element, 'aria-hidden')) ) {
+            return true;
+        }
+
+        return 1 === preg_match('/^(?:div|figure|p|section)$/', strtolower($element->tagName))
+            && '' === trim($element->textContent)
+            && 0 === $element->getElementsByTagName('img')->length;
     }
 
     private function hasRuntimeHeavyDescendant(DOMElement $element): bool

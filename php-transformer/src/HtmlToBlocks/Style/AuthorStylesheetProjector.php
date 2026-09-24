@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -2147,6 +2148,10 @@ final class AuthorStylesheetProjector
             if ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) {
                 $shims .= ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
             }
+            $listSpecificity = CssSelectorMatcher::selectorListArgumentSpecificity($compound);
+            $shims .= str_repeat($this->typeSpecificityShim($context), $listSpecificity['types'])
+                . str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', $listSpecificity['classes'])
+                . str_repeat(':not(#' . $context->authorStyles->idSpecificityShim() . ')', $listSpecificity['ids']);
         }
         return $shims;
     }

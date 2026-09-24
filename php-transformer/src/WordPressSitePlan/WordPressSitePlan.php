@@ -239,7 +239,7 @@ final class WordPressSitePlan
             'routes' => $routes,
             'navigation_links' => $input->navigationLinks,
             'menus' => $input->menus,
-            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization)),
+            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization)),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
@@ -1415,17 +1415,17 @@ final class WordPressSitePlan
             $lines[] = "    }";
             $lines[] = "    return \$matches;";
             $lines[] = "};";
+            // Core collects the editor canvas iframe's stylesheets by firing
+            // enqueue_block_assets with should_load_block_editor_scripts_and_styles
+            // forced false (_wp_get_iframed_editor_assets()); the iframe then
+            // loads them by URL. Authored and editor-only CSS is enqueued only on
+            // that pass, so it never styles the outer admin document and is never
+            // inlined into the editor settings payload.
             $lines[] = "add_action( 'enqueue_block_assets', static function () use ( \$blocks_engine_presentation_styles, \$blocks_engine_presentation_matches ): void {";
             $lines[] = "    \$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null; \$site_editor = \$screen instanceof WP_Screen && 'site-editor' === \$screen->base; if ( ! \$site_editor && ( ! \$screen instanceof WP_Screen || ! in_array( \$screen->base, array( 'post', 'post-new' ), true ) ) ) return; \$post = \$GLOBALS['post'] ?? null;";
-            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( ( empty( \$style['author_css'] ) || ! empty( \$style['editor_only'] ) ) && \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
+            $lines[] = "    \$canvas = ! wp_should_load_block_editor_scripts_and_styles();";
+            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( ( \$canvas || ( empty( \$style['author_css'] ) && empty( \$style['editor_only'] ) ) ) && \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
             $lines[] = "} );";
-            // Editor settings styles reach the canvas iframe for the edited post
-            // only; add_editor_style() would load every page's editor CSS on each.
-            $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings, WP_Block_Editor_Context \$context ) use ( \$blocks_engine_presentation_styles, \$blocks_engine_presentation_matches ): array {";
-            $lines[] = "    \$post = \$context->post ?? null; \$site_editor = 'core/edit-site' === ( \$context->name ?? '' );";
-            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) { if ( ( empty( \$style['author_css'] ) && empty( \$style['editor_only'] ) ) || ! \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) continue; \$path = get_theme_file_path( \$style['target_path'] ); if ( ! is_file( \$path ) || false === ( \$css = file_get_contents( \$path ) ) ) continue; if ( '' !== trim( (string) ( \$style['media'] ?? '' ) ) ) \$css = '@media ' . \$style['media'] . '{' . \$css . '}'; \$settings['styles'][] = array( 'css' => \$css, 'baseURL' => get_theme_file_uri( \$style['target_path'] ), '__unstableType' => 'theme', 'isGlobalStyles' => false ); }";
-            $lines[] = "    return \$settings;";
-            $lines[] = "}, 20, 2 );";
         }
         $inlineShellSlugs = array_values(array_map(static fn(array $part): string => (string) $part['slug'], array_filter($parts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null))));
         if (array() !== $inlineShellSlugs) {

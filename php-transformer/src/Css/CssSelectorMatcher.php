@@ -160,8 +160,64 @@ final class CssSelectorMatcher
                 $specificity += self::compoundSpecificity($negatedCompound);
             }
         }
+        foreach ( $compound['any'] ?? array() as $group ) {
+            $specificity += $group['specificity'];
+        }
 
         return $specificity;
+    }
+
+    /**
+     * What a compound's `:is()`/`:where()` selector-list arguments add to its
+     * specificity, split into id, class and type counts for callers that
+     * rebuild a selector's weight simple selector by simple selector.
+     *
+     * @param array<string, mixed> $compound
+     * @return array{ids: int, classes: int, types: int}
+     */
+    public static function selectorListArgumentSpecificity(array $compound): array
+    {
+        $specificity = 0;
+        foreach ( $compound['any'] ?? array() as $group ) {
+            $specificity += $group['specificity'];
+        }
+
+        return array( 'ids' => intdiv($specificity, 100), 'classes' => intdiv($specificity % 100, 10), 'types' => $specificity % 10 );
+    }
+
+    /**
+     * Parse the selector list inside `:is()` or `:where()`.
+     *
+     * The compound form above folds a single argument into the surrounding
+     * compound, which cannot express "any of". A list keeps each alternative as
+     * its own selector: the compound matches when one of them matches the same
+     * element, which is exactly how `:is()` and `:where()` evaluate. `:is()`
+     * weighs as its most specific alternative and `:where()` as zero. An
+     * alternative this matcher cannot read keeps the whole selector
+     * unsupported rather than matching on the alternatives it can read.
+     *
+     * @param list<string> $alternatives
+     * @return array{alternatives: list<array{compounds: list<array<string, mixed>>, combinators: list<string>}>, specificity: int}|null
+     */
+    private static function parseSelectorListArgument(array $alternatives, bool $zeroSpecificity): ?array
+    {
+        $group = array( 'alternatives' => array(), 'specificity' => 0 );
+        foreach ( $alternatives as $alternative ) {
+            $alternative = trim($alternative);
+            if ( '' === $alternative ) {
+                return null;
+            }
+            $parsed = self::parseUncached($alternative);
+            if ( ! ($parsed['supported'] ?? false) || null !== ($parsed['pseudo_state_suffix_span'] ?? null) ) {
+                return null;
+            }
+            $group['alternatives'][] = array( 'compounds' => $parsed['compounds'], 'combinators' => $parsed['combinators'] );
+            if ( ! $zeroSpecificity ) {
+                $group['specificity'] = max($group['specificity'], self::specificity($parsed));
+            }
+        }
+
+        return $group;
     }
 
     /**
@@ -277,7 +333,7 @@ final class CssSelectorMatcher
     /** @return array{compound: array<string, mixed>, suffix: array{start: int, end: int}|null, type_span: array{start: int, end: int, name: string}|null}|null */
     private static function parseCompound(string $source, int $sourceStart, bool $isRightmost): ?array
     {
-        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'not' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false, 'root' => false, 'resting_state_negations' => 0, 'zero_specificity' => array( 'types' => 0, 'classes' => 0, 'ids' => 0, 'attributes' => 0 ) );
+        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'not' => array(), 'any' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false, 'root' => false, 'resting_state_negations' => 0, 'zero_specificity' => array( 'types' => 0, 'classes' => 0, 'ids' => 0, 'attributes' => 0 ) );
         $offset = 0;
         $suffix = null;
         $typeSpan = null;
@@ -303,12 +359,24 @@ final class CssSelectorMatcher
                 }
                 $lowerName = strtolower($name);
                 if ( in_array($lowerName, array( 'is', 'where' ), true) && '(' === ($source[ $offset ] ?? '') ) {
+                    $listClosing = self::matchingParenthesis($source, $offset);
+                    $alternatives = null === $listClosing ? null : CssStylesheetTransformer::splitSelectorList(substr($source, $offset + 1, $listClosing - $offset - 1));
+                    if ( is_array($alternatives) && count($alternatives) > 1 ) {
+                        $group = self::parseSelectorListArgument($alternatives, 'where' === $lowerName);
+                        if ( null === $group ) {
+                            return null;
+                        }
+                        $compound['any'][] = $group;
+                        $offset = $listClosing + 1;
+                        $hasSimple = true;
+                        continue;
+                    }
                     $closing = strpos($source, ')', $offset + 1);
                     if ( false === $closing ) {
                         return null;
                     }
                     $selected = self::parseCompound(trim(substr($source, $offset + 1, $closing - $offset - 1)), 0, false);
-                    if ( null === $selected || null !== $selected['suffix'] || array() !== $selected['compound']['not'] || null !== $selected['compound']['nth_child'] || $selected['compound']['first_child'] || $selected['compound']['last_child'] ) {
+                    if ( null === $selected || null !== $selected['suffix'] || array() !== $selected['compound']['not'] || array() !== $selected['compound']['any'] || null !== $selected['compound']['nth_child'] || $selected['compound']['first_child'] || $selected['compound']['last_child'] ) {
                         return null;
                     }
                     $selectedCompound = $selected['compound'];
@@ -735,6 +803,18 @@ final class CssSelectorMatcher
         }
         foreach ( $compound['not'] as $negated ) {
             if ( self::matchesAt($element, $negated['compounds'], $negated['combinators'], count($negated['compounds']) - 1, $cache) ) {
+                return false;
+            }
+        }
+        foreach ( $compound['any'] ?? array() as $group ) {
+            $matched = false;
+            foreach ( $group['alternatives'] as $alternative ) {
+                if ( self::matchesAt($element, $alternative['compounds'], $alternative['combinators'], count($alternative['compounds']) - 1, $cache) ) {
+                    $matched = true;
+                    break;
+                }
+            }
+            if ( ! $matched ) {
                 return false;
             }
         }

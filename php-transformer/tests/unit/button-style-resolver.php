@@ -431,6 +431,38 @@ $assert(
     $splitBorderLinkTag . ' expected ' . implode(';', $splitBorderExpected)
 );
 
+// Custom property names are case-sensitive. A section theme that redefines
+// camelCase button tokens must win over the `:root` defaults for the buttons
+// inside it, exactly as it does for lowercase tokens.
+$sectionThemed = ( new HtmlTransformer() )->transform(
+    '<style>:root{--btnBg:#bfe8e8;--btnPad:4px}.theme-dark{--btnBg:#3f4141;--btnPad:20px}'
+    . '.btn{display:inline-block;background-color:var(--btnBg);padding:var(--btnPad) 30px;color:#fff}</style>'
+    . '<section class="theme-dark"><p>Intro</p><div class="actions"><a class="btn" href="/about">About</a></div></section>'
+    . '<section><div class="actions"><a class="btn" href="/other">Other</a></div></section>'
+)->toArray();
+$sectionThemedButtons = array();
+$collectButtons = static function (array $blocks) use (&$collectButtons, &$sectionThemedButtons): void {
+    foreach ( $blocks as $block ) {
+        if ( 'core/button' === ($block['blockName'] ?? '') ) {
+            $sectionThemedButtons[] = $block['attrs']['style'] ?? array();
+        }
+        $collectButtons($block['innerBlocks'] ?? array());
+    }
+};
+$collectButtons($sectionThemed['blocks'] ?? array());
+$assert(
+    '#3f4141' === ($sectionThemedButtons[0]['color']['background'] ?? null)
+        && '20px' === ($sectionThemedButtons[0]['spacing']['padding']['top'] ?? null),
+    'a section-scoped camelCase custom property overrides the :root default for its button',
+    json_encode($sectionThemedButtons[0] ?? null)
+);
+$assert(
+    '#bfe8e8' === ($sectionThemedButtons[1]['color']['background'] ?? null)
+        && '4px' === ($sectionThemedButtons[1]['spacing']['padding']['top'] ?? null),
+    'a button outside the themed section keeps the :root custom property defaults',
+    json_encode($sectionThemedButtons[1] ?? null)
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button style resolver tests: {$failures} failed, {$passes} passed\n");
     exit(1);

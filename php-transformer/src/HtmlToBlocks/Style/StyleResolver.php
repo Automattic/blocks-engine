@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -1846,10 +1847,23 @@ final class StyleResolver implements ElementPresentationResolver
             $declarations,
             $this->inlineCustomPropertiesConsumedByAuthorStyles($element, $declarations) + $this->customPropertiesReferencedByValues($geometryValues)
         );
+        // Most callers case-fold declaration keys for matching, but custom
+        // property names are case-sensitive: `--headerBg` and `--headerbg` are
+        // different properties, so the carrier must declare the name the
+        // author wrote or every `var(--headerBg)` reader falls back to its
+        // :root default. A key that already is an authored name stays as is.
+        $authoredNames = array();
+        foreach (CssValueSplitter::splitTopLevel(SourceDom::attr($element, 'style'), array(';')) as $declaration) {
+            $name = trim(explode(':', $declaration, 2)[0]);
+            if (str_starts_with($name, '--')) {
+                $authoredNames[$name] = $name;
+                $authoredNames[strtolower($name)] ??= $name;
+            }
+        }
         $customProperties = array();
         foreach ($declarations as $property => $value) {
             if (str_starts_with($property, '--') && isset($required[$property])) {
-                $customProperties[$property] = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->context->resolvedAssetImageUrl($url));
+                $customProperties[$authoredNames[$property] ?? $property] = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->context->resolvedAssetImageUrl($url));
             }
         }
         ksort($customProperties, SORT_STRING);
@@ -1900,7 +1914,7 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ($values as $value) {
             if (preg_match_all('/\bvar\(\s*(--[-_a-zA-Z0-9]+)/', $value, $matches)) {
                 foreach ($matches[1] as $property) {
-                    $properties[strtolower($property)] = true;
+                    $properties[$property] = true;
                 }
             }
         }
@@ -2365,6 +2379,10 @@ final class StyleResolver implements ElementPresentationResolver
             if (null !== ($compound['type'] ?? null) && 0 === (int) ($zeroSpecificity['types'] ?? 0)) {
                 ++$elements;
             }
+            $listSpecificity = CssSelectorMatcher::selectorListArgumentSpecificity($compound);
+            $ids += $listSpecificity['ids'];
+            $classes += $listSpecificity['classes'];
+            $elements += $listSpecificity['types'];
         }
 
         return array( $ids, $classes, $elements );
@@ -3401,7 +3419,10 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             [$name, $value] = array_map('trim', explode(':', $declaration, 2));
-            $name = strtolower($name);
+            // Custom property names are case-sensitive: `--btnBg` and
+            // `--btnbg` are distinct properties, and `var(--btnBg)` only
+            // reads the first.
+            $name = str_starts_with($name, '--') ? $name : strtolower($name);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
             // A consumed custom property can supply the URL to an authored
             // background rule. Keep it for the same sanitized carrier path.

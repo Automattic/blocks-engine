@@ -351,7 +351,7 @@ final class EditabilityReport
             'block_name' => $blockName,
             'attribute' => $attribute,
             'source_selector' => is_string($provenance['selector'] ?? null) ? $provenance['selector'] : '',
-            'source_fragment' => is_string($provenance['source_fragment'] ?? null) ? substr($provenance['source_fragment'], 0, 512) : '',
+            'source_fragment' => is_string($provenance['source_fragment'] ?? null) ? mb_strcut($provenance['source_fragment'], 0, 512, 'UTF-8') : '',
         ), static fn(string $value): bool => '' !== $value);
     }
 
