@@ -215,13 +215,15 @@ $normalizedStyleBlock = $normalizedStyleShell['blocks'][0] ?? array();
 $assert('core/group' === ($normalizedStyleBlock['blockName'] ?? '') && '#fff' === ($normalizedStyleBlock['attrs']['style']['color']['text'] ?? null) && 'core/group' === ($normalizedStyleBlock['innerBlocks'][0]['blockName'] ?? null), '6: color-owned wrappers remain native boundaries while retaining canonical color declarations');
 
 // ---------------------------------------------------------------------------
-// 7. Gate (negative): weak signals stay UNKNOWN -> unchanged fallback.
+// 7. Gate (negative): weak signals stay UNKNOWN -> no generated block. A
+//    custom element with no runtime ownership is a transparent container
+//    (#2181), so its light DOM lowers to native blocks instead of a fallback.
 // ---------------------------------------------------------------------------
 $weak = ( new HtmlTransformer() )->transform('<my-widget><span>hello there</span></my-widget>')->toArray();
 $assert(count($weak['source_reports']['generated_blocks'] ?? array()) === 0, '7: low-confidence subtree generates nothing');
-$assert(count($weak['blocks']) === 0, '7: low-confidence subtree emits no block');
-$assert(count($weak['fallbacks']) === 1, '7: existing fallback behavior is preserved');
-$assert(($weak['fallbacks'][0]['classification']['bucket'] ?? '') === 'unknown', '7: classifier verdict is unknown', json_encode($weak['fallbacks'][0]['classification'] ?? array()));
+$assert(array('core/paragraph') === array_column($weak['blocks'], 'blockName'), '7: low-confidence light DOM lowers to a native paragraph', json_encode(array_column($weak['blocks'], 'blockName')));
+$assert(str_contains((string) ($weak['serialized_blocks'] ?? ''), 'hello there'), '7: low-confidence light DOM text is kept');
+$assert(count($weak['fallbacks']) === 0, '7: no fallback is recorded for the transparent custom element');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "CustomBlockGenerator unit tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);

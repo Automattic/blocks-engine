@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-custom-block-low-confidence-unchanged",
-  "description": "A custom-element subtree with weak/ambiguous structural signals does NOT clear the conservative custom_block gate (classifier returns unknown), so behavior is unchanged: no block is generated and the existing core/html-equivalent unsupported_element fallback diagnostic is still emitted. When in doubt, fall back (issue #497).",
+  "description": "A custom-element subtree with weak/ambiguous structural signals does NOT clear the conservative custom_block gate (classifier returns unknown), so no block type is generated (issue #497). The custom element carries no runtime ownership, so it lowers as a transparent container (issue #2181): its light-DOM text becomes a native paragraph and no unsupported_element fallback is recorded.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-custom-block-low-confidence-unchanged.json",
@@ -17,10 +17,9 @@
   },
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "blocks", "assert": "count", "count": 0 },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/paragraph" },
     { "path": "source_reports.generated_blocks", "assert": "count", "count": 0 },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
-    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_unsupported_element" },
-    { "path": "fallbacks.0.classification.bucket", "assert": "equals", "value": "unknown" }
+    { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }
