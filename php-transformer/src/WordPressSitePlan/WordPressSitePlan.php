@@ -1355,8 +1355,9 @@ final class WordPressSitePlan
     private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array()): string
     {
         $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY, "add_action( 'wp_enqueue_scripts', static function (): void {");
+        $importLoaded = self::importLoadedStylesheets($assets);
         foreach ($assets as $asset) {
-            if ('editor' === ($asset['stylesheet_target'] ?? 'both')) continue;
+            if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
             $handle = 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12);
             if ('css' === $asset['kind']) foreach ($asset['scopes'] as $scope) {
                 $condition = self::bootstrapScopeCondition($scope);
@@ -1399,7 +1400,7 @@ final class WordPressSitePlan
             $sourcePaths = is_array($part['placement']['source_paths'] ?? null) ? $part['placement']['source_paths'] : array((string) ($part['placement']['source_path'] ?? preg_replace('/#.*$/', '', (string) ($part['source_path'] ?? ''))));
             foreach ($sourcePaths as $sourcePath) if (is_string($sourcePath) && '' !== $sourcePath && '' !== (string) ($part['slug'] ?? '')) $partSlugsBySource[$sourcePath][] = (string) $part['slug'];
         }
-        foreach ($assets as $asset) if ('css' === $asset['kind'] && 'frontend' !== ($asset['stylesheet_target'] ?? 'both')) {
+        foreach ($assets as $asset) if ('css' === $asset['kind'] && 'frontend' !== ($asset['stylesheet_target'] ?? 'both') && !isset($importLoaded[$asset['target_path']])) {
             $partSlugs = array();
             foreach ($asset['scopes'] as $scope) foreach ($partSlugsBySource[(string) ($scope['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
             $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['media'] ?? null, 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both')), static fn(mixed $value): bool => null !== $value);
@@ -1497,6 +1498,34 @@ final class WordPressSitePlan
     // back onto the materialized file. Encode every segment, preserving the
     // `/` separators.
     private static function encodedAssetUrlPath(string $path): string { return implode('/', array_map('rawurlencode', explode('/', $path))); }
+    /**
+     * A stylesheet that another stylesheet loads through `@import` (a chunked
+     * stylesheet's loader, or an authored import) already loads at its
+     * importer's cascade position. Enqueueing it as well adds a second copy at
+     * an unrelated position, which inverts the source cascade.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return array<string,true> Target paths that load only through an importing stylesheet.
+     */
+    private static function importLoadedStylesheets(array $assets): array
+    {
+        $stylesheets = array();
+        foreach ($assets as $asset) if ('css' === ($asset['kind'] ?? null)) $stylesheets[(string) $asset['source_path']] = true;
+        $importLoaded = array();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null)) continue;
+            $linked = false;
+            $imported = false;
+            foreach (is_array($asset['references'] ?? null) ? $asset['references'] : array() as $reference) {
+                if (!is_array($reference)) continue;
+                if ('link' === ($reference['element'] ?? null)) $linked = true;
+                $importer = (string) ($reference['source_path'] ?? '');
+                if ('css-import' === ($reference['context'] ?? null) && isset($stylesheets[$importer]) && $importer !== $asset['source_path'] && $asset['source_path'] === ArtifactPath::resolveRelativePath((string) ($reference['url'] ?? ''), $importer)) $imported = true;
+            }
+            if ($imported && !$linked) $importLoaded[(string) $asset['target_path']] = true;
+        }
+        return $importLoaded;
+    }
     /** @param array<string,mixed> $scope */
     private static function bootstrapScopeCondition(array $scope): string
     {

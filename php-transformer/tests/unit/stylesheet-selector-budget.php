@@ -63,6 +63,31 @@ foreach ($assets as $asset) {
     $assert(strlen($content) === ($asset['bytes'] ?? null) && hash('sha256', $content) === ($asset['provenance']['hash'] ?? null), 'chunk metadata identifies the exact emitted content, including continuation preambles');
 }
 
+// A directly linked stylesheet that is chunked keeps loading through its
+// @import loader alone. Enqueuing the chunks as separate theme stylesheets
+// loads them out of source order and a later chunk's rules lose to an earlier
+// chunk's rules (the cascade inverts).
+$page = static fn (string $title): string => '<link rel="stylesheet" href="/assets/site.css"><main><h1>' . $title . '</h1><p class="a">x</p></main>';
+$result = (new ArtifactCompiler(stylesheetSelectorBudget: 2))->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'kind' => 'html', 'content' => $page('Home')),
+        array('path' => 'website/news/index.html', 'kind' => 'html', 'content' => $page('News')),
+        array('path' => 'website/assets/site.css', 'kind' => 'css', 'content' => 'h1{font-size:10px}.a,.b,.c{color:red}h1{font-size:66px}'),
+    ),
+))->toArray();
+$bootstrap = '';
+foreach ($result['source_reports']['wordpress_site_plan']['writes'] ?? array() as $write) {
+    if ('functions.php' === ($write['target_path'] ?? null)) {
+        $bootstrap = (string) ($write['payload']['data'] ?? '');
+    }
+}
+preg_match_all("/wp_enqueue_style\\( '[^']+', get_theme_file_uri\\( '([^']+)' \\)/", $bootstrap, $enqueued);
+$assert(
+    array('assets/website/assets/site.css', 'assets/website/assets/site.css') === array_values(array_filter($enqueued[1], static fn (string $path): bool => str_starts_with($path, 'assets/website/'))),
+    'chunked stylesheets load only through their source-ordered loader, never as separately enqueued chunks'
+);
+
 if (0 < $failures) {
     exit(1);
 }
