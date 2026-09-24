@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -2378,6 +2379,10 @@ final class StyleResolver implements ElementPresentationResolver
             if (null !== ($compound['type'] ?? null) && 0 === (int) ($zeroSpecificity['types'] ?? 0)) {
                 ++$elements;
             }
+            $listSpecificity = CssSelectorMatcher::selectorListArgumentSpecificity($compound);
+            $ids += $listSpecificity['ids'];
+            $classes += $listSpecificity['classes'];
+            $elements += $listSpecificity['types'];
         }
 
         return array( $ids, $classes, $elements );

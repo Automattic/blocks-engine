@@ -1,0 +1,66 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-selector-list-percentage-height-chain",
+  "description": "A flex row with a definite height stretches its items, and each item's `height:100%` wrappers carry that height down to a `position:absolute` `object-fit:cover` image. The wrappers get their `height:100%` from one rule scoped by a data attribute on the item, whose target is an `:is()` selector list: `.item[data-kind=\"media\"] :is(.item-body,.item-frame)`. The converted item drops the data attribute, so the rule must be projected onto marker classes like any other attribute-scoped rule. The selector matcher read an `:is()`/`:where()` argument only as one compound, so a list made the whole selector unsupported: the rule stayed verbatim and matched nothing, the wrappers lost their height, the `.frame-box` `height:100%` below them was demoted to `height:auto` for want of a sized ancestor, and the cover image collapsed to 1px.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-selector-list-percentage-height-chain.json",
+    "notes": "Regression coverage for Automattic/blocks-engine#2170: absolutely positioned fill images collapsed to 1px under wrappers sized by an attribute-scoped `:is()` rule."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.row{display:flex;height:360px}.item{flex:1 1 0}.item[data-kind=\"media\"] :is(.item-body,.item-frame){height:100%;width:100%}.frame-box{position:relative;height:100%;overflow:hidden}.cover{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}</style></head><body><section class=\"band\"><div class=\"row\"><div class=\"item\" data-kind=\"media\"><div class=\"item-body\"><div class=\"item-frame\"><div class=\"frame-box\"><img class=\"cover\" src=\"https://example.com/first.jpg\" width=\"1200\" height=\"800\" alt=\"First\"></div></div></div></div><div class=\"item\" data-kind=\"media\"><div class=\"item-body\"><div class=\"item-frame\"><div class=\"frame-box\"><img class=\"cover\" src=\"https://example.com/second.jpg\" width=\"1200\" height=\"800\" alt=\"Second\"></div></div></div></div></div></section></body></html>"
+  },
+  "expected_fallbacks": [],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "fallbacks",
+      "assert": "count",
+      "count": 0
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "not_contains",
+      "value": ":is(.item-body,.item-frame)"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": "{height:100%;width:100%}"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": ".frame-box{position:relative;height:100%;overflow:hidden}"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "not_contains",
+      "value": ".frame-box{position:relative;overflow:hidden;height:auto}"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "wp-block-group item-body blocks-engine-attribute-"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "wp-block-group item-frame blocks-engine-attribute-"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<!-- wp:image"
+    }
+  ]
+}
