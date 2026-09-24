@@ -134,6 +134,11 @@ $sidebarTemplateBlocks = parse_blocks((string) ($sidebarWrite['payload']['data']
 $sidebarBlocks = array_values(array_filter($sidebarTemplateBlocks, static fn(array $block): bool => 'core/template-part' === ($block['blockName'] ?? null) && 'sidebar' === ($block['attrs']['slug'] ?? null)));
 $sidebarReference = isset($sidebarBlocks[0]) ? serialize_block($sidebarBlocks[0]) : '';
 $sidebarRendered = do_blocks($sidebarReference);
+// #2165: a page saved in the editor gains Gutenberg's newline padding, which
+// renders under preserved white-space. The generated theme drops it.
+$editorSaved = serialize_blocks(parse_blocks('<!-- wp:group --><div class="wp-block-group"><!-- wp:paragraph --><p>One</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>Two' . "\n" . 'lines</p><!-- /wp:paragraph --></div><!-- /wp:group -->'));
+$editorSavedRendered = do_blocks($editorSaved);
+$assert(str_contains($editorSaved, "\n") && ! str_contains($editorSavedRendered, ">\n<") && 1 === preg_match('#>One</p><p[^>]*>Two\nlines</p>#', $editorSavedRendered), 'Editor-saved serialization padding does not render between or around blocks, while text newlines remain.');
 $assert('uncategorized' === ($sidebarPart['area'] ?? null) && 'aside' === ($sidebarPart['tag_name'] ?? null) && 1 === count($sidebarBlocks) && 'uncategorized' === ($sidebarBlocks[0]['attrs']['area'] ?? null) && 'aside' === ($sidebarBlocks[0]['attrs']['tagName'] ?? null) && str_contains($sidebarRendered, '<aside ') && str_contains($sidebarRendered, 'Integration Sidebar') && !str_contains($sidebarRendered, '<sidebar'), 'WordPress parses and renders the sidebar reference emitted by the generated front-page template with a core-supported area and semantic aside wrapper.');
 $positionedSvg = (new HtmlTransformer())->transform('<style>.hero-media{position:relative;width:1280px;height:760px}@media(max-width:700px){.hero-media{width:320px;height:240px}}</style><main><div class="hero-media"><svg class="hero-art" width="100%" height="100%" style="object-fit:cover" viewBox="0 0 1280 728.88"><rect width="1280" height="728.88" fill="#111"/></svg></div></main>')->toArray();
 $positionedSvgMarkup = (string) ($positionedSvg['serialized_blocks'] ?? '');
