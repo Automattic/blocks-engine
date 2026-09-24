@@ -3004,10 +3004,11 @@ final class ArtifactCompiler
             $payload = is_string($asset['visual_payload'] ?? null) ? $asset['visual_payload'] : (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? ''));
             $assetPayloadsByPath[$path][hash('sha256', $payload)] = true;
         }
+        $siteNameSegment = $this->sharedDocumentTitleSegment($artifact['files']);
         $entryTitle = '';
         foreach ( $artifact['files'] as $file ) {
             if ( $entryPath === ($file['path'] ?? '') ) {
-                $entryTitle = $this->titleFromHtml((string) ($file['content'] ?? ''), $entryPath, $entryPath);
+                $entryTitle = $this->titleFromHtml((string) ($file['content'] ?? ''), $entryPath, $entryPath, '', $siteNameSegment);
                 break;
             }
         }
@@ -3017,7 +3018,7 @@ final class ArtifactCompiler
             }
 
             $path = (string) ($file['path'] ?? '');
-            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle);
+            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle, $siteNameSegment);
             $slug = $this->slugFromPath($path);
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
@@ -3491,7 +3492,52 @@ final class ArtifactCompiler
         return 'css' === ($asset['kind'] ?? '') && ('visual-repair' === $role || 'visual-repair' === $intent || preg_match('/(?:^|[-_\/])visual[-_]repair(?:[-_\/]|\.)/i', $path));
     }
 
-    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = ''): string
+    private const DOCUMENT_TITLE_SEPARATOR = '/\s+[|\x{2013}\x{2014}\x{00B7}\x{2022}:-]\s+/u';
+
+    /**
+     * The site name a multi-page site repeats in every document title
+     * ("About | Example", "Contact | Example"). With it removed, each title
+     * names its page the way the site itself does, which is what an owner
+     * expects a WordPress page to be called. Returns '' when there is no
+     * such shared segment, or when all titles are identical (a single-page
+     * app that never updates its title).
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function sharedDocumentTitleSegment(array $files): string
+    {
+        $titles = array();
+        foreach ( $files as $file ) {
+            if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
+                continue;
+            }
+            if ( preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', (string) ($file['content'] ?? ''), $match) ) {
+                $title = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($match[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+                if ( '' !== $title ) {
+                    $titles[] = $title;
+                }
+            }
+        }
+        if ( count($titles) < 2 || 1 === count(array_unique($titles)) ) {
+            return '';
+        }
+        $counts = array();
+        foreach ( $titles as $title ) {
+            $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, $title) ?: array();
+            if ( count($segments) < 2 ) {
+                continue;
+            }
+            foreach ( array_unique($segments) as $segment ) {
+                $counts[$segment] = ($counts[$segment] ?? 0) + 1;
+            }
+        }
+        arsort($counts, SORT_NUMERIC);
+        $segment = (string) array_key_first($counts);
+
+        return '' !== $segment && ($counts[$segment] ?? 0) * 2 > count($titles) ? $segment : '';
+    }
+
+    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = '', string $siteNameSegment = ''): string
     {
         $normalize = static function (string $titleHtml): string {
             $titleHtml = preg_replace('/<\s*(?:br|\/\s*(?:div|h[1-6]|p))\b[^>]*>/i', ' ', $titleHtml) ?? $titleHtml;
@@ -3499,6 +3545,14 @@ final class ArtifactCompiler
 
             return trim(preg_replace('/\s+/', ' ', $titleHtml) ?? '');
         };
+
+        if ( '' !== $siteNameSegment && preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $html, $match) ) {
+            $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, $normalize($match[1])) ?: array();
+            $own = array_values(array_filter($segments, static fn (string $segment): bool => '' !== trim($segment) && $segment !== $siteNameSegment));
+            if ( array() !== $own && count($own) < count($segments) ) {
+                return implode(' ', $own);
+            }
+        }
 
         $contentHeading = '';
         if ( preg_match_all('/<h1\b[^>]*>(.*?)<\/h1>/is', $html, $matches) ) {
