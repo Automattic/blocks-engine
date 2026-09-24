@@ -38,6 +38,7 @@ final class HtmlTransformerSession
     private readonly GeneratedSupportStylesheetState $generatedSupportStylesheetState;
     private bool $preserveShellLandmarks = false;
     private bool $fallbackReductionMode = false;
+    private string $sourcePath = '';
     private readonly PresentationResolutionCache $presentationResolutionCache;
     private readonly SourceStyleResolutionState $sourceStyleResolutionState;
     private ?LayoutGeometryState $layoutGeometryState = null;
@@ -163,6 +164,17 @@ final class HtmlTransformerSession
     public function sourceTargetProjectionState(): SourceTargetProjectionState
     {
         return $this->sourceTargetProjectionState;
+    }
+
+    /** Artifact path of the document being compiled, for example `website/about/index.html`. */
+    public function installSourcePath(string $sourcePath): void
+    {
+        $this->sourcePath = $sourcePath;
+    }
+
+    public function sourcePath(): string
+    {
+        return $this->sourcePath;
     }
 
     public function configurePolicy(bool $preserveShellLandmarks, bool $fallbackReductionMode): void
