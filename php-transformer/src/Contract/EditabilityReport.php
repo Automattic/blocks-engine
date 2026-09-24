@@ -300,7 +300,7 @@ final class EditabilityReport
         if ($this->hasVisualGroupAttributes($attrs)) return 'empty_visual_group';
         $className = (string) ($attrs['className'] ?? '');
         foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
-            if (preg_match('/^be-inline-geometry-[a-f0-9]{64}(?:-[a-f0-9]{64})?$/', $class) && str_contains($generatedCarrierCss, '.' . $class . '{')) return 'empty_visual_group';
+            if (preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class) && str_contains($generatedCarrierCss, '.' . $class . '{')) return 'empty_visual_group';
         }
         return 'empty_wrapper';
     }
