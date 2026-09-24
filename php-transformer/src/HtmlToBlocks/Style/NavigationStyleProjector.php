@@ -1626,10 +1626,13 @@ final class NavigationStyleProjector
                     }
 
                     $restingSuffix = $this->navigationColorRestingSuffix($currentColors[$className]['state_mask']);
-                    $selector = '.wp-block-navigation.' . $className
+                    // In a shared header every item also carries its resting
+                    // color for the routes where it is not current; the current
+                    // state must outrank that per-item resting rule.
+                    $selector = '.wp-block-navigation.' . $className . '.' . $className
                         . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content' . $restingSuffix
-                        . ',.wp-block-navigation.' . $className
-                        . ' .wp-block-navigation-item__content[aria-current]' . $restingSuffix;
+                        . ',.wp-block-navigation.' . $className . '.' . $className
+                        . ' .wp-block-navigation-item>.wp-block-navigation-item__content[aria-current]' . $restingSuffix;
                     $rules['current:' . $className] = $selector . '{color:' . $currentColors[$className]['color'] . '}';
                 }
             }
