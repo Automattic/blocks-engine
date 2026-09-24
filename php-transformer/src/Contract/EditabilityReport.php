@@ -9,7 +9,6 @@ final class EditabilityReport
     public const SCHEMA = 'blocks-engine/php-transformer/editability-report/v2';
     private const MAX_REPORTED_SIGNALS = 100;
     private const MAX_NORMALIZATION_PATH_ENTRIES = 24;
-    private const INLINE_RICH_TEXT_TAGS = array('a', 'abbr', 'b', 'br', 'cite', 'code', 'del', 'em', 'i', 'img', 'ins', 'kbd', 'mark', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var');
     private const RICH_TEXT_ATTRIBUTES = array(
         'core/heading' => array('content'),
         'core/list-item' => array('content'),
@@ -338,7 +337,7 @@ final class EditabilityReport
     private function containsStructuralHtml(string $value): bool
     {
         if (!preg_match_all('/<\/?([a-z][a-z0-9:-]*)\b[^>]*>/i', $value, $matches)) return false;
-        foreach ($matches[1] as $tag) if (!in_array(strtolower((string) $tag), self::INLINE_RICH_TEXT_TAGS, true)) return true;
+        foreach ($matches[1] as $tag) if (!RichTextInlineTags::isAllowed((string) $tag)) return true;
         return false;
     }
 

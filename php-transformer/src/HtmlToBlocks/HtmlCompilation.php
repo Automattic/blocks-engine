@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
+use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -4388,7 +4389,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $content = (string) ($attrs[$richTextAttribute] ?? '');
-        if ( '' === $content || ! preg_match('/<(?:span|font|a|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
+        if ( '' === $content || ( ! preg_match('/<(?:span|font|a|em|i|strong|b|mark|small|sub|sup)\b/i', $content) && ! RichTextInlineTags::containsUnknownElement($content) ) ) {
             return $attrs;
         }
 
@@ -4425,7 +4426,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         // Unwrap any remaining styling hooks (sibling / partial content) unless
-        // their visual style can be carried by RichText's mark format.
+        // their visual style can be carried by RichText's mark format. Unknown
+        // and custom elements (`<bdt>`, `<x-note>`) are never valid RichText
+        // content, so they always become a mark carrier or are unwrapped.
         foreach ( $this->richTextStylingHookElements($body) as $inline ) {
             if ( 'font' === strtolower($inline->tagName) && ! $inline->hasAttributes() ) {
                 $this->unwrapElement($inline);
@@ -4434,7 +4437,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( $this->replaceRichTextStylingHookWithMark($inline) ) {
                 continue;
             }
-            if ( 'span' === strtolower($inline->tagName) ) {
+            if ( 'span' === strtolower($inline->tagName) || RichTextInlineTags::isUnknownHtmlElement($inline) ) {
                 $this->unwrapElement($inline);
             }
         }
@@ -4531,6 +4534,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function isRichTextInlineStylingHookElement(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
+        if ( RichTextInlineTags::isUnknownHtmlElement($element) ) {
+            return true;
+        }
         if ( 'span' === $tagName ) {
             return $this->isStylingHookSpan($element);
         }
@@ -4670,7 +4676,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // nested inside it (format tags). Only a replacing carrier keeps the
         // author's classes, so only there can a media-conditional class rule
         // keep answering after conversion.
-        $carrierReplacesSource = in_array(strtolower($element->tagName), array( 'span', 'font', 'mark' ), true);
+        $carrierReplacesSource = in_array(strtolower($element->tagName), array( 'span', 'font', 'mark' ), true) || RichTextInlineTags::isUnknownHtmlElement($element);
 
         $declarations = $this->richTextMaterializer->inlineVisualDeclarations($element);
         if ( $carrierReplacesSource ) {
