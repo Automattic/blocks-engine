@@ -1900,7 +1900,7 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ($values as $value) {
             if (preg_match_all('/\bvar\(\s*(--[-_a-zA-Z0-9]+)/', $value, $matches)) {
                 foreach ($matches[1] as $property) {
-                    $properties[strtolower($property)] = true;
+                    $properties[$property] = true;
                 }
             }
         }
@@ -3401,7 +3401,10 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             [$name, $value] = array_map('trim', explode(':', $declaration, 2));
-            $name = strtolower($name);
+            // Custom property names are case-sensitive: `--btnBg` and
+            // `--btnbg` are distinct properties, and `var(--btnBg)` only
+            // reads the first.
+            $name = str_starts_with($name, '--') ? $name : strtolower($name);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
             // A consumed custom property can supply the URL to an authored
             // background rule. Keep it for the same sanitized carrier path.
