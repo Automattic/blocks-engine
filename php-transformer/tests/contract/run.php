@@ -3321,8 +3321,8 @@ $bodySubjectSerialized = (string) ($bodySubjectProjection['serialized_blocks'] ?
 $bodySubjectCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $bodySubjectProjection['assets'] ?? array()));
 $assert(str_contains($bodySubjectSerialized, 'main-wrapper body'), 'body classes still project onto root blocks for descendant matching');
 $assert(str_contains($bodySubjectCss, '.body .hero{position:relative}'), 'body-class descendant selectors keep matching beneath the projected root block');
-$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-[a-f0-9]+-\d+\)\{background-color:#f0f0f0;color:#333\}/', $bodySubjectCss), 'body-subject class rules retarget the rendered body and keep their class specificity');
-$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-[a-f0-9]+-\d+\)\{font-size:16px\}/', $bodySubjectCss), 'type-qualified body-subject class rules retarget the rendered body');
+$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-site-\d+\)\{background-color:#f0f0f0;color:#333\}/', $bodySubjectCss), 'body-subject class rules retarget the rendered body and keep their class specificity');
+$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-site-\d+\)\{font-size:16px\}/', $bodySubjectCss), 'type-qualified body-subject class rules retarget the rendered body');
 $assert(! str_contains($bodySubjectCss, '.body{'), 'body-subject paint does not land on projected root blocks');
 
 $sharedBodyClassProjection = ( new HtmlTransformer() )->transform(
@@ -3347,8 +3347,8 @@ $variantBodySubject = ( new HtmlTransformer() )->transform(
 $variantBodySubjectSerialized = (string) ($variantBodySubject['serialized_blocks'] ?? '');
 $variantBodySubjectCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $variantBodySubject['assets'] ?? array()));
 $assert(str_contains($variantBodySubjectSerialized, 'data-liberation-desktop-document body'), 'captured document variant roots keep the projected body class for descendant matching');
-$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-[a-f0-9]+-\d+\)\{background-color:#f0f0f0;flex-flow:column;font-family:Georgia,serif\}/', $variantBodySubjectCss), 'every body-element declaration retargets the rendered body when only document variant roots share the class');
-$assert(1 === preg_match('/@media \(max-width:479px\)\{body:not\(\.blocks-engine-specificity-class-[a-f0-9]+-\d+\)\{display:flex\}\}/', $variantBodySubjectCss), 'conditional body-subject rules retarget the rendered body alongside the rest state');
+$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-site-\d+\)\{background-color:#f0f0f0;flex-flow:column;font-family:Georgia,serif\}/', $variantBodySubjectCss), 'every body-element declaration retargets the rendered body when only document variant roots share the class');
+$assert(1 === preg_match('/@media \(max-width:479px\)\{body:not\(\.blocks-engine-specificity-class-site-\d+\)\{display:flex\}\}/', $variantBodySubjectCss), 'conditional body-subject rules retarget the rendered body alongside the rest state');
 $assert(! str_contains($variantBodySubjectCss, '.body{'), 'no body-subject paint is left to cover the negative z-index hero layers');
 $assert(str_contains($variantBodySubjectCss, '.body .hero{position:relative}'), 'body-class descendant selectors keep matching inside a captured document variant');
 
@@ -3358,7 +3358,7 @@ $variantSharedBodyClass = ( new HtmlTransformer() )->transform(
 )->toArray();
 $variantSharedBodyClassCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $variantSharedBodyClass['assets'] ?? array()));
 $assert(str_contains($variantSharedBodyClassCss, '.body{padding:4px;background-color:#f0f0f0}'), 'a body class genuinely shared with content keeps its subject even beneath a document variant root');
-$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-[a-f0-9]+-\d+\)\{background-color:#f0f0f0\}/', $variantSharedBodyClassCss), 'a shared body class still paints the rendered canvas');
+$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-site-\d+\)\{background-color:#f0f0f0\}/', $variantSharedBodyClassCss), 'a shared body class still paints the rendered canvas');
 
 $styledLogo = ( new HtmlTransformer() )->transform(
     '<style>#wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><a class="logo" href="/"><span id="wordmark">Brand Name</span></a>'
@@ -6447,7 +6447,7 @@ $editorStaticStateAsset = current(array_filter(
 $assert(is_array($editorStaticStateAsset) && 'editor' === ($editorStaticStateAsset['stylesheet_target'] ?? null), 'editor static-state repair is an explicit editor-only stylesheet asset');
 $editorStaticStateCss = (string) ($editorStaticStateAsset['content'] ?? '');
 $assert(str_contains($editorStaticStateCss, 'animation-delay:-999999s!important') && str_contains($editorStaticStateCss, ':root .reveal.feature-copy{opacity:1!important;transform:none!important}'), 'editor static-state CSS settles authored animation and restores conversion-proven hidden content', $editorStaticStateCss);
-$editorAnchorProcess = ':where\\(\\.blocks-engine-editor-anchor-process\\):not\\(#blocks-engine-specificity-id-[a-f0-9]+-\\d+\\)';
+$editorAnchorProcess = ':where\\(\\.blocks-engine-editor-anchor-process\\):not\\(#blocks-engine-specificity-id-site-\\d+\\)';
 $assert(str_contains((string) ($editorStaticStateResult['serialized_blocks'] ?? ''), 'blocks-engine-editor-anchor-process') && 1 === preg_match('/' . $editorAnchorProcess . '\\{background:#111;padding:4rem\\}/', $editorStaticStateCss) && 1 === preg_match('/@media\\(max-width:600px\\)\\{' . $editorAnchorProcess . '\\{padding:2rem\\}\\}/', $editorStaticStateCss), 'editor static-state CSS projects authored anchor selectors onto deterministic Gutenberg wrapper classes at authored id specificity', $editorStaticStateCss);
 
 $hiddenRichTextMarker = (new HtmlTransformer())->transform('<style>.scroll-target span{display:none}</style><div class="scroll-target"><span>Bottom of page</span></div>')->toArray();

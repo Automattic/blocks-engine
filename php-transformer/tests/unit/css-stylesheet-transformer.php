@@ -128,6 +128,20 @@ $assert(array(
 $assert(array(array('declarations' => 'content:"{";background:url("data:image/svg+xml,<svg>{}</svg>");margin:0')) === $transformer->splitStyleRuleBody('content:"{";background:url("data:image/svg+xml,<svg>{}</svg>");margin:0'), 'braces inside strings and URLs are not nested style rules');
 $assert(array(array('declarations' => 'margin:0;@media (min-width:700px){color:red')) === $transformer->splitStyleRuleBody('margin:0;@media (min-width:700px){color:red'), 'incomplete mixed bodies remain opaque');
 
+// Merging per-page projections of one stylesheet keeps each distinct rule once, at its last position.
+$merged = $transformer->concatenateWithoutRedundantRules(array(
+    '.shared{color:red}:where(.page-a){color:blue}@media (min-width:600px){.wide{margin:0}.a-only{padding:1px}}',
+    '.shared{color:red}[data-theme]{color:green}@media (min-width:600px){.wide{margin:0}}',
+));
+$assert(':where(.page-a){color:blue}@media (min-width:600px){.a-only{padding:1px}}.shared{color:red}[data-theme]{color:green}@media (min-width:600px){.wide{margin:0}}' === $merged, 'rules repeated later are dropped from earlier projections while page-specific rules and conditional groups remain in order');
+$assert('.x{color:red}.y{color:blue}.x{color:red}' !== $transformer->concatenateWithoutRedundantRules(array('.x{color:red}.y{color:blue}', '.x{color:red}')) && '.y{color:blue}.x{color:red}' === $transformer->concatenateWithoutRedundantRules(array('.x{color:red}.y{color:blue}', '.x{color:red}')), 'the surviving copy is the last one, so it still overrides the rules between the copies');
+$assert('@media print{.x{color:red}}.x{color:red}' === $transformer->concatenateWithoutRedundantRules(array('@media print{.x{color:red}}', '.x{color:red}')), 'identical rules under different conditions are distinct');
+$assert('@layer base{.x{color:red}}@layer a, b;@layer base{.x{color:red}}@layer a, b;' === $transformer->concatenateWithoutRedundantRules(array('@layer base{.x{color:red}}@layer a, b;', '@layer base{.x{color:red}}@layer a, b;')), 'layer blocks and statements are never dropped, since first appearance fixes layer order');
+$assert(".x{color:red\n.x{color:red}" === $transformer->concatenateWithoutRedundantRules(array('.x{color:red', '.x{color:red}')), 'malformed input is concatenated unchanged');
+
+$assert('.a-only{color:blue}@media (min-width:600px){.wide-a{margin:1px}}' === $transformer->rulesAbsentFrom(array('.shared{color:red}.a-only{color:blue}@media (min-width:600px){.wide{margin:0}.wide-a{margin:1px}}', '.a-only{color:blue}'), array('.shared{color:red}@media (min-width:600px){.wide{margin:0}}')), 'only rules missing from the present stylesheets remain, once each, in order and inside their conditional groups');
+$assert('@layer base{.x{color:red}}' === $transformer->rulesAbsentFrom(array('@layer base{.x{color:red}}'), array('@layer base{.x{color:red}}')), 'layer blocks are never treated as already present');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssStylesheetTransformer unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
