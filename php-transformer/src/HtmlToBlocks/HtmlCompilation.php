@@ -1019,7 +1019,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->session,
                 function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
                     return $convertChildren($element, $fallbacks, true);
-                }
+                },
+                fn (DOMElement $element, array $excludedProperties): string => $this->styleResolver->inlineGeometryClassName($element, $excludedProperties)
             ),
             new ThemeToggleConverter(
                 $this->svgMaterializer,
