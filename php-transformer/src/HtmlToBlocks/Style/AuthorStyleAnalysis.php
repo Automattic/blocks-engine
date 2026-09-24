@@ -64,9 +64,15 @@ final class AuthorStyleAnalysis
         hash_update($seed, $normalizedCss);
         $this->markerSeed = substr(hash_final($seed), 0, 12);
         $this->markerCollisionTexts = array($html, $combinedCss);
-        $this->specificityShim = $this->allocateMarker('specificity');
-        $this->classSpecificityShim = $this->allocateMarker('specificity-class');
-        $this->idSpecificityShim = $this->allocateMarker('specificity-id');
+        // Shims only appear inside :not() and are never written onto an element,
+        // so they need a name no element uses, not a page-scoped one. A
+        // page-seeded name made every page's projection of a shared stylesheet
+        // differ in every shimmed rule. The three counter slots they used stay
+        // reserved so every other generated marker keeps its established name.
+        $this->markerCounter = 3;
+        $this->specificityShim = $this->allocateSiteMarker('specificity');
+        $this->classSpecificityShim = $this->allocateSiteMarker('specificity-class');
+        $this->idSpecificityShim = $this->allocateSiteMarker('specificity-id');
 
         for ( $ancestor = $sourceBody; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
             $this->recordSelectorSignals($ancestor);
@@ -122,6 +128,15 @@ final class AuthorStyleAnalysis
     {
         do {
             $marker = 'blocks-engine-' . $kind . '-' . $this->markerSeed . '-' . $this->markerCounter++;
+        } while ( str_contains($this->markerCollisionTexts[0], $marker) || str_contains($this->markerCollisionTexts[1], $marker) );
+        return $marker;
+    }
+
+    private function allocateSiteMarker(string $kind): string
+    {
+        $suffix = 0;
+        do {
+            $marker = 'blocks-engine-' . $kind . '-site-' . $suffix++;
         } while ( str_contains($this->markerCollisionTexts[0], $marker) || str_contains($this->markerCollisionTexts[1], $marker) );
         return $marker;
     }

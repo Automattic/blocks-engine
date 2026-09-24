@@ -130,6 +130,153 @@ final class CssStylesheetTransformer
     }
 
     /**
+     * Concatenate stylesheets in order, dropping every rule that recurs later in
+     * the result with the same text inside the same conditional group rules.
+     *
+     * The later copy has the same selectors, specificity and declarations and
+     * comes after the earlier one, so the earlier copy can never win the cascade:
+     * dropping it leaves every computed value unchanged. `@layer` rules are kept
+     * whole and never dropped, because a layer's first appearance fixes its order.
+     * Malformed input is concatenated unchanged.
+     *
+     * @param list<string> $stylesheets
+     */
+    public function concatenateWithoutRedundantRules(array $stylesheets): string
+    {
+        foreach ( $stylesheets as $stylesheet ) {
+            if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
+                return implode("\n", $stylesheets);
+            }
+        }
+
+        $kept = array();
+        $seen = array();
+        foreach ( array_reverse($stylesheets) as $stylesheet ) {
+            $units = array();
+            $this->collectRuleUnits($stylesheet, array(), $units);
+            foreach ( array_reverse($units) as $unit ) {
+                if ( $unit['dedupable'] ) {
+                    $key = self::ruleUnitKey($unit);
+                    if ( isset($seen[ $key ]) ) {
+                        continue;
+                    }
+                    $seen[ $key ] = true;
+                }
+                $kept[] = $unit;
+            }
+        }
+
+        return $this->serializeRuleUnits(array_reverse($kept));
+    }
+
+    /**
+     * The rules of `$stylesheets`, in order and each once, that do not occur
+     * with the same text inside the same conditional group rules in `$present`.
+     * Malformed input yields the stylesheets unchanged.
+     *
+     * @param list<string> $stylesheets
+     * @param list<string> $present
+     */
+    public function rulesAbsentFrom(array $stylesheets, array $present): string
+    {
+        foreach ( array_merge($stylesheets, $present) as $stylesheet ) {
+            if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
+                return implode("\n", $stylesheets);
+            }
+        }
+        $seen = array();
+        foreach ( $present as $stylesheet ) {
+            $units = array();
+            $this->collectRuleUnits($stylesheet, array(), $units);
+            foreach ( $units as $unit ) {
+                $seen[ self::ruleUnitKey($unit) ] = true;
+            }
+        }
+        $kept = array();
+        foreach ( $stylesheets as $stylesheet ) {
+            $units = array();
+            $this->collectRuleUnits($stylesheet, array(), $units);
+            foreach ( $units as $unit ) {
+                $key = self::ruleUnitKey($unit);
+                if ( $unit['dedupable'] && isset($seen[ $key ]) ) {
+                    continue;
+                }
+                $seen[ $key ] = true;
+                $kept[] = $unit;
+            }
+        }
+        return $this->serializeRuleUnits($kept);
+    }
+
+    /** @param array{context: list<string>, text: string, dedupable: bool} $unit */
+    private static function ruleUnitKey(array $unit): string
+    {
+        return md5(implode("\0", $unit['context']) . "\0" . trim($unit['text']), true);
+    }
+
+    /** @param list<array{context: list<string>, text: string, dedupable: bool}> $units */
+    private function serializeRuleUnits(array $units): string
+    {
+        $output = '';
+        $open = array();
+        foreach ( $units as $unit ) {
+            $shared = 0;
+            while ( $shared < count($open) && $shared < count($unit['context']) && $open[ $shared ] === $unit['context'][ $shared ] ) {
+                ++$shared;
+            }
+            $output .= str_repeat('}', count($open) - $shared);
+            foreach ( array_slice($unit['context'], $shared) as $prelude ) {
+                $output .= $prelude . '{';
+            }
+            $open = $unit['context'];
+            $output .= $unit['text'];
+        }
+
+        return $output . str_repeat('}', count($open));
+    }
+
+    /**
+     * Flatten a stylesheet into rules keyed by their enclosing conditional groups.
+     *
+     * @param list<string> $context
+     * @param list<array{context: list<string>, text: string, dedupable: bool}> $units
+     */
+    private function collectRuleUnits(string $css, array $context, array &$units): void
+    {
+        $offset = 0;
+        $length = strlen($css);
+        while ( $offset < $length ) {
+            $boundary = $this->nextRuleBoundary($css, $offset);
+            if ( null === $boundary ) {
+                if ( '' !== trim(substr($css, $offset)) ) {
+                    $units[] = array( 'context' => $context, 'text' => substr($css, $offset), 'dedupable' => false );
+                }
+                return;
+            }
+            $end = ';' === $css[ $boundary ] ? $boundary : $this->matchingBrace($css, $boundary);
+            if ( null === $end ) {
+                $units[] = array( 'context' => $context, 'text' => substr($css, $offset), 'dedupable' => false );
+                return;
+            }
+            $prelude = substr($css, $offset, $boundary - $offset);
+            $atRule = $this->isAtRule($prelude) ? self::atRuleName($prelude) : '';
+            // A layer block is kept whole: distinct blocks can be distinct layers.
+            if ( '{' === $css[ $boundary ] && '' !== $atRule && 'layer' !== $atRule && $this->walksNestedRules($prelude) ) {
+                $nested = $context;
+                $nested[] = trim($prelude);
+                $this->collectRuleUnits(substr($css, $boundary + 1, $end - $boundary - 1), $nested, $units);
+            } else {
+                $units[] = array(
+                    'context'   => $context,
+                    'text'      => substr($css, $offset, $end - $offset + 1),
+                    'dedupable' => ! in_array($atRule, array( 'charset', 'import', 'layer', 'namespace' ), true),
+                );
+            }
+            $offset = $end + 1;
+        }
+    }
+
+    /**
      * @return array{preamble: string, stylesheet: string}
      */
     public function splitLeadingAtRulePreamble(string $stylesheet): array

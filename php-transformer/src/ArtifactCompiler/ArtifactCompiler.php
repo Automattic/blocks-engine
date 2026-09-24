@@ -254,8 +254,21 @@ final class ArtifactCompiler
         $allGeneratedBlocks = $entryBlocks['generated_blocks'];
         $allGutenbergGaps = $entryBlocks['gutenberg_gaps'];
         $coreHtmlFallbackEvidence = array($entryBlocks['core_html_fallback_evidence']);
+        // A projection belongs to the page that produced it. Template surfaces
+        // render across many posts, so their projections stay site-wide.
+        $filesByPath = array_column($normalized['files'], null, 'path');
+        $ownedBy = function (array $projections, string $sourcePath) use ($filesByPath): array {
+            $file = $filesByPath[$sourcePath] ?? array( 'path' => $sourcePath, 'kind' => 'html' );
+            $ownership = $this->fileOwnership($file);
+            $owner = 'page' === $ownership['scope'] && ! isset($file['metadata']['template_surface']) ? $ownership['id'] : '';
+            return array_map(static fn (array $projection): array => $projection + array( 'owner' => $owner ), $projections);
+        };
+        $authorStylesheetProjections = array_merge(
+            $ownedBy($entryBlocks['author_stylesheet_projections'], $entryPath),
+            $inlineShellCompilation['author_stylesheet_projections'] ?? array()
+        );
         foreach ( $compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument ) {
-            $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiledHtmlDocument['author_stylesheet_projections'] ?? array());
+            $authorStylesheetProjections = array_merge($authorStylesheetProjections, $ownedBy($compiledHtmlDocument['author_stylesheet_projections'] ?? array(), (string) $sourcePath));
             $runtimeScriptProjections = array_merge($runtimeScriptProjections, $compiledHtmlDocument['runtime_script_projections'] ?? array());
             $allDiagnostics = array_merge($allDiagnostics, $this->entryTransformDiagnostics($compiledHtmlDocument['diagnostics'] ?? array(), (string) $sourcePath));
             $allFallbacks = array_merge($allFallbacks, $compiledHtmlDocument['fallbacks'] ?? array());
@@ -2033,34 +2046,47 @@ final class ArtifactCompiler
         };
         $projections = array_map($reconcileAttributeStateMarkers, $projections);
         $primaryProjections = array_map($reconcileAttributeStateMarkers, $primaryProjections);
-        $byPath = array();
         $primaryByPath = array();
         foreach ( $primaryProjections as $projection ) {
             if ( is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null) ) {
                 $primaryByPath[$projection['path']][$projection['content']] = true;
             }
         }
+        // Shared-shell projections apply site-wide; page projections belong to
+        // the page (owner) that produced them.
+        $sharedByPath = array();
+        $pageByPath = array();
         foreach ( $projections as $projection ) {
-            if ( is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null) ) {
-                $path = $projection['path'];
-                $byPath[$path] ??= array();
-                $byPath[$path][$projection['content']] = true;
-            }
-        }
-        foreach ( $files as &$file ) {
-            $pathProjections = $byPath[$file['path'] ?? ''] ?? null;
-            if ( ! is_array($pathProjections) || 'css' !== ($file['kind'] ?? '') ) {
+            if ( ! is_string($projection['path'] ?? null) || ! is_string($projection['content'] ?? null) || isset($primaryByPath[$projection['path']][$projection['content']]) ) {
                 continue;
             }
-            foreach ( array_keys($primaryByPath[$file['path'] ?? ''] ?? array()) as $primaryContent ) {
-                unset($pathProjections[$primaryContent]);
+            $owner = (string) ($projection['owner'] ?? '');
+            if ( '' === $owner ) {
+                $sharedByPath[$projection['path']][$projection['content']] = true;
+            } else {
+                $pageByPath[$projection['path']][$owner][] = $projection['content'];
             }
-            $authoritativeContent = array_keys($primaryByPath[$file['path'] ?? ''] ?? array());
+        }
+        $transformer = new CssStylesheetTransformer();
+        $reserved = array_fill_keys(array_column($files, 'path'), true);
+        $output = array();
+        foreach ( $files as $file ) {
+            $path = (string) ($file['path'] ?? '');
+            if ( 'css' !== ($file['kind'] ?? '') || ( ! isset($primaryByPath[$path]) && ! isset($sharedByPath[$path]) && ! isset($pageByPath[$path]) ) ) {
+                $output[] = $file;
+                continue;
+            }
+            $pages = $pageByPath[$path] ?? array();
+            $authoritativeContent = array_keys($primaryByPath[$path] ?? array());
             if ( array() === $authoritativeContent ) {
-                if ( array() !== $pathProjections ) {
-                    $authoritativeProjection = array_key_last($pathProjections);
-                    $authoritativeContent[] = (string) $authoritativeProjection;
-                    unset($pathProjections[$authoritativeProjection]);
+                // Without an entry projection the last page's projection is
+                // authoritative, as the site-wide copy every page loads.
+                if ( array() !== $pages ) {
+                    $lastOwner = array_key_last($pages);
+                    $authoritativeContent[] = (string) array_pop($pages[$lastOwner]);
+                    if ( array() === $pages[$lastOwner] ) {
+                        unset($pages[$lastOwner]);
+                    }
                 } else {
                     $authoritativeContent[] = (string) ($file['content'] ?? '');
                 }
@@ -2068,7 +2094,7 @@ final class ArtifactCompiler
             $preambles = array();
             $stylesheets = array();
             foreach ( $authoritativeContent as $stylesheet ) {
-                $split = ( new CssStylesheetTransformer() )->splitLeadingAtRulePreamble($stylesheet);
+                $split = $transformer->splitLeadingAtRulePreamble($stylesheet);
                 if ( '' !== trim($split['preamble']) ) {
                     $preambles[] = $split['preamble'];
                 }
@@ -2076,21 +2102,60 @@ final class ArtifactCompiler
                     $stylesheets[] = $split['stylesheet'];
                 }
             }
-            $content = implode("\n", array_merge($preambles, array_keys($pathProjections), $stylesheets));
-            $file['content'] = $content;
-            // Projection rewrites the CSS text, so any base64 twin from the
-            // source payload is stale. Drop it and let the rewritten text be the
-            // sole representation rather than shipping an inconsistent encoding.
-            unset($file['content_base64']);
-            $file['bytes'] = strlen($content);
-            $file['encoding'] = 'text';
-            $file['binary'] = false;
-            $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
-            $file['provenance']['hash'] = hash('sha256', $content);
+            $sharedStylesheets = array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $stylesheets);
+            // A page's projection repeats every rule it did not rewrite. Only the
+            // rules missing from the site-wide copy go to a stylesheet the page
+            // alone loads, placed before the site-wide copy: every page already
+            // saw its own rules ahead of the authoritative copy, so the cascade is
+            // unchanged while each page stops shipping its projection site-wide.
+            foreach ( $pages as $owner => $pageStylesheets ) {
+                $delta = $transformer->rulesAbsentFrom($pageStylesheets, $sharedStylesheets);
+                if ( '' === trim($delta) ) {
+                    continue;
+                }
+                $pageFile = $this->projectedStylesheetFile($file, $this->pageStylesheetPath($path, (string) $owner, $reserved), implode('', $preambles) . $delta);
+                $pageFile['metadata']['compilation'] = array( 'scope' => 'page', 'id' => (string) $owner );
+                $pageFile['metadata']['page_stylesheet_of'] = $path;
+                $output[] = $pageFile;
+            }
+            $output[] = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
         }
-        unset($file);
-        return $files;
+        return $output;
     }
+
+    /**
+     * Carry a projected stylesheet under a path. Projection rewrites the CSS
+     * text, so any base64 twin from the source payload is stale and dropped.
+     *
+     * @param array<string, mixed> $file
+     * @return array<string, mixed>
+     */
+    private function projectedStylesheetFile(array $file, string $path, string $content): array
+    {
+        $file['path'] = $path;
+        $file['content'] = $content;
+        unset($file['content_base64']);
+        $file['bytes'] = strlen($content);
+        $file['encoding'] = 'text';
+        $file['binary'] = false;
+        $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
+        $file['provenance']['hash'] = hash('sha256', $content);
+        return $file;
+    }
+
+    /** @param array<string, true> $reserved */
+    private function pageStylesheetPath(string $path, string $owner, array &$reserved): string
+    {
+        $extension = pathinfo($path, PATHINFO_EXTENSION);
+        $base = '' === $extension ? $path : substr($path, 0, -strlen($extension) - 1);
+        $candidate = $base . '.page-' . substr(hash('sha256', $owner), 0, 12) . ('' === $extension ? '' : '.' . $extension);
+        for ( $suffix = 2; isset($reserved[$candidate]); ++$suffix ) {
+            $candidate = $base . '.page-' . substr(hash('sha256', $owner), 0, 12) . '-' . $suffix . ('' === $extension ? '' : '.' . $extension);
+        }
+        $reserved[$candidate] = true;
+        return $candidate;
+    }
+
 
     /**
      * Keep transformed selector records below browser engine limits while
@@ -3868,7 +3933,18 @@ final class ArtifactCompiler
         if ( '' === $entryHtml ) {
             return $assets;
         }
-        $orderedPaths = array_column($this->stylesheetAssetsForSource($entryHtml, $entryPath, $files), 'path');
+        $orderedPaths = array();
+        $pageStylesheets = array();
+        foreach ( $files as $file ) {
+            if ( is_string($file['metadata']['page_stylesheet_of'] ?? null) ) {
+                $pageStylesheets[$file['metadata']['page_stylesheet_of']][] = (string) $file['path'];
+            }
+        }
+        // A page's projected stylesheet loads immediately before the site-wide
+        // stylesheet it was split from, the position its rules held there.
+        foreach ( array_column($this->stylesheetAssetsForSource($entryHtml, $entryPath, $files), 'path') as $path ) {
+            array_push($orderedPaths, ...($pageStylesheets[$path] ?? array()), ...array( $path ));
+        }
         $ordered = array();
         $consumed = array();
         foreach ( $orderedPaths as $path ) {

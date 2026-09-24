@@ -499,7 +499,9 @@ $multiPageSupportAssets = array_values(array_filter($multiPage['assets'] ?? arra
 $assert(1 === count($multiPageSupportAssets), 'identical generated engine support stylesheets are emitted once across HTML routes');
 $multiPageAssetPaths = array_column($multiPage['assets'] ?? array(), 'path');
 $multiPageWordPressAssets = $multiPage['source_reports']['wordpress_site_plan']['assets'] ?? array();
-$assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', $multiPageAssetPaths[0] ?? '') && 'shared.css' === ($multiPageAssetPaths[1] ?? '') && 'shared' === ($multiPageSupportAssets[0]['compilation']['scope'] ?? '') && 'global' === ($multiPageWordPressAssets[0]['scopes'][0]['kind'] ?? ''), 'identical multi-page support is ordered before author CSS and promoted to global scope');
+$assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', $multiPageAssetPaths[0] ?? '') && 'shared.css' === ($multiPageAssetPaths[2] ?? '') && 'shared' === ($multiPageSupportAssets[0]['compilation']['scope'] ?? '') && 'global' === ($multiPageWordPressAssets[0]['scopes'][0]['kind'] ?? ''), 'identical multi-page support is ordered before author CSS and promoted to global scope');
+$multiPageAboutCss = $multiPage['assets'][1] ?? array();
+$assert(1 === preg_match('#^shared\.page-[a-f0-9]{12}\.css$#', (string) ($multiPageAboutCss['path'] ?? '')) && array( 'scope' => 'page', 'id' => 'about.html' ) === ($multiPageAboutCss['compilation'] ?? null) && 'page' === ($multiPageWordPressAssets[1]['scopes'][0]['kind'] ?? '') && ! str_contains((string) ($multiPage['assets'][2]['content'] ?? ''), (string) preg_replace('/^.*?(blocks-engine-richtext-[a-f0-9]{12})-.*$/s', '$1', (string) ($multiPageAboutCss['content'] ?? ''))), 'a page\'s own projection of a shared stylesheet is page-scoped, loads just before it, and stays out of the site-wide copy');
 $assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
 
 $pageSubsetArtifact = array(
@@ -756,6 +758,24 @@ $borderedTableMarkup = (string) ($borderedTable['serialized_blocks'] ?? '');
 $borderedTableCss = implode("\n", array_column(array_filter($borderedTable['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
 $assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)">/', $borderedTableMarkup, $borderedTableMarker) === 1 && str_contains($borderedTableCss, '.' . ($borderedTableMarker[1] ?? '') . '>table th,.' . ($borderedTableMarker[1] ?? '') . '>table td{border:0}') && str_contains($borderedTableCss, 'table{border:2px solid #123456;border-collapse:collapse}'), 'authored table borders retain their outer frame while generated cell borders are reset');
 $assert('pass' === ( new Runtime() )->validateBlockSerialization($borderedTableMarkup)['status'], 'authored bordered tables remain editor-valid');
+
+// #2125: rules no page rewrites must be emitted once, however many pages project the stylesheet.
+$sharedRules = '';
+for ( $index = 0; $index < 40; ++$index ) {
+    $sharedRules .= ".card-{$index}{margin:{$index}px}.quote{color:#" . sprintf('%06x', $index) . '}';
+}
+$sharedSize = static function (int $pages) use ($sharedRules): int {
+    $files = array( array( 'path' => 'site.css', 'kind' => 'css', 'content' => $sharedRules ) );
+    for ( $page = 0; $page < $pages; ++$page ) {
+        $files[] = array( 'path' => 0 === $page ? 'index.html' : "page-{$page}/index.html", 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="/site.css"></head><body><section class="card-' . $page . '"><p><span class="quote">&quot;</span>Page ' . $page . '</p></section></body></html>' );
+    }
+    $compiled = ( new ArtifactCompiler() )->compile(array( 'entrypoint' => 'index.html', 'files' => $files ))->toArray();
+    // Only stylesheets every page loads count; a page's own rules are page-scoped.
+    return array_sum(array_map(static fn (array $asset): int => str_starts_with((string) $asset['path'], 'site') && 'page' !== ($asset['compilation']['scope'] ?? '') ? strlen((string) ($asset['content'] ?? '')) : 0, $compiled['assets'] ?? array()));
+};
+$twoPages = $sharedSize(2);
+$sixPages = $sharedSize(6);
+$assert($twoPages > 0 && $sixPages === $twoPages, "the site-wide copy of a shared stylesheet stays the same size however many pages project it (2 pages: {$twoPages} bytes, 6 pages: {$sixPages} bytes)");
 
 if ( $failures > 0 ) {
     exit(1);
