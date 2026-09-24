@@ -319,6 +319,7 @@
             "php tests/unit/details-element-converter.php",
             "php tests/unit/closed-details-fixed-overlay.php",
       "php tests/unit/accordion-toggle-presentation.php",
+      "php tests/unit/accordion-heading-icon-wrapper.php",
       "php tests/unit/disclosure-responsive-display.php",
             "php tests/unit/quote-element-converter.php",
             "php tests/unit/form-runtime-requirement-analyzer.php",
