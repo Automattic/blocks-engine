@@ -10,6 +10,22 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonStyleResolver;
 
+
+// The button's own resolved presentation is carried inline on the link
+// (as core/button save() serializes it), where it outranks theme defaults and
+// stays editable through the block's own style controls.
+$hasLinkDeclaration = static function (array $result, string $property, string $value): bool {
+    if ( ! preg_match_all('/<(?:a|button)\b[^>]*\bclass="wp-block-button__link[^"]*"[^>]*>/', (string) ($result['serialized_blocks'] ?? ''), $links) ) {
+        return false;
+    }
+    foreach ( $links[0] as $link ) {
+        if ( preg_match('/\bstyle="([^"]*)"/', $link, $style) && preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:\s*' . preg_quote($value, '/') . '\s*(?:;|$)/', $style[1]) ) {
+            return true;
+        }
+    }
+    return false;
+};
+
 $failures = 0;
 $passes   = 0;
 
@@ -40,8 +56,8 @@ $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
 $assert('core/button' === ($button['blockName'] ?? ''), 'button signal becomes core/button', (string) ($button['blockName'] ?? '(none)'));
 $assert(! isset($attrs['style']['shadow']) && str_contains($css, 'box-shadow:0 0 24px rgba(232,160,32,0.3)'), 'button box-shadow stays in the projected CSS when metadata rejects it', json_encode($attrs['style'] ?? array()));
 $assert(str_contains($css, 'box-shadow:0 0 24px rgba(232,160,32,0.3)'), 'rendered core/button carries source box-shadow through CSS', $css);
-$assert(str_contains($css, 'background-color:#e8a020!important'), 'rendered core/button carries source fill through CSS', $css);
-$assert(str_contains($css, 'color:#050d1a!important'), 'rendered core/button carries source text color through CSS', $css);
+$assert($hasLinkDeclaration($result, 'background-color', '#e8a020'), 'rendered core/button carries source fill through CSS', $css);
+$assert($hasLinkDeclaration($result, 'color', '#050d1a'), 'rendered core/button carries source text color through CSS', $css);
 
 $themed = ( new HtmlTransformer() )->transform(
     '<style>:root{--ink:#1d2230;--brand:linear-gradient(135deg,#2c63ff,#ff5d73)}[data-theme="dark"]{--ink:#f3f1ea}.btn{background:var(--brand);color:var(--ink)}</style><button class="btn">Continue</button>'
@@ -49,15 +65,15 @@ $themed = ( new HtmlTransformer() )->transform(
 $themedMarkup = (string) ($themed['serialized_blocks'] ?? '');
 $themedCss = implode("\n", array_column($themed['assets'] ?? array(), 'content'));
 $assert(str_contains($themedCss, '--brand:linear-gradient(135deg,#2c63ff,#ff5d73)') && str_contains($themedCss, 'background:var(--brand)'), 'button gradient remains in the projected CSS carrier', $themedCss);
-$assert(str_contains($themedCss, 'color:#1d2230!important'), 'default root custom properties are not replaced by conditional theme overrides', $themedCss);
-$assert(! str_contains($themedCss, 'color:#f3f1ea!important'), 'inactive dark-theme custom properties do not leak into canonical button paint', $themedCss);
+$assert($hasLinkDeclaration($themed, 'color', '#1d2230'), 'default root custom properties are not replaced by conditional theme overrides', $themedCss);
+$assert(! $hasLinkDeclaration($themed, 'color', '#f3f1ea'), 'inactive dark-theme custom properties do not leak into canonical button paint', $themedCss);
 
 $inheritedHeaderButton = ( new HtmlTransformer() )->transform(
     '<header style="color:#f8fff9;text-align:start"><a class="button" style="padding:10px 18px;background:#1d2230" href="/start">Start</a></header>'
 )->toArray();
 $inheritedHeaderMarkup = (string) ($inheritedHeaderButton['serialized_blocks'] ?? '');
 $inheritedHeaderCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inheritedHeaderButton['assets'] ?? array()));
-$assert(str_contains($inheritedHeaderCss, 'color:#f8fff9!important'), 'header-inherited button foreground remains in the core/button CSS carrier', $inheritedHeaderCss);
+$assert($hasLinkDeclaration($inheritedHeaderButton, 'color', '#f8fff9'), 'header-inherited button foreground remains in the core/button CSS carrier', $inheritedHeaderCss);
 $assert(str_contains($inheritedHeaderCss, 'text-align:start!important'), 'header-inherited start alignment overrides the core/button link default', $inheritedHeaderCss);
 $assert('pass' === ($inheritedHeaderButton['source_reports']['wp_block_validity']['status'] ?? ''), 'header-inherited native button remains editor-valid', json_encode($inheritedHeaderButton['source_reports']['wp_block_validity'] ?? array()));
 $assert(! str_contains($inheritedHeaderMarkup, '<!-- wp:html'), 'header-inherited native button needs no HTML fallback', $inheritedHeaderMarkup);
@@ -68,7 +84,7 @@ $cssWideInheritedButton = ( new HtmlTransformer() )->transform(
 $cssWideInheritedMarkup = (string) ($cssWideInheritedButton['serialized_blocks'] ?? '');
 $cssWideInheritedCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssWideInheritedButton['assets'] ?? array()));
 $assert(str_contains($cssWideInheritedMarkup, 'color:#f8fff9'), 'color:inherit resolves the header foreground into canonical core/button color', $cssWideInheritedMarkup);
-$assert(str_contains($cssWideInheritedCss, 'color:#f8fff9!important') && str_contains($cssWideInheritedCss, 'text-align:start!important'), 'color:inherit and text-align:inherit resolve through the native button rule', $cssWideInheritedCss);
+$assert($hasLinkDeclaration($cssWideInheritedButton, 'color', '#f8fff9') && str_contains($cssWideInheritedCss, 'text-align:start!important'), 'color:inherit and text-align:inherit resolve through the native button rule', $cssWideInheritedCss);
 $assert('pass' === ($cssWideInheritedButton['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-wide inherited native button remains editor-valid', json_encode($cssWideInheritedButton['source_reports']['wp_block_validity'] ?? array()));
 
 // A real design system states its foreground on `body`, not on a class-named
@@ -150,7 +166,7 @@ $resetButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{padding:13.5px 27px;border-radius:56.25px;background:#123456;color:#fff}a{border:0;padding:0}</style><a class="cta" href="/quote">Quote</a>'
 )->toArray();
 $resetButtonCss = implode("\n", array_column($resetButton['assets'] ?? array(), 'content'));
-$assert(str_contains($resetButtonCss, 'border-radius:56.25px!important') && str_contains($resetButtonCss, 'padding-right:27px!important') && str_contains($resetButtonCss, 'padding-left:27px!important'), 'resolved button styling overrides an authored border and padding reset', $resetButtonCss);
+$assert($hasLinkDeclaration($resetButton, 'border-radius', '56.25px') && $hasLinkDeclaration($resetButton, 'padding-right', '27px') && $hasLinkDeclaration($resetButton, 'padding-left', '27px'), 'resolved button styling overrides an authored border and padding reset', $resetButtonCss);
 
 $logicalCornerButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{padding:12px 24px;background:#123456;border-start-start-radius:var(--corner);border-start-end-radius:var(--corner);border-end-start-radius:var(--corner);border-end-end-radius:var(--corner);--corner:50px}</style><a class="cta" href="/quote">Quote</a>'
@@ -163,7 +179,7 @@ $longhandBorderButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $longhandBorderCss = implode("\n", array_column($longhandBorderButton['assets'] ?? array(), 'content'));
 $assert(! str_contains($longhandBorderCss, 'border-style:none!important') && ! str_contains($longhandBorderCss, 'border-width:0!important'), 'a border declared through longhands after a `border:0` shorthand reset is not neutralized', $longhandBorderCss);
-$assert(str_contains($longhandBorderCss, 'border-radius:4px!important'), 'radius handling keeps working alongside a longhand-declared border', $longhandBorderCss);
+$assert($hasLinkDeclaration($longhandBorderButton, 'border-radius', '4px'), 'radius handling keeps working alongside a longhand-declared border', $longhandBorderCss);
 
 $customPropertyBorderButton = ( new HtmlTransformer() )->transform(
     '<style>a{border:0;background:0 0}.btn{--border-top:1px solid rgb(254,126,3);--border-right:1px solid rgb(254,126,3);--border-bottom:1px solid rgb(254,126,3);--border-left:1px solid rgb(254,126,3);border-top:var(--border-top);border-right:var(--border-right);border-bottom:var(--border-bottom);border-left:var(--border-left);border-radius:4px;padding:10px 20px}</style><a class="btn" href="/team">Meet the Team</a>'
@@ -211,7 +227,7 @@ $generatedSurface = ( new HtmlTransformer() )->transform(
 $generatedSurfaceMarkup = (string) ($generatedSurface['serialized_blocks'] ?? '');
 $generatedSurfaceCss = implode("\n", array_column($generatedSurface['assets'] ?? array(), 'content'));
 $assert('core/button' === ($generatedSurface['blocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'generated inner surface remains a native core/button', $generatedSurfaceMarkup);
-$assert(str_contains($generatedSurfaceCss, 'background-color:#0077cc!important') && str_contains($generatedSurfaceCss, 'color:#000!important'), 'inner-surface foreground and background reach the native button link', $generatedSurfaceCss);
+$assert($hasLinkDeclaration($generatedSurface, 'background-color', '#0077cc') && $hasLinkDeclaration($generatedSurface, 'color', '#000'), 'inner-surface foreground and background reach the native button link', $generatedSurfaceCss);
 $assert(2 === preg_match_all('/wp-block-button__link\)::after\{(?:content:" arrow"|margin-left:8px)\}/', $generatedSurfaceCss), 'inner-surface generated content and geometry reach the native button link', $generatedSurfaceCss);
 $assert(! str_contains($generatedSurfaceCss, '.surface::after') && ! str_contains($generatedSurfaceMarkup, '<!-- wp:html') && 'pass' === ($generatedSurface['source_reports']['wp_block_validity']['status'] ?? ''), 'generated inner-surface native button remains editor-valid without HTML fallback', $generatedSurfaceMarkup);
 
@@ -340,8 +356,12 @@ $assert(
     $paintedMarkup
 );
 $assert(
-    str_contains($paintedCss, 'background-color:#1b2a3a!important') && str_contains($paintedCss, 'color:#e6f0ff!important'),
-    'the CSS carrier keeps its copy of the authored button paint',
+    array() === array_filter(
+        preg_split('/(?<=\})/', $paintedCss) ?: array(),
+        static fn (string $rule): bool => 1 === preg_match('/(?:#1b2a3a|#e6f0ff)\s*!important/', $rule)
+            && ! str_contains((string) strstr($rule, '{', true), ':not([style*=')
+    ),
+    'the CSS carrier leaves the owner-editable button paint to the inline block styles',
     $paintedCss
 );
 $assert(
