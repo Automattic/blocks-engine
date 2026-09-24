@@ -39,7 +39,7 @@ final class ThemeJsonProjection
      * reproduce their cascade semantics.
      *
      * @param array<int,array<string,mixed>> $assets
-     * @return array{assets:array<int,array<string,mixed>>,theme:array<string,mixed>,provenance:array<int,array<string,mixed>>,presets:array<string,array<string,string>>}
+     * @return array{assets:array<int,array<string,mixed>>,theme:array<string,mixed>,provenance:array<int,array<string,mixed>>,presets:array<string,array<string,string>>,responsive_breakpoints:array<string,mixed>|null}
      */
     public function project(array $assets): array
     {
@@ -113,8 +113,9 @@ final class ThemeJsonProjection
         $counts = array_count_values(array_map(static fn(array $candidate): string => $candidate['property'] . "\n" . strtolower($candidate['value']), $candidates));
         $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => !isset($conditionalProperties[$candidate['target'] . "\n" . $candidate['property']]) && !isset($unrepresentableProperties[$candidate['target'] . "\n" . $candidate['property']]) && (1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:'))));
         $presets = $this->presets($selected, $fontFamilyStacks);
+        $responsiveBreakpoints = ResponsiveBreakpoints::fromAssets($assets);
 
-        return array('assets' => $assets, 'theme' => $this->theme($selected, $presets, $this->fontFaces($assets)), 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets);
+        return array('assets' => $assets, 'theme' => $this->theme($selected, $presets, $this->fontFaces($assets), $responsiveBreakpoints['viewport']), 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets, 'responsive_breakpoints' => $responsiveBreakpoints['report']);
     }
 
     /**
@@ -299,8 +300,14 @@ final class ThemeJsonProjection
         return $presets;
     }
 
-    /** @param array<int,array<string,mixed>> $selected @param array<string,array<string,string>> $presets @param array<int,array<string,mixed>> $faces @return array<string,mixed> */
-    private function theme(array $selected, array $presets, array $faces = array()): array
+    /**
+     * @param array<int,array<string,mixed>> $selected
+     * @param array<string,array<string,string>> $presets
+     * @param array<int,array<string,mixed>> $faces
+     * @param array<string,string> $viewport
+     * @return array<string,mixed>
+     */
+    private function theme(array $selected, array $presets, array $faces = array(), array $viewport = array()): array
     {
         $settings = array();
         if (array() !== $presets['color']) $settings['color']['palette'] = array_map(static fn(string $value, string $slug): array => array('slug' => $slug, 'name' => $slug, 'color' => $value), array_keys($presets['color']), $presets['color']);
@@ -351,6 +358,15 @@ final class ThemeJsonProjection
         // and the editor gap control enabled.
         if (!isset($styles['spacing']['blockGap'])) $styles['spacing']['blockGap'] = false;
         $settings['spacing']['blockGap'] = true;
+        // The source's dominant responsive breakpoints ride alongside the other
+        // projected settings. WordPress 7.1 turns them into the `@mobile` and
+        // `@tablet` style-state media queries
+        // (WP_Theme_JSON::get_viewport_media_queries()), so core layout states
+        // and viewport-scoped block styles switch where the source's layouts
+        // switch instead of at the stock 480px/782px defaults. Absent keys keep
+        // those defaults: sanitize_viewport_settings() falls back per key and
+        // drops a tablet that is not larger than mobile.
+        if (array() !== $viewport) $settings['viewport'] = $viewport;
         return array('version' => 3, 'settings' => $settings, 'styles' => $styles);
     }
 
