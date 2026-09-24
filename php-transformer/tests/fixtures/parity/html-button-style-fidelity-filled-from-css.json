@@ -26,7 +26,7 @@
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-button btn btn-primary" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-background wp-element-button\"" },
     { "path": "assets.1.content", "assert": "contains", "value": "background:#13314f" },
-    { "path": "assets.1.content", "assert": "contains", "value": "padding:12px 24px!important" },
+    { "path": "assets.1.content", "assert": "contains", "value": "padding:12px 24px" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "is-style-outline" }
   ]
 }

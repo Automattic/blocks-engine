@@ -147,11 +147,11 @@ $assert(
 );
 $assert(
     str_contains($css, 'font-family:"Trebuchet MS", "Segoe UI", sans-serif')
-        && str_contains($css, 'font-size:0.88rem!important')
-        && str_contains($css, 'font-weight:700!important')
-        && str_contains($css, 'letter-spacing:0.08em!important')
-        && str_contains($css, 'text-transform:uppercase!important'),
-    'end to end: the CSS carrier keeps its copy of the carried typography',
+        && ! str_contains($css, 'font-size:0.88rem!important')
+        && ! str_contains($css, 'font-weight:700!important')
+        && ! str_contains($css, 'letter-spacing:0.08em!important')
+        && ! str_contains($css, 'text-transform:uppercase!important'),
+    'end to end: the CSS carrier leaves owner-editable typography to the inline block styles',
     $css
 );
 

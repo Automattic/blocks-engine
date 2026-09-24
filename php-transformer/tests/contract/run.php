@@ -2029,7 +2029,7 @@ $squareDefaultAnchorCss = implode("\n", array_column($squareDefaultAnchor['asset
 $assert(str_contains($squareDefaultAnchorCss, 'border-radius:0!important'), 'direct button-like anchors suppress native theme rounding when the source declares no radius');
 $shorthandRadiusAnchor = ( new HtmlTransformer() )->transform('<style>#pill{--rd:100px 100px 100px 100px}.pill .cta{display:inline-flex;padding:1rem 2rem;background:#eec355;border-radius:var(--corvid-border-radius,var(--rd,0))}</style><div id="pill" class="pill"><a class="cta" href="/talk">Lets talk</a></div>')->toArray();
 $shorthandRadiusCss = implode("\n", array_column($shorthandRadiusAnchor['assets'] ?? array(), 'content'));
-$assert(str_contains($shorthandRadiusCss, 'border-radius:100px 100px 100px 100px!important') && ! str_contains($shorthandRadiusCss, 'border-radius:0!important'), 'a source shorthand radius replaces the theme default instead of being squared off', $shorthandRadiusCss);
+$assert(str_contains((string) ($shorthandRadiusAnchor['serialized_blocks'] ?? ''), 'style="border-radius:100px 100px 100px 100px;') && ! str_contains($shorthandRadiusCss, 'border-radius:0!important'), 'a source shorthand radius replaces the theme default instead of being squared off', $shorthandRadiusCss);
 
 $descendantSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;box-sizing:border-box;min-width:170px;padding:22px 26px;background:#fff;color:#000;font:700 16px/16px Montserrat}</style><div style="text-align:center"><a class="cta" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
@@ -2146,7 +2146,7 @@ $fullWidthNativeButtonAttrs = $fullWidthNativeButton['blocks'][0]['innerBlocks']
 $fullWidthNativeButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthNativeButton['assets'] ?? array()));
 $assert(! isset($fullWidthNativeButtonAttrs['width']) && str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'selector-submit'), 'styled full-width native button omits the legacy width attribute and uses a generated marker instead of source root classes');
 $assert(! str_contains($fullWidthNativeButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthNativeButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width native button keeps source root classes out of canonical markup');
-$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null) && str_contains($fullWidthNativeButtonCss, 'background-color:#123456!important'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
+$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null) && str_contains($fullWidthNativeButtonMarkup, 'style="background-color:#123456;') && str_contains($fullWidthNativeButtonCss, ':not([style*="background"]){background:none!important}'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
 $assert(str_contains($fullWidthNativeButtonMarkup, 'class="wp-block-button__link has-background wp-element-button"') && str_contains($fullWidthNativeButtonMarkup, 'background-color:#123456'), 'a filled button variant serializes its fill on the link, as core/button save() does');
 $assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthNativeButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width native button projects root geometry through the wrapper chain without overriding source wrapper margins');
 $assert('pass' === ($fullWidthNativeButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width native button wrapper chain remains editor-valid');
@@ -2168,10 +2168,10 @@ $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $contextualSurfaceButtonAttrs = $contextualSurfaceButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $contextualSurfaceButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $contextualSurfaceButton['assets'] ?? array()));
-$assert('#fff' === ($contextualSurfaceButtonAttrs['style']['color']['background'] ?? null) && str_contains($contextualSurfaceButtonCss, 'background-color:#fff!important'), 'later contextual background shorthand carries over an earlier descendant background color');
-$assert('0' === ($contextualSurfaceButtonAttrs['style']['border']['radius'] ?? null) && str_contains($contextualSurfaceButtonCss, 'border-radius:0!important'), 'authored square button borders carry the suppression of rounded theme defaults');
+$assert('#fff' === ($contextualSurfaceButtonAttrs['style']['color']['background'] ?? null) && 1 === preg_match('/<a class="wp-block-button__link[^"]*" style="[^"]*background-color:#fff[;"]/', (string) ($contextualSurfaceButton['serialized_blocks'] ?? '')), 'later contextual background shorthand carries over an earlier descendant background color');
+$assert('0' === ($contextualSurfaceButtonAttrs['style']['border']['radius'] ?? null) && 1 === preg_match('/<a class="wp-block-button__link[^"]*" style="border-radius:0;/', (string) ($contextualSurfaceButton['serialized_blocks'] ?? '')), 'authored square button borders carry the suppression of rounded theme defaults');
 $assert(! str_contains((string) ($contextualSurfaceButtonAttrs['className'] ?? ''), 'cta-inner'), 'descendant presentation classes do not paint the structural core button wrapper');
-$assert(str_contains($contextualSurfaceButtonCss, 'background-color:#fff!important') && str_contains($contextualSurfaceButtonCss, 'color:#000!important'), 'native button control rule protects resolved source paint from theme defaults');
+$assert(1 === preg_match('/<a class="wp-block-button__link[^"]*" style="[^"]*color:#000;background-color:#fff[;"]/', (string) ($contextualSurfaceButton['serialized_blocks'] ?? '')), 'native button carries resolved source paint inline, where it outranks theme defaults and stays owner-editable');
 
 $declarativeCounter = ( new HtmlTransformer() )->transform(
     '<div id="element-counter-one"><div class="counter-number"><div class="content-number-bold"></div></div><div>YEARS</div></div><script>var PlatformElementSettings = true; _Element.prototype.settings = new PlatformElementSettings({"end":1350,"duration":2}); _Element.prototype.element_id = "counter-one";</script>'
@@ -2272,9 +2272,9 @@ $cssVariableButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $cssVariableButtonMarkup = (string) ($cssVariableButton['serialized_blocks'] ?? '');
 $cssVariableButtonCss = implode("\n", array_column($cssVariableButton['assets'] ?? array(), 'content'));
-$assert(str_contains($cssVariableButtonCss, 'background-color:#f0ac22!important'), 'button CSS variable fill resolves to a concrete carried background color');
-$assert(str_contains($cssVariableButtonCss, 'color:#050d1a!important'), 'button CSS variable text color resolves to a concrete carried text color');
-$assert(str_contains($cssVariableButtonCss, 'border-radius:6px!important'), 'button CSS variable radius resolves to a concrete carried radius');
+$assert(1 === preg_match('/<a class="wp-block-button__link[^"]*" style="[^"]*background-color:#f0ac22[;"]/', $cssVariableButtonMarkup), 'button CSS variable fill resolves to a concrete carried background color');
+$assert(1 === preg_match('/<a class="wp-block-button__link[^"]*" style="[^"]*(?<![-a-z])color:#050d1a[;"]/', $cssVariableButtonMarkup), 'button CSS variable text color resolves to a concrete carried text color');
+$assert(1 === preg_match('/<a class="wp-block-button__link[^"]*" style="[^"]*border-radius:6px[;"]/', $cssVariableButtonMarkup), 'button CSS variable radius resolves to a concrete carried radius');
 $assert(! str_contains($cssVariableButtonMarkup, 'var(--amber)'), 'button fill avoids leaking source-local CSS custom properties into standalone block markup');
 $assert('pass' === ($cssVariableButton['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-variable button serialization passes generated WordPress block validity checks');
 
@@ -2283,7 +2283,7 @@ $ancestorVariableButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $ancestorVariableButtonMarkup = (string) ($ancestorVariableButton['serialized_blocks'] ?? '');
 $ancestorVariableButtonCss = implode("\n", array_column($ancestorVariableButton['assets'] ?? array(), 'content'));
-$assert(! str_contains($ancestorVariableButtonMarkup, 'var(--fill)') && str_contains($ancestorVariableButtonCss, 'background-color:#fefefe!important') && str_contains($ancestorVariableButtonCss, 'border-radius:10px!important'), 'button native presentation resolves custom properties from its source ancestor cascade', $ancestorVariableButtonMarkup . "\nCSS:\n" . $ancestorVariableButtonCss);
+$assert(! str_contains($ancestorVariableButtonMarkup, 'var(--fill)') && 1 === preg_match('/<a class="wp-block-button__link[^"]*" style="[^"]*border-radius:10px;[^"]*background-color:#fefefe[;"]|<a class="wp-block-button__link[^"]*" style="[^"]*background-color:#fefefe;[^"]*border-radius:10px[;"]/', $ancestorVariableButtonMarkup), 'button native presentation resolves custom properties from its source ancestor cascade', $ancestorVariableButtonMarkup . "\nCSS:\n" . $ancestorVariableButtonCss);
 $assert('pass' === ($ancestorVariableButton['source_reports']['wp_block_validity']['status'] ?? ''), 'ancestor-variable button serialization passes generated WordPress block validity checks');
 
 $borderWidthVariableCta = ( new HtmlTransformer() )->transform(

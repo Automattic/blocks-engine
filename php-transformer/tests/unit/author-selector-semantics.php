@@ -160,11 +160,11 @@ $assert(
 $sharedReset = $transform('<style>div,a,button{padding:0}.box{padding-left:24px}</style><div class="box"><a class="cta" href="/go" style="padding:1px;background:#000">Go</a></div>');
 $sharedResetCss = $css($sharedReset);
 $assert(
-    str_contains($sharedResetCss, 'padding:0!important')
+    ! str_contains($sharedResetCss, 'padding:0!important')
         && str_contains($sharedResetCss, 'padding-left:24px')
-        && 1 === preg_match('/wp-block-button__link\)\{[^}]*padding:0!important/', $sharedResetCss)
-        && ! preg_match('/blocks-engine-source-div-[^\{]*wp-block-button__link[^\{]*\{[^}]*padding:0!important/', $sharedResetCss),
-    'button-link !important padding stays on the native link and does not poison a shared type reset'
+        && 1 === preg_match('/wp-block-button__link\)[^{]*\{[^}]*padding:0[;}]/', $sharedResetCss)
+        && str_contains((string) ($sharedReset['serialized_blocks'] ?? ''), 'padding-top:1px;padding-right:1px;padding-bottom:1px;padding-left:1px'),
+    'an unconditional shared padding reset reaches the native link without outranking its own inline padding'
 );
 
 $dormantAncestorState = $transform('<style>.nav.scrolled .nav-logo{color:#211}.nav.scrolled .nav-logo:hover{color:#a42}</style><main class="nav"><button class="nav-logo" style="padding:1px;background:#eee">Brand</button><p>Copy</p></main>');
@@ -371,9 +371,8 @@ $assert(
     'core/buttons' === ($decorativeMarkLogo['blocks'][0]['blockName'] ?? '')
         && 'core/button' === ($decorativeMarkLogo['blocks'][0]['innerBlocks'][0]['blockName'] ?? '')
         && str_contains($decorativeMarkLogoMarkup, '<span class="brand-mark" aria-hidden="true"')
-        && str_contains($decorativeMarkLogoCss, 'background-color:transparent!important')
+        && str_contains($decorativeMarkLogoMarkup, 'style="border-radius:0;background-color:transparent;padding-top:0;padding-right:0;padding-bottom:0;padding-left:0"')
         && str_contains($decorativeMarkLogoCss, 'border-radius:0 !important')
-        && str_contains($decorativeMarkLogoCss, 'padding-top:0!important')
         && 'pass' === ($decorativeMarkLogo['source_reports']['wp_block_validity']['status'] ?? ''),
     'logo anchors with direct decorative marks retain the neutral structured button path',
     $decorativeMarkLogoMarkup
