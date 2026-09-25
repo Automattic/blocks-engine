@@ -106,7 +106,7 @@ final class ShellExtraction
             $additional = array();
             foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
             $partMarkup = self::withoutLandmarkTagName(self::withoutCurrentNavigationState($row['markup']));
-            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $row['identity_markup'], 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional);
+            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $row['identity_markup'], 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => true, 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional);
         }
         return $candidates;
     }
@@ -373,6 +373,7 @@ final class ShellExtraction
                 continue;
             }
             $first = $cluster['candidate'];
+            if (1 === count($applicable) && !empty($first['shared_only'])) continue;
             foreach ($applicable as $index => $page) if (!in_array($index, $cluster['indexes'], true)) $excluded[$index] = isset($candidates[$index]) ? 'non_equivalent' : 'missing';
             // 'search' is never an applicable page in its own right (WordPress
             // synthesizes it), so it rides along wherever 'index' is bound: both
