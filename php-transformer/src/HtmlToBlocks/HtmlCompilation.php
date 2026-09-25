@@ -2496,30 +2496,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function layoutTableCellInlinePadding(DOMElement $cell): array
     {
-        $start = '1px';
-        $end   = '1px';
-        $table = $this->ancestorElement($cell, 'table');
+        $default = '1px';
+        $table   = $this->ancestorElement($cell, 'table');
         if ( $table instanceof DOMElement ) {
             $cellpadding = trim($this->attr($table, 'cellpadding'));
             if ( '' !== $cellpadding && is_numeric($cellpadding) ) {
-                $start = $end = $cellpadding . 'px';
+                $default = $cellpadding . 'px';
             }
         }
 
         $declarations = $this->styleResolver->structuralPresentationDeclarations($cell);
         $shorthand    = CssValueInspector::comparable((string) ($declarations['padding'] ?? ''));
-        if ( '' !== $shorthand ) {
-            $parts = preg_split('/\s+/', $shorthand) ?: array();
-            $count = count($parts);
-            if ( 1 === $count ) {
-                $start = $end = $parts[0];
-            } elseif ( 2 === $count || 3 === $count ) {
-                $start = $end = $parts[1];
-            } elseif ( 4 <= $count ) {
-                $end   = $parts[1];
-                $start = $parts[3];
-            }
-        }
+        [ , $end, , $start ] = CssValueInspector::expandBoxShorthand( '' !== $shorthand ? $shorthand : $default );
         if ( isset($declarations['padding-left']) ) {
             $start = CssValueInspector::comparable((string) $declarations['padding-left']);
         }
@@ -2536,15 +2524,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function layoutTableCellInlineBorderWidths(DOMElement $cell): array
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($cell);
-        $start        = '0px';
-        $end          = '0px';
-        $left         = CssValueInspector::comparable((string) ($declarations['border-left-width'] ?? ''));
-        $right        = CssValueInspector::comparable((string) ($declarations['border-right-width'] ?? ''));
+        $shorthand    = CssValueInspector::comparable((string) ($declarations['border-width'] ?? ''));
+        [ , $end, , $start ] = CssValueInspector::expandBoxShorthand( '' !== $shorthand ? $shorthand : '0px' );
+        $left  = CssValueInspector::comparable((string) ($declarations['border-left-width'] ?? ''));
+        $right = CssValueInspector::comparable((string) ($declarations['border-right-width'] ?? ''));
         if ( null !== $this->parseLayoutTableAbsoluteLength($left) ) {
             $start = $left;
         }
         if ( null !== $this->parseLayoutTableAbsoluteLength($right) ) {
             $end = $right;
+        }
+        if ( null === $this->parseLayoutTableAbsoluteLength($start) ) {
+            $start = '0px';
+        }
+        if ( null === $this->parseLayoutTableAbsoluteLength($end) ) {
+            $end = '0px';
         }
 
         return array( $start, $end );
