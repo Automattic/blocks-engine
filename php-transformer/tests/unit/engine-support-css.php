@@ -94,8 +94,14 @@ $assert(
 $listNavRules = $css->listNavigationHostRepairCss('blocks-engine-list-navigation blocks-engine-native-responsive-navigation', '');
 $assertLayer($listNavRules, CascadeLayer::LIST_NAVIGATION_REPAIR, 'list-navigation host repair rules are all tagged LIST_NAVIGATION_REPAIR');
 $listNav = $css_of($listNavRules);
-$assert(2 === count($listNav), 'list-navigation host repair emits responsive host and brand-carrier rules');
-$assert('.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}' === $listNav[0], 'native-responsive list-navigation host is display:flex');
+$assert(3 === count($listNav), 'list-navigation host repair emits mobile host, desktop wrapper, and brand-carrier rules');
+$assert('@media(max-width:599px){.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}' === $listNav[0], 'native-responsive list-navigation host is display:flex only below Core\'s overlay breakpoint');
+$assert(
+    str_starts_with($listNav[1], '@media(min-width:600px){')
+        && str_contains($listNav[1], '.wp-block-navigation__responsive-container:not(.is-menu-open)')
+        && str_contains($listNav[1], 'display:contents!important'),
+    'desktop overlay wrappers flatten so source justification keeps the list'
+);
 
 $compilation = new ReflectionClass(HtmlCompilation::class);
 $method = $compilation->getMethod('materializeAuthorStylesheet');

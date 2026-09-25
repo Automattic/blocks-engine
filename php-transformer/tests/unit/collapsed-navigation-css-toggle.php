@@ -28,7 +28,20 @@ $assert = static function (bool $ok, string $message, string $detail = '') use (
     fwrite(STDERR, 'FAIL: ' . $message . ( '' !== $detail ? ' - ' . $detail : '' ) . PHP_EOL);
 };
 
-$transform = static fn (string $html): string => (string) (( new HtmlTransformer() )->transform($html, array())->toArray()['serialized_blocks'] ?? '');
+$transformResult = static fn (string $html): array => ( new HtmlTransformer() )->transform($html, array())->toArray();
+$transform = static fn (string $html): string => (string) ($transformResult($html)['serialized_blocks'] ?? '');
+$cssOf = static function (array $result): string {
+    return implode(
+        "\n",
+        array_map(
+            static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+            array_values(array_filter(
+                is_array($result['assets'] ?? null) ? $result['assets'] : array(),
+                static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')
+            ))
+        )
+    );
+};
 
 $isReachableMobileMenu = static function (string $html, array $labels) use ($assert): void {
     $assert(str_contains($html, '"overlayMenu":"mobile"'), 'collapsed source navigation emits the native mobile overlay', $html);
@@ -39,8 +52,7 @@ $isReachableMobileMenu = static function (string $html, array $labels) use ($ass
     }
 };
 
-$duplicate = $transform(
-    '<style>'
+$duplicateSource = '<style>'
     . '.site-header .menu-toggle{display:none}'
     . '.inline-menu{display:table-cell}'
     . '.collapsed-menu{display:none}'
@@ -68,10 +80,24 @@ $duplicate = $transform(
     . '<li><a href="/blog">Blog</a></li>'
     . '<li><a href="/about">About</a></li>'
     . '<li><a href="/contact">Contact</a></li>'
-    . '</ul></div>'
-);
+    . '</ul></div>';
+$duplicateResult = $transformResult($duplicateSource);
+$duplicate = (string) ($duplicateResult['serialized_blocks'] ?? '');
+$duplicateCss = $cssOf($duplicateResult);
 $isReachableMobileMenu($duplicate, array( 'Home', 'Blog', 'About', 'Contact' ));
 $assert(1 === substr_count($duplicate, '<!-- wp:navigation '), 'the collapsed duplicate does not emit a second navigation', $duplicate);
+$assert(
+    str_contains($duplicateCss, '@media(max-width:599px){.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}'),
+    'visible-host bridge is scoped to Core\'s overlay breakpoint so desktop display stays authored',
+    $duplicateCss
+);
+$assert(
+    str_contains($duplicateCss, '@media(min-width:600px)')
+        && str_contains($duplicateCss, '.wp-block-navigation__responsive-container:not(.is-menu-open)')
+        && str_contains($duplicateCss, 'display:contents'),
+    'desktop overlay wrappers are layout-transparent so source end justification still positions the list',
+    $duplicateCss
+);
 
 $cssToggle = $transform(
     '<style>'
