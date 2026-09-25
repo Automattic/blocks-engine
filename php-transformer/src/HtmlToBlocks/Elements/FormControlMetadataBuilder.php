@@ -118,12 +118,33 @@ final class FormControlMetadataBuilder
         $interleaved = false;
         $seenControls = 0;
         $totalControls = 0;
+
+        // Copy a control already owns — its label, its field description — is
+        // carried by the control manifest, so it must not also surface here.
+        $claimedLabels = array();
+        $claimedTexts = array();
         foreach ( $form->getElementsByTagName('*') as $node ) {
-            if ( $node instanceof DOMElement && FormControlClassifier::isControlElement($node) ) {
-                ++$totalControls;
+            if ( ! $node instanceof DOMElement || ! FormControlClassifier::isControlElement($node) ) {
+                continue;
+            }
+            ++$totalControls;
+            $labelElement = $this->labelElement($node);
+            if ( $labelElement instanceof DOMElement ) {
+                $claimedLabels[] = $labelElement;
+            }
+            if ( FormControlClassifier::isNonAuthoredControl($node) ) {
+                continue;
+            }
+            $description = $this->describeControl($node, $labelElement);
+            // Only a resolved description is carried by the control manifest.
+            // Ambiguous candidates stay unattributed, so they may still
+            // surface here as form context instead of being lost.
+            if ( '' !== $description['description'] ) {
+                $claimedTexts[] = $description['description'];
             }
         }
 
+        $recorded = array();
         foreach ( $form->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
                 continue;
@@ -137,6 +158,11 @@ final class FormControlMetadataBuilder
             if ( null === $item ) {
                 continue;
             }
+            if ( $this->isControlOwnedCopy($node, $item['text'], $claimedLabels, $claimedTexts)
+                || $this->isRecordedCopy($node, $recorded) ) {
+                continue;
+            }
+            $recorded[] = $node;
             if ( 0 === $seenControls ) {
                 $before[] = $item;
             } elseif ( $seenControls >= $totalControls ) {
@@ -165,24 +191,66 @@ final class FormControlMetadataBuilder
         }
 
         if ( 1 === preg_match('/^h([1-6])$/', $tagName, $matches) ) {
-            return array(
+            $item = array(
                 'type' => 'heading',
                 'level' => (int) $matches[1],
                 'text' => $text,
             );
-        }
-
-        // A note only reads as instructional when the source says so. Every
-        // label would otherwise be duplicated out of its own field.
-        if ( in_array($tagName, array( 'label', 'p' ), true)
-            && 1 === preg_match('/(?:required|note|instruction|help)/i', SourceDom::attr($node, 'class')) ) {
-            return array(
+        } elseif ( in_array($tagName, array( 'label', 'p' ), true) ) {
+            // A heading or note the reader sees between the fields. Copy that
+            // belongs to one control is withheld by `isControlOwnedCopy()`.
+            $item = array(
                 'type' => 'paragraph',
                 'text' => $text,
             );
+        } else {
+            return null;
         }
 
-        return null;
+        // Author rules address the element itself, so a consumer reproducing
+        // this copy as a block needs the classes to re-apply those rules.
+        $class = $this->classNames($node);
+        if ( '' !== $class ) {
+            $item['class'] = $class;
+        }
+
+        return $item;
+    }
+
+    /**
+     * Whether this node's copy is already carried by a control: it sits inside
+     * the element that labels the control, or it is the text the builder
+     * resolved as the control's own field description.
+     *
+     * @param array<int, DOMElement> $claimedLabels
+     * @param array<int, string>     $claimedTexts
+     */
+    private function isControlOwnedCopy(DOMElement $node, string $text, array $claimedLabels, array $claimedTexts): bool
+    {
+        foreach ( $claimedLabels as $label ) {
+            if ( SourceDom::elementContains($label, $node) ) {
+                return true;
+            }
+        }
+
+        return in_array($text, $claimedTexts, true);
+    }
+
+    /**
+     * `getElementsByTagName('*')` walks descendants, so a nested container
+     * repeats an already-recorded subtree's text; keep the outer record only.
+     *
+     * @param array<int, DOMElement> $recorded
+     */
+    private function isRecordedCopy(DOMElement $node, array $recorded): bool
+    {
+        foreach ( $recorded as $recordedNode ) {
+            if ( SourceDom::elementContains($recordedNode, $node) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return array<string, mixed> */

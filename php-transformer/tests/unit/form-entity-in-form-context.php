@@ -101,6 +101,59 @@ $assert(
     json_encode($plainLabel)
 );
 
+// A form title authored as a plain paragraph — no note-like class — before
+// the first control is copy the reader sees, so it is recorded, while the
+// field's own label stays with its control.
+$plainTitle = $formContext(
+    '<main><form method="post">'
+    . '<div><p class="form-header"><span><span>Stay Connected with Us</span></span></p></div>'
+    . '<label for="email">Email<span aria-hidden="true">*</span></label>'
+    . '<input id="email" type="email" name="email" required>'
+    . '<input type="submit" value="Subscribe"></form></main>'
+);
+$plainBefore = $plainTitle['context_before'] ?? array();
+$assert(
+    1 === count($plainBefore)
+        && 'paragraph' === ( $plainBefore[0]['type'] ?? '' )
+        && 'Stay Connected with Us' === ( $plainBefore[0]['text'] ?? '' ),
+    'a plain <p> form title before the controls is recorded',
+    json_encode($plainTitle)
+);
+$assert(
+    ! in_array('Email', array_column($plainBefore, 'text'), true),
+    'the field label is not duplicated into form context',
+    json_encode($plainBefore)
+);
+
+// A context item carries the classes its author rules address, so a consumer
+// reproducing it as a block can re-apply the authored presentation.
+$styledHeading = $formContext(
+    '<main><form method="post"><h2 class="form-title serif">Contact us</h2>'
+    . '<input type="email" name="email"><input type="submit" value="Go"></form></main>'
+);
+$heading = $styledHeading['context_before'][0] ?? array();
+$assert(
+    'heading' === ( $heading['type'] ?? '' )
+        && 2 === ( $heading['level'] ?? 0 )
+        && 'form-title serif' === ( $heading['class'] ?? '' ),
+    'a context heading carries the author classes',
+    json_encode($styledHeading)
+);
+
+// The walker visits descendants too, so nested containers must not repeat
+// copy that an outer record already carries.
+$nested = $formContext(
+    '<main><form method="post"><p class="intro">Members: <label for="e">Email address</label> below</p>'
+    . '<input id="e" type="email" name="email"><input type="submit" value="Go"></form></main>'
+);
+$nestedBefore = $nested['context_before'] ?? array();
+$assert(
+    1 === count($nestedBefore)
+        && 'Members: Email address below' === ( $nestedBefore[0]['text'] ?? '' ),
+    'nested containers record the copy once',
+    json_encode($nested)
+);
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "form entity in-form context FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);
