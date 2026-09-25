@@ -470,16 +470,18 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * The inline projection a class-retaining rich-text carrier may keep.
+     * The inline projection a hook-retaining rich-text carrier may keep.
      *
-     * A rich-text carrier keeps the author's classes as selector hooks, so a
-     * media-conditional rule continues to address it after conversion — but an
-     * inline declaration out-ranks every stylesheet rule. Projecting the static
-     * cascade winner inline would freeze the base breakpoint's value onto the
-     * carrier and silence that responsive rule at every other width. The same
-     * demotion `classOwnedResponsiveDeclarations()` applies to block wrappers,
-     * scoped to conditional rules the carrier will still answer after the
-     * transform: ones naming a class token the carrier retains.
+     * A rich-text carrier keeps the author's classes, id, and assigned
+     * rich-text marker as selector hooks, so a media-conditional rule continues
+     * to address it after conversion — but an inline declaration out-ranks
+     * every stylesheet rule. Projecting the static cascade winner inline would
+     * freeze the base breakpoint's value onto the carrier and silence that
+     * responsive rule at every other width. The same demotion
+     * `classOwnedResponsiveDeclarations()` applies to block wrappers, scoped to
+     * conditional rules the carrier will still answer after the transform:
+     * class tokens it retains, an authored id, or a marker assigned so id
+     * selectors can be rewritten onto the carrier.
      *
      * @param array<string, string> $declarations
      * @return array<string, string>
@@ -491,11 +493,16 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $classes = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
-        if (array() === $classes) {
+        $id = SourceDom::safeAnchor(SourceDom::attr($element, 'id'));
+        $marker = trim(SourceDom::attr($element, 'data-blocks-engine-richtext-marker'));
+        if (array() === $classes && '' === $id && '' === $marker) {
             return $declarations;
         }
 
-        $responsiveFamilies = $this->responsiveClassFamiliesInPlay($element, $classes);
+        $responsiveFamilies = array() === $classes ? array() : $this->responsiveClassFamiliesInPlay($element, $classes);
+        if ('' !== $id || '' !== $marker) {
+            $responsiveFamilies += $this->conditionalFamiliesInPlay($element);
+        }
         if (array() === $responsiveFamilies) {
             return $declarations;
         }

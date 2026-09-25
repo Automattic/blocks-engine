@@ -125,6 +125,26 @@ $assert(
     (string) ( $inline['serialized_blocks'] ?? '' )
 );
 
+// An id-targeted desktop media query is the same shape as a responsive class:
+// the static 24px must not freeze onto the mark, or every width renders the
+// base size and the 23px desktop rule never wins.
+$idTitle = ( new HtmlTransformer() )->transform(
+    '<style>.logo #site-title{display:block;max-width:400px;font-size:24px;font-weight:600}'
+    . '@media screen and (min-width:767px){#site-title{font-size:23px !important}}</style>'
+    . '<main><p class="logo"><a href="/"><span id="site-title">Site Title</span></a></p></main>'
+)->toArray();
+$idBlocks = (string) ( $idTitle['serialized_blocks'] ?? '' );
+$assert(
+    ! preg_match('/<mark[^>]*style="[^"]*font-size:24px/i', $idBlocks),
+    'an id-targeted desktop media query does not freeze the static 24px onto the mark',
+    $idBlocks
+);
+$assert(
+    str_contains($idBlocks, 'Site Title'),
+    'the id-targeted title remains editable rich text',
+    $idBlocks
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Rich-text responsive typography carriers: {$failures} failed, {$passes} passed\n");
     exit(1);
