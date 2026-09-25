@@ -463,6 +463,8 @@ final class InlineGeometry
             $geometry[$property] = $value;
         }
 
+        $this->capAbsoluteWidthToContainingBlock($geometry);
+
         if (array() === $geometry) {
             return '';
         }
@@ -526,6 +528,22 @@ final class InlineGeometry
         $this->context->layoutGeometry()->registerRule($className, implode("\n", $rules));
 
         return $className;
+    }
+
+    /**
+     * An authored pixel width must not overflow its containing block.
+     *
+     * @param array<string, string> $geometry
+     */
+    private function capAbsoluteWidthToContainingBlock(array &$geometry): void
+    {
+        if ( isset($geometry['max-width']) || ! isset($geometry['width']) ) {
+            return;
+        }
+        if ( ! CssValueInspector::isAbsoluteLength($geometry['width']) ) {
+            return;
+        }
+        $geometry['max-width'] = '100%';
     }
 
     /**

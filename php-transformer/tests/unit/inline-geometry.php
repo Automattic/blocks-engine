@@ -100,6 +100,7 @@ $assert('' === $unstyled, 'unstyled-element-mints-no-carrier');
 $carrier = $geometry->className($elementFrom('<div style="width:240px;height:80px"></div>'));
 $assert(str_starts_with($carrier, 'be-inline-geometry-'), 'sized-box-mints-carrier');
 $assert(str_contains($session->layoutGeometryState()->cssForSerializedBlocks($carrier), 'width:240px'), 'carrier-rule-preserves-width');
+$assert(str_contains($session->layoutGeometryState()->cssForSerializedBlocks($carrier), 'max-width:100%'), 'carrier-rule-caps-absolute-width');
 
 $source = (string) file_get_contents((string) (new ReflectionClass(InlineGeometry::class))->getFileName());
 $assert(! preg_match('/StyleResolver\s*\$/', $source), 'InlineGeometry has no StyleResolver $this parameter');

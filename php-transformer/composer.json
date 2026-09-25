@@ -86,6 +86,7 @@
       "php tests/unit/route-slug.php",
       "php tests/unit/responsive-media-block.php",
       "php tests/unit/visual-iframe-block.php",
+      "php tests/unit/fixed-width-media-overflow.php",
       "php tests/unit/authored-carousel-block.php",
       "php tests/unit/authored-marquee-block.php",
       "php tests/unit/copy-to-clipboard-block.php",
