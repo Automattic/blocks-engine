@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -383,7 +384,7 @@ final class AuthorStylesheetProjector
         }
         $projectedPrelude = $this->rewriteSelectorPrelude($prelude, $context);
         $authoredBody = $body;
-        $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context);
+        $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context, $inConditional);
         $nativeButtonCompatRule = $this->nativeButtonLinkCompatRule($prelude, $authoredBody, $context);
         $nonButtonLinkRule = '';
         if ( $body !== $authoredBody ) {
@@ -500,7 +501,7 @@ final class AuthorStylesheetProjector
      * already beats Gutenberg `:where` defaults, so promoting it to `!important`
      * would invert a later stretched `padding:0!important` rule.
      */
-    private function buttonLinkCompatDeclarations(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context): string
+    private function buttonLinkCompatDeclarations(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
     {
         if ( ! str_contains($projectedPrelude, '.wp-block-button__link') || ! $this->projectsAnchorButtonControl($prelude, $context) ) {
             return $body;
@@ -527,7 +528,11 @@ final class AuthorStylesheetProjector
                 $declarations[] = $declaration;
                 continue;
             }
-            if ( $preserveSourcePaddingImportance && ( 'padding' === $name || str_starts_with($name, 'padding-') ) ) {
+            // Unconditional padding stays ordinary: the button block carries the
+            // resolved padding inline, which (as in the source) outranks a plain
+            // class or element rule, so the owner's padding control keeps working.
+            // Only a conditional (media) override must beat that inline base.
+            if ( ( $preserveSourcePaddingImportance || ! $inConditional ) && ( 'padding' === $name || str_starts_with($name, 'padding-') ) ) {
                 $declarations[] = $declaration;
                 continue;
             }
@@ -2147,6 +2152,10 @@ final class AuthorStylesheetProjector
             if ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) {
                 $shims .= ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
             }
+            $listSpecificity = CssSelectorMatcher::selectorListArgumentSpecificity($compound);
+            $shims .= str_repeat($this->typeSpecificityShim($context), $listSpecificity['types'])
+                . str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', $listSpecificity['classes'])
+                . str_repeat(':not(#' . $context->authorStyles->idSpecificityShim() . ')', $listSpecificity['ids']);
         }
         return $shims;
     }

@@ -54,7 +54,7 @@ $authorAssets = $sourceAssets($authorOrder, 'author-css');
 $assert(1 === count($authorAssets), 'G2: transform emits exactly one author-css asset');
 $normalizedAuthorCss = preg_replace('/\s+/', '', (string) ($authorAssets[0]['content'] ?? '')) ?? '';
 $assert(
-    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons)>:where(.wp-block-button){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link){width:100%!important;max-width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0)>:where(.wp-block-button__link){display:inline-flex!important;padding:1rem!important;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
+    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons)>:where(.wp-block-button){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link){width:100%!important;max-width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0)>:where(.wp-block-button__link){display:inline-flex!important;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
     'G2: author-css contains only its leading at-rule preamble and rewritten author stylesheet'
 );
 $assert('author' === ($authorAssets[0]['stylesheet_placement'] ?? ''), 'G4: author-css record declares author placement');
@@ -175,7 +175,7 @@ $afterFamilies = array(
     'logos-only social sprite neutralize' => '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}',
     'list-navigation host' => '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}',
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',
-    'nativeButtonStyleRules' => 'background-color:#fff!important;color:#000!important',
+    'nativeButtonStyleRules' => '>.wp-block-button__link{box-sizing:border-box;width:max-content;max-width:100%;',
     'intrinsic native button width' => '.wp-block-buttons{width:max-content;max-width:100%}',
     'directFlexButtonStyleRules' => '.wp-block-buttons){display:block!important;gap:0!important;min-width:0;width:100%!important}',
     'fullWidthButtonStyleRules' => '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}',

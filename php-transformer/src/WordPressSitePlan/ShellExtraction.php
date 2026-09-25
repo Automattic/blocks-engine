@@ -37,6 +37,9 @@ final class ShellExtraction
             sort($classes, SORT_STRING);
             $innerMarkup = is_string($candidate['inner_block_markup'] ?? null) ? $this->plan->routeLinks($references->content($candidate['inner_block_markup'], $sourcePath), $sourcePath, $routes) : $markup;
             $templatePartMarkup = is_string($candidate['template_part_block_markup'] ?? null) ? $this->plan->routeLinks($references->content($candidate['template_part_block_markup'], $sourcePath), $sourcePath, $routes) : $innerMarkup;
+            // One rendered part serves every route; a page's own current item
+            // is restored at render time, never frozen into the shared part.
+            $templatePartMarkup = self::withoutCurrentNavigationState($templatePartMarkup);
             // Resolve this declared candidate's block-tree position now, while it is
             // still guaranteed unique for its area. Later removal reuses this
             // position directly instead of re-deriving it by searching for the
@@ -532,7 +535,7 @@ final class ShellExtraction
     {
         $markup = self::withoutCurrentNavigationState($markup, true);
         $markup = preg_replace('/\s*blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control|specificity-class|disclosure-summary)-[a-f0-9]{6,}(?:-\d+)?/', '', $markup) ?? $markup;
-        $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{64}/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
         $markup = preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
         $markup = preg_replace('/(?:\.\.\/)+assets\//', 'assets/', $markup) ?? $markup;
         return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup);
@@ -577,17 +580,39 @@ final class ShellExtraction
                 }
             }
         }
+        $restingPeers = self::restingNavigationPeers($markup);
         $sharedLinkColors = array_keys(array_filter($linkColorCounts, static fn(int $count): bool => 1 < $linkCount && $linkCount - 1 === $count));
         $restingColorBySignature = array();
         foreach ($restingColorCountsBySignature as $signature => $counts) {
             arsort($counts, SORT_NUMERIC);
             $restingColorBySignature[$signature] = (string) array_key_first($counts);
         }
-        return preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature): string {
+        $navigationIndex = -1;
+        return preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature, $restingPeers, &$navigationIndex): string {
+            if ('navigation' === $match[1]) ++$navigationIndex;
             $attrs = json_decode($match[2], true);
             if (!is_array($attrs)) return $match[0];
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
             $current = in_array('blocks-engine-current-navigation-item', $classes, true);
+            $peer = $restingPeers[$navigationIndex] ?? null;
+            if ($current && 'navigation-link' === $match[1] && is_array($peer)) {
+                // A client router can paint the current item through its own
+                // utility classes instead of an aria-current hook. The shared part
+                // must not freeze one page's selection, so the item takes its
+                // resting peers' presentation. The current-page state is restored
+                // at render time; its color stays on the navigation root marker.
+                // Rebuild in the peer's key order so identical presentation
+                // serializes identically regardless of which page was current.
+                $own = array_diff_key($attrs, array_flip(array('className', 'style', 'color', 'typography', 'anchor', 'anchorClassName')));
+                $attrs = array_merge($peer, $own);
+                // The part keeps the item's own link-state carrier, which the
+                // navigation-root current-color rule resolves its state against.
+                $stateCarriers = $semanticIdentity ? array() : array_values(array_filter($classes, static fn(string $class): bool => 1 === preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class)));
+                $merged = array_values(array_unique(array_merge(preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(), $stateCarriers)));
+                $merged = array_values(array_filter($merged, static fn(string $class): bool => '' !== $class));
+                if (array() === $merged) unset($attrs['className']); else $attrs['className'] = implode(' ', $merged);
+                return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
+            }
             if (!$current && !$semanticIdentity) return $match[0];
             $isLink = 'navigation' !== $match[1];
             $classes = array_values(array_filter($classes, static function (string $class) use ($current, $semanticIdentity, $stateCarrierCounts): bool {
@@ -595,7 +620,7 @@ final class ShellExtraction
                 if (($current || $semanticIdentity) && preg_match('/^blocks-engine-navigation-current-color-[a-f0-9]{64}$/', $class)) return false;
                 if ($current && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class)) return false;
                 if ($semanticIdentity && $current && 1 === ($stateCarrierCounts[$class] ?? 0)) return false;
-                if ($current && preg_match('/^be-inline-geometry-[a-f0-9]{64}$/', $class)) return false;
+                if ($current && preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class)) return false;
                 return true;
             }));
             if ($semanticIdentity && $current && $isLink) {
@@ -610,13 +635,42 @@ final class ShellExtraction
         }, $markup) ?? $markup;
     }
 
+    /**
+     * Per navigation block (document order), the presentation shared by at
+     * least two of its non-current links: className plus color/style attrs.
+     *
+     * @return array<int,array<string,mixed>|null>
+     */
+    private static function restingNavigationPeers(string $markup): array
+    {
+        $peers = array(); $index = -1; $groups = array();
+        preg_match_all('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(?:\/)?-->/s', $markup, $matches, PREG_SET_ORDER);
+        foreach ($matches as $match) {
+            if ('navigation' === $match[1]) { ++$index; $groups[$index] = array(); continue; }
+            if ('navigation-link' !== $match[1] || $index < 0) continue;
+            $attrs = json_decode($match[2], true);
+            if (!is_array($attrs)) continue;
+            $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+            if (in_array('blocks-engine-current-navigation-item', $classes, true)) continue;
+            $presentation = array_intersect_key($attrs, array_flip(array('className', 'style', 'color', 'typography')));
+            $key = json_encode($presentation);
+            $groups[$index][$key] = array('count' => ($groups[$index][$key]['count'] ?? 0) + 1, 'presentation' => $presentation);
+        }
+        foreach ($groups as $navigation => $candidates) {
+            uasort($candidates, static fn(array $left, array $right): int => $right['count'] <=> $left['count']);
+            $top = reset($candidates);
+            $peers[$navigation] = is_array($top) && 2 <= $top['count'] ? $top['presentation'] : null;
+        }
+        return $peers;
+    }
+
     /** @param array<int,string> $classes */
     private static function navigationClassSignature(array $classes): string
     {
         return implode(' ', array_values(array_filter($classes, static function (string $class): bool {
             return !in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), true)
                 && !preg_match('/^blocks-engine-navigation-(?:current|link)-color-[a-f0-9]{64}$/', $class)
-                && !preg_match('/^be-inline-geometry-[a-f0-9]{64}$/', $class);
+                && !preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class);
         })));
     }
 }

@@ -299,7 +299,7 @@ final class EditabilityReport
         if ($this->hasVisualGroupAttributes($attrs)) return 'empty_visual_group';
         $className = (string) ($attrs['className'] ?? '');
         foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
-            if (preg_match('/^be-inline-geometry-[a-f0-9]{64}(?:-[a-f0-9]{64})?$/', $class) && str_contains($generatedCarrierCss, '.' . $class . '{')) return 'empty_visual_group';
+            if (preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class) && str_contains($generatedCarrierCss, '.' . $class . '{')) return 'empty_visual_group';
         }
         return 'empty_wrapper';
     }
@@ -351,7 +351,7 @@ final class EditabilityReport
             'block_name' => $blockName,
             'attribute' => $attribute,
             'source_selector' => is_string($provenance['selector'] ?? null) ? $provenance['selector'] : '',
-            'source_fragment' => is_string($provenance['source_fragment'] ?? null) ? substr($provenance['source_fragment'], 0, 512) : '',
+            'source_fragment' => is_string($provenance['source_fragment'] ?? null) ? mb_strcut($provenance['source_fragment'], 0, 512, 'UTF-8') : '',
         ), static fn(string $value): bool => '' !== $value);
     }
 

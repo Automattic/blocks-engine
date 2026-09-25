@@ -134,6 +134,11 @@ $sidebarTemplateBlocks = parse_blocks((string) ($sidebarWrite['payload']['data']
 $sidebarBlocks = array_values(array_filter($sidebarTemplateBlocks, static fn(array $block): bool => 'core/template-part' === ($block['blockName'] ?? null) && 'sidebar' === ($block['attrs']['slug'] ?? null)));
 $sidebarReference = isset($sidebarBlocks[0]) ? serialize_block($sidebarBlocks[0]) : '';
 $sidebarRendered = do_blocks($sidebarReference);
+// #2165: a page saved in the editor gains Gutenberg's newline padding, which
+// renders under preserved white-space. The generated theme drops it.
+$editorSaved = serialize_blocks(parse_blocks('<!-- wp:group --><div class="wp-block-group"><!-- wp:paragraph --><p>One</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>Two' . "\n" . 'lines</p><!-- /wp:paragraph --></div><!-- /wp:group -->'));
+$editorSavedRendered = do_blocks($editorSaved);
+$assert(str_contains($editorSaved, "\n") && ! str_contains($editorSavedRendered, ">\n<") && 1 === preg_match('#>One</p><p[^>]*>Two\nlines</p>#', $editorSavedRendered), 'Editor-saved serialization padding does not render between or around blocks, while text newlines remain.');
 $assert('uncategorized' === ($sidebarPart['area'] ?? null) && 'aside' === ($sidebarPart['tag_name'] ?? null) && 1 === count($sidebarBlocks) && 'uncategorized' === ($sidebarBlocks[0]['attrs']['area'] ?? null) && 'aside' === ($sidebarBlocks[0]['attrs']['tagName'] ?? null) && str_contains($sidebarRendered, '<aside ') && str_contains($sidebarRendered, 'Integration Sidebar') && !str_contains($sidebarRendered, '<sidebar'), 'WordPress parses and renders the sidebar reference emitted by the generated front-page template with a core-supported area and semantic aside wrapper.');
 $positionedSvg = (new HtmlTransformer())->transform('<style>.hero-media{position:relative;width:1280px;height:760px}@media(max-width:700px){.hero-media{width:320px;height:240px}}</style><main><div class="hero-media"><svg class="hero-art" width="100%" height="100%" style="object-fit:cover" viewBox="0 0 1280 728.88"><rect width="1280" height="728.88" fill="#111"/></svg></div></main>')->toArray();
 $positionedSvgMarkup = (string) ($positionedSvg['serialized_blocks'] ?? '');
@@ -227,10 +232,16 @@ $editorSettings = static function (?WP_Post $post, string $name = 'core/edit-pos
         $styles->done = array_values(array_diff($styles->done, array($handle)));
         $styles->to_do = array_values(array_diff($styles->to_do, array($handle)));
     }
+    // Outer admin document pass: Core fires enqueue_block_assets on block editor
+    // screens while wp_should_load_block_editor_scripts_and_styles() is true.
+    get_current_screen()->is_block_editor(true);
+    do_action('enqueue_block_assets');
+    $outerPresentationHandles = array_values(array_filter($styles->queue, static fn(string $handle): bool => str_starts_with($handle, 'blocks-engine-editor-')));
+    // Canvas iframe pass: _wp_get_iframed_editor_assets() re-fires the hook and
+    // returns the <link> tags the iframe loads as __unstableResolvedAssets.
     $context = array('name' => $name);
     if ($post instanceof WP_Post) $context['post'] = $post;
     $settings = get_block_editor_settings(array(), new WP_Block_Editor_Context($context));
-    $outerPresentationHandles = array_values(array_filter($styles->queue, static fn(string $handle): bool => str_starts_with($handle, 'blocks-engine-editor-')));
     return array('settings' => $settings, 'outer_presentation_handles' => $outerPresentationHandles);
 };
 $frontEditor = $editorSettings($frontPage);
@@ -245,9 +256,7 @@ $aboutEditorAssets = (string) ($aboutEditorSettings['__unstableResolvedAssets'][
 $globalPresentation = array_column($plan['assets'] ?? array(), null, 'source_path')['assets/global.css'] ?? array();
 $authorPresentationPaths = array_values(array_map(static fn(array $asset): string => (string) ($asset['target_path'] ?? ''), array_filter($plan['assets'] ?? array(), static fn(array $asset): bool => 'author-css' === ($asset['source'] ?? ''))));
 $authorPresentationHandles = array_map(static fn(string $path): string => 'blocks-engine-editor-' . substr(hash('sha256', $path), 0, 12), $authorPresentationPaths);
-$editorStyleFor = static function (array $settings, string $path): array { foreach ($settings['styles'] ?? array() as $style) if (is_array($style) && get_theme_file_uri($path) === ($style['baseURL'] ?? null)) return $style; return array(); };
-$frontAuthorStyle = $editorStyleFor($frontEditorSettings, 'assets/assets/global.css');
-$aboutAuthorStyle = $editorStyleFor($aboutEditorSettings, 'assets/nested/about.inline.css');
+$linkFor = static function (string $assets, string $path): string { return 1 === preg_match('/<link\\b[^>]*\\bhref=([\'"])' . preg_quote(get_theme_file_uri($path), '/') . '(?:\\?[^\'"]*)?\\1[^>]*>/', $assets, $match) ? $match[0] : ''; };
 $post = $frontPage;
 set_current_screen('front');
 $frontRequestThemeJsonCss = (string) ((apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data())['styles']['css'] ?? '');
@@ -259,10 +268,10 @@ $siteEditor = $editorSettings(null, 'core/edit-site');
 $siteEditorAssets = (string) (($siteEditor['settings']['__unstableResolvedAssets']['styles'] ?? ''));
 set_current_screen('front');
 $assert(array() === array_values(array_intersect($authorPresentationHandles, $frontEditor['outer_presentation_handles'])) && array() === array_values(array_intersect($authorPresentationHandles, $aboutEditor['outer_presentation_handles'])) && array() === array_values(array_intersect($authorPresentationHandles, $siteEditor['outer_presentation_handles'])), 'Authored presentation styles are absent from the outer post and site editor documents.');
-$assert(!str_contains($frontEditorAssets, get_theme_file_uri('assets/assets/global.css')) && !str_contains($aboutEditorAssets, get_theme_file_uri('assets/assets/global.css')) && !str_contains($aboutEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')) && !str_contains($siteEditorAssets, get_theme_file_uri('assets/assets/global.css')) && !str_contains($siteEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')), 'Authored presentation styles are not collected as outer-document iframe assets.');
-$assert('.global-presentation{display:block}' === substr((string) ($frontAuthorStyle['css'] ?? ''), -strlen('.global-presentation{display:block}')) && get_theme_file_uri('assets/assets/global.css') === ($frontAuthorStyle['baseURL'] ?? null) && 'theme' === ($frontAuthorStyle['__unstableType'] ?? null) && false === ($frontAuthorStyle['isGlobalStyles'] ?? true), 'A route-matched authored stylesheet is delivered through Core editor settings with its source selectors, bytes, and stylesheet base URL.');
-$assert(str_contains((string) ($aboutAuthorStyle['css'] ?? ''), '@media (min-width: 48rem){.about-owned{color:#654321}.about-media-presentation{display:grid}') && get_theme_file_uri('assets/nested/about.inline.css') === ($aboutAuthorStyle['baseURL'] ?? null) && false !== strpos($aboutEditorCss, '.global-presentation{display:block}') && false !== strpos($aboutEditorCss, '.about-owned{color:#654321}') && strpos($aboutEditorCss, '.global-presentation{display:block}') < strpos($aboutEditorCss, '.about-owned{color:#654321}'), 'Route-matched editor settings preserve responsive stylesheet scope and source cascade order.');
-$assert(str_contains($siteEditorCss = implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $siteEditor['settings']['styles'] ?? array())), '.global-presentation{display:block}') && str_contains($siteEditorCss, '.about-owned{color:#654321}'), 'The site editor receives the complete declared authored presentation set through editor settings.');
+$assert('' !== $linkFor($frontEditorAssets, 'assets/assets/global.css') && '' === $linkFor($frontEditorAssets, 'assets/nested/about.inline.css') && '' !== $linkFor($aboutEditorAssets, 'assets/assets/global.css') && '' !== $linkFor($aboutEditorAssets, 'assets/nested/about.inline.css') && 1 === substr_count($aboutEditorAssets, get_theme_file_uri('assets/assets/global.css')) && 1 === substr_count($aboutEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')), 'Route-matched authored stylesheets are loaded by URL into the editor canvas iframe, once each, and only for the edited route.');
+$assert(!str_contains($frontEditorCss, '.global-presentation{display:block}') && !str_contains($aboutEditorCss, '.global-presentation{display:block}') && !str_contains($aboutEditorCss, '.about-owned{color:#654321}') && array() === array_filter(array_merge($frontEditorSettings['styles'] ?? array(), $aboutEditorSettings['styles'] ?? array()), static fn(mixed $style): bool => is_array($style) && in_array($style['baseURL'] ?? null, array_map('get_theme_file_uri', $authorPresentationPaths), true)), 'Authored stylesheet contents are never inlined into the editor settings payload.');
+$assert(1 === preg_match('/\\bmedia=([\'"])\\(min-width: 48rem\\)\\1/', $linkFor($aboutEditorAssets, 'assets/nested/about.inline.css')) && strpos($aboutEditorAssets, get_theme_file_uri('assets/assets/global.css')) < strpos($aboutEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')), 'Iframe stylesheet links preserve responsive stylesheet media and source cascade order.');
+$assert('' !== $linkFor($siteEditorAssets, 'assets/assets/global.css') && '' !== $linkFor($siteEditorAssets, 'assets/nested/about.inline.css') && !str_contains(implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $siteEditor['settings']['styles'] ?? array())), '.about-owned{color:#654321}'), 'The site editor canvas loads the complete declared authored presentation set by URL, not inlined.');
 $assert('' === $frontRequestThemeJsonCss && '' === $frontEditorThemeJsonCss && '' === $aboutEditorThemeJsonCss, 'Presentation CSS is not duplicated through frontend or editor theme JSON.');
 $assert(str_contains($frontEditorCss, WordPressSitePlan::EDITOR_CORE_IMAGE_INTERACTION_CSS) && str_contains($frontEditorCss, WordPressSitePlan::EDITOR_POST_TITLE_INTERACTION_CSS) && str_contains($frontEditorCss, WordPressSitePlan::EDITOR_LINK_INTERACTION_CSS), 'Editor interaction compatibility remains a bounded editor-settings rule.');
 global $wp_query;

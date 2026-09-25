@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -305,6 +306,9 @@ final class SvgMaterializer implements SvgElementMaterializer
         if ( ! SourceDom::svgHasDrawableContent($element) ) {
             return null;
         }
+        if ( $this->collapsedRestingControlPresentation($element) ) {
+            return '';
+        }
 
         $html = $this->context->sanitizeInlineSvgMarkup($element);
         if ( ! SourceDom::isSafeSvgContent($html) ) {
@@ -368,6 +372,81 @@ final class SvgMaterializer implements SvgElementMaterializer
         return $markup;
     }
 
+    private function collapsedRestingControlPresentation(DOMElement $element): bool
+    {
+        $control = null;
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $tagName = strtolower($node->tagName);
+            if ( in_array($tagName, array( 'a', 'button' ), true) ) {
+                $control = $node;
+                break;
+            }
+            if ( in_array($tagName, array( 'body', 'html' ), true) ) {
+                return false;
+            }
+        }
+        if ( ! $control instanceof DOMElement ) {
+            return false;
+        }
+
+        for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($control); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            if ( $this->restingBoxIsCollapsed($node) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function restingBoxIsCollapsed(DOMElement $element): bool
+    {
+        if ( $element->hasAttribute('hidden') ) {
+            return true;
+        }
+        foreach ( array( 'width', 'height' ) as $dimension ) {
+            $captured = $this->capturedVisualLength($element, $dimension);
+            if ( null !== $captured && $captured <= 0.0 ) {
+                return true;
+            }
+        }
+
+        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        $author = $this->styleResolver->authorStructuralDeclarations($element);
+        if ( ! isset($declarations['visibility']) && isset($author['visibility']) ) {
+            $declarations['visibility'] = $author['visibility'];
+        }
+        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        if ( 'none' === $display ) {
+            return true;
+        }
+        $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
+        if ( in_array($visibility, array( 'hidden', 'collapse' ), true) ) {
+            return true;
+        }
+        foreach ( array( 'width', 'height', 'max-width', 'max-height' ) as $property ) {
+            if ( $this->isCollapsedLength((string) ($declarations[$property] ?? '')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function capturedVisualLength(DOMElement $element, string $dimension): ?float
+    {
+        $value = trim(SourceDom::attr($element, 'data-source-visual-' . $dimension));
+        if ( 1 !== preg_match('/^(-?(?:\d+(?:\.\d+)?|\.\d+))(?:px)?$/', $value, $match) ) {
+            return null;
+        }
+
+        return (float) $match[1];
+    }
+
+    private function isCollapsedLength(string $value): bool
+    {
+        return 1 === preg_match('/^0(?:\.0+)?(?:px|em|rem|%|vh|vw|vmin|vmax)?$/', CssValueInspector::comparable($value));
+    }
+
     /**
      * Resolve percentage-sized RichText artwork before its structural wrapper is flattened.
      *
@@ -396,9 +475,9 @@ final class SvgMaterializer implements SvgElementMaterializer
                     continue 2;
                 }
 
-                $sourceVisualDimension = trim(SourceDom::attr($parent, 'data-source-visual-' . $dimension));
-                if ( '' === $fallback && is_numeric($sourceVisualDimension) && (float) $sourceVisualDimension > 0 ) {
-                    $fallback = $this->normalizedSvgDimension((float) $sourceVisualDimension * $scale) . 'px';
+                $sourceVisualDimension = $this->capturedVisualLength($parent, $dimension);
+                if ( '' === $fallback && null !== $sourceVisualDimension && $sourceVisualDimension > 0 ) {
+                    $fallback = $this->normalizedSvgDimension($sourceVisualDimension * $scale) . 'px';
                 }
             }
             if ( '' !== $fallback ) {

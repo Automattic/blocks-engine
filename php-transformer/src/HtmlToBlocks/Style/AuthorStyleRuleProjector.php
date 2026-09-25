@@ -436,9 +436,13 @@ final class AuthorStyleRuleProjector
         if ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true)
             && in_array($flexDirection, array( 'column', 'column-reverse' ), true) ) {
             // Stretch only governs the cross axis. A column flex parent sizes
-            // its children along the block axis via flex-basis/grow instead,
-            // so it is not a stretch-derived size source for block height.
-            return false;
+            // its children along the block axis via flex-basis/grow instead:
+            // a growing item's post-flexing main size is definite exactly when
+            // the container's main size is (CSS Flexbox 9.8), so it fills the
+            // container's definite height. A non-growing item keeps its
+            // content height and is no size source.
+            return $this->growsAlongFlexMainAxis($element)
+                && $this->receivesDefiniteBlockSize($parent, $depth + 1);
         }
         $alignSelfRaw = (string) ($this->styleResolver->structuralPresentationDeclarations($element)['align-self'] ?? '');
         $alignSelf = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($alignSelfRaw), $element));
@@ -449,6 +453,29 @@ final class AuthorStyleRuleProjector
         }
 
         return $this->receivesDefiniteBlockSize($parent, $depth + 1);
+    }
+
+    /**
+     * Whether the element's resolved `flex-grow` (longhand, else the first
+     * number of the `flex` shorthand) is positive.
+     */
+    private function growsAlongFlexMainAxis(DOMElement $element): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        $grow = $this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['flex-grow'] ?? '')), $element);
+        if ( '' === trim($grow) ) {
+            $flex = strtolower(trim($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['flex'] ?? '')), $element)));
+            $first = (string) (CssValueSplitter::splitTopLevelWhitespace($flex)[0] ?? '');
+            if ( '' !== $first && ! is_numeric($first) ) {
+                // `flex:auto` and `flex:<basis>` both grow by 1; `none` and
+                // the CSS-wide keywords do not.
+                return ! in_array($flex, array( 'none', 'initial', 'inherit', 'unset', 'revert' ), true);
+            }
+            $grow = $first;
+        }
+        $grow = trim($grow);
+
+        return is_numeric($grow) && 0 < (float) $grow;
     }
 
     /**

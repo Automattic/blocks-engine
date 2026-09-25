@@ -239,7 +239,7 @@ final class WordPressSitePlan
             'routes' => $routes,
             'navigation_links' => $input->navigationLinks,
             'menus' => $input->menus,
-            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization)),
+            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization)),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
@@ -824,7 +824,7 @@ final class WordPressSitePlan
                 if ('links' !== $kind) continue;
                 $route = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes);
                 if (null !== $route) $row['url'] = $route;
-                elseif ($this->isOptionalFeedLink($row) || $this->isOptionalResourceHint($row) || $this->isOptionalManifestLink($row)) $row = null;
+                elseif ($this->isOptionalFeedLink($row) || $this->isOptionalResourceHint($row) || $this->isOptionalManifestLink($row) || $this->isVendorLink($row)) $row = null;
             }
             unset($row);
             $metadata[$kind] = array_values(array_filter($metadata[$kind], static fn(mixed $row): bool => is_array($row)));
@@ -846,6 +846,21 @@ final class WordPressSitePlan
         $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
         $resourceHints = array('dns-prefetch', 'modulepreload', 'preconnect', 'prefetch', 'preload', 'prerender');
         return !self::explicitUrl($link['url'] ?? null) && array() !== $relations && array() === array_diff($relations, $resourceHints);
+    }
+    /**
+     * HTML link types (WHATWG `rel` keywords and registered extensions). A link
+     * whose relations are all outside this set is a vendor discovery endpoint
+     * (Shopify's `ucp`, for one) that the imported site cannot serve and no
+     * page presentation depends on, so an unresolved one is omitted rather than
+     * failing the import.
+     */
+    private const HTML_LINK_TYPES = array('alternate', 'author', 'bookmark', 'canonical', 'dns-prefetch', 'expect', 'external', 'feed', 'help', 'icon', 'license', 'manifest', 'modulepreload', 'next', 'nofollow', 'noopener', 'noreferrer', 'opener', 'pingback', 'preconnect', 'prefetch', 'preload', 'prerender', 'prev', 'privacy-policy', 'search', 'shortcut', 'stylesheet', 'tag', 'terms-of-service', 'apple-touch-icon', 'apple-touch-icon-precomposed', 'apple-touch-startup-image', 'mask-icon', 'me', 'webmention', 'hub', 'amphtml', 'shortlink', 'edituri', 'wlwmanifest', 'profile', 'openid.server', 'openid.delegate', 'openid2.provider', 'openid2.local_id');
+    /** @param array<string,mixed> $link */
+    private function isVendorLink(array $link): bool
+    {
+        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
+        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
+        return !self::explicitUrl($link['url'] ?? null) && array() !== $relations && array() === array_intersect($relations, self::HTML_LINK_TYPES);
     }
     /** @param array<string,mixed> $link */
     private function isOptionalManifestLink(array $link): bool
@@ -1355,8 +1370,9 @@ final class WordPressSitePlan
     private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array()): string
     {
         $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY, "add_action( 'wp_enqueue_scripts', static function (): void {");
+        $importLoaded = self::importLoadedStylesheets($assets);
         foreach ($assets as $asset) {
-            if ('editor' === ($asset['stylesheet_target'] ?? 'both')) continue;
+            if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
             $handle = 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12);
             if ('css' === $asset['kind']) foreach ($asset['scopes'] as $scope) {
                 $condition = self::bootstrapScopeCondition($scope);
@@ -1399,7 +1415,7 @@ final class WordPressSitePlan
             $sourcePaths = is_array($part['placement']['source_paths'] ?? null) ? $part['placement']['source_paths'] : array((string) ($part['placement']['source_path'] ?? preg_replace('/#.*$/', '', (string) ($part['source_path'] ?? ''))));
             foreach ($sourcePaths as $sourcePath) if (is_string($sourcePath) && '' !== $sourcePath && '' !== (string) ($part['slug'] ?? '')) $partSlugsBySource[$sourcePath][] = (string) $part['slug'];
         }
-        foreach ($assets as $asset) if ('css' === $asset['kind'] && 'frontend' !== ($asset['stylesheet_target'] ?? 'both')) {
+        foreach ($assets as $asset) if ('css' === $asset['kind'] && 'frontend' !== ($asset['stylesheet_target'] ?? 'both') && !isset($importLoaded[$asset['target_path']])) {
             $partSlugs = array();
             foreach ($asset['scopes'] as $scope) foreach ($partSlugsBySource[(string) ($scope['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
             $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['media'] ?? null, 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both')), static fn(mixed $value): bool => null !== $value);
@@ -1415,17 +1431,17 @@ final class WordPressSitePlan
             $lines[] = "    }";
             $lines[] = "    return \$matches;";
             $lines[] = "};";
+            // Core collects the editor canvas iframe's stylesheets by firing
+            // enqueue_block_assets with should_load_block_editor_scripts_and_styles
+            // forced false (_wp_get_iframed_editor_assets()); the iframe then
+            // loads them by URL. Authored and editor-only CSS is enqueued only on
+            // that pass, so it never styles the outer admin document and is never
+            // inlined into the editor settings payload.
             $lines[] = "add_action( 'enqueue_block_assets', static function () use ( \$blocks_engine_presentation_styles, \$blocks_engine_presentation_matches ): void {";
             $lines[] = "    \$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null; \$site_editor = \$screen instanceof WP_Screen && 'site-editor' === \$screen->base; if ( ! \$site_editor && ( ! \$screen instanceof WP_Screen || ! in_array( \$screen->base, array( 'post', 'post-new' ), true ) ) ) return; \$post = \$GLOBALS['post'] ?? null;";
-            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( ( empty( \$style['author_css'] ) || ! empty( \$style['editor_only'] ) ) && \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
+            $lines[] = "    \$canvas = ! wp_should_load_block_editor_scripts_and_styles();";
+            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( ( \$canvas || ( empty( \$style['author_css'] ) && empty( \$style['editor_only'] ) ) ) && \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
             $lines[] = "} );";
-            // Editor settings styles reach the canvas iframe for the edited post
-            // only; add_editor_style() would load every page's editor CSS on each.
-            $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings, WP_Block_Editor_Context \$context ) use ( \$blocks_engine_presentation_styles, \$blocks_engine_presentation_matches ): array {";
-            $lines[] = "    \$post = \$context->post ?? null; \$site_editor = 'core/edit-site' === ( \$context->name ?? '' );";
-            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) { if ( ( empty( \$style['author_css'] ) && empty( \$style['editor_only'] ) ) || ! \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) continue; \$path = get_theme_file_path( \$style['target_path'] ); if ( ! is_file( \$path ) || false === ( \$css = file_get_contents( \$path ) ) ) continue; if ( '' !== trim( (string) ( \$style['media'] ?? '' ) ) ) \$css = '@media ' . \$style['media'] . '{' . \$css . '}'; \$settings['styles'][] = array( 'css' => \$css, 'baseURL' => get_theme_file_uri( \$style['target_path'] ), '__unstableType' => 'theme', 'isGlobalStyles' => false ); }";
-            $lines[] = "    return \$settings;";
-            $lines[] = "}, 20, 2 );";
         }
         $inlineShellSlugs = array_values(array_map(static fn(array $part): string => (string) $part['slug'], array_filter($parts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null))));
         if (array() !== $inlineShellSlugs) {
@@ -1472,6 +1488,22 @@ final class WordPressSitePlan
             $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
         }
+        // Gutenberg pads every saved block with newlines. Imported presentation can
+        // preserve white-space (Wix rich text uses break-spaces), so that padding
+        // renders as blank lines once a page is saved. Drop serializer newline runs
+        // at block edges and between inner blocks; text inside blocks is untouched.
+        $lines[] = "add_filter( 'render_block_data', static function ( array \$block ): array {";
+        $lines[] = "    \$content = \$block['innerContent'] ?? null; if ( ! is_array( \$content ) ) return \$block;";
+        $lines[] = "    if ( null === ( \$block['blockName'] ?? null ) ) { if ( '' === trim( (string) ( \$block['innerHTML'] ?? '' ) ) ) { \$block['innerHTML'] = ''; \$block['innerContent'] = array(); } return \$block; }";
+        $lines[] = "    \$last = count( \$content ) - 1;";
+        $lines[] = "    foreach ( \$content as \$index => \$chunk ) {";
+        $lines[] = "        if ( ! is_string( \$chunk ) ) continue;";
+        $lines[] = "        if ( 0 === \$index || null === \$content[ \$index - 1 ] ) \$chunk = preg_replace( '/^\\s*\\n[ \\t\\r\\f]*/', '', \$chunk ) ?? \$chunk;";
+        $lines[] = "        if ( \$last === \$index || null === \$content[ \$index + 1 ] ) \$chunk = preg_replace( '/[ \\t\\r\\f]*\\n\\s*\$/', '', \$chunk ) ?? \$chunk;";
+        $lines[] = "        \$content[ \$index ] = \$chunk;";
+        $lines[] = "    }";
+        $lines[] = "    \$block['innerContent'] = \$content; return \$block;";
+        $lines[] = "}, 10, 1 );";
         $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export(self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
@@ -1497,6 +1529,34 @@ final class WordPressSitePlan
     // back onto the materialized file. Encode every segment, preserving the
     // `/` separators.
     private static function encodedAssetUrlPath(string $path): string { return implode('/', array_map('rawurlencode', explode('/', $path))); }
+    /**
+     * A stylesheet that another stylesheet loads through `@import` (a chunked
+     * stylesheet's loader, or an authored import) already loads at its
+     * importer's cascade position. Enqueueing it as well adds a second copy at
+     * an unrelated position, which inverts the source cascade.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return array<string,true> Target paths that load only through an importing stylesheet.
+     */
+    private static function importLoadedStylesheets(array $assets): array
+    {
+        $stylesheets = array();
+        foreach ($assets as $asset) if ('css' === ($asset['kind'] ?? null)) $stylesheets[(string) $asset['source_path']] = true;
+        $importLoaded = array();
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null)) continue;
+            $linked = false;
+            $imported = false;
+            foreach (is_array($asset['references'] ?? null) ? $asset['references'] : array() as $reference) {
+                if (!is_array($reference)) continue;
+                if ('link' === ($reference['element'] ?? null)) $linked = true;
+                $importer = (string) ($reference['source_path'] ?? '');
+                if ('css-import' === ($reference['context'] ?? null) && isset($stylesheets[$importer]) && $importer !== $asset['source_path'] && $asset['source_path'] === ArtifactPath::resolveRelativePath((string) ($reference['url'] ?? ''), $importer)) $imported = true;
+            }
+            if ($imported && !$linked) $importLoaded[(string) $asset['target_path']] = true;
+        }
+        return $importLoaded;
+    }
     /** @param array<string,mixed> $scope */
     private static function bootstrapScopeCondition(array $scope): string
     {

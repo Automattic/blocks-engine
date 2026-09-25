@@ -1020,7 +1020,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->session,
                 function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
                     return $convertChildren($element, $fallbacks, true);
-                }
+                },
+                fn (DOMElement $element, array $excludedProperties): string => $this->styleResolver->inlineGeometryClassName($element, $excludedProperties)
             ),
             new ThemeToggleConverter(
                 $this->svgMaterializer,
@@ -1414,6 +1415,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
         $this->projectedSelectorBindings = array();
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
+        $this->session->installSourcePath($this->currentSourcePath);
         $this->sharedStylesheetPaths = array();
         foreach ( is_array($options['shared_stylesheet_paths'] ?? null) ? $options['shared_stylesheet_paths'] : array() as $path ) {
             if ( is_string($path) && '' !== $path ) {
@@ -6270,7 +6272,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $html = preg_replace('/\s+(href|src)\s*=\s*("\s*javascript:[^"]*"|\'\s*javascript:[^\']*\'|javascript:[^\s>]+)/i', '', $html) ?? '';
 
         if ( strlen($html) > 500 ) {
-            return substr($html, 0, 500) . '...';
+            return $this->utf8Prefix($html, 500) . '...';
         }
 
         return $html;

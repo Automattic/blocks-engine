@@ -290,6 +290,12 @@ final class FormControlMetadataBuilder
                 $metadata['options'] = $options;
             }
         }
+        if ( ! isset($metadata['options']) ) {
+            $listboxOptions = $this->ownedListboxOptions($control);
+            if ( array() !== $listboxOptions ) {
+                $metadata['options'] = $listboxOptions;
+            }
+        }
 
         return $metadata;
     }
@@ -493,8 +499,12 @@ final class FormControlMetadataBuilder
     private function descriptionCandidates(DOMElement $wrapper, DOMElement $control, ?DOMElement $labelElement): array
     {
         $candidates = array();
+        $listbox = $this->ownedListboxPanel($control);
         foreach ( $wrapper->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
+                continue;
+            }
+            if ( $listbox instanceof DOMElement && $this->isOwnedListboxCopy($node, $listbox) ) {
                 continue;
             }
             if ( SourceDom::elementContains($control, $node) || SourceDom::elementContains($node, $control) ) {
@@ -560,6 +570,165 @@ final class FormControlMetadataBuilder
 
         $value = trim(SourceDom::attr($control, 'value'));
         return '' !== $value ? $value : $fallback;
+    }
+
+    /**
+     * Option rows inside a listbox popup owned by this control are an auxiliary
+     * option set (a country-code selector, for one), not free field copy.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function ownedListboxOptions(DOMElement $control): array
+    {
+        $panel = $this->ownedListboxPanel($control);
+        if ( ! $panel instanceof DOMElement ) {
+            return array();
+        }
+
+        $options = array();
+        foreach ( $panel->getElementsByTagName('*') as $option ) {
+            if ( ! $option instanceof DOMElement || 'option' !== strtolower(trim($option->getAttribute('role'))) ) {
+                continue;
+            }
+            $label = $this->collapsedElementText($option);
+            if ( '' === $label ) {
+                continue;
+            }
+            $value = $option->getAttribute('data-value');
+            $row = array(
+                'label' => $label,
+                'value' => '' === $value ? $label : $value,
+            );
+            if ( 'true' === strtolower(trim($option->getAttribute('aria-selected'))) ) {
+                $row['selected'] = true;
+            }
+            if ( 'true' === strtolower(trim($option->getAttribute('aria-disabled'))) ) {
+                $row['disabled'] = true;
+            }
+            $options[] = $row;
+        }
+
+        return $options;
+    }
+
+    /**
+     * A listbox panel is owned by the control that pops it up: the capture
+     * trigger/panel pair, an aria-controls reference, or a nested listbox
+     * beside an aria-haspopup=listbox trigger.
+     */
+    private function ownedListboxPanel(DOMElement $control): ?DOMElement
+    {
+        $key = trim(SourceDom::attr($control, 'data-dla-listbox-trigger'));
+        $document = $control->ownerDocument;
+        if ( '' !== $key && $document instanceof \DOMDocument ) {
+            foreach ( $document->getElementsByTagName('*') as $candidate ) {
+                if ( $candidate instanceof DOMElement && $candidate->getAttribute('data-dla-listbox-panel') === $key ) {
+                    return $candidate;
+                }
+            }
+        }
+
+        if ( 'listbox' !== strtolower(trim(SourceDom::attr($control, 'aria-haspopup'))) ) {
+            return null;
+        }
+
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $id ) {
+            if ( '' === $id ) {
+                continue;
+            }
+            $target = $this->elementById($control, $id);
+            if ( $target instanceof DOMElement && null !== ( $panel = $this->referencedListbox($target) ) ) {
+                return $panel;
+            }
+        }
+
+        return $this->nestedListboxPanel($control);
+    }
+
+    private function referencedListbox(DOMElement $element): ?DOMElement
+    {
+        if ( $this->isListboxPanel($element) ) {
+            return $element;
+        }
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && 'listbox' === strtolower(trim($candidate->getAttribute('role'))) ) {
+                return $element;
+            }
+        }
+
+        return null;
+    }
+
+    private function nestedListboxPanel(DOMElement $control): ?DOMElement
+    {
+        $depth = 0;
+        for ( $wrapper = $control->parentNode; $wrapper instanceof DOMElement && $depth < self::FIELD_WRAPPER_DEPTH; $wrapper = $wrapper->parentNode, ++$depth ) {
+            if ( in_array(strtolower($wrapper->tagName), array( 'form', 'fieldset', 'body', 'html' ), true) ) {
+                break;
+            }
+            foreach ( $wrapper->getElementsByTagName('*') as $candidate ) {
+                if ( ! $candidate instanceof DOMElement || 'listbox' !== strtolower(trim($candidate->getAttribute('role'))) ) {
+                    continue;
+                }
+                if ( SourceDom::elementContains($control, $candidate) || $this->panelOwnedByOtherTrigger($candidate, $control) ) {
+                    continue;
+                }
+
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function panelOwnedByOtherTrigger(DOMElement $panel, DOMElement $control): bool
+    {
+        $ownKey = trim(SourceDom::attr($control, 'data-dla-listbox-trigger'));
+        for ( $node = $panel; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $key = trim($node->getAttribute('data-dla-listbox-panel'));
+            if ( '' === $key ) {
+                continue;
+            }
+
+            return $key !== $ownKey;
+        }
+
+        return false;
+    }
+
+    private function isListboxPanel(DOMElement $element): bool
+    {
+        return 'listbox' === strtolower(trim($element->getAttribute('role')))
+            || '' !== trim($element->getAttribute('data-dla-listbox-panel'));
+    }
+
+    private function isOwnedListboxCopy(DOMElement $node, DOMElement $panel): bool
+    {
+        if ( SourceDom::elementContains($panel, $node) ) {
+            return true;
+        }
+
+        return SourceDom::elementContains($node, $panel)
+            && $this->collapsedElementText($node) === $this->collapsedElementText($panel);
+    }
+
+    private function elementById(DOMElement $context, string $id): ?DOMElement
+    {
+        $document = $context->ownerDocument;
+        if ( '' === $id || ! $document instanceof \DOMDocument ) {
+            return null;
+        }
+        $found = $document->getElementById($id);
+        if ( $found instanceof DOMElement ) {
+            return $found;
+        }
+        foreach ( $document->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && $candidate->getAttribute('id') === $id ) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /** @return array<int, array<string, mixed>> */
