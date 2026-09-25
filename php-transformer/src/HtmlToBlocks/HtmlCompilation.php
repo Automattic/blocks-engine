@@ -2614,7 +2614,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( null !== $spacing ) {
             $rule      = '{column-gap:' . $spacing . ';padding-inline:' . $spacing . '}';
             $className = $this->layoutGeometry()->allocateCarrier('layout-table-spacing' . "\n" . $rule);
-            $this->layoutGeometry()->registerRule($className, '.' . $className . $rule);
+            $this->layoutGeometry()->registerRule(
+                $className,
+                ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '.' . $className . $rule
+            );
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $className);
         }
 

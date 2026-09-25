@@ -80,7 +80,8 @@ $assert(
     'layout-table columns restore ua table-cell padding at zero specificity'
 );
 $assert(
-    str_contains($css, '{column-gap:2px;padding-inline:2px}'),
+    str_contains($css, ':root .wp-block-columns.blocks-engine-layout-table-columns.')
+        && str_contains($css, '{column-gap:2px;padding-inline:2px}'),
     'unsized leftover row restores ua border-spacing as column-gap and padding-inline',
     $css
 );
