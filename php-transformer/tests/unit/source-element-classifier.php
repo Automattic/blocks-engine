@@ -250,6 +250,62 @@ $assert(
     'a longer word containing the token does not match'
 );
 
+// --- image-only slideshow collections --------------------------------------
+
+$slideshowHost = $element(
+    '<div><div style="height:20px;overflow:hidden"></div><div id="photo-slideshow" class="photo-slideshow">'
+    . '<div class="slides">'
+    . '<div class="slide"><img src="one.jpg"></div>'
+    . '<div class="slide" style="display:none"><img src="two.jpg"></div>'
+    . '</div>'
+    . '<div class="picker"><a><img src="one-t.jpg"></a><a><img src="two-t.jpg"></a></div>'
+    . '</div></div>'
+);
+$stageImages = $classifier->imageSlideshowStageImages($slideshowHost);
+$assert(
+    2 === count($stageImages)
+        && 'one.jpg' === $stageImages[0]->getAttribute('src')
+        && 'two.jpg' === $stageImages[1]->getAttribute('src'),
+    'a thin host around a stage and thumbnail pager yields the stage images'
+);
+$assert(
+    $classifier->isImageOnlySlideshowCollection($slideshowHost),
+    'the same host is an image-only slideshow collection'
+);
+
+$mixedSlide = $element(
+    '<div class="photo-slideshow"><div class="slides">'
+    . '<div class="slide"><h2>Quote</h2><p>Copy.</p><img src="one.jpg"></div>'
+    . '<div class="slide" style="display:none"><h2>Two</h2><p>More.</p><img src="two.jpg"></div>'
+    . '</div></div>'
+);
+$assert(
+    array() === $classifier->imageSlideshowStageImages($mixedSlide),
+    'slides that carry headings are not an image-only collection'
+);
+
+$videoSlide = $element(
+    '<div class="photo-slideshow"><div class="slides">'
+    . '<div class="slide"><video src="clip.mp4"></video></div>'
+    . '<div class="slide" style="display:none"><img src="two.jpg"></div>'
+    . '</div><div class="picker"><a><img src="one-t.jpg"></a><a><img src="two-t.jpg"></a></div></div>'
+);
+$assert(
+    array() === $classifier->imageSlideshowStageImages($videoSlide),
+    'a slideshow that mixes video is not an image-only collection'
+);
+
+$article = $element(
+    '<article><p>Intro</p><div id="photo-slideshow" class="photo-slideshow"><div class="slides">'
+    . '<div class="slide"><img src="one.jpg"></div>'
+    . '<div class="slide" style="display:none"><img src="two.jpg"></div>'
+    . '</div></div><p>Outro</p></article>'
+);
+$assert(
+    array() === $classifier->imageSlideshowStageImages($article),
+    'mixed siblings around a slideshow are not themselves the collection'
+);
+
 // --- phrasing content -------------------------------------------------------
 
 $assert(

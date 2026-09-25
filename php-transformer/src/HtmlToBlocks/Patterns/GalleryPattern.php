@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -97,12 +98,12 @@ final class GalleryPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            return null;
+            return $this->matchImageSlideshow($element, $convertImageElement, $presentationAttributes, $createBlock);
         }
 
         $images = array_values(array_filter($images));
         if ( count($images) < 2 ) {
-            return null;
+            return $this->matchImageSlideshow($element, $convertImageElement, $presentationAttributes, $createBlock);
         }
 
         $attrs = $presentationAttributes($element);
@@ -110,6 +111,33 @@ final class GalleryPattern implements PatternRecognizerInterface
         if ( $caption instanceof DOMElement ) {
             $attrs['caption'] = $innerHtml($caption);
         }
+
+        return $createBlock('core/gallery', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $images, $element);
+    }
+
+    /**
+     * @param callable(DOMElement, DOMElement|null, DOMElement|null, DOMElement|null): (array<string, mixed>|null) $convertImageElement
+     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
+     * @return array<string, mixed>|null
+     */
+    private function matchImageSlideshow(DOMElement $element, callable $convertImageElement, callable $presentationAttributes, callable $createBlock): ?array
+    {
+        $stageImages = ( new SourceElementClassifier() )->imageSlideshowStageImages($element);
+        if ( count($stageImages) < 2 ) {
+            return null;
+        }
+
+        $images = array();
+        foreach ( $stageImages as $stageImage ) {
+            $image = $convertImageElement($stageImage, null, null, null);
+            if ( ! is_array($image) || 'core/image' !== ( $image['blockName'] ?? null ) ) {
+                return null;
+            }
+            $images[] = $image;
+        }
+
+        $attrs = $presentationAttributes($element);
 
         return $createBlock('core/gallery', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $images, $element);
     }

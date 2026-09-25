@@ -88,6 +88,7 @@
       "php tests/unit/visual-iframe-block.php",
       "php tests/unit/fixed-width-media-overflow.php",
       "php tests/unit/authored-carousel-block.php",
+      "php tests/unit/image-slideshow-gallery.php",
       "php tests/unit/authored-marquee-block.php",
       "php tests/unit/copy-to-clipboard-block.php",
       "php tests/unit/theme-toggle-block.php",

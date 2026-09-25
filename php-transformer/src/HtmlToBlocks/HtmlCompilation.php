@@ -3429,6 +3429,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function mediaGalleryBlockFromElement(DOMElement $element, array &$fallbacks): ?array
     {
+        if ( $this->sourceElementClassifier->isImageOnlySlideshowCollection($element) ) {
+            return $this->recognizePatterns($element, $fallbacks, array(GalleryPattern::class));
+        }
+
         if ( ! $this->isGalleryCompatibleMediaLayout($element) ) {
             return null;
         }
