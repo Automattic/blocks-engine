@@ -44,7 +44,7 @@ final class NavigationToggleSuppressor
         }
 
         foreach ( $root->getElementsByTagName('*') as $control ) {
-            if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) ) {
+            if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) || $this->isInsideNativeDisclosurePanel($control) ) {
                 continue;
             }
             if ( ! $this->isHamburgerMenuToggleControl($control) && ! $this->isProjectableHashAnchorMenuToggle($control) ) {
@@ -460,6 +460,42 @@ final class NavigationToggleSuppressor
      * hamburger read as redundant for its own panel) and the panel was
      * suppressed as an overlay it was never separate from.
      */
+    /**
+     * A control inside a native disclosure's panel (a submenu expander in a
+     * captured mobile drawer, say) lives in content the details block already
+     * preserves. It is never the hamburger for a hidden overlay: its bounded
+     * scope would reach the closed panel it sits in and move that panel's
+     * navigation out of the disclosure.
+     */
+    private function isInsideNativeDisclosurePanel(DOMElement $control): bool
+    {
+        for ( $node = $control->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'details' === strtolower($node->tagName) ) {
+                $summary = null;
+                foreach ( $node->childNodes as $child ) {
+                    if ( $child instanceof DOMElement && 'summary' === strtolower($child->tagName) ) {
+                        $summary = $child;
+                        break;
+                    }
+                }
+                return ! ( $summary instanceof DOMElement && ( $summary->isSameNode($control) || $this->isDescendantOf($control, $summary) ) );
+            }
+        }
+
+        return false;
+    }
+
+    private function isDescendantOf(DOMElement $node, DOMElement $ancestor): bool
+    {
+        for ( $current = $node->parentNode; $current instanceof DOMElement; $current = $current->parentNode ) {
+            if ( $current->isSameNode($ancestor) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function isInsideOwnDisclosurePanel(DOMElement $toggle, DOMElement $candidate): bool
     {
         $tagName = strtolower($toggle->tagName);
