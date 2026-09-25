@@ -293,6 +293,9 @@ final class ShellExtraction
         if (isset($attrs['wrappers']) && is_array($attrs['wrappers'])) {
             return true;
         }
+        if (isset($attrs['config'])) {
+            return true;
+        }
         $style = $attrs['style'] ?? null;
         if (is_array($style) && 'contents' === ($style['display'] ?? null)) {
             return true;
@@ -357,15 +360,23 @@ final class ShellExtraction
 
     private static function isEmptyVisualGroup(string $markup): bool
     {
-        if (str_contains($markup, 'blocks-engine-empty-visual-group')) {
+        if (!preg_match('/^<!--\s*wp:group(?:\s+(\{.*?\}))?\s*-->/s', ltrim($markup), $match)) {
+            return false;
+        }
+        $attrs = isset($match[1]) && '' !== $match[1] ? json_decode($match[1], true) : array();
+        $className = is_array($attrs) ? (string) ($attrs['className'] ?? '') : '';
+        if (str_contains($className, 'blocks-engine-empty-visual-group')) {
             return true;
         }
-        return 1 === preg_match('/^<!--\s*wp:group(?:\s|\{)/', ltrim($markup)) && 1 >= substr_count($markup, '<!-- wp:');
+        return 1 >= substr_count($markup, '<!-- wp:');
     }
 
     private static function isFooterChrome(string $markup): bool
     {
         if (self::containsMainLandmark($markup) || self::isEmptyVisualGroup($markup) || self::containsNavigation($markup) || self::isHeadingBlock($markup)) {
+            return false;
+        }
+        if (str_contains($markup, '<!-- wp:heading') || str_contains($markup, '<!-- wp:post-content')) {
             return false;
         }
         return 1 === preg_match('/^<!--\s*wp:group(?:\s|\{)/', ltrim($markup));

@@ -537,4 +537,31 @@ $transparentPlan = (new WordPressSitePlan())->fromResult($transparentResult);
 $transparentPages = $pages($transparentPlan);
 $assert(1 === count(array_filter($transparentPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains($transparentPages['index.html']['canonical_block_markup'] ?? '', 'wp:navigation') && !str_contains($transparentPages['blog.html']['canonical_block_markup'] ?? '', 'wp:navigation'), 'Layout-transparent extra wrappers around the same unlabeled header still extract one shared part.');
 
+$nestedEmptyChrome = static function (string $title): string {
+    return '<div class="frame"><div class="masthead"><p class="brand">Acme</p><nav><a href="/">Home</a><a href="/blog">Blog</a></nav></div><main><h1>' . $title . '</h1><div class="blocks-engine-empty-visual-group"></div></main><div class="colophon"><p>© 2026 Acme</p></div></div>';
+};
+$nestedEmptyPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $nestedEmptyChrome('Home'),
+    'blog.html' => $nestedEmptyChrome('Blog'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$nestedEmptyPages = $pages($nestedEmptyPlan);
+$assert(isset(array_column($nestedEmptyPlan['template_parts'], null, 'slug')['header']) && !str_contains($nestedEmptyPages['index.html']['canonical_block_markup'] ?? '', 'wp:navigation') && !str_contains($nestedEmptyPages['blog.html']['canonical_block_markup'] ?? '', 'wp:navigation'), 'An empty visual group inside page content does not hide unlabeled shared chrome.');
+
+$engineCarrierHeader = static function (string $title, bool $scroll): string {
+    $header = '<!-- wp:group {"className":"masthead"} --><div class="wp-block-group masthead"><!-- wp:navigation --><!-- wp:navigation-link {"label":"Home","url":"/"} /--><!-- wp:navigation-link {"label":"Blog","url":"/blog"} /--><!-- /wp:navigation --></div><!-- /wp:group -->';
+    $header = $scroll
+        ? '<!-- wp:custom/scroll-state {"className":"birdseye-header","config":"{\u0022thresholdPx\u0022:2}"} -->' . $header . '<!-- /wp:custom/scroll-state -->'
+        : '<!-- wp:custom/layout-shell {"wrappers":[{"tagName":"div","attributes":{"class":"birdseye-header"}}]} -->' . $header . '<!-- /wp:custom/layout-shell -->';
+    return $header
+        . '<!-- wp:group {"className":"main-wrap"} --><div class="wp-block-group main-wrap"><!-- wp:heading --><h2 class="wp-block-heading">' . $title . '</h2><!-- /wp:heading --><!-- wp:group {"className":"blocks-engine-empty-visual-group"} --><div class="wp-block-group blocks-engine-empty-visual-group"></div><!-- /wp:group --></div><!-- /wp:group -->';
+};
+$engineCarrierResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><h1>Home</h1></main>', 'blog.html' => '<main><h1>Blog</h1></main>')))->toArray();
+foreach ($engineCarrierResult['source_reports']['compiled_site']['pages'] as &$engineCarrierPage) {
+    $engineCarrierPage['block_markup'] = $engineCarrierHeader('index.html' === $engineCarrierPage['source_path'] ? 'Home' : 'Blog', 'index.html' === $engineCarrierPage['source_path']);
+}
+unset($engineCarrierPage);
+$engineCarrierPlan = (new WordPressSitePlan())->fromResult($engineCarrierResult);
+$engineCarrierPages = $pages($engineCarrierPlan);
+$assert(1 === count(array_filter($engineCarrierPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains($engineCarrierPages['index.html']['canonical_block_markup'] ?? '', 'wp:navigation') && !str_contains($engineCarrierPages['blog.html']['canonical_block_markup'] ?? '', 'wp:navigation'), 'Scroll-state and layout-shell carriers around the same unlabeled header still share one part, even when content contains an empty visual group.');
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");
