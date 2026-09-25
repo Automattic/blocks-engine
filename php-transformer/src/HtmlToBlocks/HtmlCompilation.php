@@ -8954,7 +8954,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->hasInFlowContent($child) ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( $this->hasInFlowContent($child) || $this->inFlowDescendantHasDefiniteBlockSize($child) ) {
                 return '';
             }
         }
@@ -8977,7 +8980,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                         continue 2;
                     }
                 }
-                $height = trim(CssValueInspector::withoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))['height'] ?? '')));
+                $imageDeclarations = $this->styleResolver->structuralPresentationDeclarations($image);
+                $objectFit = strtolower(trim(CssValueInspector::withoutImportant((string) ($imageDeclarations['object-fit'] ?? ''))));
+                if ( in_array($objectFit, array( 'cover', 'contain' ), true) ) {
+                    continue;
+                }
+                $height = trim(CssValueInspector::withoutImportant((string) ($imageDeclarations['height'] ?? '')));
                 if ( preg_match('/^(?:\d+|\d*\.\d+)$/', $height) ) {
                     $height .= 'px';
                 }
@@ -8988,6 +8996,28 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return '';
+    }
+
+    private function inFlowDescendantHasDefiniteBlockSize(DOMElement $element): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        $position = strtolower(trim((string) ($declarations['position'] ?? '')));
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        foreach ( array( 'height', 'min-height' ) as $property ) {
+            $value = trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? '')));
+            if ( preg_match('/^(?:\d+|\d*\.\d+)(?:px)?$/', $value) && 0.0 < (float) $value ) {
+                return true;
+            }
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->inFlowDescendantHasDefiniteBlockSize($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasInFlowContent(DOMElement $element): bool
