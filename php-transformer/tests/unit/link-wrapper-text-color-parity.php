@@ -78,6 +78,37 @@ if ( str_contains((string) ($directText['serialized_blocks'] ?? ''), $carrier) )
     throw new RuntimeException('A wrapper holding unpainted direct text must not be forced to inherit.');
 }
 
+// The issue's own shape: a bare menu item whose styled leaf the engine pushes
+// the wrapper link into must keep the leaf's paint on the link.
+$menu = $transform('.label{color:#fff}', '<a href="/projects" class="item"><div><p class="label">Projects</p></div></a>');
+$menuMarkup = (string) ($menu['serialized_blocks'] ?? '');
+if ( ! str_contains($menuMarkup, '<p class="label ' . $carrier . '"') || ! str_contains($menuMarkup, '>Projects</a>') ) {
+    throw new RuntimeException('A link relocated into a styled text leaf must mark the leaf as carrying the paint.');
+}
+if ( ! str_contains($afterAuthorCss($menu), ':root :where(.' . $carrier . ')>a{color:inherit}') ) {
+    throw new RuntimeException('The relocated link must inherit its leaf colour after the author cascade.');
+}
+
+// A capture serialises desktop paint behind a width query. The leaf is what
+// the document renders with at the reference viewport, so the rebuilt anchor
+// must inherit there too; the static-only view would call the leaf unpainted
+// and leave the browser's link colour on every menu label.
+$desktopPainted = $transform('@media (min-width:1000px){.label{color:#fff}}', '<a href="/projects" class="item"><div><p class="label">Projects</p></div></a>');
+$desktopMarkup = (string) ($desktopPainted['serialized_blocks'] ?? '');
+if ( ! str_contains($desktopMarkup, '<p class="label ' . $carrier . '"') ) {
+    throw new RuntimeException('Paint stated behind a width query that holds at the reference viewport must trigger the carrier.');
+}
+if ( ! str_contains($afterAuthorCss($desktopPainted), ':root :where(.' . $carrier . ')>a{color:inherit}') ) {
+    throw new RuntimeException('The carrier must still project colour inheritance for width-query paint.');
+}
+
+// A query that never holds at the reference viewport paints nothing the
+// document renders with, so the wrapper stays untouched.
+$mobileOnly = $transform('@media (max-width:600px){.label{color:#fff}}', '<a href="/projects" class="item"><div><p class="label">Projects</p></div></a>');
+if ( str_contains((string) ($mobileOnly['serialized_blocks'] ?? ''), $carrier) ) {
+    throw new RuntimeException('Paint scoped to a viewport the reference never reaches must not trigger the carrier.');
+}
+
 // Determinism.
 $repeat = $transform('.label{color:rgb(65,65,65)}.wrap{text-decoration:none}', $card);
 if ( ($repeat['serialized_blocks'] ?? null) !== ($painted['serialized_blocks'] ?? null) || $afterAuthorCss($repeat) !== $afterAuthorCss($painted) ) {

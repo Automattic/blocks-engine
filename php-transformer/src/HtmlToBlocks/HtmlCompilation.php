@@ -9943,12 +9943,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * `$anchor` — with a colour of its own. That is the inheritance chain the
      * rebuilt anchor severs, so it is the chain that decides whether the anchor
      * must inherit.
+     *
+     * The paint is read through
+     * {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver::controlSurfaceResolvedStyle()}
+     * because this is a classification signal, not a projection: a capture
+     * routinely serialises a site's desktop paint behind a width query, and the
+     * static-only view would call such a leaf unpainted — leaving the rebuilt
+     * anchor to render the browser's link colour exactly where the source
+     * rendered white. Conditions that never hold at the reference viewport
+     * still count for nothing, matching what the document renders with.
      */
     private function paintsTextColorBelow(DOMElement $element, DOMElement $anchor): bool
     {
         for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
             $declarations = $this->styleResolver->cssDeclarations(
-                $this->styleResolver->specificityResolvedPresentationStyle($node)
+                $this->styleResolver->controlSurfaceResolvedStyle($node)
             );
             $color = strtolower(trim((string) ($declarations['color'] ?? '')));
             if ( '' !== $color && ! in_array($color, array( 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'currentcolor' ), true) ) {
