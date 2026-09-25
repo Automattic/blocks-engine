@@ -322,6 +322,7 @@
             "php tests/unit/materialized-svg-custom-property-carry.php",
              "php tests/unit/collapsed-control-presentation.php",
             "php tests/unit/ancestor-inline-custom-property-carry.php",
+            "php tests/unit/form-custom-property-nested-fallback.php",
             "php tests/unit/media-box-free-axis.php",
             "php tests/unit/stretch-derived-image-geometry.php",
             "php tests/unit/self-establishing-grid-track-geometry.php",
