@@ -239,6 +239,15 @@ final class GeneratedBlockStyleProjector
             // justification — which needs a wrapper that fills its parent to
             // have room to act, mirroring the full-width block the source
             // centered the control inside of.
+            } elseif ( ! $hasAuthoredWidth && $this->sourceControlFillsFlowLine($sourceControl, $sourceDeclarations) ) {
+                // A block-level control in normal flow spans its container's
+                // line. core/buttons is a flex row, which would shrink it to its
+                // label instead, so every wrapper layer fills the line.
+                $outerWrapperDeclarations[] = 'width:100%';
+                $outerWrapperDeclarations[] = 'max-width:100%';
+                $wrapperDeclarations[] = 'width:100%';
+                $declarations[] = 'box-sizing:border-box';
+                $declarations[] = 'width:100%';
             } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
                 if ( 'center' === $inheritedTextAlignment ) {
                     $outerWrapperDeclarations[] = 'width:100%';
@@ -536,6 +545,25 @@ final class GeneratedBlockStyleProjector
     }
 
     /** @param array<string, string> $sourceDeclarations */
+    /** A display:block control whose parent lays it out in normal block flow. */
+    private function sourceControlFillsFlowLine(DOMElement $sourceControl, array $sourceDeclarations): bool
+    {
+        if ( 'block' !== CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')) ) {
+            return false;
+        }
+        $float = CssValueInspector::comparable((string) ($sourceDeclarations['float'] ?? ''));
+        $position = CssValueInspector::comparable((string) ($sourceDeclarations['position'] ?? ''));
+        if ( in_array($float, array( 'left', 'right' ), true) || in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        $parent = $sourceControl->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $parentDisplay = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? 'block'));
+        return in_array($parentDisplay, array( '', 'block', 'flow-root', 'list-item' ), true);
+    }
+
     private function sourceControlStretchesFlex(array $sourceDeclarations): bool
     {
         $display = CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? ''));
