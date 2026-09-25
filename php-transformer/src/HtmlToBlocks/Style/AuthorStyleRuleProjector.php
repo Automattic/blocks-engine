@@ -484,12 +484,42 @@ final class AuthorStyleRuleProjector
                 CssValueInspector::withoutImportant((string) ($parentDeclarations['flex-direction'] ?? '')),
                 $parent
             ));
-            if ( $this->stretchesOnBlockAxis($node, $parent, $parentDisplay, $flexDirection) ) {
+            if ( '' === $flexDirection ) {
+                $flexFlow = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+                    CssValueInspector::withoutImportant((string) ($parentDeclarations['flex-flow'] ?? '')),
+                    $parent
+                ));
+                $flexFlowAxis = (string) (CssValueSplitter::splitTopLevelWhitespace($flexFlow)[0] ?? '');
+                if ( in_array($flexFlowAxis, array( 'row', 'row-reverse', 'column', 'column-reverse' ), true) ) {
+                    $flexDirection = $flexFlowAxis;
+                }
+            }
+            if ( $this->stretchesOnBlockAxis($node, $parent, $parentDeclarations, $parentDisplay, $flexDirection) ) {
                 return true;
+            }
+            // An intermediate box that does not fill its parent breaks the
+            // chain. A non-growing column-flex item keeps content height, so a
+            // descendant percentage does not resolve against the stretched card.
+            if ( $node !== $element && ! $this->fillsParentBlockSize($node, $parent, $parentDisplay, $flexDirection) ) {
+                return false;
             }
         }
 
         return false;
+    }
+
+    private function fillsParentBlockSize(DOMElement $element, DOMElement $parent, string $parentDisplay, string $flexDirection): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        $height = strtolower(CssValueInspector::withoutImportant((string) ($declarations['height'] ?? '')));
+        $minHeight = strtolower(CssValueInspector::withoutImportant((string) ($declarations['min-height'] ?? '')));
+        if ( $this->isPercentageBlockSize($height) || $this->isPercentageBlockSize($minHeight) ) {
+            return true;
+        }
+
+        return in_array($parentDisplay, array( 'flex', 'inline-flex' ), true)
+            && in_array($flexDirection, array( 'column', 'column-reverse' ), true)
+            && $this->growsAlongFlexMainAxis($element);
     }
 
     /**
@@ -500,7 +530,7 @@ final class AuthorStyleRuleProjector
      *
      * @param array<string, string> $parentDeclarations
      */
-    private function stretchesOnBlockAxis(DOMElement $element, DOMElement $parent, string $parentDisplay, string $flexDirection): bool
+    private function stretchesOnBlockAxis(DOMElement $element, DOMElement $parent, array $parentDeclarations, string $parentDisplay, string $flexDirection): bool
     {
         $stretchesCrossAxis = in_array($parentDisplay, array( 'grid', 'inline-grid' ), true)
             || ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true)
