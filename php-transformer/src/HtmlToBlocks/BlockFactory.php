@@ -330,7 +330,7 @@ final class BlockFactory
 
         if ( 'core/column' === $name ) {
             $width = trim((string) ($attrs['width'] ?? ''));
-            $columnStyle = trim((string) ($attrs['inlineGeometryStyle'] ?? '') . (preg_match('/^\d+(?:\.\d+)?%$/', $width) ? ';flex-basis:' . $width : ''), ';');
+            $columnStyle = trim((string) ($attrs['inlineGeometryStyle'] ?? '') . ($this->isColumnFlexBasis($width) ? ';flex-basis:' . $width : ''), ';');
             return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-column', $columnStyle) . '>', 'closing' => '</div>' );
         }
 
@@ -896,6 +896,11 @@ final class BlockFactory
     private function isPercentageWidth(string $width): bool
     {
         return 1 === preg_match('/%\s*$/', trim($width));
+    }
+
+    private function isColumnFlexBasis(string $width): bool
+    {
+        return 1 === preg_match('/^\d+(?:\.\d+)?(?:%|px|em|rem|ch|vw|vmin|vmax)$/', trim($width));
     }
 
     /**

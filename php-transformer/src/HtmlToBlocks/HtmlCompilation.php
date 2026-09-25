@@ -2464,12 +2464,36 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function layoutTableColumnAttributes(DOMElement $cell): array
     {
         $attrs = $this->styleResolver->presentationAttributes($cell);
-        $style = strtolower($this->attr($cell, 'style'));
-        if ( preg_match('/(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)%/i', $style, $matches) ) {
-            $attrs['width'] = $matches[1] . '%';
+        $width = $this->layoutTableCellTrackWidth($cell);
+        if ( null !== $width ) {
+            $attrs['width'] = $width;
         }
 
         return $attrs;
+    }
+
+    private function layoutTableCellTrackWidth(DOMElement $cell): ?string
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($cell);
+        $cssWidth     = $this->normalizeLayoutTableTrackWidth((string) ($declarations['width'] ?? ''));
+        if ( null !== $cssWidth ) {
+            return $cssWidth;
+        }
+
+        return $this->normalizeLayoutTableTrackWidth($this->attr($cell, 'width'));
+    }
+
+    private function normalizeLayoutTableTrackWidth(string $width): ?string
+    {
+        $width = CssValueInspector::comparable($width);
+        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)(%|px|em|rem|ch|vw|vmin|vmax)$/', $width, $matches) ) {
+            return $matches[1] . $matches[2];
+        }
+        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)$/', $width, $matches) ) {
+            return $matches[1] . 'px';
+        }
+
+        return null;
     }
 
     /** @return array<string, mixed> */
