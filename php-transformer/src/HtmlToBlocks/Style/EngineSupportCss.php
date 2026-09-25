@@ -351,7 +351,26 @@ final class EngineSupportCss
         // link rows retain authored mobile display rules without core's
         // overlay control replacing them.
         if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
-            $parts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
+            // Core's overlay is the only reason this host must stay visible.
+            // Force that below Core's 600px overlay breakpoint so a phone
+            // trigger is not hidden by the author's `display:none`. Leave
+            // desktop display to the source: a table-cell + float:right menu
+            // (or any other end justification) is otherwise restated as flex
+            // and the list snaps to the start edge of the nav box.
+            $parts[] = '@media(max-width:599px){.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}';
+            // overlayMenu mobile wraps the list in a width:100% container whose
+            // inner content box is display:flex. That formatting context
+            // ignores the source list's float/end justification, so desktop
+            // links jump from the right edge to the left of an otherwise
+            // unchanged nav box. Flatten the wrappers while the overlay is
+            // closed so the list participates in the host's layout the same
+            // way overlayMenu never did.
+            $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation';
+            $closed = $host . ' .wp-block-navigation__responsive-container:not(.is-menu-open)';
+            $parts[] = '@media(min-width:600px){' . $closed . ','
+                . $closed . ' .wp-block-navigation__responsive-close,'
+                . $closed . ' .wp-block-navigation__responsive-dialog,'
+                . $closed . ' .wp-block-navigation__responsive-container-content{display:contents!important}}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-sidebar-navigation-carrier') ) {
             // Core's mobile overlay is active at this breakpoint. The source

@@ -70,6 +70,16 @@ final class NavigationToggleSuppressor
 
             $relationship = $this->implicitHiddenNavigationRelationship($control);
             if ( null !== $relationship ) {
+                $isDialogProjection = $this->hasDialogPopupSemantics($control) || $this->isSemanticDialog($relationship['target']);
+                // A visible in-flow menu with the same destinations already owns
+                // the overlay. Projecting a non-dialog collapsed copy onto a
+                // CSS glyph toggle would emit a second navigation in the toggle's
+                // slot. Dialog and hash-anchor overlays still occupy the control.
+                if ( ! $isDialogProjection
+                    && ! $this->isProjectableHashAnchorMenuToggle($control)
+                    && $this->hasEquivalentSourceNavigationVariant($relationship['navigation']) ) {
+                    continue;
+                }
                 if ( $this->hasDialogPopupSemantics($control) ) {
                     $this->context->navigationProjection()->markImplicitDialogControl($control);
                 }
@@ -834,6 +844,68 @@ final class NavigationToggleSuppressor
             }
         }
 
+        return $this->isCssGeneratedHamburgerGlyphLabel($element);
+    }
+
+    /**
+     * A labelless control whose only element child is a single empty span/div:
+     * the host CSS paints as a 3-bar glyph via the child's own box plus
+     * :before/:after. Two nested empty bars are already handled above; this
+     * shape has one host and no nested bars in the DOM. Restricted to controls
+     * the source hides at the default viewport beside a menu, so an empty
+     * decorative label elsewhere is not treated as a hamburger.
+     */
+    private function isCssGeneratedHamburgerGlyphLabel(DOMElement $element): bool
+    {
+        if ( '' !== $this->visibleMenuToggleLabel($element) || ! $this->isHiddenAtDefaultViewport($element) ) {
+            return false;
+        }
+
+        $hosts = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return false;
+            }
+            $hosts[] = $child;
+        }
+        if ( 1 !== count($hosts) ) {
+            return false;
+        }
+
+        $host = $hosts[0];
+        if ( ! in_array(strtolower($host->tagName), array( 'span', 'div', 'i' ), true)
+            || '' !== trim($host->textContent ?? '')
+            || 0 !== $host->childNodes->length ) {
+            return false;
+        }
+
+        return $this->sitsBesideNavigationCandidate($element);
+    }
+
+    private function sitsBesideNavigationCandidate(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+
+        foreach ( $parent->childNodes as $sibling ) {
+            if ( $sibling instanceof DOMElement
+                && ! $sibling->isSameNode($element)
+                && $this->isEquivalentNavigationVariantCandidate($sibling) ) {
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -1150,13 +1222,14 @@ final class NavigationToggleSuppressor
             return false;
         }
 
-        foreach ( $document->getElementsByTagName('nav') as $candidate ) {
+        foreach ( $document->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement
                 || $candidate->isSameNode($navigationRoot)
-                || $this->isProjectedNavigationSuppressed($candidate)
+                || $this->isInsideProjectedNavigationSuppressed($candidate)
                 || $this->isInsideCapturedDisclosure($candidate)
                 || SourceDom::elementContains($navigationRoot, $candidate)
                 || SourceDom::elementContains($candidate, $navigationRoot)
+                || ! $this->isEquivalentNavigationVariantCandidate($candidate)
             ) {
                 continue;
             }
@@ -1168,6 +1241,36 @@ final class NavigationToggleSuppressor
         }
 
         return false;
+    }
+
+    private function isInsideProjectedNavigationSuppressed(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $this->isProjectedNavigationSuppressed($node) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A collapsed counterpart need not be a <nav> landmark. Builders commonly
+     * emit the desktop list and its overlay copy as signaled containers
+     * (`div.nav`, `ul.menu`, a drawer whose class names the collapsed surface).
+     */
+    private function isEquivalentNavigationVariantCandidate(DOMElement $element): bool
+    {
+        if ( $this->isNavigationMenuCandidate($element) ) {
+            return true;
+        }
+        if ( $this->hasMobileNavigationSignal($element) ) {
+            return true;
+        }
+
+        $identity = strtolower(trim(SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'role')));
+
+        return 1 === preg_match('/(?:^|[\s_-])(?:nav|navbar|navigation|menu)(?:$|[\s_-])/', $identity);
     }
 
     private function hasCapturedDisclosureNavigation(DOMDocument $document, string $signature): bool
