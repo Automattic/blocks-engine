@@ -52,9 +52,12 @@ final class ShellExtraction
             $candidates[] = $row;
         }
         $sourcePath = WordPressSitePlan::value($document, 'source_path');
-        $nestedLandmarks = $this->nestedLandmarkShellCandidates($canonical, $sourcePath, array_column($candidates, 'area'));
+        $occupiedAreas = array_column($candidates, 'area');
+        $nestedLandmarks = $this->nestedLandmarkShellCandidates($canonical, $sourcePath, $occupiedAreas);
         if (array() !== $nestedLandmarks) return array_merge($candidates, $nestedLandmarks);
-        return array_merge($candidates, $this->nestedChromeCandidates($canonical, $sourcePath));
+        $legacy = $this->nestedChromeCandidates($canonical, $sourcePath);
+        if (array() !== $legacy) return array_merge($candidates, $legacy);
+        return array_merge($candidates, $this->nestedNavigationShellCandidates($canonical, $sourcePath, $occupiedAreas));
     }
 
     /** @return array<int,array<string,mixed>> */
@@ -85,6 +88,124 @@ final class ShellExtraction
             return array(array('area' => 'header', 'markup' => $chrome, 'inner_markup' => $chrome, 'template_part_markup' => self::withoutCurrentNavigationState($chrome), 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $chrome), 'legacy_container_opening' => $opening, 'legacy_container_closing' => '<!-- /wp:group -->', 'legacy_content_markup' => $content, 'legacy_content_range' => array('offset' => $contentOffset, 'length' => $contentRange['length']), 'legacy_page_markup' => $markup));
         }
         return array();
+    }
+
+    /** @param array<int,string> $occupiedAreas @return array<int,array<string,mixed>> */
+    private function nestedNavigationShellCandidates(string $markup, string $sourcePath, array $occupiedAreas): array
+    {
+        $headers = array();
+        $footers = array();
+        $this->collectNavigationShells($markup, 0, $headers, $footers);
+        $candidates = array();
+        foreach (array('header' => $headers, 'footer' => $footers) as $area => $rows) {
+            if (in_array($area, $occupiedAreas, true) || array() === $rows) continue;
+            $identities = array_column($rows, 'identity_markup');
+            if (1 !== count(array_unique($identities))) continue;
+            $row = $rows[0];
+            if ('' === ($row['identity_markup'] ?? '')) continue;
+            $additional = array();
+            foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
+            $partMarkup = self::withoutLandmarkTagName(self::withoutCurrentNavigationState($row['markup']));
+            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $row['identity_markup'], 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional);
+        }
+        return $candidates;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $headers
+     * @param array<int,array<string,mixed>> $footers
+     */
+    private function collectNavigationShells(string $markup, int $baseOffset, array &$headers, array &$footers): void
+    {
+        $ranges = self::topLevelBlockRanges($markup);
+        if (2 <= count($ranges)) {
+            $first = substr($markup, $ranges[0]['offset'], $ranges[0]['length']);
+            if (self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::hasInnerChromeSplit($first)) {
+                $restHasContent = false;
+                foreach (array_slice($ranges, 1) as $range) {
+                    $sibling = substr($markup, $range['offset'], $range['length']);
+                    if (!self::isEmptyVisualGroup($sibling)) { $restHasContent = true; break; }
+                }
+                if ($restHasContent) {
+                    $headers[] = $this->navigationShellRow($first, $baseOffset + $ranges[0]['offset'], $ranges[0]['length']);
+                    $last = $ranges[count($ranges) - 1];
+                    $lastMarkup = substr($markup, $last['offset'], $last['length']);
+                    if ($last !== $ranges[0] && self::isFooterChrome($lastMarkup)) {
+                        $footers[] = $this->navigationShellRow($lastMarkup, $baseOffset + $last['offset'], $last['length']);
+                    }
+                    return;
+                }
+            }
+        }
+        foreach ($ranges as $range) {
+            $block = substr($markup, $range['offset'], $range['length']);
+            $children = self::directChildBlockRanges($block);
+            if (array() === $children) continue;
+            $innerStart = $children[0]['offset'];
+            $innerEnd = $children[count($children) - 1]['offset'] + $children[count($children) - 1]['length'];
+            $this->collectNavigationShells(substr($block, $innerStart, $innerEnd - $innerStart), $baseOffset + $range['offset'] + $innerStart, $headers, $footers);
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private function navigationShellRow(string $candidateMarkup, int $offset, int $length): array
+    {
+        return array('markup' => $candidateMarkup, 'identity_markup' => self::navigationShellIdentity($candidateMarkup), 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $offset, 'length' => $length);
+    }
+
+    private static function navigationShellIdentity(string $markup): string
+    {
+        return self::normalizeNestedChromeMarkup(self::unwrapChromeContainers($markup));
+    }
+
+    private static function unwrapChromeContainers(string $markup): string
+    {
+        $markup = trim($markup);
+        while (preg_match('/^<!--\s*wp:(\S+)/', $markup, $match)) {
+            if (!str_ends_with($match[1], '/layout-shell') && !str_ends_with($match[1], '/scroll-state')) break;
+            $children = self::directChildBlockRanges($markup);
+            if (array() === $children) break;
+            $inner = '';
+            foreach ($children as $range) $inner .= substr($markup, $range['offset'], $range['length']);
+            if ('' === $inner || $inner === $markup) break;
+            $markup = $inner;
+        }
+        return $markup;
+    }
+
+    private static function containsNavigation(string $markup): bool
+    {
+        return str_contains($markup, '<!-- wp:navigation ') || str_contains($markup, '<!-- wp:navigation{');
+    }
+
+    private static function hasInnerChromeSplit(string $markup): bool
+    {
+        $children = self::directChildBlockRanges($markup);
+        if (count($children) < 2) return false;
+        $first = substr($markup, $children[0]['offset'], $children[0]['length']);
+        return self::containsNavigation($first) && !self::containsMainLandmark($first);
+    }
+
+    private static function containsMainLandmark(string $markup): bool
+    {
+        return str_contains($markup, '"tagName":"main"') || str_contains($markup, '<main ') || str_contains($markup, '<main>') || str_contains($markup, '<!-- wp:post-content');
+    }
+
+    private static function isEmptyVisualGroup(string $markup): bool
+    {
+        if (str_contains($markup, 'blocks-engine-empty-visual-group')) return true;
+        return 1 === preg_match('/^<!--\s*wp:group(?:\s|\{)/', ltrim($markup)) && 1 >= substr_count($markup, '<!-- wp:');
+    }
+
+    private static function isFooterChrome(string $markup): bool
+    {
+        if (self::containsMainLandmark($markup) || self::isEmptyVisualGroup($markup) || self::containsNavigation($markup) || self::isHeadingBlock($markup)) return false;
+        return 1 === preg_match('/^<!--\s*wp:group(?:\s|\{)/', ltrim($markup));
+    }
+
+    private static function isHeadingBlock(string $markup): bool
+    {
+        return 1 === preg_match('/^<!--\s*wp:heading(?:\s|\{)/', ltrim($markup));
     }
 
     /** @param array<int,string> $occupiedAreas @return array<int,array<string,mixed>> */
@@ -380,6 +501,14 @@ final class ShellExtraction
         if ('' !== $identity && '' !== $area) {
             foreach ($this->nestedLandmarkCandidates($markup, (string) ($candidate['source_path'] ?? ''), $area) as $row) {
                 if ($identity === ($row['identity_markup'] ?? null)) $matches[] = $row;
+            }
+            if (array() === $matches) {
+                $headers = array();
+                $footers = array();
+                $this->collectNavigationShells($markup, 0, $headers, $footers);
+                foreach (('footer' === $area ? $footers : $headers) as $row) {
+                    if ($identity === ($row['identity_markup'] ?? null)) $matches[] = $row;
+                }
             }
         }
         if (array() === $matches) {

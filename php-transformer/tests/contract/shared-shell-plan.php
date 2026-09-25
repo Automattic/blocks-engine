@@ -444,4 +444,39 @@ $responsiveMismatchPlan = (new ArtifactCompiler())->compile(array('entrypoint' =
 )))->toArray()['source_reports']['wordpress_site_plan'];
 $assert(!array_filter($responsiveMismatchPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)) && str_contains($pages($responsiveMismatchPlan)['index.html']['canonical_block_markup'] ?? '', 'Desktop ticker') && str_contains($pages($responsiveMismatchPlan)['about.html']['canonical_block_markup'] ?? '', 'Ticker'), 'Divergent nested footers across a dual-document page and a single-document page stay page-owned.');
 
+$unlabeledChrome = static function (string $title, bool $dual): string {
+    $frame = '<div class="frame"><div class="masthead"><p class="brand">Acme</p><nav><a href="/">Home</a><a href="/about">About</a></nav></div><main><h1>' . $title . '</h1></main><div class="colophon"><p>© 2026 Acme</p></div></div>';
+    if (!$dual) return $frame;
+    return '<div class="site-document-variant-default">' . $frame . '</div><div class="site-document-variant-mobile">' . $frame . '</div>';
+};
+$unlabeledChromePlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $unlabeledChrome('Home', true),
+    'about.html' => $unlabeledChrome('About', true),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$unlabeledChromeWrites = $writes($unlabeledChromePlan);
+$unlabeledChromePages = $pages($unlabeledChromePlan);
+$unlabeledChromeParts = array_column($unlabeledChromePlan['template_parts'], null, 'slug');
+$assert(isset($unlabeledChromeParts['header'], $unlabeledChromeParts['footer']) && 'shared_shell' === ($unlabeledChromeParts['header']['placement']['kind'] ?? null) && 'shared_shell' === ($unlabeledChromeParts['footer']['placement']['kind'] ?? null) && 1 === count(array_filter($unlabeledChromePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && 1 === count(array_filter($unlabeledChromePlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null))), 'Identical unlabeled chrome duplicated inside responsive documents extracts one header and one footer template part.');
+$assert(str_contains($unlabeledChromeWrites['parts/header.html']['payload']['data'] ?? '', 'Acme') && str_contains($unlabeledChromeWrites['parts/header.html']['payload']['data'] ?? '', 'wp:navigation') && str_contains($unlabeledChromeWrites['parts/footer.html']['payload']['data'] ?? '', '© 2026 Acme'), 'Extracted unlabeled chrome parts keep the authored masthead, navigation, and colophon.');
+foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
+    $markup = $unlabeledChromePages[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, 'masthead') && !str_contains($markup, 'colophon') && !str_contains($markup, 'wp:navigation') && !str_contains($markup, 'wp:template-part') && str_contains($markup, '>' . $title . '</h1>'), "{$source} unlabeled dual-document content loses shared chrome and keeps its page title.");
+}
+$assert(1 === substr_count($unlabeledChromeWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($unlabeledChromeWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($unlabeledChromeWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"footer"') && 1 === substr_count($unlabeledChromeWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'Generic templates bind unlabeled shared chrome so the page editor does not own the header or footer.');
+$unlabeledSinglePlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $unlabeledChrome('Home', false),
+    'about.html' => $unlabeledChrome('About', false),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$unlabeledSingleParts = array_column($unlabeledSinglePlan['template_parts'], null, 'slug');
+$assert(isset($unlabeledSingleParts['header'], $unlabeledSingleParts['footer']) && 'shared_shell' === ($unlabeledSingleParts['header']['placement']['kind'] ?? null), 'Identical unlabeled chrome without document variants still extracts shared header and footer parts.');
+foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
+    $markup = $pages($unlabeledSinglePlan)[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, 'wp:navigation') && str_contains($markup, '>' . $title . '</h1>'), "{$source} single-document unlabeled content loses the shared masthead navigation.");
+}
+$unlabeledDivergentPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => str_replace('Acme', 'Home brand', $unlabeledChrome('Home', true)),
+    'about.html' => $unlabeledChrome('About', true),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(!array_filter($unlabeledDivergentPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)) && str_contains($pages($unlabeledDivergentPlan)['index.html']['canonical_block_markup'] ?? '', 'Home brand') && str_contains($pages($unlabeledDivergentPlan)['about.html']['canonical_block_markup'] ?? '', 'Acme'), 'Divergent unlabeled mastheads stay page-owned instead of becoming a false shared header.');
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");
