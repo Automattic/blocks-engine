@@ -739,6 +739,13 @@ final class SvgMaterializer implements SvgElementMaterializer
         // visual asset identity, while the first materialized payload retains
         // its original metadata for compatibility with direct SVG consumers.
         $html = preg_replace('/\s(?:aria-[a-z-]+|title)\s*=\s*(["\']).*?\1/i', '', $html) ?? $html;
+        // Engine class tokens are scoped to the document that compiled the SVG
+        // and style nothing inside a standalone image document, so the same
+        // icon compiled on two routes is one asset, not two.
+        $html = preg_replace_callback('/\sclass\s*=\s*(["\'])(.*?)\1/is', static function (array $match): string {
+            $classes = array_filter(preg_split('/\s+/', trim($match[2])) ?: array(), static fn (string $class): bool => '' !== $class && 1 !== preg_match('/^blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control|specificity-class)-[a-f0-9]{6,}(?:-\d+)?$/', $class));
+            return array() === $classes ? '' : ' class=' . $match[1] . implode(' ', $classes) . $match[1];
+        }, $html) ?? $html;
         return preg_replace('/<(?:title|desc)\b[^>]*>.*?<\/(?:title|desc)>/is', '', $html) ?? $html;
     }
 

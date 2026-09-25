@@ -564,4 +564,75 @@ $engineCarrierPlan = (new WordPressSitePlan())->fromResult($engineCarrierResult)
 $engineCarrierPages = $pages($engineCarrierPlan);
 $assert(1 === count(array_filter($engineCarrierPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains($engineCarrierPages['index.html']['canonical_block_markup'] ?? '', 'wp:navigation') && !str_contains($engineCarrierPages['blog.html']['canonical_block_markup'] ?? '', 'wp:navigation'), 'Scroll-state and layout-shell carriers around the same unlabeled header still share one part, even when content contains an empty visual group.');
 
+// A menu authored as plain list links marks the served route with
+// aria-current="page", so the same nested header differs on every route only by
+// that page-scoped state. It must still cluster, and the shared part must not
+// freeze any one route's selection.
+$listMenu = static function (string $current): string {
+    // A dropdown whose project links sit in a nested list beside a toggle: the
+    // served project is marked current inside that nested list.
+    $links = '';
+    foreach (array('about.html' => 'About', 'team.html' => 'Team') as $href => $label) {
+        $links .= '<li><a href="' . $href . '"' . ($href === $current ? ' aria-current="page"' : '') . '>' . $label . '</a></li>';
+    }
+    return '<div class="site"><header class="site-top"><div class="brand"><p>Studio Name</p></div><nav class="menu"><ul><li><a href="index.html"><div><p>Home</p></div></a></li><li><a href="index.html#work"><div><p>Work</p></div></a><button aria-label="More"><svg width="10" height="10" viewBox="0 0 16 11"><path d="M8 10.5L16 1.9 14.7.5 8 7.8 1.3.5 0 1.9z"></path></svg></button><ul>' . $links . '</ul></li></ul></nav></header><main><h1>' . $current . '</h1><p>Body for ' . $current . '</p></main></div>';
+};
+$listMenuPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $listMenu('index.html'),
+    'about.html' => $listMenu('about.html'),
+    'team.html' => $listMenu('team.html'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$listMenuHeader = array_values(array_filter($listMenuPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
+$listMenuPages = $pages($listMenuPlan);
+$assert('shared_shell' === ($listMenuHeader['placement']['kind'] ?? null) && str_contains($listMenuHeader['canonical_block_markup'] ?? '', 'Studio Name'), 'A header whose plain-link menu marks each route current still extracts as one shared part: ' . json_encode(array_column($listMenuPlan['diagnostics'], 'code')));
+$assert(!str_contains($listMenuHeader['canonical_block_markup'] ?? '', 'aria-current'), 'The shared part does not freeze one route\'s aria-current selection.');
+foreach (array('index.html', 'about.html', 'team.html') as $source) {
+    $assert(!str_contains($listMenuPages[$source]['canonical_block_markup'] ?? '', 'Studio Name') && str_contains($listMenuPages[$source]['canonical_block_markup'] ?? '', 'Body for ' . $source), "{$source} keeps only its own content once the header is shared.");
+}
+
+// Hoisted into a template part, a nested footer leaves its page ancestors
+// behind. An author rule that reached it through them keeps applying to the
+// part root, so the part keeps the containing block its layers rely on; a rule
+// naming an ancestor the footer never sat under is not re-anchored.
+$framed = static function (string $title): string {
+    return '<!doctype html><html><head><style>#frame.mesh #site-foot{position:relative}.elsewhere #site-foot{color:red}#frame.mesh #content{padding:1px}</style></head><body>'
+        . '<div id="frame" class="mesh"><header class="top"><nav><a href="index.html">Home</a><a href="about.html">About</a></nav></header>'
+        . '<main id="content"><h1>' . $title . '</h1></main>'
+        . '<footer id="site-foot"><div class="layer" style="position:absolute;inset:0;background:#333"></div><p>Shared footer</p></footer></div></body></html>';
+};
+$framedPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $framed('Home'),
+    'about.html' => $framed('About'),
+    'team.html' => $framed('Team'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$framedFooter = array_values(array_filter($framedPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)))[0] ?? array();
+$contextCss = implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($framedPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && str_contains((string) ($asset['path'] ?? ''), 'shared-chrome-context'))));
+$assert('shared_shell' === ($framedFooter['placement']['kind'] ?? null), 'The nested footer extracts as a shared part: ' . json_encode(array_column($framedPlan['diagnostics'], 'code')));
+$assert(1 === preg_match('/(^|[},])#site-foot\{position:relative\}/', $contextCss), 'A rule that reached the footer through its page ancestors is re-anchored on the part root: ' . $contextCss);
+$assert(!str_contains($contextCss, 'color:red') && !str_contains($contextCss, 'padding:1px'), 'Rules through ancestors the footer never sat under, or targeting other elements, are not re-anchored: ' . $contextCss);
+
+// A fixed page background that preceded the header in the source now renders
+// after the header part, so the part restores the source paint order at zero
+// specificity. A header that was first in its page needs no such rule.
+$layered = static function (string $title, bool $backgroundFirst): string {
+    $background = '<div class="page-bg" style="position:fixed;inset:0;background:#eee"></div>';
+    return '<!doctype html><html><head><style>#frame #site-top{position:relative}</style></head><body><div id="frame">'
+        . ($backgroundFirst ? $background : '')
+        . '<header id="site-top"><nav><a href="index.html">Home</a><a href="about.html">About</a></nav></header>'
+        . '<main id="content"><h1>' . $title . '</h1></main></div></body></html>';
+};
+$contextCssFor = static function (array $plan): string {
+    return implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && str_contains((string) ($asset['path'] ?? ''), 'shared-chrome-context'))));
+};
+foreach (array(true, false) as $backgroundFirst) {
+    $layeredPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+        'index.html' => $layered('Home', $backgroundFirst),
+        'about.html' => $layered('About', $backgroundFirst),
+    )))->toArray()['source_reports']['wordpress_site_plan'];
+    $layeredHeader = array_values(array_filter($layeredPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
+    $layeredCss = $contextCssFor($layeredPlan);
+    $assert('shared_shell' === ($layeredHeader['placement']['kind'] ?? null), 'The layered header extracts as a shared part.');
+    $assert($backgroundFirst === str_contains($layeredCss, ':where(#site-top){z-index:1}'), ($backgroundFirst ? 'A header preceded by page layers restores its source paint order: ' : 'A header first in its page adds no paint-order rule: ') . $layeredCss);
+}
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");
