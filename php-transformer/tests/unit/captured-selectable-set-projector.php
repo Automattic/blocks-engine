@@ -87,7 +87,48 @@ $failed = $project($files($source, array(
 $failedMarkup = (string) ($failed['files'][0]['content'] ?? '');
 $assert(1 === ($failed['projected_count'] ?? 0), 'failed members do not prevent projection of captured siblings');
 $assert(! str_contains($failedMarkup, 'Gamma') && ! str_contains($failedMarkup, 'Delta'), 'click-failed and no-dialog members do not become controls');
-$assert(in_array('captured_selectable_set_member_failed', $codes($failed), true), 'failed members emit an honest diagnostic');
+$assert(in_array('captured_selectable_set_member_failed', $codes($failed), true), 'click-failed members emit an honest diagnostic');
+$assert(1 === count(array_filter($codes($failed), static fn(string $code): bool => 'captured_selectable_set_member_failed' === $code)), 'a no-dialog probe is not counted as a failed member');
+$assert(in_array('captured_selectable_set_candidate_rejected', $codes($failed), true), 'a disproved selectable-set candidate is recorded as rejected');
+
+$disproved = $project($files($source, array(
+    array(
+        'status' => 'no-dialog',
+        'kind' => 'selectable-set',
+        'trigger' => array('tag' => 'button', 'label' => 'Phone. Phone. Select a country code'),
+        'set' => array('size' => 2, 'index' => 0),
+        'error' => 'no shared-region candidate',
+    ),
+    array(
+        'status' => 'no-dialog',
+        'kind' => 'selectable-set',
+        'trigger' => array('tag' => 'button', 'label' => 'Phone. Phone. Select a country code'),
+        'set' => array('size' => 2, 'index' => 1),
+        'error' => 'no shared-region candidate',
+    ),
+)));
+$disprovedMarkup = (string) ($disproved['files'][0]['content'] ?? '');
+$disprovedLoss = array_values(array_filter($disproved['diagnostics'] ?? array(), static function (array $row): bool {
+    return 'warning' === ($row['severity'] ?? '')
+        || 'unsupported_loss' === ($row['loss_class'] ?? '')
+        || in_array($row['code'] ?? '', array('captured_selectable_set_member_failed', 'captured_interaction_capture_gap'), true);
+}));
+$rejected = array_values(array_filter($disproved['diagnostics'] ?? array(), static fn(array $row): bool => 'captured_selectable_set_candidate_rejected' === ($row['code'] ?? '')));
+$rejectedContext = is_array($rejected[0]['context'] ?? null) ? $rejected[0]['context'] : array();
+$assert(0 === ($disproved['projected_count'] ?? -1), 'a disproved selectable-set candidate does not project tabs');
+$assert($source === $disprovedMarkup || str_contains($disprovedMarkup, 'Select an item'), 'a disproved candidate leaves the static HTML in place');
+$assert(array() === $disprovedLoss, 'a no-dialog-only selectable set is not an unsupported capture gap');
+$assert(1 === count($rejected) && 'info' === ($rejected[0]['severity'] ?? ''), 'a disproved candidate is one info record, not a loss');
+$assert(2 === ($rejectedContext['status_counts']['no-dialog'] ?? -1), 'status_counts count recorded no-dialog outcomes');
+$assert(0 === ($rejectedContext['status_counts']['click-failed'] ?? -1) && 0 === ($rejectedContext['status_counts']['captured'] ?? -1), 'status_counts do not invent other statuses');
+$assert(2 === ($rejectedContext['recorded_state_count'] ?? -1) && 0 === ($rejectedContext['captured_state_count'] ?? -1), 'a rejected candidate records the outcomes capture actually produced');
+
+$clickFailedOnly = $project($files($source, array(
+    $member(0, 'Alpha', $alphaHtml, 'click-failed'),
+)));
+$clickFailedGaps = array_values(array_filter($clickFailedOnly['diagnostics'] ?? array(), static fn(array $row): bool => 'captured_selectable_set_member_failed' === ($row['code'] ?? '')));
+$assert(1 === count($clickFailedGaps) && 'warning' === ($clickFailedGaps[0]['severity'] ?? ''), 'a click-failed member still reports one capture gap');
+$assert(! in_array('captured_selectable_set_candidate_rejected', $codes($clickFailedOnly), true), 'click-failed is not recorded as a rejected candidate');
 
 $truncatedHtml = '<div><p>Huge</p></div>';
 $truncated = $project($files($source, array(

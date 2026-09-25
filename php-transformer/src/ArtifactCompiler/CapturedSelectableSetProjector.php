@@ -84,12 +84,12 @@ final class CapturedSelectableSetProjector
                 $diagnostics[] = $this->diagnostic('captured_selectable_set_page_invalid', 'warning', 'A captured interaction page was ignored because its source URL or states are invalid.');
                 continue;
             }
-            $sets = $this->groupedSets($page['states'], $page['sourceUrl'], $diagnostics);
+            $path = $routes[$this->normalizedUrl($page['sourceUrl'])] ?? '';
+            $sets = $this->groupedSets($page['states'], $page['sourceUrl'], $path, $diagnostics);
             if (count($sets) > self::MAX_SETS_PER_PAGE) {
                 $diagnostics[] = $this->diagnostic('captured_selectable_set_limit_exceeded', 'warning', 'A captured interaction page exceeded the selectable-set limit.', array('source_url' => $page['sourceUrl'], 'max_sets' => self::MAX_SETS_PER_PAGE));
                 continue;
             }
-            $path = $routes[$this->normalizedUrl($page['sourceUrl'])] ?? '';
             $index = $fileIndexes[$path] ?? null;
             if (! is_int($index) || ! is_string($files[$index]['content'] ?? null)) {
                 $diagnostics[] = $this->diagnostic('captured_selectable_set_source_unmatched', 'warning', 'A captured selectable set did not match an artifact HTML document.', array('source_url' => $page['sourceUrl']));
@@ -116,16 +116,23 @@ final class CapturedSelectableSetProjector
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, array{selector:string, region_selector:string, members:array<int, array{label:string, html:string, tag:string, selector:string}>}>
      */
-    private function groupedSets(array $states, string $sourceUrl, array &$diagnostics): array
+    private function groupedSets(array $states, string $sourceUrl, string $sourcePath, array &$diagnostics): array
     {
         $sets = array();
+        $statusCounts = array('captured' => 0, 'click-failed' => 0, 'no-dialog' => 0);
+        $recorded = 0;
         foreach ($states as $state) {
             if (! is_array($state) || self::KIND !== ($state['kind'] ?? null)) {
                 continue;
             }
             $status = is_string($state['status'] ?? null) ? $state['status'] : '';
-            if (in_array($status, array('no-dialog', 'click-failed'), true)) {
-                $diagnostics[] = $this->diagnostic('captured_selectable_set_member_failed', 'warning', 'A selectable-set member was omitted because capture did not produce region content.', array('source_url' => $sourceUrl, 'status' => $status));
+            ++$recorded;
+            $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
+            if ('no-dialog' === $status) {
+                continue;
+            }
+            if ('click-failed' === $status) {
+                $diagnostics[] = $this->diagnostic('captured_selectable_set_member_failed', 'warning', 'A selectable-set member was omitted because capture did not produce region content.', $this->outcomeContext($sourceUrl, $sourcePath, $status));
                 continue;
             }
             if ('captured' !== $status || ! is_array($state['trigger'] ?? null) || ! is_array($state['dialog'] ?? null) || ! is_array($state['set'] ?? null)) {
@@ -161,6 +168,22 @@ final class CapturedSelectableSetProjector
                 'html' => $sanitized,
                 'tag' => is_string($state['trigger']['tag'] ?? null) ? strtolower($state['trigger']['tag']) : '',
                 'selector' => is_string($state['trigger']['selector'] ?? null) ? trim($state['trigger']['selector']) : '',
+            );
+        }
+
+        if (($statusCounts['no-dialog'] ?? 0) > 0) {
+            ksort($statusCounts, SORT_STRING);
+            $diagnostics[] = $this->diagnostic(
+                'captured_selectable_set_candidate_rejected',
+                'info',
+                'A selectable-set candidate was rejected because capture proved no shared region varies; the static HTML already holds the content.',
+                array_merge($this->outcomeContext($sourceUrl, $sourcePath, 'no-dialog'), array(
+                    'recorded_state_count' => $recorded,
+                    'captured_state_count' => $statusCounts['captured'],
+                    'status_counts' => $statusCounts,
+                    'omission_class' => 'rejected_candidate',
+                )),
+                'native_conversion'
             );
         }
 
@@ -687,9 +710,25 @@ final class CapturedSelectableSetProjector
         return rtrim(trim($url), '/');
     }
 
-    /** @param array<string, mixed> $context @return array<string, mixed> */
-    private function diagnostic(string $code, string $severity, string $message, array $context = array()): array
+    /** @return array<string, mixed> */
+    private function outcomeContext(string $sourceUrl, string $sourcePath, string $status): array
     {
-        return array_filter(array('code' => $code, 'severity' => $severity, 'message' => $message, 'source' => self::class, 'context' => $context), static fn(mixed $value): bool => array() !== $value);
+        $context = array('source_url' => $sourceUrl, 'status' => $status);
+        if ('' !== $sourcePath) {
+            $context['source_path'] = $sourcePath;
+        }
+
+        return $context;
+    }
+
+    /** @param array<string, mixed> $context @return array<string, mixed> */
+    private function diagnostic(string $code, string $severity, string $message, array $context = array(), string $lossClass = ''): array
+    {
+        $row = array('code' => $code, 'severity' => $severity, 'message' => $message, 'source' => self::class, 'context' => $context);
+        if ('' !== $lossClass) {
+            $row['loss_class'] = $lossClass;
+        }
+
+        return array_filter($row, static fn(mixed $value): bool => array() !== $value);
     }
 }
