@@ -116,6 +116,20 @@ $assert(SourceDom::anchorAttributeValue('Section 10') === 'Section 10', 'a leadi
 $assert(SourceDom::anchorAttributeValue('') === '', 'an empty value stays empty');
 $assert(SourceDom::anchorAttributeValue("line\nbreak") === '', 'an embedded control character is rejected');
 
+$assert(SourceDom::namedFragmentTargetId($element('<a name="comments" id="comments"></a>')) === 'comments', 'id wins over name for a fragment target');
+$assert(SourceDom::namedFragmentTargetId($element('<a name="section"></a>')) === 'section', 'name maps to the same identifier when id is absent');
+$assert(SourceDom::namedFragmentTargetId($element('<div id="box"></div>')) === 'box', 'a non-anchor id is still a fragment target identifier');
+$assert(SourceDom::namedFragmentTargetId($element('<div name="box"></div>')) === '', 'name is not a fragment target on non-anchor elements');
+$assert(SourceDom::isEmptyNamedFragmentTarget($element('<a name="comments" id="comments"></a>')), 'an empty href-less named anchor is a fragment target');
+$assert(SourceDom::isEmptyNamedFragmentTarget($element('<a name="section"></a>')), 'an empty name-only anchor is a fragment target');
+$assert(! SourceDom::isEmptyNamedFragmentTarget($element('<a href="/x"></a>')), 'an empty destination-bearing anchor is not a fragment target');
+$assert(! SourceDom::isEmptyNamedFragmentTarget($element('<a name="comments">text</a>')), 'a named anchor with text is not an empty fragment target');
+$collisionRoot = $element('<main><div id="comments"></div><a name="comments" id="comments"></a></main>');
+$collisionAnchor = $collisionRoot->getElementsByTagName('a')->item(0);
+$assert($collisionAnchor instanceof DOMElement && SourceDom::documentHasOtherFragmentTarget($collisionAnchor, 'comments'), 'a second fragment target with the same id is a collision');
+$solo = $element('<a name="only" id="only"></a>');
+$assert(! SourceDom::documentHasOtherFragmentTarget($solo, 'only'), 'a sole fragment target is not a collision with itself');
+
 // --- URL safety -------------------------------------------------------------
 
 $assert(SourceDom::safeFallbackUrl('https://example.test/a', 'href'), 'https is allowed');

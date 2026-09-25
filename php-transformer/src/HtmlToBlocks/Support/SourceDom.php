@@ -193,6 +193,72 @@ final class SourceDom
         return $id;
     }
 
+    /**
+     * Identifier of an in-page jump target: `id`, or `name` on an `<a>` when
+     * `id` is absent. HTML fragment navigation treats those as the same.
+     */
+    public static function namedFragmentTargetId(DOMElement $element): string
+    {
+        $id = self::anchorAttributeValue(self::attr($element, 'id'));
+        if ( '' !== $id ) {
+            return $id;
+        }
+
+        if ( 'a' !== strtolower($element->tagName) ) {
+            return '';
+        }
+
+        return self::anchorAttributeValue(self::attr($element, 'name'));
+    }
+
+    /**
+     * An empty, href-less `<a>` whose only job is to be a fragment target.
+     */
+    public static function isEmptyNamedFragmentTarget(DOMElement $element): bool
+    {
+        if ( 'a' !== strtolower($element->tagName)
+            || 0 !== self::childElementCount($element)
+            || '' !== trim($element->textContent ?? '')
+            || '' !== LinkUrlSanitizer::sanitize(self::attr($element, 'href'))
+        ) {
+            return false;
+        }
+
+        return '' !== self::namedFragmentTargetId($element);
+    }
+
+    /**
+     * Whether another element in the same document already owns this fragment
+     * identifier, so emitting it again would duplicate the id.
+     */
+    public static function documentHasOtherFragmentTarget(DOMElement $element, string $id): bool
+    {
+        if ( '' === $id ) {
+            return false;
+        }
+
+        $root = $element->ownerDocument?->documentElement;
+        if ( ! $root instanceof DOMElement ) {
+            return false;
+        }
+
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($element) ) {
+                continue;
+            }
+
+            if ( $id === self::anchorAttributeValue(self::attr($candidate, 'id')) ) {
+                return true;
+            }
+
+            if ( 'a' === strtolower($candidate->tagName) && $id === self::anchorAttributeValue(self::attr($candidate, 'name')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function hasClass(DOMElement $element, string $className): bool
     {
         return in_array($className, preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array(), true);
