@@ -24,7 +24,7 @@ final class MonochromeGlyphColor
             return '';
         }
 
-        $image = @imagecreatefromstring($bytes);
+        $image = self::decode($bytes);
         if ( false === $image ) {
             return '';
         }
@@ -87,5 +87,64 @@ final class MonochromeGlyphColor
         }
 
         return sprintf('#%02x%02x%02x', $modeRed, $modeGreen, $modeBlue);
+    }
+
+    /** @return \GdImage|false */
+    private static function decode(string $bytes)
+    {
+        if ( function_exists('imagecreatefromstring') ) {
+            $image = @imagecreatefromstring($bytes);
+            if ( false !== $image ) {
+                return $image;
+            }
+        }
+
+        if ( ! self::isAvif($bytes) ) {
+            return false;
+        }
+
+        $png = self::pngBytesViaSips($bytes);
+        if ( '' === $png || ! function_exists('imagecreatefromstring') ) {
+            return false;
+        }
+
+        $image = @imagecreatefromstring($png);
+
+        return false === $image ? false : $image;
+    }
+
+    private static function isAvif(string $bytes): bool
+    {
+        $head = substr($bytes, 4, 28);
+
+        return str_contains($head, 'ftyp') && (str_contains($head, 'avif') || str_contains($head, 'avis'));
+    }
+
+    private static function pngBytesViaSips(string $bytes): string
+    {
+        if ( ! function_exists('exec') ) {
+            return '';
+        }
+
+        $temporary = tempnam(sys_get_temp_dir(), 'glyph-');
+        if ( ! is_string($temporary) || '' === $temporary ) {
+            return '';
+        }
+
+        $source = $temporary . '.avif';
+        $png = $temporary . '.png';
+        if ( ! @rename($temporary, $source) ) {
+            @unlink($temporary);
+
+            return '';
+        }
+
+        file_put_contents($source, $bytes);
+        exec('/usr/bin/sips -s format png ' . escapeshellarg($source) . ' --out ' . escapeshellarg($png) . ' 2>/dev/null', $unused, $code);
+        $decoded = 0 === $code && is_file($png) ? (string) file_get_contents($png) : '';
+        @unlink($source);
+        @unlink($png);
+
+        return $decoded;
     }
 }

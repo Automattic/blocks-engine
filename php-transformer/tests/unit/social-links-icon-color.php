@@ -57,6 +57,13 @@ $glyphs = (new HtmlTransformer())->transform(
 )->toArray();
 $assertColor($social($glyphs), (string) ($glyphs['serialized_blocks'] ?? ''), '#ffffff');
 
+$avif = 'data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAAD5bWV0YQAAAAAAAAAvaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAFBpY3R1cmVIYW5kbGVyAAAAAA5waXRtAAAAAAABAAAAHmlsb2MAAAAARAAAAQABAAAAAQAAASEAAAAdAAAAKGlpbmYAAAAAAAEAAAAaaW5mZQIAAAAAAQAAYXYwMUNvbG9yAAAAAGppcHJwAAAAS2lwY28AAAAUaXNwZQAAAAAAAAAIAAAACAAAABBwaXhpAAAAAAMICAgAAAAMYXYxQ4EADAAAAAATY29scm5jbHgAAgACAAIAAAAAF2lwbWEAAAAAAAAAAQABBAECgwQAAAAlbWRhdAoKAgAABUi/Gr5AEDIPEACXgBBAggAAEAD665Ot';
+$avifGlyphs = (new HtmlTransformer())->transform(
+    '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><img src="' . $avif . '" width="8" height="8" alt=""></a></li>'
+    . '<li><a href="https://www.instagram.com/example" aria-label="Instagram"><img src="' . $avif . '" width="8" height="8" alt=""></a></li></ul>'
+)->toArray();
+$assertColor($social($avifGlyphs), (string) ($avifGlyphs['serialized_blocks'] ?? ''), '#ffffff');
+
 $compiled = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'website/index.html',
     'files' => array(
