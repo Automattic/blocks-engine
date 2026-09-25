@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use DOMElement;
 
 /** Lowers explicit social-profile clusters to the core social-links family. */
@@ -75,6 +76,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         }
 
         $links = array();
+        $linkAnchors = array();
         $showLabels = false;
         $iconOnly = true;
         $structuralItems = true;
@@ -99,6 +101,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             $iconOnly = $iconOnly && '' === $text && $this->hasIcon($anchor);
             $sourceElement = $this->structuralItem($anchor, $element);
             $structuralItems = $structuralItems && ! $sourceElement->isSameNode($anchor);
+            $linkAnchors[] = $anchor;
             $links[] = $context->createBlock('core/social-link', array_merge(
                 $context->presentationAttributes($sourceElement),
                 array_filter(array(
@@ -126,6 +129,11 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         if ( $iconOnly ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-logos-only');
             $attrs['size'] = $this->iconSize($anchors) ?? 'small';
+            $iconColor = $this->uniformIconColor($linkAnchors, $context);
+            if ( '' !== $iconColor ) {
+                $attrs['iconColorValue'] = $iconColor;
+                $attrs['customIconColor'] = $iconColor;
+            }
         }
         if ( $structuralItems ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-source-social-item-spacing');
@@ -283,5 +291,123 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             }
         }
         return $closest;
+    }
+
+    /** @param array<int,DOMElement> $anchors */
+    private function uniformIconColor(array $anchors, PatternContext $context): string
+    {
+        $colors = array();
+        foreach ( $anchors as $anchor ) {
+            $color = $this->iconColor($anchor, $context);
+            if ( '' === $color ) {
+                return '';
+            }
+            $colors[$color] = true;
+        }
+
+        return 1 === count($colors) ? (string) array_key_first($colors) : '';
+    }
+
+    private function iconColor(DOMElement $anchor, PatternContext $context): string
+    {
+        $image = $anchor->getElementsByTagName('img')->item(0);
+        if ( $image instanceof DOMElement ) {
+            $glyph = $this->glyphColor($image, $context);
+            if ( '' !== $glyph ) {
+                return $glyph;
+            }
+
+            return $this->ownPaintColor($image) ?: $this->ownPaintColor($anchor);
+        }
+
+        $svg = $anchor->getElementsByTagName('svg')->item(0);
+        if ( $svg instanceof DOMElement ) {
+            $fill = $this->concreteColor($this->attr($svg, 'fill'));
+            if ( '' !== $fill ) {
+                return $fill;
+            }
+            $styled = $this->ownPaintColor($svg);
+            if ( '' !== $styled ) {
+                return $styled;
+            }
+        }
+
+        $own = $this->ownPaintColor($anchor);
+        if ( '' !== $own ) {
+            return $own;
+        }
+
+        return $this->concreteColor($context->authoredIconColor($anchor));
+    }
+
+    private function glyphColor(DOMElement $image, PatternContext $context): string
+    {
+        $url = trim($this->attr($image, 'src'));
+        if ( '' === $url ) {
+            return '';
+        }
+        if ( str_starts_with(strtolower($url), 'data:image/') ) {
+            $comma = strpos($url, ',');
+            if ( false === $comma ) {
+                return '';
+            }
+            $meta = substr($url, 0, $comma);
+            $payload = substr($url, $comma + 1);
+            $bytes = str_contains($meta, ';base64') ? base64_decode($payload, true) : rawurldecode($payload);
+
+            return is_string($bytes) ? MonochromeGlyphColor::fromBytes($bytes) : '';
+        }
+
+        return $this->concreteColor($context->assetGlyphColor($url));
+    }
+
+    private function ownPaintColor(DOMElement $element): string
+    {
+        $style = $this->attr($element, 'style');
+        if ( '' === $style ) {
+            return '';
+        }
+        foreach ( array( 'fill', 'color' ) as $property ) {
+            if ( 1 === preg_match('/(?:^|;)\s*' . $property . '\s*:\s*([^;]+)/i', $style, $match) ) {
+                $color = $this->concreteColor($match[1]);
+                if ( '' !== $color ) {
+                    return $color;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private function concreteColor(string $value): string
+    {
+        $value = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', trim($value)) ?? ''));
+        if ( '' === $value || in_array($value, array( 'currentcolor', 'transparent', 'none', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'auto' ), true) ) {
+            return '';
+        }
+        if ( 'white' === $value ) {
+            return '#ffffff';
+        }
+        if ( 'black' === $value ) {
+            return '#000000';
+        }
+        if ( 1 === preg_match('/^#([0-9a-f]{3})$/', $value, $short) ) {
+            return '#' . $short[1][0] . $short[1][0] . $short[1][1] . $short[1][1] . $short[1][2] . $short[1][2];
+        }
+        if ( 1 === preg_match('/^#([0-9a-f]{6})$/', $value, $hex) ) {
+            return '#' . $hex[1];
+        }
+        if ( 1 === preg_match('/^rgba?\(\s*(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})(?:\s*,\s*|\s+)(\d{1,3})/', $value, $rgb) ) {
+            $channels = array( (int) $rgb[1], (int) $rgb[2], (int) $rgb[3] );
+            foreach ( $channels as $channel ) {
+                if ( $channel < 0 || $channel > 255 ) {
+                    return '';
+                }
+            }
+
+            return sprintf('#%02x%02x%02x', $channels[0], $channels[1], $channels[2]);
+        }
+
+        return '';
     }
 }

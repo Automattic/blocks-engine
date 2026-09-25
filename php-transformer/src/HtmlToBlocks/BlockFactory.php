@@ -454,7 +454,9 @@ final class BlockFactory
             $labelsClass = ! empty($attrs['showLabels']) ? 'has-visible-labels' : '';
             $justification = $this->safeSlug((string) ($attrs['justifyContent'] ?? ''));
             $justificationClass = in_array($justification, array( 'left', 'center', 'right', 'space-between' ), true) ? 'is-content-justification-' . $justification : '';
-            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $labelsClass . ' ' . $sizeClass . ' ' . $justificationClass)) . '>', 'closing' => '</ul>' );
+            $iconColorClass = '' !== trim((string) ($attrs['iconColorValue'] ?? '')) ? 'has-icon-color' : '';
+            $iconBackgroundClass = '' !== trim((string) ($attrs['iconBackgroundColorValue'] ?? '')) ? 'has-icon-background-color' : '';
+            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $labelsClass . ' ' . $sizeClass . ' ' . $justificationClass . ' ' . $iconColorClass . ' ' . $iconBackgroundClass)) . '>', 'closing' => '</ul>' );
         }
 
         if ( 'core/social-link' === $name ) {

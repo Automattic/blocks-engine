@@ -21,6 +21,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
@@ -132,6 +133,11 @@ final class ArtifactCompiler
 
     /** @var array<int, array<string, mixed>> */
     private array $imageFiles = array();
+
+    /** @var array<string, string> */
+    private array $glyphColorByHash = array();
+
+    private ?PayloadReader $glyphPayloadReader = null;
 
     /** @var array<int, string> */
     private array $scriptContents = array();
@@ -3237,6 +3243,62 @@ final class ArtifactCompiler
         return isset($result['serialized_blocks']) && is_scalar($result['serialized_blocks']) ? trim((string) $result['serialized_blocks']) : '';
     }
 
+    /** @param array<string, mixed> $file */
+    private function glyphColorForFile(array $file): string
+    {
+        $bytes = $this->embeddedFileBytes($file);
+        if ( '' === $bytes || strlen($bytes) > 65536 ) {
+            return '';
+        }
+
+        $hash = hash('sha256', $bytes);
+        if ( ! isset($this->glyphColorByHash[$hash]) ) {
+            $this->glyphColorByHash[$hash] = MonochromeGlyphColor::fromBytes($bytes);
+        }
+
+        return $this->glyphColorByHash[$hash];
+    }
+
+    /** @param array<string, mixed> $file */
+    private function embeddedFileBytes(array $file): string
+    {
+        if ( is_string($file['content_base64'] ?? null) && '' !== $file['content_base64'] ) {
+            $decoded = base64_decode($file['content_base64'], true);
+            if ( is_string($decoded) && '' !== $decoded ) {
+                return $decoded;
+            }
+        }
+
+        $content = is_string($file['content'] ?? null) ? $file['content'] : '';
+        if ( '' !== $content ) {
+            return $content;
+        }
+
+        $reference = $file['payload_reference'] ?? null;
+        if ( ! is_array($reference) || null === $this->glyphPayloadReader ) {
+            return '';
+        }
+        $declaredBytes = (int) ($reference['bytes'] ?? 0);
+        if ( $declaredBytes < 1 || $declaredBytes > 65536 ) {
+            return '';
+        }
+
+        try {
+            $payload = $this->glyphPayloadReader->read($reference);
+        } catch ( \Throwable ) {
+            return '';
+        }
+        if ( strlen($payload) !== $declaredBytes ) {
+            return '';
+        }
+        $sha = (string) ($reference['sha256'] ?? '');
+        if ( '' !== $sha && ! hash_equals($sha, hash('sha256', $payload)) ) {
+            return '';
+        }
+
+        return $payload;
+    }
+
     /**
      * @param array<int, array<string, mixed>> $files
      * @return array<string, array<string, mixed>>
@@ -3264,6 +3326,10 @@ final class ArtifactCompiler
                 'path'      => $path,
                 'mime_type' => $mimeType,
             );
+            $glyphColor = $this->glyphColorForFile($file);
+            if ( '' !== $glyphColor ) {
+                $asset['glyph_color'] = $glyphColor;
+            }
 
             foreach ( $this->assetLookupKeysForSource($path, $sourcePath) as $key ) {
                 $metadata[$key] = $asset;
@@ -4209,6 +4275,7 @@ final class ArtifactCompiler
     {
         $this->filesByPath = array();
         $this->imageFiles = array();
+        $this->glyphColorByHash = array();
         $this->scriptContents = array();
         $this->runtimeScriptEvidenceAnalyzer->resetCache();
 

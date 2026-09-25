@@ -2956,7 +2956,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
                 || $this->sourceElementStartsHidden($sourceElement),
             fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
-            fn (DOMElement $control): string => $this->disclosureControlPresentation()->accordionToggleMarker($control)
+            fn (DOMElement $control): string => $this->disclosureControlPresentation()->accordionToggleMarker($control),
+            fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
+            fn (string $url): string => (string) ($this->materializedAssets()->metadataForUrl($url)['glyph_color'] ?? '')
         );
     }
 
@@ -3042,7 +3044,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
                 || $this->sourceElementStartsHidden($sourceElement),
              disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
-             accordionToggleMarker: fn (DOMElement $control): string => $this->disclosureControlPresentation()->accordionToggleMarker($control)
+             accordionToggleMarker: fn (DOMElement $control): string => $this->disclosureControlPresentation()->accordionToggleMarker($control),
+             authoredIconColor: fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
+             assetGlyphColor: fn (string $url): string => (string) ($this->materializedAssets()->metadataForUrl($url)['glyph_color'] ?? '')
          );
     }
 
