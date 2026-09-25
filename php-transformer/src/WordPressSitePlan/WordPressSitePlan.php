@@ -201,7 +201,7 @@ final class WordPressSitePlan
         $shells = $this->shellExtraction->sharedShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations']);
         $inlineAreas = array_fill_keys(array_column($inlineShells['parts'], 'area'), true);
         $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
-        $pages = $this->materializeListingQueries($shells['pages']);
+        $pages = $shells['pages'];
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
         $assets = self::projectSharedChromeStylesheets($assets, $parts);
         $tokens = $this->tokens($assets);
@@ -923,22 +923,44 @@ final class WordPressSitePlan
             $datedByParent[self::parentRoutePath($routes[$index])][] = $index;
         }
         $listings = array();
-        foreach ($datedByParent as $parent => $indexes) if ('/' !== $parent && count($indexes) >= 2) $listings[$parent] = true;
+        foreach ($datedByParent as $parent => $indexes) {
+            if ('/' !== $parent && count($indexes) >= 2) {
+                $listings[$parent] = true;
+            }
+        }
         foreach ($documents as $index => &$document) {
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
             $frontmatter = is_array($metadata['frontmatter'] ?? null) ? $metadata['frontmatter'] : array();
-            $explicit = null; $provenance = null;
-            foreach (array('post_type', 'type') as $key) if (is_string($frontmatter[$key] ?? null) && in_array(strtolower($frontmatter[$key]), array('page', 'post'), true)) { $explicit = strtolower($frontmatter[$key]); $provenance = 'frontmatter:' . $key; break; }
-            if (null === $explicit && 'metadata:post_type' === ($metadata['post_type_declaration'] ?? null) && is_string($metadata['post_type'] ?? null) && in_array(strtolower($metadata['post_type']), array('page', 'post'), true)) { $explicit = strtolower($metadata['post_type']); $provenance = 'metadata:post_type'; }
+            $explicit = null;
+            $provenance = null;
+            foreach (array('post_type', 'type') as $key) {
+                if (is_string($frontmatter[$key] ?? null) && in_array(strtolower($frontmatter[$key]), array('page', 'post'), true)) {
+                    $explicit = strtolower($frontmatter[$key]);
+                    $provenance = 'frontmatter:' . $key;
+                    break;
+                }
+            }
+            if (null === $explicit && 'metadata:post_type' === ($metadata['post_type_declaration'] ?? null) && is_string($metadata['post_type'] ?? null) && in_array(strtolower($metadata['post_type']), array('page', 'post'), true)) {
+                $explicit = strtolower($metadata['post_type']);
+                $provenance = 'metadata:post_type';
+            }
             $evidence = $evidenceByIndex[$index];
             $route = $routes[$index];
             $parent = self::parentRoutePath($route);
-            if (isset($listings[$route])) $evidence = array();
-            elseif (!isset($listings[$parent])) $evidence = array_values(array_filter($evidence, static fn(array $row): bool => 'html:visible-date' !== ($row['source'] ?? null)));
-            elseif (array() !== $evidence) {
+            if (isset($listings[$route])) {
+                $evidence = array();
+            } elseif (!isset($listings[$parent])) {
+                $evidence = array_values(array_filter($evidence, static fn(array $row): bool => 'html:visible-date' !== ($row['source'] ?? null)));
+            } elseif (array() !== $evidence) {
                 $hasListing = false;
-                foreach ($evidence as $row) if ('listing:parent' === ($row['source'] ?? null)) $hasListing = true;
-                if (!$hasListing && count($evidence) < 16) $evidence[] = array('source' => 'listing:parent');
+                foreach ($evidence as $row) {
+                    if ('listing:parent' === ($row['source'] ?? null)) {
+                        $hasListing = true;
+                    }
+                }
+                if (!$hasListing && count($evidence) < 16) {
+                    $evidence[] = array('source' => 'listing:parent');
+                }
             }
             $postType = $explicit ?? ((!empty($document['entrypoint']) || array() === $evidence) ? 'page' : 'post');
             $surface = $this->templateSurface($metadata['template_surface'] ?? null, (string) ($document['source_path'] ?? ''));
@@ -949,7 +971,10 @@ final class WordPressSitePlan
             $metadata['post_type'] = $postType;
             $document['metadata'] = $metadata;
             $document['content_decision'] = array_filter(array('schema' => 'blocks-engine/content-decision/v1', 'state' => null !== $explicit ? 'declared' : (array() === $evidence ? 'defaulted' : 'inferred'), 'post_type' => $postType, 'provenance' => $provenance, 'evidence' => $evidence), static fn(mixed $value): bool => null !== $value);
-            foreach ($evidence as $row) if (is_string($row['publication_timestamp'] ?? null)) { $document['publication_timestamp'] = $row['publication_timestamp']; break; }
+            $timestamp = self::preferredPublicationTimestamp($evidence);
+            if (null !== $timestamp) {
+                $document['publication_timestamp'] = $timestamp;
+            }
         }
         unset($document);
         return $documents;
@@ -1048,28 +1073,99 @@ final class WordPressSitePlan
         foreach (self::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
-        foreach ($this->visiblePublicationEvidence($html) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
-        foreach (($document['document_metadata']['meta'] ?? array()) as $meta) {
-            if (!is_array($meta) || !is_string($meta['content'] ?? null) || !in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('og:url', 'twitter:url'), true)) continue;
-            $path = parse_url($meta['content'], PHP_URL_PATH);
-            if (is_string($path) && preg_match('~/(20\d{2})/(0[1-9]|1[0-2])(?:/|$)~', $path, $match)) $add($evidence, 'meta:og:url-dated', $timestamp($match[1] . '-' . $match[2] . '-01'));
+        foreach ($this->visiblePublicationEvidence($html) as $row) {
+            $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         }
-        $unique = array(); foreach ($evidence as $row) $unique[$row['source'] . "\n" . ($row['publication_timestamp'] ?? '')] = $row; return array_values($unique);
+        foreach (($document['document_metadata']['meta'] ?? array()) as $meta) {
+            if (!is_array($meta) || !is_string($meta['content'] ?? null) || !in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('og:url', 'twitter:url'), true)) {
+                continue;
+            }
+            $path = parse_url($meta['content'], PHP_URL_PATH);
+            if (!is_string($path) || !preg_match('~/(20\d{2})/(0[1-9]|1[0-2])(?:/|$)~', $path, $match)) {
+                continue;
+            }
+            $add($evidence, 'meta:og:url-dated', $timestamp($match[1] . '-' . $match[2] . '-01'));
+        }
+        $unique = array();
+        foreach ($evidence as $row) {
+            $unique[$row['source'] . "\n" . ($row['publication_timestamp'] ?? '')] = $row;
+        }
+        return array_values($unique);
     }
     /** @return array<int,array<string,string>> */
     private function visiblePublicationEvidence(string $html): array
     {
         $rows = array();
-        if (!preg_match_all('/<(time|p|span|div|li|td|mark)\b([^>]*)>(.*?)<\/\1>/is', $html, $matches, PREG_SET_ORDER)) return $rows;
-        foreach ($matches as $match) {
-            $name = strtolower($match[1]);
-            $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($match[3]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
-            if ('' === $text) continue;
-            if ('time' !== $name && 1 !== preg_match('/\b(?:class|id)\s*=\s*(["\']).*?\b(?:date|published|pubdate)\b/i', $match[2])) continue;
-            $parsed = self::parseVisiblePublicationTimestamp($text);
-            if (null !== $parsed) $rows[] = array('source' => 'html:visible-date', 'publication_timestamp' => $parsed);
+        foreach ($this->publicationHtmlFragments($html) as $fragment) {
+            foreach (self::htmlMarkupNodes($fragment) as $node) {
+                if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null)) {
+                    continue;
+                }
+                $attributes = is_array($node['attributes'] ?? null) ? $node['attributes'] : array();
+                if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes)) {
+                    continue;
+                }
+                $text = self::elementInnerText($fragment, (string) $node['name'], $node['inner_offset']);
+                $parsed = self::parseVisiblePublicationTimestamp($text);
+                if (null !== $parsed) {
+                    $rows[] = array('source' => 'html:visible-date', 'publication_timestamp' => $parsed);
+                }
+            }
         }
         return $rows;
+    }
+    /** @return array<int,string> */
+    private function publicationHtmlFragments(string $html): array
+    {
+        $fragments = array($html);
+        foreach (self::htmlMarkupNodes($html) as $node) {
+            if ('comment' !== ($node['kind'] ?? null)) {
+                continue;
+            }
+            $attributes = self::blockCommentAttributes((string) ($node['content'] ?? ''));
+            if (!is_array($attributes) || !is_string($attributes['content'] ?? null) || !str_contains($attributes['content'], '<')) {
+                continue;
+            }
+            $fragments[] = $attributes['content'];
+        }
+        return $fragments;
+    }
+    /** @param array<string,mixed> $attributes */
+    private static function isVisibleDateElement(string $name, array $attributes): bool
+    {
+        if ('time' === $name) {
+            return true;
+        }
+        if (!in_array($name, array('p', 'span', 'div', 'li', 'td', 'mark'), true)) {
+            return false;
+        }
+        $tokens = strtolower(trim(html_entity_decode((string) ($attributes['class'] ?? '') . ' ' . (string) ($attributes['id'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+        return 1 === preg_match('/\b(?:date|published|pubdate)\b/', $tokens);
+    }
+    private static function elementInnerText(string $html, string $name, int $innerOffset): string
+    {
+        $closing = self::rawTextEnd($html, $name, $innerOffset);
+        if (null === $closing) {
+            return '';
+        }
+        $inner = substr($html, $innerOffset, $closing[0] - $innerOffset);
+        return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($inner), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+    }
+    /** @param array<int,array<string,string>> $evidence */
+    private static function preferredPublicationTimestamp(array $evidence): ?string
+    {
+        $fallback = null;
+        foreach ($evidence as $row) {
+            if (!is_string($row['publication_timestamp'] ?? null)) {
+                continue;
+            }
+            if ('meta:og:url-dated' === ($row['source'] ?? null)) {
+                $fallback ??= $row['publication_timestamp'];
+                continue;
+            }
+            return $row['publication_timestamp'];
+        }
+        return $fallback;
     }
     /** @return array<int,array<string,string>> */
     private function jsonLdPublicationEvidence(mixed $value, callable $timestamp): array
@@ -1251,26 +1347,6 @@ final class WordPressSitePlan
     private static function queryLoopMarkup(bool $inherit): string
     {
         return '<!-- wp:query {"queryId":1,"query":{"perPage":10,"pages":0,"offset":0,"postType":"post","order":"desc","orderBy":"date","author":"","search":"","exclude":[],"sticky":"","inherit":' . ($inherit ? 'true' : 'false') . '},"layout":{"type":"constrained"}} -->' . "\n" . '<div class="wp-block-query"><!-- wp:post-template -->' . "\n" . '<!-- wp:post-title {"isLink":true} /-->' . "\n" . '<!-- wp:post-excerpt /-->' . "\n" . '<!-- wp:post-date {"isLink":true} /-->' . "\n" . '<!-- /wp:post-template -->' . "\n" . '<!-- wp:query-pagination {"paginationArrow":"arrow","layout":{"type":"flex","justifyContent":"space-between"}} -->' . "\n" . '<!-- wp:query-pagination-previous /-->' . "\n" . '<!-- wp:query-pagination-next /-->' . "\n" . '<!-- /wp:query-pagination -->' . "\n" . '<!-- wp:query-no-results -->' . "\n" . '<!-- wp:paragraph -->' . "\n" . '<p>No posts found.</p>' . "\n" . '<!-- /wp:paragraph -->' . "\n" . '<!-- /wp:query-no-results --></div>' . "\n" . '<!-- /wp:query -->';
-    }
-    /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
-    private function materializeListingQueries(array $pages): array
-    {
-        $postsByParent = array();
-        foreach ($pages as $page) {
-            if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic'])) continue;
-            $parent = $page['route']['parent_path'] ?? '/';
-            if ('/' === $parent) continue;
-            $postsByParent[$parent][] = $page['source_path'];
-        }
-        foreach ($pages as &$page) {
-            if ('page' !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !empty($page['entrypoint'])) continue;
-            $listed = $postsByParent[$page['route']['path'] ?? ''] ?? array();
-            if (count($listed) < 2) continue;
-            $page['canonical_block_markup'] = self::queryLoopMarkup(false);
-            $page['content_hash'] = self::contentHash($page['canonical_block_markup']);
-        }
-        unset($page);
-        return $pages;
     }
 
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
@@ -1613,6 +1689,49 @@ final class WordPressSitePlan
             $lines[] = "    if ( ! isset( \$attributes[\$handle] ) ) return \$tag;";
             $lines[] = "    \$rendered = ''; foreach ( \$attributes[\$handle] as \$name => \$value ) \$rendered .= true === \$value ? ' ' . \$name : ' ' . \$name . '=\"' . esc_attr( (string) \$value ) . '\"';";
             $lines[] = "    return preg_replace( '/<script\\b/', '<script' . \$rendered, \$tag, 1 ) ?? \$tag;";
+            $lines[] = "}, 10, 2 );";
+        }
+        $postRoutePaths = array();
+        $postRouteParents = array();
+        foreach ($pages as $page) {
+            if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic'])) {
+                continue;
+            }
+            $path = trim((string) ($page['route']['path'] ?? ''), '/');
+            $identity = (string) ($page['reconciliation_identity'] ?? '');
+            if ('' === $path || '' === $identity || !str_contains($path, '/')) {
+                continue;
+            }
+            $postRoutePaths[$identity] = $path;
+            $parent = trim((string) ($page['route']['parent_path'] ?? ''), '/');
+            if ('' !== $parent) {
+                $postRouteParents[$parent] = true;
+            }
+        }
+        ksort($postRoutePaths);
+        ksort($postRouteParents);
+        if (array() !== $postRoutePaths) {
+            $lines[] = '$blocks_engine_post_routes = ' . var_export($postRoutePaths, true) . ';';
+            $lines[] = "add_action( 'init', static function () use ( \$blocks_engine_post_routes ): void {";
+            foreach (array_keys($postRouteParents) as $parent) {
+                $pattern = '^' . preg_quote($parent, '/') . '/([^/]+)/?$';
+                $lines[] = "    add_rewrite_rule( " . var_export($pattern, true) . ", 'index.php?name=\$matches[1]', 'top' );";
+            }
+            $lines[] = "    \$signature = hash( 'sha256', wp_json_encode( \$blocks_engine_post_routes ) );";
+            $lines[] = "    if ( \$signature !== get_option( 'blocks_engine_post_route_signature' ) ) {";
+            $lines[] = "        update_option( 'blocks_engine_post_route_signature', \$signature );";
+            $lines[] = "        flush_rewrite_rules( false );";
+            $lines[] = "    }";
+            $lines[] = "} );";
+            $lines[] = "add_filter( 'post_link', static function ( string \$permalink, WP_Post \$post ) use ( \$blocks_engine_post_routes ): string {";
+            $lines[] = "    if ( 'post' !== \$post->post_type ) {";
+            $lines[] = "        return \$permalink;";
+            $lines[] = "    }";
+            $lines[] = "    \$identity = (string) get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true );";
+            $lines[] = "    if ( isset( \$blocks_engine_post_routes[ \$identity ] ) ) {";
+            $lines[] = "        return home_url( user_trailingslashit( \$blocks_engine_post_routes[ \$identity ] ) );";
+            $lines[] = "    }";
+            $lines[] = "    return \$permalink;";
             $lines[] = "}, 10, 2 );";
         }
         return implode("\n", $lines) . "\n";
@@ -2143,7 +2262,7 @@ final class WordPressSitePlan
             while ($cursor < $length) {
                 while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
                 if ($cursor >= $length) break;
-                if ('>' === $content[$cursor] || ('/' === $content[$cursor] && $cursor + 1 < $length && '>' === $content[$cursor + 1])) { $cursor += '>' === $content[$cursor] ? 1 : 2; $nodes[] = array('kind' => 'tag', 'name' => $name, 'attributes' => $attributes); if ('style' === $name) { $closing = self::rawTextEnd($content, $name, $cursor); if (null !== $closing) { $nodes[] = array('kind' => 'style', 'css' => substr($content, $cursor, $closing[0] - $cursor)); $offset = $closing[1]; } else { $nodes[] = array('kind' => 'style', 'css' => substr($content, $cursor)); $offset = $length; } continue 2; } if ('plaintext' === $name) { $offset = $length; continue 2; } if (in_array($name, array('script', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes', 'noscript'), true)) { $closing = self::rawTextEnd($content, $name, $cursor); if ('script' === $name && null !== $closing) $nodes[] = array('kind' => 'rawtext', 'name' => $name, 'attributes' => $attributes, 'content' => substr($content, $cursor, $closing[0] - $cursor)); $offset = null === $closing ? $length : $closing[1]; continue 2; } $offset = $cursor; continue 2; }
+                if ('>' === $content[$cursor] || ('/' === $content[$cursor] && $cursor + 1 < $length && '>' === $content[$cursor + 1])) { $selfClosing = '>' !== $content[$cursor]; $cursor += $selfClosing ? 2 : 1; $tag = array('kind' => 'tag', 'name' => $name, 'attributes' => $attributes); if (!$selfClosing) $tag['inner_offset'] = $cursor; $nodes[] = $tag; if ('style' === $name) { $closing = self::rawTextEnd($content, $name, $cursor); if (null !== $closing) { $nodes[] = array('kind' => 'style', 'css' => substr($content, $cursor, $closing[0] - $cursor)); $offset = $closing[1]; } else { $nodes[] = array('kind' => 'style', 'css' => substr($content, $cursor)); $offset = $length; } continue 2; } if ('plaintext' === $name) { $offset = $length; continue 2; } if (in_array($name, array('script', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes', 'noscript'), true)) { $closing = self::rawTextEnd($content, $name, $cursor); if ('script' === $name && null !== $closing) $nodes[] = array('kind' => 'rawtext', 'name' => $name, 'attributes' => $attributes, 'content' => substr($content, $cursor, $closing[0] - $cursor)); $offset = null === $closing ? $length : $closing[1]; continue 2; } $offset = $cursor; continue 2; }
                 $attributeStart = $cursor; while ($cursor < $length && !ctype_space($content[$cursor]) && !str_contains('=/>', $content[$cursor])) ++$cursor;
                 if ($attributeStart === $cursor) { ++$cursor; continue; }
                 $attribute = strtolower(substr($content, $attributeStart, $cursor - $attributeStart)); while ($cursor < $length && ctype_space($content[$cursor])) ++$cursor;
