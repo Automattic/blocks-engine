@@ -41,6 +41,26 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
 
+        return $this->lower($element, $tagName, $fallbacks);
+    }
+
+    /**
+     * Lowers an unknown or custom element (`bdt`, `x-panel`) in block position
+     * the way a generic `div` lowers: it has no rendering of its own, so its
+     * children convert in place and it is kept as a Group only when it wraps
+     * several blocks or carries presentation, and vanishes when empty and
+     * inert. The caller decides which unknown elements may take this path.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    public function convertUnknownElement(DOMElement $element, array &$fallbacks): ConversionOutcome
+    {
+        return $this->lower($element, strtolower($element->tagName), $fallbacks);
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    private function lower(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    {
         $runtimeAppShell = $this->context->runtimeAppShellBlock($element, $fallbacks);
         if ( null !== $runtimeAppShell ) {
             return ConversionOutcome::handled($runtimeAppShell);

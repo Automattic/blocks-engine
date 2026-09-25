@@ -2988,11 +2988,56 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
+        if ( $this->isTransparentUnknownElement($element) ) {
+            // A hyphenated custom element is an authored component: when the
+            // classifier calls its subtree a cohesive custom block, it still
+            // becomes the generated block the unsupported recorder produced.
+            // An unknown non-hyphenated name (`bdt`) is never a component.
+            $generated = str_contains($element->tagName, '-') ? $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks()) : null;
+            if ( null !== $generated ) {
+                return $this->generatedComponentBlock($generated, $element);
+            }
+
+            return $this->flowContainerConverter->convertUnknownElement($element, $fallbacks)->block;
+        }
+
         if ( $captureUnsupported ) {
             return $this->unsupportedRecorder->record($element, $tagName, $fallbacks);
         }
 
         return null;
+    }
+
+    /**
+     * An unknown or custom element (`bdt`, `x-panel`) has no rendering of its
+     * own: in block position it is a generic container, like a `div`. Once
+     * every custom-element recognizer above has declined it, lower it as one
+     * instead of dropping its whole subtree as unsupported.
+     *
+     * A subtree that carries runtime ownership (a script target, event
+     * handlers, Interactivity API directives), a host that names a runtime
+     * media component (`media-host`, `x-player`) or has its own ARIA role or
+     * accessible name (a widget, not a wrapper) stays on the preservation
+     * path, as do the legacy Shadow DOM insertion points `content` and
+     * `shadow`, and a textless hyphenated custom element, which a script may
+     * still upgrade into rendered shadow content.
+     */
+    private function isTransparentUnknownElement(DOMElement $element): bool
+    {
+        if ( ! RichTextInlineTags::isUnknownHtmlElement($element)
+            || in_array(strtolower($element->tagName), array( 'content', 'shadow' ), true)
+            || $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element)
+            || ! $this->isSafeTransparentCustomElement($element)
+        ) {
+            return false;
+        }
+        foreach ( array( 'role', 'aria-label', 'aria-labelledby' ) as $attribute ) {
+            if ( '' !== trim($this->attr($element, $attribute)) ) {
+                return false;
+            }
+        }
+
+        return ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '');
     }
 
     /**
@@ -5008,7 +5053,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
-        return ShellLandmarkPolicy::isWrapperPreservingTag($element->tagName) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
+        return ( ShellLandmarkPolicy::isWrapperPreservingTag($element->tagName) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
     }
 
     /**
@@ -5871,7 +5916,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array
     {
-        if ( ! ShellLandmarkPolicy::isInlineContentWrapperTag($element->tagName) ) {
+        // An unknown element in block position is a generic container too
+        // (see isTransparentUnknownElement()): its phrasing run is one paragraph.
+        if ( ! ShellLandmarkPolicy::isInlineContentWrapperTag($element->tagName) && ! RichTextInlineTags::isUnknownHtmlElement($element) ) {
             return null;
         }
 
