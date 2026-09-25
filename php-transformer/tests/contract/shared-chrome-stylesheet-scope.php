@@ -151,4 +151,93 @@ $assert(false === $exclusion->invoke(null, '.text-sm:not(:where(.blocks-engine-c
 $assert(true === $exclusion->invoke(null, '.blocks-engine-control-abc-6 .text-sm:not(.x)', array('blocks-engine-control-abc-6' => true)), 'A selector that targets a shared-chrome class is projected.');
 $assert(true === $exclusion->invoke(null, ':not(.a) .blocks-engine-control-abc-6', array('blocks-engine-control-abc-6' => true)), 'A class outside :not() still counts after an earlier :not().');
 
+// Two different stylesheets can project the same shared-chrome rules. The
+// content-addressed target must be emitted once, with one token and one
+// reconciliation identity, and relative url() must still resolve.
+$splitChrome = '[data-chrome=grid]{display:grid;height:80px;background-image:url(../img/mark.png)}';
+$splitHeader = static function (string $home, string $about): string {
+    return '<header id="site-chrome" class="site-header" data-chrome="grid"><nav><a href="' . $home . '">Home</a><a href="' . $about . '">About</a></nav></header>';
+};
+$splitDocument = static function (string $headerHtml, string $main) use ($splitHeader): string {
+    return '<!doctype html><html><head><link rel="stylesheet" href="css/home.css"><link rel="stylesheet" href="css/about.css"></head><body>'
+        . '<div id="site-root"><div id="masterPage">' . $headerHtml
+        . '<div id="PAGES_CONTAINER">' . $main . '</div></div></div></body></html>';
+};
+$split = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1>Home</h1></main>'),
+        'about.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1>About</h1></main>'),
+        'team.html' => $splitDocument($splitHeader('index.html', 'about.html'), '<main><h1>Team</h1></main>'),
+        'css/home.css' => array('path' => 'css/home.css', 'kind' => 'css', 'content' => $splitChrome . '.home-only{color:#111111}'),
+        'css/about.css' => array('path' => 'css/about.css', 'kind' => 'css', 'content' => $splitChrome . '.about-only{color:#222222}'),
+        'img/mark.png' => array('path' => 'img/mark.png', 'kind' => 'image', 'mime_type' => 'image/png', 'content_base64' => base64_encode("\x89PNG\r\n\x1a\n")),
+    ),
+))->toArray();
+$splitPlan = $split['source_reports']['wordpress_site_plan'] ?? null;
+$splitDiagnostics = array_values(array_filter($split['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'wordpress_site_plan_not_self_contained' === ($diagnostic['code'] ?? null)));
+$assert(is_array($splitPlan), 'Identical shared-chrome projections from two stylesheets compile: ' . (string) ($splitDiagnostics[0]['message'] ?? $split['status'] ?? ''));
+$splitShared = array_values(array_filter($splitPlan['assets'] ?? array(), static fn(array $asset): bool => str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-') && !str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-context')));
+$assert(1 === count($splitShared), 'Byte-identical shared-chrome projections are one asset, not a colliding pair.');
+$splitAsset = $splitShared[0];
+$assert(array(array('kind' => 'global')) === ($splitAsset['scopes'] ?? null), 'The coalesced shared-chrome asset stays globally scoped for every page.');
+$assert(1 === preg_match('/^css\/(?:home|about)(?:\.page-[a-f0-9]+)?\.css\.shared-chrome$/', (string) ($splitAsset['source_path'] ?? '')), 'The coalesced asset keeps one synthetic source identity from a contributing stylesheet: ' . (string) ($splitAsset['source_path'] ?? ''));
+$assert($splitAsset['token'] === 'asset-' . substr(hash('sha256', (string) $splitAsset['target_path']), 0, 16), 'The coalesced token is the content-addressed target, so every page reference agrees.');
+$assert($splitAsset['reconciliation_identity'] === WordPressSitePlan::identity('asset', (string) $splitAsset['source_path'], (string) $splitAsset['target_path']), 'The coalesced reconciliation identity matches the single emitted source and target.');
+$splitTokens = array_values(array_filter($splitPlan['reference_tokens'] ?? array(), static fn(array $token): bool => ($token['target_path'] ?? null) === ($splitAsset['target_path'] ?? null)));
+$assert(1 === count($splitTokens) && ($splitTokens[0]['token'] ?? null) === ($splitAsset['token'] ?? null) && ($splitTokens[0]['source_path'] ?? null) === ($splitAsset['source_path'] ?? null), 'Reference tokens declare the coalesced asset once, with the same token and source.');
+$splitRemainder = implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), $splitPlan['assets'] ?? array()));
+$assert(str_contains($splitRemainder, '.home-only') && str_contains($splitRemainder, '.about-only'), 'Page-owned rules stay on their source stylesheets after the shared projection is coalesced.');
+$splitWrites = array_values(array_filter($splitPlan['writes'] ?? array(), static fn(array $write): bool => ($write['target_path'] ?? null) === ($splitAsset['target_path'] ?? null)));
+$assert(1 === count($splitWrites) && 1 === preg_match('/background-image:url\(\{\{wordpress-site-plan:asset:asset-[a-f0-9]{16}\}\}\)/', (string) ($splitWrites[0]['payload']['data'] ?? '')) && !str_contains((string) ($splitWrites[0]['payload']['data'] ?? ''), 'mark.png'), 'The single shared stylesheet still tokenizes url() against a contributing reference origin.');
+
+$divergent = new ReflectionMethod(WordPressSitePlan::class, 'projectSharedChromeStylesheets');
+$divergentClass = 'blocks-engine-control-abc123def456-1';
+$divergentShared = '.' . $divergentClass . '{background-image:url(mark.png)}';
+$divergentAsset = static function (string $path, string $extra) use ($divergentShared): array {
+    $content = $divergentShared . $extra;
+    return array('kind' => 'css', 'content' => $content, 'source_path' => $path, 'path' => $path, 'target_path' => 'assets/' . $path, 'source' => 'files', 'role' => 'stylesheet', 'mime_type' => 'text/css', 'stylesheet_target' => 'both', 'bytes' => strlen($content), 'hash' => hash('sha256', $content), 'content_hash' => hash('sha256', $content), 'token' => 'asset-0000000000000001', 'reconciliation_identity' => hash('sha256', $path));
+};
+$divergentProjected = $divergent->invoke(null, array(
+    $divergentAsset('css/home.css', '.home-only{color:#111111}'),
+    $divergentAsset('nested/about.css', '.about-only{color:#222222}'),
+), array(array('placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => '<div class="' . $divergentClass . '"></div>')));
+$divergentSharedAssets = array_values(array_filter($divergentProjected, static fn(array $asset): bool => str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-')));
+$assert(2 === count($divergentSharedAssets), 'Identical shared text whose relative url() resolves differently is not coalesced.');
+
+$conflictChrome = '[data-chrome=grid]{display:grid;height:80px;background-image:url(mark.png)}';
+$conflictHeader = '<header id="site-chrome" class="site-header" data-chrome="grid"><nav><a href="index.html">Home</a><a href="about.html">About</a></nav></header>';
+$conflictDocument = static fn(string $main): string => '<!doctype html><html><head><link rel="stylesheet" href="css/home.css"><link rel="stylesheet" href="nested/about.css"></head><body><div id="site-root"><div id="masterPage">' . $conflictHeader . '<div id="PAGES_CONTAINER">' . $main . '</div></div></div></body></html>';
+$conflictPng = base64_encode("\x89PNG\r\n\x1a\n");
+$conflict = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => $conflictDocument('<main><h1>Home</h1></main>'),
+        'about.html' => $conflictDocument('<main><h1>About</h1></main>'),
+        'team.html' => $conflictDocument('<main><h1>Team</h1></main>'),
+        'css/home.css' => array('path' => 'css/home.css', 'kind' => 'css', 'content' => $conflictChrome . '.home-only{color:#111111}'),
+        'nested/about.css' => array('path' => 'nested/about.css', 'kind' => 'css', 'content' => $conflictChrome . '.about-only{color:#222222}'),
+        'css/mark.png' => array('path' => 'css/mark.png', 'kind' => 'image', 'mime_type' => 'image/png', 'content_base64' => $conflictPng),
+        'nested/mark.png' => array('path' => 'nested/mark.png', 'kind' => 'image', 'mime_type' => 'image/png', 'content_base64' => $conflictPng),
+    ),
+))->toArray();
+$conflictMessage = (string) (array_values(array_filter($conflict['diagnostics'] ?? array(), static fn(array $diagnostic): bool => str_contains((string) ($diagnostic['message'] ?? ''), 'colliding asset targets')))[0]['message'] ?? '');
+$assert('failed' === ($conflict['status'] ?? null) && str_contains($conflictMessage, 'shared-chrome-') && str_contains($conflictMessage, 'css/home') && str_contains($conflictMessage, 'nested/about') && strlen($conflictMessage) <= 256, 'Divergent shared-chrome url() origins still fail and name the target and both sources: ' . $conflictMessage);
+
+$collidingPlan = $plan;
+$collidingPlan['assets'][1]['target_path'] = $collidingPlan['assets'][0]['target_path'];
+$collidingPlan['assets'][1]['token'] = $collidingPlan['assets'][0]['token'];
+$collidingPlan['assets'][1]['reconciliation_identity'] = WordPressSitePlan::identity('asset', (string) $collidingPlan['assets'][1]['source_path'], (string) $collidingPlan['assets'][1]['target_path']);
+$collidingPlan['reference_tokens'][1]['target_path'] = $collidingPlan['assets'][0]['target_path'];
+$collidingPlan['reference_tokens'][1]['token'] = $collidingPlan['assets'][0]['token'];
+$collidingPlan['reference_tokens'][1]['source_path'] = $collidingPlan['assets'][1]['source_path'];
+$collisionMessage = '';
+try {
+    WordPressSitePlan::assertValid($collidingPlan);
+} catch (InvalidArgumentException $exception) {
+    $collisionMessage = $exception->getMessage();
+}
+$assert(str_contains($collisionMessage, 'colliding asset targets') && str_contains($collisionMessage, (string) $collidingPlan['assets'][0]['target_path']) && str_contains($collisionMessage, (string) $collidingPlan['assets'][0]['source_path']) && str_contains($collisionMessage, (string) $collidingPlan['assets'][1]['source_path']), 'A genuine asset-target collision names the target and both sources: ' . $collisionMessage);
+$assert(strlen($collisionMessage) <= 256, 'The collision diagnostic stays bounded.');
+
 fwrite(STDOUT, "shared-chrome-stylesheet-scope contract passed\n");

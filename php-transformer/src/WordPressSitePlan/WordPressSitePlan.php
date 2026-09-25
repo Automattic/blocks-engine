@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder;
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug;
@@ -203,7 +204,7 @@ final class WordPressSitePlan
         $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
-        $assets = self::projectSharedChromeStylesheets($assets, $parts);
+        $assets = self::projectSharedChromeStylesheets($assets, $parts, $references);
         $assets = self::projectDetachedChromeContextRules($assets, $parts);
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
@@ -325,7 +326,7 @@ final class WordPressSitePlan
                 if (!in_array($asset['stylesheet_target'] ?? 'both', array('both', 'frontend', 'editor'), true)) throw new InvalidArgumentException('Stylesheet assets must declare a supported target.');
             }
             elseif (isset($asset['scopes'])) throw new InvalidArgumentException('Only stylesheet assets may declare runtime scopes.');
-            self::unique($assetTargets, $asset['target_path'], 'asset target');
+            self::unique($assetTargets, $asset['target_path'], 'asset target', (string) $asset['source_path']);
             self::unique($assetIdentities, $asset['reconciliation_identity'], 'asset reconciliation identity');
             $assetTokens[strtolower($asset['target_path'])] = $asset['token'];
             $assetMimeTypes[$asset['target_path']] = $asset['mime_type'];
@@ -386,7 +387,7 @@ final class WordPressSitePlan
         foreach ( $plan['writes'] as $write ) {
             $mimeType = is_array($write) ? ($assetMimeTypes[$write['target_path'] ?? ''] ?? null) : null;
             self::assertWrite($write, $tokens, !isset($plan['resolution']) && (null === $mimeType || in_array($mimeType, array('text/css', 'text/html', 'image/svg+xml'), true)));
-            self::unique($writeTargets, $write['target_path'], 'write target');
+            self::unique($writeTargets, $write['target_path'], 'write target', (string) ($write['source_path'] ?? ''));
             $writesByTarget[$write['target_path']] = $write;
         }
         self::assertResolution($plan, $tokens, $writesByTarget);
@@ -797,7 +798,7 @@ final class WordPressSitePlan
      * @param array<int,array<string,mixed>> $parts
      * @return array<int,array<string,mixed>>
      */
-    private static function projectSharedChromeStylesheets(array $assets, array $parts): array
+    private static function projectSharedChromeStylesheets(array $assets, array $parts, ?AssetReferenceCanonicalizer $references = null): array
     {
         $classes = array();
         foreach ($parts as $part) {
@@ -808,6 +809,7 @@ final class WordPressSitePlan
         if (array() === $classes) return $assets;
 
         $projected = array();
+        $emittedShared = array();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content'])) {
                 $projected[] = $asset;
@@ -863,9 +865,57 @@ final class WordPressSitePlan
             $asset['content_hash'] = $asset['hash'];
             unset($asset['content_base64']);
             $projected[] = $asset;
+            // The target and token are content-addressed, and the scope is global,
+            // so one emission covers every page. Keep it only when relative url()
+            // resolution and the enqueue contract agree; a real conflict still emits
+            // both and fails uniqueness with both sources named.
+            $sharedKey = strtolower((string) $sharedAsset['path']);
+            if (isset($emittedShared[$sharedKey]) && $emittedShared[$sharedKey]['content'] === $shared && $emittedShared[$sharedKey]['contract'] === self::sharedChromeContract($sharedAsset) && self::sharedChromeOriginsAgree($shared, $emittedShared[$sharedKey]['origin'], (string) $sharedAsset['reference_origin'], $references)) continue;
+            $emittedShared[$sharedKey] = array('content' => $shared, 'origin' => (string) $sharedAsset['reference_origin'], 'contract' => self::sharedChromeContract($sharedAsset));
             $projected[] = $sharedAsset;
         }
         return $projected;
+    }
+
+    /** @param array<string,mixed> $asset */
+    private static function sharedChromeContract(array $asset): string
+    {
+        return (string) ($asset['media'] ?? '') . "\0" . (string) ($asset['stylesheet_target'] ?? 'both') . "\0" . ('engine-support' === ($asset['source'] ?? '') ? 'engine' : 'author');
+    }
+
+    private static function sharedChromeOriginsAgree(string $css, string $origin, string $other, ?AssetReferenceCanonicalizer $references): bool
+    {
+        if ($origin === $other || self::stylesheetDirectory($origin) === self::stylesheetDirectory($other)) return true;
+        foreach (self::originSensitiveReferences($css) as $reference) {
+            $left = $references?->reference($reference, $origin);
+            $right = $references?->reference($reference, $other);
+            if ($left !== $right) return false;
+            if (null === $left && ArtifactPath::resolveRelativePath($reference, $origin) !== ArtifactPath::resolveRelativePath($reference, $other)) return false;
+        }
+        return true;
+    }
+
+    private static function stylesheetDirectory(string $path): string
+    {
+        $directory = str_replace('\\', '/', dirname($path));
+        return in_array($directory, array('.', '/', ''), true) ? '' : $directory;
+    }
+
+    /** @return array<int,string> */
+    private static function originSensitiveReferences(string $css): array
+    {
+        $references = array();
+        $collect = static function (string $reference) use (&$references): void {
+            $reference = trim($reference);
+            if ('' === $reference || 1 === preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?|/)~i', $reference)) return;
+            $references[] = $reference;
+        };
+        CssUrlRewriter::rewrite($css, static function (string $reference) use ($collect): string {
+            $collect($reference);
+            return $reference;
+        });
+        if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', $css, $matches, PREG_SET_ORDER)) foreach ($matches as $match) $collect((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')));
+        return $references;
     }
 
     /** @param array<int,array<string,mixed>> $assets @param array<int,mixed> $declarations @return array<int,array<string,mixed>> */
@@ -2541,8 +2591,20 @@ final class WordPressSitePlan
     private static function payloadReference(mixed $reference): ?array { if (!is_array($reference) || 'blocks-engine/payload-reference/v1' !== ($reference['schema'] ?? null) || !is_string($reference['id'] ?? null) || '' === $reference['id'] || !is_int($reference['bytes'] ?? null) || $reference['bytes'] < 0 || !self::hash($reference['sha256'] ?? null)) return null; return array('schema' => $reference['schema'], 'id' => $reference['id'], 'bytes' => $reference['bytes'], 'sha256' => $reference['sha256']); }
     /** @param array<string,string> $tokens */
     private static function assertTokens(string $content, array $tokens): void { if (preg_match_all('/\{\{wordpress-site-plan:asset:([^}]+)\}\}/', $content, $matches)) foreach ($matches[1] as $token) if (!isset($tokens[$token])) throw new InvalidArgumentException('WordPress site plan contains an undeclared reference token.'); }
-    /** @param array<string,bool> $values */
-    private static function unique(array &$values, string $value, string $kind): void { $key = strtolower($value); if (isset($values[$key])) throw new InvalidArgumentException("WordPress site plan has colliding {$kind}s."); $values[$key] = true; }
+    /** @param array<string,string> $values */
+    private static function unique(array &$values, string $value, string $kind, string $source = ''): void
+    {
+        $key = strtolower($value);
+        if (isset($values[$key])) {
+            $shown = substr($value, 0, 120);
+            $prior = $values[$key];
+            $message = '' !== $prior && '' !== $source
+                ? sprintf('WordPress site plan has colliding %ss: %s (%s, %s).', $kind, $shown, substr($prior, 0, 60), substr($source, 0, 60))
+                : sprintf('WordPress site plan has colliding %ss: %s.', $kind, $shown);
+            throw new InvalidArgumentException(substr($message, 0, 256));
+        }
+        $values[$key] = $source;
+    }
     public static function identity(string $kind, string $source, string $target): string { return hash('sha256', "wordpress-site-plan/{$kind}/v2\n{$source}\n{$target}"); }
     public static function contentHash(string $content): string { return hash('sha256', $content); }
     private static function hash(mixed $value): bool { return is_string($value) && preg_match('/^[a-f0-9]{64}$/', $value); }
