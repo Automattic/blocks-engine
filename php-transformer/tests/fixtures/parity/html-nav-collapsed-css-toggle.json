@@ -1,0 +1,39 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-collapsed-css-toggle",
+  "description": "A header holds an in-flow destination list (a signaled container, not a <nav> landmark) beside a labelless <label> whose only child is the empty span CSS paints as a 3-bar glyph. A CSS-hidden duplicate of the same destinations names the collapsed surface. Below the breakpoint the source hides the in-flow list and shows the toggle; the JS that opened the duplicate is not carried. The in-flow menu must emit overlayMenu 'mobile' with Core's native open control, the toggle must not surface as a dead button, and the collapsed duplicate must not emit a second navigation. Before this fix, equivalent-variant detection only compared <nav> landmarks and the single-span glyph was not a hamburger, so overlayMenu stayed 'never' and phone visitors lost every destination.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-collapsed-css-toggle.json",
+    "notes": "Product-neutral fixture reduced from a captured header that collapses its in-flow list behind a CSS-drawn toggle below a max-width breakpoint and keeps an equivalent overlay copy. Detection is structural (link signature, collapsed-surface identity, single empty glyph host); no vendor-specific markup is referenced."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.site-header .menu-toggle{display:none}.inline-menu{display:table-cell}.collapsed-menu{display:none}@media screen and (max-width:992px){.inline-menu{display:none}.site-header .menu-toggle{display:table-cell}.collapsed-menu{display:block;max-height:0}.menu-toggle span,.menu-toggle span:before,.menu-toggle span:after{display:block;width:22px;height:2px;background:#fff;content:\"\"}}</style><header class=\"site-header\"><a class=\"brand\" href=\"/\">Site</a><div class=\"nav inline-menu\"><ul><li><a href=\"/\">Home</a></li><li><a href=\"/blog\">Blog</a></li><li><a href=\"/about\">About</a></li><li><a href=\"/contact\">Contact</a></li></ul></div><label class=\"menu-toggle\"><span></span></label></header><div class=\"nav mobile-menu collapsed-menu\"><label class=\"menu-toggle\"><span></span></label><ul><li><a href=\"/\">Home</a></li><li><a href=\"/blog\">Blog</a></li><li><a href=\"/about\">About</a></li><li><a href=\"/contact\">Contact</a></li></ul></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header", "tagName": "header" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav inline-menu blocks-engine-list-navigation blocks-engine-native-responsive-navigation blocks-engine-native-navigation-toggle-b5e9ccdeeabe", "style": { "spacing": { "blockGap": "0px" } }, "layout": { "type": "default" }, "overlayMenu": "mobile" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Home", "url": "/", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Blog", "url": "/blog", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.2", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.3", "name": "core/navigation-link", "attrs": { "label": "Contact", "url": "/contact", "kind": "custom" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 4 },
+    { "path": "blocks.0.innerBlocks.1.attrs.overlayMenu", "assert": "equals", "value": "mobile" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"overlayMenu\":\"mobile\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-native-responsive-navigation" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:button" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "collapsed-menu" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
