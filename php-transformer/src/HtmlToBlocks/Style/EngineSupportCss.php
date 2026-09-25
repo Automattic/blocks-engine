@@ -90,6 +90,9 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
             $parts[] = '.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
         }
+        if ( str_contains($serializedBlocks, '<video') ) {
+            $parts[] = 'video{max-width:100%}';
+        }
         if ( 1 === preg_match('/<figure[^>]*\bwp-block-image\b[^>]*>\s*<a[\s>]/', $serializedBlocks) ) {
             // core/image serializes a linked image as <figure><a><img></a></figure>.
             // The author-stylesheet projection bridges a source rule that painted

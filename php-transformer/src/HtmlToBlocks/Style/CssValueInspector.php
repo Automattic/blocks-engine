@@ -13,6 +13,15 @@ final class CssValueInspector
         return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value));
     }
 
+    /**
+     * A definite, non-percentage length whose used size can overflow its
+     * containing block when the viewport is narrower than the authored value.
+     */
+    public static function isAbsoluteLength(string $value): bool
+    {
+        return 1 === preg_match('/^(?:\d+|\d*\.\d+)(?:px|em|rem|ch|ex|cm|mm|in|pt|pc)?$/', self::comparable($value));
+    }
+
     public static function withoutImportant(string $value): string
     {
         return trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
