@@ -2906,6 +2906,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // to the button dispatcher before generic inline lowering splits their
         // label and decorative SVG into separate paragraph blocks.
         if ( 'a' === $tagName ) {
+            $fragmentTarget = $this->emptyNamedFragmentTargetBlock($element);
+            if ( null !== $fragmentTarget ) {
+                return $fragmentTarget;
+            }
+            if ( SourceDom::isEmptyNamedFragmentTarget($element) ) {
+                return null;
+            }
+
             $anchorBlock = $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
             if ( null !== $anchorBlock ) {
                 return $anchorBlock;
@@ -5504,6 +5512,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $attrs['width'] = $this->styleResolver->resolveCssVariablesInValue($declarations['width']);
 
         return $this->createBlock('core/spacer', $attrs, array(), $element);
+    }
+
+    /**
+     * An empty href-less named `<a>` is a fragment target. Preserve its
+     * identifier on a native block HTML anchor rather than recording it as
+     * unsupported HTML. Returns null when the element is not that shape, or
+     * when the identifier already exists elsewhere in the document.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function emptyNamedFragmentTargetBlock(DOMElement $element): ?array
+    {
+        if ( ! SourceDom::isEmptyNamedFragmentTarget($element) ) {
+            return null;
+        }
+
+        $id = SourceDom::namedFragmentTargetId($element);
+        if ( SourceDom::documentHasOtherFragmentTarget($element, $id) ) {
+            return null;
+        }
+
+        if ( '' === trim(SourceDom::attr($element, 'id')) ) {
+            $element->setAttribute('id', $id);
+        }
+
+        return $this->emptyVisualSpacerBlock($element);
     }
 
     /** @return array<string, mixed>|null */
