@@ -153,6 +153,20 @@ $assert(! str_contains($recognizerSource, 'HtmlCompilation'), 'CommerceStructure
 $reporterSource = (string) file_get_contents((new ReflectionClass(CommerceFallbackReporter::class))->getFileName());
 $assert(! str_contains($reporterSource, 'HtmlCompilation'), 'CommerceFallbackReporter has no HtmlCompilation reference');
 
+// Storefront structure: an unstyled carousel track of product cards is a grid;
+// the same cards in a search dialog or menu drawer are transient interface; and
+// a section that wraps a product list is not itself one product.
+$card = static fn (string $name, string $price): string => '<x-slide><a href="/p"><img src="/m.png" alt="' . $name . '"></a><h3>' . $name . '</h3><span>' . $price . '</span></x-slide>';
+$track = '<x-track>' . $card('Mug', '$12.00') . $card('Cup', '$9.00') . $card('Bowl', '$15.00') . '</x-track>';
+$assert($recognizer->isProductGridContainer($element($track)), 'an unstyled track repeating one item is a grid container');
+$assert(3 === count($recognizer->productCardsForContainer($element($track))), 'each repeated item is a product card');
+$dialog = $element('<dialog open><div class="results">' . $track . '</div></dialog>');
+$assert(! $recognizer->isProductGridContainer($dialog->getElementsByTagName('x-track')->item(0)), 'a product list inside a dialog is transient interface');
+$drawer = $element('<details><summary>Menu</summary><ul><li>' . $card('Mug', '$12.00') . '</li><li>' . $card('Cup', '$9.00') . '</li></ul></details>');
+$assert(! $recognizer->isProductGridContainer($drawer->getElementsByTagName('ul')->item(0)), 'a product list inside a disclosure drawer is transient interface');
+$region = $element('<div><h2>Featured products</h2>' . $track . '</div>');
+$assert(null === $recognizer->productCardData($region), 'a section wrapping a product list is not itself a product');
+
 if ( $failures ) {
     fwrite(STDERR, $failures . " commerce structure recognizer test(s) failed\n");
     exit(1);

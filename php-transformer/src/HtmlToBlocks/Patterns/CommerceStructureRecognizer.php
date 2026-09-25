@@ -32,12 +32,46 @@ final class CommerceStructureRecognizer
      */
     public function isProductGridContainer(DOMElement $element): bool
     {
+        // Product previews inside a menu, drawer, dialog or search suggestion
+        // list are transient interface, not the page's catalog.
+        if ( $this->isInsideTransientInterface($element) ) {
+            return false;
+        }
+
         $tagName = strtolower($element->tagName);
         if ( in_array($tagName, array( 'ul', 'ol' ), true) ) {
             return true;
         }
 
-        return $this->isGridLike($element);
+        return $this->isGridLike($element) || $this->repeatsOneChildTag($element);
+    }
+
+    private function isInsideTransientInterface(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $tag = strtolower($node->tagName);
+            $role = strtolower(SourceDom::attr($node, 'role'));
+            if ( in_array($tag, array( 'dialog', 'details', 'nav' ), true) || in_array($role, array( 'dialog', 'search', 'navigation', 'menu' ), true) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A container whose element children all share one tag, at least three of
+     * them, repeats one item: an unstyled carousel track or list of cards. The
+     * card rules still decide whether those items are products.
+     */
+    private function repeatsOneChildTag(DOMElement $element): bool
+    {
+        $tags = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $tags[] = strtolower($child->tagName);
+            }
+        }
+        return 3 <= count($tags) && 1 === count(array_unique($tags));
     }
 
     public function isPriceElement(DOMElement $element): bool
@@ -117,6 +151,13 @@ final class CommerceStructureRecognizer
      */
     public function productCardData(DOMElement $card): ?array
     {
+        // A region that holds a list of products (a section wrapping a product
+        // carousel, a header wrapping a menu of featured items) is not itself
+        // one product.
+        if ( $this->containsProductList($card) ) {
+            return null;
+        }
+
         $name = $this->productNameText($card);
         $prices = $this->productPriceTexts($card);
         $hasCart = $this->hasCartControl($card);
@@ -529,5 +570,21 @@ final class CommerceStructureRecognizer
         }
 
         return $data;
+    }
+
+    private function containsProductList(DOMElement $card): bool
+    {
+        foreach ( $card->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement || ! ( in_array(strtolower($descendant->tagName), array( 'ul', 'ol' ), true) || $this->repeatsOneChildTag($descendant) ) ) {
+                continue;
+            }
+            $priced = 0;
+            foreach ( $descendant->childNodes as $item ) {
+                if ( $item instanceof DOMElement && array() !== $this->productPriceTexts($item) && ++$priced >= 2 ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }
