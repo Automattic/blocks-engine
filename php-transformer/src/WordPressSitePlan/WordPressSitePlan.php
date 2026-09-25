@@ -201,7 +201,7 @@ final class WordPressSitePlan
         $shells = $this->shellExtraction->sharedShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations']);
         $inlineAreas = array_fill_keys(array_column($inlineShells['parts'], 'area'), true);
         $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
-        $pages = $shells['pages'];
+        $pages = $this->materializeListingQueries($shells['pages']);
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
         $assets = self::projectSharedChromeStylesheets($assets, $parts);
         $tokens = $this->tokens($assets);
@@ -907,14 +907,39 @@ final class WordPressSitePlan
     private function decideDocuments(mixed $documents): array
     {
         if (!is_array($documents)) throw new InvalidArgumentException('Compiled site documents must be an array.');
-        foreach ($documents as &$document) {
+        $entryRoot = self::entryRootFromDocuments($documents);
+        $routes = array();
+        $evidenceByIndex = array();
+        foreach ($documents as $index => $document) {
             if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site document is invalid.');
+            $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
+            $path = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path'] ? $metadata['route_path'] : self::pageRoutePath((string) $document['source_path'], $entryRoot);
+            $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
+            $evidenceByIndex[$index] = $this->publicationEvidence($document);
+        }
+        $datedByParent = array();
+        foreach ($evidenceByIndex as $index => $evidence) {
+            if (array() === $evidence || !empty($documents[$index]['entrypoint'])) continue;
+            $datedByParent[self::parentRoutePath($routes[$index])][] = $index;
+        }
+        $listings = array();
+        foreach ($datedByParent as $parent => $indexes) if ('/' !== $parent && count($indexes) >= 2) $listings[$parent] = true;
+        foreach ($documents as $index => &$document) {
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
             $frontmatter = is_array($metadata['frontmatter'] ?? null) ? $metadata['frontmatter'] : array();
             $explicit = null; $provenance = null;
             foreach (array('post_type', 'type') as $key) if (is_string($frontmatter[$key] ?? null) && in_array(strtolower($frontmatter[$key]), array('page', 'post'), true)) { $explicit = strtolower($frontmatter[$key]); $provenance = 'frontmatter:' . $key; break; }
             if (null === $explicit && 'metadata:post_type' === ($metadata['post_type_declaration'] ?? null) && is_string($metadata['post_type'] ?? null) && in_array(strtolower($metadata['post_type']), array('page', 'post'), true)) { $explicit = strtolower($metadata['post_type']); $provenance = 'metadata:post_type'; }
-            $evidence = $this->publicationEvidence($document);
+            $evidence = $evidenceByIndex[$index];
+            $route = $routes[$index];
+            $parent = self::parentRoutePath($route);
+            if (isset($listings[$route])) $evidence = array();
+            elseif (!isset($listings[$parent])) $evidence = array_values(array_filter($evidence, static fn(array $row): bool => 'html:visible-date' !== ($row['source'] ?? null)));
+            elseif (array() !== $evidence) {
+                $hasListing = false;
+                foreach ($evidence as $row) if ('listing:parent' === ($row['source'] ?? null)) $hasListing = true;
+                if (!$hasListing && count($evidence) < 16) $evidence[] = array('source' => 'listing:parent');
+            }
             $postType = $explicit ?? ((!empty($document['entrypoint']) || array() === $evidence) ? 'page' : 'post');
             $surface = $this->templateSurface($metadata['template_surface'] ?? null, (string) ($document['source_path'] ?? ''));
             if (null !== $surface) {
@@ -1022,7 +1047,23 @@ final class WordPressSitePlan
         foreach (self::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
+        foreach ($this->visiblePublicationEvidence($html) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $unique = array(); foreach ($evidence as $row) $unique[$row['source'] . "\n" . ($row['publication_timestamp'] ?? '')] = $row; return array_values($unique);
+    }
+    /** @return array<int,array<string,string>> */
+    private function visiblePublicationEvidence(string $html): array
+    {
+        $rows = array();
+        if (!preg_match_all('/<(time|p|span|div|li|td)\b([^>]*)>(.*?)<\/\1>/is', $html, $matches, PREG_SET_ORDER)) return $rows;
+        foreach ($matches as $match) {
+            $name = strtolower($match[1]);
+            $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($match[3]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+            if ('' === $text) continue;
+            if ('time' !== $name && 1 !== preg_match('/\b(?:class|id)\s*=\s*(["\']).*?\b(?:date|published|pubdate)\b/i', $match[2])) continue;
+            $parsed = self::parseVisiblePublicationTimestamp($text);
+            if (null !== $parsed) $rows[] = array('source' => 'html:visible-date', 'publication_timestamp' => $parsed);
+        }
+        return $rows;
     }
     /** @return array<int,array<string,string>> */
     private function jsonLdPublicationEvidence(mixed $value, callable $timestamp): array
@@ -1176,7 +1217,7 @@ final class WordPressSitePlan
             }
             if (in_array($templateSlug, array('index', 'search'), true)) {
                 $query = ('search' === $templateSlug ? '<!-- wp:query-title {"type":"search"} /-->' . "\n" : '')
-                    . '<!-- wp:query {"queryId":1,"query":{"perPage":10,"pages":0,"offset":0,"postType":"post","order":"desc","orderBy":"date","author":"","search":"","exclude":[],"sticky":"","inherit":true},"layout":{"type":"constrained"}} -->' . "\n" . '<div class="wp-block-query"><!-- wp:post-template -->' . "\n" . '<!-- wp:post-title {"isLink":true} /-->' . "\n" . '<!-- wp:post-excerpt /-->' . "\n" . '<!-- wp:post-date {"isLink":true} /-->' . "\n" . '<!-- /wp:post-template -->' . "\n" . '<!-- wp:query-pagination {"paginationArrow":"arrow","layout":{"type":"flex","justifyContent":"space-between"}} -->' . "\n" . '<!-- wp:query-pagination-previous /-->' . "\n" . '<!-- wp:query-pagination-next /-->' . "\n" . '<!-- /wp:query-pagination -->' . "\n" . '<!-- wp:query-no-results -->' . "\n" . '<!-- wp:paragraph -->' . "\n" . '<p>No posts found.</p>' . "\n" . '<!-- /wp:paragraph -->' . "\n" . '<!-- /wp:query-no-results --></div>' . "\n" . '<!-- /wp:query -->';
+                    . self::queryLoopMarkup(true);
                 $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . $query . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
             } else {
                 $content = '<!-- wp:post-content /-->';
@@ -1200,6 +1241,30 @@ final class WordPressSitePlan
             $templates[] = array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'source_path' => $surface['source_path'], 'template_surface' => $declaration, 'provenance' => $surface['provenance'] ?? array(), 'reconciliation_identity' => self::identity('template', $surface['source_path'], $target), 'content_hash' => self::contentHash($content));
         }
         return $templates;
+    }
+    private static function queryLoopMarkup(bool $inherit): string
+    {
+        return '<!-- wp:query {"queryId":1,"query":{"perPage":10,"pages":0,"offset":0,"postType":"post","order":"desc","orderBy":"date","author":"","search":"","exclude":[],"sticky":"","inherit":' . ($inherit ? 'true' : 'false') . '},"layout":{"type":"constrained"}} -->' . "\n" . '<div class="wp-block-query"><!-- wp:post-template -->' . "\n" . '<!-- wp:post-title {"isLink":true} /-->' . "\n" . '<!-- wp:post-excerpt /-->' . "\n" . '<!-- wp:post-date {"isLink":true} /-->' . "\n" . '<!-- /wp:post-template -->' . "\n" . '<!-- wp:query-pagination {"paginationArrow":"arrow","layout":{"type":"flex","justifyContent":"space-between"}} -->' . "\n" . '<!-- wp:query-pagination-previous /-->' . "\n" . '<!-- wp:query-pagination-next /-->' . "\n" . '<!-- /wp:query-pagination -->' . "\n" . '<!-- wp:query-no-results -->' . "\n" . '<!-- wp:paragraph -->' . "\n" . '<p>No posts found.</p>' . "\n" . '<!-- /wp:paragraph -->' . "\n" . '<!-- /wp:query-no-results --></div>' . "\n" . '<!-- /wp:query -->';
+    }
+    /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
+    private function materializeListingQueries(array $pages): array
+    {
+        $postsByParent = array();
+        foreach ($pages as $page) {
+            if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic'])) continue;
+            $parent = $page['route']['parent_path'] ?? '/';
+            if ('/' === $parent) continue;
+            $postsByParent[$parent][] = $page['source_path'];
+        }
+        foreach ($pages as &$page) {
+            if ('page' !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !empty($page['entrypoint'])) continue;
+            $listed = $postsByParent[$page['route']['path'] ?? ''] ?? array();
+            if (count($listed) < 2) continue;
+            $page['canonical_block_markup'] = self::queryLoopMarkup(false);
+            $page['content_hash'] = self::contentHash($page['canonical_block_markup']);
+        }
+        unset($page);
+        return $pages;
     }
 
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
@@ -2159,7 +2224,31 @@ final class WordPressSitePlan
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) $format = '!Y-m-d';
         elseif (preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/', $value, $match)) { $input = $match[1] . ('Z' === $match[2] ? '+00:00' : $match[2]); $format = '!Y-m-d\\TH:i:sP'; }
         if (null === $format) return null;
-        $date = \DateTimeImmutable::createFromFormat($format, $input); $errors = \DateTimeImmutable::getLastErrors();
+        return self::utcFromFormat($format, $input);
+    }
+    private static function parseVisiblePublicationTimestamp(string $value): ?string
+    {
+        $value = trim(preg_replace('/\s+/', ' ', $value) ?? $value);
+        if ('' === $value) return null;
+        $iso = self::normalizePublicationTimestamp($value);
+        if (null !== $iso) return $iso;
+        if (preg_match('/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/', $value, $match)) {
+            $first = (int) $match[1];
+            $second = (int) $match[2];
+            if ($first > 31 || $second > 31 || $first < 1 || $second < 1) return null;
+            $format = $first > 12 && $second <= 12 ? '!j/n/Y' : '!n/j/Y';
+            return self::utcFromFormat($format, $first . '/' . $second . '/' . $match[3]);
+        }
+        foreach (array('!F j, Y', '!M j, Y', '!j F Y', '!j M Y') as $format) {
+            $parsed = self::utcFromFormat($format, $value);
+            if (null !== $parsed) return $parsed;
+        }
+        return null;
+    }
+    private static function utcFromFormat(string $format, string $input): ?string
+    {
+        $date = \DateTimeImmutable::createFromFormat($format, $input);
+        $errors = \DateTimeImmutable::getLastErrors();
         if (!$date || (is_array($errors) && (0 !== $errors['warning_count'] || 0 !== $errors['error_count']))) return null;
         return $date->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\\TH:i:s\\Z');
     }
