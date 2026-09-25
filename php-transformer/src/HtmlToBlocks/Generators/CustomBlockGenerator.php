@@ -48,6 +48,7 @@ final class CustomBlockGenerator
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
      * @param Closure(DOMElement): bool $hasAuthorSemanticMarker
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed> $layoutShellBlockForElements
+     * @param Closure(DOMElement): ?string $inlineText RichText content of an element holding only phrasing content, or null
      */
     public function __construct(
         private readonly ?SourceElementClassifier $sourceElementClassifier = null,
@@ -56,7 +57,8 @@ final class CustomBlockGenerator
         private readonly ?Closure $isSafeTransparentCustomElement = null,
         private readonly ?Closure $convertChildren = null,
         private readonly ?Closure $hasAuthorSemanticMarker = null,
-        private readonly ?Closure $layoutShellBlockForElements = null
+        private readonly ?Closure $layoutShellBlockForElements = null,
+        private readonly ?Closure $inlineText = null
     ) {
     }
 
@@ -168,6 +170,13 @@ JS;
             return null;
         }
 
+        // A custom element holding only text (a price, a badge) is a paragraph of
+        // that text; its runtime formatting is not portable, the text is.
+        $text = null !== $this->inlineText && str_contains($tagName, '-') ? ($this->inlineText)($element) : null;
+        if ( null !== $text ) {
+            return $createBlock->createBlock('core/paragraph', array_merge($presentationResolver->presentationAttributes($element), array( 'content' => $text )), array(), $element);
+        }
+
         $children = array();
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
@@ -189,7 +198,20 @@ JS;
         if ( $isList && ! array_reduce($children, static fn (bool $valid, DOMElement $child): bool => $valid && 'listitem' === strtolower(SourceDom::attr($child, 'role')), true) ) {
             return null;
         }
-        if ( ! $isList && (1 !== count($children) || ! $sourceElementClassifier->isStructuralTransparentCustomWrapperChild($children[0])) ) {
+        // A component host (a product card: link, image, heading, price) wraps
+        // several ordinary children. When every one of them converts without a
+        // fallback, the host is a container of that content, not an opaque
+        // widget: keep it as a group of its converted children. Its script-driven
+        // behaviour is not portable either way; its content is.
+        if ( ! $isList && 1 < count($children) ) {
+            // Children that repeat one structure (pricing tiers, a slide set) are a
+            // collection: the reusable-component path owns those.
+            // Media hosts keep their own promotion policy.
+            return $this->repeatsOneStructure($children) || $this->hostsMedia($element)
+                ? null
+                : $this->contentContainerBlock($element, $children);
+        }
+        if ( ! $isList && ! $sourceElementClassifier->isStructuralTransparentCustomWrapperChild($children[0]) ) {
             return null;
         }
 
@@ -229,5 +251,48 @@ JS;
         }
 
         return $createBlock->createBlock('core/group', $presentationResolver->presentationAttributes($element), $converted, $element);
+    }
+
+    /**
+     * A group of a custom element's converted children, or null when any child
+     * falls back or produces nothing (the host then stays whole, as before).
+     *
+     * @param array<int, DOMElement> $children
+     * @return array<string, mixed>|null
+     */
+    private function contentContainerBlock(DOMElement $element, array $children): ?array
+    {
+        $convertChildren = $this->convertChildren ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
+        $createBlock = $this->createBlock ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
+        $presentationResolver = $this->presentationResolver ?? throw new LogicException('CustomBlockGenerator was not wired for conversion.');
+
+        $childFallbacks = array();
+        $converted = $convertChildren($element, $childFallbacks);
+        if ( array() !== $childFallbacks || count($converted) < count($children) ) {
+            return null;
+        }
+
+        return $createBlock->createBlock('core/group', $presentationResolver->presentationAttributes($element), $converted, $element);
+    }
+
+    /**
+     * Children that all share one tag (pricing tiers, repeater items, slides)
+     * are a collection; a component host combines different kinds of content.
+     *
+     * @param array<int, DOMElement> $children
+     */
+    private function repeatsOneStructure(array $children): bool
+    {
+        return 1 === count(array_unique(array_map(static fn (DOMElement $child): string => strtolower($child->tagName), $children)));
+    }
+
+    private function hostsMedia(DOMElement $element): bool
+    {
+        foreach ( array( 'video', 'audio', 'iframe', 'object', 'embed', 'canvas' ) as $tag ) {
+            if ( 0 < $element->getElementsByTagName($tag)->length ) {
+                return true;
+            }
+        }
+        return false;
     }
 }

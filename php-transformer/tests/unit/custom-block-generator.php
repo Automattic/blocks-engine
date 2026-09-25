@@ -215,13 +215,24 @@ $normalizedStyleBlock = $normalizedStyleShell['blocks'][0] ?? array();
 $assert('core/group' === ($normalizedStyleBlock['blockName'] ?? '') && '#fff' === ($normalizedStyleBlock['attrs']['style']['color']['text'] ?? null) && 'core/group' === ($normalizedStyleBlock['innerBlocks'][0]['blockName'] ?? null), '6: color-owned wrappers remain native boundaries while retaining canonical color declarations');
 
 // ---------------------------------------------------------------------------
-// 7. Gate (negative): weak signals stay UNKNOWN -> unchanged fallback.
+// 7. Gate (negative): weak signals generate no block type. A custom element
+// holding only text (a price, a badge) keeps that text as an editable paragraph
+// instead of a fallback: its runtime formatting is not portable, its text is.
 // ---------------------------------------------------------------------------
 $weak = ( new HtmlTransformer() )->transform('<my-widget><span>hello there</span></my-widget>')->toArray();
 $assert(count($weak['source_reports']['generated_blocks'] ?? array()) === 0, '7: low-confidence subtree generates nothing');
-$assert(count($weak['blocks']) === 0, '7: low-confidence subtree emits no block');
-$assert(count($weak['fallbacks']) === 1, '7: existing fallback behavior is preserved');
-$assert(($weak['fallbacks'][0]['classification']['bucket'] ?? '') === 'unknown', '7: classifier verdict is unknown', json_encode($weak['fallbacks'][0]['classification'] ?? array()));
+$assert('core/paragraph' === ($weak['blocks'][0]['blockName'] ?? null) && str_contains((string) ($weak['serialized_blocks'] ?? ''), 'hello there'), '7: text-only custom element keeps its text as a paragraph', json_encode($weak['blocks']));
+$assert(count($weak['fallbacks']) === 0, '7: text-only custom element needs no fallback');
+
+// ---------------------------------------------------------------------------
+// 7b. A component host with distinct ordinary children (a product card: image
+// link, heading, price) becomes a group of those children, not a fallback.
+// ---------------------------------------------------------------------------
+$card = ( new HtmlTransformer() )->transform('<shop-card class="card"><a href="/p/mug"><img src="mug.png" alt="Mug"></a><h3>Blue Mug</h3><shop-price><span>$12.00</span></shop-price></shop-card>')->toArray();
+$cardBlock = $card['blocks'][0] ?? array();
+$assert(count($card['fallbacks']) === 0, '7b: component host content converts without fallback', json_encode($card['fallbacks']));
+$assert('core/group' === ($cardBlock['blockName'] ?? null) && 3 === count($cardBlock['innerBlocks'] ?? array()) && 'card' === ($cardBlock['attrs']['className'] ?? null), '7b: host is a group of its converted children with its source class', json_encode($cardBlock));
+$assert(str_contains((string) ($card['serialized_blocks'] ?? ''), 'Blue Mug') && str_contains((string) ($card['serialized_blocks'] ?? ''), '$12.00'), '7b: heading and price are editable content');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "CustomBlockGenerator unit tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);

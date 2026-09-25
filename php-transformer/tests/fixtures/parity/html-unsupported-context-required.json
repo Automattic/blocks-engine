@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<main><h2>Supported sibling</h2><custom-card><span>Unsupported nested content</span></custom-card><form action=\"/subscribe\"><input name=\"email\"></form></main>"
+    "content": "<main><h2>Supported sibling</h2><custom-card><progress value=\"1\" max=\"2\">Unsupported nested content</progress></custom-card><form action=\"/subscribe\"><input name=\"email\"></form></main>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },

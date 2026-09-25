@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-custom-block-low-confidence-unchanged",
-  "description": "A custom-element subtree with weak/ambiguous structural signals does NOT clear the conservative custom_block gate (classifier returns unknown), so behavior is unchanged: no block is generated and the existing core/html-equivalent unsupported_element fallback diagnostic is still emitted. When in doubt, fall back (issue #497).",
+  "description": "A custom-element subtree with weak structural signals does NOT clear the conservative custom_block gate, so no block type is generated (issue #497). A custom element holding only text keeps that text as an editable core/paragraph instead of an unsupported_element fallback: its runtime formatting is not portable, its text is.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-custom-block-low-confidence-unchanged.json",
-    "notes": "Negative control: a single inline child carries no custom_block signal, so generation must not trigger."
+    "notes": "Negative control for generation: a single inline child carries no custom_block signal. Its text converts to a paragraph."
   },
   "legacy_comparison": {
     "skip": true,
@@ -16,11 +16,10 @@
     "content": "<my-widget><span>hello there</span></my-widget>"
   },
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "blocks", "assert": "count", "count": 0 },
-    { "path": "source_reports.generated_blocks", "assert": "count", "count": 0 },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
-    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_unsupported_element" },
-    { "path": "fallbacks.0.classification.bucket", "assert": "equals", "value": "unknown" }
+    {"path": "status", "assert": "equals", "value": "success"},
+    {"path": "source_reports.generated_blocks", "assert": "count", "count": 0},
+    {"path": "fallbacks", "assert": "count", "count": 0},
+    {"path": "blocks", "assert": "count", "count": 1},
+    {"path": "blocks.0.blockName", "assert": "equals", "value": "core/paragraph"}
   ]
 }

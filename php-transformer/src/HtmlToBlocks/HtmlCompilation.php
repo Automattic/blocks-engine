@@ -861,6 +861,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
             function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
                 return $this->layoutShellBlockForElements($elements, $innerBlocks, $sourceElement);
+            },
+            function (DOMElement $element): ?string {
+                if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) || $this->hasRichTextMarkedDescendant($element) ) {
+                    return null;
+                }
+                $content = $this->richTextMaterializer->content($element);
+                return '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallback($content) ? null : $content;
             }
         );
         $descriptionListConverter = new DescriptionListElementConverter(new DescriptionListElementContext(
