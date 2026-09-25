@@ -9426,7 +9426,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function staticLayoutHtml(DOMElement $element): string
     {
-        return preg_replace('/<link\b[^>]*\/?\s*>/i', '', SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers())) ?? '';
+        return preg_replace('/<link\b[^>]*\/?\s*>/i', '', SourceDom::safeFallbackHtml(
+            $element,
+            $this->authorSelectorProjections()->tagMarkers(),
+            fn (DOMElement $node): array => $this->authorSelectorProjections()->semanticMarkersForPath($node->getNodePath() ?? '')
+        )) ?? '';
     }
 
     private function hasLayoutGeometryProofInSubtree(DOMElement $element): bool

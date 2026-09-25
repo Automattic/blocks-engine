@@ -456,6 +456,77 @@ final class AuthorStyleRuleProjector
     }
 
     /**
+     * Whether a percentage height fills a stretched grid or row-flex item.
+     *
+     * Equal-height cards size the row from content, then stretch each item to
+     * that used size. `height:100%` on the item or its descendants resolves
+     * against that area even when a section ancestor's own height is auto.
+     * Collapsing it to `height:auto` drops the shared baseline. This is not a
+     * definite size for fractional grid tracks, which still need a definite
+     * container.
+     */
+    private function percentageHeightFillsStretchedItem(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $parent = $node->parentNode;
+            if ( ! $parent instanceof DOMElement ) {
+                return false;
+            }
+            if ( $node !== $element && in_array(strtolower($node->tagName), array( 'footer', 'header', 'section' ), true) ) {
+                return false;
+            }
+            $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
+            $parentDisplay = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+                CssValueInspector::withoutImportant((string) ($parentDeclarations['display'] ?? '')),
+                $parent
+            ));
+            $flexDirection = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+                CssValueInspector::withoutImportant((string) ($parentDeclarations['flex-direction'] ?? '')),
+                $parent
+            ));
+            if ( $this->stretchesOnBlockAxis($node, $parent, $parentDisplay, $flexDirection) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether `$element` is stretched on the block axis by a grid or row-flex parent.
+     *
+     * Column flex is excluded: its block axis is the main axis, sized by
+     * flex-grow rather than stretch.
+     *
+     * @param array<string, string> $parentDeclarations
+     */
+    private function stretchesOnBlockAxis(DOMElement $element, DOMElement $parent, string $parentDisplay, string $flexDirection): bool
+    {
+        $stretchesCrossAxis = in_array($parentDisplay, array( 'grid', 'inline-grid' ), true)
+            || ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true)
+                && ! in_array($flexDirection, array( 'column', 'column-reverse' ), true) );
+        if ( ! $stretchesCrossAxis ) {
+            return false;
+        }
+        $alignSelf = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+            CssValueInspector::withoutImportant((string) ($this->styleResolver->structuralPresentationDeclarations($element)['align-self'] ?? '')),
+            $element
+        ));
+        if ( 'stretch' === $alignSelf ) {
+            return true;
+        }
+        if ( '' !== $alignSelf && ! in_array($alignSelf, array( 'auto', 'normal' ), true) ) {
+            return false;
+        }
+        $alignItems = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+            CssValueInspector::withoutImportant((string) ($parentDeclarations['align-items'] ?? '')),
+            $parent
+        ));
+
+        return '' === $alignItems || in_array($alignItems, array( 'normal', 'stretch' ), true);
+    }
+
+    /**
      * Whether the element's resolved `flex-grow` (longhand, else the first
      * number of the `flex` shorthand) is positive.
      */
@@ -690,7 +761,7 @@ final class AuthorStyleRuleProjector
         if ( in_array(strtolower(CssValueInspector::withoutImportant((string) ($elementStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
             return false;
         }
-        if ( $this->receivesDefiniteBlockSize($element) ) {
+        if ( $this->receivesDefiniteBlockSize($element) || $this->percentageHeightFillsStretchedItem($element) ) {
             return false;
         }
         $ancestor = $element->parentNode;

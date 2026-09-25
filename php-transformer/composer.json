@@ -354,6 +354,7 @@
              "php tests/unit/button-definite-ancestor-width.php",
              "php tests/unit/section-background-object-fit.php",
              "php tests/unit/button-stretch-flex.php",
+              "php tests/unit/fixed-size-button-label-centering.php",
             "php tests/unit/runtime-resource-element-converter.php",
             "php tests/unit/link-bearing-element-lowering.php",
             "php tests/unit/link-wrapper-text-color-parity.php"
