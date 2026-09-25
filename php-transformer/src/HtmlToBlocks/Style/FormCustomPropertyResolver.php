@@ -148,26 +148,81 @@ final class FormCustomPropertyResolver
         return $computed;
     }
 
-    /** @param callable(string): ?string $resolve */
-    private static function expandWith(string $value, callable $resolve): ?string
+    /**
+     * Substitute every `var()` in a value the way CSS does: a defined variable
+     * replaces the whole reference and its fallback is never evaluated;
+     * otherwise the fallback, which may itself hold `var()` or function values
+     * such as `rgb(…)`, is expanded in its place. A reference with neither
+     * makes the whole value invalid (null).
+     *
+     * @param callable(string): ?string $resolve
+     */
+    private static function expandWith(string $value, callable $resolve, int $depth = 0): ?string
     {
-        $seen = array();
-        for ( $pass = 0; $pass < self::MAX_EXPANSION_DEPTH && str_contains($value, 'var('); ++$pass ) {
-            if ( strlen($value) > self::MAX_EXPANDED_BYTES ) return null;
-            if ( isset($seen[$value]) ) return null;
-            $seen[$value] = true;
-            $unresolved = false;
-            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', static function (array $matches) use ($resolve, &$unresolved): string {
-                $resolved = $resolve($matches[1]);
-                if ( null !== $resolved ) return $resolved;
-                if ( isset($matches[2]) ) return trim($matches[2]);
-                $unresolved = true;
-                return $matches[0];
-            }, $value);
-            if ( ! is_string($expanded) || $unresolved ) return null;
-            if ( $expanded === $value ) break;
-            $value = $expanded;
+        if ( $depth > self::MAX_EXPANSION_DEPTH || strlen($value) > self::MAX_EXPANDED_BYTES ) {
+            return null;
         }
-        return str_contains($value, 'var(') || strlen($value) > self::MAX_EXPANDED_BYTES ? null : trim($value);
+        $result = '';
+        $offset = 0;
+        while ( false !== ($start = strpos($value, 'var(', $offset)) ) {
+            $close = self::matchingParenthesis($value, $start + 3);
+            if ( null === $close ) {
+                return null;
+            }
+            $arguments = substr($value, $start + 4, $close - $start - 4);
+            $comma = self::topLevelComma($arguments);
+            $name = trim(null === $comma ? $arguments : substr($arguments, 0, $comma));
+            if ( 1 !== preg_match('/^--[A-Za-z0-9_-]+$/D', $name) ) {
+                return null;
+            }
+            $resolved = $resolve($name);
+            $replacement = null !== $resolved
+                ? self::expandWith($resolved, $resolve, $depth + 1)
+                : (null === $comma ? null : self::expandWith(trim(substr($arguments, $comma + 1)), $resolve, $depth + 1));
+            if ( null === $replacement ) {
+                return null;
+            }
+            $result .= substr($value, $offset, $start - $offset) . $replacement;
+            if ( strlen($result) > self::MAX_EXPANDED_BYTES ) {
+                return null;
+            }
+            $offset = $close + 1;
+        }
+        $result .= substr($value, $offset);
+
+        return strlen($result) > self::MAX_EXPANDED_BYTES ? null : trim($result);
+    }
+
+    /** Index of the `)` closing the `(` at $open, or null when unbalanced. */
+    private static function matchingParenthesis(string $value, int $open): ?int
+    {
+        $depth = 0;
+        for ( $index = $open, $length = strlen($value); $index < $length; ++$index ) {
+            if ( '(' === $value[$index] ) {
+                ++$depth;
+            } elseif ( ')' === $value[$index] && 0 === --$depth ) {
+                return $index;
+            }
+        }
+
+        return null;
+    }
+
+    /** Index of the first comma outside nested parentheses, or null. */
+    private static function topLevelComma(string $arguments): ?int
+    {
+        $depth = 0;
+        for ( $index = 0, $length = strlen($arguments); $index < $length; ++$index ) {
+            $character = $arguments[$index];
+            if ( '(' === $character ) {
+                ++$depth;
+            } elseif ( ')' === $character ) {
+                --$depth;
+            } elseif ( ',' === $character && 0 === $depth ) {
+                return $index;
+            }
+        }
+
+        return null;
     }
 }
