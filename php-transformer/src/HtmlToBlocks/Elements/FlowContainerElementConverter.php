@@ -357,9 +357,12 @@ final class FlowContainerElementConverter implements ElementConverter
 
     private function isClippedHorizontalTrack(DOMElement $element): bool
     {
+        $inline = strtolower(SourceDom::attr($element, 'style'));
+        if ( 1 !== preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $inline) ) {
+            return false;
+        }
         $style = $this->structuralDeclarationString($element);
-        if ( 1 !== preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style)
-            || 1 === preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
+        if ( 1 === preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
             || 1 === preg_match('/(?:^|;)\s*flex-wrap\s*:\s*wrap(?:-reverse)?\b/', $style)
         ) {
             return false;
@@ -370,7 +373,10 @@ final class FlowContainerElementConverter implements ElementConverter
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
-            $childStyle = $this->structuralDeclarationString($child);
+            $childStyle = strtolower(SourceDom::attr($child, 'style'));
+            if ( 1 !== preg_match('/(?:^|;)\s*(?:flex-shrink\s*:\s*0\b|width\s*:\s*[1-9]\d*(?:\.\d+)?px\b)/', $childStyle) ) {
+                $childStyle = $this->structuralDeclarationString($child);
+            }
             if ( 1 === preg_match('/(?:^|;)\s*(?:flex-shrink\s*:\s*0\b|width\s*:\s*[1-9]\d*(?:\.\d+)?px\b)/', $childStyle) ) {
                 ++$stripChildren;
             }
