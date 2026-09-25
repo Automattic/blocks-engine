@@ -2476,11 +2476,78 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($cell);
         $cssWidth     = $this->normalizeLayoutTableTrackWidth((string) ($declarations['width'] ?? ''));
-        if ( null !== $cssWidth ) {
+        if ( null === $cssWidth ) {
+            $cssWidth = $this->normalizeLayoutTableTrackWidth($this->attr($cell, 'width'));
+        }
+        if ( null === $cssWidth ) {
+            return null;
+        }
+        if ( str_ends_with($cssWidth, '%') || 'border-box' === CssValueInspector::comparable((string) ($declarations['box-sizing'] ?? '')) ) {
             return $cssWidth;
         }
 
-        return $this->normalizeLayoutTableTrackWidth($this->attr($cell, 'width'));
+        [ $padStart, $padEnd ] = $this->layoutTableCellInlinePadding($cell);
+        [ $borderStart, $borderEnd ] = $this->layoutTableCellInlineBorderWidths($cell);
+        return $this->sumLayoutTableAbsoluteLengths($cssWidth, $padStart, $padEnd, $borderStart, $borderEnd) ?? $cssWidth;
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function layoutTableCellInlinePadding(DOMElement $cell): array
+    {
+        $start = '1px';
+        $end   = '1px';
+        $table = $this->ancestorElement($cell, 'table');
+        if ( $table instanceof DOMElement ) {
+            $cellpadding = trim($this->attr($table, 'cellpadding'));
+            if ( '' !== $cellpadding && is_numeric($cellpadding) ) {
+                $start = $end = $cellpadding . 'px';
+            }
+        }
+
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($cell);
+        $shorthand    = CssValueInspector::comparable((string) ($declarations['padding'] ?? ''));
+        if ( '' !== $shorthand ) {
+            $parts = preg_split('/\s+/', $shorthand) ?: array();
+            $count = count($parts);
+            if ( 1 === $count ) {
+                $start = $end = $parts[0];
+            } elseif ( 2 === $count || 3 === $count ) {
+                $start = $end = $parts[1];
+            } elseif ( 4 <= $count ) {
+                $end   = $parts[1];
+                $start = $parts[3];
+            }
+        }
+        if ( isset($declarations['padding-left']) ) {
+            $start = CssValueInspector::comparable((string) $declarations['padding-left']);
+        }
+        if ( isset($declarations['padding-right']) ) {
+            $end = CssValueInspector::comparable((string) $declarations['padding-right']);
+        }
+
+        return array( $start, $end );
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function layoutTableCellInlineBorderWidths(DOMElement $cell): array
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($cell);
+        $start        = '0px';
+        $end          = '0px';
+        $left         = CssValueInspector::comparable((string) ($declarations['border-left-width'] ?? ''));
+        $right        = CssValueInspector::comparable((string) ($declarations['border-right-width'] ?? ''));
+        if ( null !== $this->parseLayoutTableAbsoluteLength($left) ) {
+            $start = $left;
+        }
+        if ( null !== $this->parseLayoutTableAbsoluteLength($right) ) {
+            $end = $right;
+        }
+
+        return array( $start, $end );
     }
 
     private function normalizeLayoutTableTrackWidth(string $width): ?string
@@ -2496,12 +2563,124 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return null;
     }
 
+    /**
+     * @return array{0: float, 1: string}|null
+     */
+    private function parseLayoutTableAbsoluteLength(string $value): ?array
+    {
+        $value = CssValueInspector::comparable($value);
+        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)(px|em|rem|ch|vw|vmin|vmax)$/', $value, $matches) ) {
+            return array( (float) $matches[1], $matches[2] );
+        }
+        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)$/', $value) ) {
+            return array( (float) $value, 'px' );
+        }
+
+        return null;
+    }
+
+    private function sumLayoutTableAbsoluteLengths(string ...$values): ?string
+    {
+        $sum  = 0.0;
+        $unit = null;
+        foreach ( $values as $value ) {
+            $parsed = $this->parseLayoutTableAbsoluteLength($value);
+            if ( null === $parsed ) {
+                return null;
+            }
+            if ( null === $unit ) {
+                $unit = $parsed[1];
+            } elseif ( $unit !== $parsed[1] ) {
+                return null;
+            }
+            $sum += $parsed[0];
+        }
+        if ( null === $unit ) {
+            return null;
+        }
+        $number = abs($sum - round($sum)) < 0.0001
+            ? (string) (int) round($sum)
+            : rtrim(rtrim(sprintf('%.4F', $sum), '0'), '.');
+
+        return $number . $unit;
+    }
+
     /** @return array<string, mixed> */
     private function layoutTableColumnsAttributes(DOMElement $element): array
     {
         $attrs = $this->styleResolver->presentationAttributes($element);
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LAYOUT_TABLE_COLUMNS_CLASS);
+        $spacing = $this->layoutTableTrackSpacing($element);
+        if ( null !== $spacing ) {
+            $rule      = '{column-gap:' . $spacing . ';padding-inline:' . $spacing . '}';
+            $className = $this->layoutGeometry()->allocateCarrier('layout-table-spacing' . "\n" . $rule);
+            $this->layoutGeometry()->registerRule($className, '.' . $className . $rule);
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $className);
+        }
+
         return $attrs;
+    }
+
+    private function layoutTableTrackSpacing(DOMElement $element): ?string
+    {
+        if ( ! $this->layoutTableRowNeedsTrackSpacing($element) ) {
+            return null;
+        }
+
+        $table = 'table' === strtolower($element->tagName)
+            ? $element
+            : ( $this->ancestorElement($element, 'table') ?? $element );
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($table);
+        if ( 'collapse' === CssValueInspector::comparable((string) ($declarations['border-collapse'] ?? '')) ) {
+            return null;
+        }
+
+        $spacing = CssValueInspector::comparable((string) ($declarations['border-spacing'] ?? ''));
+        if ( '' === $spacing ) {
+            $cellspacing = trim($this->attr($table, 'cellspacing'));
+            $spacing     = '' !== $cellspacing && is_numeric($cellspacing) ? $cellspacing . 'px' : '2px';
+        }
+        $parts      = preg_split('/\s+/', $spacing) ?: array();
+        $horizontal = $this->normalizeLayoutTableTrackWidth($parts[0] ?? '');
+        if ( null === $horizontal ) {
+            return null;
+        }
+        $parsed = $this->parseLayoutTableAbsoluteLength($horizontal);
+        if ( null === $parsed || $parsed[0] <= 0.0 ) {
+            return null;
+        }
+
+        return $horizontal;
+    }
+
+    private function layoutTableRowNeedsTrackSpacing(DOMElement $element): bool
+    {
+        $row = $element;
+        if ( 'tr' !== strtolower($element->tagName) ) {
+            $row = null;
+            foreach ( $element->getElementsByTagName('tr') as $candidate ) {
+                if ( $candidate instanceof DOMElement && $this->belongsToTable($candidate, $element) ) {
+                    $row = $candidate;
+                    break;
+                }
+            }
+        }
+        if ( ! $row instanceof DOMElement ) {
+            return false;
+        }
+        $count   = 0;
+        $unsized = false;
+        foreach ( $row->childNodes as $cell ) {
+            if ( ! $cell instanceof DOMElement || 'td' !== strtolower($cell->tagName) ) {
+                continue;
+            }
+            ++$count;
+            if ( null === $this->layoutTableCellTrackWidth($cell) ) {
+                $unsized = true;
+            }
+        }
+
+        return $unsized && 2 <= $count;
     }
 
     /**
