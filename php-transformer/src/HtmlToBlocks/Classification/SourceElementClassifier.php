@@ -781,6 +781,75 @@ final class SourceElementClassifier
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slides?)(?:[^a-z0-9]|$)/', $identity);
     }
 
+    /**
+     * A set of same-kind images shown one at a time (stage plus thumbnails or
+     * hidden sibling slides), with no mixed interactive content in the items.
+     *
+     * Thin inert hosts around that collection still identify it, so a spacer
+     * wrapping a slideshow is the same collection as the slideshow itself.
+     *
+     * The captured stage list may only hold the slides that were materialized
+     * at capture time. Thumbnail-pager images complete the set. Identities are
+     * deduped (orig vs thumb filename variants) and returned in source order.
+     *
+     * @return list<DOMElement>
+     */
+    public function imageSlideshowStageImages(DOMElement $element): array
+    {
+        $root = $this->slideshowCollectionRoot($element);
+
+        return $root instanceof DOMElement ? $this->stageImagesFromSlideshowRoot($root) : array();
+    }
+
+    public function isImageOnlySlideshowCollection(DOMElement $element): bool
+    {
+        return 2 <= count($this->imageSlideshowStageImages($element));
+    }
+
+    /**
+     * Native gallery columns and crop derived from the thumbnail strip and
+     * stage geometry, so the block stays a compact grid instead of stacking
+     * full-size images.
+     *
+     * @return array{columns: int, imageCrop: true}
+     */
+    public function imageSlideshowGalleryLayout(DOMElement $element): array
+    {
+        $images = $this->imageSlideshowStageImages($element);
+        $count = count($images);
+        $columns = min(8, max(2, $count));
+        $root = $this->slideshowCollectionRoot($element);
+        if ( $root instanceof DOMElement ) {
+            $thumbWidth = $this->slideshowPagerThumbWidth($root);
+            $stageWidth = $this->slideshowStageWidth($root);
+            if ( $thumbWidth > 0.0 && $stageWidth > 0.0 ) {
+                $fit = (int) round($stageWidth / $thumbWidth);
+                if ( $fit >= 2 ) {
+                    $columns = min(8, max(2, min($count, $fit)));
+                }
+            }
+        }
+
+        return array(
+            'columns'   => $columns,
+            'imageCrop' => true,
+        );
+    }
+
+    public function slideshowImageCaption(DOMElement $image): string
+    {
+        for ( $node = $image->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( ! $this->isCarouselSlideChild($node) ) {
+                continue;
+            }
+            $text = trim((string) preg_replace('/\s+/', ' ', str_replace("\xc2\xa0", ' ', $node->textContent ?? '')));
+
+            return $text;
+        }
+
+        return '';
+    }
+
     public function isExpandedCarouselState(DOMElement $element, DOMElement $root): bool
     {
         for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
@@ -796,6 +865,325 @@ final class SourceElementClassifier
         }
 
         return false;
+    }
+
+    private function slideshowCollectionRoot(DOMElement $element): ?DOMElement
+    {
+        if ( 2 > $element->getElementsByTagName('img')->length ) {
+            return null;
+        }
+
+        if ( $this->hasCarouselIdentity($element) || $this->isCarouselList($element) ) {
+            return $element;
+        }
+
+        $contentChildren = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || $this->isInertSlideshowHostChild($child) ) {
+                continue;
+            }
+            $contentChildren[] = $child;
+        }
+        if ( 1 !== count($contentChildren) ) {
+            return null;
+        }
+
+        return $this->slideshowCollectionRoot($contentChildren[0]);
+    }
+
+    /**
+     * @return list<DOMElement>
+     */
+    private function stageImagesFromSlideshowRoot(DOMElement $root): array
+    {
+        $list = null;
+        $items = array();
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || ! $this->isCarouselList($candidate)
+                || $this->isExpandedCarouselState($candidate, $root)
+            ) {
+                continue;
+            }
+            $candidateItems = $this->imageOnlySlideItems($candidate);
+            if ( count($candidateItems) > count($items) ) {
+                $list = $candidate;
+                $items = $candidateItems;
+            }
+        }
+        if ( ! $list instanceof DOMElement || count($items) < 2 || ! $this->slideshowHasStageSelector($root, $list, $items) ) {
+            return array();
+        }
+
+        $stageByKey = array();
+        $stageImages = array();
+        foreach ( $items as $item ) {
+            $image = $item->getElementsByTagName('img')->item(0);
+            if ( ! $image instanceof DOMElement ) {
+                continue;
+            }
+            $key = $this->imageIdentityKey($image);
+            if ( '' === $key || isset($stageByKey[$key]) ) {
+                continue;
+            }
+            $stageByKey[$key] = $image;
+            $stageImages[] = $image;
+        }
+
+        $pagerImages = $this->slideshowPagerImages($root, $list);
+        if ( 2 > count($pagerImages) ) {
+            return 2 <= count($stageImages) ? $stageImages : array();
+        }
+
+        $images = array();
+        $seen = array();
+        $usedStage = array();
+        foreach ( $pagerImages as $index => $pagerImage ) {
+            $key = $this->imageIdentityKey($pagerImage);
+            if ( '' === $key || isset($seen[$key]) ) {
+                continue;
+            }
+            $chosen = $pagerImage;
+            if ( isset($stageByKey[$key]) && ! isset($usedStage[$key]) ) {
+                $chosen = $stageByKey[$key];
+                $usedStage[$key] = true;
+            } elseif ( isset($stageImages[$index]) ) {
+                $stageKey = $this->imageIdentityKey($stageImages[$index]);
+                if ( '' !== $stageKey && ! isset($usedStage[$stageKey]) && ! isset($seen[$stageKey]) ) {
+                    $chosen = $stageImages[$index];
+                    $usedStage[$stageKey] = true;
+                }
+            }
+            $chosenKey = $this->imageIdentityKey($chosen);
+            $seen[$key] = true;
+            if ( '' !== $chosenKey ) {
+                $seen[$chosenKey] = true;
+            }
+            $images[] = $chosen;
+        }
+        foreach ( $stageImages as $stageImage ) {
+            $key = $this->imageIdentityKey($stageImage);
+            if ( '' === $key || isset($seen[$key]) || isset($usedStage[$key]) ) {
+                continue;
+            }
+            $seen[$key] = true;
+            $images[] = $stageImage;
+        }
+
+        return 2 <= count($images) ? $images : array();
+    }
+
+    /**
+     * @return list<DOMElement>
+     */
+    private function slideshowPagerImages(DOMElement $root, DOMElement $list): array
+    {
+        $images = array();
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || ! in_array(strtolower($candidate->tagName), array( 'a', 'button' ), true)
+                || SourceDom::elementContains($list, $candidate)
+                || 1 !== $candidate->getElementsByTagName('img')->length
+                || '' !== trim(str_replace("\xc2\xa0", ' ', $candidate->textContent ?? ''))
+            ) {
+                continue;
+            }
+            $image = $candidate->getElementsByTagName('img')->item(0);
+            if ( $image instanceof DOMElement && '' !== trim(SourceDom::attr($image, 'src')) ) {
+                $images[] = $image;
+            }
+        }
+
+        return $images;
+    }
+
+    private function imageIdentityKey(DOMElement $image): string
+    {
+        $src = trim(SourceDom::attr($image, 'src'));
+        if ( '' === $src ) {
+            return '';
+        }
+        $path = parse_url($src, PHP_URL_PATH);
+        $path = is_string($path) && '' !== $path ? $path : $src;
+        $base = strtolower((string) pathinfo($path, PATHINFO_FILENAME));
+        $base = preg_replace('/(?:_(?:orig|original|thumb|small|medium|large|full)|-(?:thumb|small|medium|large|full)|-\d+x\d+)$/', '', $base) ?? $base;
+
+        return $base;
+    }
+
+    private function slideshowPagerThumbWidth(DOMElement $root): float
+    {
+        $list = $this->slideshowStageList($root);
+        if ( ! $list instanceof DOMElement ) {
+            return 0.0;
+        }
+        foreach ( $this->slideshowPagerImages($root, $list) as $image ) {
+            $width = $this->elementPixelWidth($image);
+            if ( $width > 0.0 ) {
+                return $width;
+            }
+        }
+
+        return 0.0;
+    }
+
+    private function slideshowStageWidth(DOMElement $root): float
+    {
+        $list = $this->slideshowStageList($root);
+        if ( ! $list instanceof DOMElement ) {
+            return 0.0;
+        }
+        foreach ( $this->imageOnlySlideItems($list) as $item ) {
+            $image = $item->getElementsByTagName('img')->item(0);
+            if ( ! $image instanceof DOMElement ) {
+                continue;
+            }
+            $width = $this->elementPixelWidth($image);
+            if ( $width > 0.0 ) {
+                return $width;
+            }
+            for ( $node = $image->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+                $width = $this->elementPixelWidth($node);
+                if ( $width > 0.0 ) {
+                    return $width;
+                }
+                if ( $node === $root ) {
+                    break;
+                }
+            }
+        }
+
+        return 0.0;
+    }
+
+    private function slideshowStageList(DOMElement $root): ?DOMElement
+    {
+        $list = null;
+        $count = 0;
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || ! $this->isCarouselList($candidate)
+                || $this->isExpandedCarouselState($candidate, $root)
+            ) {
+                continue;
+            }
+            $candidateItems = $this->imageOnlySlideItems($candidate);
+            if ( count($candidateItems) > $count ) {
+                $list = $candidate;
+                $count = count($candidateItems);
+            }
+        }
+
+        return $list;
+    }
+
+    private function elementPixelWidth(DOMElement $element): float
+    {
+        $width = $this->cssPixelLength(SourceDom::attr($element, 'width'));
+        if ( $width > 0.0 ) {
+            return $width;
+        }
+        if ( 1 === preg_match('/(?:^|;)\s*width\s*:\s*([^;]+)/i', SourceDom::attr($element, 'style'), $matches) ) {
+            return $this->cssPixelLength($matches[1]);
+        }
+
+        return 0.0;
+    }
+
+    private function cssPixelLength(string $value): float
+    {
+        if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)(?:px)?$/i', trim($value), $matches) ) {
+            return 0.0;
+        }
+
+        return (float) $matches[1];
+    }
+
+    /**
+     * @return list<DOMElement>
+     */
+    private function imageOnlySlideItems(DOMElement $list): array
+    {
+        $items = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || ! $this->isCarouselSlideChild($child) ) {
+                continue;
+            }
+            if ( ! $this->isImageOnlySlide($child) ) {
+                return array();
+            }
+            $items[] = $child;
+        }
+
+        return $items;
+    }
+
+    private function isCarouselSlideChild(DOMElement $child): bool
+    {
+        if ( 'listitem' === strtolower(trim(SourceDom::attr($child, 'role'))) || 'li' === strtolower($child->tagName) ) {
+            return true;
+        }
+
+        $identity = strtolower(implode(' ', array(
+            $child->tagName,
+            SourceDom::attr($child, 'class'),
+            SourceDom::attr($child, 'data-hook'),
+            SourceDom::attr($child, 'data-testid'),
+        )));
+
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item|group)(?:[^a-z0-9]|$)/', $identity);
+    }
+
+    private function isImageOnlySlide(DOMElement $item): bool
+    {
+        foreach ( array( 'video', 'audio', 'iframe', 'canvas', 'form', 'object', 'embed' ) as $tag ) {
+            if ( 0 < $item->getElementsByTagName($tag)->length ) {
+                return false;
+            }
+        }
+        foreach ( array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote' ) as $tag ) {
+            if ( 0 < $item->getElementsByTagName($tag)->length ) {
+                return false;
+            }
+        }
+
+        return 1 === $item->getElementsByTagName('img')->length;
+    }
+
+    /**
+     * @param list<DOMElement> $items
+     */
+    private function slideshowHasStageSelector(DOMElement $root, DOMElement $list, array $items): bool
+    {
+        if ( 2 <= count($this->slideshowPagerImages($root, $list)) ) {
+            return true;
+        }
+
+        foreach ( $items as $item ) {
+            $hidden = strtolower(trim(SourceDom::attr($item, 'aria-hidden')));
+            $style = strtolower(SourceDom::attr($item, 'style'));
+            if ( '' !== SourceDom::attr($item, 'data-slideshow-slide')
+                || in_array($hidden, array( 'true', 'false' ), true)
+                || 1 === preg_match('/(?:^|;)\s*display\s*:\s*none\b/', $style)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isInertSlideshowHostChild(DOMElement $child): bool
+    {
+        if ( 0 < $child->getElementsByTagName('img')->length
+            || 0 < $child->getElementsByTagName('video')->length
+            || 0 < $child->getElementsByTagName('iframe')->length
+            || 0 < $child->getElementsByTagName('audio')->length
+        ) {
+            return false;
+        }
+
+        return '' === trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? ''));
     }
 
     public function hasOnlySvgDefinitions(DOMElement $element): bool

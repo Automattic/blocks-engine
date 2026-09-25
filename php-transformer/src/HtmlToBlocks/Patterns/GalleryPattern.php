@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -97,12 +98,12 @@ final class GalleryPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            return null;
+            return $this->matchImageSlideshow($element, $convertImageElement, $createBlock);
         }
 
         $images = array_values(array_filter($images));
         if ( count($images) < 2 ) {
-            return null;
+            return $this->matchImageSlideshow($element, $convertImageElement, $createBlock);
         }
 
         $attrs = $presentationAttributes($element);
@@ -112,6 +113,43 @@ final class GalleryPattern implements PatternRecognizerInterface
         }
 
         return $createBlock('core/gallery', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $images, $element);
+    }
+
+    /**
+     * @param callable(DOMElement, DOMElement|null, DOMElement|null, DOMElement|null): (array<string, mixed>|null) $convertImageElement
+     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
+     * @return array<string, mixed>|null
+     */
+    private function matchImageSlideshow(DOMElement $element, callable $convertImageElement, callable $createBlock): ?array
+    {
+        $classifier = new SourceElementClassifier();
+        $stageImages = $classifier->imageSlideshowStageImages($element);
+        if ( count($stageImages) < 2 ) {
+            return null;
+        }
+
+        $images = array();
+        foreach ( $stageImages as $stageImage ) {
+            $image = $convertImageElement($stageImage, null, null, null);
+            if ( ! is_array($image) || 'core/image' !== ( $image['blockName'] ?? null ) ) {
+                return null;
+            }
+            $attrs = array_filter(array(
+                'url'     => (string) ( $image['attrs']['url'] ?? '' ),
+                'alt'     => (string) ( $image['attrs']['alt'] ?? '' ),
+                'id'      => $image['attrs']['id'] ?? null,
+                'caption' => $classifier->slideshowImageCaption($stageImage) ?: ( $image['attrs']['caption'] ?? null ),
+            ), static fn ($value): bool => null !== $value && '' !== $value);
+            if ( '' === (string) ( $attrs['url'] ?? '' ) ) {
+                return null;
+            }
+            $images[] = $createBlock('core/image', $attrs, array(), null);
+        }
+
+        $layout = $classifier->imageSlideshowGalleryLayout($element);
+        $layout['className'] = 'blocks-engine-slideshow-gallery';
+
+        return $createBlock('core/gallery', $layout, $images, null);
     }
 
 }
