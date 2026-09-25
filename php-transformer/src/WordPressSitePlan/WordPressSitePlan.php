@@ -204,6 +204,7 @@ final class WordPressSitePlan
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
         $assets = self::projectSharedChromeStylesheets($assets, $parts);
+        $assets = self::projectDetachedChromeContextRules($assets, $parts);
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
@@ -677,6 +678,97 @@ final class WordPressSitePlan
         }
         foreach (array_keys($classes) as $class) if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $positive)) return true;
         return false;
+    }
+
+    /**
+     * A landmark hoisted out of its page into a template part leaves its
+     * ancestors behind, so author rules that reached it through them
+     * (`#masterPage.mesh-layout #SITE_FOOTER{position:relative}`) stop matching
+     * and the part loses, for example, the containing block its absolutely
+     * positioned layers depend on. Re-anchor such rules on the part root: a
+     * selector whose subject names the root by id, and whose ancestor
+     * compounds name only ids and classes the landmark actually sat under, is
+     * emitted again as its subject compound in a global stylesheet. Selectors
+     * with sibling combinators, attributes or pseudo-classes in the ancestor
+     * chain are left alone, since the context they describe cannot be proven.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $parts
+     * @return array<int,array<string,mixed>>
+     */
+    private static function projectDetachedChromeContextRules(array $assets, array $parts): array
+    {
+        $roots = array();
+        foreach ($parts as $part) {
+            if ('shared_shell' !== ($part['placement']['kind'] ?? null) || !is_array($part['ancestor_context'] ?? null)) continue;
+            if (!preg_match('/^<!--\s*wp:group\s+(\{[^>]*?\})\s*-->/', (string) ($part['canonical_block_markup'] ?? ''), $match)) continue;
+            $attrs = json_decode($match[1], true);
+            $anchor = is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
+            if ('' === $anchor) continue;
+            $roots[$anchor] = array('ids' => array_fill_keys($part['ancestor_context']['ids'] ?? array(), true), 'classes' => array_fill_keys($part['ancestor_context']['classes'] ?? array(), true));
+        }
+        if (array() === $roots) return $assets;
+        $template = null;
+        $rules = '';
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content'])) continue;
+            $template ??= $asset;
+            $matched = false;
+            $projected = (new CssStylesheetTransformer())->transformStyleRules(
+                $asset['content'],
+                static function (string $prelude, string $body) use ($roots, &$matched): string {
+                    $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+                    if (null === $selectors) return '';
+                    $kept = array();
+                    foreach ($selectors as $selector) {
+                        $reanchored = self::reanchoredChromeSelector(trim($selector), $roots);
+                        if (null !== $reanchored) $kept[] = $reanchored;
+                    }
+                    if (array() === $kept) return '';
+                    $matched = true;
+                    return implode(',', array_values(array_unique($kept))) . '{' . $body . '}';
+                }
+            );
+            if ($matched) $rules .= $projected;
+        }
+        if (null === $template || '' === trim($rules)) return $assets;
+        $context = $template;
+        $context['path'] = 'assets/css/shared-chrome-context-' . substr(hash('sha256', $rules), 0, 16) . '.css';
+        $context['target_path'] = $context['path'];
+        $context['reference_origin'] = (string) ($template['source_path'] ?? $template['path'] ?? '');
+        $context['source_path'] = (string) ($template['source_path'] ?? $template['path'] ?? '') . '.shared-chrome-context';
+        $context['content'] = $rules;
+        $context['bytes'] = strlen($rules);
+        $context['hash'] = hash('sha256', $rules);
+        $context['content_hash'] = $context['hash'];
+        $context['scopes'] = array(array('kind' => 'global'));
+        $context['token'] = 'asset-' . substr(hash('sha256', $context['target_path']), 0, 16);
+        $context['reconciliation_identity'] = self::identity('asset', $context['source_path'], $context['target_path']);
+        unset($context['content_base64']);
+        $assets[] = $context;
+        return $assets;
+    }
+
+    /** @param array<string,array{ids:array<string,true>,classes:array<string,true>}> $roots */
+    private static function reanchoredChromeSelector(string $selector, array $roots): ?string
+    {
+        if (preg_match('/[+~\[\]()]|::?[a-z]/i', $selector)) return null;
+        $compounds = preg_split('/\s*>\s*|\s+/', $selector) ?: array();
+        $compounds = array_values(array_filter($compounds, static fn(string $compound): bool => '' !== $compound));
+        if (count($compounds) < 2) return null;
+        $subject = (string) array_pop($compounds);
+        if (!preg_match_all('/#((?:\\\\.|[\w-])+)/', $subject, $ids) || 1 !== count($ids[1])) return null;
+        $root = stripslashes($ids[1][0]);
+        if (!isset($roots[$root])) return null;
+        foreach ($compounds as $compound) {
+            if (!preg_match('/^(?:[a-z][a-z0-9-]*|\*)?(?:[#.](?:\\\\.|[\w-])+)+$/i', $compound) && !preg_match('/^[a-z][a-z0-9-]*$/i', $compound)) return null;
+            preg_match_all('/([#.])((?:\\\\.|[\w-])+)/', $compound, $tokens, PREG_SET_ORDER);
+            foreach ($tokens as $token) {
+                $name = stripslashes($token[2]);
+                if ('#' === $token[1] ? !isset($roots[$root]['ids'][$name]) : !isset($roots[$root]['classes'][$name])) return null;
+            }
+        }
+        return $subject;
     }
 
     /**

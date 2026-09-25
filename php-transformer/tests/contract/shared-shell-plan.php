@@ -590,4 +590,25 @@ foreach (array('index.html', 'about.html', 'team.html') as $source) {
     $assert(!str_contains($listMenuPages[$source]['canonical_block_markup'] ?? '', 'Studio Name') && str_contains($listMenuPages[$source]['canonical_block_markup'] ?? '', 'Body for ' . $source), "{$source} keeps only its own content once the header is shared.");
 }
 
+// Hoisted into a template part, a nested footer leaves its page ancestors
+// behind. An author rule that reached it through them keeps applying to the
+// part root, so the part keeps the containing block its layers rely on; a rule
+// naming an ancestor the footer never sat under is not re-anchored.
+$framed = static function (string $title): string {
+    return '<!doctype html><html><head><style>#frame.mesh #site-foot{position:relative}.elsewhere #site-foot{color:red}#frame.mesh #content{padding:1px}</style></head><body>'
+        . '<div id="frame" class="mesh"><header class="top"><nav><a href="index.html">Home</a><a href="about.html">About</a></nav></header>'
+        . '<main id="content"><h1>' . $title . '</h1></main>'
+        . '<footer id="site-foot"><div class="layer" style="position:absolute;inset:0;background:#333"></div><p>Shared footer</p></footer></div></body></html>';
+};
+$framedPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $framed('Home'),
+    'about.html' => $framed('About'),
+    'team.html' => $framed('Team'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$framedFooter = array_values(array_filter($framedPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)))[0] ?? array();
+$contextCss = implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($framedPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && str_contains((string) ($asset['path'] ?? ''), 'shared-chrome-context'))));
+$assert('shared_shell' === ($framedFooter['placement']['kind'] ?? null), 'The nested footer extracts as a shared part: ' . json_encode(array_column($framedPlan['diagnostics'], 'code')));
+$assert(1 === preg_match('/(^|[},])#site-foot\{position:relative\}/', $contextCss), 'A rule that reached the footer through its page ancestors is re-anchored on the part root: ' . $contextCss);
+$assert(!str_contains($contextCss, 'color:red') && !str_contains($contextCss, 'padding:1px'), 'Rules through ancestors the footer never sat under, or targeting other elements, are not re-anchored: ' . $contextCss);
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");

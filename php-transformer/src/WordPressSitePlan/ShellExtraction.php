@@ -405,7 +405,7 @@ final class ShellExtraction
             foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
             // The candidate's own block-tree offset is carried forward so removal
             // never needs to re-derive its position by searching for its bytes.
-            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional);
+            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
         }
         return $candidates;
     }
@@ -497,7 +497,7 @@ final class ShellExtraction
                 $open = array_pop($stack);
                 if (!is_array($open) || empty($open['candidate'])) continue;
                 $length = $offset + strlen($token) - $open['offset']; $candidateMarkup = substr($markup, $open['offset'], $length);
-                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length);
+                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'ancestor_context' => self::ancestorContext($stack));
                 continue;
             }
             $name = $matches[2][$index][0]; $attributes = trim($matches[3][$index][0] ?? ''); $attrs = '' === $attributes ? array() : json_decode($attributes, true);
@@ -505,11 +505,30 @@ final class ShellExtraction
             foreach ($stack as $ancestor) if (in_array($ancestor['tag_name'] ?? null, array('main', 'article', 'section', 'aside'), true)) { $disallowedAncestor = true; break; }
             $tagName = is_array($attrs) ? ($attrs['tagName'] ?? null) : null;
             $candidate = 0 < count($stack) && !$disallowedAncestor && 'group' === $name && $area === $tagName;
-            if (!$selfClosing) $stack[] = array('offset' => $offset, 'tag_name' => $tagName, 'candidate' => $candidate);
+            if (!$selfClosing) $stack[] = array('offset' => $offset, 'tag_name' => $tagName, 'candidate' => $candidate, 'anchor' => is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '', 'class_name' => is_array($attrs) && is_string($attrs['className'] ?? null) ? $attrs['className'] : '');
         }
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
         foreach ($rows as $variant => &$row) $row['variant'] = $variant; unset($row);
         return $rows;
+    }
+
+    /**
+     * The ids and classes of the blocks enclosing a nested landmark. Hoisted into
+     * a template part, the landmark leaves them behind, so author rules that
+     * reached it through them need re-anchoring (see WordPressSitePlan).
+     *
+     * @param array<int,array<string,mixed>> $stack
+     * @return array{ids:array<int,string>,classes:array<int,string>}
+     */
+    private static function ancestorContext(array $stack): array
+    {
+        $ids = array(); $classes = array();
+        foreach ($stack as $ancestor) {
+            if (empty($ancestor['candidate']) && '' !== ($ancestor['anchor'] ?? '')) $ids[] = (string) $ancestor['anchor'];
+            if (!empty($ancestor['candidate'])) continue;
+            foreach (preg_split('/\s+/', trim((string) ($ancestor['class_name'] ?? ''))) ?: array() as $class) if ('' !== $class) $classes[] = $class;
+        }
+        return array('ids' => array_values(array_unique($ids)), 'classes' => array_values(array_unique($classes)));
     }
 
     /** @param array<int,array<string,mixed>> $rows */
@@ -624,7 +643,7 @@ final class ShellExtraction
             if ($singlePage) $templateSlugs = array('front-page');
             $partMarkup = $first['template_part_markup'];
             $container = isset($first['legacy_container_opening']) ? array('opening' => $first['legacy_container_opening'], 'closing' => $first['legacy_container_closing']) : null;
-            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => ShellLandmarkPolicy::templatePartAreaTagName($area), 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $container), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'canonical', $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup));
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => ShellLandmarkPolicy::templatePartAreaTagName($area), 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $container), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'canonical', $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($first['ancestor_context'] ?? null) ? array('ancestor_context' => $first['ancestor_context']) : array());
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
         foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);
