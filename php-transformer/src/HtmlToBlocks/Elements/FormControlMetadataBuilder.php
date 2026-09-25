@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
@@ -19,10 +20,15 @@ final class FormControlMetadataBuilder
     /** A field description reads as a note, not an article; bound it like other in-form copy. */
     private const MAX_DESCRIPTION_LENGTH = 240;
 
-    /** @param Closure(DOMElement): string $elementSelector */
+    /**
+     * @param Closure(DOMElement): string $elementSelector
+     * @param Closure(DOMElement): array<string, string>|null $typographyStyles Resolved snake_case typography
+     *     facts for one element, through the form presentation graph's cascade.
+     */
     public function __construct(
         private readonly Closure $elementSelector,
-        private readonly ?Closure $presentationAttributes = null
+        private readonly ?Closure $presentationAttributes = null,
+        private readonly ?Closure $typographyStyles = null
     ) {
     }
 
@@ -214,7 +220,35 @@ final class FormControlMetadataBuilder
             $item['class'] = $class;
         }
 
+        // A source styles in-form copy through custom properties set on
+        // ancestors of the form, so classes alone cannot reproduce it; carry
+        // the resolved typography the form presentation graph would report.
+        $styles = $this->contextTypography($node);
+        if ( array() !== $styles ) {
+            $item['styles'] = $styles;
+        }
+
         return $item;
+    }
+
+    /**
+     * Resolved typography for one context item: on the element itself, or —
+     * when it declares none of it — on its sole text carrier (a `<span>`
+     * inside a `<p>` title). Omitted when neither resolves anything.
+     *
+     * @return array<string, string>
+     */
+    private function contextTypography(DOMElement $node): array
+    {
+        if ( null === $this->typographyStyles ) {
+            return array();
+        }
+        $styles = ($this->typographyStyles)($node);
+        if ( array() !== $styles ) {
+            return $styles;
+        }
+        $carrier = FormPresentationGraphBuilder::soleTextCarrier($node);
+        return null === $carrier ? array() : ($this->typographyStyles)($carrier);
     }
 
     /**

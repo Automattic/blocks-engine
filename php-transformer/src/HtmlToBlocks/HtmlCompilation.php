@@ -146,6 +146,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ProjectedSelectorB
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CascadeLayer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayeredCssCollector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
@@ -326,6 +327,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private readonly FormRuntimeIslandRecorder $formRuntimeIslandRecorder;
 
     private readonly FormControlMetadataBuilder $formControlMetadataBuilder;
+
+    /** Held per transform so the context-typography cascade analysis runs once. */
+    private ?FormPresentationGraphBuilder $formContextTypographyBuilder = null;
 
     private readonly AuthoredFormControlBlockConverter $authoredFormControlBlockConverter;
 
@@ -601,7 +605,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         ), $this->styleResolver, $this->runtime);
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => $this->elementSelector($element),
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element)
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (DOMElement $element): array => $this->formContextTypography($element)
         );
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
@@ -1287,6 +1292,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function authorStyles(): AuthorStyleAnalysis
     {
         return $this->session->authorStyleAnalysis();
+    }
+
+    /**
+     * Resolved typography for one in-form context item element, through the
+     * same cascade the form presentation graph reports its roles with. The
+     * builder is held per transform so its stylesheet analysis runs once.
+     */
+    private function formContextTypography(DOMElement $element): array
+    {
+        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->typographyStyles(
+            $element,
+            $this->authorStyles()->stylesheetAssets(),
+            $this->sourceStyles()->formLayoutCss()
+        );
     }
 
     private function layoutGeometry(): LayoutGeometryState

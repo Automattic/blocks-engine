@@ -154,6 +154,42 @@ $assert(
     json_encode($nested)
 );
 
+// A source styles its in-form copy through custom properties set on
+// ancestors of the form, so the class alone cannot reproduce it; a context
+// heading carries the resolved typography instead.
+$resolvedHeading = $formContext(
+    '<style>h2{font-size:var(--h-size,28px);color:var(--h-color,#212121);font-family:var(--h-family,unset)}</style>'
+    . '<main><div style="--h-size:38px;--h-color:#275f49;--h-family:Georgia"><form method="post">'
+    . '<h2 class="form-title">Contact us</h2>'
+    . '<input type="email" name="email"><input type="submit" value="Go"></form></div></main>'
+);
+$typography = $resolvedHeading['context_before'][0] ?? array();
+$assert(
+    'Contact us' === ( $typography['text'] ?? '' )
+        && '38px' === ( $typography['styles']['font_size'] ?? null )
+        && '#275f49' === ( $typography['styles']['color'] ?? null )
+        && 'Georgia' === ( $typography['styles']['font_family'] ?? null ),
+    'a context heading carries its typography resolved through the form ancestors',
+    json_encode($resolvedHeading)
+);
+
+// A plain paragraph title whose inner span carries the declarations reads its
+// typography through that sole text carrier.
+$carrierTitle = $formContext(
+    '<style>.t{font-size:var(--p-size,10px);color:var(--p-color,black)}</style>'
+    . '<main><div style="--p-size:28px;--p-color:#f3f2ed"><form method="post">'
+    . '<p class="form-header"><span class="t">Stay Connected with Us</span></p>'
+    . '<input type="email" name="email"><input type="submit" value="Go"></form></div></main>'
+);
+$paragraph = $carrierTitle['context_before'][0] ?? array();
+$assert(
+    'Stay Connected with Us' === ( $paragraph['text'] ?? '' )
+        && '28px' === ( $paragraph['styles']['font_size'] ?? null )
+        && '#f3f2ed' === ( $paragraph['styles']['color'] ?? null ),
+    'a plain title reads its typography through its text carrier',
+    json_encode($carrierTitle)
+);
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "form entity in-form context FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);

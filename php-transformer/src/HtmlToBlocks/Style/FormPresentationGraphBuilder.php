@@ -30,6 +30,12 @@ final class FormPresentationGraphBuilder
     private const MAX_VISUAL_DIMENSION = 4096;
     private const MAX_PROVENANCE = 16;
     private const MAX_DIAGNOSTICS = 32;
+    /** The text properties a label role reads from its text carrier when the label declares none itself. */
+    private const TYPOGRAPHY_PROPERTIES = array(
+        'color', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height',
+    );
+    /** How far a text-carrier search may walk before the search, not the cascade, gives up. */
+    private const MAX_CARRIER_CANDIDATES = 256;
     private const CONTROL_CONTAINER_PROPERTIES = array(
         'background', 'background-color', 'border', 'border-color', 'border-style', 'border-width',
         'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
@@ -62,6 +68,8 @@ final class FormPresentationGraphBuilder
 
     private array $diagnostics = array();
     private bool $truncated = false;
+    /** Memoized rule sets for {@see typographyStyles()}, analyzed once per transform. */
+    private ?array $typographyAnalysis = null;
 
     /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker */
     public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null)
@@ -84,6 +92,118 @@ final class FormPresentationGraphBuilder
             if ($patch) $variants[] = array('condition' => $condition, 'styles' => $patch, 'provenance' => $this->provenance($facts, $condition));
         }
         return $this->truncated || (!$styles && !$variants) ? array() : array('schema' => 'generic/form-container-presentation/v1', 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null), 'variants' => $variants);
+    }
+
+    /**
+     * Resolved typography facts for one element, through the same cascade and
+     * custom-property resolution the presentation graph roles use — the one
+     * cascade, so copy reported outside the graph (an in-form context item)
+     * reads the same values a role would.
+     *
+     * @param list<array<string, mixed>> $stylesheets @return array<string, string>
+     */
+    public function typographyStyles(DOMElement $element, array $stylesheets, string $inlineCss = ''): array
+    {
+        $this->typographyAnalysis ??= $this->typographyAnalysis($stylesheets, $inlineCss);
+        if ( $this->typographyAnalysis['truncated'] ) {
+            return array();
+        }
+        $matched = $this->matched($element, $this->typographyAnalysis['rules']);
+        return $this->styles(
+            array_intersect_key($matched['base'], array_flip(self::TYPOGRAPHY_PROPERTIES)),
+            $element,
+            null,
+            $this->typographyAnalysis['customProperties']
+        );
+    }
+
+    /**
+     * The single deepest descendant whose collapsed text is the scope's own
+     * visible text, ignoring the excluded subtrees — the element a source
+     * styles instead of the scope itself (a `<p>` inside a `<label>`, a
+     * `<span>` inside a `<p>`). Null when no descendant carries the text alone:
+     * none, or more than one at the deepest level.
+     *
+     * @param list<DOMElement> $excluded
+     */
+    public static function soleTextCarrier(DOMElement $scope, array $excluded = array()): ?DOMElement
+    {
+        $text = self::collapsedCarrierText($scope, $excluded);
+        if ( '' === $text ) {
+            return null;
+        }
+        $carrier = null;
+        $carrierDepth = 0;
+        $scanned = 0;
+        foreach ( $scope->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            if ( ++$scanned > self::MAX_CARRIER_CANDIDATES ) {
+                return null;
+            }
+            $depth = 0;
+            $withinExcluded = false;
+            for ( $ancestor = $candidate->parentNode; $ancestor instanceof DOMElement && ! $ancestor->isSameNode($scope); $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
+                if ( self::isExcludedCarrier($ancestor, $excluded) ) {
+                    $withinExcluded = true;
+                    break;
+                }
+                ++$depth;
+            }
+            if ( $withinExcluded || self::isExcludedCarrier($candidate, $excluded)
+                || self::collapsedCarrierText($candidate, $excluded) !== $text ) {
+                continue;
+            }
+            if ( null === $carrier || $depth > $carrierDepth ) {
+                $carrier = $candidate;
+                $carrierDepth = $depth;
+                continue;
+            }
+            if ( $depth === $carrierDepth ) {
+                return null;
+            }
+        }
+        return $carrier;
+    }
+
+    /** @param list<DOMElement> $excluded */
+    private static function isExcludedCarrier(DOMElement $element, array $excluded): bool
+    {
+        foreach ( $excluded as $excludedElement ) {
+            if ( $element->isSameNode($excludedElement) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param list<DOMElement> $excluded */
+    private static function collapsedCarrierText(DOMElement $element, array $excluded): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( ! self::isExcludedCarrier($child, $excluded) ) {
+                    $text .= self::collapsedCarrierText($child, $excluded);
+                }
+                continue;
+            }
+            $text .= $child->textContent ?? '';
+        }
+        return trim((string) preg_replace('/\s+/', ' ', $text) ?? '');
+    }
+
+    /** @param list<array<string, mixed>> $stylesheets @return array{truncated: bool, rules: list<array<string, mixed>>, customProperties: list<array<string, mixed>>} */
+    private function typographyAnalysis(array $stylesheets, string $inlineCss): array
+    {
+        $properties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
+        $customProperties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array('--*'), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
+        return array(
+            'truncated' => $properties['truncated'] || $customProperties['truncated'],
+            'rules' => $properties['rules'],
+            'customProperties' => $customProperties['rules'],
+        );
     }
 
     /** @param list<array<string, mixed>> $stylesheets @return array<string, mixed> */
@@ -138,8 +258,22 @@ final class FormPresentationGraphBuilder
                 }
                 $matched = $this->matched($element, $analysis['rules']);
                 $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules']);
+                $provenance = $this->provenance($matched['base'], null);
+                if ( 'label' === $role && array() === array_intersect_key($styles, array_flip(array_map(self::key(...), self::TYPOGRAPHY_PROPERTIES))) ) {
+                    $carried = $this->carrierTypography($roles, $element, $analysis['rules'], $customPropertyAnalysis['rules']);
+                    if ( array() !== $carried ) {
+                        $styles = array_merge($styles, $carried['styles']);
+                        ksort($styles);
+                        $provenance = array_merge($provenance, $carried['provenance']);
+                        if ( count($provenance) > self::MAX_PROVENANCE ) {
+                            $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
+                            $this->truncated = true;
+                            $this->diagnostics[] = 'provenance_limit';
+                        }
+                    }
+                }
                 if ( array() !== $styles || 'required_marker' === $role ) {
-                    $row[$role] = array( 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null) );
+                    $row[$role] = array( 'styles' => $styles, 'provenance' => $provenance );
                 }
                 foreach ( $this->effectiveConditional($matched['conditional'], $matched['base']) as $encoded => $facts ) {
                     if ( count($variants) >= self::MAX_VARIANTS ) {
@@ -282,6 +416,46 @@ final class FormPresentationGraphBuilder
         if ( ! is_array($role) || count($role) !== 2 || array_diff(array_keys($role), array( 'styles', 'provenance' )) || ! is_array($role['styles'] ?? null) || (! $allowEmpty && array() === $role['styles']) || ! is_array($role['provenance'] ?? null) ) throw new InvalidArgumentException('Form presentation role is invalid.');
         self::assertStyles($role['styles']);
         self::assertProvenance($role['provenance'], $role['styles'], $condition);
+    }
+
+    /**
+     * A checkbox/radio label's visible text often lives in a dedicated carrier
+     * — `<label><div><p>Yes</p></div>…` — while the `<label>` itself declares
+     * no typography. The text inherits each typography property from the
+     * nearest element between it and the label that declares it — often an
+     * intermediate carrier (`<p>`) above the spans that hold the text — so each
+     * property is resolved where it is declared, walking from the deepest
+     * carrier up to (not including) the label. Only reached when the label's
+     * own declarations carry none of the typography properties, so the label's
+     * own declarations always win.
+     *
+     * @param array<string, mixed> $roles
+     * @param list<array<string, mixed>> $rules
+     * @param list<array<string, mixed>> $customPropertyRules
+     * @return array{styles: array<string, string>, provenance: list<array<string, mixed>>}
+     */
+    private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules): array
+    {
+        $excluded = array_values(array_filter(
+            array( $roles['control'] ?? null, $roles['required_marker'] ?? null ),
+            static fn (mixed $element): bool => $element instanceof DOMElement
+        ));
+        $carrier = self::soleTextCarrier($label, $excluded);
+        $styles = array();
+        $provenance = array();
+        for ( $element = $carrier; $element instanceof DOMElement && ! $element->isSameNode($label); $element = $element->parentNode instanceof DOMElement ? $element->parentNode : null ) {
+            $facts = array_diff_key(
+                array_intersect_key($this->matched($element, $rules)['base'], array_flip(self::TYPOGRAPHY_PROPERTIES)),
+                array_flip(array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys($styles)))
+            );
+            if ( array() === $facts ) {
+                continue;
+            }
+            $styles += $this->styles($facts, $element, null, $customPropertyRules);
+            $provenance = array_merge($provenance, $this->provenance($facts, null));
+        }
+
+        return array() === $styles ? array() : array( 'styles' => $styles, 'provenance' => $provenance );
     }
 
     /**
