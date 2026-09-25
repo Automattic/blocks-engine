@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $failures = 0;
@@ -80,12 +81,47 @@ $assert(
 
 $mediaOnly = $transform(
     '<style>.cover{position:absolute}</style>'
-    . '<section class="strip"><div class="cover"><img src="cover.jpg" alt="" style="width:100%;height:900px;object-fit:cover"></div></section>'
+    . '<section class="strip"><div class="cover"><img src="cover.jpg" alt="" style="width:100%;height:900px"></div></section>'
 );
 $assert(
     str_contains($engineCss($mediaOnly), 'min-height:900px'),
     'a media-only strip with no fixed height still reserves the out-of-flow image height',
     $engineCss($mediaOnly)
+);
+
+$artifact = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => '<style media="(min-width:768px)">.strip-size{min-height:560px}</style>'
+            . '<link rel="stylesheet" href="site.css">'
+            . '<section class="strip"><div class="column"><div class="cover" style="position:absolute">'
+            . '<img src="cover.jpg" alt="" style="width:100%;height:900px;object-fit:cover">'
+            . '</div><div class="strip-size" data-mesh-id="heroinlineContent"></div></div></section>',
+        'site.css' => '[data-mesh-id$="inlineContent"]{position:relative}',
+    ),
+))->toArray();
+$artifactCss = implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    array_values(array_filter(
+        is_array($artifact['assets'] ?? null) ? $artifact['assets'] : array(),
+        static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')
+    ))
+));
+$assert(
+    ! str_contains($artifactCss, 'min-height:900px') && str_contains($artifactCss, 'min-height:560px'),
+    'linked desktop CSS keeps the fixed strip height instead of the cover image paint height',
+    $artifactCss
+);
+
+$desktopMedia = $transform(
+    '<style media="(min-width:768px)">.strip-size{min-height:560px}</style>'
+    . '<style>.strip-size{position:relative}</style>'
+    . '<section class="strip"><div class="column"><div class="cover" style="position:absolute"><img src="cover.jpg" alt="" style="width:100%;height:900px;object-fit:cover"></div><div class="strip-size"></div></div></section>'
+);
+$assert(
+    ! str_contains($engineCss($desktopMedia), 'min-height:900px'),
+    'a desktop media-query strip height wins over an absolutely positioned cover image paint height',
+    $engineCss($desktopMedia)
 );
 
 if ( $failures > 0 ) {

@@ -8980,7 +8980,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                         continue 2;
                     }
                 }
-                $height = trim(CssValueInspector::withoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))['height'] ?? '')));
+                $imageDeclarations = $this->styleResolver->structuralPresentationDeclarations($image);
+                $objectFit = strtolower(trim(CssValueInspector::withoutImportant((string) ($imageDeclarations['object-fit'] ?? ''))));
+                if ( in_array($objectFit, array( 'cover', 'contain' ), true) ) {
+                    continue;
+                }
+                $height = trim(CssValueInspector::withoutImportant((string) ($imageDeclarations['height'] ?? '')));
                 if ( preg_match('/^(?:\d+|\d*\.\d+)$/', $height) ) {
                     $height .= 'px';
                 }
