@@ -899,7 +899,7 @@ final class ShellExtraction
             $restingColorBySignature[$signature] = (string) array_key_first($counts);
         }
         $navigationIndex = -1;
-        return preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature, $restingPeers, &$navigationIndex): string {
+        $markup = preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature, $restingPeers, &$navigationIndex): string {
             if ('navigation' === $match[1]) ++$navigationIndex;
             $attrs = json_decode($match[2], true);
             if (!is_array($attrs)) return $match[0];
@@ -944,6 +944,11 @@ final class ShellExtraction
             if ($current || ($semanticIdentity && $isLink)) unset($attrs['anchor'], $attrs['anchorClassName']);
             return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
         }, $markup) ?? $markup;
+        // A menu authored as plain links (list items, rich text) marks the
+        // served route with aria-current="page" in saved content. One shared
+        // part serves every route, so that page-scoped state is neither part of
+        // the chrome's identity nor frozen into the part.
+        return preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $markup) ?? $markup;
     }
 
     /**
