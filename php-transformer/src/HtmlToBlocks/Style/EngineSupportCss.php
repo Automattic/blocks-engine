@@ -28,6 +28,8 @@ final class EngineSupportCss
 
     private const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
 
+    private const SLIDESHOW_GALLERY_CLASS = 'blocks-engine-slideshow-gallery';
+
     private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = 'blocks-engine-propagated-link-color';
 
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
@@ -272,6 +274,19 @@ final class EngineSupportCss
     public function generatedMarkupRepairCss(string $serializedBlocks): array
     {
         $parts = array();
+        if ( str_contains($serializedBlocks, self::SLIDESHOW_GALLERY_CLASS) ) {
+            $gap = '16px';
+            $parts[] = ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.has-nested-images{display:flex;flex-wrap:wrap;gap:' . $gap . '}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.has-nested-images>.wp-block-image{box-sizing:border-box;flex:0 0 auto !important;margin:0;min-width:0;max-width:100%}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-2>.wp-block-image{width:calc((100% - ' . $gap . ') / 2) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-3>.wp-block-image{width:calc((100% - 2 * ' . $gap . ') / 3) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-4>.wp-block-image{width:calc((100% - 3 * ' . $gap . ') / 4) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-5>.wp-block-image{width:calc((100% - 4 * ' . $gap . ') / 5) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-6>.wp-block-image{width:calc((100% - 5 * ' . $gap . ') / 6) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-7>.wp-block-image{width:calc((100% - 6 * ' . $gap . ') / 7) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-8>.wp-block-image{width:calc((100% - 7 * ' . $gap . ') / 8) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.is-cropped>.wp-block-image img{aspect-ratio:1;height:auto;object-fit:cover;width:100%}';
+        }
         if ( str_contains($serializedBlocks, self::LAYOUT_TABLE_COLUMNS_CLASS) ) {
             $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '{display:flex;flex-wrap:nowrap;gap:0;box-sizing:border-box}'
                 . "\n" . ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column{box-sizing:border-box;min-width:0}'

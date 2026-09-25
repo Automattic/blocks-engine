@@ -60,7 +60,7 @@ $tableSlideshow = static function (string $stageClass = 'slides'): string {
 $result = ( new HtmlTransformer() )->transform($tableSlideshow())->toArray();
 $galleries = $collect($result['blocks'] ?? array(), 'core/gallery');
 $assert(1 === count($galleries), 'a host around an image-only stage and thumbnail pager becomes one core/gallery');
-$assert(3 === count($galleries[0]['innerBlocks'] ?? array()), 'the gallery keeps one inner image per stage slide');
+$assert(3 === count($galleries[0]['innerBlocks'] ?? array()), 'the gallery keeps one inner image per unique photo');
 $assert(
     array( 'one.jpg', 'two.jpg', 'three.jpg' ) === array_map(
         static fn (array $image): string => (string) ( $image['attrs']['url'] ?? '' ),
@@ -80,9 +80,79 @@ $assert(
         && ! str_contains((string) ( $result['serialized_blocks'] ?? '' ), 'one-thumb.jpg'),
     'alt text is preserved and thumbnail chrome is not emitted as gallery images'
 );
+$assert(3 === (int) ( $galleries[0]['attrs']['columns'] ?? 0 ), 'columns follow the thumbnail strip that fits the stage width');
+$assert(true === ( $galleries[0]['attrs']['imageCrop'] ?? null ), 'the gallery crops to the thumbnail-strip cell');
+$assert(
+    ! isset($galleries[0]['innerBlocks'][0]['attrs']['width'])
+        && ! isset($galleries[0]['innerBlocks'][0]['attrs']['height']),
+    'stage crop pixel sizes are not copied onto gallery images'
+);
+$assert(
+    str_contains((string) ( $result['serialized_blocks'] ?? '' ), 'columns-3')
+        && str_contains((string) ( $result['serialized_blocks'] ?? '' ), 'is-cropped')
+        && str_contains((string) ( $result['serialized_blocks'] ?? '' ), 'blocks-engine-slideshow-gallery')
+        && ! str_contains((string) ( $result['serialized_blocks'] ?? '' ), '736px')
+        && ! str_contains((string) ( $result['serialized_blocks'] ?? '' ), 'is-resized')
+        && ! str_contains((string) ( $result['serialized_blocks'] ?? '' ), 'be-inline-geometry'),
+    'serialized gallery uses a cropped multi-column grid instead of stacked full-size images'
+);
 $assert(! in_array('gallery', $generatedStems($result), true), 'the image-only slideshow is not a generated gallery companion');
 $assert(array() === ( $result['fallbacks'] ?? array() ), 'image-only slideshow conversion emits no fallbacks');
 $assert('pass' === ( $result['source_reports']['wp_block_validity']['status'] ?? null ), 'the gallery serialization is editor-valid');
+
+$incompleteStage = str_replace(
+    '<td><a><div><img src="three-thumb.jpg" alt="" width="105" height="70"></div></a></td>',
+    '<td><a><div><img src="three-thumb.jpg" alt="" width="105" height="70"></div></a></td>'
+    . '<td><a><div><img src="four-thumb.jpg" alt="Four" width="105" height="70"></div></a></td>'
+    . '<td><a><div><img src="five-thumb.jpg" alt="Five" width="105" height="70"></div></a></td>',
+    $tableSlideshow()
+);
+$incompleteResult = ( new HtmlTransformer() )->transform($incompleteStage)->toArray();
+$incompleteGalleries = $collect($incompleteResult['blocks'] ?? array(), 'core/gallery');
+$assert(1 === count($incompleteGalleries), 'an incomplete captured stage still becomes one core/gallery');
+$assert(
+    array( 'one.jpg', 'two.jpg', 'three.jpg', 'four-thumb.jpg', 'five-thumb.jpg' ) === array_map(
+        static fn (array $image): string => (string) ( $image['attrs']['url'] ?? '' ),
+        $incompleteGalleries[0]['innerBlocks'] ?? array()
+    ),
+    'photos that exist only in the thumbnail strip survive, preferring stage originals when identities match'
+);
+$assert(
+    5 === (int) ( $incompleteGalleries[0]['attrs']['columns'] ?? 0 )
+        && true === ( $incompleteGalleries[0]['attrs']['imageCrop'] ?? null ),
+    'gallery columns stay within the thumbnail strip that fits the stage, bounding rendered height'
+);
+$assert(
+    (int) ceil(count($incompleteGalleries[0]['innerBlocks'] ?? array()) / max(1, (int) ( $incompleteGalleries[0]['attrs']['columns'] ?? 1 ))) < count($incompleteGalleries[0]['innerBlocks'] ?? array()),
+    'the gallery is not one full-size image per row'
+);
+
+$origIdentity = str_replace(
+    array( 'one-thumb.jpg', 'two-thumb.jpg', 'three-thumb.jpg', 'one.jpg', 'two.jpg', 'three.jpg' ),
+    array( 'img-2287-copy.jpg', 'img-2289-copy.jpg', 'img-2295-copy.jpg', 'img-2287-copy_orig.jpg', 'img-2289-copy_orig.jpg', 'img-2295-copy_orig.jpg' ),
+    $tableSlideshow()
+);
+$origResult = ( new HtmlTransformer() )->transform($origIdentity)->toArray();
+$origGalleries = $collect($origResult['blocks'] ?? array(), 'core/gallery');
+$assert(
+    array( 'img-2287-copy_orig.jpg', 'img-2289-copy_orig.jpg', 'img-2295-copy_orig.jpg' ) === array_map(
+        static fn (array $image): string => (string) ( $image['attrs']['url'] ?? '' ),
+        $origGalleries[0]['innerBlocks'] ?? array()
+    ),
+    'orig and thumb filename variants are the same photo'
+);
+
+$captioned = str_replace(
+    '<div class="slide"><div class="crop" style="width:736px;left:-368px;top:-246px"><img class="wp-image-41" src="one.jpg" alt="One" style="width:100%"></div></div>',
+    '<div class="slide"><div class="crop" style="width:736px;left:-368px;top:-246px"><img class="wp-image-41" src="one.jpg" alt="One" style="width:100%"><div class="caption">Place no. 1</div></div></div>',
+    $tableSlideshow()
+);
+$captionedResult = ( new HtmlTransformer() )->transform($captioned)->toArray();
+$captionedGalleries = $collect($captionedResult['blocks'] ?? array(), 'core/gallery');
+$assert(
+    'Place no. 1' === ( $captionedGalleries[0]['innerBlocks'][0]['attrs']['caption'] ?? null ),
+    'slide captions survive on the gallery image'
+);
 
 $deep = $tableSlideshow();
 for ( $depth = 0; $depth < 16; $depth++ ) {
