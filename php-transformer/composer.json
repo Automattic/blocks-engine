@@ -294,6 +294,7 @@
              "php tests/unit/form-control-classifier-inline-safe-button.php",
              "php tests/unit/table-element-converter.php",
              "php tests/unit/stacked-nested-layout-table.php",
+             "php tests/unit/layout-table-column-track-width.php",
             "php tests/unit/unsupported-element-recorder.php",
             "php tests/unit/authored-form-control-block-converter.php",
              "php tests/unit/authored-select-block.php",
