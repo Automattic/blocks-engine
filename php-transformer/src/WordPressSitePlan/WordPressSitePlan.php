@@ -1044,16 +1044,16 @@ final class WordPressSitePlan
         $evidence = array(); $add = static function (array &$rows, string $source, ?string $value = null): void { if (count($rows) >= 16) return; $row = array('source' => $source); if (null !== $value) $row['publication_timestamp'] = $value; $rows[] = $row; };
         $timestamp = static fn(string $value): ?string => self::normalizePublicationTimestamp($value);
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) if (is_array($meta) && is_string($meta['content'] ?? null) && in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('article:published_time', 'article:published', 'pubdate', 'publishdate', 'date', 'dc.date.issued', 'dc.date', 'parsely-pub-date', 'releasedate'), true)) if (null !== ($date = $timestamp($meta['content']))) $add($evidence, 'meta:' . strtolower((string) ($meta['property'] ?? $meta['name'])), $date);
-        foreach (($document['document_metadata']['meta'] ?? array()) as $meta) {
-            if (!is_array($meta) || !is_string($meta['content'] ?? null) || !in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('og:url', 'twitter:url'), true)) continue;
-            $path = parse_url($meta['content'], PHP_URL_PATH);
-            if (is_string($path) && preg_match('~/(20\d{2})/(0[1-9]|1[0-2])(?:/|$)~', $path, $match)) $add($evidence, 'meta:og:url-dated', $timestamp($match[1] . '-' . $match[2] . '-01'));
-        }
         foreach (self::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if ('time' === ($node['name'] ?? null) && is_string($attributes['datetime'] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes['datetime'], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) $add($evidence, 'html:time[datetime]', $date); if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if (in_array($attributes['itemprop'] ?? null, array('datePublished', 'dateCreated'), true)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
         foreach (self::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
         foreach ($this->visiblePublicationEvidence($html) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
+        foreach (($document['document_metadata']['meta'] ?? array()) as $meta) {
+            if (!is_array($meta) || !is_string($meta['content'] ?? null) || !in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('og:url', 'twitter:url'), true)) continue;
+            $path = parse_url($meta['content'], PHP_URL_PATH);
+            if (is_string($path) && preg_match('~/(20\d{2})/(0[1-9]|1[0-2])(?:/|$)~', $path, $match)) $add($evidence, 'meta:og:url-dated', $timestamp($match[1] . '-' . $match[2] . '-01'));
+        }
         $unique = array(); foreach ($evidence as $row) $unique[$row['source'] . "\n" . ($row['publication_timestamp'] ?? '')] = $row; return array_values($unique);
     }
     /** @return array<int,array<string,string>> */
