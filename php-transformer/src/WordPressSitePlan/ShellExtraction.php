@@ -497,7 +497,7 @@ final class ShellExtraction
                 $open = array_pop($stack);
                 if (!is_array($open) || empty($open['candidate'])) continue;
                 $length = $offset + strlen($token) - $open['offset']; $candidateMarkup = substr($markup, $open['offset'], $length);
-                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'ancestor_context' => self::ancestorContext($stack));
+                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])));
                 continue;
             }
             $name = $matches[2][$index][0]; $attributes = trim($matches[3][$index][0] ?? ''); $attrs = '' === $attributes ? array() : json_decode($attributes, true);
@@ -505,7 +505,14 @@ final class ShellExtraction
             foreach ($stack as $ancestor) if (in_array($ancestor['tag_name'] ?? null, array('main', 'article', 'section', 'aside'), true)) { $disallowedAncestor = true; break; }
             $tagName = is_array($attrs) ? ($attrs['tagName'] ?? null) : null;
             $candidate = 0 < count($stack) && !$disallowedAncestor && 'group' === $name && $area === $tagName;
-            if (!$selfClosing) $stack[] = array('offset' => $offset, 'tag_name' => $tagName, 'candidate' => $candidate, 'anchor' => is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '', 'class_name' => is_array($attrs) && is_string($attrs['className'] ?? null) ? $attrs['className'] : '');
+            // Whether page content precedes the landmark inside its ancestors: a
+            // block other than the enclosing openings started or ended before it.
+            $preceded = false;
+            if ($candidate) {
+                $between = substr($markup, $stack[0]['offset'], $offset - $stack[0]['offset']);
+                $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
+            }
+            if (!$selfClosing) $stack[] = array('offset' => $offset, 'tag_name' => $tagName, 'candidate' => $candidate, 'preceded' => $preceded, 'anchor' => is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '', 'class_name' => is_array($attrs) && is_string($attrs['className'] ?? null) ? $attrs['className'] : '');
         }
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
         foreach ($rows as $variant => &$row) $row['variant'] = $variant; unset($row);

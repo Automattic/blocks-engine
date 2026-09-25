@@ -611,4 +611,28 @@ $assert('shared_shell' === ($framedFooter['placement']['kind'] ?? null), 'The ne
 $assert(1 === preg_match('/(^|[},])#site-foot\{position:relative\}/', $contextCss), 'A rule that reached the footer through its page ancestors is re-anchored on the part root: ' . $contextCss);
 $assert(!str_contains($contextCss, 'color:red') && !str_contains($contextCss, 'padding:1px'), 'Rules through ancestors the footer never sat under, or targeting other elements, are not re-anchored: ' . $contextCss);
 
+// A fixed page background that preceded the header in the source now renders
+// after the header part, so the part restores the source paint order at zero
+// specificity. A header that was first in its page needs no such rule.
+$layered = static function (string $title, bool $backgroundFirst): string {
+    $background = '<div class="page-bg" style="position:fixed;inset:0;background:#eee"></div>';
+    return '<!doctype html><html><head><style>#frame #site-top{position:relative}</style></head><body><div id="frame">'
+        . ($backgroundFirst ? $background : '')
+        . '<header id="site-top"><nav><a href="index.html">Home</a><a href="about.html">About</a></nav></header>'
+        . '<main id="content"><h1>' . $title . '</h1></main></div></body></html>';
+};
+$contextCssFor = static function (array $plan): string {
+    return implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && str_contains((string) ($asset['path'] ?? ''), 'shared-chrome-context'))));
+};
+foreach (array(true, false) as $backgroundFirst) {
+    $layeredPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+        'index.html' => $layered('Home', $backgroundFirst),
+        'about.html' => $layered('About', $backgroundFirst),
+    )))->toArray()['source_reports']['wordpress_site_plan'];
+    $layeredHeader = array_values(array_filter($layeredPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
+    $layeredCss = $contextCssFor($layeredPlan);
+    $assert('shared_shell' === ($layeredHeader['placement']['kind'] ?? null), 'The layered header extracts as a shared part.');
+    $assert($backgroundFirst === str_contains($layeredCss, ':where(#site-top){z-index:1}'), ($backgroundFirst ? 'A header preceded by page layers restores its source paint order: ' : 'A header first in its page adds no paint-order rule: ') . $layeredCss);
+}
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");

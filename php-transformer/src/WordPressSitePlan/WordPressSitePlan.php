@@ -699,6 +699,7 @@ final class WordPressSitePlan
     private static function projectDetachedChromeContextRules(array $assets, array $parts): array
     {
         $roots = array();
+        $paintOrder = array();
         foreach ($parts as $part) {
             if ('shared_shell' !== ($part['placement']['kind'] ?? null) || !is_array($part['ancestor_context'] ?? null)) continue;
             if (!preg_match('/^<!--\s*wp:group\s+(\{[^>]*?\})\s*-->/', (string) ($part['canonical_block_markup'] ?? ''), $match)) continue;
@@ -706,10 +707,16 @@ final class WordPressSitePlan
             $anchor = is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
             if ('' === $anchor) continue;
             $roots[$anchor] = array('ids' => array_fill_keys($part['ancestor_context']['ids'] ?? array(), true), 'classes' => array_fill_keys($part['ancestor_context']['classes'] ?? array(), true));
+            // A header part renders before post-content, yet page content that
+            // preceded it in the source (a fixed page background) now follows it
+            // and paints over it wherever both are positioned without z-index.
+            // Restore the source paint order at zero specificity, so a z-index
+            // the author declared still wins and a static root is unaffected.
+            if ('header' === ($part['area'] ?? null) && !empty($part['ancestor_context']['preceded'])) $paintOrder[] = ':where(#' . CssIdent::escape($anchor) . '){z-index:1}';
         }
         if (array() === $roots) return $assets;
         $template = null;
-        $rules = '';
+        $rules = implode('', $paintOrder);
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content'])) continue;
             $template ??= $asset;
