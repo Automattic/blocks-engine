@@ -212,6 +212,9 @@ final class FlowContainerElementConverter implements ElementConverter
             }
         }
 
+        if ( $this->isClippedHorizontalTrack($element) ) {
+            return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
+        }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( ColumnsPattern::class ));
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
@@ -350,5 +353,62 @@ final class FlowContainerElementConverter implements ElementConverter
         }
 
         return false;
+    }
+
+    private function isClippedHorizontalTrack(DOMElement $element): bool
+    {
+        $style = $this->structuralDeclarationString($element);
+        if ( 1 !== preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style)
+            || 1 === preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
+            || 1 === preg_match('/(?:^|;)\s*flex-wrap\s*:\s*wrap(?:-reverse)?\b/', $style)
+        ) {
+            return false;
+        }
+
+        $stripChildren = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $childStyle = $this->structuralDeclarationString($child);
+            if ( 1 === preg_match('/(?:^|;)\s*(?:flex-shrink\s*:\s*0\b|width\s*:\s*[1-9]\d*(?:\.\d+)?px\b)/', $childStyle) ) {
+                ++$stripChildren;
+            }
+        }
+        if ( 2 > $stripChildren ) {
+            return false;
+        }
+
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 1 === preg_match('/(?:^|;)\s*overflow(?:-x)?\s*:\s*(?:hidden|clip)\b/', $this->clipDeclarationString($node)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function structuralDeclarationString(DOMElement $element): string
+    {
+        return $this->declarationString($this->context->structuralPresentationDeclarations($element));
+    }
+
+    private function clipDeclarationString(DOMElement $element): string
+    {
+        return $this->declarationString(array_merge(
+            $this->context->authorStructuralDeclarations($element),
+            $this->context->structuralPresentationDeclarations($element)
+        ));
+    }
+
+    /** @param array<string, string> $declarations */
+    private function declarationString(array $declarations): string
+    {
+        $parts = array();
+        foreach ( $declarations as $property => $value ) {
+            $parts[] = strtolower((string) $property) . ':' . strtolower(trim((string) $value));
+        }
+
+        return implode(';', $parts);
     }
 }
