@@ -14,6 +14,33 @@ final class CssValueInspector
     }
 
     /**
+     * Expand a 1–4 value CSS box shorthand into physical sides.
+     *
+     * @return array{0: string, 1: string, 2: string, 3: string} top, right, bottom, left
+     */
+    public static function expandBoxShorthand(string $value): array
+    {
+        $parts = CssValueSplitter::splitTopLevelWhitespace(trim($value));
+        $count = count($parts);
+
+        return match ( true ) {
+            1 === $count => array( $parts[0], $parts[0], $parts[0], $parts[0] ),
+            2 === $count => array( $parts[0], $parts[1], $parts[0], $parts[1] ),
+            3 === $count => array( $parts[0], $parts[1], $parts[2], $parts[1] ),
+            4 <= $count => array( $parts[0], $parts[1], $parts[2], $parts[3] ),
+            default => array( '', '', '', '' ),
+        };
+    }
+
+    public static function isBorderWidthToken(string $token): bool
+    {
+        $lower = strtolower($token);
+
+        return 1 === preg_match('/^[0-9.]+(?:px|em|rem|%|pt|vw|vh)?$/i', $token)
+            || in_array($lower, array( 'thin', 'medium', 'thick' ), true);
+    }
+
+    /**
      * A definite, non-percentage length whose used size can overflow its
      * containing block when the viewport is narrower than the authored value.
      */
