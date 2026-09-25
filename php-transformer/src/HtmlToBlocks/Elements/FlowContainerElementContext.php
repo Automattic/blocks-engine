@@ -125,6 +125,10 @@ final class FlowContainerElementContext
     public function shouldPreserveWrapper(DOMElement $element): bool { return ($this->shouldPreserveWrapper)($element); }
     /** @return array<string, mixed> */
     public function presentationAttributes(DOMElement $element): array { return $this->presentationResolver->presentationAttributes($element); }
+    /** @return array<string, string> */
+    public function structuralPresentationDeclarations(DOMElement $element): array { return $this->presentationResolver->structuralPresentationDeclarations($element); }
+    /** @return array<string, string> */
+    public function authorStructuralDeclarations(DOMElement $element): array { return $this->presentationResolver->authorStructuralDeclarations($element); }
     /** @return array<string, mixed> */
     public function emptyVisualSpacerBlock(DOMElement $element): array { return ($this->emptyVisualSpacerBlock)($element); }
 }

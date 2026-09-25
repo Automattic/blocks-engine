@@ -179,6 +179,7 @@
       "php tests/unit/anchor-wrapper-authored-typography.php",
       "php tests/unit/exact-fit-inline-flow.php",
       "php tests/unit/css-owned-flex-carrier.php",
+      "php tests/unit/clipped-horizontal-track.php",
             "php tests/unit/inline-flex-item-carrier.php",
             "php tests/unit/inline-positioning-carrier.php",
             "php tests/unit/inline-grid-item-carrier.php",
