@@ -449,18 +449,6 @@ final class NavigationToggleSuppressor
     }
 
     /**
-     * Whether the candidate element lives inside the toggle's own native
-     * `details` disclosure: the toggle is the details itself or its summary,
-     * and the candidate is a descendant of that same details. A disclosure's
-     * own collapsible panel is the content the converted `core/details` block
-     * keeps closed until its summary opens it — it can never be an external
-     * menu that makes the toggle redundant chrome or a projected overlay
-     * target. Without this boundary, a captured disclosure with an icon-only
-     * menu summary and a `<nav>`/dialog panel was dropped wholesale (the
-     * hamburger read as redundant for its own panel) and the panel was
-     * suppressed as an overlay it was never separate from.
-     */
-    /**
      * A control inside a native disclosure's panel (a submenu expander in a
      * captured mobile drawer, say) lives in content the details block already
      * preserves. It is never the hamburger for a hidden overlay: its bounded
@@ -478,24 +466,25 @@ final class NavigationToggleSuppressor
                         break;
                     }
                 }
-                return ! ( $summary instanceof DOMElement && ( $summary->isSameNode($control) || $this->isDescendantOf($control, $summary) ) );
+                return ! ( $summary instanceof DOMElement && SourceDom::elementContains($summary, $control) );
             }
         }
 
         return false;
     }
 
-    private function isDescendantOf(DOMElement $node, DOMElement $ancestor): bool
-    {
-        for ( $current = $node->parentNode; $current instanceof DOMElement; $current = $current->parentNode ) {
-            if ( $current->isSameNode($ancestor) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
+    /**
+     * Whether the candidate element lives inside the toggle's own native
+     * `details` disclosure: the toggle is the details itself or its summary,
+     * and the candidate is a descendant of that same details. A disclosure's
+     * own collapsible panel is the content the converted `core/details` block
+     * keeps closed until its summary opens it — it can never be an external
+     * menu that makes the toggle redundant chrome or a projected overlay
+     * target. Without this boundary, a captured disclosure with an icon-only
+     * menu summary and a `<nav>`/dialog panel was dropped wholesale (the
+     * hamburger read as redundant for its own panel) and the panel was
+     * suppressed as an overlay it was never separate from.
+     */
     private function isInsideOwnDisclosurePanel(DOMElement $toggle, DOMElement $candidate): bool
     {
         $tagName = strtolower($toggle->tagName);
