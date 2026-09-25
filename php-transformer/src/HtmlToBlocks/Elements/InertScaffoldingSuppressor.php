@@ -23,10 +23,10 @@ final class InertScaffoldingSuppressor implements ElementConverter
     private const RENDERED_EMPTY_BOX_PROPERTIES = array(
         'align-self', 'animation', 'animation-name', 'aspect-ratio', 'background', 'background-color', 'background-image',
         'border', 'border-bottom', 'border-color', 'border-left', 'border-right', 'border-style', 'border-top', 'border-width',
-        'bottom', 'box-shadow', 'flex', 'flex-basis', 'flex-grow', 'float', 'grid-area', 'grid-column', 'grid-row', 'height',
-        'inset', 'justify-self', 'left', 'list-style', 'list-style-type', 'margin', 'margin-bottom', 'margin-left',
+        'box-shadow', 'flex', 'flex-basis', 'flex-grow', 'float', 'grid-area', 'grid-column', 'grid-row', 'height',
+        'inset', 'justify-self', 'list-style', 'list-style-type', 'margin', 'margin-bottom', 'margin-left',
         'margin-right', 'margin-top', 'min-height', 'min-width', 'order', 'outline', 'outline-width', 'padding',
-        'padding-bottom', 'padding-left', 'padding-right', 'padding-top', 'position', 'right', 'rotate', 'scale', 'top',
+        'padding-bottom', 'padding-left', 'padding-right', 'padding-top', 'rotate', 'scale',
         'transform', 'transition', 'translate', 'width',
     );
 

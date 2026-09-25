@@ -102,6 +102,12 @@ $assert(str_contains((string) ($anchored['serialized_blocks'] ?? ''), 'section-a
 $labelledBy = $transform('<main><p aria-labelledby="status-slot">Ready</p><div id="status-slot"></div></main>');
 $assert(str_contains((string) ($labelledBy['serialized_blocks'] ?? ''), 'status-slot'), 'an empty container referenced by aria-labelledby still emits a block');
 
+$offscreenMount = $transform('<style>#sdk-mount{position:absolute;top:0;left:-9999px}</style><main><p>Visible copy</p><div id="sdk-mount"></div></main>');
+$assert(! str_contains((string) ($offscreenMount['serialized_blocks'] ?? ''), 'sdk-mount'), 'an offscreen empty named container with no box size emits no block');
+
+$stretchedPaint = $transform('<style>.hero{position:relative}.layer{position:absolute;inset:0;background:#123}</style><main><div class="hero"><div class="layer"></div><p>Content</p></div></main>');
+$assert(str_contains((string) ($stretchedPaint['serialized_blocks'] ?? ''), 'layer'), 'a stretched painted out-of-flow empty layer still emits a block');
+
 $responsiveSpacer = $emptyContainer('<style>@media (min-width:600px){.gap{height:40px}}</style>', '<div class="gap"></div>');
 $assert(str_contains((string) ($responsiveSpacer['serialized_blocks'] ?? ''), 'gap'), 'an empty container sized only at another viewport still emits a block');
 
