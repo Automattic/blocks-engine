@@ -651,10 +651,17 @@ final class WordPressSitePlan
     }
 
     /**
-     * Whether a selector targets a shared-chrome generated class. A class named
-     * only inside `:not(...)` is an exclusion: the rule still applies to the
-     * page's own elements (for example `.text-sm:not(:where(.control))`), so it
-     * stays in the page stylesheet in its source cascade position.
+     * Whether a selector targets a shared-chrome generated class or rich-text
+     * marker. A class named only inside `:not(...)` is an exclusion: the rule
+     * still applies to the page's own elements (for example
+     * `.text-sm:not(:where(.control))`), so it stays in the page stylesheet in
+     * its source cascade position.
+     *
+     * Document-namespaced rich-text markers are rewritten onto attribute
+     * selectors (`mark[style*="--blocks-engine-richtext-marker:…"]`), not class
+     * selectors. Identity comparison strips those markers so pages still
+     * cluster; the matching rules must follow the canonical marker onto the
+     * shared part instead of remaining page-scoped.
      *
      * @param array<string,true> $classes
      */
@@ -676,7 +683,10 @@ final class WordPressSitePlan
             }
             $positive .= $selector[$i];
         }
-        foreach (array_keys($classes) as $class) if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $positive)) return true;
+        foreach (array_keys($classes) as $class) {
+            if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $positive)) return true;
+            if (1 === preg_match('/^blocks-engine-richtext-[a-f0-9]+-\d+$/', $class) && str_contains($positive, $class)) return true;
+        }
         return false;
     }
 

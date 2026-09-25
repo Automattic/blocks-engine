@@ -635,4 +635,41 @@ foreach (array(true, false) as $backgroundFirst) {
     $assert($backgroundFirst === str_contains($layeredCss, ':where(#site-top){z-index:1}'), ($backgroundFirst ? 'A header preceded by page layers restores its source paint order: ' : 'A header first in its page adds no paint-order rule: ') . $layeredCss);
 }
 
+// Shared chrome whose title size is restated by an id-targeted desktop media
+// query. Each page's projection rewrites that rule onto a document-namespaced
+// rich-text marker; identity strips those markers so the pages still cluster,
+// and the last writer silently freezes the static 24px into the shared part.
+// The part must keep the size each page actually rendered (23px at the
+// desktop reference viewport), via stylesheet ownership rather than a frozen
+// inline base.
+$titleChrome = static function (string $title): string {
+    return '<!doctype html><html><head><style>'
+        . '.birdseye-header .logo a{font-size:24px;font-weight:600}'
+        . '.birdseye-header .logo #site-title{display:block;max-width:400px;font-size:24px;font-weight:600}'
+        . '@media screen and (min-width:767px){#site-title{font-size:23px !important}}'
+        . '</style></head><body><div class="birdseye-header"><div class="nav-wrap"><div class="container">'
+        . '<div class="logo"><a href="/index.html"><span id="site-title">Studio Name</span></a></div>'
+        . '<div class="nav"><ul><li><a href="/index.html">Home</a></li><li><a href="/about.html">About</a></li></ul></div>'
+        . '</div></div></div><main><h1>' . $title . '</h1><p>Body for ' . $title . '</p></main></body></html>';
+};
+$titlePlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $titleChrome('Home'),
+    'about.html' => $titleChrome('About'),
+    'contact.html' => $titleChrome('Contact'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$titleHeader = array_values(array_filter($titlePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
+$titleMarkup = (string) ($titleHeader['canonical_block_markup'] ?? '');
+$assert('shared_shell' === ($titleHeader['placement']['kind'] ?? null) && str_contains($titleMarkup, 'Studio Name'), 'A repeated header whose title size is restated by a desktop media query still extracts as one shared part.');
+$assert(!preg_match('/font-size:24px/i', $titleMarkup), 'The shared part does not freeze the static 24px title size: ' . $titleMarkup);
+preg_match('/blocks-engine-richtext-[a-f0-9]+-\d+/', $titleMarkup, $titleMarker);
+$titleMarker = $titleMarker[0] ?? '';
+$titleGlobalCss = implode("\n", array_map(
+    static fn(array $asset): string => (string) ($asset['content'] ?? ''),
+    array_filter($titlePlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && in_array('global', array_column($asset['scopes'] ?? array(), 'kind'), true))
+));
+$assert('' !== $titleMarker && str_contains($titleGlobalCss, $titleMarker) && str_contains($titleGlobalCss, '23px'), 'The desktop-rendered 23px title rule is global and still addresses the shared part\'s rich-text marker: marker=' . $titleMarker . ' css=' . $titleGlobalCss);
+foreach (array('index.html', 'about.html', 'contact.html') as $source) {
+    $assert(!str_contains($pages($titlePlan)[$source]['canonical_block_markup'] ?? '', 'Studio Name'), "{$source} keeps only its own content once the header is shared.");
+}
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");
