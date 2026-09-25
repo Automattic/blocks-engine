@@ -37,6 +37,15 @@ $assert('Home' === ($named['index.html'] ?? null), 'the entry page takes its own
 $assert('About' === ($named['about.html'] ?? null), 'a page takes its own title segment, not its heading', json_encode($named));
 $assert('Contact' === ($named['contact.html'] ?? null), 'any common separator splits the site name', json_encode($named));
 
+$branded = $titles(array(
+    'index.html' => $page('A | Site | Tagline', 'Welcome'),
+    'about.html' => $page('B | Site | Tagline', 'Meet the team'),
+    'contact.html' => $page('C | Site | Tagline', 'Get in touch'),
+));
+$assert('A' === ($branded['index.html'] ?? null), 'a multi-segment shared site-name run is stripped whole on the entry page', json_encode($branded));
+$assert('B' === ($branded['about.html'] ?? null), 'a multi-segment shared site-name run is stripped whole', json_encode($branded));
+$assert('C' === ($branded['contact.html'] ?? null), 'each page keeps only its own segment', json_encode($branded));
+
 $spa = $titles(array(
     'index.html' => $page('Example Studio', 'Welcome'),
     'about.html' => $page('Example Studio', 'Meet the team'),
