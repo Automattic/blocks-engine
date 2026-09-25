@@ -53,6 +53,10 @@ final class EngineSupportCss
                 // layout participant unless a separate carrier explicitly
                 // owns a box.
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){display:contents}'
+                // A parent's sibling-spacing rule (`.stack > * + *`) now matches the
+                // carrier, whose margins do nothing as display:contents. The
+                // anchor it stands for takes them instead, as in the source.
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ')>a{margin:inherit}'
                 . "\n" . ':root :where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.has-text-color)>a{color:inherit}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}'

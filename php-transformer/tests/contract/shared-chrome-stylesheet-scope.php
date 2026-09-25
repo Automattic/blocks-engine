@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 
 $assert = static function (bool $condition, string $message): void {
@@ -142,5 +143,12 @@ foreach ($sharedWrites as $write) {
 foreach ($linkedPlan['assets'] ?? array() as $asset) {
     $assert(!array_key_exists('reference_origin', $asset), 'Reference origins are write-time transport, not part of the plan asset contract.');
 }
+
+// A generated class named only inside :not() excludes that element; the rule
+// still styles the page's own content and must keep its source cascade order.
+$exclusion = new ReflectionMethod(WordPressSitePlan::class, 'selectorTargetsGeneratedClass');
+$assert(false === $exclusion->invoke(null, '.text-sm:not(:where(.blocks-engine-control-abc-6))', array('blocks-engine-control-abc-6' => true)), 'A selector that only excludes a shared-chrome class stays page-owned.');
+$assert(true === $exclusion->invoke(null, '.blocks-engine-control-abc-6 .text-sm:not(.x)', array('blocks-engine-control-abc-6' => true)), 'A selector that targets a shared-chrome class is projected.');
+$assert(true === $exclusion->invoke(null, ':not(.a) .blocks-engine-control-abc-6', array('blocks-engine-control-abc-6' => true)), 'A class outside :not() still counts after an earlier :not().');
 
 fwrite(STDOUT, "shared-chrome-stylesheet-scope contract passed\n");

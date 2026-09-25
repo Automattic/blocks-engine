@@ -650,6 +650,36 @@ final class WordPressSitePlan
     }
 
     /**
+     * Whether a selector targets a shared-chrome generated class. A class named
+     * only inside `:not(...)` is an exclusion: the rule still applies to the
+     * page's own elements (for example `.text-sm:not(:where(.control))`), so it
+     * stays in the page stylesheet in its source cascade position.
+     *
+     * @param array<string,true> $classes
+     */
+    private static function selectorTargetsGeneratedClass(string $selector, array $classes): bool
+    {
+        $positive = '';
+        $depth = 0;
+        $length = strlen($selector);
+        for ($i = 0; $i < $length; ++$i) {
+            if (0 === $depth && 0 === strncasecmp(substr($selector, $i, 5), ':not(', 5)) {
+                $depth = 1;
+                $i += 4;
+                continue;
+            }
+            if ($depth > 0) {
+                if ('(' === $selector[$i]) ++$depth;
+                elseif (')' === $selector[$i]) --$depth;
+                continue;
+            }
+            $positive .= $selector[$i];
+        }
+        foreach (array_keys($classes) as $class) if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $positive)) return true;
+        return false;
+    }
+
+    /**
      * Extract only generated rules needed by shared template parts. The source
      * stylesheet can contain both those projected rules and route-owned rules;
      * promoting the whole payload changes the cascade on unrelated pages.
@@ -684,10 +714,7 @@ final class WordPressSitePlan
                         $unparseable = true;
                         return '';
                     }
-                    $kept = array_values(array_filter($selectors, static function (string $selector) use ($classes): bool {
-                        foreach (array_keys($classes) as $class) if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $selector)) return true;
-                        return false;
-                    }));
+                    $kept = array_values(array_filter($selectors, static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classes)));
                     if (array() === $kept) return '';
                     $matched = true;
                     return implode(',', $kept) . '{' . $body . '}';
@@ -702,10 +729,7 @@ final class WordPressSitePlan
                 static function (string $prelude, string $body) use ($classes): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) return $prelude . '{' . $body . '}';
-                    $kept = array_values(array_filter($selectors, static function (string $selector) use ($classes): bool {
-                        foreach (array_keys($classes) as $class) if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $selector)) return false;
-                        return true;
-                    }));
+                    $kept = array_values(array_filter($selectors, static fn (string $selector): bool => ! self::selectorTargetsGeneratedClass($selector, $classes)));
                     return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
                 }
             );
