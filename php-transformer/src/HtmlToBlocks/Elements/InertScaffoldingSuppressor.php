@@ -72,7 +72,8 @@ final class InertScaffoldingSuppressor implements ElementConverter
      * block when something in the capture renders it or addresses it. Nothing
      * does when it has no children and no text, no author declaration gives it
      * a box, paint, motion, or a layout slot at any viewport, no pseudo-element
-     * rule draws into it, nothing names it, and no runtime script targets it.
+     * rule draws into it, no hash/ARIA/label reference addresses it, and no
+     * runtime script targets it. An unused `id` is a name without a reader.
      * Such an element is capture scaffolding: it only inflates List View.
      */
     private function isInertEmptyContainer(DOMElement $element): bool

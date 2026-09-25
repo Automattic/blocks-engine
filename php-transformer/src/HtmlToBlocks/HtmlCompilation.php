@@ -5464,8 +5464,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || $this->isEmptyVisualInlineCandidate($element);
         }
 
+        $id = SourceDom::namedFragmentTargetId($element);
         if ( $this->runtimeIslands->isRuntimeDomTarget($element)
-            || '' !== trim($this->attr($element, 'id'))
+            || ( '' !== $id && SourceDom::documentReferencesFragmentId($element, $id) )
             || '' !== trim($this->attr($element, 'role'))
             || array() !== $this->interactiveAttributes($element)
             || array() !== $this->safeDataAttributes($element)
