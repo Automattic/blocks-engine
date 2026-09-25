@@ -23,6 +23,8 @@ final class PatternContext
      * @param GalleryPatternContext|null $galleryContext
      * @param Closure(DOMElement): bool|null $sourceElementStartsHidden
      * @param Closure(DOMElement): string|null $disclosureSummaryMarker
+     * @param Closure(DOMElement): string|null $authoredIconColor
+     * @param Closure(string): string|null $assetGlyphColor
      */
     public function __construct(
         private readonly Closure $presentationAttributes,
@@ -39,7 +41,9 @@ final class PatternContext
         private readonly ?GalleryPatternContext $galleryContext = null,
         private readonly ?Closure $sourceElementStartsHidden = null,
         private readonly ?Closure $disclosureSummaryMarker = null,
-        private readonly ?Closure $accordionToggleMarker = null
+        private readonly ?Closure $accordionToggleMarker = null,
+        private readonly ?Closure $authoredIconColor = null,
+        private readonly ?Closure $assetGlyphColor = null
     ) {
     }
 
@@ -108,5 +112,15 @@ final class PatternContext
         return $element->hasAttribute('hidden')
             || 'true' === strtolower(trim($element->getAttribute('aria-hidden')))
             || 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)(?:\s*!important)?\s*(?:;|$)/i', $element->getAttribute('style'));
+    }
+
+    public function authoredIconColor(DOMElement $element): string
+    {
+        return null === $this->authoredIconColor ? '' : (string) ($this->authoredIconColor)($element);
+    }
+
+    public function assetGlyphColor(string $url): string
+    {
+        return null === $this->assetGlyphColor ? '' : (string) ($this->assetGlyphColor)($url);
     }
 }

@@ -287,6 +287,7 @@
       "php tests/unit/pattern-tree-converter.php",
       "php tests/unit/pattern-recognizer-registry.php",
       "php tests/unit/social-links-boundary.php",
+      "php tests/unit/social-links-icon-color.php",
       "php tests/unit/pattern-registry-staged-dispatch.php",
       "php tests/unit/navigation-pattern-context.php",
       "php tests/unit/navigation-inherited-item-presentation.php",
