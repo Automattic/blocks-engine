@@ -5483,8 +5483,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || $this->isEmptyVisualInlineCandidate($element);
         }
 
+        $id = SourceDom::namedFragmentTargetId($element);
         if ( $this->runtimeIslands->isRuntimeDomTarget($element)
-            || '' !== trim($this->attr($element, 'id'))
+            || ( '' !== $id && SourceDom::documentReferencesFragmentId($element, $id) )
             || '' !== trim($this->attr($element, 'role'))
             || array() !== $this->interactiveAttributes($element)
             || array() !== $this->safeDataAttributes($element)
@@ -5528,8 +5529,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return true;
         }
         $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
-        return in_array($position, array( 'absolute', 'fixed' ), true)
-            && array_intersect_key($declarations, array_flip(array( 'inset', 'top', 'right', 'bottom', 'left', 'width', 'min-width', 'max-width' ))) !== array();
+        if ( ! in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+
+        foreach ( array( 'width', 'min-width', 'height', 'min-height' ) as $property ) {
+            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
+                return true;
+            }
+        }
+
+        return isset($declarations['inset'])
+            || ( isset($declarations['left']) && isset($declarations['right']) )
+            || ( isset($declarations['top']) && isset($declarations['bottom']) );
     }
 
     private function hasStaticPseudoElementRule(DOMElement $element): bool

@@ -6466,7 +6466,8 @@ $hiddenEmptyResult = (new HtmlTransformer())->transform(
 )->toArray();
 $assert(null === $findBlockByClass($hiddenEmptyResult['blocks'], 'caption'), 'inert hidden empty elements are pruned instead of becoming empty groups');
 $assert(is_array($findBlockByClass($hiddenEmptyResult['blocks'], 'responsive-panel')), 'responsive-revealed hidden empty elements remain available at their visible breakpoint');
-$assert(str_contains($hiddenEmptyResult['serialized_blocks'], 'id="runtime-panel"') && str_contains($hiddenEmptyResult['serialized_blocks'], 'id="anchor-panel"'), 'runtime-targeted and anchored hidden empty elements preserve their identifiers');
+$assert(str_contains($hiddenEmptyResult['serialized_blocks'], 'id="runtime-panel"'), 'runtime-targeted hidden empty elements preserve their identifiers');
+$assert(! str_contains($hiddenEmptyResult['serialized_blocks'], 'id="anchor-panel"'), 'an unreferenced hidden empty named container is pruned');
 
 $emptyFeatureShellResult = (new HtmlTransformer())->transform(
     '<header><div class="empty-search-shell"><div class="container"><span></span></div></div>'

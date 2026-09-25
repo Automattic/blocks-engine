@@ -23,10 +23,10 @@ final class InertScaffoldingSuppressor implements ElementConverter
     private const RENDERED_EMPTY_BOX_PROPERTIES = array(
         'align-self', 'animation', 'animation-name', 'aspect-ratio', 'background', 'background-color', 'background-image',
         'border', 'border-bottom', 'border-color', 'border-left', 'border-right', 'border-style', 'border-top', 'border-width',
-        'bottom', 'box-shadow', 'flex', 'flex-basis', 'flex-grow', 'float', 'grid-area', 'grid-column', 'grid-row', 'height',
-        'inset', 'justify-self', 'left', 'list-style', 'list-style-type', 'margin', 'margin-bottom', 'margin-left',
+        'box-shadow', 'flex', 'flex-basis', 'flex-grow', 'float', 'grid-area', 'grid-column', 'grid-row', 'height',
+        'inset', 'justify-self', 'list-style', 'list-style-type', 'margin', 'margin-bottom', 'margin-left',
         'margin-right', 'margin-top', 'min-height', 'min-width', 'order', 'outline', 'outline-width', 'padding',
-        'padding-bottom', 'padding-left', 'padding-right', 'padding-top', 'position', 'right', 'rotate', 'scale', 'top',
+        'padding-bottom', 'padding-left', 'padding-right', 'padding-top', 'rotate', 'scale',
         'transform', 'transition', 'translate', 'width',
     );
 
@@ -72,7 +72,8 @@ final class InertScaffoldingSuppressor implements ElementConverter
      * block when something in the capture renders it or addresses it. Nothing
      * does when it has no children and no text, no author declaration gives it
      * a box, paint, motion, or a layout slot at any viewport, no pseudo-element
-     * rule draws into it, nothing names it, and no runtime script targets it.
+     * rule draws into it, no hash/ARIA/label reference addresses it, and no
+     * runtime script targets it. An unused `id` is a name without a reader.
      * Such an element is capture scaffolding: it only inflates List View.
      */
     private function isInertEmptyContainer(DOMElement $element): bool

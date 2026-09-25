@@ -259,6 +259,49 @@ final class SourceDom
         return false;
     }
 
+    /**
+     * Whether another element in the same document addresses this fragment
+     * identifier: a hash href, a label `for`, or an ARIA idref. An unused
+     * `id` is not an address — it is a name with no reader.
+     */
+    public static function documentReferencesFragmentId(DOMElement $element, string $id): bool
+    {
+        if ( '' === $id ) {
+            return false;
+        }
+
+        $root = $element->ownerDocument?->documentElement;
+        if ( ! $root instanceof DOMElement ) {
+            return false;
+        }
+
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($element) ) {
+                continue;
+            }
+
+            $href = self::attr($candidate, 'href');
+            if ( '' !== $href ) {
+                $hash = strpos($href, '#');
+                if ( false !== $hash && $id === self::anchorAttributeValue(rawurldecode(substr($href, $hash + 1))) ) {
+                    return true;
+                }
+            }
+
+            foreach ( array( 'aria-labelledby', 'aria-describedby', 'aria-controls' ) as $attribute ) {
+                if ( in_array($id, preg_split('/\s+/', trim(self::attr($candidate, $attribute))) ?: array(), true) ) {
+                    return true;
+                }
+            }
+
+            if ( $id === self::attr($candidate, 'for') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function hasClass(DOMElement $element, string $className): bool
     {
         return in_array($className, preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array(), true);

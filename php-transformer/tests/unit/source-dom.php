@@ -130,6 +130,19 @@ $assert($collisionAnchor instanceof DOMElement && SourceDom::documentHasOtherFra
 $solo = $element('<a name="only" id="only"></a>');
 $assert(! SourceDom::documentHasOtherFragmentTarget($solo, 'only'), 'a sole fragment target is not a collision with itself');
 
+$referenced = $element('<main><p><a href="#section-anchor">Jump</a></p><div id="section-anchor"></div></main>');
+$referencedTarget = $referenced->getElementsByTagName('div')->item(0);
+$assert($referencedTarget instanceof DOMElement && SourceDom::documentReferencesFragmentId($referencedTarget, 'section-anchor'), 'a hash href addresses the matching fragment id');
+$unreferenced = $element('<main><p>Copy</p><div id="sdk-mount"></div></main>');
+$unreferencedTarget = $unreferenced->getElementsByTagName('div')->item(0);
+$assert($unreferencedTarget instanceof DOMElement && ! SourceDom::documentReferencesFragmentId($unreferencedTarget, 'sdk-mount'), 'an unused id is not an address');
+$ariaRef = $element('<main><p aria-labelledby="status-slot">Ready</p><div id="status-slot"></div></main>');
+$ariaTarget = $ariaRef->getElementsByTagName('div')->item(0);
+$assert($ariaTarget instanceof DOMElement && SourceDom::documentReferencesFragmentId($ariaTarget, 'status-slot'), 'aria-labelledby addresses the matching fragment id');
+$labelFor = $element('<main><label for="email-field">Email</label><div id="email-field"></div></main>');
+$labelTarget = $labelFor->getElementsByTagName('div')->item(0);
+$assert($labelTarget instanceof DOMElement && SourceDom::documentReferencesFragmentId($labelTarget, 'email-field'), 'a label for attribute addresses the matching fragment id');
+
 // --- URL safety -------------------------------------------------------------
 
 $assert(SourceDom::safeFallbackUrl('https://example.test/a', 'href'), 'https is allowed');

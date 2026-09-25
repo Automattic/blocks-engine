@@ -84,8 +84,29 @@ $assert(str_contains((string) ($paintedRule['serialized_blocks'] ?? ''), 'rule')
 $generatedContent = $emptyContainer('<style>.glyph::before{content:"\2726"}</style>', '<div class="glyph"></div>');
 $assert(str_contains((string) ($generatedContent['serialized_blocks'] ?? ''), 'glyph blocks-engine-empty-visual-group'), 'an empty container whose pseudo-element draws generated content stays a recognized empty visual');
 
-$anchored = $emptyContainer('', '<div id="section-anchor"></div>');
-$assert(str_contains((string) ($anchored['serialized_blocks'] ?? ''), 'section-anchor'), 'an empty container carrying an anchor id still emits a block');
+// An id is not visual ownership. Unreferenced empty named containers are
+// SDK mount points and empty platform hosts: no text, no media, no box paint.
+// Emitting them as Groups only inflates List View. A hash link, label `for`,
+// or ARIA reference is what addresses an id as a fragment target.
+$unreferencedMount = $transform('<main><p>Visible copy</p><div id="sdk-mount" class="sdk-reset"></div><div id="chrome-slot"></div></main>');
+$assert(! str_contains((string) ($unreferencedMount['serialized_blocks'] ?? ''), 'sdk-mount') && ! str_contains((string) ($unreferencedMount['serialized_blocks'] ?? ''), 'chrome-slot'), 'an unreferenced empty named container emits no block');
+$assert(array() === ($unreferencedMount['fallbacks'] ?? array()), 'an unreferenced empty named container emits no fallback');
+$assert(str_contains((string) ($unreferencedMount['serialized_blocks'] ?? ''), 'Visible copy'), 'dropping unreferenced empty named containers keeps sibling content');
+
+$descendantOnlyCss = $transform('<style>#sdk-mount .dialog{position:absolute;inset:0;background:#000}#chrome-slot .item{margin-top:10px}</style><main><p>Visible copy</p><div id="sdk-mount" class="sdk-reset"></div><div id="chrome-slot"></div></main>');
+$assert(! str_contains((string) ($descendantOnlyCss['serialized_blocks'] ?? ''), 'sdk-mount') && ! str_contains((string) ($descendantOnlyCss['serialized_blocks'] ?? ''), 'chrome-slot'), 'descendant-only author CSS does not keep an empty named container');
+
+$anchored = $transform('<main><p><a href="#section-anchor">Jump</a></p><div id="section-anchor"></div></main>');
+$assert(str_contains((string) ($anchored['serialized_blocks'] ?? ''), 'section-anchor'), 'a hash-linked empty fragment target still emits a block');
+
+$labelledBy = $transform('<main><p aria-labelledby="status-slot">Ready</p><div id="status-slot"></div></main>');
+$assert(str_contains((string) ($labelledBy['serialized_blocks'] ?? ''), 'status-slot'), 'an empty container referenced by aria-labelledby still emits a block');
+
+$offscreenMount = $transform('<style>#sdk-mount{position:absolute;top:0;left:-9999px}</style><main><p>Visible copy</p><div id="sdk-mount"></div></main>');
+$assert(! str_contains((string) ($offscreenMount['serialized_blocks'] ?? ''), 'sdk-mount'), 'an offscreen empty named container with no box size emits no block');
+
+$stretchedPaint = $transform('<style>.hero{position:relative}.layer{position:absolute;inset:0;background:#123}</style><main><div class="hero"><div class="layer"></div><p>Content</p></div></main>');
+$assert(str_contains((string) ($stretchedPaint['serialized_blocks'] ?? ''), 'layer'), 'a stretched painted out-of-flow empty layer still emits a block');
 
 $responsiveSpacer = $emptyContainer('<style>@media (min-width:600px){.gap{height:40px}}</style>', '<div class="gap"></div>');
 $assert(str_contains((string) ($responsiveSpacer['serialized_blocks'] ?? ''), 'gap'), 'an empty container sized only at another viewport still emits a block');
