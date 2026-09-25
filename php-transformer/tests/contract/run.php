@@ -4587,7 +4587,7 @@ $assert(! str_contains((string) ($artifactInlineScript['serialized_blocks'] ?? '
 $assert(! str_contains((string) ($artifactInlineScript['serialized_blocks'] ?? ''), 'classList.add'), 'artifact materialized inline script body is removed from serialized block content');
 
 $assert(1 === count($simple['source_reports']['wordpress_site_plan']['pages'] ?? array()), 'canonical plan counts pages');
-$assert('index' === ($simple['source_reports']['wordpress_site_plan']['pages'][0]['slug'] ?? ''), 'canonical plan exposes page slug');
+$assert('home' === ($simple['source_reports']['wordpress_site_plan']['pages'][0]['slug'] ?? ''), 'canonical plan exposes the front page slug as home, not the filename index');
 $assert(str_contains((string) ($simple['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? ''), '<!-- wp:'), 'canonical plan exposes converted block markup');
 
 $formatResult = ( new FormatBridge() )->convertResult('# Format report', 'markdown', 'blocks')->toArray();

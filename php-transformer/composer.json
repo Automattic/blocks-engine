@@ -250,6 +250,7 @@
       "php tests/unit/form-presentation-positional-label.php",
       "php tests/unit/route-current-navigation.php",
       "php tests/unit/document-title-page-names.php",
+      "php tests/unit/root-page-title-slug.php",
       "php tests/unit/stacked-link-panel.php",
       "php tests/unit/form-select-control-presentation.php",
       "php tests/unit/named-fragment-target-geometry.php",

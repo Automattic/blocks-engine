@@ -3075,11 +3075,14 @@ final class ArtifactCompiler
             $payload = is_string($asset['visual_payload'] ?? null) ? $asset['visual_payload'] : (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? ''));
             $assetPayloadsByPath[$path][hash('sha256', $payload)] = true;
         }
-        $siteNameSegments = $this->sharedDocumentTitleSegment($artifact['files']);
+        $sharedTitle = $this->sharedDocumentTitleSegment($artifact['files']);
+        $siteNameSegments = $sharedTitle['segments'];
+        $siteNameEdge = $sharedTitle['edge'];
+        $entryNavigationLabel = $this->entryNavigationLabel($artifact['files'], $siteNameSegments);
         $entryTitle = '';
         foreach ( $artifact['files'] as $file ) {
             if ( $entryPath === ($file['path'] ?? '') ) {
-                $entryTitle = $this->titleFromHtml((string) ($file['content'] ?? ''), $entryPath, $entryPath, '', $siteNameSegments);
+                $entryTitle = $this->titleFromHtml((string) ($file['content'] ?? ''), $entryPath, $entryPath, '', $siteNameSegments, $siteNameEdge, $entryNavigationLabel);
                 break;
             }
         }
@@ -3089,8 +3092,8 @@ final class ArtifactCompiler
             }
 
             $path = (string) ($file['path'] ?? '');
-            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle, $siteNameSegments);
-            $slug = $this->slugFromPath($path);
+            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle, $siteNameSegments, $siteNameEdge, $entryNavigationLabel);
+            $slug = $this->slugFromPath($path, $entryPath);
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
                 ? array('serialized_blocks' => $serializedBlocks, 'assets' => array(), 'shell_artifacts' => $entryShellArtifacts)
@@ -3634,11 +3637,12 @@ final class ArtifactCompiler
      * called. The run is the longest contiguous leading or trailing sequence
      * of segments a majority of titles share, so a site name that is itself
      * several segments long is stripped whole while page-specific segments
-     * stay. Returns array() when there is no such run, or when all titles
-     * are identical (a single-page app that never updates its title).
+     * stay. Returns no segments when there is no such run, or when all titles
+     * are identical (a single-page app that never updates its title). The
+     * edge is which end of the title the run was found on.
      *
      * @param array<int, array<string, mixed>> $files
-     * @return list<string>
+     * @return array{segments: list<string>, edge: string}
      */
     private function sharedDocumentTitleSegment(array $files): array
     {
@@ -3655,7 +3659,7 @@ final class ArtifactCompiler
             }
         }
         if ( count($titles) < 2 || 1 === count(array_unique($titles)) ) {
-            return array();
+            return array('segments' => array(), 'edge' => '');
         }
         $majority = intdiv(count($titles), 2) + 1;
         $sharedRun = static function (array $titles, bool $leading) use ($majority): array {
@@ -3683,14 +3687,21 @@ final class ArtifactCompiler
         $leading = $sharedRun($titles, true);
         $trailing = $sharedRun($titles, false);
 
-        return count($trailing) >= count($leading) ? $trailing : $leading;
+        return count($trailing) >= count($leading)
+            ? array('segments' => $trailing, 'edge' => 'trailing')
+            : array('segments' => $leading, 'edge' => 'leading');
     }
 
     /**
      * @param list<string> $siteNameSegments The shared site-name run cut from
      *                                       the title edge it sits on.
+     * @param string       $siteNameEdge     `leading` or `trailing` when the
+     *                                       run was detected; empty otherwise.
+     * @param string       $navigationLabel  Navigation label targeting the
+     *                                       front page, when the compiled site
+     *                                       has one.
      */
-    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = '', array $siteNameSegments = array()): string
+    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = '', array $siteNameSegments = array(), string $siteNameEdge = '', string $navigationLabel = ''): string
     {
         $normalize = static function (string $titleHtml): string {
             $titleHtml = preg_replace('/<\s*(?:br|\/\s*(?:div|h[1-6]|p))\b[^>]*>/i', ' ', $titleHtml) ?? $titleHtml;
@@ -3702,9 +3713,15 @@ final class ArtifactCompiler
         if ( array() !== $siteNameSegments && preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $html, $match) ) {
             $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, $normalize($match[1])) ?: array();
             $length = count($siteNameSegments);
-            if ( $length <= count($segments) && array_slice($segments, $length * -1) === $siteNameSegments ) {
+            $trailingMatch = $length <= count($segments) && array_slice($segments, $length * -1) === $siteNameSegments;
+            $leadingMatch = $length <= count($segments) && array_slice($segments, 0, $length) === $siteNameSegments;
+            $entryPrefixedBySiteName = '' !== $entryPath && $path === $entryPath && 'trailing' === $siteNameEdge && $leadingMatch && ! $trailingMatch;
+            if ( $entryPrefixedBySiteName && '' !== $navigationLabel ) {
+                return $navigationLabel;
+            }
+            if ( ! $entryPrefixedBySiteName && $trailingMatch ) {
                 $own = array_slice($segments, 0, count($segments) - $length);
-            } elseif ( $length <= count($segments) && array_slice($segments, 0, $length) === $siteNameSegments ) {
+            } elseif ( ! $entryPrefixedBySiteName && $leadingMatch ) {
                 $own = array_slice($segments, $length);
             } else {
                 $own = $segments;
@@ -3749,6 +3766,116 @@ final class ArtifactCompiler
         }
 
         return (bool) preg_match('/^<a\b[^>]*>[\s\S]*<\/a>$/is', $remaining);
+    }
+
+    /**
+     * The first navigation label that targets the front page.
+     *
+     * These are the same anchors navigation_links are built from: a
+     * core/navigation-link comment, else an anchor inside nav. A fragment is
+     * an in-page jump, so a hash-less label wins. A label that is only the
+     * shared site name is not the page name.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @param list<string> $siteNameSegments
+     */
+    private function entryNavigationLabel(array $files, array $siteNameSegments): string
+    {
+        $siteName = implode(' ', $siteNameSegments);
+        $plain = '';
+        $any = '';
+        foreach ( $files as $file ) {
+            if ( ! is_array($file) || 'html' !== ($file['kind'] ?? '') ) {
+                continue;
+            }
+            foreach ( $this->navigationAnchors((string) ($file['content'] ?? '')) as $anchor ) {
+                if ( '/' !== $this->navigationTargetPath($anchor['href']) ) {
+                    continue;
+                }
+                $label = $anchor['label'];
+                if ( '' === $label || ( '' !== $siteName && $label === $siteName ) ) {
+                    continue;
+                }
+                $fragment = parse_url($anchor['href'], PHP_URL_FRAGMENT);
+                if ( ( ! is_string($fragment) || '' === $fragment ) && '' === $plain ) {
+                    $plain = $label;
+                }
+                if ( '' === $any ) {
+                    $any = $label;
+                }
+                if ( '' !== $plain ) {
+                    return $plain;
+                }
+            }
+        }
+
+        return '' !== $plain ? $plain : $any;
+    }
+
+    /**
+     * @return array<int, array{href: string, label: string}>
+     */
+    private function navigationAnchors(string $html): array
+    {
+        if ( '' === trim($html) ) {
+            return array();
+        }
+        $anchors = array();
+        if ( preg_match_all('/<!--\s*wp:(?:navigation-link|navigation-submenu)\s+(\{.*?\})\s*\/?-->/s', $html, $matches) ) {
+            foreach ( $matches[1] as $json ) {
+                $attrs = json_decode((string) $json, true);
+                if ( ! is_array($attrs) ) {
+                    continue;
+                }
+                $href = is_string($attrs['url'] ?? null) ? trim($attrs['url']) : '';
+                $host = parse_url($href, PHP_URL_HOST);
+                $label = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags(is_string($attrs['label'] ?? null) ? $attrs['label'] : ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+                if ( '' !== $href && '' !== $label && ( ! is_string($host) || '' === $host ) ) {
+                    $anchors[] = array('href' => $href, 'label' => $label);
+                }
+            }
+        }
+        if ( array() !== $anchors ) {
+            return $anchors;
+        }
+        if ( ! preg_match_all('/<nav\b[^>]*>(.*?)<\/nav>/is', $html, $navMatches) ) {
+            return array();
+        }
+        foreach ( $navMatches[1] as $navHtml ) {
+            if ( ! preg_match_all('/<a\b([^>]*)>(.*?)<\/a>/is', (string) $navHtml, $anchorMatches, PREG_SET_ORDER) ) {
+                continue;
+            }
+            foreach ( $anchorMatches as $anchorMatch ) {
+                $href = $this->htmlAttribute('<a' . $anchorMatch[1] . '>', 'href');
+                $host = parse_url($href, PHP_URL_HOST);
+                if ( is_string($host) && '' !== $host ) {
+                    continue;
+                }
+                $label = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags((string) $anchorMatch[2]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+                if ( '' === $href || '' === $label ) {
+                    continue;
+                }
+                $anchors[] = array('href' => $href, 'label' => $label);
+            }
+        }
+
+        return $anchors;
+    }
+
+    private function navigationTargetPath(string $href): string
+    {
+        $path = (string) (parse_url($href, PHP_URL_PATH) ?: '');
+        if ( '' === $path ) {
+            return '';
+        }
+        $path = '/' . ltrim($path, '/');
+        $path = preg_replace('#/index\.[A-Za-z0-9]+$#', '/', $path) ?? $path;
+        $path = preg_replace('/\.[A-Za-z0-9]+$/', '', $path) ?? $path;
+        if ( '/' !== $path ) {
+            $path = rtrim($path, '/');
+        }
+
+        return '' === $path ? '/' : $path;
     }
 
     /**
@@ -4645,11 +4772,16 @@ final class ArtifactCompiler
         return $taxonomies;
     }
 
-    private function slugFromPath(string $path): string
+    private function slugFromPath(string $path, string $entryPath = ''): string
     {
         $base = preg_replace('/\.[A-Za-z0-9]+$/', '', basename($path));
         $base = '' === $base || null === $base ? 'document' : $base;
-        return $this->sanitizeKey(str_replace(array('_', '.'), '-', $base));
+        $slug = $this->sanitizeKey(str_replace(array('_', '.'), '-', $base));
+        if ( 'index' === $slug && '' !== $entryPath && $path === $entryPath ) {
+            return 'home';
+        }
+
+        return $slug;
     }
 
     private function titleFromPath(string $path): string
