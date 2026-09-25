@@ -52,13 +52,36 @@ final class ShellExtraction
             $candidates[] = $row;
         }
         $sourcePath = WordPressSitePlan::value($document, 'source_path');
-        $nestedLandmarks = $this->nestedLandmarkShellCandidates($canonical, $sourcePath, array_column($candidates, 'area'));
-        if (array() !== $nestedLandmarks) return array_merge($candidates, $nestedLandmarks);
-        return array_merge($candidates, $this->nestedChromeCandidates($canonical, $sourcePath));
+        $occupiedAreas = array_column($candidates, 'area');
+        $nestedLandmarks = $this->nestedLandmarkShellCandidates($canonical, $sourcePath, $occupiedAreas);
+        if (array() !== $nestedLandmarks) {
+            return array_merge($candidates, $nestedLandmarks);
+        }
+        return array_merge($candidates, $this->nestedChromeCandidates($canonical, $sourcePath, $occupiedAreas));
+    }
+
+    /**
+     * Nested unlabeled chrome: a leading sibling that contains navigation and
+     * is not the main content, plus an optional trailing colophon group.
+     *
+     * The last-wrapper two-child shape (checkbox toggle + group of navigation
+     * and page content) is one instance of that model and keeps its legacy
+     * container fields so existing theme reconstruction stays intact.
+     *
+     * @param array<int,string> $occupiedAreas
+     * @return array<int,array<string,mixed>>
+     */
+    private function nestedChromeCandidates(string $markup, string $sourcePath, array $occupiedAreas = array()): array
+    {
+        $legacy = $this->legacyTwoChildChromeCandidate($markup, $sourcePath);
+        if (array() !== $legacy) {
+            return $legacy;
+        }
+        return $this->unlabeledChromeCandidates($markup, $sourcePath, $occupiedAreas);
     }
 
     /** @return array<int,array<string,mixed>> */
-    private function nestedChromeCandidates(string $markup, string $sourcePath): array
+    private function legacyTwoChildChromeCandidate(string $markup, string $sourcePath): array
     {
         $topLevel = self::topLevelBlockRanges($markup);
         foreach ($topLevel as $index => $wrapperRange) {
@@ -67,24 +90,301 @@ final class ShellExtraction
             $toggle = is_array($preceding) ? substr($markup, $preceding['offset'], $preceding['length']) : '';
             // The responsive core/navigation overlay supersedes the only allowed
             // sibling: its legacy authored checkbox toggle.
-            if (count($topLevel) !== $index + 1 || (0 < $index && (1 !== $index || !self::isCheckboxBlock($toggle)))) continue;
+            if (count($topLevel) !== $index + 1 || (0 < $index && (1 !== $index || !self::isCheckboxBlock($toggle)))) {
+                continue;
+            }
             $children = self::directChildBlockRanges($wrapper);
-            if (2 !== count($children) || !self::isGroupBlock($wrapper)) continue;
-            $navigationChildren = array_values(array_filter($children, static fn(array $range): bool => str_contains(substr($wrapper, $range['offset'], $range['length']), '<!-- wp:navigation ')));
-            if (1 !== count($navigationChildren)) continue;
+            if (2 !== count($children) || !self::isGroupBlock($wrapper)) {
+                continue;
+            }
+            $navigationChildren = array_values(array_filter(
+                $children,
+                static fn(array $range): bool => str_contains(substr($wrapper, $range['offset'], $range['length']), '<!-- wp:navigation ')
+            ));
+            if (1 !== count($navigationChildren)) {
+                continue;
+            }
             $chromeRange = $navigationChildren[0];
             $contentRange = current(array_filter($children, static fn(array $range): bool => $range !== $chromeRange));
-            if (!is_array($contentRange) || !self::isGroupBlock(substr($wrapper, $contentRange['offset'], $contentRange['length']))) continue;
+            if (!is_array($contentRange) || !self::isGroupBlock(substr($wrapper, $contentRange['offset'], $contentRange['length']))) {
+                continue;
+            }
             $chrome = substr($wrapper, $chromeRange['offset'], $chromeRange['length']);
             $content = substr($wrapper, $contentRange['offset'], $contentRange['length']);
             $opening = self::blockOpeningMarkup($wrapper);
-            if (null === $opening) continue;
+            if (null === $opening) {
+                continue;
+            }
             $contentOffset = $wrapperRange['offset'] + $contentRange['offset'];
             $identity = self::normalizeNestedChromeMarkup($chrome);
-            if ('' === $identity) continue;
-            return array(array('area' => 'header', 'markup' => $chrome, 'inner_markup' => $chrome, 'template_part_markup' => self::withoutCurrentNavigationState($chrome), 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $chrome), 'legacy_container_opening' => $opening, 'legacy_container_closing' => '<!-- /wp:group -->', 'legacy_content_markup' => $content, 'legacy_content_range' => array('offset' => $contentOffset, 'length' => $contentRange['length']), 'legacy_page_markup' => $markup));
+            if ('' === $identity) {
+                continue;
+            }
+            return array(array(
+                'area' => 'header',
+                'markup' => $chrome,
+                'inner_markup' => $chrome,
+                'template_part_markup' => self::withoutCurrentNavigationState($chrome),
+                'identity_markup' => $identity,
+                'classes' => array(),
+                'source_path' => $sourcePath,
+                'source_hash' => hash('sha256', $chrome),
+                'legacy_container_opening' => $opening,
+                'legacy_container_closing' => '<!-- /wp:group -->',
+                'legacy_content_markup' => $content,
+                'legacy_content_range' => array('offset' => $contentOffset, 'length' => $contentRange['length']),
+                'legacy_page_markup' => $markup,
+            ));
         }
         return array();
+    }
+
+    /**
+     * @param array<int,string> $occupiedAreas
+     * @return array<int,array<string,mixed>>
+     */
+    private function unlabeledChromeCandidates(string $markup, string $sourcePath, array $occupiedAreas): array
+    {
+        $headers = array();
+        $footers = array();
+        $this->collectNestedChrome($markup, 0, $headers, $footers);
+        $candidates = array();
+        foreach (array('header' => $headers, 'footer' => $footers) as $area => $rows) {
+            if (in_array($area, $occupiedAreas, true) || array() === $rows) {
+                continue;
+            }
+            $identities = array_column($rows, 'identity_markup');
+            if (1 !== count(array_unique($identities))) {
+                continue;
+            }
+            $row = $rows[0];
+            if ('' === ($row['identity_markup'] ?? '')) {
+                continue;
+            }
+            $additional = array();
+            foreach (array_slice($rows, 1) as $extra) {
+                $additional[] = array(
+                    'offset' => $extra['offset'],
+                    'length' => $extra['length'],
+                    'markup' => $extra['markup'],
+                );
+            }
+            $partMarkup = self::withoutLandmarkTagName(self::withoutCurrentNavigationState($row['markup']));
+            $candidates[] = array(
+                'area' => $area,
+                'markup' => $row['markup'],
+                'inner_markup' => $row['markup'],
+                'template_part_markup' => $partMarkup,
+                'identity_markup' => $row['identity_markup'],
+                'classes' => array(),
+                'source_path' => $sourcePath,
+                'source_hash' => $row['source_hash'],
+                'nested_shell' => true,
+                'shared_only' => true,
+                'offset' => $row['offset'],
+                'length' => $row['length'],
+                'additional_ranges' => $additional,
+            );
+        }
+        return $candidates;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $headers
+     * @param array<int,array<string,mixed>> $footers
+     */
+    private function collectNestedChrome(string $markup, int $baseOffset, array &$headers, array &$footers): void
+    {
+        $ranges = self::topLevelBlockRanges($markup);
+        if (2 <= count($ranges)) {
+            $first = substr($markup, $ranges[0]['offset'], $ranges[0]['length']);
+            if (self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($first)) {
+                $restHasContent = false;
+                foreach (array_slice($ranges, 1) as $range) {
+                    $sibling = substr($markup, $range['offset'], $range['length']);
+                    if (!self::isEmptyVisualGroup($sibling)) {
+                        $restHasContent = true;
+                        break;
+                    }
+                }
+                if ($restHasContent) {
+                    $headers[] = $this->nestedChromeRow($first, $baseOffset + $ranges[0]['offset'], $ranges[0]['length']);
+                    $last = $ranges[count($ranges) - 1];
+                    $lastMarkup = substr($markup, $last['offset'], $last['length']);
+                    if ($last !== $ranges[0] && self::isFooterChrome($lastMarkup)) {
+                        $footers[] = $this->nestedChromeRow($lastMarkup, $baseOffset + $last['offset'], $last['length']);
+                    }
+                    return;
+                }
+            }
+        }
+        foreach ($ranges as $range) {
+            $block = substr($markup, $range['offset'], $range['length']);
+            $children = self::directChildBlockRanges($block);
+            if (array() === $children) {
+                continue;
+            }
+            $innerStart = $children[0]['offset'];
+            $innerEnd = $children[count($children) - 1]['offset'] + $children[count($children) - 1]['length'];
+            $this->collectNestedChrome(
+                substr($block, $innerStart, $innerEnd - $innerStart),
+                $baseOffset + $range['offset'] + $innerStart,
+                $headers,
+                $footers
+            );
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private function nestedChromeRow(string $candidateMarkup, int $offset, int $length): array
+    {
+        return array(
+            'markup' => $candidateMarkup,
+            'identity_markup' => self::nestedChromeIdentity($candidateMarkup),
+            'source_hash' => hash('sha256', $candidateMarkup),
+            'offset' => $offset,
+            'length' => $length,
+        );
+    }
+
+    private static function nestedChromeIdentity(string $markup): string
+    {
+        return self::normalizeNestedChromeMarkup(self::unwrapChromeContainers($markup));
+    }
+
+    /**
+     * Peel engine-introduced layout-transparent carriers and extra single-child
+     * unlabeled wrappers so chrome that sits at different wrapper depths still
+     * shares one identity. Layout-transparent wrappers are marked by a
+     * `wrappers` attribute or `display:contents`, not by generated block names.
+     */
+    private static function unwrapChromeContainers(string $markup): string
+    {
+        $markup = trim($markup);
+        while (preg_match('/^<!--\s*wp:\S+/', $markup)) {
+            $children = self::directChildBlockRanges($markup);
+            if (array() === $children) {
+                break;
+            }
+            if (!self::isLayoutTransparentBlock($markup) && !self::isExtraDepthWrapper($markup, $children)) {
+                break;
+            }
+            $inner = '';
+            foreach ($children as $range) {
+                $inner .= substr($markup, $range['offset'], $range['length']);
+            }
+            if ('' === $inner || $inner === $markup) {
+                break;
+            }
+            $markup = trim($inner);
+        }
+        return $markup;
+    }
+
+    private static function isLayoutTransparentBlock(string $markup): bool
+    {
+        if (!preg_match('/^<!--\s*wp:\S+\s+(\{.*?\})\s*-->/s', ltrim($markup), $match)) {
+            return false;
+        }
+        $attrs = json_decode($match[1], true);
+        if (!is_array($attrs)) {
+            return false;
+        }
+        if (isset($attrs['wrappers']) && is_array($attrs['wrappers'])) {
+            return true;
+        }
+        if (isset($attrs['config'])) {
+            return true;
+        }
+        $style = $attrs['style'] ?? null;
+        if (is_array($style) && 'contents' === ($style['display'] ?? null)) {
+            return true;
+        }
+        return is_string($style) && 1 === preg_match('/display\s*:\s*contents/i', $style);
+    }
+
+    /** @param array<int,array{offset:int,length:int}> $children */
+    private static function isExtraDepthWrapper(string $markup, array $children): bool
+    {
+        if (1 !== count($children) || !self::isGroupBlock($markup)) {
+            return false;
+        }
+        if (!preg_match('/^<!--\s*wp:group(?:\s+(\{.*?\}))?\s*-->/s', ltrim($markup), $match)) {
+            return false;
+        }
+        $attrs = isset($match[1]) && '' !== $match[1] ? json_decode($match[1], true) : array();
+        $tag = is_array($attrs) ? strtolower((string) ($attrs['tagName'] ?? 'div')) : 'div';
+        return !in_array($tag, array('header', 'footer', 'main', 'nav'), true);
+    }
+
+    private static function containsNavigation(string $markup): bool
+    {
+        return str_contains($markup, '<!-- wp:navigation ') || str_contains($markup, '<!-- wp:navigation{');
+    }
+
+    /**
+     * True when the chrome/content split lives among this block's children, so
+     * the walker should enter it instead of treating the whole block as header.
+     * Extra wrappers around header-only chrome have no later content child and
+     * stay the header candidate.
+     */
+    private static function chromeSplitIsInside(string $markup): bool
+    {
+        $children = self::directChildBlockRanges($markup);
+        if (count($children) < 2) {
+            return false;
+        }
+        $first = substr($markup, $children[0]['offset'], $children[0]['length']);
+        if (!self::containsNavigation($first) || self::containsMainLandmark($first)) {
+            return false;
+        }
+        foreach (array_slice($children, 1) as $range) {
+            $sibling = substr($markup, $range['offset'], $range['length']);
+            if (self::containsMainLandmark($sibling) || self::isHeadingBlock($sibling)) {
+                return true;
+            }
+            if (!self::isEmptyVisualGroup($sibling) && !self::isFooterChrome($sibling) && !self::containsNavigation($sibling)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function containsMainLandmark(string $markup): bool
+    {
+        return str_contains($markup, '"tagName":"main"')
+            || str_contains($markup, '<main ')
+            || str_contains($markup, '<main>')
+            || str_contains($markup, '<!-- wp:post-content');
+    }
+
+    private static function isEmptyVisualGroup(string $markup): bool
+    {
+        if (!preg_match('/^<!--\s*wp:group(?:\s+(\{.*?\}))?\s*-->/s', ltrim($markup), $match)) {
+            return false;
+        }
+        $attrs = isset($match[1]) && '' !== $match[1] ? json_decode($match[1], true) : array();
+        $className = is_array($attrs) ? (string) ($attrs['className'] ?? '') : '';
+        if (str_contains($className, 'blocks-engine-empty-visual-group')) {
+            return true;
+        }
+        return 1 >= substr_count($markup, '<!-- wp:');
+    }
+
+    private static function isFooterChrome(string $markup): bool
+    {
+        if (self::containsMainLandmark($markup) || self::isEmptyVisualGroup($markup) || self::containsNavigation($markup) || self::isHeadingBlock($markup)) {
+            return false;
+        }
+        if (str_contains($markup, '<!-- wp:heading') || str_contains($markup, '<!-- wp:post-content')) {
+            return false;
+        }
+        return 1 === preg_match('/^<!--\s*wp:group(?:\s|\{)/', ltrim($markup));
+    }
+
+    private static function isHeadingBlock(string $markup): bool
+    {
+        return 1 === preg_match('/^<!--\s*wp:heading(?:\s|\{)/', ltrim($markup));
     }
 
     /** @param array<int,string> $occupiedAreas @return array<int,array<string,mixed>> */
@@ -252,6 +552,7 @@ final class ShellExtraction
                 continue;
             }
             $first = $cluster['candidate'];
+            if (1 === count($applicable) && !empty($first['shared_only'])) continue;
             foreach ($applicable as $index => $page) if (!in_array($index, $cluster['indexes'], true)) $excluded[$index] = isset($candidates[$index]) ? 'non_equivalent' : 'missing';
             // 'search' is never an applicable page in its own right (WordPress
             // synthesizes it), so it rides along wherever 'index' is bound: both
@@ -380,6 +681,16 @@ final class ShellExtraction
         if ('' !== $identity && '' !== $area) {
             foreach ($this->nestedLandmarkCandidates($markup, (string) ($candidate['source_path'] ?? ''), $area) as $row) {
                 if ($identity === ($row['identity_markup'] ?? null)) $matches[] = $row;
+            }
+            if (array() === $matches) {
+                $headers = array();
+                $footers = array();
+                $this->collectNestedChrome($markup, 0, $headers, $footers);
+                foreach (('footer' === $area ? $footers : $headers) as $row) {
+                    if ($identity === ($row['identity_markup'] ?? null)) {
+                        $matches[] = $row;
+                    }
+                }
             }
         }
         if (array() === $matches) {

@@ -444,4 +444,124 @@ $responsiveMismatchPlan = (new ArtifactCompiler())->compile(array('entrypoint' =
 )))->toArray()['source_reports']['wordpress_site_plan'];
 $assert(!array_filter($responsiveMismatchPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)) && str_contains($pages($responsiveMismatchPlan)['index.html']['canonical_block_markup'] ?? '', 'Desktop ticker') && str_contains($pages($responsiveMismatchPlan)['about.html']['canonical_block_markup'] ?? '', 'Ticker'), 'Divergent nested footers across a dual-document page and a single-document page stay page-owned.');
 
+$unlabeledChrome = static function (string $title, bool $dual): string {
+    $frame = '<div class="frame"><div class="masthead"><p class="brand">Acme</p><nav><a href="/">Home</a><a href="/about">About</a></nav></div><main><h1>' . $title . '</h1></main><div class="colophon"><p>© 2026 Acme</p></div></div>';
+    if (!$dual) return $frame;
+    return '<div class="site-document-variant-default">' . $frame . '</div><div class="site-document-variant-mobile">' . $frame . '</div>';
+};
+$unlabeledChromePlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $unlabeledChrome('Home', true),
+    'about.html' => $unlabeledChrome('About', true),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$unlabeledChromeWrites = $writes($unlabeledChromePlan);
+$unlabeledChromePages = $pages($unlabeledChromePlan);
+$unlabeledChromeParts = array_column($unlabeledChromePlan['template_parts'], null, 'slug');
+$assert(isset($unlabeledChromeParts['header'], $unlabeledChromeParts['footer']) && 'shared_shell' === ($unlabeledChromeParts['header']['placement']['kind'] ?? null) && 'shared_shell' === ($unlabeledChromeParts['footer']['placement']['kind'] ?? null) && 1 === count(array_filter($unlabeledChromePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && 1 === count(array_filter($unlabeledChromePlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null))), 'Identical unlabeled chrome duplicated inside responsive documents extracts one header and one footer template part.');
+$assert(str_contains($unlabeledChromeWrites['parts/header.html']['payload']['data'] ?? '', 'Acme') && str_contains($unlabeledChromeWrites['parts/header.html']['payload']['data'] ?? '', 'wp:navigation') && str_contains($unlabeledChromeWrites['parts/footer.html']['payload']['data'] ?? '', '© 2026 Acme'), 'Extracted unlabeled chrome parts keep the authored masthead, navigation, and colophon.');
+foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
+    $markup = $unlabeledChromePages[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, 'masthead') && !str_contains($markup, 'colophon') && !str_contains($markup, 'wp:navigation') && !str_contains($markup, 'wp:template-part') && str_contains($markup, '>' . $title . '</h1>'), "{$source} unlabeled dual-document content loses shared chrome and keeps its page title.");
+}
+$assert(1 === substr_count($unlabeledChromeWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($unlabeledChromeWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($unlabeledChromeWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"footer"') && 1 === substr_count($unlabeledChromeWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'Generic templates bind unlabeled shared chrome so the page editor does not own the header or footer.');
+$unlabeledSinglePlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $unlabeledChrome('Home', false),
+    'about.html' => $unlabeledChrome('About', false),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$unlabeledSingleParts = array_column($unlabeledSinglePlan['template_parts'], null, 'slug');
+$assert(isset($unlabeledSingleParts['header'], $unlabeledSingleParts['footer']) && 'shared_shell' === ($unlabeledSingleParts['header']['placement']['kind'] ?? null), 'Identical unlabeled chrome without document variants still extracts shared header and footer parts.');
+foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
+    $markup = $pages($unlabeledSinglePlan)[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, 'wp:navigation') && str_contains($markup, '>' . $title . '</h1>'), "{$source} single-document unlabeled content loses the shared masthead navigation.");
+}
+$unlabeledDivergentPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => str_replace('Acme', 'Home brand', $unlabeledChrome('Home', true)),
+    'about.html' => $unlabeledChrome('About', true),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(!array_filter($unlabeledDivergentPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)) && str_contains($pages($unlabeledDivergentPlan)['index.html']['canonical_block_markup'] ?? '', 'Home brand') && str_contains($pages($unlabeledDivergentPlan)['about.html']['canonical_block_markup'] ?? '', 'Acme'), 'Divergent unlabeled mastheads stay page-owned instead of becoming a false shared header.');
+
+$unlabeledSoloPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $unlabeledChrome('Home', false),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(!array_filter($unlabeledSoloPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)) && str_contains($pages($unlabeledSoloPlan)['index.html']['canonical_block_markup'] ?? '', 'wp:navigation'), 'A single-page unlabeled masthead stays page-owned so the in-content current-navigation marker still renders.');
+
+$unlabeledClusterChrome = static function (string $title, string $current, bool $deep): string {
+    $link = static function (string $name, string $label, string $current): string {
+        $active = $name === $current;
+        return '<a class="site-link' . ($active ? ' current" aria-current="page"' : '"') . ' href="/' . $name . '">' . $label . '</a>';
+    };
+    $masthead = '<div class="masthead"><p class="brand">Acme</p><nav>'
+        . $link('index', 'Home', $current)
+        . $link('about', 'About', $current)
+        . $link('blog', 'Blog', $current)
+        . '</nav></div>';
+    $body = $deep
+        ? '<main><article><time datetime="2026-08-01">' . $title . '</time><h1>' . $title . '</h1></article></main>'
+        : '<main><h1>' . $title . '</h1></main>';
+    $frame = $masthead . $body . '<div class="colophon"><p>© 2026 Acme</p></div>';
+    if (!$deep) {
+        return '<div class="frame">' . $frame . '</div>';
+    }
+    return '<div class="page-shell"><div class="article-frame">' . $frame . '</div></div>';
+};
+$unlabeledClusterPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $unlabeledClusterChrome('Home', 'index', false),
+    'about.html' => $unlabeledClusterChrome('About', 'about', false),
+    'blog/index.html' => $unlabeledClusterChrome('Blog', 'blog', true),
+    'blog/first.html' => $unlabeledClusterChrome('First post', 'blog', true),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$unlabeledClusterWrites = $writes($unlabeledClusterPlan);
+$unlabeledClusterPages = $pages($unlabeledClusterPlan);
+$unlabeledClusterParts = array_column($unlabeledClusterPlan['template_parts'], null, 'slug');
+$assert(isset($unlabeledClusterParts['header']) && 'shared_shell' === ($unlabeledClusterParts['header']['placement']['kind'] ?? null) && 1 === count(array_filter($unlabeledClusterPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))), 'Post-like pages whose unlabeled chrome sits behind extra wrappers still join the shared header cluster.');
+foreach (array('index.html' => 'Home', 'about.html' => 'About', 'blog/index.html' => 'Blog', 'blog/first.html' => 'First post') as $source => $title) {
+    $markup = $unlabeledClusterPages[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, 'wp:navigation') && str_contains($markup, '>' . $title . '</h1>'), "{$source} loses shared unlabeled chrome across wrapper-depth clusters and keeps its title.");
+}
+$assert(str_contains($unlabeledClusterWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($unlabeledClusterWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($unlabeledClusterWrites['templates/single.html']['payload']['data'] ?? '', '"slug":"header"'), 'Marketing pages and post-like routes bind the same shared header.');
+
+$transparentHeader = static function (string $title, bool $deep): string {
+    $header = '<!-- wp:group {"className":"masthead"} --><div class="wp-block-group masthead"><!-- wp:navigation --><!-- wp:navigation-link {"label":"Home","url":"/"} /--><!-- wp:navigation-link {"label":"Blog","url":"/blog"} /--><!-- /wp:navigation --></div><!-- /wp:group -->';
+    if ($deep) {
+        $header = '<!-- wp:custom/layout-shell {"wrappers":[{"tagName":"div","attributes":{"class":"extra-depth"}}]} -->' . $header . '<!-- /wp:custom/layout-shell -->';
+    }
+    return $header
+        . '<!-- wp:group {"tagName":"main"} --><main class="wp-block-group"><!-- wp:heading --><h2 class="wp-block-heading">' . $title . '</h2><!-- /wp:heading --></main><!-- /wp:group -->'
+        . '<!-- wp:group {"className":"colophon"} --><div class="wp-block-group colophon"><!-- wp:paragraph --><p>© 2026 Acme</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
+};
+$transparentResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><h1>Home</h1></main>', 'blog.html' => '<main><h1>Blog</h1></main>')))->toArray();
+foreach ($transparentResult['source_reports']['compiled_site']['pages'] as &$transparentPage) {
+    $transparentPage['block_markup'] = $transparentHeader('index.html' === $transparentPage['source_path'] ? 'Home' : 'Blog', 'blog.html' === $transparentPage['source_path']);
+}
+unset($transparentPage);
+$transparentPlan = (new WordPressSitePlan())->fromResult($transparentResult);
+$transparentPages = $pages($transparentPlan);
+$assert(1 === count(array_filter($transparentPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains($transparentPages['index.html']['canonical_block_markup'] ?? '', 'wp:navigation') && !str_contains($transparentPages['blog.html']['canonical_block_markup'] ?? '', 'wp:navigation'), 'Layout-transparent extra wrappers around the same unlabeled header still extract one shared part.');
+
+$nestedEmptyChrome = static function (string $title): string {
+    return '<div class="frame"><div class="masthead"><p class="brand">Acme</p><nav><a href="/">Home</a><a href="/blog">Blog</a></nav></div><main><h1>' . $title . '</h1><div class="blocks-engine-empty-visual-group"></div></main><div class="colophon"><p>© 2026 Acme</p></div></div>';
+};
+$nestedEmptyPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $nestedEmptyChrome('Home'),
+    'blog.html' => $nestedEmptyChrome('Blog'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$nestedEmptyPages = $pages($nestedEmptyPlan);
+$assert(isset(array_column($nestedEmptyPlan['template_parts'], null, 'slug')['header']) && !str_contains($nestedEmptyPages['index.html']['canonical_block_markup'] ?? '', 'wp:navigation') && !str_contains($nestedEmptyPages['blog.html']['canonical_block_markup'] ?? '', 'wp:navigation'), 'An empty visual group inside page content does not hide unlabeled shared chrome.');
+
+$engineCarrierHeader = static function (string $title, bool $scroll): string {
+    $header = '<!-- wp:group {"className":"masthead"} --><div class="wp-block-group masthead"><!-- wp:navigation --><!-- wp:navigation-link {"label":"Home","url":"/"} /--><!-- wp:navigation-link {"label":"Blog","url":"/blog"} /--><!-- /wp:navigation --></div><!-- /wp:group -->';
+    $header = $scroll
+        ? '<!-- wp:custom/scroll-state {"className":"birdseye-header","config":"{\u0022thresholdPx\u0022:2}"} -->' . $header . '<!-- /wp:custom/scroll-state -->'
+        : '<!-- wp:custom/layout-shell {"wrappers":[{"tagName":"div","attributes":{"class":"birdseye-header"}}]} -->' . $header . '<!-- /wp:custom/layout-shell -->';
+    return $header
+        . '<!-- wp:group {"className":"main-wrap"} --><div class="wp-block-group main-wrap"><!-- wp:heading --><h2 class="wp-block-heading">' . $title . '</h2><!-- /wp:heading --><!-- wp:group {"className":"blocks-engine-empty-visual-group"} --><div class="wp-block-group blocks-engine-empty-visual-group"></div><!-- /wp:group --></div><!-- /wp:group -->';
+};
+$engineCarrierResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><h1>Home</h1></main>', 'blog.html' => '<main><h1>Blog</h1></main>')))->toArray();
+foreach ($engineCarrierResult['source_reports']['compiled_site']['pages'] as &$engineCarrierPage) {
+    $engineCarrierPage['block_markup'] = $engineCarrierHeader('index.html' === $engineCarrierPage['source_path'] ? 'Home' : 'Blog', 'index.html' === $engineCarrierPage['source_path']);
+}
+unset($engineCarrierPage);
+$engineCarrierPlan = (new WordPressSitePlan())->fromResult($engineCarrierResult);
+$engineCarrierPages = $pages($engineCarrierPlan);
+$assert(1 === count(array_filter($engineCarrierPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains($engineCarrierPages['index.html']['canonical_block_markup'] ?? '', 'wp:navigation') && !str_contains($engineCarrierPages['blog.html']['canonical_block_markup'] ?? '', 'wp:navigation'), 'Scroll-state and layout-shell carriers around the same unlabeled header still share one part, even when content contains an empty visual group.');
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");
