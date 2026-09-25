@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+use Closure;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
@@ -513,25 +514,52 @@ final class SourceDom
      * stripped, missing image sources recovered from host metadata, and
      * (when the caller supplies them) projected author tag-selector markers
      * materialized onto matching tags so rewritten author CSS still targets
-     * the fallback markup.
+     * the fallback markup. Path markers (semantic leaves) are stamped the same
+     * way: author CSS is rewritten onto them, and preserved HTML otherwise
+     * keeps only the source class.
      *
-     * @param array<string, string> $tagMarkers Lowercased tag name => marker class name.
+     * @param array<string, string>          $tagMarkers  Lowercased tag name => marker class name.
+     * @param Closure(DOMElement): list<string>|null $pathMarkers Original element => marker classes.
      */
-    public static function safeFallbackHtml(DOMElement $element, array $tagMarkers = array()): string
+    public static function safeFallbackHtml(DOMElement $element, array $tagMarkers = array(), ?Closure $pathMarkers = null): string
     {
         $clone = $element->cloneNode(true);
         if ( $clone instanceof DOMElement ) {
+            self::materializeFallbackProjectionMarkers($element, $clone, $tagMarkers, $pathMarkers);
             self::materializeMissingImageSources($clone);
-            self::materializeFallbackSourceTagMarker($clone, $tagMarkers);
-            foreach ( $clone->getElementsByTagName('*') as $descendant ) {
-                if ( $descendant instanceof DOMElement ) {
-                    self::materializeFallbackSourceTagMarker($descendant, $tagMarkers);
-                }
-            }
             return self::safeFallbackHtmlString(trim($clone->ownerDocument->saveHTML($clone) ?: ''));
         }
 
         return self::safeFallbackHtmlString(self::outerHtml($element));
+    }
+
+    /** @param array<string, string> $tagMarkers @param Closure(DOMElement): list<string>|null $pathMarkers */
+    private static function materializeFallbackProjectionMarkers(DOMElement $original, DOMElement $clone, array $tagMarkers, ?Closure $pathMarkers): void
+    {
+        self::materializeFallbackSourceTagMarker($clone, $tagMarkers);
+        if ( null !== $pathMarkers ) {
+            $markers = array_values(array_filter($pathMarkers($original), static fn (string $marker): bool => '' !== $marker));
+            if ( array() !== $markers ) {
+                $clone->setAttribute('class', self::mergeClassNames(self::attr($clone, 'class'), ...$markers));
+            }
+        }
+        $originalChildren = array();
+        $cloneChildren = array();
+        foreach ( $original->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $originalChildren[] = $child;
+            }
+        }
+        foreach ( $clone->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $cloneChildren[] = $child;
+            }
+        }
+        foreach ( $originalChildren as $index => $child ) {
+            if ( isset($cloneChildren[$index]) ) {
+                self::materializeFallbackProjectionMarkers($child, $cloneChildren[$index], $tagMarkers, $pathMarkers);
+            }
+        }
     }
 
     /** @param array<string, string> $tagMarkers */
