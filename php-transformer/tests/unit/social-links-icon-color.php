@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\PayloadReader;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $assert = static function (bool $condition, string $message): void {
@@ -73,6 +74,32 @@ $compiled = (new ArtifactCompiler())->compile(array(
 ))->toArray();
 $compiledBlock = $social($compiled);
 $assert('#ffffff' === ($compiledBlock['attrs']['iconColorValue'] ?? ''), 'a referenced monochrome glyph image carries its color onto core/social-links, got ' . json_encode($compiledBlock['attrs'] ?? null));
+
+$iconReference = array(
+    'schema' => 'blocks-engine/payload-reference/v1',
+    'id' => 'icon',
+    'bytes' => strlen($png),
+    'sha256' => hash('sha256', $png),
+);
+$referencedHtml = '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><img src="/icons/item.png" width="8" height="8" alt=""></a></li><li><a href="https://www.instagram.com/example" aria-label="Instagram"><img src="/icons/item.png" width="8" height="8" alt=""></a></li></ul>';
+$referencedArtifact = array(
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array( 'path' => 'website/index.html', 'content' => $referencedHtml ),
+        array( 'path' => 'website/icons/item.png', 'mime_type' => 'image/png', 'payload_reference' => $iconReference ),
+    ),
+);
+$referencedReader = new class($png) implements PayloadReader {
+    public function __construct(private string $png) {}
+    public function read(array $reference): string { return $this->png; }
+};
+$referencedCompiler = new ArtifactCompiler();
+$referencedShared = $referencedCompiler->prepareShared($referencedArtifact, $referencedReader);
+$referencedPage = $referencedCompiler->preparePage($referencedArtifact, $referencedShared, 'website/index.html', $referencedReader);
+$referencedReceipt = $referencedCompiler->compilePreparedPage($referencedShared, $referencedPage, $referencedReader);
+$referenced = $referencedCompiler->compose($referencedShared, array( $referencedReceipt ), $referencedReader)->toArray();
+$referencedBlock = $social($referenced);
+$assert('#ffffff' === ($referencedBlock['attrs']['iconColorValue'] ?? ''), 'a payload-referenced monochrome glyph carries its color, got ' . json_encode($referencedBlock['attrs'] ?? null));
 
 $mixed = (new HtmlTransformer())->transform(
     '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><svg width="16" height="16" fill="#ff0000"></svg></a></li>'

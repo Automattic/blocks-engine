@@ -137,6 +137,8 @@ final class ArtifactCompiler
     /** @var array<string, string> */
     private array $glyphColorByHash = array();
 
+    private ?PayloadReader $glyphPayloadReader = null;
+
     /** @var array<int, string> */
     private array $scriptContents = array();
 
@@ -3267,7 +3269,34 @@ final class ArtifactCompiler
             }
         }
 
-        return is_string($file['content'] ?? null) ? $file['content'] : '';
+        $content = is_string($file['content'] ?? null) ? $file['content'] : '';
+        if ( '' !== $content ) {
+            return $content;
+        }
+
+        $reference = $file['payload_reference'] ?? null;
+        if ( ! is_array($reference) || null === $this->glyphPayloadReader ) {
+            return '';
+        }
+        $declaredBytes = (int) ($reference['bytes'] ?? 0);
+        if ( $declaredBytes < 1 || $declaredBytes > 65536 ) {
+            return '';
+        }
+
+        try {
+            $payload = $this->glyphPayloadReader->read($reference);
+        } catch ( \Throwable ) {
+            return '';
+        }
+        if ( strlen($payload) !== $declaredBytes ) {
+            return '';
+        }
+        $sha = (string) ($reference['sha256'] ?? '');
+        if ( '' !== $sha && ! hash_equals($sha, hash('sha256', $payload)) ) {
+            return '';
+        }
+
+        return $payload;
     }
 
     /**

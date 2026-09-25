@@ -258,6 +258,7 @@ trait StagedTransport
                 }
                 unset($documentFile);
             }
+            $stageCompiler->glyphPayloadReader = $payloadReader;
             $stageCompiler->indexFiles($documentFiles);
             $compiledDocuments[$path] = $stageCompiler->compileHtmlDocumentBlocks(
                 (string) ($file['content'] ?? ''),

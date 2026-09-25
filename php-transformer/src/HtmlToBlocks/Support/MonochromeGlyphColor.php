@@ -85,6 +85,12 @@ final class MonochromeGlyphColor
         if ( ($cluster / $opaque) < self::CLUSTER_SHARE ) {
             return '';
         }
+        if ( $modeRed >= 250 && $modeGreen >= 250 && $modeBlue >= 250 ) {
+            return '#ffffff';
+        }
+        if ( $modeRed <= 5 && $modeGreen <= 5 && $modeBlue <= 5 ) {
+            return '#000000';
+        }
 
         return sprintf('#%02x%02x%02x', $modeRed, $modeGreen, $modeBlue);
     }
