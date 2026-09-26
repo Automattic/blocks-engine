@@ -1992,6 +1992,17 @@ final class WordPressSitePlan
         $lines[] = "        \$created = wp_insert_post( array( 'post_type' => 'wp_navigation', 'post_status' => 'publish', 'post_title' => \$menu['title'], 'post_name' => \$menu['slug'], 'post_content' => \$menu['content'] ), true );";
         $lines[] = "        if ( ! is_wp_error( \$created ) && (int) \$created > 0 ) \$refs[ (int) \$sentinel ] = (int) \$created;";
         $lines[] = "    }";
+        $lines[] = "    global \$wpdb;";
+        $lines[] = "    foreach ( \$refs as \$sentinel => \$id ) {";
+        $lines[] = "        \$post_ids = \$wpdb->get_col( \$wpdb->prepare( \"SELECT ID FROM {\$wpdb->posts} WHERE post_type IN ('page','post','wp_template','wp_template_part') AND post_content LIKE %s\", '%\"ref\":' . (int) \$sentinel . '%' ) );";
+        $lines[] = "        foreach ( \$post_ids as \$post_id ) {";
+        $lines[] = "            \$stored = get_post_field( 'post_content', \$post_id );";
+        $lines[] = "            \$bound = str_replace( '\"ref\":' . (int) \$sentinel, '\"ref\":' . (int) \$id, \$stored );";
+        $lines[] = "            if ( \$bound === \$stored ) continue;";
+        $lines[] = "            \$wpdb->update( \$wpdb->posts, array( 'post_content' => \$bound ), array( 'ID' => (int) \$post_id ) );";
+        $lines[] = "            clean_post_cache( (int) \$post_id );";
+        $lines[] = "        }";
+        $lines[] = "    }";
         $lines[] = "    \$GLOBALS['blocks_engine_navigation_refs'] = \$refs;";
         $lines[] = "}, 1 );";
         $lines[] = "\$blocks_engine_bind_navigation_refs = static function ( string \$content ): string {";
