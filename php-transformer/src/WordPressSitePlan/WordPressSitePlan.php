@@ -32,6 +32,8 @@ final class WordPressSitePlan
     public const EDITOR_CORE_IMAGE_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-image img{pointer-events:auto!important}';
     public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
+    public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
+    public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}';
     /**
      * A generated theme reproduces captured text, so WordPress typographic
      * rewriting stays off while it is active. Static block content survives
@@ -212,6 +214,7 @@ final class WordPressSitePlan
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
         self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
+        $pages = $this->materializeListingQueryLoops($pages);
         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
@@ -1511,6 +1514,488 @@ final class WordPressSitePlan
         }
         return $templates;
     }
+    /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
+    private function materializeListingQueryLoops(array $pages): array
+    {
+        $postsByParent = array();
+        foreach ($pages as $page) {
+            if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !is_string($page['route']['path'] ?? null)) {
+                continue;
+            }
+            $postsByParent[self::parentRoutePath($page['route']['path'])][] = $page;
+        }
+        foreach ($pages as &$page) {
+            if ('page' !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !is_string($page['route']['path'] ?? null)) {
+                continue;
+            }
+            $posts = $postsByParent[$page['route']['path']] ?? array();
+            if (count($posts) < 2 || !is_string($page['canonical_block_markup'] ?? null) || str_contains($page['canonical_block_markup'], '<!-- wp:query')) {
+                continue;
+            }
+            $replaced = $this->replaceListingMarkup($page['canonical_block_markup'], $posts);
+            if (null === $replaced || $replaced === $page['canonical_block_markup']) {
+                continue;
+            }
+            $page['canonical_block_markup'] = $replaced;
+            $page['content_hash'] = self::contentHash($replaced);
+        }
+        unset($page);
+        return $pages;
+    }
+    /** @param array<int,array<string,mixed>> $posts */
+    private function replaceListingMarkup(string $markup, array $posts): ?string
+    {
+        $cards = $this->listingCardRanges($markup, $posts);
+        if (null === $cards) {
+            return $this->replaceListingArchives($markup, $posts);
+        }
+        $template = $this->listingCardTemplate($markup, $cards);
+        if (null === $template) {
+            return $this->replaceListingArchives($markup, $posts);
+        }
+        $start = $cards[0]['offset'];
+        $end = $cards[count($cards) - 1]['offset'] + $cards[count($cards) - 1]['length'];
+        $query = self::listingQueryMarkup(count($cards), $template);
+        $parent = self::parentBlockRange($markup, $cards[0]);
+        if (is_array($parent) && 'columns' === self::listingBlockName(substr($markup, $parent['offset'], $parent['length']))) {
+            $query = '<!-- wp:column --><div class="wp-block-column">' . $query . '</div><!-- /wp:column -->';
+        }
+        $replaced = substr($markup, 0, $start) . $query . substr($markup, $end);
+        return $this->replaceListingArchives($replaced, $posts);
+    }
+    /**
+     * @param array<int,array<string,mixed>> $posts
+     * @return array<int,array{offset:int,length:int,route:string,post:array<string,mixed>}>|null
+     */
+    private function listingCardRanges(string $markup, array $posts): ?array
+    {
+        $routes = array();
+        foreach ($posts as $post) {
+            if (is_string($post['route']['path'] ?? null)) {
+                $routes[$post['route']['path']] = $post;
+            }
+        }
+        $ranges = self::blockRanges($markup);
+        $cards = array();
+        foreach ($routes as $route => $post) {
+            $exclusive = null;
+            foreach ($ranges as $range) {
+                $slice = substr($markup, $range['offset'], $range['length']);
+                $anchors = $this->listingAnchors($slice);
+                $hits = false;
+                $others = false;
+                foreach ($anchors as $anchor) {
+                    if (self::hrefMatchesListingRoute($anchor['href'], $route)) {
+                        $hits = true;
+                    } elseif ($this->hrefMatchesAnyListingRoute($anchor['href'], array_keys($routes))) {
+                        $others = true;
+                    }
+                }
+                if (!$hits || $others) {
+                    continue;
+                }
+                if (null === $exclusive || $range['length'] > $exclusive['length']) {
+                    $exclusive = array('offset' => $range['offset'], 'length' => $range['length'], 'route' => $route, 'post' => $post);
+                }
+            }
+            if (null !== $exclusive) {
+                $cards[] = $exclusive;
+            }
+        }
+        if (count($cards) < 2) {
+            return null;
+        }
+        usort($cards, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        $parent = self::parentBlockRange($markup, $cards[0]);
+        for ($index = 0; $index < count($cards); ++$index) {
+            if ($index > 0 && $cards[$index]['offset'] < $cards[$index - 1]['offset'] + $cards[$index - 1]['length']) {
+                return null;
+            }
+            $cardParent = self::parentBlockRange($markup, $cards[$index]);
+            if ((null === $parent) !== (null === $cardParent) || (is_array($parent) && is_array($cardParent) && ($parent['offset'] !== $cardParent['offset'] || $parent['length'] !== $cardParent['length']))) {
+                return null;
+            }
+        }
+        return $cards;
+    }
+    /**
+     * @param array<int,array{offset:int,length:int,route:string,post:array<string,mixed>}> $cards
+     */
+    private function listingCardTemplate(string $markup, array $cards): ?string
+    {
+        $first = $cards[0];
+        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route']);
+        if (!$transformed['title'] || '' === $transformed['markup']) {
+            return null;
+        }
+        $template = $transformed['markup'];
+        $gaps = array();
+        for ($index = 1; $index < count($cards); ++$index) {
+            $gaps[] = substr($markup, $cards[$index - 1]['offset'] + $cards[$index - 1]['length'], $cards[$index]['offset'] - ($cards[$index - 1]['offset'] + $cards[$index - 1]['length']));
+        }
+        $uniqueGaps = array_unique($gaps);
+        if (1 === count($uniqueGaps) && '' !== trim($uniqueGaps[0]) && !str_contains($uniqueGaps[0], '<!-- wp:')) {
+            $template .= $uniqueGaps[0];
+        } elseif (1 === count($uniqueGaps) && 1 === preg_match('/^<!-- wp:(?:separator|spacer)\b/', trim($uniqueGaps[0]))) {
+            $template .= $uniqueGaps[0];
+        }
+        return $template;
+    }
+    /**
+     * @param array{offset:int,length:int} $range
+     * @param array<string,mixed> $post
+     * @return array{markup:string,title:bool,content:bool}
+     */
+    private function listingTransformRange(string $markup, array $range, array $post, string $route): array
+    {
+        $slice = substr($markup, $range['offset'], $range['length']);
+        $className = (string) (self::listingBlockAttributes($slice)['className'] ?? '');
+        if (preg_match('/\b(?:social|share-button|twitter-share)\b/', $className)) {
+            return array('markup' => '', 'title' => false, 'content' => false);
+        }
+        if (preg_match('/\bseparator\b/', $className)) {
+            return array('markup' => $slice, 'title' => false, 'content' => false);
+        }
+        $children = self::childBlockRanges($markup, $range);
+        if (array() === $children) {
+            $kind = $this->classifyListingCardBlock($slice, $post, $route);
+            if ('title' === $kind) {
+                return array('markup' => self::postTitleMarkup($slice), 'title' => true, 'content' => false);
+            }
+            if ('date' === $kind) {
+                return array('markup' => self::postDateMarkup($slice), 'title' => false, 'content' => false);
+            }
+            if ('comments' === $kind || 'chrome' === $kind) {
+                return array('markup' => $slice, 'title' => false, 'content' => false);
+            }
+            if ('skip' === $kind) {
+                return array('markup' => '', 'title' => false, 'content' => false);
+            }
+            return array('markup' => '<!-- wp:post-content /-->', 'title' => false, 'content' => true);
+        }
+        $foundTitle = false;
+        $emittedContent = false;
+        $replacements = array();
+        foreach ($children as $child) {
+            $transformed = $this->listingTransformRange($markup, $child, $post, $route);
+            $foundTitle = $foundTitle || $transformed['title'];
+            if ($transformed['content'] && $emittedContent) {
+                $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
+                continue;
+            }
+            if ($transformed['content']) {
+                $emittedContent = true;
+            }
+            $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => $transformed['markup']);
+        }
+        usort($replacements, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
+        foreach ($replacements as $replacement) {
+            $relative = $replacement['offset'] - $range['offset'];
+            $slice = substr($slice, 0, $relative) . $replacement['markup'] . substr($slice, $relative + $replacement['length']);
+        }
+        return array('markup' => $slice, 'title' => $foundTitle, 'content' => $emittedContent && !$foundTitle);
+    }
+    /** @param array<string,mixed> $post */
+    private function classifyListingCardBlock(string $slice, array $post, string $route): string
+    {
+        $anchors = $this->listingAnchors($slice);
+        foreach ($anchors as $anchor) {
+            if (str_contains(strtolower($anchor['href']), '#comment') || preg_match('/\bcomments?\b/i', $anchor['text'])) {
+                return 'comments';
+            }
+        }
+        $hasRouteLink = false;
+        foreach ($anchors as $anchor) {
+            if (self::hrefMatchesListingRoute($anchor['href'], $route)) {
+                $hasRouteLink = true;
+                break;
+            }
+        }
+        $name = self::listingBlockName($slice);
+        if ($hasRouteLink && in_array($name, array('heading', 'post-title'), true)) {
+            return 'title';
+        }
+        $timestamp = is_string($post['publication_timestamp'] ?? null) ? $post['publication_timestamp'] : null;
+        foreach (self::htmlMarkupNodes($slice) as $node) {
+            if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null)) {
+                continue;
+            }
+            $attributes = is_array($node['attributes'] ?? null) ? $node['attributes'] : array();
+            if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes)) {
+                continue;
+            }
+            $parsed = self::parseVisiblePublicationTimestamp(self::elementInnerText($slice, (string) $node['name'], $node['inner_offset']));
+            if (null !== $parsed && (null === $timestamp || $parsed === $timestamp)) {
+                return 'date';
+            }
+        }
+        if (preg_match('/<(?:iframe|fb:like)\b/i', $slice) || preg_match('/\b(?:blog-social|share-button|twitter-share)\b/', $slice)) {
+            return 'skip';
+        }
+        if (in_array($name, array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true)) {
+            return 'body';
+        }
+        $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '', " \t\n\r\0\x0B\xC2\xA0");
+        if ('' === $text || in_array($name, array('separator', 'spacer'), true) || preg_match('/\bseparator\b/', (string) (self::listingBlockAttributes($slice)['className'] ?? ''))) {
+            return 'chrome';
+        }
+        return 'body';
+    }
+    private static function listingQueryMarkup(int $perPage, string $template): string
+    {
+        $attrs = array(
+            'queryId' => 1,
+            'query' => array(
+                'perPage' => $perPage,
+                'pages' => 0,
+                'offset' => 0,
+                'postType' => 'post',
+                'order' => 'desc',
+                'orderBy' => 'date',
+                'author' => '',
+                'search' => '',
+                'exclude' => array(),
+                'sticky' => '',
+                'inherit' => false,
+            ),
+            'className' => self::LISTING_QUERY_CLASS,
+        );
+        $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return '<!-- wp:query ' . $encoded . ' -->' . '<div class="wp-block-query ' . self::LISTING_QUERY_CLASS . '"><!-- wp:post-template -->' . $template . '<!-- /wp:post-template --></div>' . '<!-- /wp:query -->';
+    }
+    private static function postTitleMarkup(string $slice): string
+    {
+        $attrs = array('isLink' => true);
+        $blockAttrs = self::listingBlockAttributes($slice);
+        $level = is_int($blockAttrs['level'] ?? null) ? $blockAttrs['level'] : self::listingHeadingLevel($slice);
+        if (2 !== $level) {
+            $attrs['level'] = $level;
+        }
+        $className = self::listingPreservedClassName($slice, array('wp-block-heading'));
+        if (null !== $className) {
+            $attrs['className'] = $className;
+        }
+        return '<!-- wp:post-title ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->';
+    }
+    private static function postDateMarkup(string $slice): string
+    {
+        $attrs = array();
+        $format = self::visibleDateFormat(trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? ''));
+        if (null !== $format) {
+            $attrs['format'] = $format;
+        }
+        $className = self::listingPreservedClassName($slice, array('wp-block-paragraph'));
+        if (null !== $className) {
+            $attrs['className'] = $className;
+        }
+        $encoded = array() === $attrs ? '' : ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return '<!-- wp:post-date' . $encoded . ' /-->';
+    }
+    private static function listingHeadingLevel(string $slice): int
+    {
+        foreach (self::htmlMarkupNodes($slice) as $node) {
+            if ('tag' === ($node['kind'] ?? null) && preg_match('/^h([1-6])$/', (string) ($node['name'] ?? ''), $match)) {
+                return (int) $match[1];
+            }
+        }
+        return 2;
+    }
+    /** @param array<int,string> $omit */
+    private static function listingPreservedClassName(string $slice, array $omit): ?string
+    {
+        $blockAttrs = self::listingBlockAttributes($slice);
+        $classes = array();
+        if (is_string($blockAttrs['className'] ?? null) && '' !== trim($blockAttrs['className'])) {
+            foreach (preg_split('/\s+/', trim($blockAttrs['className'])) ?: array() as $token) {
+                $classes[$token] = true;
+            }
+        }
+        foreach (self::htmlMarkupNodes($slice) as $node) {
+            if ('tag' !== ($node['kind'] ?? null) || !is_string($node['attributes']['class'] ?? null)) {
+                continue;
+            }
+            foreach (preg_split('/\s+/', trim($node['attributes']['class'])) ?: array() as $token) {
+                if ('' === $token || str_starts_with($token, 'wp-block-') || in_array($token, $omit, true) || str_starts_with($token, 'blocks-engine-')) {
+                    continue;
+                }
+                $classes[$token] = true;
+            }
+            break;
+        }
+        if (array() === $classes) {
+            return null;
+        }
+        return implode(' ', array_keys($classes));
+    }
+    /** @return array<string,mixed> */
+    private static function listingBlockAttributes(string $slice): array
+    {
+        foreach (self::htmlMarkupNodes($slice) as $node) {
+            if ('comment' !== ($node['kind'] ?? null)) {
+                continue;
+            }
+            $attributes = self::blockCommentAttributes((string) ($node['content'] ?? ''));
+            return is_array($attributes) ? $attributes : array();
+        }
+        return array();
+    }
+    private static function listingBlockName(string $slice): string
+    {
+        return preg_match('/^<!--\s*wp:([a-z0-9-]+)/', ltrim($slice), $match) ? $match[1] : '';
+    }
+    /** @param array<int,array<string,mixed>> $posts */
+    private function replaceListingArchives(string $markup, array $posts): string
+    {
+        $months = $this->listingPostMonths($posts);
+        if (array() === $months) {
+            return $markup;
+        }
+        $best = null;
+        foreach (self::blockRanges($markup) as $range) {
+            $slice = substr($markup, $range['offset'], $range['length']);
+            if (str_contains($slice, '<!-- wp:query') || str_contains($slice, '<!-- wp:post-template') || str_contains($slice, '<!-- wp:archives')) {
+                continue;
+            }
+            $labels = array();
+            $other = false;
+            foreach ($this->listingAnchors($slice) as $anchor) {
+                if (1 === preg_match('/^[A-Z][a-z]+ \d{4}$/', $anchor['text'])) {
+                    $labels[$anchor['text']] = true;
+                    continue;
+                }
+                $other = true;
+            }
+            ksort($labels);
+            if ($other || $labels !== $months) {
+                continue;
+            }
+            if (null === $best || $range['length'] < $best['length']) {
+                $best = $range;
+            }
+        }
+        if (null === $best) {
+            return $markup;
+        }
+        return substr($markup, 0, $best['offset']) . '<!-- wp:archives /-->' . substr($markup, $best['offset'] + $best['length']);
+    }
+    /** @param array<int,array<string,mixed>> $posts @return array<string,true> */
+    private function listingPostMonths(array $posts): array
+    {
+        $months = array();
+        foreach ($posts as $post) {
+            if (!is_string($post['publication_timestamp'] ?? null)) {
+                continue;
+            }
+            try {
+                $date = new \DateTimeImmutable($post['publication_timestamp']);
+            } catch (\Exception) {
+                continue;
+            }
+            $months[$date->setTimezone(new \DateTimeZone('UTC'))->format('F Y')] = true;
+        }
+        ksort($months);
+        return $months;
+    }
+    /** @return array<int,array{href:string,text:string}> */
+    private function listingAnchors(string $html): array
+    {
+        $anchors = array();
+        foreach (self::htmlMarkupNodes($html) as $node) {
+            if ('tag' !== ($node['kind'] ?? null) || 'a' !== ($node['name'] ?? null) || !is_string($node['attributes']['href'] ?? null)) {
+                continue;
+            }
+            $href = html_entity_decode($node['attributes']['href'], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $text = is_int($node['inner_offset'] ?? null) ? self::elementInnerText($html, 'a', $node['inner_offset']) : '';
+            $anchors[] = array('href' => $href, 'text' => $text);
+        }
+        return $anchors;
+    }
+    /** @param array<int,string> $routes */
+    private function hrefMatchesAnyListingRoute(string $href, array $routes): bool
+    {
+        foreach ($routes as $route) {
+            if (self::hrefMatchesListingRoute($href, $route)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    private static function hrefMatchesListingRoute(string $href, string $route): bool
+    {
+        $path = parse_url($href, PHP_URL_PATH);
+        if (!is_string($path) || '' === $path) {
+            $path = $href;
+        }
+        $path = '/' . trim($path, '/');
+        if ($path === $route) {
+            return true;
+        }
+        if (str_ends_with($path, '/index.html') && substr($path, 0, -11) === $route) {
+            return true;
+        }
+        return false;
+    }
+    private static function visibleDateFormat(string $value): ?string
+    {
+        if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $value, $match)) {
+            return ((int) $match[1] > 12 && (int) $match[2] <= 12) ? 'j/n/Y' : 'n/j/Y';
+        }
+        if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})$/', $value, $match)) {
+            return ((int) $match[1] > 12 && (int) $match[2] <= 12) ? 'j-n-Y' : 'n-j-Y';
+        }
+        foreach (array('F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/') as $format => $pattern) {
+            if (1 === preg_match($pattern, $value)) {
+                return $format;
+            }
+        }
+        return null;
+    }
+    /** @param array{offset:int,length:int} $parent @return array<int,array{offset:int,length:int}> */
+    private static function childBlockRanges(string $markup, array $parent): array
+    {
+        $parentStart = $parent['offset'];
+        $parentEnd = $parent['offset'] + $parent['length'];
+        $inner = array();
+        foreach (self::blockRanges($markup) as $range) {
+            $start = $range['offset'];
+            $end = $start + $range['length'];
+            if ($start <= $parentStart || $end >= $parentEnd) {
+                continue;
+            }
+            $inner[] = $range;
+        }
+        $children = array();
+        foreach ($inner as $range) {
+            $nested = false;
+            foreach ($inner as $other) {
+                if ($other['offset'] === $range['offset'] && $other['length'] === $range['length']) {
+                    continue;
+                }
+                if ($other['offset'] < $range['offset'] && ($other['offset'] + $other['length']) > ($range['offset'] + $range['length'])) {
+                    $nested = true;
+                    break;
+                }
+            }
+            if (!$nested) {
+                $children[] = $range;
+            }
+        }
+        usort($children, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        return $children;
+    }
+    /** @param array{offset:int,length:int} $child @return array{offset:int,length:int}|null */
+    private static function parentBlockRange(string $markup, array $child): ?array
+    {
+        $best = null;
+        foreach (self::blockRanges($markup) as $range) {
+            if ($range['offset'] < $child['offset'] && ($range['offset'] + $range['length']) > ($child['offset'] + $child['length'])) {
+                if (null === $best || $range['length'] < $best['length']) {
+                    $best = $range;
+                }
+            }
+        }
+        return $best;
+    }
     private static function queryLoopMarkup(bool $inherit): string
     {
         return '<!-- wp:query {"queryId":1,"query":{"perPage":10,"pages":0,"offset":0,"postType":"post","order":"desc","orderBy":"date","author":"","search":"","exclude":[],"sticky":"","inherit":' . ($inherit ? 'true' : 'false') . '},"layout":{"type":"constrained"}} -->' . "\n" . '<div class="wp-block-query"><!-- wp:post-template -->' . "\n" . '<!-- wp:post-title {"isLink":true} /-->' . "\n" . '<!-- wp:post-excerpt /-->' . "\n" . '<!-- wp:post-date {"isLink":true} /-->' . "\n" . '<!-- /wp:post-template -->' . "\n" . '<!-- wp:query-pagination {"paginationArrow":"arrow","layout":{"type":"flex","justifyContent":"space-between"}} -->' . "\n" . '<!-- wp:query-pagination-previous /-->' . "\n" . '<!-- wp:query-pagination-next /-->' . "\n" . '<!-- /wp:query-pagination -->' . "\n" . '<!-- wp:query-no-results -->' . "\n" . '<!-- wp:paragraph -->' . "\n" . '<p>No posts found.</p>' . "\n" . '<!-- /wp:paragraph -->' . "\n" . '<!-- /wp:query-no-results --></div>' . "\n" . '<!-- /wp:query -->';
@@ -1842,7 +2327,19 @@ final class WordPressSitePlan
         $lines[] = "    }";
         $lines[] = "    \$block['innerContent'] = \$content; return \$block;";
         $lines[] = "}, 10, 1 );";
-        $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export(self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
+        $hasListingQuery = false;
+        foreach ($pages as $page) {
+            if (str_contains((string) ($page['canonical_block_markup'] ?? ''), self::LISTING_QUERY_CLASS)) {
+                $hasListingQuery = true;
+                break;
+            }
+        }
+        $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS;
+        if ($hasListingQuery) {
+            $editorCss .= self::LISTING_QUERY_CSS;
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-listing-query', false, array(), null ); wp_enqueue_style( 'blocks-engine-listing-query' ); wp_add_inline_style( 'blocks-engine-listing-query', " . var_export(self::LISTING_QUERY_CSS, true) . " ); } );";
+        }
+        $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export($editorCss, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
             foreach ($script['scopes'] as $scope) {
