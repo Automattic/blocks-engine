@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
@@ -50,6 +51,74 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element);
+    }
+
+    /**
+     * A custom-element host whose only element child is a navigation landmark.
+     *
+     * Builders wrap an ordinary `<nav>` in a presentation-only custom element.
+     * That host is not a menu itself; capturing it as a companion freezes the
+     * landmark, including paragraph-wrapped item labels, as escaped HTML.
+     * Callers offer the returned landmark to {@see recognize()} instead.
+     */
+    public function hostedNavigationLandmark(DOMElement $element): ?DOMElement
+    {
+        if ( ! str_contains(strtolower($element->tagName), '-') ) {
+            return null;
+        }
+
+        $landmark = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || null !== $landmark || 'nav' !== strtolower($child->tagName) ) {
+                return null;
+            }
+            $landmark = $child;
+        }
+
+        // A hidden support hint is not a menu item. Recognition would drop it;
+        // leave that host on the path that keeps the hint hidden but present.
+        if ( $landmark instanceof DOMElement && $this->landmarkHasHiddenSupportText($landmark) ) {
+            return null;
+        }
+
+        return $landmark;
+    }
+
+    private function landmarkHasHiddenSupportText(DOMElement $landmark): bool
+    {
+        foreach ( $landmark->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement || '' === trim($descendant->textContent ?? '') ) {
+                continue;
+            }
+            $style = strtolower(preg_replace('/\s+/', '', $this->attr($descendant, 'style')) ?? '');
+            $hidden = $descendant->hasAttribute('hidden')
+                || str_contains($style, 'display:none')
+                || str_contains($style, 'visibility:hidden');
+            if ( ! $hidden || $this->hasAnchorAncestor($descendant, $landmark) ) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private function hasAnchorAncestor(DOMElement $element, DOMElement $boundary): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            if ( 'a' === strtolower($node->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
@@ -140,6 +209,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $label instanceof DOMElement ) {
             $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
         }
+        $navigationAttrs = $this->withResolvedListPackingJustification(
+            $navigationAttrs,
+            $listSource instanceof DOMElement ? $listSource : $element,
+            $navigationContext
+        );
 
         // Declare responsive-overlay intent explicitly so the saved block carries
         // its interactive behavior in the content itself rather than relying on
@@ -970,6 +1044,100 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return 'left';
+    }
+
+    /**
+     * Carry a source list's item packing onto core/navigation.
+     *
+     * A block list of inline items packs with `text-align`; a row flex list
+     * packs with `justify-content`. The generated container is a flex row
+     * whose default is flex-start, so that declaration has to be restated as
+     * `layout.justifyContent` or the items start at the container's leading
+     * edge. The generated list also inherits an ancestor column and wraps, so
+     * the same packing is projected onto the container. A column flex list
+     * keeps the cross-axis value the vertical orientation path already recorded.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withResolvedListPackingJustification(array $attrs, DOMElement $list, ?NavigationPatternContext $navigationContext): array
+    {
+        if ( ! $navigationContext instanceof NavigationPatternContext ) {
+            return $attrs;
+        }
+
+        $style = $navigationContext->resolvedStyle($list);
+        $justification = $this->listPackingJustification($style);
+        if ( '' === $justification ) {
+            return $attrs;
+        }
+
+        $layout = is_array($attrs['layout'] ?? null) ? $attrs['layout'] : array();
+        $layout['justifyContent'] = $justification;
+        if ( ! isset($layout['type']) ) {
+            $layout['type'] = 'flex';
+        }
+        $attrs['layout'] = $layout;
+        $justify = match ( $justification ) {
+            'right' => 'flex-end',
+            'center' => 'center',
+            'space-between' => 'space-between',
+            default => '',
+        };
+        if ( '' !== $justify ) {
+            $scope = CssIdent::compoundClassSelector($this->authorClassNames(SourceDom::attr($list, 'class')));
+            if ( '' === $scope ) {
+                $id = trim(SourceDom::attr($list, 'id'));
+                $scope = 1 === preg_match('/^[A-Za-z][A-Za-z0-9_.:-]*$/D', $id) ? '#' . CssIdent::escape($id) : '';
+            }
+            if ( '' !== $scope ) {
+                $declarations = 'flex-direction:row!important;justify-content:' . $justify . '!important';
+                if ( 1 === preg_match('/(?:^|;)\s*white-space\s*:\s*nowrap\b/i', $style) ) {
+                    $declarations .= ';flex-wrap:nowrap!important';
+                }
+                $navigationContext->projectSourceToNativeTarget(
+                    $list,
+                    '.wp-block-navigation.blocks-engine-list-navigation' . $scope . '>.wp-block-navigation__container',
+                    $declarations
+                );
+            }
+        }
+
+        return $attrs;
+    }
+
+    private function listPackingJustification(string $style): string
+    {
+        if ( 1 === preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/i', $style)
+            && 1 === preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/i', $style) ) {
+            return '';
+        }
+
+        $declared = '';
+        if ( 1 === preg_match('/(?:^|;)\s*justify-content\s*:\s*([^;]+)/i', $style, $match) ) {
+            $declared = $this->cssDeclarationValue($match[1]);
+        } elseif ( 1 === preg_match('/(?:^|;)\s*text-align\s*:\s*([^;]+)/i', $style, $match) ) {
+            $declared = $this->cssDeclarationValue($match[1]);
+        }
+        if ( '' === $declared ) {
+            return '';
+        }
+        if ( str_contains($declared, 'space-between') ) {
+            return 'space-between';
+        }
+        if ( str_contains($declared, 'flex-end') || 1 === preg_match('/(?:^|[\s,])(?:right|end)(?:[\s,]|$)/', $declared) ) {
+            return 'right';
+        }
+        if ( str_contains($declared, 'center') ) {
+            return 'center';
+        }
+
+        return '';
+    }
+
+    private function cssDeclarationValue(string $value): string
+    {
+        return strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($value))));
     }
 
     private function resolvedStyleDeclaresFamily(string $style, string $family): bool
