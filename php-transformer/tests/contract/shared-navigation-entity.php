@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
 
 $assert = static function (bool $condition, string $message): void { if (! $condition) throw new RuntimeException($message); };
 $pages = static function (array $plan): array { $rows = array(); foreach ($plan['pages'] as $page) $rows[$page['source_path']] = $page; return $rows; };
@@ -53,5 +54,41 @@ $nestedPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.htm
 )))->toArray()['source_reports']['wordpress_site_plan'];
 $nestedMenus = $entityMenus($nestedPlan);
 $assert(1 === count($nestedMenus) && str_contains((string) ($nestedMenus[0]['block_markup'] ?? ''), 'wp:navigation-submenu') && str_contains((string) ($nestedMenus[0]['block_markup'] ?? ''), '"label":"Project A"'), 'Submenus stay inside the shared navigation entity.');
+
+$variantMenu = static function (string $title, string $eventsHref): string {
+    $item = static function (string $label, string $href, bool $paragraph): string {
+        $inner = $paragraph ? '<div class="pad"><p class="label">' . $label . '</p></div>' : $label;
+        return '<li class="item"><a href="' . $href . '">' . $inner . '</a></li>';
+    };
+    $desktop = '<site-menu id="desktop-menu" class="desktop-menu"><nav aria-label="Site"><ul class="items">'
+        . $item('Home', '/', true) . $item('Journal', '/journal', true) . $item('Events', $eventsHref, true)
+        . '</ul></nav></site-menu>';
+    $mobile = '<nav class="mobile" aria-label="Site"><ul>'
+        . $item('Home', '/', false) . $item('Journal', '/journal', false) . $item('Events', '/', false)
+        . '</ul></nav>';
+    return '<header>' . $desktop . $mobile . '</header><main><h1>' . $title . '</h1></main>';
+};
+$variantPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $variantMenu('Home', '/#events'),
+    'journal.html' => $variantMenu('Journal', '/#events'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$variantMenus = $entityMenus($variantPlan);
+$variantMarkup = implode("\n", array_map(static fn(array $document): string => (string) ($document['canonical_block_markup'] ?? ''), array_merge($variantPlan['template_parts'] ?? array(), $variantPlan['pages'] ?? array())));
+$assert(1 === count($variantMenus), 'Variant menus that differ only by a URL fragment become one navigation entity.');
+$assert(3 === ($variantMenus[0]['items'] ?? null) && str_contains((string) ($variantMenus[0]['block_markup'] ?? ''), '"label":"Home"') && str_contains((string) ($variantMenus[0]['block_markup'] ?? ''), '"label":"Journal"') && str_contains((string) ($variantMenus[0]['block_markup'] ?? ''), '"label":"Events"'), 'The shared variant entity keeps the ordered item set.');
+$assert(2 <= substr_count($variantMarkup, '<!-- wp:navigation '), 'Both viewport navigations remain separate blocks.');
+$assert(!str_contains($variantMarkup, '{{wordpress-site-plan:navigation:'), 'Variant hosts stay inline until a materializer can bind an integer ref.');
+
+$divergentVariant = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $variantMenu('Home', '/shop'),
+    'journal.html' => $variantMenu('Journal', '/shop'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(2 === count($entityMenus($divergentVariant)), 'Variant menus with different destinations stay independent.');
+
+$currentItem = '<!-- wp:navigation-link {"className":"item blocks-engine-current-navigation-item be-inline-geometry-0123456789abcdef","label":"Home","url":"/"} /-->';
+$entityItem = ShellExtraction::withoutCurrentNavigationState($currentItem);
+$assert(str_contains($entityItem, 'be-inline-geometry-0123456789abcdef') && !str_contains($entityItem, 'blocks-engine-current-navigation-item'), 'The shared navigation entity keeps a current item\'s geometry carrier.');
+$identityItem = ShellExtraction::withoutCurrentNavigationState($currentItem, true);
+$assert(!str_contains($identityItem, 'be-inline-geometry-0123456789abcdef'), 'Shell identity still ignores current-item geometry.');
 
 echo "shared-navigation-entity: ok\n";

@@ -167,6 +167,13 @@ final class NavigationEntityProjection
         return implode("\n", self::destinationItems($inner));
     }
 
+    private static function destinationPath(string $url): string
+    {
+        $path = preg_replace('/#.*$/s', '', $url);
+
+        return is_string($path) ? $path : $url;
+    }
+
     /** @return array<int,string> */
     private static function destinationItems(string $inner): array
     {
@@ -186,7 +193,7 @@ final class NavigationEntityProjection
                     $attrs = $decoded;
                 }
             }
-            $items[] = (string) ($attrs['label'] ?? '') . "\t" . (string) ($attrs['url'] ?? '');
+            $items[] = (string) ($attrs['label'] ?? '') . "\t" . self::destinationPath((string) ($attrs['url'] ?? ''));
             $offset = $openEnd + 3;
         }
         return $items;
