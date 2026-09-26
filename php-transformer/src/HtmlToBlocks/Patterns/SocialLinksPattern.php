@@ -38,6 +38,9 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         'youtube' => 'youtube', 'email' => 'mail', 'mail' => 'mail',
     );
 
+    /** @var array<string,string> */
+    private array $destinationGlyphColor = array();
+
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         return $this->recognizeCluster($element, $context, false);
@@ -316,8 +319,12 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             if ( '' !== $glyph ) {
                 return $glyph;
             }
+            $paint = $this->ownPaintColor($image) ?: $this->ownPaintColor($anchor);
+            if ( '' !== $paint ) {
+                return $paint;
+            }
 
-            return $this->ownPaintColor($image) ?: $this->ownPaintColor($anchor);
+            return $this->sameDestinationGlyphColor($anchor, $context);
         }
 
         $svg = $anchor->getElementsByTagName('svg')->item(0);
@@ -359,6 +366,41 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         }
 
         return $this->concreteColor($context->assetGlyphColor($url));
+    }
+
+    private function sameDestinationGlyphColor(DOMElement $anchor, PatternContext $context): string
+    {
+        $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
+        if ( '' === $href ) {
+            return '';
+        }
+        if ( array_key_exists($href, $this->destinationGlyphColor) ) {
+            return $this->destinationGlyphColor[$href];
+        }
+
+        $color = '';
+        $document = $anchor->ownerDocument;
+        if ( null !== $document ) {
+            foreach ( $document->getElementsByTagName('a') as $other ) {
+                if ( ! $other instanceof DOMElement || $other->isSameNode($anchor) ) {
+                    continue;
+                }
+                if ( LinkUrlSanitizer::sanitize($this->attr($other, 'href')) !== $href ) {
+                    continue;
+                }
+                $image = $other->getElementsByTagName('img')->item(0);
+                if ( ! $image instanceof DOMElement ) {
+                    continue;
+                }
+                $color = $this->glyphColor($image, $context);
+                if ( '' !== $color ) {
+                    break;
+                }
+            }
+        }
+        $this->destinationGlyphColor[$href] = $color;
+
+        return $color;
     }
 
     private function ownPaintColor(DOMElement $element): string

@@ -108,4 +108,86 @@ $mixed = (new HtmlTransformer())->transform(
 $mixedBlock = $social($mixed);
 $assert(! isset($mixedBlock['attrs']['iconColorValue']), 'icons that do not share one color keep core service colors');
 
+$headerPart = static function (array $result): array {
+    $parts = $result['source_reports']['wordpress_site_plan']['template_parts'] ?? array();
+    foreach ( $parts as $part ) {
+        if ( is_array($part) && 'header' === ($part['area'] ?? null) ) {
+            return $part;
+        }
+    }
+
+    return array();
+};
+$sharedHeader = static function (string $icons): string {
+    return '<header class="site-header">' . $icons . '<nav><a href="/">Home</a><a href="/about">About</a></nav></header>';
+};
+$iconCluster = static function (string $src): string {
+    return '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><img src="' . $src . '" width="8" height="8" alt=""></a></li>'
+        . '<li><a href="https://www.instagram.com/example" aria-label="Instagram"><img src="' . $src . '" width="8" height="8" alt=""></a></li></ul>';
+};
+$page = static function (string $title, string $header): string {
+    return '<!doctype html><html><head><title>' . $title . '</title></head><body>' . $header . '<main><h1>' . $title . '</h1></main></body></html>';
+};
+$assertPartColor = static function (array $result, string $message) use ($assert, $headerPart): void {
+    $part = $headerPart($result);
+    $markup = (string) ($part['canonical_block_markup'] ?? '');
+    $assert('header' === ($part['slug'] ?? null), 'a repeated header extracts to one template part');
+    $assert(str_contains($markup, '"iconColorValue":"#ffffff"'), $message . ', got ' . $markup);
+};
+
+$sharedIcons = $iconCluster('/media/item.png');
+$sharedPages = array(
+    'website/index.html' => $page('Home', $sharedHeader($sharedIcons)),
+    'website/about/index.html' => $page('About', $sharedHeader($sharedIcons)),
+    'website/shop/index.html' => $page('Shop', $sharedHeader($sharedIcons)),
+);
+$sharedEmbedded = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files' => $sharedPages + array(
+        'website/media/item.png' => array( 'content_base64' => base64_encode($png), 'mime_type' => 'image/png' ),
+    ),
+))->toArray();
+$assertPartColor($sharedEmbedded, 'a shared header template part carries the root-relative glyph color');
+
+$placeholder = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+$placeholderHeader = $sharedHeader($iconCluster($placeholder));
+$placeholderPage = static function (string $title) use ($placeholderHeader, $iconCluster): string {
+    return '<!doctype html><html><head><title>' . $title . '</title></head><body>' . $placeholderHeader
+        . '<main><h1>' . $title . '</h1>' . $iconCluster('/media/item.png') . '</main></body></html>';
+};
+$placeholderResult = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        'website/index.html' => $placeholderPage('Home'),
+        'website/about/index.html' => $placeholderPage('About'),
+        'website/shop/index.html' => $placeholderPage('Shop'),
+        'website/media/item.png' => array( 'content_base64' => base64_encode($png), 'mime_type' => 'image/png' ),
+    ),
+))->toArray();
+$assertPartColor($placeholderResult, 'a shared header of placeholder icons carries the same destination glyph color');
+
+$referencedArtifact = array(
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array( 'path' => 'website/index.html', 'content' => $sharedPages['website/index.html'] ),
+        array( 'path' => 'website/about/index.html', 'content' => $sharedPages['website/about/index.html'] ),
+        array( 'path' => 'website/shop/index.html', 'content' => $sharedPages['website/shop/index.html'] ),
+        array( 'path' => 'website/media/item.png', 'mime_type' => 'image/png', 'payload_reference' => $iconReference ),
+    ),
+);
+$shellCompiler = new ArtifactCompiler();
+$shellShared = $shellCompiler->prepareShared($referencedArtifact, $referencedReader);
+$shellPlans = array();
+foreach ( array_keys($sharedPages) as $pageId ) {
+    $shellPlans[] = $shellCompiler->compilePreparedPage($shellShared, $shellCompiler->preparePage($referencedArtifact, $shellShared, $pageId, $referencedReader), $referencedReader);
+}
+$shellReferenced = $shellCompiler->compose($shellShared, $shellPlans, $referencedReader)->toArray();
+$assertPartColor($shellReferenced, 'a payload-referenced shared header carries the glyph color onto the template part');
+$inlineShell = current(array_filter(
+    $shellReferenced['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array(),
+    static fn (array $artifact): bool => 'header' === ($artifact['area'] ?? null)
+));
+$inlineMarkup = is_array($inlineShell) ? (string) ($inlineShell['template_part_block_markup'] ?? $inlineShell['block_markup'] ?? '') : '';
+$assert(str_contains($inlineMarkup, '"iconColorValue":"#ffffff"'), 'isolated shared-shell compilation carries the referenced glyph color, got ' . $inlineMarkup);
+
 echo "Social-links icon color tests passed\n";
