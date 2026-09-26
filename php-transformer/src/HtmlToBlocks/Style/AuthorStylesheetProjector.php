@@ -117,7 +117,8 @@ final class AuthorStylesheetProjector
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $svgImageRule . $editorDocumentRootRule;
-            return $css . $this->editorPositionRules($css) . $this->editorShellChildCombinatorVariants($css);
+
+            return $this->withEditorProjectionRules($css, $prelude, $body);
         }
 
         $inner = array_diff_key($declarations, $margins);
@@ -129,7 +130,47 @@ final class AuthorStylesheetProjector
             . $imageRule
             . $svgImageRule
             . $editorDocumentRootRule;
+
+        return $this->withEditorProjectionRules($css, $prelude, $body);
+    }
+
+    private function withEditorProjectionRules(string $css, string $prelude, string $body): string
+    {
+        $css .= $this->visuallyHiddenSourceSelectorRule($prelude, $css, $body);
+
         return $css . $this->editorPositionRules($css) . $this->editorShellChildCombinatorVariants($css);
+    }
+
+    private function visuallyHiddenSourceSelectorRule(string $prelude, string $projectedCss, string $body): string
+    {
+        if ( ! CssValueInspector::isVisuallyClippedBox($this->styleResolver->cssDeclarations($body)) ) {
+            return '';
+        }
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return '';
+        }
+        $projected = array();
+        ( new CssStylesheetTransformer() )->visitStyleRules($projectedCss, static function (string $projectedPrelude) use (&$projected): void {
+            foreach ( CssStylesheetTransformer::splitSelectorList($projectedPrelude) ?? array() as $selector ) {
+                $projected[self::selectorKey($selector)] = true;
+            }
+        });
+        $kept = array();
+        foreach ( $selectors as $selector ) {
+            $selector = trim($selector);
+            if ( '' === $selector || ! str_contains($selector, '.') || isset($projected[self::selectorKey($selector)]) ) {
+                continue;
+            }
+            $kept[] = $selector;
+        }
+
+        return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
+    }
+
+    private static function selectorKey(string $selector): string
+    {
+        return preg_replace('/\s+/', ' ', trim($selector)) ?? trim($selector);
     }
 
     private function editorPositionRules(string $css): string
