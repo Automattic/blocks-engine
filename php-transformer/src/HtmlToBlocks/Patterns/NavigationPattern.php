@@ -1052,8 +1052,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * packs with `justify-content`. The generated container is a flex row
      * whose default is flex-start, so that declaration has to be restated as
      * `layout.justifyContent` or the items start at the container's leading
-     * edge. A column flex list keeps the cross-axis value the vertical
-     * orientation path already recorded.
+     * edge. The generated list also inherits an ancestor column and wraps, so
+     * the same packing is projected onto the container. A column flex list
+     * keeps the cross-axis value the vertical orientation path already recorded.
      *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
@@ -1064,7 +1065,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $attrs;
         }
 
-        $justification = $this->listPackingJustification($navigationContext->resolvedStyle($list));
+        $style = $navigationContext->resolvedStyle($list);
+        $justification = $this->listPackingJustification($style);
         if ( '' === $justification ) {
             return $attrs;
         }
@@ -1075,6 +1077,23 @@ final class NavigationPattern implements PatternRecognizerInterface
             $layout['type'] = 'flex';
         }
         $attrs['layout'] = $layout;
+        $justify = match ( $justification ) {
+            'right' => 'flex-end',
+            'center' => 'center',
+            'space-between' => 'space-between',
+            default => '',
+        };
+        if ( '' !== $justify ) {
+            $declarations = 'flex-direction:row!important;justify-content:' . $justify . '!important';
+            if ( 1 === preg_match('/(?:^|;)\s*white-space\s*:\s*nowrap\b/i', $style) ) {
+                $declarations .= ';flex-wrap:nowrap!important';
+            }
+            $navigationContext->projectSourceToNativeTarget(
+                $list,
+                '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
+                $declarations
+            );
+        }
 
         return $attrs;
     }

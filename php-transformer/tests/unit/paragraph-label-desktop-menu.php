@@ -38,14 +38,20 @@ for ( $depth = 0; $depth < 16; ++$depth ) {
     $deep = '<div class="shell">' . $deep . '</div>';
 }
 
-$transform = static function (string $html): string {
-    $result = ( new HtmlTransformer() )->transform($html)->toArray();
-
+$transform = static function (string $html): array {
+    return ( new HtmlTransformer() )->transform($html)->toArray();
+};
+$markupOf = static function (array $result): string {
     return (string) ($result['serialized_blocks'] ?? '');
 };
+$cssOf = static function (array $result): string {
+    return implode("\n", array_map(static fn ($asset): string => (string) ($asset['content'] ?? ''), $result['assets'] ?? array()));
+};
 
-$shallow = $transform($layout);
-$deepMarkup = $transform($deep);
+$shallowResult = $transform($layout);
+$deepResult = $transform($deep);
+$shallow = $markupOf($shallowResult);
+$deepMarkup = $markupOf($deepResult);
 
 foreach ( array( 'shallow layout wrapper' => $shallow, 'deep layout wrapper' => $deepMarkup ) as $name => $markup ) {
     $assert(1 <= substr_count($markup, '<!-- wp:navigation '), $name . ' materializes the paragraph-labelled menu as core/navigation', $markup);
@@ -53,12 +59,14 @@ foreach ( array( 'shallow layout wrapper' => $shallow, 'deep layout wrapper' => 
     $assert(str_contains($markup, '"label":"Home"') && str_contains($markup, '"label":"Journal"') && str_contains($markup, '"label":"About"'), $name . ' keeps paragraph-wrapped labels as navigation-link labels', $markup);
     $assert(str_contains($markup, 'id="desktop-menu"'), $name . ' keeps the menu host identity CSS can address', $markup);
     $assert(str_contains($markup, '"justifyContent":"right"'), $name . ' keeps the list text-align packing as navigation justification', $markup);
+    $css = 'shallow layout wrapper' === $name ? $cssOf($shallowResult) : $cssOf($deepResult);
+    $assert(str_contains($css, 'flex-direction:row!important;justify-content:flex-end!important'), $name . ' projects the list packing onto the navigation container', $css);
     $assert(! str_contains($markup, '<p class="label">') && ! str_contains($markup, '<p class=\\"label\\">'), $name . ' does not leave menu labels as companion-attribute HTML', $markup);
 }
 
-$component = $transform(
+$component = $markupOf($transform(
     '<my-pricing><div class="tier"><h3>Basic</h3><p>$9</p></div><div class="tier"><h3>Pro</h3><p>$19</p></div><div class="tier"><h3>Max</h3><p>$49</p></div></my-pricing>'
-);
+));
 $assert(! str_contains($component, '<!-- wp:navigation '), 'a custom element that is not a navigation host stays out of core/navigation', $component);
 
 if ( 0 < $failures ) {
