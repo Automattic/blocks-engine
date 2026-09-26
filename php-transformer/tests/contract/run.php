@@ -107,6 +107,7 @@ $semanticShellArtifact = (new ArtifactCompiler())->compile(array(
     ),
 ))->toArray();
 $semanticShellPageMarkup = (string) ($semanticShellArtifact['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? '');
+$semanticShellSurface = $semanticShellPageMarkup . implode('', array_column($semanticShellArtifact['source_reports']['wordpress_site_plan']['menus'] ?? array(), 'block_markup'));
 $assert(
     'success' === ($semanticShellArtifact['status'] ?? '')
         && 2 === substr_count($semanticShellPageMarkup, 'wp:custom/layout-shell')
@@ -115,7 +116,7 @@ $assert(
         && str_contains($semanticShellPageMarkup, '"tagName":"div"')
         && str_contains($semanticShellPageMarkup, 'Editable heading')
         && str_contains($semanticShellPageMarkup, 'alt="Hero"')
-        && str_contains($semanticShellPageMarkup, '"label":"Home"')
+        && str_contains($semanticShellSurface, '"label":"Home"')
         && str_contains($semanticShellPageMarkup, '"label":"Search"')
         && str_contains($semanticShellPageMarkup, '"buttonText":"Send"'),
     'artifact page serialization folds unary semantic wrappers into one layout shell while retaining native heading, image, navigation, and form blocks'

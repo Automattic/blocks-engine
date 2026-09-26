@@ -24,6 +24,7 @@ final class WordPressSitePlan
     public const SCHEMA = 'blocks-engine/wordpress-site-plan/v2';
     public const IDENTITY_SCHEMA = 'blocks-engine/wordpress-site-plan-identity/v1';
     public const TOKEN_PREFIX = '{{wordpress-site-plan:asset:';
+    public const NAVIGATION_TOKEN_PREFIX = '{{wordpress-site-plan:navigation:';
     /** Blocks whose serialized `url` attribute names a route rather than an asset. */
     public const ROUTE_URL_BLOCKS = array('navigation-link', 'navigation-submenu', 'button', 'social-link');
     public const MAX_DOCUMENT_IDENTITY_DIAGNOSTICS = 50;
@@ -212,6 +213,12 @@ final class WordPressSitePlan
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
         self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
+        $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus);
+        $pages = $navigation['pages'];
+        $parts = $navigation['parts'];
+        $menus = $navigation['menus'];
+        $runtimeDeclarations = self::reanchorEntityBindings($runtimeDeclarations, $pages, $menus);
+        self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
@@ -225,7 +232,7 @@ final class WordPressSitePlan
             $tokens = array_merge($tokens, $this->tokens($placeholderAssets));
             $assetWrites = array_merge($assetWrites, $this->assetWrites($placeholderAssets, $references));
         }
-        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages), $assetWrites);
+        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus), $assetWrites);
         $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->missingMedia->diagnostics());
         $plan = array(
             'schema' => self::SCHEMA,
@@ -240,7 +247,7 @@ final class WordPressSitePlan
             'operations' => $operations,
             'routes' => $routes,
             'navigation_links' => $input->navigationLinks,
-            'menus' => $input->menus,
+            'menus' => $menus,
             'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization)),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
@@ -310,7 +317,7 @@ final class WordPressSitePlan
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
-        self::assertRows($plan['menus'], 'menu', array('kind', 'source_path', 'target_slug', 'source_relation', 'order', 'items'));
+        self::assertRows($plan['menus'], 'menu', array('kind', 'source_path', 'target_slug', 'source_relation', 'order', 'items'), array('title', 'block_markup', 'token', 'reconciliation_identity'));
         $assetTargets = array();
         $assetTokens = array();
         $assetIdentities = array();
@@ -1694,18 +1701,18 @@ final class WordPressSitePlan
     private static function routeAncestors(string $path): array { $ancestors = array(); for ($parent = self::parentRoutePath($path); '/' !== $parent; $parent = self::parentRoutePath($parent)) $ancestors[] = $parent; return array_reverse($ancestors); }
     private static function routeSlug(string $path): string { return trim((string) basename($path), '/'); }
 
-    /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
-    private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts, array $theme, array $tokens, array $pages = array()): array
+    /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $menus @return array<int,array<string,mixed>> */
+    private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts, array $theme, array $tokens, array $pages = array(), array $menus = array()): array
     {
         $writes = array($this->write('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), $this->write('theme_scaffold', 'theme.json', json_encode($theme, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"));
-        $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts, $parts, $tokens, $templates, $pages));
+        $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts, $parts, $tokens, $templates, $pages, $menus));
         foreach ( $templates as $template ) $writes[] = $this->write('theme_template', $template['target_path'], $template['canonical_block_markup']);
         foreach ( $parts as $part ) $writes[] = $this->write('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
         return $writes;
     }
 
     /** @param array<int,array<string,mixed>> $assets */
-    private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array()): string
+    private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array()): string
     {
         $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY, "add_action( 'wp_enqueue_scripts', static function (): void {");
         $importLoaded = self::importLoadedStylesheets($assets);
@@ -1790,14 +1797,15 @@ final class WordPressSitePlan
             $lines[] = "}, 10, 2 );";
         }
         $hasNavigationLink = false;
-        foreach (array_merge($templates, $parts, $pages) as $document) {
-            $markup = (string) ($document['canonical_block_markup'] ?? '');
+        foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
+            $markup = (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? '');
             // Require the navigation container alongside a link, not merely the
             // link comment text, so the filter is only emitted where core/navigation
             // actually renders a navigation-link item: a bare "wp:navigation-link"
             // substring can appear in unrelated JSON/attribute contexts that never
-            // reach render_block_core_navigation_link().
-            if (str_contains($markup, 'wp:navigation-link') && str_contains($markup, 'wp:navigation ')) { $hasNavigationLink = true; break; }
+            // reach render_block_core_navigation_link(). Entity inner markup is
+            // the link list for a referencing navigation block.
+            if (str_contains($markup, 'wp:navigation-link') && (str_contains($markup, 'wp:navigation ') || isset($document['token']))) { $hasNavigationLink = true; break; }
         }
         if ($hasNavigationLink) {
             // core/navigation-link is fully dynamic: render_block_core_navigation_link()
@@ -2104,6 +2112,59 @@ final class WordPressSitePlan
         return RuntimeDeclarations::normalizeList($declarations);
     }
 
+    /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $menus @return array<int,array<string,mixed>> */
+    private static function reanchorEntityBindings(array $declarations, array $pages, array $menus = array()): array
+    {
+        $markupBySource = array();
+        foreach ($pages as $page) {
+            if (is_string($page['source_path'] ?? null) && is_string($page['canonical_block_markup'] ?? null)) {
+                $markupBySource[$page['source_path']] = $page['canonical_block_markup'];
+            }
+        }
+        foreach ($declarations as $declarationIndex => $declaration) {
+            $entities = $declaration['payload']['entities'] ?? null;
+            if (!is_array($entities)) {
+                continue;
+            }
+            foreach ($entities as $entityIndex => $entity) {
+                $bindings = is_array($entity) ? ($entity['bindings'] ?? null) : null;
+                if (!is_array($bindings)) {
+                    continue;
+                }
+                foreach ($bindings as $bindingIndex => $binding) {
+                    if (!is_array($binding)) {
+                        continue;
+                    }
+                    if (is_string($binding['search_block_markup'] ?? null)) {
+                        $binding['search_block_markup'] = NavigationEntityProjection::rewriteMarkup($binding['search_block_markup'], $menus);
+                    }
+                    $source = $binding['source_path'] ?? null;
+                    $search = $binding['search_block_markup'] ?? null;
+                    $occurrence = $binding['occurrence'] ?? null;
+                    $markup = is_string($source) ? ($markupBySource[$source] ?? null) : null;
+                    $offset = is_string($markup) && is_string($search) && is_int($occurrence) ? self::occurrenceOffset($markup, $search, $occurrence) : null;
+                    if (!is_string($source) || !is_string($search) || !is_string($markup) || null === $offset) {
+                        throw new InvalidArgumentException('A runtime entity binding no longer has its declared source-page block anchor after navigation entity projection: ' . (is_string($source) ? $source : 'unknown') . ' (' . (is_string($binding['role'] ?? null) ? $binding['role'] : 'unknown') . ').');
+                    }
+                    $blockIndex = null;
+                    foreach (self::blockRanges($markup) as $index => $range) {
+                        if ($range['offset'] === $offset && $search === substr($markup, $range['offset'], $range['length'])) {
+                            $blockIndex = $index;
+                            break;
+                        }
+                    }
+                    if (!is_int($blockIndex)) {
+                        throw new InvalidArgumentException('A runtime entity binding no longer has its declared source-page block anchor after navigation entity projection: ' . $source . ' (' . (is_string($binding['role'] ?? null) ? $binding['role'] : 'unknown') . ').');
+                    }
+                    $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $offset, 'length' => strlen($search));
+                    $declarations[$declarationIndex]['payload']['entities'][$entityIndex]['bindings'][$bindingIndex] = $binding;
+                }
+            }
+            unset($declarations[$declarationIndex]['payload_hash'], $declarations[$declarationIndex]['content_hash']);
+        }
+        return RuntimeDeclarations::normalizeList($declarations);
+    }
+
     /** @internal Exposed for ShellExtraction, which canonicalizes shell-candidate links through the same route table as page content. @param array<int,array<string,mixed>> $routes */
     public function routeLinks(string $content, string $origin, array $routes): string
     {
@@ -2296,7 +2357,7 @@ final class WordPressSitePlan
         if (!is_array($theme) || 3 !== ($theme['version'] ?? null) || !is_array($theme['settings'] ?? null) || !is_array($theme['styles'] ?? null)) throw new InvalidArgumentException('WordPress site plan theme.json shape is unsupported.');
         $bootstrap = $writes['functions.php'] ?? null;
         $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
-        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
+        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages'], $plan['menus']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
     }
     /** @param array<int,mixed> $declarations @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $writes */
     private static function assertAssetPublicationDeclarations(array $declarations, array $assets, array $writes): void
