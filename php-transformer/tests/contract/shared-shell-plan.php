@@ -672,4 +672,39 @@ foreach (array('index.html', 'about.html', 'contact.html') as $source) {
     $assert(!str_contains($pages($titlePlan)[$source]['canonical_block_markup'] ?? '', 'Studio Name'), "{$source} keeps only its own content once the header is shared.");
 }
 
+$variantLinks = '<a href="/">Home</a><a href="/about">About</a><a href="/shop">Shop</a>';
+$desktopVariantHeader = '<header id="site-header" class="site-header"><p class="brand">Example Band</p><details class="menu"><summary>Menu</summary>' . $variantLinks . '</details></header>';
+$mobileVariantHeader = '<header id="site-header" class="site-header"><p class="brand">Example Band</p><nav aria-label="Site">' . $variantLinks . '</nav></header>';
+$variantDocument = static function (string $title) use ($desktopVariantHeader, $mobileVariantHeader): string {
+    $main = '<main><h1>' . $title . '</h1></main>';
+    return '<div class="data-liberation-desktop-document"><div class="frame">' . $desktopVariantHeader . $main . '</div></div>'
+        . '<div class="data-liberation-mobile-document"><div class="frame">' . $mobileVariantHeader . $main . '</div></div>';
+};
+$variantPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $variantDocument('Home'),
+    'about.html' => $variantDocument('About'),
+    'shop.html' => $variantDocument('Shop'),
+    'notes.html' => '<main><h1>Notes</h1><p>Item 1</p></main>',
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$variantWrites = $writes($variantPlan);
+$variantPages = $pages($variantPlan);
+$variantHeaderParts = array_values(array_filter($variantPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null) && in_array($part['placement']['kind'] ?? null, array('shared_shell', 'entry_shell'), true)));
+foreach (array('index.html' => 'templates/front-page.html', 'about.html' => 'templates/page.html', 'shop.html' => 'templates/page.html') as $source => $template) {
+    $markup = $variantPages[$source]['canonical_block_markup'] ?? '';
+    $templateMarkup = $variantWrites[$template]['payload']['data'] ?? '';
+    $desktopAt = strpos($markup, 'data-liberation-desktop-document');
+    $mobileAt = strpos($markup, 'data-liberation-mobile-document');
+    $desktopMarkup = false !== $desktopAt ? substr($markup, $desktopAt, (false !== $mobileAt ? $mobileAt : strlen($markup)) - $desktopAt) : '';
+    $mobileMarkup = false !== $mobileAt ? substr($markup, $mobileAt) : '';
+    $templateBindsHeader = str_contains($templateMarkup, '"slug":"header"');
+    $contentHeaderLandmarks = substr_count($markup, '"tagName":"header"') + substr_count($markup, '"area":"header"');
+    $desktopHeaders = substr_count($desktopMarkup, '"tagName":"header"');
+    $mobileHeaders = substr_count($mobileMarkup, '"tagName":"header"');
+    $assert(!($templateBindsHeader && $contentHeaderLandmarks > 0), "{$source} must not bind a header part while page content still carries a header landmark.");
+    $assert(1 === $desktopHeaders + ($templateBindsHeader ? 1 : 0), "{$source} renders exactly one desktop header landmark in the composed page.");
+    $assert(1 === $mobileHeaders + ($templateBindsHeader ? 1 : 0), "{$source} keeps exactly one header landmark visible with the mobile document.");
+    $assert(str_contains($markup, '>' . ('index.html' === $source ? 'Home' : ('about.html' === $source ? 'About' : 'Shop')) . '</h1>'), "{$source} keeps its page title after chrome placement.");
+}
+$assert(array() === $variantHeaderParts, 'A responsive variant that still owns a header landmark does not also become a template-bound header part.');
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");
