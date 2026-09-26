@@ -675,10 +675,12 @@ foreach (array('index.html', 'about.html', 'contact.html') as $source) {
 $variantLinks = '<a href="/">Home</a><a href="/about">About</a><a href="/shop">Shop</a>';
 $desktopVariantHeader = '<header id="site-header" class="site-header"><p class="brand">Example Band</p><details class="menu"><summary>Menu</summary>' . $variantLinks . '</details></header>';
 $mobileVariantHeader = '<header id="site-header" class="site-header"><p class="brand">Example Band</p><nav aria-label="Site">' . $variantLinks . '</nav></header>';
-$variantDocument = static function (string $title) use ($desktopVariantHeader, $mobileVariantHeader): string {
+$desktopVariantFooter = '<footer id="site-footer" class="site-footer"><p>Desktop colophon</p></footer>';
+$mobileVariantFooter = '<footer id="site-footer" class="site-footer"><p>Mobile colophon</p></footer>';
+$variantDocument = static function (string $title) use ($desktopVariantHeader, $mobileVariantHeader, $desktopVariantFooter, $mobileVariantFooter): string {
     $main = '<main><h1>' . $title . '</h1></main>';
-    return '<div class="data-liberation-desktop-document"><div class="frame">' . $desktopVariantHeader . $main . '</div></div>'
-        . '<div class="data-liberation-mobile-document"><div class="frame">' . $mobileVariantHeader . $main . '</div></div>';
+    return '<div class="data-liberation-desktop-document"><div class="frame">' . $desktopVariantHeader . $main . $desktopVariantFooter . '</div></div>'
+        . '<div class="data-liberation-mobile-document"><div class="frame">' . $mobileVariantHeader . $main . $mobileVariantFooter . '</div></div>';
 };
 $variantPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => $variantDocument('Home'),
@@ -700,11 +702,23 @@ foreach (array('index.html' => 'templates/front-page.html', 'about.html' => 'tem
     $contentHeaderLandmarks = substr_count($markup, '"tagName":"header"') + substr_count($markup, '"area":"header"');
     $desktopHeaders = substr_count($desktopMarkup, '"tagName":"header"');
     $mobileHeaders = substr_count($mobileMarkup, '"tagName":"header"');
-    $assert(!($templateBindsHeader && $contentHeaderLandmarks > 0), "{$source} must not bind a header part while page content still carries a header landmark.");
-    $assert(1 === $desktopHeaders + ($templateBindsHeader ? 1 : 0), "{$source} renders exactly one desktop header landmark in the composed page.");
-    $assert(1 === $mobileHeaders + ($templateBindsHeader ? 1 : 0), "{$source} keeps exactly one header landmark visible with the mobile document.");
+    $assert($templateBindsHeader && 0 === $contentHeaderLandmarks, "{$source} hoists viewport-partitioned header chrome into the template and leaves no header landmark in page content.");
+    $assert(0 === $desktopHeaders && 0 === $mobileHeaders, "{$source} strips both variant header landmarks from page content.");
     $assert(str_contains($markup, '>' . ('index.html' === $source ? 'Home' : ('about.html' === $source ? 'About' : 'Shop')) . '</h1>'), "{$source} keeps its page title after chrome placement.");
 }
-$assert(array() === $variantHeaderParts, 'A responsive variant that still owns a header landmark does not also become a template-bound header part.');
+$variantHeader = $variantHeaderParts[0] ?? array();
+$variantHeaderMarkup = (string) ($variantHeader['canonical_block_markup'] ?? '');
+$assert(1 === count($variantHeaderParts) && 'shared_shell' === ($variantHeader['placement']['kind'] ?? null) && 'responsive_variant_partition' === ($variantHeader['provenance']['reason'] ?? null), 'Divergent desktop and mobile headers that match across routes become one template-bound header part.');
+$assert(str_contains($variantHeaderMarkup, 'data-liberation-desktop-document') && str_contains($variantHeaderMarkup, 'data-liberation-mobile-document') && str_contains($variantHeaderMarkup, 'Menu') && str_contains($variantHeaderMarkup, 'Example Band'), 'The shared header part keeps each viewport\'s chrome behind the existing variant visibility class: ' . $variantHeaderMarkup);
+$assert(1 === substr_count($variantWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($variantWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($variantWrites['templates/page-notes.html']['payload']['data'] ?? '', '"slug":"header"'), 'Templates reference the shared header, and a route without that chrome stays excluded.');
+$assert(!str_contains($variantPages['notes.html']['canonical_block_markup'] ?? '', '"tagName":"header"'), 'A route without header chrome does not gain one.');
+$variantFooterParts = array_values(array_filter($variantPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null) && in_array($part['placement']['kind'] ?? null, array('shared_shell', 'entry_shell'), true)));
+$variantFooterMarkup = (string) (($variantFooterParts[0]['canonical_block_markup'] ?? ''));
+$assert(1 === count($variantFooterParts) && 'responsive_variant_partition' === ($variantFooterParts[0]['provenance']['reason'] ?? null) && str_contains($variantFooterMarkup, 'Desktop colophon') && str_contains($variantFooterMarkup, 'Mobile colophon') && str_contains($variantFooterMarkup, 'data-liberation-desktop-document') && str_contains($variantFooterMarkup, 'data-liberation-mobile-document'), 'Divergent desktop and mobile footers hoist into one visibility-partitioned footer part: ' . $variantFooterMarkup);
+foreach (array('index.html', 'about.html', 'shop.html') as $source) {
+    $markup = $variantPages[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, '"tagName":"footer"') && !str_contains($markup, '"area":"footer"'), "{$source} keeps footer landmarks out of page content.");
+}
+$assert(1 === substr_count($variantWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"') && !str_contains($variantWrites['templates/page-notes.html']['payload']['data'] ?? '', '"slug":"footer"'), 'The page template references the shared footer and the excluded route does not.');
 
 fwrite(STDOUT, "shared-shell-plan contract passed\n");

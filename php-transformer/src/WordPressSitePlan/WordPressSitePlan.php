@@ -713,9 +713,7 @@ final class WordPressSitePlan
         $paintOrder = array();
         foreach ($parts as $part) {
             if ('shared_shell' !== ($part['placement']['kind'] ?? null) || !is_array($part['ancestor_context'] ?? null)) continue;
-            if (!preg_match('/^<!--\s*wp:group\s+(\{[^>]*?\})\s*-->/', (string) ($part['canonical_block_markup'] ?? ''), $match)) continue;
-            $attrs = json_decode($match[1], true);
-            $anchor = is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
+            $anchor = self::partRootAnchor((string) ($part['canonical_block_markup'] ?? ''));
             if ('' === $anchor) continue;
             $roots[$anchor] = array('ids' => array_fill_keys($part['ancestor_context']['ids'] ?? array(), true), 'classes' => array_fill_keys($part['ancestor_context']['classes'] ?? array(), true));
             // A header part renders before post-content, yet page content that
@@ -765,6 +763,16 @@ final class WordPressSitePlan
         unset($context['content_base64']);
         $assets[] = $context;
         return $assets;
+    }
+
+    private static function partRootAnchor(string $markup): string
+    {
+        if (!preg_match_all('/<!--\s*wp:group\s+(\{[^>]*\})\s*-->/', $markup, $matches)) return '';
+        foreach ($matches[1] as $json) {
+            $attrs = json_decode($json, true);
+            if (is_array($attrs) && is_string($attrs['anchor'] ?? null) && '' !== $attrs['anchor']) return $attrs['anchor'];
+        }
+        return '';
     }
 
     /** @param array<string,array{ids:array<string,true>,classes:array<string,true>}> $roots */
