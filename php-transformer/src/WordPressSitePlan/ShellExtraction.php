@@ -1141,6 +1141,11 @@ final class ShellExtraction
         return '<!-- wp:group ' . $encoded . ' -->' . $rest;
     }
 
+    public static function identityMarkup(string $markup): string
+    {
+        return self::normalizeNestedChromeMarkup($markup);
+    }
+
     public static function withoutCurrentNavigationState(string $markup, bool $semanticIdentity = false): string
     {
         $stateCarrierCounts = array();

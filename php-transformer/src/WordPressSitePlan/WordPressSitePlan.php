@@ -214,13 +214,15 @@ final class WordPressSitePlan
         $runtimeDeclarations = $shells['runtime_declarations'];
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
-        self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
+         self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
          $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus);
          $pages = $navigation['pages'];
          $parts = $navigation['parts'];
          $menus = $navigation['menus'];
+         $articleChrome = $this->extractPostArticleChrome($pages);
+         $pages = $articleChrome['pages'];
          $pages = $this->materializeListingQueryLoops($pages);
-        $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap);
+         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single']);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         // Asset payloads are the last canonicalization pass, so the placeholder
@@ -1477,28 +1479,28 @@ final class WordPressSitePlan
     private function routesForPages(array $pages): array { $routes = array(); foreach ($pages as $page) $routes[] = array('kind' => 'route', 'source_path' => $page['source_path'], 'target_path' => $page['route']['path'], 'target_slug' => $page['slug'], 'title' => $page['title'], 'parent_source_path' => $page['parent_source_path'], 'source_relation' => !empty($page['synthetic']) ? 'synthetic_parent' : (!empty($page['entrypoint']) ? 'entrypoint' : 'document'), 'order' => count($routes)); return $routes; }
 
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,string>> */
-    private function templates(array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array()): array
-    {
-        $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
-        usort($bound, static function (array $left, array $right): int {
-            $priority = array('header' => 0, 'footer' => 2);
-            return (($priority[$left['area']] ?? 1) <=> ($priority[$right['area']] ?? 1)) ?: strcmp($left['slug'], $right['slug']);
-        });
-        $markup = static function (string $templateSlug) use ($bound): string {
-            $before = ''; $after = '';
-            $container = null;
-            foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $templateSlug) && !in_array($templateSlug, $part['placement']['excluded_template_slugs'] ?? array(), true))) {
-                if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
-                $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '"} /-->' . "\n";
-                if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
-            }
-            if (in_array($templateSlug, array('index', 'search'), true)) {
-                $query = ('search' === $templateSlug ? '<!-- wp:query-title {"type":"search"} /-->' . "\n" : '')
-                    . self::queryLoopMarkup(true);
-                $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . $query . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
-            } else {
-                $content = '<!-- wp:post-content /-->';
-            }
+     private function templates(array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array(), ?string $singleContent = null): array
+     {
+         $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
+         usort($bound, static function (array $left, array $right): int {
+             $priority = array('header' => 0, 'footer' => 2);
+             return (($priority[$left['area']] ?? 1) <=> ($priority[$right['area']] ?? 1)) ?: strcmp($left['slug'], $right['slug']);
+         });
+         $markup = static function (string $templateSlug) use ($bound, $singleContent): string {
+             $before = ''; $after = '';
+             $container = null;
+             foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $templateSlug) && !in_array($templateSlug, $part['placement']['excluded_template_slugs'] ?? array(), true))) {
+                 if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
+                 $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '"} /-->' . "\n";
+                 if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
+             }
+             if (in_array($templateSlug, array('index', 'search'), true)) {
+                 $query = ('search' === $templateSlug ? '<!-- wp:query-title {"type":"search"} /-->' . "\n" : '')
+                     . self::queryLoopMarkup(true);
+                 $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . $query . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
+             } else {
+                 $content = ('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->';
+             }
             if (is_array($container) && is_string($container['opening'] ?? null) && is_string($container['closing'] ?? null)) return $container['opening'] . $before . $content . "\n" . $container['closing'] . $after;
             return $before . $content . "\n" . $after;
         };
@@ -1518,6 +1520,191 @@ final class WordPressSitePlan
             $templates[] = array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'source_path' => $surface['source_path'], 'template_surface' => $declaration, 'provenance' => $surface['provenance'] ?? array(), 'reconciliation_identity' => self::identity('template', $surface['source_path'], $target), 'content_hash' => self::contentHash($content));
         }
         return $templates;
+    }
+    /**
+     * @param array<int,array<string,mixed>> $pages
+     * @return array{pages:array<int,array<string,mixed>>,single:?string}
+     */
+    private function extractPostArticleChrome(array $pages): array
+    {
+        $posts = array();
+        $indexes = array();
+        foreach ($pages as $index => $page) {
+            if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !is_string($page['canonical_block_markup'] ?? null) || '' === trim($page['canonical_block_markup'])) {
+                continue;
+            }
+            $posts[] = $page;
+            $indexes[] = $index;
+        }
+        if (count($posts) < 2) {
+            return array('pages' => $pages, 'single' => null);
+        }
+        $shared = $this->sharedPostChromeIdentities($posts);
+        $single = null;
+        $bodies = array();
+        foreach ($posts as $postIndex => $post) {
+            $route = is_string($post['route']['path'] ?? null) ? $post['route']['path'] : '';
+            $transformed = $this->transformPostChromeDocument($post['canonical_block_markup'], $post, $route, $shared);
+            if (!$transformed['title'] || (!$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || !str_contains($transformed['template'], '<!-- wp:post-content')) {
+                return array('pages' => $pages, 'single' => null);
+            }
+            if (null === $single) {
+                $single = $this->replaceListingArchives($transformed['template'], $posts);
+            }
+            $bodies[$indexes[$postIndex]] = $transformed['body'];
+        }
+        foreach ($bodies as $index => $body) {
+            $pages[$index]['canonical_block_markup'] = $body;
+            $pages[$index]['content_hash'] = self::contentHash($body);
+        }
+        return array('pages' => $pages, 'single' => $single);
+    }
+    /**
+     * @param array<int,array<string,mixed>> $posts
+     * @return array<string,true>
+     */
+    private function sharedPostChromeIdentities(array $posts): array
+    {
+        $shared = null;
+        foreach ($posts as $post) {
+            $identities = array();
+            foreach (self::blockRanges($post['canonical_block_markup']) as $range) {
+                $identity = ShellExtraction::identityMarkup(substr($post['canonical_block_markup'], $range['offset'], $range['length']));
+                if ('' !== $identity) {
+                    $identities[$identity] = true;
+                }
+            }
+            $shared = null === $shared ? $identities : array_intersect_key($shared, $identities);
+        }
+        return $shared ?? array();
+    }
+    /**
+     * @param array<string,mixed> $post
+     * @param array<string,true> $shared
+     * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool}
+     */
+    private function transformPostChromeDocument(string $markup, array $post, string $route, array $shared): array
+    {
+        $top = array();
+        foreach (self::blockRanges($markup) as $range) {
+            if (null === self::parentBlockRange($markup, $range)) {
+                $top[] = $range;
+            }
+        }
+        usort($top, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        if (array() === $top) {
+            return array('template' => '', 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false);
+        }
+        $template = '';
+        $body = '';
+        $title = false;
+        $date = false;
+        $sharedChrome = false;
+        $content = false;
+        $cursor = 0;
+        foreach ($top as $range) {
+            if ($range['offset'] > $cursor) {
+                $template .= substr($markup, $cursor, $range['offset'] - $cursor);
+            }
+            $transformed = $this->transformPostChromeRange($markup, $range, $post, $route, $shared);
+            $template .= $transformed['template'];
+            $body .= $transformed['body'];
+            $title = $title || $transformed['title'];
+            $date = $date || $transformed['date'];
+            $sharedChrome = $sharedChrome || $transformed['shared'];
+            $content = $content || $transformed['content'];
+            $cursor = $range['offset'] + $range['length'];
+        }
+        if ($cursor < strlen($markup)) {
+            $template .= substr($markup, $cursor);
+        }
+        return array('template' => $template, 'body' => $body, 'title' => $title, 'date' => $date, 'shared' => $sharedChrome, 'content' => $content);
+    }
+    /**
+     * @param array{offset:int,length:int} $range
+     * @param array<string,mixed> $post
+     * @param array<string,true> $shared
+     * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool}
+     */
+    private function transformPostChromeRange(string $markup, array $range, array $post, string $route, array $shared): array
+    {
+        $slice = substr($markup, $range['offset'], $range['length']);
+        $empty = array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false);
+        $className = (string) (self::listingBlockAttributes($slice)['className'] ?? '');
+        if (preg_match('/\b(?:social|share-button|twitter-share)\b/', $className) || self::isCommentFormChrome($slice)) {
+            return $empty;
+        }
+        $identity = ShellExtraction::identityMarkup($slice);
+        if ('' !== $identity && isset($shared[$identity])) {
+            return array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => true, 'content' => false);
+        }
+        $children = self::childBlockRanges($markup, $range);
+        if (array() === $children) {
+            $kind = $this->classifyPostChromeBlock($slice, $post, $route);
+            if ('title' === $kind) {
+                return array('template' => self::postTitleMarkup($slice), 'body' => '', 'title' => true, 'date' => false, 'shared' => false, 'content' => false);
+            }
+            if ('date' === $kind) {
+                return array('template' => self::postDateMarkup($slice), 'body' => '', 'title' => false, 'date' => true, 'shared' => false, 'content' => false);
+            }
+            if ('comments' === $kind || 'chrome' === $kind || 'share' === $kind || 'skip' === $kind) {
+                return $empty;
+            }
+            return array('template' => '<!-- wp:post-content /-->', 'body' => $slice, 'title' => false, 'date' => false, 'shared' => false, 'content' => true);
+        }
+        $foundTitle = false;
+        $foundDate = false;
+        $foundShared = false;
+        $emittedContent = false;
+        $body = '';
+        $replacements = array();
+        foreach ($children as $child) {
+            $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared);
+            $foundTitle = $foundTitle || $transformed['title'];
+            $foundDate = $foundDate || $transformed['date'];
+            $foundShared = $foundShared || $transformed['shared'];
+            $body .= $transformed['body'];
+            if ($transformed['content'] && $emittedContent) {
+                $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
+                continue;
+            }
+            if ($transformed['content']) {
+                $emittedContent = true;
+            }
+            $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => $transformed['template']);
+        }
+        usort($replacements, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
+        foreach ($replacements as $replacement) {
+            $relative = $replacement['offset'] - $range['offset'];
+            $slice = substr($slice, 0, $relative) . $replacement['markup'] . substr($slice, $relative + $replacement['length']);
+        }
+        return array('template' => $slice, 'body' => $body, 'title' => $foundTitle, 'date' => $foundDate, 'shared' => $foundShared, 'content' => $emittedContent);
+    }
+    /** @param array<string,mixed> $post */
+    private function classifyPostChromeBlock(string $slice, array $post, string $route): string
+    {
+        if ($this->headingMatchesPostTitle($slice, $post)) {
+            return 'title';
+        }
+        if (self::isCommentFormChrome($slice)) {
+            return 'comments';
+        }
+        $kind = $this->classifyListingCardBlock($slice, $post, $route);
+        return 'skip' === $kind ? 'share' : $kind;
+    }
+    /** @param array<string,mixed> $post */
+    private function headingMatchesPostTitle(string $slice, array $post): bool
+    {
+        $title = trim((string) ($post['title'] ?? ''));
+        if ('' === $title || !in_array(self::listingBlockName($slice), array('heading', 'post-title'), true)) {
+            return false;
+        }
+        $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+        return $text === $title;
+    }
+    private static function isCommentFormChrome(string $slice): bool
+    {
+        return str_contains($slice, 'Leave a Reply') || 1 === preg_match('/<iframe\b[^>]*(?:comment|Comment)/', $slice);
     }
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
     private function materializeListingQueryLoops(array $pages): array
