@@ -1624,44 +1624,11 @@ final class WordPressSitePlan
     private function listingCardTemplate(string $markup, array $cards): ?string
     {
         $first = $cards[0];
-        $cardMarkup = substr($markup, $first['offset'], $first['length']);
-        $children = self::childBlockRanges($markup, $first);
-        if (array() === $children) {
+        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route']);
+        if (!$transformed['title'] || '' === $transformed['markup']) {
             return null;
         }
-        $inner = '';
-        $emittedTitle = false;
-        $emittedContent = false;
-        foreach ($children as $child) {
-            $slice = substr($markup, $child['offset'], $child['length']);
-            $kind = $this->classifyListingCardBlock($slice, $first['post'], $first['route']);
-            if ('title' === $kind) {
-                $inner .= self::postTitleMarkup($slice);
-                $emittedTitle = true;
-                continue;
-            }
-            if ('date' === $kind) {
-                $inner .= self::postDateMarkup($slice);
-                continue;
-            }
-            if ('comments' === $kind || 'chrome' === $kind) {
-                $inner .= $slice;
-                continue;
-            }
-            if ('skip' === $kind) {
-                continue;
-            }
-            if (!$emittedContent) {
-                $inner .= '<!-- wp:post-content /-->';
-                $emittedContent = true;
-            }
-        }
-        if (!$emittedTitle) {
-            return null;
-        }
-        $firstChild = $children[0]['offset'] - $first['offset'];
-        $lastChild = $children[count($children) - 1]['offset'] + $children[count($children) - 1]['length'] - $first['offset'];
-        $template = substr($cardMarkup, 0, $firstChild) . $inner . substr($cardMarkup, $lastChild);
+        $template = $transformed['markup'];
         $gaps = array();
         for ($index = 1; $index < count($cards); ++$index) {
             $gaps[] = substr($markup, $cards[$index - 1]['offset'] + $cards[$index - 1]['length'], $cards[$index]['offset'] - ($cards[$index - 1]['offset'] + $cards[$index - 1]['length']));
@@ -1673,6 +1640,60 @@ final class WordPressSitePlan
             $template .= $uniqueGaps[0];
         }
         return $template;
+    }
+    /**
+     * @param array{offset:int,length:int} $range
+     * @param array<string,mixed> $post
+     * @return array{markup:string,title:bool,content:bool}
+     */
+    private function listingTransformRange(string $markup, array $range, array $post, string $route): array
+    {
+        $slice = substr($markup, $range['offset'], $range['length']);
+        $className = (string) (self::listingBlockAttributes($slice)['className'] ?? '');
+        if (preg_match('/\b(?:social|share-button|twitter-share)\b/', $className)) {
+            return array('markup' => '', 'title' => false, 'content' => false);
+        }
+        if (preg_match('/\bseparator\b/', $className)) {
+            return array('markup' => $slice, 'title' => false, 'content' => false);
+        }
+        $children = self::childBlockRanges($markup, $range);
+        if (array() === $children) {
+            $kind = $this->classifyListingCardBlock($slice, $post, $route);
+            if ('title' === $kind) {
+                return array('markup' => self::postTitleMarkup($slice), 'title' => true, 'content' => false);
+            }
+            if ('date' === $kind) {
+                return array('markup' => self::postDateMarkup($slice), 'title' => false, 'content' => false);
+            }
+            if ('comments' === $kind || 'chrome' === $kind) {
+                return array('markup' => $slice, 'title' => false, 'content' => false);
+            }
+            if ('skip' === $kind) {
+                return array('markup' => '', 'title' => false, 'content' => false);
+            }
+            return array('markup' => '<!-- wp:post-content /-->', 'title' => false, 'content' => true);
+        }
+        $foundTitle = false;
+        $emittedContent = false;
+        $replacements = array();
+        foreach ($children as $child) {
+            $transformed = $this->listingTransformRange($markup, $child, $post, $route);
+            $foundTitle = $foundTitle || $transformed['title'];
+            if ($transformed['content'] && $emittedContent) {
+                $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
+                continue;
+            }
+            if ($transformed['content']) {
+                $emittedContent = true;
+            }
+            $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => $transformed['markup']);
+        }
+        usort($replacements, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
+        foreach ($replacements as $replacement) {
+            $relative = $replacement['offset'] - $range['offset'];
+            $slice = substr($slice, 0, $relative) . $replacement['markup'] . substr($slice, $relative + $replacement['length']);
+        }
+        return array('markup' => $slice, 'title' => $foundTitle, 'content' => $emittedContent && !$foundTitle);
     }
     /** @param array<string,mixed> $post */
     private function classifyListingCardBlock(string $slice, array $post, string $route): string
@@ -1711,8 +1732,11 @@ final class WordPressSitePlan
         if (preg_match('/<(?:iframe|fb:like)\b/i', $slice) || preg_match('/\b(?:blog-social|share-button|twitter-share)\b/', $slice)) {
             return 'skip';
         }
-        $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
-        if ('' === $text || in_array($name, array('separator', 'spacer'), true)) {
+        if (in_array($name, array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true)) {
+            return 'body';
+        }
+        $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '', " \t\n\r\0\x0B\xC2\xA0");
+        if ('' === $text || in_array($name, array('separator', 'spacer'), true) || preg_match('/\bseparator\b/', (string) (self::listingBlockAttributes($slice)['className'] ?? ''))) {
             return 'chrome';
         }
         return 'body';
