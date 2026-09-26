@@ -3189,6 +3189,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $carousel;
         }
 
+        // A custom-element menu host is not a component. Recognize its landmark
+        // before generated-component capture freezes paragraph-wrapped labels
+        // into a companion content attribute.
+        $navigationHost = $this->recognizedNavigationHostBlock($element, $fallbacks);
+        if ( null !== $navigationHost ) {
+            return $navigationHost;
+        }
+
         if ( $this->isGeneratedComponentCandidate($element) ) {
             $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
             if ( null !== $generated ) {
@@ -3316,6 +3324,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             array( $this->createBlock('core/button', $attrs, array(), $element) ),
             $element
         );
+    }
+
+    /**
+     * Lower a custom-element host of a navigation landmark to that landmark's
+     * native navigation, keeping host identity CSS can still address.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function recognizedNavigationHostBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        $landmark = ( new NavigationPattern() )->hostedNavigationLandmark($element);
+        if ( ! $landmark instanceof DOMElement ) {
+            return null;
+        }
+
+        $navigation = $this->recognizePatterns($landmark, $fallbacks, array( AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class ));
+        if ( null === $navigation ) {
+            return null;
+        }
+
+        if ( '' === trim($this->attr($element, 'id') . $this->attr($element, 'class') . $this->attr($element, 'style')) ) {
+            return $navigation;
+        }
+
+        return $this->layoutShellBlockForElements(array( $element ), array( $navigation ), $element);
     }
 
     /**

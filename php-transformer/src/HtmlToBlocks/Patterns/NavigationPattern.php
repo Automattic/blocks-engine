@@ -52,6 +52,37 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element);
     }
 
+    /**
+     * A custom-element host whose only element child is a navigation landmark.
+     *
+     * Builders wrap an ordinary `<nav>` in a presentation-only custom element.
+     * That host is not a menu itself; capturing it as a companion freezes the
+     * landmark, including paragraph-wrapped item labels, as escaped HTML.
+     * Callers offer the returned landmark to {@see recognize()} instead.
+     */
+    public function hostedNavigationLandmark(DOMElement $element): ?DOMElement
+    {
+        if ( ! str_contains(strtolower($element->tagName), '-') ) {
+            return null;
+        }
+
+        $landmark = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || null !== $landmark || 'nav' !== strtolower($child->tagName) ) {
+                return null;
+            }
+            $landmark = $child;
+        }
+
+        return $landmark;
+    }
+
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $presentationAttributes = $context->presentationAttributes(...);

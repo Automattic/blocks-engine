@@ -229,6 +229,7 @@
       "php tests/unit/navigation-overlay-duplicate-collapse.php",
       "php tests/unit/layout-boundary-excludes-shell.php",
       "php tests/unit/navigation-nested-authored-anchor.php",
+       "php tests/unit/paragraph-label-desktop-menu.php",
       "php tests/unit/button-signal-classifier.php",
       "php tests/unit/pill-button-anchor.php",
       "php tests/unit/button-style-resolver.php",
