@@ -2101,8 +2101,21 @@ final class WordPressSitePlan
     /** @param array<string,mixed> $attrs */
     private static function responsiveVariantClassFromAttrs(array $attrs): ?string
     {
-        foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
-            if (in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true) || 1 === preg_match('/^site-document-variant-[a-z][a-z0-9_-]{0,31}$/', $class)) return $class;
+        return self::responsiveVariantClassIn($attrs);
+    }
+
+    private static function responsiveVariantClassIn(mixed $value): ?string
+    {
+        if (is_string($value)) {
+            foreach (preg_split('/\s+/', trim($value)) ?: array() as $class) {
+                if (in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true) || 1 === preg_match('/^site-document-variant-[a-z][a-z0-9_-]{0,31}$/', $class)) return $class;
+            }
+            return null;
+        }
+        if (!is_array($value)) return null;
+        foreach ($value as $item) {
+            $found = self::responsiveVariantClassIn($item);
+            if (null !== $found) return $found;
         }
         return null;
     }
