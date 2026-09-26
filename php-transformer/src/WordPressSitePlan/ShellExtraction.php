@@ -504,6 +504,18 @@ final class ShellExtraction
             $disallowedAncestor = false;
             foreach ($stack as $ancestor) if (in_array($ancestor['tag_name'] ?? null, array('main', 'article', 'section', 'aside'), true)) { $disallowedAncestor = true; break; }
             $tagName = is_array($attrs) ? ($attrs['tagName'] ?? null) : null;
+            $className = is_array($attrs) && is_string($attrs['className'] ?? null) ? $attrs['className'] : '';
+            $anchor = is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
+            if (is_array($attrs) && is_array($attrs['wrappers'] ?? null)) {
+                foreach ($attrs['wrappers'] as $wrapper) {
+                    if (!is_array($wrapper)) continue;
+                    $wrapperAttributes = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
+                    if ('' === $anchor && is_string($wrapperAttributes['id'] ?? null)) $anchor = $wrapperAttributes['id'];
+                    $wrapperClass = trim((string) ($wrapperAttributes['class'] ?? ''));
+                    if ('' !== $wrapperClass) $className = trim($className . ' ' . $wrapperClass);
+                    if (null === $tagName && is_string($wrapper['tagName'] ?? null) && in_array($wrapper['tagName'], array('header', 'footer', 'main', 'article', 'section', 'aside'), true)) $tagName = $wrapper['tagName'];
+                }
+            }
             $candidate = 0 < count($stack) && !$disallowedAncestor && 'group' === $name && $area === $tagName;
             // Whether page content precedes the landmark inside its ancestors: a
             // block other than the enclosing openings started or ended before it.
@@ -512,7 +524,7 @@ final class ShellExtraction
                 $between = substr($markup, $stack[0]['offset'], $offset - $stack[0]['offset']);
                 $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
             }
-            if (!$selfClosing) $stack[] = array('offset' => $offset, 'tag_name' => $tagName, 'candidate' => $candidate, 'preceded' => $preceded, 'anchor' => is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '', 'class_name' => is_array($attrs) && is_string($attrs['className'] ?? null) ? $attrs['className'] : '');
+            if (!$selfClosing) $stack[] = array('offset' => $offset, 'tag_name' => $tagName, 'candidate' => $candidate, 'preceded' => $preceded, 'anchor' => $anchor, 'class_name' => $className);
         }
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
         foreach ($rows as $variant => &$row) $row['variant'] = $variant; unset($row);
@@ -769,40 +781,49 @@ final class ShellExtraction
         $byPage = array();
         foreach ($indexes as $index) {
             $scoped = $this->scopedVariantLandmarks($pages[$index]['canonical_block_markup'], $area);
-            if (null === $scoped || count($scoped) < 2) return false;
+            if (null === $scoped || count($scoped) < 2) continue;
+            $blocked = false;
             foreach ($scoped as $rows) {
-                if (1 !== count(array_unique(array_column($rows, 'identity_markup')))) return false;
+                if (1 !== count(array_unique(array_column($rows, 'identity_markup')))) $blocked = true;
                 foreach ($rows as $row) {
-                    if ($this->shellContainsRuntimeBinding($runtimeDeclarations, $pages[$index], $row['offset'], $row['length'])) return false;
+                    if ($this->shellContainsRuntimeBinding($runtimeDeclarations, $pages[$index], $row['offset'], $row['length'])) $blocked = true;
                 }
             }
+            if ($blocked) continue;
             $candidate = $candidates[$index][0] ?? null;
-            if (!is_array($candidate) || !$this->candidateOverlapsVariantLandmark((string) ($candidate['markup'] ?? ''), $candidate, $scoped)) return false;
+            if (!is_array($candidate) || !$this->candidateOverlapsVariantLandmark((string) ($candidate['markup'] ?? ''), $candidate, $scoped)) continue;
             $byPage[$index] = $scoped;
         }
+        if (array() === $byPage) return false;
         $variantClasses = array_keys($byPage[array_key_first($byPage)]);
-        $identities = array();
+        usort($variantClasses, static fn(string $left, string $right): int => self::responsiveVariantRank($left) <=> self::responsiveVariantRank($right) ?: strcmp($left, $right));
+        $signatures = array();
+        foreach ($byPage as $index => $scoped) {
+            if (array_keys($scoped) !== array_combine($variantClasses, $variantClasses) && array_diff($variantClasses, array_keys($scoped))) continue;
+            $sig = array();
+            foreach ($variantClasses as $class) {
+                if (!isset($scoped[$class])) continue 2;
+                $sig[$class] = $scoped[$class][0]['identity_markup'];
+            }
+            $key = hash('sha256', implode("\0", $sig));
+            $signatures[$key]['indexes'][] = $index;
+            $signatures[$key]['sig'] = $sig;
+        }
+        uasort($signatures, static fn(array $left, array $right): int => count($right['indexes']) <=> count($left['indexes']));
+        $dominant = reset($signatures);
+        if (!is_array($dominant) || count($dominant['indexes']) < 2) return false;
+        $identities = $dominant['sig'];
+        $kept = array_fill_keys($dominant['indexes'], true);
         $pieces = array();
         $primaryContext = null;
-        usort($variantClasses, static fn(string $left, string $right): int => self::responsiveVariantRank($left) <=> self::responsiveVariantRank($right) ?: strcmp($left, $right));
+        $sourceIndex = $dominant['indexes'][0];
         foreach ($variantClasses as $class) {
-            $identity = null;
-            $inner = null;
-            foreach ($byPage as $index => $scoped) {
-                if (!isset($scoped[$class])) return false;
-                $rowIdentity = $scoped[$class][0]['identity_markup'];
-                if (null === $identity) {
-                    $identity = $rowIdentity;
-                    $candidate = $candidates[$index][0];
-                    $owned = $this->candidateOwnsVariant($candidate, $scoped[$class]);
-                    $inner = self::withoutCurrentNavigationState($owned ? (string) $candidate['markup'] : (string) $scoped[$class][0]['markup']);
-                    if (null === $primaryContext && 0 === self::responsiveVariantRank($class)) $primaryContext = $scoped[$class][0]['ancestor_context'] ?? null;
-                } elseif ($identity !== $rowIdentity) {
-                    return false;
-                }
-            }
-            if (!is_string($identity) || !is_string($inner) || '' === trim($inner)) return false;
-            $identities[$class] = $identity;
+            $scoped = $byPage[$sourceIndex][$class];
+            $candidate = $candidates[$sourceIndex][0];
+            $owned = $this->candidateOwnsVariant($candidate, $scoped);
+            $inner = self::withoutCurrentNavigationState($owned ? (string) $candidate['markup'] : (string) $scoped[0]['markup']);
+            if ('' === trim($inner)) return false;
+            if (null === $primaryContext && 0 === self::responsiveVariantRank($class)) $primaryContext = $scoped[0]['ancestor_context'] ?? null;
             $pieces[$class] = self::variantVisibilityGroup($class, $inner);
         }
         if (null === $primaryContext) {
@@ -810,7 +831,7 @@ final class ShellExtraction
             $primaryContext = $byPage[array_key_first($byPage)][$firstClass][0]['ancestor_context'] ?? null;
         }
         $cleaned = array();
-        foreach ($indexes as $index) {
+        foreach (array_keys($kept) as $index) {
             $markup = $this->stripMatchingVariantLandmarks($withoutShells[$index], $area, $identities, false);
             if (null === $markup || $this->retainsResponsiveVariantLandmark($markup, $area)) return false;
             $cleaned[$index] = $markup;
@@ -1098,6 +1119,8 @@ final class ShellExtraction
         $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
         $markup = preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
         $markup = preg_replace('/(?:\.\.\/)+assets\//', 'assets/', $markup) ?? $markup;
+        $markup = preg_replace('/\bblock-[a-f0-9]{16,}\b/', 'block', $markup) ?? $markup;
+        $markup = self::withoutMenuSelectionState($markup);
         return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup);
     }
 
@@ -1197,7 +1220,15 @@ final class ShellExtraction
         // served route with aria-current="page" in saved content. One shared
         // part serves every route, so that page-scoped state is neither part of
         // the chrome's identity nor frozen into the part.
-        return preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $markup) ?? $markup;
+        $markup = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $markup) ?? $markup;
+        return self::withoutMenuSelectionState($markup, true);
+    }
+
+    private static function withoutMenuSelectionState(string $markup, bool $resting = false): string
+    {
+        $replacement = $resting ? 'menu false link' : 'menu link';
+        $markup = preg_replace('/(data-state=)(\\\\u0022|"|&quot;)menu (?:selected|false)\s+link\2/', '$1$2' . $replacement . '$2', $markup) ?? $markup;
+        return preg_replace('/\s*(aria-current=)(\\\\u0022|"|&quot;)page\2/', '', $markup) ?? $markup;
     }
 
     /**
