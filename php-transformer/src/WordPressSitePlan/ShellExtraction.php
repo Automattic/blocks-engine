@@ -423,6 +423,7 @@ final class ShellExtraction
             $candidates = array(); $variantCount = null; $rejected = false;
             foreach ($applicable as $index => $page) {
                 $rows = $this->nestedLandmarkCandidates($page['canonical_block_markup'], $page['source_path'], $area);
+                foreach ($rows as $row) if (null !== self::responsiveVariantClass($row)) continue 3;
                 if (array() === $rows) { $rejected = true; break; }
                 $count = self::logicalNestedVariantCount($rows);
                 if (null !== $variantCount && $variantCount !== $count) { $rejected = true; break; }
@@ -486,21 +487,46 @@ final class ShellExtraction
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
     }
 
+    /** @return array<int,array{token:string,offset:int,closing:bool,name:string,attributes:string,self_closing:bool}> */
+    private static function blockCommentTokens(string $markup): array
+    {
+        $tokens = array();
+        $cursor = 0;
+        $length = strlen($markup);
+        while ($cursor < $length) {
+            $start = strpos($markup, '<!--', $cursor);
+            if (false === $start) break;
+            $end = strpos($markup, '-->', $start + 4);
+            if (false === $end) break;
+            $token = substr($markup, $start, $end + 3 - $start);
+            $cursor = $end + 3;
+            if (!preg_match('/^<!--\s*(\/?)wp:([^\s]+)(?:\s+(.*?))?\s*(\/?)-->$/s', $token, $match)) continue;
+            $tokens[] = array(
+                'token' => $token,
+                'offset' => $start,
+                'closing' => '' !== $match[1],
+                'name' => $match[2],
+                'attributes' => trim($match[3] ?? ''),
+                'self_closing' => '' !== ($match[4] ?? '') || str_ends_with(rtrim($token), '/-->'),
+            );
+        }
+        return $tokens;
+    }
+
     /** @return array<int,array<string,mixed>> */
     private function nestedLandmarkCandidates(string $markup, string $sourcePath, string $area): array
     {
         $rows = array(); $stack = array();
-        if (!preg_match_all('/<!--\s*(\/?)wp:([^\s]+)(?:\s+([^>]*?))?\s*(\/?)-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $rows;
-        foreach ($matches[0] as $index => $match) {
-            $token = $match[0]; $offset = $match[1]; $closing = '' !== $matches[1][$index][0]; $selfClosing = '' !== $matches[4][$index][0] || str_ends_with(rtrim($token), '/-->');
+        foreach (self::blockCommentTokens($markup) as $token) {
+            $offset = $token['offset']; $closing = $token['closing']; $selfClosing = $token['self_closing'];
             if ($closing) {
                 $open = array_pop($stack);
                 if (!is_array($open) || empty($open['candidate'])) continue;
-                $length = $offset + strlen($token) - $open['offset']; $candidateMarkup = substr($markup, $open['offset'], $length);
+                $length = $offset + strlen($token['token']) - $open['offset']; $candidateMarkup = substr($markup, $open['offset'], $length);
                 $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])));
                 continue;
             }
-            $name = $matches[2][$index][0]; $attributes = trim($matches[3][$index][0] ?? ''); $attrs = '' === $attributes ? array() : json_decode($attributes, true);
+            $name = $token['name']; $attributes = $token['attributes']; $attrs = '' === $attributes ? array() : json_decode($attributes, true);
             $disallowedAncestor = false;
             foreach ($stack as $ancestor) if (in_array($ancestor['tag_name'] ?? null, array('main', 'article', 'section', 'aside'), true)) { $disallowedAncestor = true; break; }
             $tagName = is_array($attrs) ? ($attrs['tagName'] ?? null) : null;
@@ -585,8 +611,19 @@ final class ShellExtraction
             $cluster = null === $identity ? null : $clusters[$identity];
             $runnerUp = array_values($clusters)[1] ?? null;
             if (!is_array($cluster) || (count($cluster['indexes']) < count($applicable) && (count($cluster['indexes']) < 2 || (is_array($runnerUp) && count($cluster['indexes']) === count($runnerUp['indexes']))))) {
-                $reason = array() === $clusters ? 'incomplete' : 'non_equivalent';
-                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_' . ('incomplete' === $reason ? 'incomplete' : 'ambiguous'), 'severity' => 'info', 'message' => "{$area} shell candidates do not establish a dominant semantic cluster.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', $reason, $candidates));
+                $partitioned = $this->viewportPartitionWithoutCandidate($pages, array_keys($applicable), $area, $runtimeDeclarations);
+                if (null === $partitioned) {
+                    $reason = array() === $clusters ? 'incomplete' : 'non_equivalent';
+                    $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_' . ('incomplete' === $reason ? 'incomplete' : 'ambiguous'), 'severity' => 'info', 'message' => "{$area} shell candidates do not establish a dominant semantic cluster.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', $reason, $candidates));
+                    continue;
+                }
+                foreach ($partitioned['pages'] as $index => $withoutShell) {
+                    $pages[$index]['canonical_block_markup'] = $withoutShell;
+                    $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
+                }
+                $runtimeDeclarations = $partitioned['runtime_declarations'];
+                $parts[] = $partitioned['part'];
+                $diagnostics[] = $partitioned['diagnostic'];
                 continue;
             }
             $first = $cluster['candidate'];
@@ -756,6 +793,56 @@ final class ShellExtraction
         return $this->replaceTopLevelShell($markup, $area, '', $candidateMarkup, $offset);
     }
 
+    /** @param array<int,array<string,mixed>> $pages @param array<int,int> $indexes @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,string>,part:array<string,mixed>,diagnostic:array<string,mixed>,runtime_declarations:array<int,array<string,mixed>>}|null */
+    private function viewportPartitionWithoutCandidate(array $pages, array $indexes, string $area, array $runtimeDeclarations): ?array
+    {
+        $applicable = array();
+        foreach ($indexes as $index) $applicable[$index] = $pages[$index];
+        $absorbed = $this->absorbResponsiveVariantLandmarks($pages, $indexes, $area, array(), array(), $runtimeDeclarations);
+        if (!is_array($absorbed)) return null;
+        $withoutShells = $absorbed['pages'];
+        $excluded = array();
+        foreach ($applicable as $index => $page) if (!isset($withoutShells[$index])) $excluded[$index] = 'non_equivalent';
+        foreach (array_keys($excluded) as $index) {
+            if ($this->variantLandmarksContainRuntimeBinding($pages[$index], $area, $runtimeDeclarations)) continue;
+            $adopted = $this->stripMatchingVariantLandmarks($pages[$index]['canonical_block_markup'], $area, $absorbed['identities'], true);
+            if (null === $adopted || $this->retainsResponsiveVariantLandmark($adopted, $area)) continue;
+            $withoutShells[$index] = $adopted;
+            unset($excluded[$index]);
+        }
+        $templateSlugs = array();
+        $excludedTemplateSlugs = array();
+        $overrides = array();
+        if (count($withoutShells) === count($applicable)) {
+            $templateSlugs = array('index', 'page', 'front-page', 'single', 'search');
+        } else {
+            $templateSlugs = array('index', 'search');
+            foreach ($applicable as $index => $page) {
+                $selected = isset($withoutShells[$index]);
+                if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
+                if ('post' === ($page['post_type'] ?? null)) { if ($selected) $templateSlugs[] = 'single'; } elseif ($selected) $templateSlugs[] = 'page';
+                if (!$selected) {
+                    $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
+                    if (isset($overrides[$slug])) return null;
+                    $overrides[$slug] = $index;
+                }
+            }
+            $templateSlugs = array_values(array_unique($templateSlugs));
+            $excludedTemplateSlugs = array_keys($overrides);
+        }
+        foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
+        unset($declaration);
+        $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
+        $sourcePath = 'wordpress-site-plan/shared/' . $area;
+        $partMarkup = $absorbed['markup'];
+        $ancestorContext = is_array($absorbed['ancestor_context'] ?? null) ? $absorbed['ancestor_context'] : null;
+        $provenanceCandidates = array();
+        foreach (array_keys($withoutShells) as $index) $provenanceCandidates[$index] = array(array('source_path' => (string) $pages[$index]['source_path'], 'source_hash' => ''));
+        $part = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => 'shared_shell', 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'responsive_variant_partition', $provenanceCandidates, hash('sha256', implode("\0", $absorbed['identities']))), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
+        $diagnostic = array('code' => 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($withoutShells), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
+        return array('pages' => $withoutShells, 'part' => $part, 'diagnostic' => $diagnostic, 'runtime_declarations' => $runtimeDeclarations);
+    }
+
     private function retainsResponsiveVariantLandmark(string $markup, string $area): bool
     {
         if (1 !== preg_match('/(?:data-liberation-(?:desktop|mobile)-document|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
@@ -819,8 +906,8 @@ final class ShellExtraction
         $sourceIndex = $dominant['indexes'][0];
         foreach ($variantClasses as $class) {
             $scoped = $byPage[$sourceIndex][$class];
-            $candidate = $candidates[$sourceIndex][0];
-            $owned = $this->candidateOwnsVariant($candidate, $scoped);
+            $candidate = $candidates[$sourceIndex][0] ?? null;
+            $owned = is_array($candidate) && $this->candidateOwnsVariant($candidate, $scoped);
             $inner = self::withoutCurrentNavigationState($owned ? (string) $candidate['markup'] : (string) $scoped[0]['markup']);
             if ('' === trim($inner)) return false;
             if (null === $primaryContext && 0 === self::responsiveVariantRank($class)) $primaryContext = $scoped[0]['ancestor_context'] ?? null;

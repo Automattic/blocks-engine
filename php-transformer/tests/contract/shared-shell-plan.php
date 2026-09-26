@@ -721,4 +721,40 @@ foreach (array('index.html', 'about.html', 'shop.html') as $source) {
 }
 $assert(1 === substr_count($variantWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"') && !str_contains($variantWrites['templates/page-notes.html']['payload']['data'] ?? '', '"slug":"footer"'), 'The page template references the shared footer and the excluded route does not.');
 
+$partitionItem = static function (string $label, string $href, bool $paragraph): string {
+    $inner = $paragraph ? '<div class="pad"><p class="label">' . $label . '</p></div>' : $label;
+    return '<li class="item"><a href="' . $href . '">' . $inner . '</a></li>';
+};
+$partitionDocument = static function (string $title) use ($partitionItem): string {
+    $desktop = '<header id="site-header" class="site-header"><p class="brand">Example Band</p><site-menu id="desktop-menu" class="desktop-menu"><nav aria-label="Site"><ul>'
+        . $partitionItem('Home', '/', true) . $partitionItem('Journal', '/journal', true) . $partitionItem('Shop', '/shop#catalog', true)
+        . '</ul></nav></site-menu></header>';
+    $mobile = '<header id="site-header" class="site-header"><p class="brand">Example Band</p><nav class="mobile" aria-label="Site"><ul>'
+        . $partitionItem('Home', '/', false) . $partitionItem('Journal', '/journal', false) . $partitionItem('Shop', '/shop', false)
+        . '</ul></nav></header>';
+    $main = '<main><h1>' . $title . '</h1></main>';
+    return '<div class="data-liberation-desktop-document"><div class="frame">' . $desktop . $main . '<footer id="site-footer" class="site-footer"><p>Desktop colophon</p></footer></div></div>'
+        . '<div class="data-liberation-mobile-document"><div class="frame">' . $mobile . $main . '<footer id="site-footer" class="site-footer"><p>Mobile colophon</p></footer></div></div>';
+};
+$partitionPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $partitionDocument('Home'),
+    'journal.html' => $partitionDocument('Journal'),
+    'shop.html' => $partitionDocument('Shop'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$partitionParts = array();
+foreach ($partitionPlan['template_parts'] as $part) $partitionParts[$part['area'] ?? ''] = $part;
+$partitionHeader = $partitionParts['header'] ?? array();
+$partitionFooter = $partitionParts['footer'] ?? array();
+$partitionHeaderMarkup = (string) ($partitionHeader['canonical_block_markup'] ?? '');
+$partitionMenus = array_values(array_filter($partitionPlan['menus'] ?? array(), static fn(array $menu): bool => is_string($menu['token'] ?? null) && is_string($menu['block_markup'] ?? null)));
+$assert('header' === ($partitionHeader['slug'] ?? null) && 'footer' === ($partitionFooter['slug'] ?? null) && 'responsive_variant_partition' === ($partitionHeader['provenance']['reason'] ?? null) && 'responsive_variant_partition' === ($partitionFooter['provenance']['reason'] ?? null), 'Viewport-partitioned chrome still extracts one shared header and footer when both viewports contain navigation: ' . json_encode(array_map(static fn(array $part): string => ($part['slug'] ?? '') . ':' . ($part['provenance']['reason'] ?? ''), $partitionPlan['template_parts'])));
+$assert(str_contains($partitionHeaderMarkup, 'data-liberation-desktop-document') && str_contains($partitionHeaderMarkup, 'data-liberation-mobile-document') && 2 <= substr_count($partitionHeaderMarkup, '<!-- wp:navigation '), 'The shared header keeps both viewport navigations.');
+$assert(1 === count($partitionMenus) && str_contains((string) ($partitionMenus[0]['block_markup'] ?? ''), '"label":"Home"') && str_contains((string) ($partitionMenus[0]['block_markup'] ?? ''), '"label":"Shop"'), 'Both viewport navigations reference one navigation entity.');
+foreach (array('index.html', 'journal.html', 'shop.html') as $source) {
+    $markup = $pages($partitionPlan)[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, '"tagName":"header"') && !str_contains($markup, '"tagName":"footer"'), "{$source} does not keep viewport chrome in page content.");
+}
+$partitionWrites = $writes($partitionPlan);
+$assert(1 === substr_count($partitionWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($partitionWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'Templates bind the shared header and footer parts.');
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");
