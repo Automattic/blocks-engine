@@ -80,7 +80,44 @@ final class NavigationPattern implements PatternRecognizerInterface
             $landmark = $child;
         }
 
+        // A hidden support hint is not a menu item. Recognition would drop it;
+        // leave that host on the path that keeps the hint hidden but present.
+        if ( $landmark instanceof DOMElement && $this->landmarkHasHiddenSupportText($landmark) ) {
+            return null;
+        }
+
         return $landmark;
+    }
+
+    private function landmarkHasHiddenSupportText(DOMElement $landmark): bool
+    {
+        foreach ( $landmark->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement || '' === trim($descendant->textContent ?? '') ) {
+                continue;
+            }
+            $style = strtolower(preg_replace('/\s+/', '', $this->attr($descendant, 'style')) ?? '');
+            $hidden = $descendant->hasAttribute('hidden')
+                || str_contains($style, 'display:none')
+                || str_contains($style, 'visibility:hidden');
+            if ( ! $hidden || $this->hasAnchorAncestor($descendant, $landmark) ) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private function hasAnchorAncestor(DOMElement $element, DOMElement $boundary): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            if ( 'a' === strtolower($node->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
