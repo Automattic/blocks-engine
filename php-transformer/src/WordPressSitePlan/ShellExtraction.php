@@ -1141,7 +1141,7 @@ final class ShellExtraction
         return '<!-- wp:group ' . $encoded . ' -->' . $rest;
     }
 
-    private static function withoutCurrentNavigationState(string $markup, bool $semanticIdentity = false): string
+    public static function withoutCurrentNavigationState(string $markup, bool $semanticIdentity = false): string
     {
         $stateCarrierCounts = array();
         $linkColorCounts = array();
