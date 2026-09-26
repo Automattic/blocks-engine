@@ -60,7 +60,7 @@ foreach ( array( 'shallow layout wrapper' => $shallow, 'deep layout wrapper' => 
     $assert(str_contains($markup, 'id="desktop-menu"'), $name . ' keeps the menu host identity CSS can address', $markup);
     $assert(str_contains($markup, '"justifyContent":"right"'), $name . ' keeps the list text-align packing as navigation justification', $markup);
     $css = 'shallow layout wrapper' === $name ? $cssOf($shallowResult) : $cssOf($deepResult);
-    $assert(str_contains($css, 'flex-direction:row!important;justify-content:flex-end!important'), $name . ' projects the list packing onto the navigation container', $css);
+    $assert(str_contains($css, '.wp-block-navigation.blocks-engine-list-navigation.items>.wp-block-navigation__container{flex-direction:row!important;justify-content:flex-end!important}'), $name . ' projects the list packing onto that navigation container only', $css);
     $assert(! str_contains($markup, '<p class="label">') && ! str_contains($markup, '<p class=\\"label\\">'), $name . ' does not leave menu labels as companion-attribute HTML', $markup);
 }
 

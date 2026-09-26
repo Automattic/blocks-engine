@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
@@ -1084,15 +1085,22 @@ final class NavigationPattern implements PatternRecognizerInterface
             default => '',
         };
         if ( '' !== $justify ) {
-            $declarations = 'flex-direction:row!important;justify-content:' . $justify . '!important';
-            if ( 1 === preg_match('/(?:^|;)\s*white-space\s*:\s*nowrap\b/i', $style) ) {
-                $declarations .= ';flex-wrap:nowrap!important';
+            $scope = CssIdent::compoundClassSelector($this->authorClassNames(SourceDom::attr($list, 'class')));
+            if ( '' === $scope ) {
+                $id = trim(SourceDom::attr($list, 'id'));
+                $scope = 1 === preg_match('/^[A-Za-z][A-Za-z0-9_.:-]*$/D', $id) ? '#' . CssIdent::escape($id) : '';
             }
-            $navigationContext->projectSourceToNativeTarget(
-                $list,
-                '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
-                $declarations
-            );
+            if ( '' !== $scope ) {
+                $declarations = 'flex-direction:row!important;justify-content:' . $justify . '!important';
+                if ( 1 === preg_match('/(?:^|;)\s*white-space\s*:\s*nowrap\b/i', $style) ) {
+                    $declarations .= ';flex-wrap:nowrap!important';
+                }
+                $navigationContext->projectSourceToNativeTarget(
+                    $list,
+                    '.wp-block-navigation.blocks-engine-list-navigation' . $scope . '>.wp-block-navigation__container',
+                    $declarations
+                );
+            }
         }
 
         return $attrs;
