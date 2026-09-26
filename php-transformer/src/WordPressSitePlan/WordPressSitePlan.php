@@ -1630,8 +1630,10 @@ final class WordPressSitePlan
     {
         $slice = substr($markup, $range['offset'], $range['length']);
         $empty = array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false);
-        $className = (string) (self::listingBlockAttributes($slice)['className'] ?? '');
-        if (preg_match('/\b(?:social|share-button|twitter-share)\b/', $className) || self::isCommentFormChrome($slice)) {
+        $attrs = self::listingBlockAttributes($slice);
+        $className = (string) ($attrs['className'] ?? '');
+        $anchor = (string) ($attrs['anchor'] ?? '');
+        if (preg_match('/\b(?:social|share-button|twitter-share)\b/', $className) || preg_match('/\bcomments?\b/i', $className) || preg_match('/comment/i', $anchor)) {
             return $empty;
         }
         $identity = ShellExtraction::identityMarkup($slice);
@@ -1699,8 +1701,8 @@ final class WordPressSitePlan
         if ('' === $title || !in_array(self::listingBlockName($slice), array('heading', 'post-title'), true)) {
             return false;
         }
-        $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
-        return $text === $title;
+        $normalize = static fn(string $value): string => trim(preg_replace('/\s+/', ' ', str_replace("\xc2\xa0", ' ', html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?? '');
+        return $normalize(strip_tags($slice)) === $normalize($title);
     }
     private static function isCommentFormChrome(string $slice): bool
     {
