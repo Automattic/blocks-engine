@@ -61,7 +61,6 @@ final class NavigationEntityProjection
 
         $entities = array();
         $usedSlugs = array();
-        $edits = array('part' => array(), 'page' => array());
         $order = 0;
         foreach ($clusters as $cluster) {
             $canonical = self::canonicalOccurrence($cluster);
@@ -87,84 +86,9 @@ final class NavigationEntityProjection
                 'reconciliation_identity' => $identity,
             );
             ++$order;
-            $ref = WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $token . '}}';
-            foreach ($cluster as $occurrence) {
-                $attrs = $occurrence['block']['attrs'];
-                $attrs['ref'] = $ref;
-                $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES);
-                if (!is_string($encoded)) {
-                    continue;
-                }
-                $edits[$occurrence['document']][$occurrence['index']][] = array(
-                    'offset' => $occurrence['block']['offset'],
-                    'length' => $occurrence['block']['length'],
-                    'replacement' => '<!-- wp:navigation ' . $encoded . ' /-->',
-                );
-            }
-        }
-
-        foreach ($edits['part'] as $index => $documentEdits) {
-            $parts[$index]['canonical_block_markup'] = self::applyEdits((string) $parts[$index]['canonical_block_markup'], $documentEdits);
-            $parts[$index]['content_hash'] = WordPressSitePlan::contentHash($parts[$index]['canonical_block_markup']);
-        }
-        foreach ($edits['page'] as $index => $documentEdits) {
-            $pages[$index]['canonical_block_markup'] = self::applyEdits((string) $pages[$index]['canonical_block_markup'], $documentEdits);
-            $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($pages[$index]['canonical_block_markup']);
         }
 
         return array('pages' => $pages, 'parts' => $parts, 'menus' => $entities);
-    }
-
-    /**
-     * @param array<int,array<string,mixed>> $menus
-     */
-    public static function rewriteMarkup(string $markup, array $menus): string
-    {
-        $bySignature = array();
-        foreach ($menus as $menu) {
-            if (!is_string($menu['token'] ?? null) || !is_string($menu['block_markup'] ?? null)) {
-                continue;
-            }
-            $signature = self::destinationSignature((string) $menu['block_markup']);
-            if ('' !== $signature) {
-                $bySignature[$signature] = (string) $menu['token'];
-            }
-        }
-        if (array() === $bySignature) {
-            return $markup;
-        }
-        $edits = array();
-        foreach (self::navigationBlocks($markup) as $block) {
-            $signature = self::destinationSignature($block['inner']);
-            $token = $bySignature[$signature] ?? null;
-            if (!is_string($token)) {
-                continue;
-            }
-            $attrs = $block['attrs'];
-            $attrs['ref'] = WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $token . '}}';
-            $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES);
-            if (!is_string($encoded)) {
-                continue;
-            }
-            $edits[] = array(
-                'offset' => $block['offset'],
-                'length' => $block['length'],
-                'replacement' => '<!-- wp:navigation ' . $encoded . ' /-->',
-            );
-        }
-        return array() === $edits ? $markup : self::applyEdits($markup, $edits);
-    }
-
-    /**
-     * @param array<int,array{offset:int,length:int,replacement:string}> $edits
-     */
-    private static function applyEdits(string $markup, array $edits): string
-    {
-        usort($edits, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
-        foreach ($edits as $edit) {
-            $markup = substr($markup, 0, $edit['offset']) . $edit['replacement'] . substr($markup, $edit['offset'] + $edit['length']);
-        }
-        return $markup;
     }
 
     /**

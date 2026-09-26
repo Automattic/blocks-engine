@@ -26,8 +26,7 @@ $diagnostics = array_column($plan['diagnostics'], 'code');
 
 $assert('header' === ($header['slug'] ?? null) && 1 === count(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && 'extracted' === ($header['provenance']['decision'] ?? null) && 'canonical' === ($header['provenance']['reason'] ?? null), 'One canonical header template part is generated with accepted extraction provenance for semantically equivalent source shells.');
 $assert(!array_filter($plan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)), 'Differing document footers remain page-local rather than becoming an ambiguous shared part.');
-$headerMenu = (string) (($plan['menus'][0]['block_markup'] ?? '') ?: ($header['canonical_block_markup'] ?? ''));
-$assert(str_contains($headerMenu, '"url":"/guides/about"') && str_contains($headerMenu, '"url":"/"'), 'Route-relative navigation destinations are canonicalized before shell identity comparison.');
+$assert(str_contains($header['canonical_block_markup'] ?? '', '"url":"/guides/about"') && str_contains($header['canonical_block_markup'] ?? '', '"url":"/"'), 'Route-relative navigation destinations are canonicalized before shell identity comparison.');
 $assert(str_contains($header['canonical_block_markup'] ?? '', '"anchor":"site-chrome"') && str_contains($header['canonical_block_markup'] ?? '', 'site-header') && str_contains($header['canonical_block_markup'] ?? '', 'border'), 'Shared shell preserves its canonical landmark wrapper anchor, class, and style attributes.');
 foreach (array('index.html', 'guides/about.html', 'guides/team.html') as $source) {
     $markup = $documents[$source]['canonical_block_markup'] ?? '';
@@ -178,11 +177,7 @@ $assert(array_keys($unicodeArtifacts) === array_keys($unicodeParts), 'Every comp
 foreach ($unicodeParts as $slug => $part) {
     $content = (string) ($unicodeWrites['parts/' . $slug . '.html']['payload']['data'] ?? '');
     $assert(1 === preg_match('//u', $content) && !str_contains($content, 'Îœ') && !str_contains($content, 'Â©') && ($part['canonical_block_markup'] ?? null) === $content && hash('sha256', $content) === ($unicodeWrites['parts/' . $slug . '.html']['payload_hash'] ?? null) && 'pass' === ($unicodeRoundTrip->report($content, $unicodeSource)['status'] ?? null), "{$slug} remains byte-identical and valid UTF-8 through template-part materialization.");
-    $surface = $content;
-    foreach ($unicodePlan['menus'] ?? array() as $menu) {
-        if (is_string($menu['token'] ?? null) && is_string($menu['block_markup'] ?? null) && str_contains($content, (string) $menu['token'])) $surface .= $menu['block_markup'];
-    }
-    foreach ($unicodeExpected[$slug] as $fragment) $assert(str_contains($surface, $fragment), "{$slug} materialization preserves {$fragment}.");
+    foreach ($unicodeExpected[$slug] as $fragment) $assert(str_contains($content, $fragment), "{$slug} materialization preserves {$fragment}.");
 }
 
 $styledSvg = '<svg viewBox="0 0 16 16"><path fill="#123456" d="M1 1h14v14H1z"/></svg>';
@@ -239,8 +234,7 @@ $statefulHeader = array_values(array_filter($statefulPlan['template_parts'], sta
 $statefulDiagnostic = current(array_filter($statefulPlan['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_extracted' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)));
 $statefulMarkup = (string) ($statefulHeader['canonical_block_markup'] ?? '');
 $assert(1 === count(array_filter($statefulPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains($statefulPages['index.html']['canonical_block_markup'] ?? '', 'header-wrapper') && !str_contains($statefulPages['about.html']['canonical_block_markup'] ?? '', 'header-wrapper') && !str_contains($statefulPages['services.html']['canonical_block_markup'] ?? '', 'header-wrapper'), 'Nested headers differing only by route-current navigation state produce one shared header and leave page content without its shell.');
-$statefulMenu = (string) (($statefulPlan['menus'][0]['block_markup'] ?? '') ?: $statefulMarkup);
-$assert(!str_contains($statefulMarkup, 'blocks-engine-current-navigation-item') && !str_contains($statefulMenu, 'blocks-engine-current-navigation-item') && 1 === preg_match_all('/blocks-engine-navigation-current-color-[a-f0-9]{64}/', $statefulMarkup) && str_contains($statefulMenu, 'blocks-engine-navigation-link-color-states-0') && !str_contains($statefulMarkup, 'blocks-engine-navigation--color-') && !str_contains($statefulMarkup, '"anchor":"home-source"') && str_contains($statefulMenu, 'site-link'), 'The emitted header keeps its navigation-root current-color and link-state carriers while removing child route state without corrupting tokens or non-state presentation.');
+$assert(!str_contains($statefulMarkup, 'blocks-engine-current-navigation-item') && 1 === preg_match_all('/blocks-engine-navigation-current-color-[a-f0-9]{64}/', $statefulMarkup) && str_contains($statefulMarkup, 'blocks-engine-navigation-link-color-states-0') && !str_contains($statefulMarkup, 'blocks-engine-navigation--color-') && !str_contains($statefulMarkup, '"anchor":"home-source"') && str_contains($statefulMarkup, 'site-link'), 'The emitted header keeps its navigation-root current-color and link-state carriers while removing child route state without corrupting tokens or non-state presentation.');
 $assert(str_contains($statefulPages['contact.html']['canonical_block_markup'] ?? '', 'Contact') && !str_contains($statefulPages['contact.html']['canonical_block_markup'] ?? '', 'header-wrapper') && array(array('source_path' => 'contact.html', 'reason' => 'missing')) === ($statefulDiagnostic['exclusions'] ?? null), 'A responsive route without an equivalent nested header candidate remains explicitly page-owned.');
 
 $variantShell = static function (string $current, bool $variant): string {

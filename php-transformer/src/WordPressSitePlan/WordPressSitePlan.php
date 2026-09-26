@@ -217,8 +217,6 @@ final class WordPressSitePlan
         $pages = $navigation['pages'];
         $parts = $navigation['parts'];
         $menus = $navigation['menus'];
-        $runtimeDeclarations = self::reanchorEntityBindings($runtimeDeclarations, $pages, $menus);
-        self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
@@ -2109,59 +2107,6 @@ final class WordPressSitePlan
         }
         unset($declaration);
 
-        return RuntimeDeclarations::normalizeList($declarations);
-    }
-
-    /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $menus @return array<int,array<string,mixed>> */
-    private static function reanchorEntityBindings(array $declarations, array $pages, array $menus = array()): array
-    {
-        $markupBySource = array();
-        foreach ($pages as $page) {
-            if (is_string($page['source_path'] ?? null) && is_string($page['canonical_block_markup'] ?? null)) {
-                $markupBySource[$page['source_path']] = $page['canonical_block_markup'];
-            }
-        }
-        foreach ($declarations as $declarationIndex => $declaration) {
-            $entities = $declaration['payload']['entities'] ?? null;
-            if (!is_array($entities)) {
-                continue;
-            }
-            foreach ($entities as $entityIndex => $entity) {
-                $bindings = is_array($entity) ? ($entity['bindings'] ?? null) : null;
-                if (!is_array($bindings)) {
-                    continue;
-                }
-                foreach ($bindings as $bindingIndex => $binding) {
-                    if (!is_array($binding)) {
-                        continue;
-                    }
-                    if (is_string($binding['search_block_markup'] ?? null)) {
-                        $binding['search_block_markup'] = NavigationEntityProjection::rewriteMarkup($binding['search_block_markup'], $menus);
-                    }
-                    $source = $binding['source_path'] ?? null;
-                    $search = $binding['search_block_markup'] ?? null;
-                    $occurrence = $binding['occurrence'] ?? null;
-                    $markup = is_string($source) ? ($markupBySource[$source] ?? null) : null;
-                    $offset = is_string($markup) && is_string($search) && is_int($occurrence) ? self::occurrenceOffset($markup, $search, $occurrence) : null;
-                    if (!is_string($source) || !is_string($search) || !is_string($markup) || null === $offset) {
-                        throw new InvalidArgumentException('A runtime entity binding no longer has its declared source-page block anchor after navigation entity projection: ' . (is_string($source) ? $source : 'unknown') . ' (' . (is_string($binding['role'] ?? null) ? $binding['role'] : 'unknown') . ').');
-                    }
-                    $blockIndex = null;
-                    foreach (self::blockRanges($markup) as $index => $range) {
-                        if ($range['offset'] === $offset && $search === substr($markup, $range['offset'], $range['length'])) {
-                            $blockIndex = $index;
-                            break;
-                        }
-                    }
-                    if (!is_int($blockIndex)) {
-                        throw new InvalidArgumentException('A runtime entity binding no longer has its declared source-page block anchor after navigation entity projection: ' . $source . ' (' . (is_string($binding['role'] ?? null) ? $binding['role'] : 'unknown') . ').');
-                    }
-                    $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $offset, 'length' => strlen($search));
-                    $declarations[$declarationIndex]['payload']['entities'][$entityIndex]['bindings'][$bindingIndex] = $binding;
-                }
-            }
-            unset($declarations[$declarationIndex]['payload_hash'], $declarations[$declarationIndex]['content_hash']);
-        }
         return RuntimeDeclarations::normalizeList($declarations);
     }
 
