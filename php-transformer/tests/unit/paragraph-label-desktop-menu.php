@@ -29,7 +29,7 @@ foreach ( array(
     $items .= '<li class="item"><a href="' . $item[1] . '"><div class="pad"><div class="label-wrap"><p class="label">' . $item[0] . '</p></div></div></a></li>';
 }
 $menu = '<site-menu id="desktop-menu" class="desktop-menu" style="visibility:inherit">'
-    . '<nav aria-label="Site"><ul class="items">' . $items . '</ul><div class="more"><ul class="submenu"></ul></div></nav>'
+    . '<nav aria-label="Site"><ul class="items" style="text-align:right">' . $items . '</ul><div class="more"><ul class="submenu"></ul></div></nav>'
     . '</site-menu>';
 $layout = '<style>.menu-bar{display:flex;flex-direction:row;align-items:center}.items{display:flex;flex-direction:row;gap:12px;margin:0;padding:0}.label{margin:0;line-height:30px}</style>'
     . '<header class="site-header"><div class="menu-bar">' . $menu . '</div></header>';
@@ -52,6 +52,7 @@ foreach ( array( 'shallow layout wrapper' => $shallow, 'deep layout wrapper' => 
     $assert(6 === substr_count($markup, 'wp:navigation-link'), $name . ' emits one navigation-link per menu item', $markup);
     $assert(str_contains($markup, '"label":"Home"') && str_contains($markup, '"label":"Journal"') && str_contains($markup, '"label":"About"'), $name . ' keeps paragraph-wrapped labels as navigation-link labels', $markup);
     $assert(str_contains($markup, 'id="desktop-menu"'), $name . ' keeps the menu host identity CSS can address', $markup);
+    $assert(str_contains($markup, '"justifyContent":"right"'), $name . ' keeps the list text-align packing as navigation justification', $markup);
     $assert(! str_contains($markup, '<p class="label">') && ! str_contains($markup, '<p class=\\"label\\">'), $name . ' does not leave menu labels as companion-attribute HTML', $markup);
 }
 

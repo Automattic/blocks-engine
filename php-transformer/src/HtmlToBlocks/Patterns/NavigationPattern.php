@@ -208,6 +208,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $label instanceof DOMElement ) {
             $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
         }
+        $navigationAttrs = $this->withResolvedListPackingJustification(
+            $navigationAttrs,
+            $listSource instanceof DOMElement ? $listSource : $element,
+            $navigationContext
+        );
 
         // Declare responsive-overlay intent explicitly so the saved block carries
         // its interactive behavior in the content itself rather than relying on
@@ -1038,6 +1043,74 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return 'left';
+    }
+
+    /**
+     * Carry a source list's item packing onto core/navigation.
+     *
+     * A block list of inline items packs with `text-align`; a row flex list
+     * packs with `justify-content`. The generated container is a flex row
+     * whose default is flex-start, so that declaration has to be restated as
+     * `layout.justifyContent` or the items start at the container's leading
+     * edge. A column flex list keeps the cross-axis value the vertical
+     * orientation path already recorded.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withResolvedListPackingJustification(array $attrs, DOMElement $list, ?NavigationPatternContext $navigationContext): array
+    {
+        if ( ! $navigationContext instanceof NavigationPatternContext ) {
+            return $attrs;
+        }
+
+        $justification = $this->listPackingJustification($navigationContext->resolvedStyle($list));
+        if ( '' === $justification ) {
+            return $attrs;
+        }
+
+        $layout = is_array($attrs['layout'] ?? null) ? $attrs['layout'] : array();
+        $layout['justifyContent'] = $justification;
+        if ( ! isset($layout['type']) ) {
+            $layout['type'] = 'flex';
+        }
+        $attrs['layout'] = $layout;
+
+        return $attrs;
+    }
+
+    private function listPackingJustification(string $style): string
+    {
+        if ( 1 === preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/i', $style)
+            && 1 === preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/i', $style) ) {
+            return '';
+        }
+
+        $declared = '';
+        if ( 1 === preg_match('/(?:^|;)\s*justify-content\s*:\s*([^;]+)/i', $style, $match) ) {
+            $declared = $this->cssDeclarationValue($match[1]);
+        } elseif ( 1 === preg_match('/(?:^|;)\s*text-align\s*:\s*([^;]+)/i', $style, $match) ) {
+            $declared = $this->cssDeclarationValue($match[1]);
+        }
+        if ( '' === $declared ) {
+            return '';
+        }
+        if ( str_contains($declared, 'space-between') ) {
+            return 'space-between';
+        }
+        if ( str_contains($declared, 'flex-end') || 1 === preg_match('/(?:^|[\s,])(?:right|end)(?:[\s,]|$)/', $declared) ) {
+            return 'right';
+        }
+        if ( str_contains($declared, 'center') ) {
+            return 'center';
+        }
+
+        return '';
+    }
+
+    private function cssDeclarationValue(string $value): string
+    {
+        return strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($value))));
     }
 
     private function resolvedStyleDeclaresFamily(string $style, string $family): bool
