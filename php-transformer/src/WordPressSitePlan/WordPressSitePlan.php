@@ -213,6 +213,7 @@ final class WordPressSitePlan
         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
         self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap);
+        self::shareVariantNavigations($pages, $parts, $templates);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         // Asset payloads are the last canonicalization pass, so the placeholder
@@ -1901,7 +1902,278 @@ final class WordPressSitePlan
             $lines[] = "    return \$permalink;";
             $lines[] = "}, 10, 2 );";
         }
+        $navigationPosts = self::sharedNavigationPosts($parts, $pages, $templates);
+        if (array() !== $navigationPosts) $lines = array_merge($lines, self::navigationEntityBootstrap($navigationPosts));
         return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $templates
+     */
+    private static function shareVariantNavigations(array &$pages, array &$parts, array &$templates): void
+    {
+        $documents = array();
+        foreach ($parts as $index => $part) $documents[] = array('kind' => 'part', 'index' => $index, 'area' => (string) ($part['area'] ?? ''), 'variant' => is_int($part['placement']['variant'] ?? null) ? $part['placement']['variant'] : null, 'markup' => (string) ($part['canonical_block_markup'] ?? ''));
+        foreach ($pages as $index => $page) $documents[] = array('kind' => 'page', 'index' => $index, 'area' => '', 'variant' => null, 'markup' => (string) ($page['canonical_block_markup'] ?? ''));
+        foreach ($templates as $index => $template) $documents[] = array('kind' => 'template', 'index' => $index, 'area' => '', 'variant' => null, 'markup' => (string) ($template['canonical_block_markup'] ?? ''));
+        $found = array();
+        foreach ($documents as $docIndex => $document) {
+            foreach (self::variantNavigations($document['markup'], $document['area'], $document['variant']) as $navigation) {
+                $navigation['doc'] = $docIndex;
+                $found[] = $navigation;
+            }
+        }
+        $groups = array();
+        foreach ($found as $index => $navigation) {
+            if (null === $navigation['variant'] || null === $navigation['signature']) continue;
+            $groups[$navigation['area'] . "\0" . $navigation['signature']][$navigation['variant']][] = $index;
+        }
+        $assigned = array();
+        $used = array();
+        foreach ($groups as $key => $byVariant) {
+            if (count($byVariant) < 2) continue;
+            $ref = 900000000 + (hexdec(substr(hash('sha256', $key), 0, 6)) % 99999999);
+            while (isset($used[$ref])) $ref = 900000000 + (($ref + 1) % 99999999);
+            $used[$ref] = true;
+            foreach ($byVariant as $indexes) foreach ($indexes as $index) $assigned[$index] = $ref;
+        }
+        if (array() === $assigned) return;
+        $replacements = array();
+        foreach ($assigned as $index => $ref) { $row = $found[$index]; $row['ref'] = $ref; $replacements[$row['doc']][] = $row; }
+        foreach ($replacements as $docIndex => $rows) {
+            usort($rows, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
+            $markup = $documents[$docIndex]['markup'];
+            foreach ($rows as $row) $markup = substr($markup, 0, $row['offset']) . self::withNavigationRef($row['opening'], $row['ref']) . substr($markup, $row['offset'] + strlen($row['opening']));
+            $kind = $documents[$docIndex]['kind'];
+            $index = $documents[$docIndex]['index'];
+            if ('part' === $kind) { $parts[$index]['canonical_block_markup'] = $markup; $parts[$index]['content_hash'] = self::contentHash($markup); }
+            elseif ('page' === $kind) { $pages[$index]['canonical_block_markup'] = $markup; $pages[$index]['content_hash'] = self::contentHash($markup); }
+            else { $templates[$index]['canonical_block_markup'] = $markup; $templates[$index]['content_hash'] = self::contentHash($markup); }
+        }
+    }
+
+    /** @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $templates @return array<int,array{rank:int,content:string}> */
+    private static function sharedNavigationPosts(array $parts, array $pages, array $templates): array
+    {
+        $documents = array();
+        foreach ($parts as $part) $documents[] = array('markup' => (string) ($part['canonical_block_markup'] ?? ''), 'area' => (string) ($part['area'] ?? ''), 'variant' => is_int($part['placement']['variant'] ?? null) ? $part['placement']['variant'] : null);
+        foreach ($pages as $page) $documents[] = array('markup' => (string) ($page['canonical_block_markup'] ?? ''), 'area' => '', 'variant' => null);
+        foreach ($templates as $template) $documents[] = array('markup' => (string) ($template['canonical_block_markup'] ?? ''), 'area' => '', 'variant' => null);
+        $catalog = array();
+        foreach ($documents as $document) {
+            foreach (self::variantNavigations($document['markup'], $document['area'], $document['variant']) as $navigation) {
+                $ref = $navigation['ref'];
+                if (!is_int($ref) || $ref < 900000000 || '' === $navigation['inner']) continue;
+                if (!isset($catalog[$ref]) || $navigation['rank'] < $catalog[$ref]['rank']) $catalog[$ref] = array('rank' => $navigation['rank'], 'content' => self::navigationEntityContent($navigation['inner']));
+            }
+        }
+        ksort($catalog, SORT_NUMERIC);
+        return $catalog;
+    }
+
+    /** @param array<int,array{rank:int,content:string}> $posts @return array<int,string> */
+    private static function navigationEntityBootstrap(array $posts): array
+    {
+        $menus = array();
+        $index = 0;
+        foreach ($posts as $ref => $post) {
+            ++$index;
+            $menus[$ref] = array('slug' => 'blocks-engine-navigation-' . $ref, 'title' => 1 === count($posts) ? 'Navigation' : 'Navigation ' . $index, 'content' => $post['content']);
+        }
+        $lines = array('$blocks_engine_navigations = ' . var_export($menus, true) . ';');
+        $lines[] = "add_action( 'init', static function () use ( \$blocks_engine_navigations ): void {";
+        $lines[] = "    if ( ! function_exists( 'wp_insert_post' ) ) return;";
+        $lines[] = "    \$refs = array();";
+        $lines[] = "    foreach ( \$blocks_engine_navigations as \$sentinel => \$menu ) {";
+        $lines[] = "        \$found = get_posts( array( 'name' => \$menu['slug'], 'post_type' => 'wp_navigation', 'post_status' => 'publish', 'posts_per_page' => 1, 'suppress_filters' => true ) );";
+        $lines[] = "        if ( \$found ) { \$refs[ (int) \$sentinel ] = (int) \$found[0]->ID; continue; }";
+        $lines[] = "        \$created = wp_insert_post( array( 'post_type' => 'wp_navigation', 'post_status' => 'publish', 'post_title' => \$menu['title'], 'post_name' => \$menu['slug'], 'post_content' => \$menu['content'] ), true );";
+        $lines[] = "        if ( ! is_wp_error( \$created ) && (int) \$created > 0 ) \$refs[ (int) \$sentinel ] = (int) \$created;";
+        $lines[] = "    }";
+        $lines[] = "    \$GLOBALS['blocks_engine_navigation_refs'] = \$refs;";
+        $lines[] = "}, 1 );";
+        $lines[] = "\$blocks_engine_bind_navigation_refs = static function ( string \$content ): string {";
+        $lines[] = "    \$refs = \$GLOBALS['blocks_engine_navigation_refs'] ?? array();";
+        $lines[] = "    if ( ! is_array( \$refs ) || array() === \$refs || ! str_contains( \$content, '\"ref\":' ) ) return \$content;";
+        $lines[] = "    foreach ( \$refs as \$sentinel => \$id ) \$content = str_replace( '\"ref\":' . \$sentinel, '\"ref\":' . \$id, \$content );";
+        $lines[] = "    \$ids = array_fill_keys( array_map( 'intval', array_values( \$refs ) ), true );";
+        $lines[] = '    return preg_replace_callback(\'/<!--\\s*wp:navigation\\s+(\\{.*?\\})\\s*-->.*?<!--\\s*\\/wp:navigation\\s*-->/s\', static function ( array $match ) use ( $ids ): string {';
+        $lines[] = "        \$attrs = json_decode( \$match[1], true );";
+        $lines[] = "        if ( ! is_array( \$attrs ) || ! isset( \$ids[ (int) ( \$attrs['ref'] ?? 0 ) ] ) ) return \$match[0];";
+        $lines[] = "        \$encoded = function_exists( 'wp_json_encode' ) ? wp_json_encode( \$attrs, JSON_UNESCAPED_SLASHES ) : json_encode( \$attrs, JSON_UNESCAPED_SLASHES );";
+        $lines[] = "        return '<!-- wp:navigation ' . \$encoded . ' /-->';";
+        $lines[] = "    }, \$content ) ?? \$content;";
+        $lines[] = "};";
+        $lines[] = "add_filter( 'get_block_file_template', static function ( \$template ) use ( \$blocks_engine_bind_navigation_refs ) { if ( \$template instanceof WP_Block_Template ) \$template->content = \$blocks_engine_bind_navigation_refs( \$template->content ); return \$template; }, 20 );";
+        $lines[] = "add_filter( 'get_block_templates', static function ( array \$templates ) use ( \$blocks_engine_bind_navigation_refs ): array { foreach ( \$templates as \$template ) if ( \$template instanceof WP_Block_Template ) \$template->content = \$blocks_engine_bind_navigation_refs( \$template->content ); return \$templates; }, 20 );";
+        $lines[] = "add_filter( 'render_block_core/template-part', static function ( string \$content ) use ( \$blocks_engine_bind_navigation_refs ): string { return \$blocks_engine_bind_navigation_refs( \$content ); }, 9 );";
+        foreach (array('page', 'post', 'wp_template', 'wp_template_part') as $type) {
+            $lines[] = "add_filter( 'rest_prepare_{$type}', static function ( \$response ) use ( \$blocks_engine_bind_navigation_refs ) { if ( ! \$response instanceof WP_REST_Response ) return \$response; \$data = \$response->get_data(); if ( isset( \$data['content']['raw'] ) && is_string( \$data['content']['raw'] ) ) \$data['content']['raw'] = \$blocks_engine_bind_navigation_refs( \$data['content']['raw'] ); if ( isset( \$data['content']['rendered'] ) && is_string( \$data['content']['rendered'] ) ) \$data['content']['rendered'] = \$blocks_engine_bind_navigation_refs( \$data['content']['rendered'] ); \$response->set_data( \$data ); return \$response; } );";
+        }
+        $lines[] = "add_filter( 'render_block_data', static function ( array \$block ): array { if ( 'core/navigation' !== ( \$block['blockName'] ?? null ) ) return \$block; \$refs = \$GLOBALS['blocks_engine_navigation_refs'] ?? array(); \$ref = \$block['attrs']['ref'] ?? null; if ( is_int( \$ref ) && isset( \$refs[ \$ref ] ) ) \$block['attrs']['ref'] = \$refs[ \$ref ]; return \$block; }, 9 );";
+        return $lines;
+    }
+
+    /** @return array<int,array{offset:int,opening:string,inner:string,signature:?string,variant:?string,area:string,rank:int,ref:?int}> */
+    private static function variantNavigations(string $markup, string $partArea, ?int $partVariant): array
+    {
+        $navigations = array();
+        $stack = array();
+        $offset = 0;
+        $length = strlen($markup);
+        while ($offset < $length && false !== ($start = strpos($markup, '<!--', $offset))) {
+            $comment = self::blockCommentAt($markup, $start);
+            if (null === $comment) { $offset = $start + 4; continue; }
+            $offset = $start + $comment['length'];
+            if ($comment['closing']) { array_pop($stack); continue; }
+            $variant = self::responsiveVariantClassFromAttrs($comment['attrs']);
+            $tag = is_string($comment['attrs']['tagName'] ?? null) ? $comment['attrs']['tagName'] : null;
+            if (!$comment['selfClosing']) $stack[] = array('variant' => $variant, 'tag' => $tag);
+            if ('navigation' !== $comment['name'] || $comment['selfClosing']) continue;
+            $variantIdentity = null;
+            $area = $partArea;
+            foreach ($stack as $frame) {
+                if (null !== $frame['variant']) $variantIdentity = $frame['variant'];
+                if (in_array($frame['tag'], array('header', 'footer'), true)) $area = $frame['tag'];
+            }
+            if (null === $variantIdentity && null !== $partVariant) $variantIdentity = 'inline:' . $area . ':' . $partVariant;
+            $close = self::navigationCloseOffset($markup, $offset);
+            if (null === $close) continue;
+            $inner = trim(substr($markup, $offset, $close - $offset));
+            $navigations[] = array(
+                'offset' => $start,
+                'opening' => $comment['comment'],
+                'inner' => $inner,
+                'signature' => self::navigationItemSignature($inner),
+                'variant' => $variantIdentity,
+                'area' => $area,
+                'rank' => self::navigationVariantRank($variantIdentity, $partVariant),
+                'ref' => is_int($comment['attrs']['ref'] ?? null) ? $comment['attrs']['ref'] : (is_numeric($comment['attrs']['ref'] ?? null) ? (int) $comment['attrs']['ref'] : null),
+            );
+            $offset = $close;
+        }
+        return $navigations;
+    }
+
+    /** @return array{name:string,closing:bool,selfClosing:bool,length:int,comment:string,attrs:array<string,mixed>}|null */
+    private static function blockCommentAt(string $markup, int $offset): ?array
+    {
+        if (!preg_match('/^<!--\s*(\/?)wp:([a-z0-9\/-]+)/', substr($markup, $offset), $match)) return null;
+        $end = strpos($markup, '-->', $offset);
+        if (false === $end) return null;
+        $comment = substr($markup, $offset, $end + 3 - $offset);
+        $attrs = array();
+        $jsonStart = strpos($comment, '{');
+        if (false !== $jsonStart && '/' !== $match[1]) {
+            $depth = 0;
+            $jsonEnd = null;
+            for ($index = $jsonStart, $limit = strlen($comment) - 3; $index < $limit; ++$index) {
+                if ('{' === $comment[$index]) ++$depth;
+                elseif ('}' === $comment[$index] && 0 === --$depth) { $jsonEnd = $index; break; }
+            }
+            if (null !== $jsonEnd) {
+                $decoded = json_decode(substr($comment, $jsonStart, $jsonEnd - $jsonStart + 1), true);
+                if (is_array($decoded)) $attrs = $decoded;
+            }
+        }
+        return array('name' => $match[2], 'closing' => '/' === $match[1], 'selfClosing' => str_ends_with(rtrim(substr($comment, 0, -3)), '/'), 'length' => strlen($comment), 'comment' => $comment, 'attrs' => $attrs);
+    }
+
+    private static function navigationCloseOffset(string $markup, int $offset): ?int
+    {
+        $depth = 1;
+        $cursor = $offset;
+        while ($depth > 0 && false !== ($next = strpos($markup, '<!--', $cursor))) {
+            $slice = substr($markup, $next, 40);
+            if (preg_match('/^<!--\s*\/wp:navigation\s*-->/', $slice)) {
+                --$depth;
+                if (0 === $depth) return $next;
+            } elseif (preg_match('/^<!--\s*wp:navigation(?:\s|\{)/', $slice)) {
+                ++$depth;
+            }
+            $cursor = $next + 4;
+        }
+        return null;
+    }
+
+    /** @param array<string,mixed> $attrs */
+    private static function responsiveVariantClassFromAttrs(array $attrs): ?string
+    {
+        foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
+            if (in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true) || 1 === preg_match('/^site-document-variant-[a-z][a-z0-9_-]{0,31}$/', $class)) return $class;
+        }
+        return null;
+    }
+
+    private static function navigationVariantRank(?string $variant, ?int $partVariant): int
+    {
+        if (is_string($variant)) {
+            if (in_array($variant, array('data-liberation-desktop-document', 'site-document-variant-default'), true) || str_ends_with($variant, ':1')) return 0;
+            if (str_contains($variant, 'mobile') || str_ends_with($variant, ':2')) return 1;
+        }
+        if (1 === $partVariant) return 0;
+        return null === $partVariant ? 3 : 1;
+    }
+
+    private static function navigationItemSignature(string $inner): ?string
+    {
+        $items = array();
+        $offset = 0;
+        $length = strlen($inner);
+        while ($offset < $length && false !== ($start = strpos($inner, '<!--', $offset))) {
+            $comment = self::blockCommentAt($inner, $start);
+            if (null === $comment) { $offset = $start + 4; continue; }
+            $offset = $start + $comment['length'];
+            if ($comment['closing'] || !in_array($comment['name'], array('navigation-link', 'navigation-submenu'), true)) continue;
+            $label = trim((string) ($comment['attrs']['label'] ?? ''));
+            $url = preg_replace('/#.*$/', '', (string) ($comment['attrs']['url'] ?? '')) ?? '';
+            if ('' === $label && '' === $url) continue;
+            $items[] = array($comment['name'], $label, $url);
+        }
+        return array() === $items ? null : json_encode($items, JSON_UNESCAPED_SLASHES);
+    }
+
+    private static function navigationEntityContent(string $inner): string
+    {
+        $offset = 0;
+        $length = strlen($inner);
+        $parts = array();
+        while ($offset < $length && false !== ($start = strpos($inner, '<!--', $offset))) {
+            if ($start > $offset) $parts[] = substr($inner, $offset, $start - $offset);
+            $comment = self::blockCommentAt($inner, $start);
+            if (null === $comment) { $parts[] = substr($inner, $start, 4); $offset = $start + 4; continue; }
+            $offset = $start + $comment['length'];
+            if (!$comment['closing'] && in_array($comment['name'], array('navigation-link', 'navigation-submenu'), true)) {
+                $attrs = $comment['attrs'];
+                $classes = array_values(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(), static fn(string $class): bool => '' !== $class && !in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), true) && !preg_match('/^blocks-engine-navigation-current-color-[a-f0-9]{64}$/', $class)));
+                if (array() === $classes) unset($attrs['className']); else $attrs['className'] = implode(' ', $classes);
+                $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                $parts[] = '<!-- wp:' . $comment['name'] . ' ' . $encoded . ($comment['selfClosing'] ? ' /-->' : ' -->');
+                continue;
+            }
+            $parts[] = $comment['comment'];
+        }
+        if ($offset < $length) $parts[] = substr($inner, $offset);
+        return trim(implode('', $parts));
+    }
+
+    private static function withNavigationRef(string $opening, int $ref): string
+    {
+        $start = strpos($opening, '{');
+        if (false === $start) return $opening;
+        $depth = 0;
+        $end = null;
+        for ($index = $start, $limit = strlen($opening); $index < $limit; ++$index) {
+            if ('{' === $opening[$index]) ++$depth;
+            elseif ('}' === $opening[$index] && 0 === --$depth) { $end = $index; break; }
+        }
+        if (null === $end) return $opening;
+        $json = substr($opening, $start, $end - $start + 1);
+        if (str_contains($json, '"ref":')) return $opening;
+        $injected = '{}' === $json ? '{"ref":' . $ref . '}' : '{"ref":' . $ref . ',' . substr($json, 1);
+        return substr($opening, 0, $start) . $injected . substr($opening, $end + 1);
     }
     // A file-system path and a URL path are different encodings of the same
     // name: browsers request exactly what the bootstrap emits and the server
