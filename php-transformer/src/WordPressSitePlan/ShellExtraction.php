@@ -1205,7 +1205,7 @@ final class ShellExtraction
                 if (($current || $semanticIdentity) && preg_match('/^blocks-engine-navigation-current-color-[a-f0-9]{64}$/', $class)) return false;
                 if ($current && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class)) return false;
                 if ($semanticIdentity && $current && 1 === ($stateCarrierCounts[$class] ?? 0)) return false;
-                if ($current && preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class)) return false;
+                if ($semanticIdentity && $current && preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class)) return false;
                 return true;
             }));
             if ($semanticIdentity && $current && $isLink) {
