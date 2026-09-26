@@ -3430,6 +3430,13 @@ final class ArtifactCompiler
                 $keys[] = './' . $relativePath;
             }
         }
+        $root = trim($this->generatedAssetRoot, '/');
+        if ( '' !== $root && str_starts_with($assetPath, $root . '/') ) {
+            $webRelative = substr($assetPath, strlen($root) + 1);
+            if ( '' !== $webRelative ) {
+                $keys[] = '/' . $webRelative;
+            }
+        }
 
         return array_values(array_unique(array_filter($keys, static fn (string $key): bool => '' !== $key)));
     }

@@ -769,7 +769,7 @@ trait StagedTransport
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],
                 'component_facts' => $this->collectComponentFacts($planArtifact['files']),
-                'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $hydratedArtifact),
+                'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $hydratedArtifact, $payloadReader),
             );
             $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         }
@@ -1117,7 +1117,7 @@ trait StagedTransport
     }
 
     /** @param array<string,mixed> $partition @param array<string,mixed> $artifact */
-    private function compileSharedInlineShellReduction(array $partition, array $artifact): array
+    private function compileSharedInlineShellReduction(array $partition, array $artifact, ?PayloadReader $payloadReader = null): array
     {
         $files = array_merge($partition['shared'], ...array_values($partition['pages']));
         $files = self::sortedBySourcePaths($files, $partition['source_paths']);
@@ -1128,7 +1128,13 @@ trait StagedTransport
         $entryPath = (string) ($entry['path'] ?? '');
         $files = $this->withStylesheetOccurrenceAssets((string) ($entry['content'] ?? ''), $entryPath, $files);
         $this->generatedAssetRoot = '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/');
+        $previousReader = $this->glyphPayloadReader;
+        $this->glyphPayloadReader = $payloadReader;
         $this->indexFiles($files);
-        return $this->compileSharedInlineShells($files, $entryPath, (new CompanionPluginPayload())->blockNamespace($artifact));
+        try {
+            return $this->compileSharedInlineShells($files, $entryPath, (new CompanionPluginPayload())->blockNamespace($artifact));
+        } finally {
+            $this->glyphPayloadReader = $previousReader;
+        }
     }
 }
