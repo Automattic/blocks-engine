@@ -639,6 +639,12 @@ final class ShellExtraction
             }
             if ($retainedForRuntimeBinding) continue;
             foreach ($withoutShells as $index => $withoutShell) {
+                if ($this->retainsResponsiveVariantLandmark($withoutShell, $area)) {
+                    $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because a responsive document variant still contains that landmark.", 'area' => $area, 'source_path' => $pages[$index]['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'responsive_variant_retained', $candidates));
+                    continue 2;
+                }
+            }
+            foreach ($withoutShells as $index => $withoutShell) {
                 $pages[$index]['canonical_block_markup'] = $withoutShell;
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
             }
@@ -696,6 +702,14 @@ final class ShellExtraction
     private function withoutTopLevelShell(string $markup, string $area, string $candidateMarkup = '', ?int $offset = null): ?string
     {
         return $this->replaceTopLevelShell($markup, $area, '', $candidateMarkup, $offset);
+    }
+
+    private function retainsResponsiveVariantLandmark(string $markup, string $area): bool
+    {
+        if (1 !== preg_match('/(?:data-liberation-(?:desktop|mobile)-document|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
+            return false;
+        }
+        return array() !== $this->nestedLandmarkCandidates($markup, '', $area);
     }
 
     /** @param array<string,mixed> $candidate */
