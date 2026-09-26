@@ -779,6 +779,7 @@ final class ShellExtraction
     private function absorbResponsiveVariantLandmarks(array $pages, array $indexes, string $area, array $candidates, array $withoutShells, array $runtimeDeclarations): array|false|null
     {
         $byPage = array();
+        $cleanOriginal = array();
         foreach ($indexes as $index) {
             $scoped = $this->scopedVariantLandmarks($pages[$index]['canonical_block_markup'], $area);
             if (null === $scoped || count($scoped) < 2) continue;
@@ -791,18 +792,17 @@ final class ShellExtraction
             }
             if ($blocked) continue;
             $candidate = $candidates[$index][0] ?? null;
-            if (!is_array($candidate) || !$this->candidateOverlapsVariantLandmark((string) ($candidate['markup'] ?? ''), $candidate, $scoped)) continue;
             $byPage[$index] = $scoped;
+            $cleanOriginal[$index] = !is_array($candidate) || !$this->candidateOverlapsVariantLandmark((string) ($candidate['markup'] ?? ''), $candidate, $scoped);
         }
         if (array() === $byPage) return false;
         $variantClasses = array_keys($byPage[array_key_first($byPage)]);
         usort($variantClasses, static fn(string $left, string $right): int => self::responsiveVariantRank($left) <=> self::responsiveVariantRank($right) ?: strcmp($left, $right));
         $signatures = array();
         foreach ($byPage as $index => $scoped) {
-            if (array_keys($scoped) !== array_combine($variantClasses, $variantClasses) && array_diff($variantClasses, array_keys($scoped))) continue;
             $sig = array();
             foreach ($variantClasses as $class) {
-                if (!isset($scoped[$class])) continue 2;
+                if (!isset($scoped[$class]) || !is_array($scoped[$class])) continue 2;
                 $sig[$class] = $scoped[$class][0]['identity_markup'];
             }
             $key = hash('sha256', implode("\0", $sig));
@@ -832,7 +832,8 @@ final class ShellExtraction
         }
         $cleaned = array();
         foreach (array_keys($kept) as $index) {
-            $markup = $this->stripMatchingVariantLandmarks($withoutShells[$index], $area, $identities, false);
+            $fromOriginal = !empty($cleanOriginal[$index]);
+            $markup = $this->stripMatchingVariantLandmarks($fromOriginal ? $pages[$index]['canonical_block_markup'] : $withoutShells[$index], $area, $identities, $fromOriginal);
             if (null === $markup || $this->retainsResponsiveVariantLandmark($markup, $area)) return false;
             $cleaned[$index] = $markup;
         }
@@ -1120,6 +1121,7 @@ final class ShellExtraction
         $markup = preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
         $markup = preg_replace('/(?:\.\.\/)+assets\//', 'assets/', $markup) ?? $markup;
         $markup = preg_replace('/\bblock-[a-f0-9]{16,}\b/', 'block', $markup) ?? $markup;
+        $markup = preg_replace('/("url":"[^"#\s]+)#(?:\\\\u0022|[^"\\\\])+/', '$1', $markup) ?? $markup;
         $markup = self::withoutMenuSelectionState($markup);
         return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup);
     }
