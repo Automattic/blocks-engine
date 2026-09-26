@@ -105,6 +105,7 @@
       "php tests/unit/scroll-state-projector.php",
       "php tests/unit/editability-report.php",
       "php tests/unit/visually-hidden-menu-toggle-label.php",
+      "php tests/unit/visually-hidden-authored-clip.php",
       "php tests/unit/collapsed-navigation-css-toggle.php",
       "php tests/unit/projected-branch-compression.php",
       "php tests/unit/core-block-capability-matrix.php",
