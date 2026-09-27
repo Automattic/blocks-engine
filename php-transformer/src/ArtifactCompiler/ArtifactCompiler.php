@@ -1909,6 +1909,27 @@ final class ArtifactCompiler
         });
     }
 
+    /**
+     * Drop one document's stylesheet occurrence annotation (the records and the
+     * alias files it added) so another document can be annotated from its own
+     * links.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private static function withoutStylesheetOccurrenceRecords(array $files): array
+    {
+        $clean = array();
+        foreach ( $files as $file ) {
+            if ( 'stylesheet-occurrence' === ($file['source'] ?? null) ) {
+                continue;
+            }
+            unset($file['stylesheet_source_path'], $file['stylesheet_occurrence']);
+            $clean[] = $file;
+        }
+        return $clean;
+    }
+
     /** @param array<int, array<string, mixed>> $files @return array<int, array<string, mixed>> */
     private function withStylesheetOccurrenceAssets(string $html, string $sourcePath, array $files): array
     {
@@ -2393,8 +2414,16 @@ final class ArtifactCompiler
             if ( '' === $path || $entryPath === $path ) {
                 continue;
             }
-            $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $files, 'artifact-document', $generatedBlockNamespace, true);
+            // Stylesheet occurrence records are per-document: a stylesheet this
+            // page links but the entry page does not has no record in the
+            // entry-annotated file set and would be dropped from its cascade.
+            // Staged compilation annotates each page from its own source; the
+            // whole-artifact driver does the same so both see one conversion.
+            $documentFiles = $this->withStylesheetOccurrenceAssets((string) ($file['content'] ?? ''), $path, self::withoutStylesheetOccurrenceRecords($files));
+            $this->indexFiles($documentFiles);
+            $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $documentFiles, 'artifact-document', $generatedBlockNamespace, true);
         }
+        $this->indexFiles($files);
         return $documents;
     }
 

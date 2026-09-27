@@ -249,15 +249,11 @@ trait StagedTransport
             // Stylesheet occurrence records are local conversion inputs. They
             // are rebuilt from the owned source so reference-backed shared
             // plans remain portable without hydrating a page at preparation.
+            // A page's own stylesheets are part of its cascade, exactly as in
+            // whole-artifact compilation (see compileHtmlSourceDocuments).
             $documentFiles = $hasSharedStylesheetOccurrences
                 ? $files
                 : $stageCompiler->withStylesheetOccurrenceAssets((string) ($file['content'] ?? ''), $path, $files);
-            if (!$hasSharedStylesheetOccurrences) {
-                foreach ($documentFiles as &$documentFile) {
-                    if (isset($documentFile['stylesheet_occurrence']) && 'page' === $stageCompiler->fileOwnership($documentFile)['scope']) unset($documentFile['stylesheet_occurrence']);
-                }
-                unset($documentFile);
-            }
             $stageCompiler->glyphPayloadReader = $payloadReader;
             $stageCompiler->indexFiles($documentFiles);
             $compiledDocuments[$path] = $stageCompiler->compileHtmlDocumentBlocks(
