@@ -542,7 +542,7 @@ final class ShellExtraction
                     if (null === $tagName && is_string($wrapper['tagName'] ?? null) && in_array($wrapper['tagName'], array('header', 'footer', 'main', 'article', 'section', 'aside'), true)) $tagName = $wrapper['tagName'];
                 }
             }
-            $candidate = 0 < count($stack) && !$disallowedAncestor && 'group' === $name && $area === $tagName;
+            $candidate = 0 < count($stack) && !$disallowedAncestor && $area === $tagName && self::isShellLandmarkBlock($name);
             // Whether page content precedes the landmark inside its ancestors: a
             // block other than the enclosing openings started or ended before it.
             $preceded = false;
@@ -603,7 +603,7 @@ final class ShellExtraction
                 if (1 !== count($rows)) { $excluded[$index] = count($rows) > 1 ? 'multiple' : 'missing'; continue; }
                 $candidate = $rows[0];
                 $candidateIdentity = hash('sha256', $area . "\0" . json_encode($candidate['classes']) . "\0" . ($candidate['identity_markup'] ?? $candidate['markup']));
-                $clusters[$candidateIdentity]['candidate'] = $candidate;
+                if (!isset($clusters[$candidateIdentity]['candidate']) || self::prefersScrollStateCarrier($candidate, $clusters[$candidateIdentity]['candidate'])) $clusters[$candidateIdentity]['candidate'] = $candidate;
                 $clusters[$candidateIdentity]['indexes'][] = $index;
             }
             uasort($clusters, static fn(array $left, array $right): int => count($right['indexes']) <=> count($left['indexes']) ?: strcmp($left['candidate']['source_path'], $right['candidate']['source_path']));
@@ -1200,32 +1200,101 @@ final class ShellExtraction
         return $match[1] . $match[2];
     }
 
+    private static function isShellLandmarkBlock(string $name): bool
+    {
+        return 'group' === $name || str_ends_with($name, '/scroll-state');
+    }
+
+    /** @param array<string,mixed> $candidate @param array<string,mixed> $current */
+    private static function prefersScrollStateCarrier(array $candidate, array $current): bool
+    {
+        return str_contains((string) ($candidate['markup'] ?? ''), '/scroll-state') && !str_contains((string) ($current['markup'] ?? ''), '/scroll-state');
+    }
+
     private static function normalizeNestedChromeMarkup(string $markup): string
     {
         $markup = self::withoutCurrentNavigationState($markup, true);
+        $markup = self::withoutScrollStateCarrierIdentity($markup);
         $markup = preg_replace('/\s*blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control|specificity-class|disclosure-summary)-[a-f0-9]{6,}(?:-\d+)?/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
         $markup = preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
         $markup = preg_replace('/(?:\.\.\/)+assets\//', 'assets/', $markup) ?? $markup;
         $markup = preg_replace('/\bblock-[a-f0-9]{16,}\b/', 'block', $markup) ?? $markup;
         $markup = preg_replace('/("url":"[^"#\s]+)#(?:\\\\u0022|[^"\\\\])+/', '$1', $markup) ?? $markup;
+        $markup = preg_replace_callback('/"className":"([^"]*)"/', static function (array $match): string {
+            $classes = preg_split('/\s+/', trim($match[1])) ?: array();
+            sort($classes, SORT_STRING);
+            return '"className":"' . implode(' ', $classes) . '"';
+        }, $markup) ?? $markup;
         $markup = self::withoutMenuSelectionState($markup);
         return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup);
     }
 
     private static function withoutLandmarkTagName(string $markup): string
     {
-        if (!preg_match('/^<!--\s*wp:group\s+(\{[^>]*\})\s*-->/', $markup, $match)) return $markup;
-        $attrs = json_decode($match[1], true);
+        if (!preg_match('/^<!--\s*wp:((?:group|[a-z0-9-]+\/scroll-state))\s+(\{[^>]*\})\s*-->/', $markup, $match)) return $markup;
+        $attrs = json_decode($match[2], true);
         $tag = is_array($attrs) ? ($attrs['tagName'] ?? null) : null;
         if (!in_array($tag, array('header', 'footer'), true)) return $markup;
         unset($attrs['tagName']);
         $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES);
         if (!is_string($encoded)) return $markup;
         $rest = substr($markup, strlen($match[0]));
+        $closer = preg_quote($match[1], '/');
         $rest = preg_replace('/^<' . preg_quote($tag, '/') . '\b/', '<div', $rest, 1) ?? $rest;
-        $rest = preg_replace('/<\/' . preg_quote($tag, '/') . '>(\s*<!--\s*\/wp:group\s*-->)\s*$/', '</div>$1', $rest, 1) ?? $rest;
-        return '<!-- wp:group ' . $encoded . ' -->' . $rest;
+        $rest = preg_replace('/<\/' . preg_quote($tag, '/') . '>(\s*<!--\s*\/wp:' . $closer . '\s*-->)\s*$/', '</div>$1', $rest, 1) ?? $rest;
+        return '<!-- wp:' . $match[1] . ' ' . $encoded . ' -->' . $rest;
+    }
+
+    private static function withoutScrollStateCarrierIdentity(string $markup): string
+    {
+        $markup = preg_replace('/<!--\s*(\/?)wp:[a-z0-9-]+\/scroll-state\b/', '<!-- $1wp:group', $markup) ?? $markup;
+        $markup = preg_replace('/\s*data-blocks-engine-scroll-state="true"/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*data-blocks-engine-scroll-state-config="[^"]*"/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*(?:wp-block-group|blocks-engine-empty-visual-group|blocks-engine-css-owned-layout|blocks-engine-editor-anchor-[A-Za-z0-9_-]+)\b/', '', $markup) ?? $markup;
+        $markup = preg_replace('/class="\s+/', 'class="', $markup) ?? $markup;
+        $markup = self::canonicalizeIdentityBlockComments($markup);
+        return self::withoutEmptyGroupStyleIdentity($markup);
+    }
+
+    private static function canonicalizeIdentityBlockComments(string $markup): string
+    {
+        return preg_replace_callback('/<!--\s*wp:(?!\/)[^>]*-->/', static function (array $match): string {
+            if (!preg_match('/^<!--\s*wp:(\S+)\s+(\{.*\})\s*-->$/s', $match[0], $parts)) return $match[0];
+            $attrs = json_decode($parts[2], true);
+            if (!is_array($attrs)) return $match[0];
+            unset($attrs['config']);
+            if (in_array($attrs['metadata']['name'] ?? null, array('Header', 'Footer'), true) && 1 === count($attrs['metadata'])) unset($attrs['metadata']);
+            if (array('typography' => array('lineHeight' => '1')) === ($attrs['style'] ?? null)) unset($attrs['style']);
+            if (is_string($attrs['className'] ?? null)) {
+                $classes = array_values(array_filter(preg_split('/\s+/', trim($attrs['className'])) ?: array(), static fn(string $class): bool => '' !== $class && 'wp-block-group' !== $class && 'blocks-engine-empty-visual-group' !== $class && 'blocks-engine-css-owned-layout' !== $class && !str_starts_with($class, 'blocks-engine-editor-anchor-')));
+                sort($classes, SORT_STRING);
+                if (array() === $classes) unset($attrs['className']); else $attrs['className'] = implode(' ', $classes);
+            }
+            self::ksortRecursive($attrs);
+            $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            return is_string($encoded) ? '<!-- wp:' . $parts[1] . ' ' . $encoded . ' -->' : $match[0];
+        }, $markup) ?? $markup;
+    }
+
+    /** @param array<string,mixed> $value */
+    private static function ksortRecursive(array &$value): void
+    {
+        ksort($value);
+        foreach ($value as &$child) if (is_array($child)) self::ksortRecursive($child);
+    }
+
+    private static function withoutEmptyGroupStyleIdentity(string $markup): string
+    {
+        return preg_replace_callback('/<!-- wp:group (\{[^>]*\}) -->(\s*<[a-z0-9]+[^>]*>\s*<\/[a-z0-9]+>\s*)<!-- \/wp:group -->/', static function (array $match): string {
+            $attrs = json_decode($match[1], true);
+            if (!is_array($attrs) || !isset($attrs['style'])) return $match[0];
+            unset($attrs['style']);
+            self::ksortRecursive($attrs);
+            $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $html = preg_replace('/\sstyle="[^"]*"/', '', $match[2]) ?? $match[2];
+            return is_string($encoded) ? '<!-- wp:group ' . $encoded . ' -->' . $html . '<!-- /wp:group -->' : $match[0];
+        }, $markup) ?? $markup;
     }
 
     public static function withoutCurrentNavigationState(string $markup, bool $semanticIdentity = false): string
@@ -1275,20 +1344,23 @@ final class ShellExtraction
                 // at render time; its color stays on the navigation root marker.
                 // Rebuild in the peer's key order so identical presentation
                 // serializes identically regardless of which page was current.
+                // Stable item classes stay; a homepage marker is not current-page state.
                 $own = array_diff_key($attrs, array_flip(array('className', 'style', 'color', 'typography', 'anchor', 'anchorClassName')));
                 $attrs = array_merge($peer, $own);
+                $peerClasses = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+                $stable = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && !self::isCurrentPageClass($class, $peerClasses) && !preg_match('/^blocks-engine-navigation-(?:current|link)-color-[a-f0-9]{64}$/', $class) && !preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class) && !preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class) && !in_array($class, $peerClasses, true)));
                 // The part keeps the item's own link-state carrier, which the
                 // navigation-root current-color rule resolves its state against.
                 $stateCarriers = $semanticIdentity ? array() : array_values(array_filter($classes, static fn(string $class): bool => 1 === preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class)));
-                $merged = array_values(array_unique(array_merge(preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(), $stateCarriers)));
-                $merged = array_values(array_filter($merged, static fn(string $class): bool => '' !== $class));
+                $merged = array_values(array_filter(array_merge($peerClasses, $stable, $stateCarriers), static fn(string $class): bool => '' !== $class));
                 if (array() === $merged) unset($attrs['className']); else $attrs['className'] = implode(' ', $merged);
                 return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
             }
             if (!$current && !$semanticIdentity) return $match[0];
             $isLink = 'navigation' !== $match[1];
-            $classes = array_values(array_filter($classes, static function (string $class) use ($current, $semanticIdentity, $stateCarrierCounts): bool {
-                if ($current && in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), true)) return false;
+            $peerClasses = is_array($peer) ? (preg_split('/\s+/', trim((string) ($peer['className'] ?? ''))) ?: array()) : array();
+            $classes = array_values(array_filter($classes, static function (string $class) use ($current, $semanticIdentity, $stateCarrierCounts, $peerClasses): bool {
+                if ($current && self::isCurrentPageClass($class, $peerClasses)) return false;
                 if (($current || $semanticIdentity) && preg_match('/^blocks-engine-navigation-current-color-[a-f0-9]{64}$/', $class)) return false;
                 if ($current && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class)) return false;
                 if ($semanticIdentity && $current && 1 === ($stateCarrierCounts[$class] ?? 0)) return false;
@@ -1338,6 +1410,11 @@ final class ShellExtraction
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
             if (in_array('blocks-engine-current-navigation-item', $classes, true)) continue;
             $presentation = array_intersect_key($attrs, array_flip(array('className', 'style', 'color', 'typography')));
+            if (is_string($presentation['className'] ?? null)) {
+                $classes = array_values(array_filter($classes, static fn(string $class): bool => !preg_match('/^blocks-engine-attribute-[a-f0-9]{6,}(?:-\d+)?$/', $class)));
+                sort($classes, SORT_STRING);
+                $presentation['className'] = implode(' ', $classes);
+            }
             $key = json_encode($presentation);
             $groups[$index][$key] = array('count' => ($groups[$index][$key]['count'] ?? 0) + 1, 'presentation' => $presentation);
         }
@@ -1347,6 +1424,14 @@ final class ShellExtraction
             $peers[$navigation] = is_array($top) && 2 <= $top['count'] ? $top['presentation'] : null;
         }
         return $peers;
+    }
+
+    /** @param array<int,string> $peerClasses */
+    private static function isCurrentPageClass(string $class, array $peerClasses = array()): bool
+    {
+        if (in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), true)) return true;
+        if (1 !== preg_match('/(?:^|[-_])(?:is-)?(?:current|active|selected|on)$/', $class)) return false;
+        return !in_array($class, $peerClasses, true);
     }
 
     /** @param array<int,string> $classes */
