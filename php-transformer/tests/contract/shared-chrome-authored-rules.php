@@ -63,9 +63,16 @@ $assert(str_contains($route, '.route-grid'), 'Route-owned rules stay on their ro
 // The engine rewrites an ancestor id into an editor-parity compound; its
 // positive hooks still identify the detached ancestor.
 $reanchor = new ReflectionMethod(WordPressSitePlan::class, 'reanchoredDetachedContextSelector');
-$context = array('class' => array('blocks-engine-editor-anchor-page-root' => true), 'id' => array());
+$context = array('class' => array(), 'id' => array('page-root' => true));
 $assert(':is(:where(.blocks-engine-editor-anchor-page-root):not(#blocks-engine-specificity-id-site-0),:where(:has(> #site-chrome))) :where(.menu) .item' === $reanchor->invoke(null, ':where(.blocks-engine-editor-anchor-page-root):not(#blocks-engine-specificity-id-site-0) :where(.menu) .item', $context, array('site-chrome')), 'An engine-rewritten ancestor id is re-anchored on the part wrapper.');
 $assert('.page-only .item' === $reanchor->invoke(null, '.page-only .item', $context, array('site-chrome')), 'An ancestor the chrome never sat under is left alone.');
 $assert('#site-chrome .item' === $reanchor->invoke(null, '#site-chrome .item', $context, array('site-chrome')), 'A selector that starts at the chrome itself needs no re-anchoring.');
+$assert(':is(#page-root,:where(:has(> #site-chrome))) .item' === $reanchor->invoke(null, '#page-root .item', $context, array('site-chrome')), 'The source id and its editor-anchor class name the same detached ancestor.');
+$assert('.wp-site-blocks .item' === $reanchor->invoke(null, '.wp-site-blocks .item', $context, array('site-chrome')), 'A utility-class ancestor names no detached ancestor.');
+
+// A navigation link keeps its classes only in its block comment. Its authored
+// class still identifies header rules; an editor-anchor class stands for its id.
+$hooks = (new ReflectionMethod(WordPressSitePlan::class, 'authoredChromeHooks'))->invoke(null, '<!-- wp:group {"anchor":"top","className":"bar blocks-engine-editor-anchor-top wp-block-x"} --><div id="top" class="wp-block-group bar"><!-- wp:navigation-link {"className":"item has-x","label":"A","url":"/"} /--></div><!-- /wp:group -->');
+$assert(array('bar' => true, 'item' => true) == $hooks['class'] && array('top' => true) === $hooks['id'], 'Chrome hooks come from HTML and block attributes, without utility classes: ' . json_encode($hooks));
 
 echo "Shared chrome authored rules contract passed.\n";

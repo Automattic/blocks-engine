@@ -1240,7 +1240,7 @@ final class ShellExtraction
         $markup = preg_replace('/<!--\s*(\/?)wp:[a-z0-9-]+\/scroll-state\b/', '<!-- $1wp:group', $markup) ?? $markup;
         $markup = preg_replace('/\s*data-blocks-engine-scroll-state="true"/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*data-blocks-engine-scroll-state-config="[^"]*"/', '', $markup) ?? $markup;
-        $markup = preg_replace('/\s*(?:wp-block-group|blocks-engine-empty-visual-group|blocks-engine-css-owned-layout|blocks-engine-editor-anchor-[A-Za-z0-9_-]+)\b/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*(?:wp-block-group|blocks-engine-empty-visual-group|blocks-engine-css-owned-layout|' . preg_quote(EngineMarker::EDITOR_ANCHOR_PREFIX, '/') . '[A-Za-z0-9_-]+)\b/', '', $markup) ?? $markup;
         $markup = preg_replace('/class="\s+/', 'class="', $markup) ?? $markup;
         $markup = self::canonicalizeIdentityBlockComments($markup);
         return self::withoutEmptyGroupStyleIdentity($markup);
@@ -1256,7 +1256,7 @@ final class ShellExtraction
             if (in_array($attrs['metadata']['name'] ?? null, array('Header', 'Footer'), true) && 1 === count($attrs['metadata'])) unset($attrs['metadata']);
             if (array('typography' => array('lineHeight' => '1')) === ($attrs['style'] ?? null)) unset($attrs['style']);
             if (is_string($attrs['className'] ?? null)) {
-                $classes = array_values(array_filter(preg_split('/\s+/', trim($attrs['className'])) ?: array(), static fn(string $class): bool => '' !== $class && 'wp-block-group' !== $class && 'blocks-engine-empty-visual-group' !== $class && 'blocks-engine-css-owned-layout' !== $class && !str_starts_with($class, 'blocks-engine-editor-anchor-')));
+                $classes = array_values(array_filter(preg_split('/\s+/', trim($attrs['className'])) ?: array(), static fn(string $class): bool => '' !== $class && 'wp-block-group' !== $class && 'blocks-engine-empty-visual-group' !== $class && 'blocks-engine-css-owned-layout' !== $class && null === EngineMarker::editorAnchorId($class)));
                 sort($classes, SORT_STRING);
                 if (array() === $classes) unset($attrs['className']); else $attrs['className'] = implode(' ', $classes);
             }

@@ -60,4 +60,23 @@ final class EngineMarker
     {
         return preg_match_all(self::pattern(), $text, $matches) ? $matches[0] : array();
     }
+
+    /**
+     * Class that re-expresses a source element id for editor parity. Unlike the
+     * document markers above it is stable across documents: it is the id.
+     */
+    public const EDITOR_ANCHOR_PREFIX = 'blocks-engine-editor-anchor-';
+
+    public static function editorAnchorClass(string $id): string
+    {
+        return self::EDITOR_ANCHOR_PREFIX . $id;
+    }
+
+    /** The source id an editor-anchor class stands for, or null for any other class. */
+    public static function editorAnchorId(string $class): ?string
+    {
+        return str_starts_with($class, self::EDITOR_ANCHOR_PREFIX) && strlen($class) > strlen(self::EDITOR_ANCHOR_PREFIX)
+            ? substr($class, strlen(self::EDITOR_ANCHOR_PREFIX))
+            : null;
+    }
 }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
@@ -684,23 +685,45 @@ final class WordPressSitePlan
     }
 
     /**
-     * Authored classes and ids in shared chrome markup. Engine and WordPress
-     * utility classes are excluded: they are not the author's hooks and are
-     * shared with unrelated content.
+     * Authored classes and ids in shared chrome markup, read from rendered HTML
+     * and from block attributes (a dynamic block such as a navigation link keeps
+     * its classes only in its comment). Engine and WordPress utility classes are
+     * excluded: they are not the author's hooks and are shared with unrelated
+     * content. An editor-anchor class stands for the source id it re-expresses.
      *
      * @return array{class:array<string,true>,id:array<string,true>}
      */
     private static function authoredChromeHooks(string $markup): array
     {
-        $hooks = array('class' => array(), 'id' => array());
+        $classes = array();
+        $ids = array();
         preg_match_all('/\sclass="([^"]*)"/', $markup, $classAttrs);
-        foreach ($classAttrs[1] as $list) {
-            foreach (preg_split('/\s+/', trim(html_entity_decode($list, ENT_QUOTES | ENT_HTML5))) ?: array() as $class) {
-                if ('' !== $class && 1 !== preg_match('/^(?:wp-|blocks-engine-|has-|is-|be-)/', $class)) $hooks['class'][$class] = true;
-            }
+        foreach ($classAttrs[1] as $list) $classes[] = html_entity_decode($list, ENT_QUOTES | ENT_HTML5);
+        preg_match_all('/\sid="([^"]+)"/', $markup, $idAttrs);
+        foreach ($idAttrs[1] as $id) $ids[] = html_entity_decode($id, ENT_QUOTES | ENT_HTML5);
+        preg_match_all('/<!--\s*wp:[a-z0-9\/-]+\s+(\{.*?\})\s*\/?-->/s', $markup, $comments);
+        foreach ($comments[1] as $json) {
+            $attrs = json_decode($json, true);
+            if (is_string($attrs['className'] ?? null)) $classes[] = $attrs['className'];
+            if (is_string($attrs['anchor'] ?? null)) $ids[] = $attrs['anchor'];
         }
-        preg_match_all('/\sid="([^"]+)"/', $markup, $ids);
-        foreach ($ids[1] as $id) $hooks['id'][html_entity_decode($id, ENT_QUOTES | ENT_HTML5)] = true;
+        return self::selectorHooks(preg_split('/\s+/', implode(' ', $classes)) ?: array(), $ids);
+    }
+
+    /**
+     * @param array<int,mixed> $classes
+     * @param array<int,mixed> $ids
+     * @return array{class:array<string,true>,id:array<string,true>}
+     */
+    private static function selectorHooks(array $classes, array $ids): array
+    {
+        $hooks = array('class' => array(), 'id' => array());
+        foreach ($ids as $id) if (is_string($id) && '' !== $id) $hooks['id'][$id] = true;
+        foreach ($classes as $class) {
+            if (!is_string($class) || '' === $class) continue;
+            $hook = self::selectorHook('.', $class);
+            if (null !== $hook) $hooks[$hook[0]][$hook[1]] = true;
+        }
         return $hooks;
     }
 
@@ -759,7 +782,14 @@ final class WordPressSitePlan
             $hooks = str_replace(array(':where(', ':is(', ')'), '', self::positiveSelector($compound));
             if (!preg_match('/^(?:[#.][_a-zA-Z][\w-]*)+$/', $hooks)) break;
             preg_match_all('/([#.])([\w-]+)/', $hooks, $tokens, PREG_SET_ORDER);
-            foreach ($tokens as $token) if (!isset($context['#' === $token[1] ? 'id' : 'class'][$token[2]])) break 2;
+            $named = false;
+            foreach ($tokens as $token) {
+                $hook = self::selectorHook($token[1], $token[2]);
+                if (null === $hook) continue;
+                if (!isset($context[$hook[0]][$hook[1]])) break 2;
+                $named = true;
+            }
+            if (!$named) break;
             $run = $index + 1;
         }
         if (0 === $run) return $selector;
@@ -783,14 +813,29 @@ final class WordPressSitePlan
         if (!preg_match_all('/([.#])(-?[_a-zA-Z][\w-]*)/', $positive, $matches, PREG_SET_ORDER)) return false;
         $owned = false;
         foreach ($matches as $match) {
-            $kind = '.' === $match[1] ? 'class' : 'id';
-            if (isset($authored[$kind][$match[2]])) {
+            $hook = self::selectorHook($match[1], $match[2]);
+            if (null === $hook) continue;
+            if (isset($authored[$hook[0]][$hook[1]])) {
                 $owned = true;
                 continue;
             }
-            if (!isset($context[$kind][$match[2]])) return false;
+            if (!isset($context[$hook[0]][$hook[1]])) return false;
         }
         return $owned;
+    }
+
+    /**
+     * The hook a selector token names, keyed like selectorHooks(): an
+     * editor-anchor class is its source id, and utility classes are neutral.
+     *
+     * @return array{0:'class'|'id',1:string}|null
+     */
+    private static function selectorHook(string $sigil, string $name): ?array
+    {
+        if ('#' === $sigil) return array('id', $name);
+        $anchorId = EngineMarker::editorAnchorId($name);
+        if (null !== $anchorId) return array('id', $anchorId);
+        return 1 === preg_match('/^(?:wp-|blocks-engine-|has-|is-|be-)/', $name) ? null : array('class', $name);
     }
 
     /**
@@ -895,8 +940,9 @@ final class WordPressSitePlan
             // The chrome's own authored hooks: rules written for them styled it
             // on every page, so they follow it into the shared part.
             foreach (self::authoredChromeHooks($markup) as $kind => $names) $authored[$kind] += $names;
-            foreach ((array) ($part['ancestor_context']['classes'] ?? array()) as $class) if (is_string($class)) $context['class'][$class] = true;
-            foreach ((array) ($part['ancestor_context']['ids'] ?? array()) as $id) if (is_string($id)) $context['id'][$id] = true;
+            $ancestors = self::selectorHooks((array) ($part['ancestor_context']['classes'] ?? array()), (array) ($part['ancestor_context']['ids'] ?? array()));
+            $context['class'] += $ancestors['class'];
+            $context['id'] += $ancestors['id'];
             $root = 'shared_shell' === ($part['placement']['kind'] ?? null) && is_array($part['ancestor_context'] ?? null) ? self::partRootAnchor($markup) : '';
             if ('' !== $root) $detachedRoots[$root] = true;
         }
