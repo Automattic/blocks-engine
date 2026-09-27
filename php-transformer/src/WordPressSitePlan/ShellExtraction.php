@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 
 /**
@@ -1127,67 +1128,54 @@ final class ShellExtraction
             if (1 === count($matches)) return $matches[0];
             if (1 < count($matches)) return null;
         }
-        if (!preg_match_all('/<!--\s*(\/?)wp:([^\s]+)(?:\s+([^>]*?))?\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return null;
-        $depth = 0; $candidate = null;
-        foreach ($matches[0] as $index => $comment) {
-            $full = $comment[0]; $offset = $comment[1]; $closing = '' !== $matches[1][$index][0];
-            if ($closing) { --$depth; if (is_array($candidate) && null === $candidate['end'] && $depth === $candidate['depth']) $candidate['end'] = $offset + strlen($full); continue; }
-            $selfClosing = str_ends_with(trim($full), '/-->');
-            $name = $matches[2][$index][0]; $attributes = trim($matches[3][$index][0] ?? '');
-            if (0 === $depth && ('group' === $name || str_ends_with($name, '/layout-shell'))) {
-                $decoded = json_decode($attributes, true);
-                $tagName = 'group' === $name
-                    ? ($decoded['tagName'] ?? null)
-                    : ($decoded['wrappers'][0]['tagName'] ?? null);
-                if (is_array($decoded) && $area === $tagName) {
-                    if (null !== $candidate) return null;
-                    $candidate = array('start' => $offset, 'depth' => $depth, 'end' => $selfClosing ? $offset + strlen($full) : null);
-                }
-            }
-            if (!$selfClosing) ++$depth;
+        $candidate = null;
+        foreach (self::topLevelBlockRanges($markup) as $range) {
+            $token = self::blockCommentTokens(substr($markup, $range['offset'], $range['length']))[0] ?? null;
+            if (!is_array($token) || ('group' !== $token['name'] && !str_ends_with($token['name'], '/layout-shell'))) continue;
+            $decoded = json_decode($token['attributes'], true);
+            if (!is_array($decoded)) continue;
+            $tagName = 'group' === $token['name'] ? ($decoded['tagName'] ?? null) : ($decoded['wrappers'][0]['tagName'] ?? null);
+            if ($area !== $tagName) continue;
+            if (null !== $candidate) return null;
+            $candidate = array('start' => $range['offset'], 'end' => $range['offset'] + $range['length']);
         }
         if (!is_array($candidate) || !is_int($candidate['end'])) return null;
         return array('offset' => $candidate['start'], 'length' => $candidate['end'] - $candidate['start']);
     }
 
-    /** @return array<int,array{offset:int,length:int}> */
-    private static function topLevelBlockRanges(string $markup): array
+    /**
+     * Ranges of the blocks at one nesting depth, from the single block-comment
+     * scan every structural walk in this class shares.
+     *
+     * @return array<int,array{offset:int,length:int}>
+     */
+    private static function blockRangesAtDepth(string $markup, int $depth): array
     {
         $ranges = array(); $stack = array();
-        if (!preg_match_all('/<!--\s*(\/?)wp:[^>]*?(\/?)\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $ranges;
-        foreach ($matches[0] as $index => $match) {
-            $token = $match[0]; $offset = $match[1]; $closing = '' !== $matches[1][$index][0]; $selfClosing = str_ends_with(rtrim($token), '/-->');
-            if ($closing) {
+        foreach (self::blockCommentTokens($markup) as $token) {
+            if ($token['closing']) {
                 $open = array_pop($stack);
-                if (is_array($open) && 0 === count($stack)) $ranges[] = array('offset' => $open['offset'], 'length' => $offset + strlen($token) - $open['offset']);
-            } elseif ($selfClosing) {
-                if (array() === $stack) $ranges[] = array('offset' => $offset, 'length' => strlen($token));
+                if (is_int($open) && count($stack) === $depth) $ranges[] = array('offset' => $open, 'length' => $token['offset'] + strlen($token['token']) - $open);
+            } elseif ($token['self_closing']) {
+                if (count($stack) === $depth) $ranges[] = array('offset' => $token['offset'], 'length' => strlen($token['token']));
             } else {
-                $stack[] = array('offset' => $offset);
+                $stack[] = $token['offset'];
             }
         }
+        usort($ranges, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
         return $ranges;
     }
 
     /** @return array<int,array{offset:int,length:int}> */
+    private static function topLevelBlockRanges(string $markup): array
+    {
+        return self::blockRangesAtDepth($markup, 0);
+    }
+
+    /** @return array<int,array{offset:int,length:int}> The direct children of a markup that is exactly one block. */
     private static function directChildBlockRanges(string $markup): array
     {
-        $ranges = self::topLevelBlockRanges($markup);
-        if (1 !== count($ranges)) return array();
-        $children = array(); $stack = array();
-        if (!preg_match_all('/<!--\s*(\/?)wp:[^>]*?(\/?)\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $children;
-        foreach ($matches[0] as $index => $match) {
-            $token = $match[0]; $offset = $match[1]; $closing = '' !== $matches[1][$index][0]; $selfClosing = str_ends_with(rtrim($token), '/-->');
-            if ($closing) {
-                $open = array_pop($stack);
-                if (is_array($open) && 1 === count($stack)) $children[] = array('offset' => $open['offset'], 'length' => $offset + strlen($token) - $open['offset']);
-            } elseif (!$selfClosing) {
-                $stack[] = array('offset' => $offset);
-            } elseif (1 === count($stack)) {
-                $children[] = array('offset' => $offset, 'length' => strlen($token));
-            }
-        }
-        return $children;
+        return 1 === count(self::topLevelBlockRanges($markup)) ? self::blockRangesAtDepth($markup, 1) : array();
     }
 
     private static function isGroupBlock(string $markup): bool { return preg_match('/^<!--\s*wp:group(?:\s|\{)/', $markup) === 1; }
@@ -1215,7 +1203,8 @@ final class ShellExtraction
     {
         $markup = self::withoutCurrentNavigationState($markup, true);
         $markup = self::withoutScrollStateCarrierIdentity($markup);
-        $markup = preg_replace('/\s*blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control|specificity-class|disclosure-summary)-[a-f0-9]{6,}(?:-\d+)?/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*blocks-engine-(?:specificity-class|disclosure-summary)-[a-f0-9]{6,}(?:-\d+)?/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
         $markup = preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
         $markup = preg_replace('/(?:\.\.\/)+assets\//', 'assets/', $markup) ?? $markup;

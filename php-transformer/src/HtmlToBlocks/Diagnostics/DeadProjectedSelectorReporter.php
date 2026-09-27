@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 
@@ -209,11 +210,7 @@ final class DeadProjectedSelectorReporter
     /** @return list<string> */
     private function hashedEngineMarkers(string $selector): array
     {
-        if ( ! preg_match_all('/blocks-engine-(?:semantic|richtext|control|attribute(?:-state)?|root-child|table|native-button|source-[a-z0-9]+)-[a-f0-9]+-\d+/', $selector, $matches) ) {
-            return array();
-        }
-
-        return array_values(array_unique($matches[0]));
+        return array_values(array_unique(EngineMarker::all($selector)));
     }
 
     /** @return list<string> */

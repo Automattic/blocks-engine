@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -1488,7 +1489,7 @@ final class AuthorStylesheetProjector
             }
         }
         $projected = implode(',', $rewritten);
-        if ( $projected !== $prelude && 1 === preg_match('/blocks-engine-(?:semantic|richtext|control|attribute(?:-state)?|root-child|table|native-button|source-[a-z0-9]+)-[a-f0-9]+-\d+/', $projected) ) {
+        if ( $projected !== $prelude && EngineMarker::matchesAny($projected) ) {
             $context->bindings->record($prelude, $projected);
         }
 

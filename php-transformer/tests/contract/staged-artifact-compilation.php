@@ -84,6 +84,11 @@ $whole = $compiler->compile($artifact)->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent canonical site plans, including source-operation provenance and hashes.');
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent canonical materialization plans.');
 $assert(!isset($whole['source_reports']['materialization_plan'], $staged['source_reports']['materialization_plan']), 'Whole and staged results remove the superseded projection while preserving their byte-identical canonical plan.');
+// The About page links a page-scoped stylesheet the entry page does not. Every
+// driver must apply it: equivalence alone would also hold if all of them
+// dropped it, which they previously did.
+$aboutMarkup = current(array_filter($whole['source_reports']['wordpress_site_plan']['pages'] ?? array(), static fn (array $page): bool => 'about.html' === $page['source_path']))['canonical_block_markup'] ?? '';
+$assert(str_contains($aboutMarkup, '"layout":{"type":"grid","columnCount":2}'), 'A page-scoped stylesheet the page links reaches that page in whole compilation.');
 $ordinaryResult = $compiler->compose($shared, array($compiledPages['contact.html'], $compiledPages['index.html'], $compiledPages['about.html']));
 $compiledStaged = $ordinaryResult->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($compiledStaged['source_reports']['wordpress_site_plan'] ?? array()), 'Terminal composition consumes persisted compiled page receipts without changing the canonical site plan.');
