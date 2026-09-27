@@ -661,22 +661,8 @@ final class WordPressSitePlan
         return $assets;
     }
 
-    /**
-     * Whether a selector targets a shared-chrome generated class or rich-text
-     * marker. A class named only inside `:not(...)` is an exclusion: the rule
-     * still applies to the page's own elements (for example
-     * `.text-sm:not(:where(.control))`), so it stays in the page stylesheet in
-     * its source cascade position.
-     *
-     * Document-namespaced rich-text markers are rewritten onto attribute
-     * selectors (`mark[style*="--blocks-engine-richtext-marker:…"]`), not class
-     * selectors. Identity comparison strips those markers so pages still
-     * cluster; the matching rules must follow the canonical marker onto the
-     * shared part instead of remaining page-scoped.
-     *
-     * @param array<string,true> $classes
-     */
-    private static function selectorTargetsGeneratedClass(string $selector, array $classes): bool
+    /** The selector with every `:not(...)` removed: what it targets, not what it excludes. */
+    private static function positiveSelector(string $selector): string
     {
         $positive = '';
         $depth = 0;
@@ -694,6 +680,74 @@ final class WordPressSitePlan
             }
             $positive .= $selector[$i];
         }
+        return $positive;
+    }
+
+    /**
+     * Authored classes and ids in shared chrome markup. Engine and WordPress
+     * utility classes are excluded: they are not the author's hooks and are
+     * shared with unrelated content.
+     *
+     * @return array{class:array<string,true>,id:array<string,true>}
+     */
+    private static function authoredChromeHooks(string $markup): array
+    {
+        $hooks = array('class' => array(), 'id' => array());
+        preg_match_all('/\sclass="([^"]*)"/', $markup, $classAttrs);
+        foreach ($classAttrs[1] as $list) {
+            foreach (preg_split('/\s+/', trim(html_entity_decode($list, ENT_QUOTES | ENT_HTML5))) ?: array() as $class) {
+                if ('' !== $class && 1 !== preg_match('/^(?:wp-|blocks-engine-|has-|is-|be-)/', $class)) $hooks['class'][$class] = true;
+            }
+        }
+        preg_match_all('/\sid="([^"]+)"/', $markup, $ids);
+        foreach ($ids[1] as $id) $hooks['id'][html_entity_decode($id, ENT_QUOTES | ENT_HTML5)] = true;
+        return $hooks;
+    }
+
+    /**
+     * Whether a selector is written for shared chrome: it names at least one of
+     * the chrome's own authored classes or ids, and every class or id it names
+     * belongs to that chrome or to the ancestors it was hoisted out of. A
+     * selector that also names route-owned hooks stays with the route.
+     *
+     * @param array{class:array<string,true>,id:array<string,true>} $authored
+     * @param array{class:array<string,true>,id:array<string,true>} $context
+     */
+    private static function selectorTargetsAuthoredChrome(string $selector, array $authored, array $context): bool
+    {
+        $positive = self::positiveSelector($selector);
+        if (str_contains($positive, '\\')) return false;
+        if (!preg_match_all('/([.#])(-?[_a-zA-Z][\w-]*)/', $positive, $matches, PREG_SET_ORDER)) return false;
+        $owned = false;
+        foreach ($matches as $match) {
+            $kind = '.' === $match[1] ? 'class' : 'id';
+            if (isset($authored[$kind][$match[2]])) {
+                $owned = true;
+                continue;
+            }
+            if (!isset($context[$kind][$match[2]])) return false;
+        }
+        return $owned;
+    }
+
+    /**
+     * Whether a selector targets a shared-chrome generated class or rich-text
+     * marker. A class named only inside `:not(...)` is an exclusion: the rule
+     * still applies to the page's own elements (for example
+     * `.text-sm:not(:where(.control))`), so it stays in the page stylesheet in
+     * its source cascade position.
+     *
+     * Document-namespaced rich-text markers are rewritten onto attribute
+     * selectors (`mark[style*="--blocks-engine-richtext-marker:…"]`), not class
+     * selectors. Identity comparison strips those markers so pages still
+     * cluster; the matching rules must follow the canonical marker onto the
+     * shared part instead of remaining page-scoped.
+     *
+     * @param array<string,true> $classes
+     */
+    private static function selectorTargetsGeneratedClass(string $selector, array $classes): bool
+    {
+        $positive = self::positiveSelector($selector);
         foreach (array_keys($classes) as $class) {
             if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $positive)) return true;
             if (1 === preg_match('/^blocks-engine-richtext-[a-f0-9]+-\d+$/', $class) && str_contains($positive, $class)) return true;
@@ -819,12 +873,20 @@ final class WordPressSitePlan
     private static function projectSharedChromeStylesheets(array $assets, array $parts, ?AssetReferenceCanonicalizer $references = null): array
     {
         $classes = array();
+        $authored = array('class' => array(), 'id' => array());
+        $context = array('class' => array(), 'id' => array());
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
-            if (!preg_match_all(self::GENERATED_CLASS_PATTERN, (string) ($part['canonical_block_markup'] ?? ''), $matches)) continue;
-            foreach ($matches[0] as $class) $classes[$class] = true;
+            $markup = (string) ($part['canonical_block_markup'] ?? '');
+            if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) $classes[$class] = true;
+            // The chrome's own authored hooks: rules written for them styled it
+            // on every page, so they follow it into the shared part.
+            foreach (self::authoredChromeHooks($markup) as $kind => $names) $authored[$kind] += $names;
+            foreach ((array) ($part['ancestor_context']['classes'] ?? array()) as $class) if (is_string($class)) $context['class'][$class] = true;
+            foreach ((array) ($part['ancestor_context']['ids'] ?? array()) as $id) if (is_string($id)) $context['id'][$id] = true;
         }
-        if (array() === $classes) return $assets;
+        if (array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
+        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classes) || self::selectorTargetsAuthoredChrome($selector, $authored, $context);
 
         $projected = array();
         $emittedShared = array();
@@ -837,13 +899,13 @@ final class WordPressSitePlan
             $unparseable = false;
             $shared = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($classes, &$matched, &$unparseable): string {
+                static function (string $prelude, string $body) use ($targetsChrome, &$matched, &$unparseable): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) {
                         $unparseable = true;
                         return '';
                     }
-                    $kept = array_values(array_filter($selectors, static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classes)));
+                    $kept = array_values(array_filter($selectors, $targetsChrome));
                     if (array() === $kept) return '';
                     $matched = true;
                     return implode(',', $kept) . '{' . $body . '}';
@@ -855,10 +917,10 @@ final class WordPressSitePlan
             }
             $route = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($classes): string {
+                static function (string $prelude, string $body) use ($targetsChrome): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) return $prelude . '{' . $body . '}';
-                    $kept = array_values(array_filter($selectors, static fn (string $selector): bool => ! self::selectorTargetsGeneratedClass($selector, $classes)));
+                    $kept = array_values(array_filter($selectors, static fn (string $selector): bool => ! $targetsChrome($selector)));
                     return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
                 }
             );
