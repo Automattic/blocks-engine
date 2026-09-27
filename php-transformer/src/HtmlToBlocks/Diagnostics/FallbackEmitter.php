@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMDocument;
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 /**
  * Constructs the per-element fallback / behavior-loss emission entries that
@@ -160,7 +161,7 @@ final class FallbackEmitter
         }
 
         $signature = $this->structuralSignature($element);
-        $identity = $signature . "\0" . $content;
+        $identity = self::generatedBlockIdentity($signature, $content);
         if ( isset($this->generatedBlockNames[$identity]) ) {
             $localName = $this->generatedBlockNames[$identity];
         } else {
@@ -270,6 +271,18 @@ final class FallbackEmitter
         }
 
         return array() === $children ? $tag : $tag . '(' . implode(',', $children) . ')';
+    }
+
+    /**
+     * The identity a generated block name is derived from. Document markers are
+     * reduced to their kind: the same component compiled on two pages carries
+     * different marker seeds, and would otherwise become two block types, which
+     * also keeps chrome containing it from matching across pages. Each instance
+     * still carries its own content, markers included, in its attributes.
+     */
+    public static function generatedBlockIdentity(string $signature, string $content): string
+    {
+        return $signature . "\0" . EngineMarker::withoutDocumentSeeds($content);
     }
 
     /**
