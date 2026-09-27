@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
     if (! $condition) {
@@ -56,7 +57,15 @@ $assert(! str_contains($global, '.container{'), 'A class the header shares with 
 $assert(str_contains($route, '.container{max-width:960px}'), 'A class the header shares with route content keeps its rule on the route stylesheet.');
 // The part renders in the template, outside the ancestor it sat under in the
 // source. The rule reaches the chrome through that ancestor or the part wrapper.
-$assert(str_contains($global, ':is(#site-root,:has(> #site-chrome)) .site-header .brand{letter-spacing:2px}'), 'A rule that reaches the header through a detached ancestor also matches through the template part wrapper: ' . substr($global, 0, 600));
+$assert(str_contains($global, ':is(#site-root,:where(:has(> #site-chrome))) .site-header .brand{letter-spacing:2px}'), 'A rule that reaches the header through a detached ancestor also matches through the template part wrapper: ' . substr($global, 0, 600));
 $assert(str_contains($route, '.route-grid'), 'Route-owned rules stay on their route stylesheet.');
+
+// The engine rewrites an ancestor id into an editor-parity compound; its
+// positive hooks still identify the detached ancestor.
+$reanchor = new ReflectionMethod(WordPressSitePlan::class, 'reanchoredDetachedContextSelector');
+$context = array('class' => array('blocks-engine-editor-anchor-page-root' => true), 'id' => array());
+$assert(':is(:where(.blocks-engine-editor-anchor-page-root):not(#blocks-engine-specificity-id-site-0),:where(:has(> #site-chrome))) :where(.menu) .item' === $reanchor->invoke(null, ':where(.blocks-engine-editor-anchor-page-root):not(#blocks-engine-specificity-id-site-0) :where(.menu) .item', $context, array('site-chrome')), 'An engine-rewritten ancestor id is re-anchored on the part wrapper.');
+$assert('.page-only .item' === $reanchor->invoke(null, '.page-only .item', $context, array('site-chrome')), 'An ancestor the chrome never sat under is left alone.');
+$assert('#site-chrome .item' === $reanchor->invoke(null, '#site-chrome .item', $context, array('site-chrome')), 'A selector that starts at the chrome itself needs no re-anchoring.');
 
 echo "Shared chrome authored rules contract passed.\n";

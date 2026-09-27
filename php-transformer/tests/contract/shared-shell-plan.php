@@ -608,7 +608,7 @@ $framedPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.htm
 $framedFooter = array_values(array_filter($framedPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)))[0] ?? array();
 $contextCss = implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($framedPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && str_contains((string) ($asset['path'] ?? ''), 'shared-chrome-'))));
 $assert('shared_shell' === ($framedFooter['placement']['kind'] ?? null), 'The nested footer extracts as a shared part: ' . json_encode(array_column($framedPlan['diagnostics'], 'code')));
-$assert(str_contains($contextCss, ':is(#frame.mesh,:has(> #site-foot)) #site-foot{position:relative}'), 'A rule that reached the footer through its page ancestors also reaches it through the part wrapper, at source specificity: ' . $contextCss);
+$assert(str_contains($contextCss, ':is(#frame.mesh,:where(:has(> #site-foot))) #site-foot{position:relative}'), 'A rule that reached the footer through its page ancestors also reaches it through the part wrapper, at source specificity: ' . $contextCss);
 $assert(!str_contains($contextCss, 'color:red') && !str_contains($contextCss, 'padding:1px'), 'Rules through ancestors the footer never sat under, or targeting other elements, are not re-anchored: ' . $contextCss);
 
 // A fixed page background that preceded the header in the source now renders

@@ -724,8 +724,9 @@ final class WordPressSitePlan
      * A shared shell part is rendered by the template, outside the ancestors it
      * sat under in the source. A selector that reaches chrome through a leading
      * run of those ancestors (`#page-root .menu .item`) also accepts the
-     * template part wrapper in their place. `:is()` keeps the source
-     * specificity, and the original ancestors still match where they remain.
+     * template part wrapper in their place. The wrapper arm sits in `:where()`,
+     * so the rule keeps the source specificity, and the original ancestors
+     * still match where they remain.
      *
      * @param array{class:array<string,true>,id:array<string,true>} $context
      * @param array<int,string> $roots
@@ -752,14 +753,18 @@ final class WordPressSitePlan
         if ('' !== $current) $compounds[] = $current;
         $run = 0;
         foreach ($compounds as $index => $compound) {
-            if (!preg_match('/^(?:[#.][_a-zA-Z][\w-]*)+$/', $compound) || !isset($compounds[$index + 1]) || in_array($compounds[$index + 1], array('>', '+', '~'), true)) break;
-            preg_match_all('/([#.])([\w-]+)/', $compound, $tokens, PREG_SET_ORDER);
+            if (!isset($compounds[$index + 1]) || in_array($compounds[$index + 1], array('>', '+', '~'), true)) break;
+            // The compound's positive hooks, including those the engine moved
+            // into `:where()`/`:is()` when it rewrote an id for editor parity.
+            $hooks = str_replace(array(':where(', ':is(', ')'), '', self::positiveSelector($compound));
+            if (!preg_match('/^(?:[#.][_a-zA-Z][\w-]*)+$/', $hooks)) break;
+            preg_match_all('/([#.])([\w-]+)/', $hooks, $tokens, PREG_SET_ORDER);
             foreach ($tokens as $token) if (!isset($context['#' === $token[1] ? 'id' : 'class'][$token[2]])) break 2;
             $run = $index + 1;
         }
         if (0 === $run) return $selector;
         $wrappers = array_map(static fn (string $root): string => ':has(> #' . CssIdent::escape($root) . ')', $roots);
-        return ':is(' . implode(' ', array_slice($compounds, 0, $run)) . ',' . implode(',', $wrappers) . ') ' . implode(' ', array_slice($compounds, $run));
+        return ':is(' . implode(' ', array_slice($compounds, 0, $run)) . ',:where(' . implode(',', $wrappers) . ')) ' . implode(' ', array_slice($compounds, $run));
     }
 
     /**
