@@ -756,5 +756,39 @@ foreach (array('index.html', 'journal.html', 'shop.html') as $source) {
 }
 $partitionWrites = $writes($partitionPlan);
 $assert(1 === substr_count($partitionWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($partitionWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'Templates bind the shared header and footer parts.');
+$equivalentDocument = static function (string $title, string $current, ?string $config, bool $markedLayer, string $brand = 'Acme'): string {
+    $item = static function (string $href, string $label) use ($current): string {
+        $classes = 'nav-item' . ('/' === $href ? ' nav-item--home' : '') . ($href === $current ? ' nav-item--active' : '');
+        return '<a class="' . $classes . '" href="' . $href . '"' . ($href === $current ? ' aria-current="page"' : '') . '>' . $label . '</a>';
+    };
+    $layer = '<div class="header-dropshadow" style="box-shadow:0px 19px 48px 41px"></div>';
+    if ($markedLayer && null !== $config) $layer = '<div class="header-dropshadow" style="box-shadow:0px 19px 48px 41px" data-blocks-engine-scroll-state="true" data-blocks-engine-scroll-state-config="' . htmlspecialchars($config, ENT_QUOTES) . '"></div>';
+    $header = '<header id="header" class="site-header">' . $layer . '<a class="brand" href="/">' . $brand . '</a><nav class="header-nav-list">' . $item('/', 'Home') . $item('/services', 'Services') . $item('/contact', 'Contact') . '</nav><button class="burger" aria-label="Open Menu">Open Menu</button></header>';
+    if (null !== $config) $header = str_replace('<header id="header" class="site-header">', '<header id="header" class="site-header" data-blocks-engine-scroll-state="true" data-blocks-engine-scroll-state-config="' . htmlspecialchars($config, ENT_QUOTES) . '">', $header);
+    return '<!doctype html><html><body><div id="siteWrapper" class="site">' . $header . '<main><h1>' . $title . '</h1><p>Body for ' . $title . '</p></main><footer class="site-footer"><p>Shared colophon</p></footer></div></body></html>';
+};
+$equivalentConfig = static fn(string $height): string => '{"thresholdPx":2,"addClasses":["shrink"],"removeClasses":[],"styleTargets":[{"selector":":scope","properties":{"height":{"rest":"' . $height . '"}}}]}';
+$equivalentPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $equivalentDocument('Home', '/', $equivalentConfig('161px'), true),
+    'services.html' => $equivalentDocument('Services', '/services', $equivalentConfig('160px'), false),
+    'contact.html' => $equivalentDocument('Contact', '/contact', null, false),
+    'about.html' => $equivalentDocument('About', '/about', $equivalentConfig('161px'), false, 'Other brand'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$equivalentWrites = $writes($equivalentPlan);
+$equivalentPages = $pages($equivalentPlan);
+$equivalentHeader = array_values(array_filter($equivalentPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
+$equivalentFooter = array_values(array_filter($equivalentPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)))[0] ?? array();
+$equivalentMenus = $equivalentPlan['menus'] ?? array();
+$equivalentHeaderMarkup = (string) ($equivalentHeader['canonical_block_markup'] ?? '');
+$assert('shared_shell' === ($equivalentHeader['placement']['kind'] ?? null) && 'shared_shell' === ($equivalentFooter['placement']['kind'] ?? null), 'An equivalent-document capture extracts one shared header even when the landmark is a scroll-state carrier on only some routes: ' . json_encode(array_column(array_filter($equivalentPlan['diagnostics'], static fn(array $diagnostic): bool => 'header' === ($diagnostic['area'] ?? null)), 'message')));
+$assert(str_contains($equivalentHeaderMarkup, 'Acme') && str_contains($equivalentHeaderMarkup, 'Open Menu') && str_contains($equivalentHeaderMarkup, 'nav-item--home') && !str_contains($equivalentHeaderMarkup, 'nav-item--active') && !str_contains($equivalentHeaderMarkup, 'Other brand'), 'The shared header keeps the repeated brand, stable home marker, and menu toggle, not a divergent route\'s brand or one page\'s current flag.');
+$assert(1 === count($equivalentMenus) && str_contains((string) ($equivalentMenus[0]['block_markup'] ?? ''), '"label":"Home"') && str_contains((string) ($equivalentMenus[0]['block_markup'] ?? ''), '"url":"/services"'), 'Repeated header destinations become one shared navigation entity.');
+foreach (array('index.html' => 'Home', 'services.html' => 'Services', 'contact.html' => 'Contact') as $source => $title) {
+    $markup = $equivalentPages[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, 'wp:navigation') && !str_contains($markup, 'Open Menu') && str_contains($markup, '>' . $title . '</h1>'), "{$source} keeps its content and does not duplicate the shared header navigation.");
+}
+$assert(str_contains($equivalentPages['about.html']['canonical_block_markup'] ?? '', 'Other brand') && !str_contains($equivalentWrites['templates/page-about.html']['payload']['data'] ?? '', 'wp:navigation'), 'A route whose header content differs stays page-owned and does not receive the shared navigation in its exclusion template.');
+$assert(1 === substr_count($equivalentWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($equivalentWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($equivalentWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'Generic templates reference the shared header and footer.');
+$assert(!str_contains($equivalentWrites['templates/front-page.html']['payload']['data'] ?? '', 'data-liberation-desktop-document'), 'Equivalent-document extraction does not invent a responsive-variant partition.');
 
 fwrite(STDOUT, "shared-shell-plan contract passed\n");
