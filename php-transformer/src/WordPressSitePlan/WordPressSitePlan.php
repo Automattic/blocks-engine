@@ -207,8 +207,8 @@ final class WordPressSitePlan
         $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
-        $assets = self::projectSharedChromeStylesheets($assets, $parts, $references);
-        $assets = self::projectDetachedChromeContextRules($assets, $parts);
+        $assets = self::projectSharedChromeStylesheets($assets, $parts, $pages, $references);
+        $assets = self::projectDetachedChromePaintOrder($assets, $parts);
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
@@ -704,6 +704,64 @@ final class WordPressSitePlan
         return $hooks;
     }
 
+    /** Page markup with its `<header>` and `<footer>` landmarks removed: the route's own content. */
+    private static function withoutLandmarks(string $markup): string
+    {
+        $content = '';
+        $depth = 0;
+        $offset = 0;
+        preg_match_all('/<(\/?)(header|footer)\b[^>]*>/i', $markup, $tags, PREG_OFFSET_CAPTURE | PREG_SET_ORDER);
+        foreach ($tags as $tag) {
+            $closing = '/' === $tag[1][0];
+            if (!$closing && 0 === $depth) $content .= substr($markup, $offset, $tag[0][1] - $offset);
+            $depth = max(0, $depth + ($closing ? -1 : 1));
+            if ($closing && 0 === $depth) $offset = $tag[0][1] + strlen($tag[0][0]);
+        }
+        return 0 === $depth ? $content . substr($markup, $offset) : $content;
+    }
+
+    /**
+     * A shared shell part is rendered by the template, outside the ancestors it
+     * sat under in the source. A selector that reaches chrome through a leading
+     * run of those ancestors (`#page-root .menu .item`) also accepts the
+     * template part wrapper in their place. `:is()` keeps the source
+     * specificity, and the original ancestors still match where they remain.
+     *
+     * @param array{class:array<string,true>,id:array<string,true>} $context
+     * @param array<int,string> $roots
+     */
+    private static function reanchoredDetachedContextSelector(string $selector, array $context, array $roots): string
+    {
+        if (array() === $roots) return $selector;
+        $compounds = array();
+        $current = '';
+        $depth = 0;
+        $length = strlen($selector);
+        for ($i = 0; $i < $length; ++$i) {
+            $char = $selector[$i];
+            if ('(' === $char || '[' === $char) ++$depth;
+            elseif (')' === $char || ']' === $char) --$depth;
+            if (0 === $depth && (ctype_space($char) || '>' === $char || '+' === $char || '~' === $char)) {
+                if ('' !== $current) $compounds[] = $current;
+                if (!ctype_space($char)) $compounds[] = $char;
+                $current = '';
+                continue;
+            }
+            $current .= $char;
+        }
+        if ('' !== $current) $compounds[] = $current;
+        $run = 0;
+        foreach ($compounds as $index => $compound) {
+            if (!preg_match('/^(?:[#.][_a-zA-Z][\w-]*)+$/', $compound) || !isset($compounds[$index + 1]) || in_array($compounds[$index + 1], array('>', '+', '~'), true)) break;
+            preg_match_all('/([#.])([\w-]+)/', $compound, $tokens, PREG_SET_ORDER);
+            foreach ($tokens as $token) if (!isset($context['#' === $token[1] ? 'id' : 'class'][$token[2]])) break 2;
+            $run = $index + 1;
+        }
+        if (0 === $run) return $selector;
+        $wrappers = array_map(static fn (string $root): string => ':has(> #' . CssIdent::escape($root) . ')', $roots);
+        return ':is(' . implode(' ', array_slice($compounds, 0, $run)) . ',' . implode(',', $wrappers) . ') ' . implode(' ', array_slice($compounds, $run));
+    }
+
     /**
      * Whether a selector is written for shared chrome: it names at least one of
      * the chrome's own authored classes or ids, and every class or id it names
@@ -756,62 +814,33 @@ final class WordPressSitePlan
     }
 
     /**
-     * A landmark hoisted out of its page into a template part leaves its
-     * ancestors behind, so author rules that reached it through them
-     * (`#masterPage.mesh-layout #SITE_FOOTER{position:relative}`) stop matching
-     * and the part loses, for example, the containing block its absolutely
-     * positioned layers depend on. Re-anchor such rules on the part root: a
-     * selector whose subject names the root by id, and whose ancestor
-     * compounds name only ids and classes the landmark actually sat under, is
-     * emitted again as its subject compound in a global stylesheet. Selectors
-     * with sibling combinators, attributes or pseudo-classes in the ancestor
-     * chain are left alone, since the context they describe cannot be proven.
+     * A header part renders before post-content, yet page content that preceded
+     * it in the source (a fixed page background) now follows it and paints over
+     * it wherever both are positioned without z-index. Restore the source paint
+     * order at zero specificity, so a z-index the author declared still wins and
+     * a static root is unaffected. Author rules that reached the part through
+     * its detached ancestors are re-anchored by projectSharedChromeStylesheets.
      *
      * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $parts
      * @return array<int,array<string,mixed>>
      */
-    private static function projectDetachedChromeContextRules(array $assets, array $parts): array
+    private static function projectDetachedChromePaintOrder(array $assets, array $parts): array
     {
-        $roots = array();
-        $paintOrder = array();
+        $rules = '';
         foreach ($parts as $part) {
-            if ('shared_shell' !== ($part['placement']['kind'] ?? null) || !is_array($part['ancestor_context'] ?? null)) continue;
+            if ('shared_shell' !== ($part['placement']['kind'] ?? null) || 'header' !== ($part['area'] ?? null) || empty($part['ancestor_context']['preceded'])) continue;
             $anchor = self::partRootAnchor((string) ($part['canonical_block_markup'] ?? ''));
-            if ('' === $anchor) continue;
-            $roots[$anchor] = array('ids' => array_fill_keys($part['ancestor_context']['ids'] ?? array(), true), 'classes' => array_fill_keys($part['ancestor_context']['classes'] ?? array(), true));
-            // A header part renders before post-content, yet page content that
-            // preceded it in the source (a fixed page background) now follows it
-            // and paints over it wherever both are positioned without z-index.
-            // Restore the source paint order at zero specificity, so a z-index
-            // the author declared still wins and a static root is unaffected.
-            if ('header' === ($part['area'] ?? null) && !empty($part['ancestor_context']['preceded'])) $paintOrder[] = ':where(#' . CssIdent::escape($anchor) . '){z-index:1}';
+            if ('' !== $anchor) $rules .= ':where(#' . CssIdent::escape($anchor) . '){z-index:1}';
         }
-        if (array() === $roots) return $assets;
         $template = null;
-        $rules = implode('', $paintOrder);
         foreach ($assets as $asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content'])) continue;
-            $template ??= $asset;
-            $matched = false;
-            $projected = (new CssStylesheetTransformer())->transformStyleRules(
-                $asset['content'],
-                static function (string $prelude, string $body) use ($roots, &$matched): string {
-                    $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-                    if (null === $selectors) return '';
-                    $kept = array();
-                    foreach ($selectors as $selector) {
-                        $reanchored = self::reanchoredChromeSelector(trim($selector), $roots);
-                        if (null !== $reanchored) $kept[] = $reanchored;
-                    }
-                    if (array() === $kept) return '';
-                    $matched = true;
-                    return implode(',', array_values(array_unique($kept))) . '{' . $body . '}';
-                }
-            );
-            if ($matched) $rules .= $projected;
+            if ('css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) && '' !== trim($asset['content'])) {
+                $template = $asset;
+                break;
+            }
         }
-        if (null === $template || '' === trim($rules)) return $assets;
+        if (null === $template || '' === $rules) return $assets;
         $context = $template;
         $context['path'] = 'assets/css/shared-chrome-context-' . substr(hash('sha256', $rules), 0, 16) . '.css';
         $context['target_path'] = $context['path'];
@@ -839,28 +868,6 @@ final class WordPressSitePlan
         return '';
     }
 
-    /** @param array<string,array{ids:array<string,true>,classes:array<string,true>}> $roots */
-    private static function reanchoredChromeSelector(string $selector, array $roots): ?string
-    {
-        if (preg_match('/[+~\[\]()]|::?[a-z]/i', $selector)) return null;
-        $compounds = preg_split('/\s*>\s*|\s+/', $selector) ?: array();
-        $compounds = array_values(array_filter($compounds, static fn(string $compound): bool => '' !== $compound));
-        if (count($compounds) < 2) return null;
-        $subject = (string) array_pop($compounds);
-        if (!preg_match_all('/#((?:\\\\.|[\w-])+)/', $subject, $ids) || 1 !== count($ids[1])) return null;
-        $root = stripslashes($ids[1][0]);
-        if (!isset($roots[$root])) return null;
-        foreach ($compounds as $compound) {
-            if (!preg_match('/^(?:[a-z][a-z0-9-]*|\*)?(?:[#.](?:\\\\.|[\w-])+)+$/i', $compound) && !preg_match('/^[a-z][a-z0-9-]*$/i', $compound)) return null;
-            preg_match_all('/([#.])((?:\\\\.|[\w-])+)/', $compound, $tokens, PREG_SET_ORDER);
-            foreach ($tokens as $token) {
-                $name = stripslashes($token[2]);
-                if ('#' === $token[1] ? !isset($roots[$root]['ids'][$name]) : !isset($roots[$root]['classes'][$name])) return null;
-            }
-        }
-        return $subject;
-    }
-
     /**
      * Extract only generated rules needed by shared template parts. The source
      * stylesheet can contain both those projected rules and route-owned rules;
@@ -870,11 +877,12 @@ final class WordPressSitePlan
      * @param array<int,array<string,mixed>> $parts
      * @return array<int,array<string,mixed>>
      */
-    private static function projectSharedChromeStylesheets(array $assets, array $parts, ?AssetReferenceCanonicalizer $references = null): array
+    private static function projectSharedChromeStylesheets(array $assets, array $parts, array $pages = array(), ?AssetReferenceCanonicalizer $references = null): array
     {
         $classes = array();
         $authored = array('class' => array(), 'id' => array());
         $context = array('class' => array(), 'id' => array());
+        $detachedRoots = array();
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
@@ -884,9 +892,19 @@ final class WordPressSitePlan
             foreach (self::authoredChromeHooks($markup) as $kind => $names) $authored[$kind] += $names;
             foreach ((array) ($part['ancestor_context']['classes'] ?? array()) as $class) if (is_string($class)) $context['class'][$class] = true;
             foreach ((array) ($part['ancestor_context']['ids'] ?? array()) as $id) if (is_string($id)) $context['id'][$id] = true;
+            $root = 'shared_shell' === ($part['placement']['kind'] ?? null) && is_array($part['ancestor_context'] ?? null) ? self::partRootAnchor($markup) : '';
+            if ('' !== $root) $detachedRoots[$root] = true;
+        }
+        // Hooks that route content also uses belong to that content too; rules
+        // for them stay with the route instead of becoming global chrome rules.
+        foreach ($pages as $page) {
+            foreach (self::authoredChromeHooks(self::withoutLandmarks((string) ($page['canonical_block_markup'] ?? ''))) as $kind => $names) {
+                $authored[$kind] = array_diff_key($authored[$kind], $names);
+            }
         }
         if (array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
         $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classes) || self::selectorTargetsAuthoredChrome($selector, $authored, $context);
+        $reanchor = static fn (string $selector): string => self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
 
         $projected = array();
         $emittedShared = array();
@@ -899,7 +917,7 @@ final class WordPressSitePlan
             $unparseable = false;
             $shared = (new CssStylesheetTransformer())->transformStyleRules(
                 $asset['content'],
-                static function (string $prelude, string $body) use ($targetsChrome, &$matched, &$unparseable): string {
+                static function (string $prelude, string $body) use ($targetsChrome, $reanchor, &$matched, &$unparseable): string {
                     $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                     if (null === $selectors) {
                         $unparseable = true;
@@ -908,7 +926,7 @@ final class WordPressSitePlan
                     $kept = array_values(array_filter($selectors, $targetsChrome));
                     if (array() === $kept) return '';
                     $matched = true;
-                    return implode(',', $kept) . '{' . $body . '}';
+                    return implode(',', array_map($reanchor, $kept)) . '{' . $body . '}';
                 }
             );
             if (!$matched || $unparseable) {

@@ -18,11 +18,13 @@ $assert = static function (bool $condition, string $message): void {
 $css = '#site-chrome{position:sticky;top:0}.site-header{display:flex;gap:24px;background:#dddcff}'
     . '.site-header .brand{font-size:28px;color:#275f49}'
     . '@media (max-width:700px){.site-header .brand{font-size:20px}}'
+    . '#site-root .site-header .brand{letter-spacing:2px}'
+    . '.container{max-width:960px}'
     . '.route-grid{display:grid;grid-template-columns:1fr 1fr}';
 $header = static fn (string $home, string $about): string => '<header id="site-chrome" class="site-header"><p class="brand">Acme</p>'
-    . '<nav><a href="' . $home . '">Home</a><a href="' . $about . '">About</a></nav></header>';
+    . '<div class="container"><nav><a href="' . $home . '">Home</a><a href="' . $about . '">About</a></nav></div></header>';
 $document = static fn (string $headerHtml, string $main): string => '<!doctype html><html><head><style>' . $css . '</style></head><body>'
-    . $headerHtml . '<div class="route-grid">' . $main . '</div></body></html>';
+    . '<div id="site-root">' . $headerHtml . '<div class="route-grid"><div class="container">' . $main . '</div></div></div></body></html>';
 
 $plan = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'index.html',
@@ -50,6 +52,11 @@ $assert(1 === preg_match('/\.site-header \.brand\{font-size:28px/', $global), 'D
 $assert(1 === preg_match('/@media \(max-width:700px\)\s*\{\s*\.site-header \.brand\{font-size:20px\}\s*\}/', $global), 'Responsive header rules keep their media condition in the global stylesheet.');
 $assert(str_contains($global, '#site-chrome{position:sticky'), 'An authored id rule for the header reaches the global stylesheet.');
 $assert(! str_contains($global, '.route-grid'), 'Route-owned layout rules stay out of the global shared stylesheet.');
+$assert(! str_contains($global, '.container{'), 'A class the header shares with route content stays out of the global shared stylesheet.');
+$assert(str_contains($route, '.container{max-width:960px}'), 'A class the header shares with route content keeps its rule on the route stylesheet.');
+// The part renders in the template, outside the ancestor it sat under in the
+// source. The rule reaches the chrome through that ancestor or the part wrapper.
+$assert(str_contains($global, ':is(#site-root,:has(> #site-chrome)) .site-header .brand{letter-spacing:2px}'), 'A rule that reaches the header through a detached ancestor also matches through the template part wrapper: ' . substr($global, 0, 600));
 $assert(str_contains($route, '.route-grid'), 'Route-owned rules stay on their route stylesheet.');
 
 echo "Shared chrome authored rules contract passed.\n";
