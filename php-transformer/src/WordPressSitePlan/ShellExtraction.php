@@ -1297,6 +1297,11 @@ final class ShellExtraction
         }, $markup) ?? $markup;
     }
 
+    public static function identityMarkup(string $markup): string
+    {
+        return self::normalizeNestedChromeMarkup($markup);
+    }
+
     public static function withoutCurrentNavigationState(string $markup, bool $semanticIdentity = false): string
     {
         $stateCarrierCounts = array();
