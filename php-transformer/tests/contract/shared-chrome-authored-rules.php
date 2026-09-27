@@ -60,6 +60,25 @@ $assert(str_contains($route, '.container{max-width:960px}'), 'A class the header
 $assert(str_contains($global, ':is(#site-root,:where(:has(> #site-chrome))) .site-header .brand{letter-spacing:2px}'), 'A rule that reaches the header through a detached ancestor also matches through the template part wrapper: ' . substr($global, 0, 600));
 $assert(str_contains($route, '.route-grid'), 'Route-owned rules stay on their route stylesheet.');
 
+// Pages carry the same header rule in stylesheets with different media
+// conditions. Identical projected text under different enqueue contracts is two
+// assets, so their content-addressed targets must not collide.
+$mediaDocument = static fn (string $media, string $main): string => '<!doctype html><html><head><style media="' . $media . '">.site-header{background:#eee}.route-grid{display:grid}</style></head><body>'
+    . '<header id="site-chrome" class="site-header"><p class="brand">Acme</p><nav><a href="index.html">Home</a><a href="about.html">About</a></nav></header>'
+    . '<div class="route-grid">' . $main . '</div></body></html>';
+$mediaResult = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => $mediaDocument('(min-width:768px)', '<main><h1>Home</h1></main>'),
+        'about.html' => $mediaDocument('(max-width:767px)', '<main><h1>About</h1></main>'),
+        'team.html' => $mediaDocument('(max-width:767px)', '<main><h1>Team</h1></main>'),
+    ),
+));
+$mediaPlan = $mediaResult->toWordPressSitePlanView()['wordpress_site_plan'] ?? null;
+$assert(is_array($mediaPlan) && array() !== ($mediaPlan['assets'] ?? array()), 'Identical header rules under different media compile without colliding targets: ' . json_encode(array_values(array_filter(array_column($mediaResult->toArray()['diagnostics'] ?? array(), 'message'), static fn ($m): bool => str_contains((string) $m, 'colliding')))));
+$mediaShared = array_values(array_filter($mediaPlan['assets'], static fn (array $asset): bool => str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-') && str_contains((string) ($asset['content'] ?? ''), '.site-header{background:#eee}')));
+$assert(2 === count($mediaShared) && 2 === count(array_unique(array_column($mediaShared, 'target_path'))) && array('(max-width:767px)', '(min-width:768px)') === (static function (array $m): array { sort($m); return $m; })(array_map(static fn (array $a): string => (string) ($a['media'] ?? ''), $mediaShared)), 'Each media condition keeps its own shared stylesheet: ' . json_encode(array_map(static fn (array $a): array => array($a['target_path'] ?? null, $a['media'] ?? null), $mediaShared)));
+
 // The engine rewrites an ancestor id into an editor-parity compound; its
 // positive hooks still identify the detached ancestor.
 $reanchor = new ReflectionMethod(WordPressSitePlan::class, 'reanchoredDetachedContextSelector');

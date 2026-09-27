@@ -994,7 +994,9 @@ final class WordPressSitePlan
                 }
             );
             $sharedAsset = $asset;
-            $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $shared), 0, 16) . '.css';
+            // Address the target by what is enqueued, not only the text: the same
+            // rules under another media condition or target are another asset.
+            $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', self::sharedChromeContract($asset) . "\0" . $shared), 0, 16) . '.css';
             $sharedAsset['target_path'] = $sharedAsset['path'];
             $sharedAsset['source_path'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '') . '.shared-chrome';
             // Relative url() references still resolve against the stylesheet the
