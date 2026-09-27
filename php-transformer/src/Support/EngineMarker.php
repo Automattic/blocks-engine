@@ -62,6 +62,16 @@ final class EngineMarker
     }
 
     /**
+     * Text with every marker reduced to its kind: `blocks-engine-control-<seed>-7`
+     * becomes `blocks-engine-control`. Use it to derive an identity that must
+     * agree for the same element compiled in different documents.
+     */
+    public static function withoutDocumentSeeds(string $text): string
+    {
+        return preg_replace_callback(self::pattern(), static fn (array $match): string => (string) preg_replace('/-[a-f0-9]{12}-\d+$/', '', $match[0]), $text) ?? $text;
+    }
+
+    /**
      * Class that re-expresses a source element id for editor parity. Unlike the
      * document markers above it is stable across documents: it is the id.
      */
