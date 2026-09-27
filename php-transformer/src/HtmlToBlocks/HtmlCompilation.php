@@ -45,6 +45,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedDialogC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedChoiceGroupConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedListboxConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedSelectableSetConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InertScaffoldingSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\NativeGetFormControlConverter;
@@ -2863,7 +2864,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $ownerSelector = $this->elementSelector($child);
                 for ( $index = $fallbackOffset; $index < count($fallbacks); ++$index ) {
                     if ( $ownerSelector === ($fallbacks[$index]['selector'] ?? null)
-                        && in_array((string) ($fallbacks[$index]['diagnostic_code'] ?? ''), array( 'html_iframe_embed_fallback', 'html_unsupported_element' ), true)
+                        && in_array((string) ($fallbacks[$index]['diagnostic_code'] ?? ''), array( 'html_iframe_embed_fallback', 'html_unsupported_element', CustomElementRuntimeDependency::UNPROVEN_CODE ), true)
                     ) {
                         $unsupportedRuntimeMediaOwner = $child;
                         $ownerFallbackIndex = $index;
@@ -3240,11 +3241,71 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->flowContainerConverter->convertUnknownElement($element, $fallbacks)->block;
         }
 
+        $customElementRuntime = $this->customElementRuntimeDisposition($element, $tagName, $fallbacks);
+        if ( $customElementRuntime['handled'] ) {
+            return $customElementRuntime['block'];
+        }
+
         if ( $captureUnsupported ) {
             return $this->unsupportedRecorder->record($element, $tagName, $fallbacks);
         }
 
         return null;
+    }
+
+    /**
+     * Preserve a textless custom element only when captured script content proves
+     * it defines that tag. A configuration-bearing element without that proof
+     * stays an explicit missing-functional-content finding rather than a silent
+     * drop or a generic unsupported-element silence.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array{handled: bool, block: array<string, mixed>|null}
+     */
+    private function customElementRuntimeDisposition(DOMElement $element, string $tagName, array &$fallbacks): array
+    {
+        $decision = ( new CustomElementRuntimeDependency() )->classify(
+            $element,
+            $this->runtimeBehavior()->runtimeScriptMetadata(),
+            $this->runtimeBehavior()->runtimeProjectionScriptAssets()
+        );
+        if ( 'preserve' !== $decision['disposition'] && 'unproven' !== $decision['disposition'] ) {
+            return array( 'handled' => false, 'block' => null );
+        }
+        if ( 'unproven' === $decision['disposition'] ) {
+            $fallbacks[] = FallbackDiagnostic::build(array(
+                'type'            => 'missing_functional_content',
+                'reason'          => CustomElementRuntimeDependency::UNPROVEN_REASON,
+                'diagnostic_code' => CustomElementRuntimeDependency::UNPROVEN_CODE,
+                'message'         => 'A functional custom element was not preserved because no captured script proves it defines that element.',
+                'source_format'   => 'html',
+                'tag'             => $tagName,
+                'selector'        => SourceDom::elementSelector($element),
+                'attributes'      => SourceDom::htmlAttributes($element),
+                'context'         => $this->sourceContext($element),
+                'html'            => SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()),
+            ), $this->transformationProvenance()->fallback());
+
+            return array( 'handled' => true, 'block' => null );
+        }
+
+        $this->runtimeIslands->recordRuntimeIsland(
+            $element,
+            'custom_element',
+            'custom_element_requires_defining_script',
+            'client_script_execution',
+            array(
+                'required_scripts'      => $decision['scripts'],
+                'preservation_strategy' => 'sanitized_embed_markup',
+            )
+        );
+        $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
+        $block = null !== $generated
+            ? $this->generatedComponentBlock($generated, $element)
+            : $this->htmlPreservationBlock($element);
+        $block['_editability_runtime_owned'] = true;
+
+        return array( 'handled' => true, 'block' => $block );
     }
 
     /**
