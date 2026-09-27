@@ -239,6 +239,7 @@
       "php tests/unit/button-visual-probe-diagnostics.php",
       "php tests/unit/wordpress-70-save-shapes.php",
       "php tests/unit/shell-landmark-policy.php",
+            "php tests/unit/engine-marker-grammar.php",
        "php tests/unit/block-style-support-conversion.php",
        "php tests/unit/block-support-metadata-normalization.php",
        "php tests/unit/block-metadata-capabilities.php",

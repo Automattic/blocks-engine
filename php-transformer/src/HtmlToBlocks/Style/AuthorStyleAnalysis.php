@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use DOMElement;
 
@@ -126,6 +127,9 @@ final class AuthorStyleAnalysis
 
     public function allocateMarker(string $kind): string
     {
+        if ( ! EngineMarker::isDeclaredKind($kind) ) {
+            throw new \InvalidArgumentException("Undeclared engine marker kind: {$kind}. Declare it in EngineMarker::DOCUMENT_KINDS.");
+        }
         do {
             $marker = 'blocks-engine-' . $kind . '-' . $this->markerSeed . '-' . $this->markerCounter++;
         } while ( str_contains($this->markerCollisionTexts[0], $marker) || str_contains($this->markerCollisionTexts[1], $marker) );
