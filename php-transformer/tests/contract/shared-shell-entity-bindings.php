@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assert = static function (bool $condition, string $message): void {
     if (! $condition) {
@@ -19,8 +20,9 @@ $entities = static function (array $plan): array {
 $page = static fn (string $title, string $footer): string => '<!doctype html><html><head><style>[data-slot=signup]{display:grid;gap:8px}</style></head><body>'
     . '<header><nav><a href="index.html">Home</a><a href="about.html">About</a><a href="team.html">Team</a></nav></header>'
     . '<main><h1>' . $title . '</h1><p>Body for ' . $title . '</p></main>' . $footer . '</body></html>';
-$signup = '<footer id="site-foot"><p>Keep in touch</p><form method="post" class="newsletter" data-slot="signup"><label for="email">Email</label><input id="email" type="email" name="email" required><button type="submit">Join</button></form><p>© Studio</p></footer>';
-$compile = static fn (array $files): array => (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
+$signup = '<footer id="site-foot"><img src="logo.png" alt="Studio mark" width="40" height="40"><p>Keep in touch</p><form method="post" class="newsletter" data-slot="signup"><label for="email">Email</label><input id="email" type="email" name="email" required><button type="submit">Join</button></form><p>© Studio</p></footer>';
+$logo = array('path' => 'logo.png', 'kind' => 'image', 'mime_type' => 'image/png', 'content_base64' => base64_encode("\x89PNG\r\n\x1a\n"));
+$compile = static fn (array $files): array => (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files + array('logo.png' => $logo)))->toWordPressSitePlanView()['wordpress_site_plan'];
 
 // The same footer, newsletter form included, on every page: one shared part
 // that owns one form entity, bound to the part rather than to any page.
@@ -33,6 +35,14 @@ $binding = $forms[0]['bindings'][0];
 $assert($footer['source_path'] === $binding['source_path'] && $footer['source_path'] === $forms[0]['source_path'], 'The form entity and its binding belong to the shared footer part.');
 $assert(1 === $binding['occurrence'] && $binding['search_block_markup'] === substr($footer['canonical_block_markup'], $binding['position']['offset'], $binding['position']['length']), 'The binding anchors one exact block of the part markup.');
 foreach ($plan['pages'] as $row) $assert(!str_contains($row['canonical_block_markup'], 'Keep in touch'), $row['source_path'] . ' no longer renders its own footer.');
+
+// Resolution projects the part like any page: the bound block is found in the
+// part's resolved markup, at the position the consumer will replace.
+$resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => 'https://example.test/wp-content/themes/captured'));
+$resolvedFooter = array_values(array_filter($resolved['template_parts'], static fn (array $part): bool => 'footer' === ($part['area'] ?? null)))[0];
+$resolvedBinding = array_values(array_filter($entities($resolved), static fn (array $entity): bool => 'form' === ($entity['bindings'][0]['role'] ?? null)))[0]['bindings'][0];
+$assert(str_contains($footer['canonical_block_markup'], '{{wordpress-site-plan:asset:') && !str_contains($resolvedFooter['resolved_block_markup'], '{{wordpress-site-plan:asset:'), 'The part carries an asset token ahead of the form, so resolution moves the form.');
+$assert($resolvedBinding['search_block_markup'] === substr($resolvedFooter['resolved_block_markup'], $resolvedBinding['position']['offset'], $resolvedBinding['position']['length']), 'The resolved binding anchors one exact block of the resolved part markup.');
 
 // A page whose footer form differs is not part of the shared chrome: the two
 // matching pages share the part and its one form, while that page keeps its
