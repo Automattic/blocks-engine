@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisC
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 /**
  * Resolves source CSS into native block presentation attributes.
@@ -2691,7 +2692,7 @@ final class StyleResolver implements ElementPresentationResolver
             return '';
         }
         $anchor = SourceDom::safeAnchor(SourceDom::attr($element, 'id'));
-        return '' === $anchor ? '' : 'blocks-engine-editor-anchor-' . $anchor;
+        return '' === $anchor ? '' : EngineMarker::editorAnchorClass($anchor);
     }
 
     /**

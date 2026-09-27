@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 /**
  * Projects author navigation styling onto the emitted navigation blocks.
@@ -353,8 +354,8 @@ final class NavigationStyleProjector
                 return null;
             }
             $projected = '' === $specificity
-                ? '.blocks-engine-editor-anchor-' . $id
-                : ':where(.blocks-engine-editor-anchor-' . $id . ')' . $specificity;
+                ? '.' . EngineMarker::editorAnchorClass($id)
+                : ':where(.' . EngineMarker::editorAnchorClass($id) . ')' . $specificity;
             return $keepSourceClass ? ':is(' . $projected . ',.' . $id . ')' : $projected;
         };
 
