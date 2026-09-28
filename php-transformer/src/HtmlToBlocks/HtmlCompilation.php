@@ -6821,31 +6821,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @param array<int, array<string, mixed>> $fallbacks @param array<int, array<string, mixed>> $blocks */
     private function reconcileNativeListItemFallbacks(array &$fallbacks, array $blocks): void
     {
-        $selectors = array();
-        $collect = function (array $nodes) use (&$collect, &$selectors): void {
+        $nativeListItemMarkup = array();
+        $collect = function (array $nodes) use (&$collect, &$nativeListItemMarkup): void {
             foreach ($nodes as $node) {
                 if (! is_array($node)) {
                     continue;
                 }
                 if ('core/list-item' === ($node['blockName'] ?? null)) {
-                    $provenanceIds = is_array($node['_source_provenance_ids'] ?? null)
-                        ? $node['_source_provenance_ids']
-                        : array($node['_source_provenance_id'] ?? null);
-                    foreach ($provenanceIds as $provenanceId) {
-                        if (! is_int($provenanceId)) {
-                            continue;
-                        }
-                        $selector = $this->transformationProvenance()->source($provenanceId)['selector'] ?? null;
-                        if (is_string($selector) && '' !== $selector) {
-                            $selectors[$selector] = true;
-                        }
+                    $content = $node['attrs']['content'] ?? null;
+                    if (is_string($content)) {
+                        $nativeListItemMarkup[] = $content;
                     }
                 }
                 $collect(is_array($node['innerBlocks'] ?? null) ? $node['innerBlocks'] : array());
             }
         };
         $collect($blocks);
-        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\NativeListItemFallbackReconciler::reconcile($fallbacks, $selectors);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\NativeListItemFallbackReconciler::reconcile($fallbacks, $nativeListItemMarkup);
     }
 
     /**
