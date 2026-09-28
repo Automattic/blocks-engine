@@ -162,7 +162,12 @@ final class NavigationEntityProjection
         return $blocks;
     }
 
-    private static function destinationSignature(string $inner): string
+    /**
+     * The identity of a navigation block's contents: its items' visible labels
+     * and destination paths. Consumers that bind materialized navigation
+     * entities back to blocks match with this same signature.
+     */
+    public static function destinationSignature(string $inner): string
     {
         return implode("\n", self::destinationItems($inner));
     }
