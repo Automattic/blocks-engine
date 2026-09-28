@@ -26,6 +26,9 @@ final class ButtonLinkDispatcher
      */
     public const POSITIONED_FRAGMENT_LINK_CARRIER_CLASS = 'blocks-engine-positioned-fragment-link-carrier';
 
+    /** Marks an empty, externally labelled link whose source box is carried by its host. */
+    public const ACCESSIBLE_EMPTY_LINK_CLASS = 'blocks-engine-accessible-empty-link';
+
     public function __construct(private readonly ButtonLinkDispatchContext $context)
     {
     }
@@ -62,7 +65,10 @@ final class ButtonLinkDispatcher
 
         // An icon-only link still carries an accessible name, so it must survive
         // even though it has no text content.
-        if ( '' === trim($element->textContent ?? '') && '' !== $this->context->safeLinkUrl(SourceDom::attr($element, 'href')) && '' !== trim(SourceDom::attr($element, 'aria-label')) ) {
+        if ( '' === trim($element->textContent ?? '') && '' !== $this->context->safeLinkUrl(SourceDom::attr($element, 'href')) && ( '' !== trim(SourceDom::attr($element, 'aria-label')) || $this->hasAccessibleLabelReference($element) ) ) {
+            if ( '' === trim(SourceDom::attr($element, 'aria-label')) ) {
+                $element->setAttribute('class', SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), self::ACCESSIBLE_EMPTY_LINK_CLASS));
+            }
             return $this->paragraphHost($element);
         }
 
@@ -251,5 +257,21 @@ final class ButtonLinkDispatcher
         $position = strtolower(trim((string) ($this->context->structuralPresentationDeclarations($anchor)['position'] ?? '')));
 
         return in_array($position, array( 'absolute', 'fixed' ), true);
+    }
+
+    private function hasAccessibleLabelReference(DOMElement $anchor): bool
+    {
+        $labelledby = trim(SourceDom::attr($anchor, 'aria-labelledby'));
+        if ( '' === $labelledby || null === $anchor->ownerDocument ) {
+            return false;
+        }
+
+        foreach ( preg_split('/\\s+/', $labelledby) ?: array() as $id ) {
+            if ( '' !== $id && null !== $anchor->ownerDocument->getElementById($id) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

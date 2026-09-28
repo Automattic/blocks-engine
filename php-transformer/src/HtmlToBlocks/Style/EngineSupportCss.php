@@ -156,6 +156,11 @@ final class EngineSupportCss
             // their valid paragraph host must not create a line box in document flow.
             $parts[] = ':where(.' . ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}';
         }
+        if ( str_contains($serializedBlocks, ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS) ) {
+            // Empty labelled links have no intrinsic inline box. Fill the
+            // paragraph host, whose saved block attributes carry source geometry.
+            $parts[] = ':where(a.' . ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS . '){display:block;width:100%;height:100%;min-height:inherit}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS) ) {
             // A synthesized core/buttons wrapper is required for validity, but it
             // did not exist in the source. Flatten it so the next real box is the
