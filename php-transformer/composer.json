@@ -188,6 +188,7 @@
       "php tests/unit/author-shell-child-combinator-editor-variants.php",
       "php tests/unit/engine-support-css.php",
       "php tests/unit/engine-support-css-asset.php",
+      "php tests/unit/stylesheet-asset-stage.php",
       "php tests/unit/engine-support-css-specificity.php",
       "php tests/unit/full-bleed-geometry.php",
       "php tests/unit/cover-strip-fixed-height.php",

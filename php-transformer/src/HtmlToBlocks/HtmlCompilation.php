@@ -169,6 +169,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttribu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAnalysisComposer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAssetStage;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
@@ -301,6 +302,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private readonly SourceBlockAttributeProjector $sourceBlockAttributeProjector;
 
     private readonly StylesheetAnalysisComposer $stylesheetAnalysisComposer;
+
+    private readonly StylesheetAssetStage $stylesheetAssetStage;
 
     private readonly AuthorSelectorSemanticPreparer $authorSelectorSemanticPreparer;
 
@@ -517,6 +520,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->runtime,
             fn (DOMElement $element): array => $this->sourceContext($element)
         );
+        $this->stylesheetAssetStage = new StylesheetAssetStage($this->session);
         $this->blockFactory      = new BlockFactory();
         $this->sourceElementClassifier = new SourceElementClassifier();
         $this->backgroundImageExtractor = new BackgroundImageExtractor();
@@ -1087,46 +1091,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
-    /**
-     * Materializes a stylesheet into the transform's asset set.
-     *
-     * Transformer-owned rather than a navigation concern: engine-support and
-     * author stylesheets are materialized through here too. The navigation
-     * projector reaches it through {@see NavigationStyleProjectionContext}.
-     *
-     * @param array<int, string> $cssParts
-     */
-    private function materializeStylesheetAsset(array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void
-    {
-        $css = trim(implode("\n\n", $cssParts));
-        if ( '' === $css ) {
-            return;
-        }
-
-        $content = $css . "\n";
-        $hash = hash('sha256', $content);
-        $path = 'assets/css/' . $pathPrefix . '-' . substr($hash, 0, 16) . '.css';
-
-        $this->materializedAssets()->register($path, array(
-            'source'      => $source,
-            'source_path' => '',
-            'path'        => $path,
-            'target_path' => $path,
-            'kind'        => 'css',
-            'role'        => 'stylesheet',
-            'stylesheet_placement' => $placement,
-            'stylesheet_target' => $target,
-            'mime_type'   => 'text/css',
-            'media_type'  => 'text/css',
-            'content'     => $content,
-            'bytes'       => strlen($content),
-            'encoding'    => 'utf-8',
-            'binary'      => false,
-            'hash'        => $hash,
-            'source_hash' => $hash,
-        ));
-    }
-
     /** Collaborator surface for {@see NavigationToggleSuppressor}. */
     private function createNavigationToggleSuppressionContext(): NavigationToggleSuppressionContext
     {
@@ -1173,7 +1137,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->session,
             fn (string $selector): array => $this->parsedCssSelector($selector),
             function (array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void {
-                $this->materializeStylesheetAsset($cssParts, $source, $placement, $pathPrefix, $target);
+                $this->stylesheetAssetStage->generated($cssParts, $source, $placement, $pathPrefix, $target);
             }
         );
     }
@@ -2276,48 +2240,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $authorLayerOrder ) {
             array_unshift($beforeAuthorCssParts, $authorLayerOrder);
         }
-        $this->materializeStylesheetAsset($beforeAuthorCssParts, 'engine-support', 'before-author', 'engine-support-before-author');
-        if ( $includeAuthorStyles && array() !== $this->authorStyles()->stylesheetAssets() ) {
-            foreach ( $authorStylesheetProjections as $projection ) {
-                $this->materializeAuthorStylesheetProjection($projection);
-            }
-        } else {
-            $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
-        }
-        $this->materializeStylesheetAsset($afterAuthorCss->orderedCss(), 'engine-support', 'after-author', 'engine-support-after-author');
-    }
-
-    /** @param array<string, mixed> $projection */
-    private function materializeAuthorStylesheetProjection(array $projection): void
-    {
-        $path = trim((string) ($projection['path'] ?? ''), '/');
-        $css = trim((string) ($projection['content'] ?? ''));
-        if ( '' === $path || '' === $css ) {
-            return;
-        }
-
-        $content = $css . "\n";
-        $hash = hash('sha256', $content);
-        $this->materializedAssets()->register($path, array(
-            'source' => 'author-css',
-            'source_path' => (string) ($projection['source_path'] ?? ''),
-            'path' => $path,
-            'target_path' => $path,
-            'kind' => 'css',
-            'role' => 'stylesheet',
-            'stylesheet_placement' => 'author',
-            'stylesheet_target' => 'both',
-            'mime_type' => 'text/css',
-            'media_type' => 'text/css',
-            'media' => (string) ($projection['media'] ?? ''),
-            'type' => (string) ($projection['type'] ?? ''),
-            'content' => $content,
-            'bytes' => strlen($content),
-            'encoding' => 'utf-8',
-            'binary' => false,
-            'hash' => $hash,
-            'source_hash' => (string) ($projection['source_hash'] ?? $hash),
-        ));
+        $this->stylesheetAssetStage->materialize(
+            $beforeAuthorCssParts,
+            $authorCssParts,
+            $afterAuthorCss->orderedCss(),
+            $authorStylesheetProjections,
+            $includeAuthorStyles,
+            array() !== $this->authorStyles()->stylesheetAssets()
+        );
     }
 
     private function richTextMarkerResetCss(): string
