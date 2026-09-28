@@ -110,6 +110,15 @@ foreach (array(
 $centeredDataHost = ( new HtmlTransformer() )->transform('<media-frame data-image-info="{}" style="display:block"><img src="profile.png" style="object-fit:cover;object-position:50% 50%" alt="Profile"></media-frame>')->toArray();
 $assert('core/image' === ($centeredDataHost['blocks'][0]['blockName'] ?? null), 'an unreferenced data attribute and centered crop promote to core/image');
 
+$decorativeHost = ( new HtmlTransformer() )->transform('<media-frame style="display:block;width:100%;height:100%;object-fit:cover"><img src="profile.png" style="width:238px;height:238px" alt="Profile"></media-frame>')->toArray();
+$assert('core/image' === ($decorativeHost['blocks'][0]['blockName'] ?? null), 'a block host with fill sizing and object fit promotes when its image has a definite pixel box');
+$hostWithoutImageBox = ( new HtmlTransformer() )->transform('<media-frame style="display:block;width:100%"><img src="profile.png" alt="Profile"></media-frame>')->toArray();
+$assert('custom/responsive-media' === ($hostWithoutImageBox['blocks'][0]['blockName'] ?? null), 'a fill-width host remains a carrier when its image has no definite pixel box');
+$positionedHost = ( new HtmlTransformer() )->transform('<media-frame style="display:block;position:absolute"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame>')->toArray();
+$assert('custom/responsive-media' === ($positionedHost['blocks'][0]['blockName'] ?? null), 'an absolutely positioned image host remains a carrier');
+$paintedHost = ( new HtmlTransformer() )->transform('<media-frame style="display:block;background:red;padding:4px"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame>')->toArray();
+$assert('custom/responsive-media' === ($paintedHost['blocks'][0]['blockName'] ?? null), 'a host with background and padding remains a carrier');
+
 $inlineFlow = ( new HtmlTransformer() )->transform('<p>Before <media-frame><img src="profile.png" width="30" height="30" alt="Profile"></media-frame><svg aria-hidden="true" viewBox="0 0 1 1"><path d="M0 0"></path></svg> after</p>')->toArray();
 $assert('core/html' === ($inlineFlow['blocks'][0]['blockName'] ?? null) && str_contains((string) ($inlineFlow['blocks'][0]['attrs']['content'] ?? ''), '<media-frame><img'), 'an inline custom host with adjacent text and icon remains in its original inline carrier');
 

@@ -9192,7 +9192,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $this->hasOnlyInertImageHostAttributes($host)
             || ! $this->hasBlockFigureDisplay($host)
             || ! $this->hasBlockFigureCarrier($host)
-            || ! $this->hasOnlyBlockDisplayPresentation($host)
+            || ! $this->hasOnlyBlockDisplayPresentation($host, $image)
             || $this->hasCropFocusThatCoreImageCannotCarry($image) ) {
             return false;
         }
@@ -9274,7 +9274,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return ! str_contains($parent->tagName, '-') || '' !== $display;
     }
 
-    private function hasOnlyBlockDisplayPresentation(DOMElement $host): bool
+    private function hasOnlyBlockDisplayPresentation(DOMElement $host, DOMElement $image): bool
     {
         // Structural declarations include otherwise-unmapped box properties such
         // as overflow; presentation declarations catch paint that a tag-specific
@@ -9283,9 +9283,34 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->styleResolver->presentationDeclarations($host),
             $this->styleResolver->structuralPresentationDeclarations($host)
         );
+        $imageHasDefinitePixelBox = $this->imageHasDefinitePixelBox($image);
         foreach ( $declarations as $property => $value ) {
-            if ( 'display' !== strtolower($property)
-                || 'block' !== strtolower(trim(CssValueInspector::withoutImportant((string) $value))) ) {
+            $property = strtolower($property);
+            $value = strtolower(trim(CssValueInspector::withoutImportant((string) $value)));
+            if ( 'display' === $property && 'block' === $value ) {
+                continue;
+            }
+            if ( in_array($property, array( 'object-fit', 'object-position' ), true) ) {
+                continue;
+            }
+            if ( $imageHasDefinitePixelBox && in_array($property, array( 'width', 'height' ), true) && '100%' === $value ) {
+                continue;
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    private function imageHasDefinitePixelBox(DOMElement $image): bool
+    {
+        foreach ( array( 'width', 'height' ) as $property ) {
+            $inline = $this->styleResolver->cssDeclarations($this->attr($image, 'style'))[$property] ?? '';
+            $value = trim(CssValueInspector::withoutImportant((string) $inline));
+            if ( '' === $value ) {
+                $value = trim($this->attr($image, $property));
+            }
+            if ( 1 !== preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px)?$/i', $value) || (float) rtrim(strtolower($value), 'px') <= 0 ) {
                 return false;
             }
         }
