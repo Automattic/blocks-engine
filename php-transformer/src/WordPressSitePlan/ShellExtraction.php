@@ -487,7 +487,67 @@ final class ShellExtraction
             }
             $diagnostics[] = array('code' => 'wordpress_site_plan_shell_inline_extracted', 'severity' => 'info', 'message' => "Extracted nested responsive {$area} variants at their authored page positions.", 'area' => $area, 'variant_count' => $variantCount, 'page_count' => count($applicable), 'source_paths' => $sourcePaths);
         }
+        if (array() === array_filter($parts, static fn(array $part): bool => 'header' === ($part['area'] ?? null))) {
+            $routeHeaders = $this->routeSharedHeaderVariants($pages, $reservedSlugs, $runtimeDeclarations);
+            $pages = $routeHeaders['pages'];
+            $parts = array_merge($parts, $routeHeaders['parts']);
+            $diagnostics = array_merge($diagnostics, $routeHeaders['diagnostics']);
+        }
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * Distinct repeated headers can each be editable without forcing a single
+     * dominant style onto routes which authored a different variant. The part
+     * stays at the header's original position in page content; singletons and
+     * ambiguous or bound candidates remain page-owned.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<string,true> $reservedSlugs
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
+     */
+    private function routeSharedHeaderVariants(array $pages, array $reservedSlugs, array $runtimeDeclarations): array
+    {
+        $clusters = array(); $parts = array(); $diagnostics = array();
+        foreach ($pages as $index => $page) {
+            if (!empty($page['synthetic'])) continue;
+            $rows = $this->nestedLandmarkCandidates($page['canonical_block_markup'], $page['source_path'], 'header');
+            if (1 !== count($rows) || '' === ($rows[0]['identity_markup'] ?? '')) continue;
+            $identity = hash('sha256', $rows[0]['identity_markup']);
+            $clusters[$identity][$index] = $rows[0];
+        }
+        $repeated = array_filter($clusters, static fn(array $rows): bool => count($rows) >= 2);
+        // A single repeated cluster belongs to sharedShells(), which can bind
+        // the normal header part in the site's templates without page blocks.
+        if (count($repeated) < 2) return compact('pages', 'parts', 'diagnostics');
+        ksort($repeated, SORT_STRING);
+        foreach ($repeated as $identity => $rows) {
+            $slug = 'header-' . substr($identity, 0, 12);
+            if (isset($reservedSlugs[$slug])) continue;
+            $after = array(); $valid = true;
+            foreach ($rows as $index => $row) {
+                $page = $pages[$index];
+                $markup = $page['canonical_block_markup'];
+                if ($row['markup'] !== substr($markup, $row['offset'], $row['length']) || $this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $row['offset'], $row['length'])) { $valid = false; break; }
+                $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"header","tagName":"header"} /-->';
+                $replacement = substr($markup, 0, $row['offset']) . $reference . substr($markup, $row['offset'] + $row['length']);
+                if ('' === trim($replacement)) { $valid = false; break; }
+                $after[$index] = $replacement;
+            }
+            if (!$valid) continue;
+            foreach ($after as $index => $markup) {
+                $pages[$index]['canonical_block_markup'] = $markup;
+                $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
+            }
+            $first = reset($rows);
+            $sourcePath = 'wordpress-site-plan/shared/' . $slug;
+            $sources = array_map(static fn(int $index): string => $pages[$index]['source_path'], array_keys($rows));
+            $partMarkup = self::withoutLandmarkTagName(self::withoutCurrentNavigationState($first['markup']));
+            $parts[] = array('source_path' => $sourcePath . '#header', 'slug' => $slug, 'title' => 'Header Variant ' . (count($parts) + 1), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => 'header', 'tag_name' => 'header', 'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => $sources, 'variant' => count($parts) + 1), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#header', 'kind' => 'template_part'), 'title' => 'Header Variant ' . (count($parts) + 1), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance('header', 'extracted', 'route_variant', array_values($rows), $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#header', 'parts/' . $slug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup));
+            $diagnostics[] = array('code' => 'wordpress_site_plan_shell_route_variant_extracted', 'severity' => 'info', 'message' => 'Extracted a repeated route-specific header as an editable template part.', 'area' => 'header', 'slug' => $slug, 'page_count' => count($rows), 'source_paths' => $sources);
+        }
+        return compact('pages', 'parts', 'diagnostics');
     }
 
     /** @return array<int,array{token:string,offset:int,closing:bool,name:string,attributes:string,self_closing:bool}> */

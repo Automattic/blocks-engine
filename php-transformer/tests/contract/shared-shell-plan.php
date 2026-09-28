@@ -46,6 +46,23 @@ $nearPages = $pages($nearMatch);
 $nearDiagnostic = current(array_filter($nearMatch['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_retained_ambiguous' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)));
 $assert(str_contains($nearPages['index.html']['canonical_block_markup'] ?? '', 'Home') && str_contains($nearPages['about.html']['canonical_block_markup'] ?? '', 'Contact us') && 1 === substr_count($nearPages['index.html']['canonical_block_markup'] ?? '', '"tagName":"header"') && 1 === substr_count($nearPages['about.html']['canonical_block_markup'] ?? '', '"tagName":"header"') && !array_filter($nearMatch['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)) && 'retained' === ($nearDiagnostic['provenance']['decision'] ?? null) && 'non_equivalent' === ($nearDiagnostic['provenance']['reason'] ?? null) && array('about.html', 'index.html') === array_keys($nearDiagnostic['provenance']['sources'] ?? array()), 'Ambiguous multipage headers remain exactly once per page with generic retained-extraction provenance.');
 
+$variantHeader = static fn(string $appearance, string $title): string => '<header class="site-header ' . $appearance . '"><p>Company brand</p><nav><a href="/">Home</a><a href="/about">About</a></nav></header><main><h1>' . $title . '</h1></main>';
+$variantPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $variantHeader('light', 'Homepage'),
+    'team.html' => $variantHeader('light', 'Team'),
+    'about.html' => $variantHeader('dark', 'About'),
+    'events.html' => $variantHeader('dark', 'Events'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$variantParts = array_values(array_filter($variantPlan['template_parts'] ?? array(), static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$variantPages = $pages($variantPlan);
+$assert(2 === count($variantParts) && count(array_unique(array_column($variantParts, 'slug'))) === 2 && 2 === count(array_filter($variantParts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null))), 'Two distinct, repeated source header appearances become two editable shared variants.');
+foreach (array('index.html' => 'Homepage', 'team.html' => 'Team', 'about.html' => 'About', 'events.html' => 'Events') as $source => $title) {
+    $markup = $variantPages[$source]['canonical_block_markup'] ?? '';
+    $assert(1 === substr_count($markup, '<!-- wp:template-part') && !str_contains($markup, 'Company brand') && str_contains($markup, $title), "{$source} binds only its corresponding header variant and keeps page content.");
+}
+$assert(1 === count(array_filter($variantParts, static fn(array $part): bool => str_contains((string) ($part['canonical_block_markup'] ?? ''), 'site-header light'))) && 1 === count(array_filter($variantParts, static fn(array $part): bool => str_contains((string) ($part['canonical_block_markup'] ?? ''), 'site-header dark'))), 'Route variants retain their independently authored appearance.');
+WordPressSitePlan::assertValid($variantPlan);
+
 $singleResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header id="solo-shell" class="solo" style="border-top:2px solid #111"><p>Solo</p></header><main>Home</main><footer>Solo footer</footer>')))->toArray();
 $single = $singleResult['source_reports']['wordpress_site_plan'];
 $singleWrites = $writes($single);
