@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-linked-custom-wrapper-image",
-  "description": "A linked custom image wrapper remains responsive media because WordPress crop mutations cannot preserve its link presentation.",
+  "description": "A plain linked custom image wrapper promotes to core/image with its native link destination.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-linked-custom-wrapper-image.json",
@@ -13,11 +13,11 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<html><head><style>.media-frame{overflow:hidden}.media-image{width:100%;aspect-ratio:4 / 3;object-fit:cover}</style></head><body><a class=\"media-link\" href=\"/profile\" target=\"_blank\" rel=\"noopener\"><media-frame class=\"media-frame\" data-image-info=\"bounded\"><img class=\"media-image\" src=\"assets/profile.jpg\" width=\"640\" height=\"480\" alt=\"Profile portrait\"></media-frame></a></body></html>",
+    "content": "<html><body><a href=\"/item\"><img src=\"assets/item.jpg\" width=\"640\" height=\"480\" alt=\"Item 1\"></a></body></html>",
     "options": {
       "context": {
         "asset_metadata": {
-          "assets/profile.jpg": {
+          "assets/item.jpg": {
             "id": 42,
             "url": "https://example.test/wp-content/uploads/profile.jpg"
           }
@@ -26,14 +26,14 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "custom/responsive-media" }
+    { "path": "blocks.0", "name": "core/image" }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "<a class=\"media-link\" href=\"/profile\" target=\"_blank\" rel=\"noopener\"><media-frame class=\"media-frame\"" },
-    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "<img class=\"media-image\" src=\"assets/profile.jpg\" width=\"640\" height=\"480\" alt=\"Profile portrait\">" },
+    { "path": "blocks.0.attrs.href", "assert": "equals", "value": "/item" },
+    { "path": "blocks.0.attrs.linkDestination", "assert": "equals", "value": "custom" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
