@@ -104,6 +104,21 @@ foreach ( array( 'plain icon wrapper' => '', 'aria-hidden icon wrapper' => ' ari
     $assert($isBalanced(preg_replace('/<!--.*?-->/s', '', $blocks) ?? ''), $case . ': the serialized accordion markup is balanced', $blocks);
 }
 
+$wrappedControlItem = static fn (string $index): string => '<div class="accordion-item"><div class="accordion-item__title"><button type="button" aria-expanded="false" aria-controls="panel-' . $index . '"><span>Question ' . $index . '</span></button></div><div id="panel-' . $index . '" role="region"><p>Answer ' . $index . '</p></div></div>';
+$wrappedResult = ( new HtmlTransformer() )->transform('<main><div class="accordion">' . $wrappedControlItem('1') . $wrappedControlItem('2') . '</div></main>')->toArray();
+$wrappedHeadings = array();
+$visitHeadings = static function ( array $blocks ) use ( &$visitHeadings, &$wrappedHeadings ): void {
+    foreach ( $blocks as $block ) {
+        if ( 'core/accordion-heading' === ( $block['blockName'] ?? null ) ) $wrappedHeadings[] = $block;
+        $visitHeadings($block['innerBlocks'] ?? array());
+    }
+};
+$visitHeadings($wrappedResult['blocks'] ?? array());
+$assert(2 === count($wrappedHeadings), 'two title wrappers still lower to editable accordion headings');
+foreach ($wrappedHeadings as $heading) {
+    $assert(!str_contains((string) ($heading['attrs']['title'] ?? ''), '<button') && 1 === substr_count((string) ($heading['innerHTML'] ?? ''), '<button'), 'a title wrapper contributes only its nested control label, not a button inside a button', (string) ($heading['innerHTML'] ?? ''));
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Accordion heading icon wrapper: {$failures} failed, {$passes} passed\n");
     exit(1);
