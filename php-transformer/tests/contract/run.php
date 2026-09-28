@@ -4990,6 +4990,9 @@ $assert(array() === $decorativeCanvasFallbacks, 'artifact compiler preserves run
 $assert(1 === count($decorativeCanvasSite['source_reports']['runtime_islands'] ?? array()), 'decorative canvas is not over-reported as a runtime island');
 $assert('#lab-canvas' === ($decorativeCanvasSite['source_reports']['runtime_islands'][0]['selector'] ?? ''), 'runtime island provenance points to the interactive canvas');
 $assert(str_contains((string) ($decorativeCanvasSite['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas>'), 'artifact compiler preserves direct canvas API target as runtime island metadata');
+$drawingBlock = array_values(array_filter($decorativeCanvasSite['source_reports']['companion_plugin_payload']['blocks'] ?? array(), static fn (array $block): bool => 'canvas' === ($block['name'] ?? '')))[0] ?? array();
+$assert('Drawing Surface' === ($drawingBlock['block_json']['title'] ?? '') && 'file:./view.js' === ($drawingBlock['block_json']['viewScript'] ?? '') && str_contains((string) ($drawingBlock['view_js'] ?? ''), 'pointermove'), 'native drawing surface ships its own frontend effect via the existing companion view-script contract');
+$assert(!str_contains($decorativeCanvasMarkup, 'data-blocks-engine-canvas-effect'), 'unconfigured source canvases remain inert when converted');
 
 $decorativeSvgSite = $compiler->compile(
     array(
