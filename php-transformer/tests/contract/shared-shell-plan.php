@@ -116,6 +116,29 @@ $sourceResponsiveResult = (new ArtifactCompiler())->compile(array('entrypoint' =
 $sourceResponsiveArtifacts = $sourceResponsiveResult['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array();
 $assert(array('header-1', 'header-2', 'footer-1', 'footer-2') === array_column($sourceResponsiveArtifacts, 'slug'), 'Source-identical nested shell variants are compiled once before route-specific page projection.');
 $assert(array() === array_filter($sourceResponsiveArtifacts, static fn(array $artifact): bool => array('index.html', 'about.html') !== ($artifact['source_paths'] ?? array())), 'Canonical source-level shell artifacts retain every contributing route.');
+
+// Runtime form anchors inside responsive shared chrome remain on the page
+// when a neighboring page-local form has its own independent binding.
+$bindingChrome = static function (string $title): string {
+    return '<div class="desktop-shell"><header class="desktop-header"><nav><a href="/">Home</a></nav><form method="post" id="shared-signup" action="/signup"><input type="email" name="email"><button type="submit">Join</button></form></header><main><h1>' . $title . '</h1><form method="post" id="local-' . strtolower($title) . '" action="/contact"><input type="email" name="message"><button type="submit">Contact</button></form></main></div><div class="mobile-shell"><header class="mobile-header"><nav>Mobile</nav></header><main><p>' . $title . ' mobile</p></main></div>';
+};
+$bindingResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $bindingChrome('Home'),
+    'about.html' => $bindingChrome('About'),
+)))->toArray();
+$bindingPlan = $bindingResult['source_reports']['wordpress_site_plan'] ?? array();
+$bindingPages = $pages($bindingPlan);
+$bindingAnchors = array();
+foreach ($bindingPlan['runtime_declarations'] ?? array() as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) {
+    $source = $binding['source_path'] ?? '';
+    $markup = $bindingPages[$source]['canonical_block_markup'] ?? '';
+    $search = $binding['search_block_markup'] ?? '';
+    $bindingAnchors[] = is_string($search) && '' !== $search && 1 === substr_count($markup, $search);
+}
+$assert(array() === array_filter($bindingPlan['template_parts'] ?? array(), static fn(array $part): bool => 'header' === ($part['area'] ?? null)), 'Responsive shared chrome containing a runtime form anchor remains page-owned.');
+$assert(4 === count($bindingAnchors) && array() === array_filter($bindingAnchors, static fn(bool $resolved): bool => !$resolved), 'Both shared and page-local form bindings resolve exactly once on each page after extraction planning.');
+WordPressSitePlan::assertValid($bindingPlan);
+
 $styledShellHtml = static fn(string $title): string => '<!doctype html><html><head><link rel="stylesheet" href="site.css"></head><body><div><header><p>Shared header</p></header><main><h1>' . $title . '</h1></main><footer><p>Shared footer</p></footer></div></body></html>';
 $styledShellResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => $styledShellHtml('Home'),

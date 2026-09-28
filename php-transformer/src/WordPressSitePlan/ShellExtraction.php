@@ -760,9 +760,16 @@ final class ShellExtraction
             $position = $binding['position'] ?? null;
             if (($binding['source_path'] ?? null) !== ($page['source_path'] ?? null)) continue;
             $search = $binding['search_block_markup'] ?? null;
-            if (!is_string($search) || !WordPressSitePlan::bindingPosition($position, $page['canonical_block_markup'], $search)) continue;
-            $indexedRange = WordPressSitePlan::blockRanges($page['canonical_block_markup'])[$position['block_index']] ?? null;
-            if (is_array($indexedRange) && $indexedRange['offset'] >= $offset && $indexedRange['offset'] + $indexedRange['length'] <= $offset + $length) return true;
+            if (!is_string($search) || '' === $search) continue;
+            if (WordPressSitePlan::bindingPosition($position, $page['canonical_block_markup'], $search)) {
+                $indexedRange = WordPressSitePlan::blockRanges($page['canonical_block_markup'])[$position['block_index']] ?? null;
+                if (is_array($indexedRange) && $indexedRange['offset'] < $offset + $length && $indexedRange['offset'] + $indexedRange['length'] > $offset) return true;
+            }
+            // Some converters anchor a runtime entity on a projected block that
+            // is not itself a direct descendant range (for example, a form
+            // inside a responsive shell). Keep the shell page-owned whenever
+            // its exact declared anchor is present in the removed source slice.
+            if ($search === substr($page['canonical_block_markup'], $offset, $length) || str_contains(substr($page['canonical_block_markup'], $offset, $length), $search)) return true;
         }
         return false;
     }
