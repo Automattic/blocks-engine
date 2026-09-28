@@ -15,6 +15,7 @@ use Closure;
 use DOMDocument;
 use DOMElement;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 
 /**
  * Constructs the per-element fallback / behavior-loss emission entries that
@@ -282,7 +283,7 @@ final class FallbackEmitter
      */
     public static function generatedBlockIdentity(string $signature, string $content): string
     {
-        return $signature . "\0" . EngineMarker::withoutDocumentSeeds($content);
+        return $signature . "\0" . EngineMarker::withoutDocumentSeeds(RenderEquivalentMarkup::canonical($content));
     }
 
     /**

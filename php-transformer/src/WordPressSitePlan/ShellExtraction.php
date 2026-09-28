@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 
 /**
@@ -888,11 +889,22 @@ final class ShellExtraction
         return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson(self::withoutSourcePaths($entity)));
     }
 
-    /** Where an entity was read from is provenance, not identity. */
+    /**
+     * Where an entity was read from, and in what cascade order, is provenance,
+     * not identity; a grid placement written as the `area` shorthand is the
+     * same placement as its `row` and `column` longhands.
+     */
     private static function withoutSourcePaths(array $value): array
     {
-        unset($value['source_path']);
+        unset($value['source_path'], $value['provenance'], $value['source_order']);
+        if (is_string($value['area'] ?? null) && 4 === count($lines = array_map('trim', explode('/', $value['area'])))) {
+            unset($value['area']);
+            $value['row'] = $lines[0] . ' / ' . $lines[2];
+            $value['column'] = $lines[1] . ' / ' . $lines[3];
+        }
+        foreach (array('row', 'column') as $line) if (is_string($value[$line] ?? null)) $value[$line] = preg_replace('/\s*\/\s*/', ' / ', trim($value[$line]));
         foreach ($value as $key => $child) if (is_array($child)) $value[$key] = self::withoutSourcePaths($child);
+        if (!array_is_list($value)) ksort($value, SORT_STRING);
         return $value;
     }
 
@@ -1375,6 +1387,10 @@ final class ShellExtraction
             return '"className":"' . implode(' ', $classes) . '"';
         }, $markup) ?? $markup;
         $markup = self::withoutMenuSelectionState($markup);
+        $markup = preg_replace_callback('/\sclass="([^"]*)"/', static fn (array $match): string => ' class="' . implode(' ', array_filter(preg_split('/\s+/', trim($match[1])) ?: array(), static fn (string $class): bool => !self::isInheritedNavigationLinkColor($class))) . '"', $markup) ?? $markup;
+        // Block comments were canonicalized as JSON above; only the rendered HTML
+        // between them is read as tags.
+        $markup = implode('', array_map(static fn (string $piece): string => str_starts_with($piece, '<!--') ? $piece : RenderEquivalentMarkup::canonical($piece), preg_split('/(<!--.*?-->)/s', $markup, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array($markup)));
         return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup);
     }
 
@@ -1405,23 +1421,43 @@ final class ShellExtraction
         return self::withoutEmptyGroupStyleIdentity($markup);
     }
 
+    /**
+     * A resting navigation-link colour of `inherit` asks the link to use its
+     * navigation's colour, which is what core navigation renders by default.
+     * Whether a page's cascade restated that default does not change the chrome.
+     */
+    private static function isInheritedNavigationLinkColor(string $class): bool
+    {
+        static $inherited = null;
+        if (null === $inherited) {
+            $inherited = array();
+            for ($mask = 0; $mask <= 15; ++$mask) $inherited['blocks-engine-navigation-link-color-' . hash('sha256', "inherit\0" . $mask)] = true;
+        }
+        return isset($inherited[$class]);
+    }
+
     private static function canonicalizeIdentityBlockComments(string $markup): string
     {
-        return preg_replace_callback('/<!--\s*wp:(?!\/)[^>]*-->/', static function (array $match): string {
-            if (!preg_match('/^<!--\s*wp:(\S+)\s+(\{.*\})\s*-->$/s', $match[0], $parts)) return $match[0];
+        return preg_replace_callback('/<!--\s*wp:(?!\/).*?-->/s', static function (array $match): string {
+            if (!preg_match('/^<!--\s*wp:(\S+)\s+(\{.*\})\s*(\/?)-->$/s', $match[0], $parts)) return $match[0];
             $attrs = json_decode($parts[2], true);
             if (!is_array($attrs)) return $match[0];
             unset($attrs['config']);
             if (in_array($attrs['metadata']['name'] ?? null, array('Header', 'Footer'), true) && 1 === count($attrs['metadata'])) unset($attrs['metadata']);
             if (array('typography' => array('lineHeight' => '1')) === ($attrs['style'] ?? null)) unset($attrs['style']);
+            foreach (array('margin', 'padding') as $box) {
+                if (!is_array($attrs['style']['spacing'][$box] ?? null)) continue;
+                foreach ($attrs['style']['spacing'][$box] as $side => $value) if (is_string($value)) $attrs['style']['spacing'][$box][$side] = RenderEquivalentMarkup::canonicalZeroLength($value);
+            }
+            if (is_string($attrs['content'] ?? null)) $attrs['content'] = RenderEquivalentMarkup::canonical($attrs['content']);
             if (is_string($attrs['className'] ?? null)) {
-                $classes = array_values(array_filter(preg_split('/\s+/', trim($attrs['className'])) ?: array(), static fn(string $class): bool => '' !== $class && 'wp-block-group' !== $class && 'blocks-engine-empty-visual-group' !== $class && 'blocks-engine-css-owned-layout' !== $class && null === EngineMarker::editorAnchorId($class)));
+                $classes = array_values(array_filter(preg_split('/\s+/', trim($attrs['className'])) ?: array(), static fn(string $class): bool => '' !== $class && 'wp-block-group' !== $class && 'blocks-engine-empty-visual-group' !== $class && 'blocks-engine-css-owned-layout' !== $class && null === EngineMarker::editorAnchorId($class) && !self::isInheritedNavigationLinkColor($class)));
                 sort($classes, SORT_STRING);
                 if (array() === $classes) unset($attrs['className']); else $attrs['className'] = implode(' ', $classes);
             }
             self::ksortRecursive($attrs);
             $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            return is_string($encoded) ? '<!-- wp:' . $parts[1] . ' ' . $encoded . ' -->' : $match[0];
+            return is_string($encoded) ? '<!-- wp:' . $parts[1] . ' ' . $encoded . ' ' . $parts[3] . '-->' : $match[0];
         }, $markup) ?? $markup;
     }
 

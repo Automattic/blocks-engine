@@ -196,7 +196,7 @@ final class ClosedStateNormalizer
 
     private function isZeroLength(string $value): bool
     {
-        return 1 === preg_match('/^0(?:px|em|rem|%|vh|vw)?$/', $this->normalizedValue($value));
+        return CssValueInspector::isZeroLength($value);
     }
 
     private function isHiddenOverflow(string $value): bool

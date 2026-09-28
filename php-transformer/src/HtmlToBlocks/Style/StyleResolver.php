@@ -2565,7 +2565,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     private function isZeroLength(string $value): bool
     {
-        return 1 === preg_match('/^0(?:px|em|rem|%|vh|vw)?$/', CssValueInspector::comparable($value));
+        return CssValueInspector::isZeroLength($value);
     }
 
     private function isExpandedLength(string $property, string $value): bool
