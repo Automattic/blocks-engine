@@ -82,6 +82,8 @@ $eventLinkedImage = ( new HtmlTransformer() )->transform('<a href="/item" onclic
 $assert('custom/responsive-media' === ($eventLinkedImage['blocks'][0]['blockName'] ?? null), 'an image link with an event handler remains a carrier');
 $interactiveLinkedImage = ( new HtmlTransformer() )->transform('<a href="/item" aria-controls="item-panel"><img src="item.jpg" alt="Item 1"></a>')->toArray();
 $assert('custom/responsive-media' === ($interactiveLinkedImage['blocks'][0]['blockName'] ?? null), 'an interactive image link remains a carrier');
+$referencedDataLinkedImage = ( new HtmlTransformer() )->transform('<a href="/item"><img src="item.jpg" data-item-url="/other-item" alt="Item 1"></a>')->toArray();
+$assert('custom/responsive-media' === ($referencedDataLinkedImage['blocks'][0]['blockName'] ?? null), 'an image link with route-bearing data attributes remains a carrier');
 $runtimeTargetLinkedImage = ( new HtmlTransformer() )->transform('<a id="image-link" href="/item"><img src="item.jpg" alt="Item 1"></a>', array('runtime_dom_selectors' => array('#image-link')))->toArray();
 $assert('custom/responsive-media' === ($runtimeTargetLinkedImage['blocks'][0]['blockName'] ?? null), 'an image link targeted by runtime DOM remains a carrier');
 $artDirectedLinkedPicture = ( new HtmlTransformer() )->transform('<a href="/item"><picture><source media="(min-width: 800px)" srcset="item-wide.jpg 800w"><img src="item.jpg" alt="Item 1"></picture></a>')->toArray();

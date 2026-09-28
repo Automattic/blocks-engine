@@ -8748,16 +8748,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $this->runtimeIslands->isRuntimeDomTarget($anchor)
             || array() !== $this->eventMetadata($anchor)
             || array() !== $this->interactiveAttributes($anchor)
+            || $this->hasRouteBearingDataAttributes($anchor)
         ) {
             return $this->responsiveMediaBlock($anchor);
         }
         $picture = $this->firstChildElement($anchor, 'picture');
+        $image = $picture instanceof DOMElement
+            ? $this->firstChildElement($picture, 'img')
+            : $this->firstChildElement($anchor, 'img');
+        if ( $image instanceof DOMElement && $this->hasRouteBearingDataAttributes($image) ) {
+            return $this->responsiveMediaBlock($anchor);
+        }
         if ( $picture instanceof DOMElement ) {
-            $image = $this->firstChildElement($picture, 'img');
             return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $anchor) : null;
         }
-        $image = $this->firstChildElement($anchor, 'img');
         return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
+    }
+
+    private function hasRouteBearingDataAttributes(DOMElement $element): bool
+    {
+        foreach ( $element->attributes as $attribute ) {
+            if ( preg_match('/^data-[a-z0-9_-]*url$/i', $attribute->name) && '' !== trim($attribute->value) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
