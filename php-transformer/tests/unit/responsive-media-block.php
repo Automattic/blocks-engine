@@ -96,13 +96,28 @@ foreach (array(
     'inline custom host' => '<media-frame><img src="profile.png" width="30" height="30" alt="Profile"></media-frame>',
     'overflow clipping' => '<media-frame style="display:block;overflow:hidden"><img src="profile.png" width="80" height="60" alt="Profile"></media-frame>',
     'crop focus' => '<style>.focus-frame{display:block}.focus-frame img{aspect-ratio:4 / 3;object-fit:cover;object-position:right top}</style><media-frame class="focus-frame"><img src="profile.png" alt="Profile"></media-frame>',
+    'non-default crop focus' => '<media-frame style="display:block"><img src="profile.png" style="object-fit:cover;object-position:20% 80%" alt="Profile"></media-frame>',
     'wrapper id and target reference' => '<button aria-controls="profile-frame"></button><media-frame id="profile-frame" style="display:block"><img src="profile.png" alt="Profile"></media-frame>',
     'wrapper aria label' => '<media-frame aria-label="Profile image" style="display:block"><img src="profile.png" alt="Profile"></media-frame>',
-    'wrapper data hook' => '<media-frame data-hook="profile-image" style="display:block"><img src="profile.png" alt="Profile"></media-frame>',
+    'wrapper data hook' => '<style>media-frame[data-hook]{display:block}</style><media-frame data-hook="profile-image" style="display:block"><img src="profile.png" alt="Profile"></media-frame>',
+    'stylesheet-referenced data hook' => '<style>[data-hook="profile-image"]{display:block}</style><media-frame data-hook="profile-image" style="display:block"><img src="profile.png" alt="Profile"></media-frame>',
+    'script-referenced data hook' => '<media-frame data-hook="profile-image" style="display:block"><img src="profile.png" alt="Profile"></media-frame><script>document.querySelector("[data-hook]")</script>',
 ) as $name => $source) {
     $candidate = ( new HtmlTransformer() )->transform($source)->toArray();
     $assert(in_array('custom/responsive-media', array_column($candidate['blocks'] ?? array(), 'blockName'), true), $name . ' remains responsive media rather than silently losing host semantics');
 }
+
+$centeredDataHost = ( new HtmlTransformer() )->transform('<media-frame data-image-info="{}" style="display:block"><img src="profile.png" style="object-fit:cover;object-position:50% 50%" alt="Profile"></media-frame>')->toArray();
+$assert('core/image' === ($centeredDataHost['blocks'][0]['blockName'] ?? null), 'an unreferenced data attribute and centered crop promote to core/image');
+
+$decorativeHost = ( new HtmlTransformer() )->transform('<media-frame style="display:block;width:100%;height:100%;object-fit:cover"><img src="profile.png" style="width:238px;height:238px" alt="Profile"></media-frame>')->toArray();
+$assert('core/image' === ($decorativeHost['blocks'][0]['blockName'] ?? null), 'a block host with fill sizing and object fit promotes when its image has a definite pixel box');
+$hostWithoutImageBox = ( new HtmlTransformer() )->transform('<media-frame style="display:block;width:100%"><img src="profile.png" alt="Profile"></media-frame>')->toArray();
+$assert('custom/responsive-media' === ($hostWithoutImageBox['blocks'][0]['blockName'] ?? null), 'a fill-width host remains a carrier when its image has no definite pixel box');
+$positionedHost = ( new HtmlTransformer() )->transform('<media-frame style="display:block;position:absolute"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame>')->toArray();
+$assert('custom/responsive-media' === ($positionedHost['blocks'][0]['blockName'] ?? null), 'an absolutely positioned image host remains a carrier');
+$paintedHost = ( new HtmlTransformer() )->transform('<media-frame style="display:block;background:red;padding:4px"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame>')->toArray();
+$assert('custom/responsive-media' === ($paintedHost['blocks'][0]['blockName'] ?? null), 'a host with background and padding remains a carrier');
 
 $inlineFlow = ( new HtmlTransformer() )->transform('<p>Before <media-frame><img src="profile.png" width="30" height="30" alt="Profile"></media-frame><svg aria-hidden="true" viewBox="0 0 1 1"><path d="M0 0"></path></svg> after</p>')->toArray();
 $assert('core/html' === ($inlineFlow['blocks'][0]['blockName'] ?? null) && str_contains((string) ($inlineFlow['blocks'][0]['attrs']['content'] ?? ''), '<media-frame><img'), 'an inline custom host with adjacent text and icon remains in its original inline carrier');

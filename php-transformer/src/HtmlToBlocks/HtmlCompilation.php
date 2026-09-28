@@ -9192,7 +9192,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $this->hasOnlyInertImageHostAttributes($host)
             || ! $this->hasBlockFigureDisplay($host)
             || ! $this->hasBlockFigureCarrier($host)
-            || ! $this->hasOnlyBlockDisplayPresentation($host)
+            || ! $this->hasOnlyBlockDisplayPresentation($host, $image)
             || $this->hasCropFocusThatCoreImageCannotCarry($image) ) {
             return false;
         }
@@ -9203,7 +9203,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function hasOnlyInertImageHostAttributes(DOMElement $host): bool
     {
         foreach ( $host->attributes as $attribute ) {
-            if ( ! in_array(strtolower($attribute->name), array( 'class', 'style' ), true) ) {
+            $name = strtolower($attribute->name);
+            if ( in_array($name, array( 'class', 'style' ), true) ) {
+                continue;
+            }
+            if ( ! str_starts_with($name, 'data-')
+                || $this->runtimeIslands->isRuntimeDomTarget($host)
+                || $this->imageHostDataAttributeIsReferenced($host, $name) ) {
                 return false;
             }
         }
@@ -9211,6 +9217,31 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return ! $this->runtimeIslands->isRuntimeDomTarget($host)
             && array() === $this->interactiveAttributes($host)
             && ! $this->hasAuthorSemanticMarker($host);
+    }
+
+    private function imageHostDataAttributeIsReferenced(DOMElement $host, string $attribute): bool
+    {
+        foreach ( $this->cssRuleBlocks($this->authorStyles()->combinedCss()) as $rule ) {
+            foreach ( \Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary::dataAttributeSelectorsFromCssSelector($rule['selector']) as $selector ) {
+                if ( preg_match('/\\[' . preg_quote($attribute, '/') . '(?:\\]|[\\s*=~|^$*])/', $selector) ) {
+                    return true;
+                }
+            }
+        }
+
+        $document = $host->ownerDocument;
+        if ( ! $document instanceof DOMDocument ) {
+            return false;
+        }
+        $datasetName = preg_replace_callback('/-([a-z])/', static fn (array $match): string => strtoupper($match[1]), substr($attribute, 5));
+        $references = '/\\b' . preg_quote($attribute, '/') . '\\b|\\bdataset\\s*\.\\s*' . preg_quote((string) $datasetName, '/') . '\\b/i';
+        foreach ( $document->getElementsByTagName('script') as $script ) {
+            if ( $script instanceof DOMElement && preg_match($references, (string) $script->textContent) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasBlockFigureDisplay(DOMElement $host): bool
@@ -9243,7 +9274,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return ! str_contains($parent->tagName, '-') || '' !== $display;
     }
 
-    private function hasOnlyBlockDisplayPresentation(DOMElement $host): bool
+    private function hasOnlyBlockDisplayPresentation(DOMElement $host, DOMElement $image): bool
     {
         // Structural declarations include otherwise-unmapped box properties such
         // as overflow; presentation declarations catch paint that a tag-specific
@@ -9252,9 +9283,34 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->styleResolver->presentationDeclarations($host),
             $this->styleResolver->structuralPresentationDeclarations($host)
         );
+        $imageHasDefinitePixelBox = $this->imageHasDefinitePixelBox($image);
         foreach ( $declarations as $property => $value ) {
-            if ( 'display' !== strtolower($property)
-                || 'block' !== strtolower(trim(CssValueInspector::withoutImportant((string) $value))) ) {
+            $property = strtolower($property);
+            $value = strtolower(trim(CssValueInspector::withoutImportant((string) $value)));
+            if ( 'display' === $property && 'block' === $value ) {
+                continue;
+            }
+            if ( in_array($property, array( 'object-fit', 'object-position' ), true) ) {
+                continue;
+            }
+            if ( $imageHasDefinitePixelBox && in_array($property, array( 'width', 'height' ), true) && '100%' === $value ) {
+                continue;
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    private function imageHasDefinitePixelBox(DOMElement $image): bool
+    {
+        foreach ( array( 'width', 'height' ) as $property ) {
+            $inline = $this->styleResolver->cssDeclarations($this->attr($image, 'style'))[$property] ?? '';
+            $value = trim(CssValueInspector::withoutImportant((string) $inline));
+            if ( '' === $value ) {
+                $value = trim($this->attr($image, $property));
+            }
+            if ( 1 !== preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px)?$/i', $value) || (float) rtrim(strtolower($value), 'px') <= 0 ) {
                 return false;
             }
         }
@@ -9270,7 +9326,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
-        return '' !== trim(CssValueInspector::withoutImportant((string) ($declarations['object-position']['value'] ?? '')));
+        $position = strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['object-position']['value'] ?? ''))));
+        return '' !== $position && ! in_array($position, array( 'center', 'center center', '50% 50%', 'unset', 'initial', 'revert', 'revert-layer' ), true);
     }
 
     private function customVideoElement(DOMElement $element): ?DOMElement
