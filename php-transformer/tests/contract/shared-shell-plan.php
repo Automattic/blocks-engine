@@ -62,6 +62,8 @@ foreach (array('index.html' => 'Homepage', 'team.html' => 'Team', 'about.html' =
 }
 $assert(1 === count(array_filter($variantParts, static fn(array $part): bool => str_contains((string) ($part['canonical_block_markup'] ?? ''), 'site-header light'))) && 1 === count(array_filter($variantParts, static fn(array $part): bool => str_contains((string) ($part['canonical_block_markup'] ?? ''), 'site-header dark'))), 'Route variants retain their independently authored appearance.');
 WordPressSitePlan::assertValid($variantPlan);
+$variantBootstrap = $writes($variantPlan)['functions.php']['payload']['data'] ?? '';
+$assert(!str_contains($variantBootstrap, "    \$slugs = array (") && 2 === count(array_filter($variantPlan['template_parts'], static fn(array $part): bool => 'route_variant' === ($part['provenance']['reason'] ?? null))), 'Route variants retain Core template-part semantic header wrappers instead of stripping them at render time.');
 
 $singleResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header id="solo-shell" class="solo" style="border-top:2px solid #111"><p>Solo</p></header><main>Home</main><footer>Solo footer</footer>')))->toArray();
 $single = $singleResult['source_reports']['wordpress_site_plan'];

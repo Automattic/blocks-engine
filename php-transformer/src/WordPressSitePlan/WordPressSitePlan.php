@@ -2594,7 +2594,10 @@ final class WordPressSitePlan
             $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( ( \$canvas || ( empty( \$style['author_css'] ) && empty( \$style['editor_only'] ) ) ) && \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
             $lines[] = "} );";
         }
-        $inlineShellSlugs = array_values(array_map(static fn(array $part): string => (string) $part['slug'], array_filter($parts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null))));
+        // Responsive inline shells carry their own landmark. Route-specific
+        // parts deliberately carry an inner div so Core's semantic template-part
+        // wrapper is the sole <header> at the authored document position.
+        $inlineShellSlugs = array_values(array_map(static fn(array $part): string => (string) $part['slug'], array_filter($parts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null) && 'route_variant' !== ($part['provenance']['reason'] ?? null))));
         if (array() !== $inlineShellSlugs) {
             $lines[] = "add_filter( 'render_block_core/template-part', static function ( string \$content, array \$block ): string {";
             $lines[] = '    $slugs = ' . var_export($inlineShellSlugs, true) . ';';
