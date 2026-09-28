@@ -162,7 +162,12 @@ final class NavigationEntityProjection
         return $blocks;
     }
 
-    private static function destinationSignature(string $inner): string
+    /**
+     * The identity of a navigation block's contents: its items' visible labels
+     * and destination paths. Consumers that bind materialized navigation
+     * entities back to blocks match with this same signature.
+     */
+    public static function destinationSignature(string $inner): string
     {
         return implode("\n", self::destinationItems($inner));
     }
@@ -193,10 +198,22 @@ final class NavigationEntityProjection
                     $attrs = $decoded;
                 }
             }
-            $items[] = (string) ($attrs['label'] ?? '') . "\t" . self::destinationPath((string) ($attrs['url'] ?? ''));
+            $items[] = self::visibleLabel((string) ($attrs['label'] ?? '')) . "\t" . self::destinationPath((string) ($attrs['url'] ?? ''));
             $offset = $openEnd + 3;
         }
         return $items;
+    }
+
+    /**
+     * A menu item is identified by what a visitor reads, not by the rich-text
+     * wrappers and per-document markers its label was serialized with. The
+     * same menu compiled in two places (a desktop bar and a phone panel, or two
+     * pages) then resolves to one navigation entity.
+     */
+    private static function visibleLabel(string $label): string
+    {
+        $text = html_entity_decode(strip_tags($label), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return trim((string) preg_replace('/\s+/u', ' ', $text));
     }
 
     /** @param array<string,mixed> $part */
