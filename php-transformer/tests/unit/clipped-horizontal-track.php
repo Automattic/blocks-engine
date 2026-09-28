@@ -116,6 +116,34 @@ $assert(
     $absoluteCss
 );
 
+$galleryItems = '';
+for ( $index = 1; $index <= 16; ++$index ) {
+    $galleryItems .= '<div class="logo"><img src="logo-' . $index . '.png" alt="Logo ' . $index . '"></div>';
+}
+$gallery = $transform(
+    '<style>.gallery-track{display:flex}</style>'
+    . '<div class="gallery-viewport" style="height:124px;overflow:hidden;position:relative">'
+    . '<div class="wp-block-columns gallery-track" style="position:absolute;visibility:hidden;height:0;left:0;top:0">'
+    . $galleryItems
+    . '</div></div><section class="after"><h2>After</h2><p>Following section</p></section>'
+);
+$galleryMarkup = (string) ($gallery['serialized_blocks'] ?? '');
+$galleryCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $gallery['assets'] ?? array())) . $galleryMarkup;
+$galleryEngineCss = $cssFor($gallery, 'engine-support');
+$assert(! str_contains($galleryMarkup, '<!-- wp:columns'), 'positioned logo track is not lowered to core/columns', $galleryMarkup);
+$assert(str_contains($galleryMarkup, 'Logo 16'), 'all sixteen gallery images survive conversion', $galleryMarkup);
+$assert(substr_count($galleryMarkup, '<img') === 16, 'the gallery retains all sixteen image elements', $galleryMarkup);
+$assert(
+    str_contains($galleryCss, 'position:absolute') && str_contains($galleryCss, 'display:flex') && str_contains($galleryCss, 'height:0') && str_contains($galleryCss, 'visibility:hidden'),
+    'positioned gallery track retains absolute resolved-flex geometry and zero track height',
+    $galleryCss
+);
+$assert(
+    str_contains($galleryEngineCss, 'height:124px') && str_contains($galleryEngineCss, 'overflow:hidden') && str_contains($galleryEngineCss, 'position:relative'),
+    'gallery viewport remains a bounded clipping region',
+    $galleryEngineCss
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Clipped horizontal track contract: {$failures} failed, {$passes} passed\n");
     exit(1);
