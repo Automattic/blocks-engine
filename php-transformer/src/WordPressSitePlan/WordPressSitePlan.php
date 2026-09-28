@@ -171,6 +171,7 @@ final class WordPressSitePlan
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
+        $assets = $this->orderAssetsByDocumentStylesheetOrder($assets, $pages);
         // Restore the semantic shell candidates before deriving binding positions.
         // Extracted parts intentionally contain only their inner markup; the page
         // representation owns the landmark wrapper until extraction is accepted.
@@ -665,6 +666,81 @@ final class WordPressSitePlan
         }
         unset($asset);
         return $assets;
+    }
+
+    /**
+     * The artifact's file inventory can be path-sorted independently of a
+     * document's stylesheet links. Rebuild the relative order of linked CSS
+     * assets from each compiled document before bootstrap emits enqueue calls;
+     * otherwise equal-specificity declarations can reverse their source
+     * cascade. Unlinked/generated assets retain their existing slots.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<int,array<string,mixed>>
+     */
+    private function orderAssetsByDocumentStylesheetOrder(array $assets, array $pages): array
+    {
+        $indexesByToken = array();
+        foreach ($assets as $index => $asset) {
+            if ('css' === ($asset['kind'] ?? null) && is_string($asset['token'] ?? null)) {
+                $indexesByToken[$asset['token']] = $index;
+            }
+        }
+
+        $linkedIndexes = array();
+        $edges = array();
+        $indegree = array();
+        foreach ($pages as $page) {
+            $ordered = array();
+            $links = is_array($page['document_metadata']['links'] ?? null) ? $page['document_metadata']['links'] : array();
+            usort($links, static fn(array $left, array $right): int => (int) ($left['order'] ?? PHP_INT_MAX) <=> (int) ($right['order'] ?? PHP_INT_MAX));
+            foreach ($links as $link) {
+                if (!is_array($link) || !in_array('stylesheet', preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array(), true)) continue;
+                $reference = (string) ($link['asset_reference'] ?? '');
+                if (!preg_match('/^' . preg_quote(self::TOKEN_PREFIX, '/') . '(asset-[a-f0-9]{16})}}$/', $reference, $match)) continue;
+                $index = $indexesByToken[$match[1]] ?? null;
+                if (!is_int($index)) continue;
+                $linkedIndexes[$index] = true;
+                if (!in_array($index, $ordered, true)) $ordered[] = $index;
+            }
+            for ($position = 1, $count = count($ordered); $position < $count; ++$position) {
+                $before = $ordered[$position - 1];
+                $after = $ordered[$position];
+                if ($before === $after || isset($edges[$before][$after])) continue;
+                $edges[$before][$after] = true;
+                $indegree[$after] = (int) ($indegree[$after] ?? 0) + 1;
+                $indegree[$before] ??= 0;
+            }
+        }
+        if (count($linkedIndexes) < 2) return $assets;
+
+        $available = array();
+        foreach (array_keys($linkedIndexes) as $index) if (0 === (int) ($indegree[$index] ?? 0)) $available[] = $index;
+        sort($available, SORT_NUMERIC);
+        $orderedIndexes = array();
+        while (array() !== $available) {
+            $index = array_shift($available);
+            $orderedIndexes[] = $index;
+            foreach (array_keys($edges[$index] ?? array()) as $next) {
+                --$indegree[$next];
+                if (0 === $indegree[$next]) {
+                    $available[] = $next;
+                    sort($available, SORT_NUMERIC);
+                }
+            }
+        }
+        // Conflicting per-document sequences can occur for disjoint page scopes.
+        // Keep any cyclic remainder stable; no single global ordering can satisfy
+        // contradictory constraints, while the acyclic constraints are honored.
+        foreach (array_keys($linkedIndexes) as $index) if (!in_array($index, $orderedIndexes, true)) $orderedIndexes[] = $index;
+
+        $slots = array_keys($linkedIndexes);
+        sort($slots, SORT_NUMERIC);
+        $orderedAssets = array_map(static fn(int $index): array => $assets[$index], $orderedIndexes);
+        foreach ($slots as $position => $slot) $assets[$slot] = $orderedAssets[$position];
+
+        return array_values($assets);
     }
 
     /** The selector with every `:not(...)` removed: what it targets, not what it excludes. */
