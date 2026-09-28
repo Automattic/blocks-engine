@@ -4994,6 +4994,26 @@ $drawingBlock = array_values(array_filter($decorativeCanvasSite['source_reports'
 $assert('Drawing Surface' === ($drawingBlock['block_json']['title'] ?? '') && 'file:./view.js' === ($drawingBlock['block_json']['viewScript'] ?? '') && str_contains((string) ($drawingBlock['view_js'] ?? ''), 'pointermove'), 'native drawing surface ships its own frontend effect via the existing companion view-script contract');
 $assert(!str_contains($decorativeCanvasMarkup, 'data-blocks-engine-canvas-effect'), 'unconfigured source canvases remain inert when converted');
 
+$motionFixture = array(
+    'site' => array('name' => 'Motion Fixture', 'slug' => 'motion-fixture'),
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => '<main><p id="status">Current editable text</p></main>',
+        'capture-receipt.json' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'sourceInteractivity' => array('schema' => 'data-liberation/source-interactivity/v1', 'unreproduced_route_count' => 1),
+        ), JSON_THROW_ON_ERROR),
+    ),
+);
+$motionSite = $compiler->compile($motionFixture)->toArray();
+$motionBlocks = $motionSite['source_reports']['companion_plugin_payload']['blocks'] ?? array();
+$sequence = array_values(array_filter($motionBlocks, static fn (array $block): bool => 'motion-sequence' === ($block['name'] ?? '')))[0] ?? array();
+$assert('ssi-motion-fixture/motion-sequence' === ($sequence['block_json']['name'] ?? '') && 'file:./view.js' === ($sequence['block_json']['viewScript'] ?? '') && str_contains((string) ($sequence['view_js'] ?? ''), 'step.target.textContent'), 'unreproduced capture motion offers editable sequence authoring through the existing companion asset contract');
+$assert(str_contains((string) ($motionSite['serialized_blocks'] ?? ''), 'Current editable text') && array() === ($motionSite['fallbacks'] ?? array()), 'offered motion sequence does not replace native editable source text or introduce fallbacks');
+unset($motionFixture['files']['capture-receipt.json']);
+$noMotionSite = $compiler->compile($motionFixture)->toArray();
+$assert(array() === array_values(array_filter($noMotionSite['source_reports']['companion_plugin_payload']['blocks'] ?? array(), static fn (array $block): bool => 'motion-sequence' === ($block['name'] ?? ''))), 'motion sequence is not registered when source behavior was not diagnosed');
+
 $decorativeSvgSite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
