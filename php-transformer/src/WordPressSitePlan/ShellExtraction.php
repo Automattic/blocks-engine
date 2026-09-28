@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 
 /**
@@ -677,6 +678,21 @@ final class ShellExtraction
                 }
                 $withoutShells[$index] = $withoutShell;
             }
+            // The entry page can hold its chrome in a wrapper no other page has
+            // (a pinned layer that keeps the header fixed while the page
+            // scrolls). A wrapper whose only content is the chrome belongs to it:
+            // it moves with the chrome into the front-page template, around the
+            // shared part, instead of staying behind empty in the page.
+            $templateWrappers = array();
+            foreach ($cluster['indexes'] as $index) {
+                if (empty($pages[$index]['entrypoint']) || empty($candidates[$index][0]['nested_shell']) || array() !== ($candidates[$index][0]['additional_ranges'] ?? array())) continue;
+                $ranges = $this->nestedShellRanges($pages[$index]['canonical_block_markup'], $candidates[$index][0], $area);
+                if (1 !== count($ranges)) continue;
+                $wrapper = self::soleChromeWrapper($pages[$index]['canonical_block_markup'], $ranges[0]);
+                if (null === $wrapper) continue;
+                $templateWrappers['front-page'] = array('opening' => $wrapper['opening'], 'closing' => $wrapper['closing']);
+                $withoutShells[$index] = $wrapper['page'];
+            }
             $shellBindings = array();
             foreach ($cluster['indexes'] as $index) {
                 $page = $pages[$index];
@@ -769,7 +785,7 @@ final class ShellExtraction
             $tagName = is_array($absorbed) ? 'div' : ShellLandmarkPolicy::templatePartAreaTagName($area);
             $ancestorContext = is_array($absorbed) ? ($absorbed['ancestor_context'] ?? null) : ($first['ancestor_context'] ?? null);
             $container = isset($first['legacy_container_opening']) ? array('opening' => $first['legacy_container_opening'], 'closing' => $first['legacy_container_closing']) : null;
-            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => $tagName, 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineEntryShell ? array($sourcePath) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $container), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : 'canonical', $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => $tagName, 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineEntryShell ? array($sourcePath) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $container, 'template_wrappers' => in_array('front-page', $templateSlugs, true) && !$singlePage ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : 'canonical', $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
         foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);
@@ -896,11 +912,22 @@ final class ShellExtraction
         return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson(self::withoutSourcePaths($entity)));
     }
 
-    /** Where an entity was read from is provenance, not identity. */
+    /**
+     * Where an entity was read from, and in what cascade order, is provenance,
+     * not identity; a grid placement written as the `area` shorthand is the
+     * same placement as its `row` and `column` longhands.
+     */
     private static function withoutSourcePaths(array $value): array
     {
-        unset($value['source_path']);
+        unset($value['source_path'], $value['provenance'], $value['source_order']);
+        if (is_string($value['area'] ?? null) && 4 === count($lines = array_map('trim', explode('/', $value['area'])))) {
+            unset($value['area']);
+            $value['row'] = $lines[0] . ' / ' . $lines[2];
+            $value['column'] = $lines[1] . ' / ' . $lines[3];
+        }
+        foreach (array('row', 'column') as $line) if (is_string($value[$line] ?? null)) $value[$line] = preg_replace('/\s*\/\s*/', ' / ', trim($value[$line]));
         foreach ($value as $key => $child) if (is_array($child)) $value[$key] = self::withoutSourcePaths($child);
+        if (!array_is_list($value)) ksort($value, SORT_STRING);
         return $value;
     }
 
@@ -1117,6 +1144,29 @@ final class ShellExtraction
             $markup = substr($markup, 0, $row['offset']) . substr($markup, $row['offset'] + $row['length']);
         }
         return '' === trim($markup) ? null : $markup;
+    }
+
+    /**
+     * The group block whose only content is the chrome at `$range`, and the
+     * page with that group and the chrome both removed.
+     *
+     * @param array{offset:int,length:int} $range
+     * @return array{opening:string,closing:string,page:string}|null
+     */
+    private static function soleChromeWrapper(string $markup, array $range): ?array
+    {
+        $before = substr($markup, 0, $range['offset']);
+        $after = substr($markup, $range['offset'] + $range['length']);
+        if (!preg_match('/(<!--\s*wp:group\s+\{[^>]*?\}\s*-->\s*<(div|section)\b[^>]*>)\s*$/s', $before, $open)) return null;
+        if (!preg_match('/^\s*(<\/' . $open[2] . '>\s*<!--\s*\/wp:group\s*-->)/s', $after, $close)) return null;
+        // A wrapper nested in another group's opening is still only a wrapper;
+        // its comment must open exactly one block.
+        if (1 !== preg_match_all('/<!--\s*wp:/', $open[1])) return null;
+        return array(
+            'opening' => trim($open[1]),
+            'closing' => trim($close[1]),
+            'page' => substr($before, 0, strlen($before) - strlen($open[0])) . substr($after, strlen($close[0])),
+        );
     }
 
     /** @param array<string,mixed> $page @param array<int,array<string,mixed>> $runtimeDeclarations */
@@ -1383,6 +1433,10 @@ final class ShellExtraction
             return '"className":"' . implode(' ', $classes) . '"';
         }, $markup) ?? $markup;
         $markup = self::withoutMenuSelectionState($markup);
+        $markup = preg_replace_callback('/\sclass="([^"]*)"/', static fn (array $match): string => ' class="' . implode(' ', array_filter(preg_split('/\s+/', trim($match[1])) ?: array(), static fn (string $class): bool => !self::isInheritedNavigationLinkColor($class))) . '"', $markup) ?? $markup;
+        // Block comments were canonicalized as JSON above; only the rendered HTML
+        // between them is read as tags.
+        $markup = implode('', array_map(static fn (string $piece): string => str_starts_with($piece, '<!--') ? $piece : RenderEquivalentMarkup::canonical($piece), preg_split('/(<!--.*?-->)/s', $markup, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array($markup)));
         return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup);
     }
 
@@ -1413,23 +1467,43 @@ final class ShellExtraction
         return self::withoutEmptyGroupStyleIdentity($markup);
     }
 
+    /**
+     * A resting navigation-link colour of `inherit` asks the link to use its
+     * navigation's colour, which is what core navigation renders by default.
+     * Whether a page's cascade restated that default does not change the chrome.
+     */
+    private static function isInheritedNavigationLinkColor(string $class): bool
+    {
+        static $inherited = null;
+        if (null === $inherited) {
+            $inherited = array();
+            for ($mask = 0; $mask <= 15; ++$mask) $inherited['blocks-engine-navigation-link-color-' . hash('sha256', "inherit\0" . $mask)] = true;
+        }
+        return isset($inherited[$class]);
+    }
+
     private static function canonicalizeIdentityBlockComments(string $markup): string
     {
-        return preg_replace_callback('/<!--\s*wp:(?!\/)[^>]*-->/', static function (array $match): string {
-            if (!preg_match('/^<!--\s*wp:(\S+)\s+(\{.*\})\s*-->$/s', $match[0], $parts)) return $match[0];
+        return preg_replace_callback('/<!--\s*wp:(?!\/).*?-->/s', static function (array $match): string {
+            if (!preg_match('/^<!--\s*wp:(\S+)\s+(\{.*\})\s*(\/?)-->$/s', $match[0], $parts)) return $match[0];
             $attrs = json_decode($parts[2], true);
             if (!is_array($attrs)) return $match[0];
             unset($attrs['config']);
             if (in_array($attrs['metadata']['name'] ?? null, array('Header', 'Footer'), true) && 1 === count($attrs['metadata'])) unset($attrs['metadata']);
             if (array('typography' => array('lineHeight' => '1')) === ($attrs['style'] ?? null)) unset($attrs['style']);
+            foreach (array('margin', 'padding') as $box) {
+                if (!is_array($attrs['style']['spacing'][$box] ?? null)) continue;
+                foreach ($attrs['style']['spacing'][$box] as $side => $value) if (is_string($value)) $attrs['style']['spacing'][$box][$side] = RenderEquivalentMarkup::canonicalZeroLength($value);
+            }
+            if (is_string($attrs['content'] ?? null)) $attrs['content'] = RenderEquivalentMarkup::canonical($attrs['content']);
             if (is_string($attrs['className'] ?? null)) {
-                $classes = array_values(array_filter(preg_split('/\s+/', trim($attrs['className'])) ?: array(), static fn(string $class): bool => '' !== $class && 'wp-block-group' !== $class && 'blocks-engine-empty-visual-group' !== $class && 'blocks-engine-css-owned-layout' !== $class && null === EngineMarker::editorAnchorId($class)));
+                $classes = array_values(array_filter(preg_split('/\s+/', trim($attrs['className'])) ?: array(), static fn(string $class): bool => '' !== $class && 'wp-block-group' !== $class && 'blocks-engine-empty-visual-group' !== $class && 'blocks-engine-css-owned-layout' !== $class && null === EngineMarker::editorAnchorId($class) && !self::isInheritedNavigationLinkColor($class)));
                 sort($classes, SORT_STRING);
                 if (array() === $classes) unset($attrs['className']); else $attrs['className'] = implode(' ', $classes);
             }
             self::ksortRecursive($attrs);
             $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            return is_string($encoded) ? '<!-- wp:' . $parts[1] . ' ' . $encoded . ' -->' : $match[0];
+            return is_string($encoded) ? '<!-- wp:' . $parts[1] . ' ' . $encoded . ' ' . $parts[3] . '-->' : $match[0];
         }, $markup) ?? $markup;
     }
 

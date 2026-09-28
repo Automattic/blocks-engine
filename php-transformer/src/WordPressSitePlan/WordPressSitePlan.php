@@ -214,7 +214,6 @@ final class WordPressSitePlan
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
-        foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
          self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
          $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus);
          $pages = $navigation['pages'];
@@ -222,7 +221,12 @@ final class WordPressSitePlan
          $menus = $navigation['menus'];
          $articleChrome = $this->extractPostArticleChrome($pages);
          $pages = $articleChrome['pages'];
-         $pages = $this->materializeListingQueryLoops($pages);
+         $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations);
+         // Query Loop projection can shorten page markup after shell extraction.
+         // Rebase retained runtime anchors on the final page before validation.
+         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
+         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
+         self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
          $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single']);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
@@ -1387,7 +1391,7 @@ final class WordPressSitePlan
         $evidence = array(); $add = static function (array &$rows, string $source, ?string $value = null): void { if (count($rows) >= 16) return; $row = array('source' => $source); if (null !== $value) $row['publication_timestamp'] = $value; $rows[] = $row; };
         $timestamp = static fn(string $value): ?string => self::normalizePublicationTimestamp($value);
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) if (is_array($meta) && is_string($meta['content'] ?? null) && in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('article:published_time', 'article:published', 'pubdate', 'publishdate', 'date', 'dc.date.issued', 'dc.date', 'parsely-pub-date', 'releasedate'), true)) if (null !== ($date = $timestamp($meta['content']))) $add($evidence, 'meta:' . strtolower((string) ($meta['property'] ?? $meta['name'])), $date);
-        foreach (self::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if ('time' === ($node['name'] ?? null) && is_string($attributes['datetime'] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes['datetime'], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) $add($evidence, 'html:time[datetime]', $date); if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if (in_array($attributes['itemprop'] ?? null, array('datePublished', 'dateCreated'), true)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
+        foreach (self::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if ('datePublished' === ($attributes['itemprop'] ?? null)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
         foreach (self::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
@@ -1452,7 +1456,7 @@ final class WordPressSitePlan
     private static function isVisibleDateElement(string $name, array $attributes): bool
     {
         if ('time' === $name) {
-            return true;
+            return 'datePublished' === ($attributes['itemprop'] ?? null);
         }
         if (!in_array($name, array('p', 'span', 'div', 'li', 'td', 'mark'), true)) {
             return false;
@@ -1489,7 +1493,7 @@ final class WordPressSitePlan
     private function jsonLdPublicationEvidence(mixed $value, callable $timestamp): array
     {
         if (!is_array($value)) return array(); $rows = array();
-        if (isset($value['@type'])) { $types = is_array($value['@type']) ? $value['@type'] : array($value['@type']); if (array_intersect(array('Article', 'BlogPosting'), $types)) { $row = array('source' => 'json-ld:' . (in_array('BlogPosting', $types, true) ? 'BlogPosting' : 'Article')); foreach (array('datePublished', 'dateCreated') as $key) if (is_string($value[$key] ?? null) && null !== ($date = $timestamp($value[$key]))) { $row['publication_timestamp'] = $date; break; } $rows[] = $row; } }
+        if (isset($value['@type'])) { $types = is_array($value['@type']) ? $value['@type'] : array($value['@type']); if (array_intersect(array('Article', 'BlogPosting'), $types)) { $row = array('source' => 'json-ld:' . (in_array('BlogPosting', $types, true) ? 'BlogPosting' : 'Article')); if (is_string($value['datePublished'] ?? null) && null !== ($date = $timestamp($value['datePublished']))) $row['publication_timestamp'] = $date; $rows[] = $row; } }
         foreach ($value as $child) if (is_array($child)) $rows = array_merge($rows, $this->jsonLdPublicationEvidence($child, $timestamp));
         return $rows;
     }
@@ -1633,6 +1637,8 @@ final class WordPressSitePlan
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $templateSlug) && !in_array($templateSlug, $part['placement']['excluded_template_slugs'] ?? array(), true))) {
                  if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
                  $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '"} /-->' . "\n";
+                 $wrapper = $part['placement']['template_wrappers'][$templateSlug] ?? null;
+                 if (is_array($wrapper) && is_string($wrapper['opening'] ?? null) && is_string($wrapper['closing'] ?? null)) $reference = $wrapper['opening'] . "\n" . $reference . $wrapper['closing'] . "\n";
                  if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
              }
              if (in_array($templateSlug, array('index', 'search'), true)) {
@@ -1850,9 +1856,15 @@ final class WordPressSitePlan
         return str_contains($slice, 'Leave a Reply') || 1 === preg_match('/<iframe\b[^>]*(?:comment|Comment)/', $slice);
     }
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
-    private function materializeListingQueryLoops(array $pages): array
+    private function materializeListingQueryLoops(array $pages, array $runtimeDeclarations = array()): array
     {
         $postsByParent = array();
+        $bindingsBySource = array();
+        foreach ($runtimeDeclarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) {
+            $source = $binding['source_path'] ?? null;
+            $search = $binding['search_block_markup'] ?? null;
+            if (is_string($source) && is_string($search) && '' !== $search) $bindingsBySource[$source][] = $search;
+        }
         foreach ($pages as $page) {
             if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !is_string($page['route']['path'] ?? null)) {
                 continue;
@@ -1870,6 +1882,10 @@ final class WordPressSitePlan
             $replaced = $this->replaceListingMarkup($page['canonical_block_markup'], $posts);
             if (null === $replaced || $replaced === $page['canonical_block_markup']) {
                 continue;
+            }
+            // A template cannot replace a source region that owns a live entity.
+            foreach ($bindingsBySource[$page['source_path']] ?? array() as $anchor) {
+                if (substr_count($replaced, $anchor) !== substr_count($page['canonical_block_markup'], $anchor)) continue 2;
             }
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = self::contentHash($replaced);

@@ -43,6 +43,20 @@ foreach ( array( '/', '/about', '/shop', '/contact' ) as $url ) {
 }
 $assert(0 === substr_count(substr($serialized, 0, (int) $details), 'wp:navigation-link') && ! str_contains(substr($serialized, (int) strpos($serialized, '<!-- /wp:details -->')), 'wp:navigation-link'), 'no navigation is projected outside the disclosure');
 
+// A separate header toggle must not claim an already-native details panel as
+// its hidden projected overlay, even when the authored stylesheet hides it at
+// the reference viewport. Its independent links belong to core/details.
+$externalToggle = '<header><button class="menu-toggle" aria-expanded="false" aria-controls="mobile-drawer" aria-label="Menu"><span class="bar"></span><span class="bar"></span></button>'
+    . '<nav class="desktop-navigation"><a href="/">Home</a><a href="/about">About</a></nav>'
+    . '<details class="dla-disclosure"><summary>Open Menu</summary><div id="mobile-drawer" class="dla-dialog" role="dialog" aria-modal="true"><nav><a href="/">Home</a><a href="/about">About</a></nav></div></details></header>';
+$externalCss = '#mobile-drawer{display:none}details[open]>#mobile-drawer{display:block}.desktop-navigation{display:flex}';
+$projected = ( new HtmlTransformer() )->transform('<html><head><style>' . $externalCss . '</style></head><body>' . $externalToggle . '</body></html>')->toArray();
+$projectedMarkup = (string) ($projected['serialized_blocks'] ?? '');
+$projectedStart = strpos($projectedMarkup, '<!-- wp:details');
+$projectedEnd = false === $projectedStart ? false : strpos($projectedMarkup, '<!-- /wp:details -->', $projectedStart);
+$projectedPanel = false === $projectedEnd ? '' : substr($projectedMarkup, $projectedStart, $projectedEnd - $projectedStart);
+$assert(str_contains($projectedPanel, '"url":"/about"') && str_contains($projectedPanel, '"url":"/"'), 'a separate header control cannot suppress a native disclosure panel with its own links');
+
 if ( $failures > 0 ) {
     exit(1);
 }

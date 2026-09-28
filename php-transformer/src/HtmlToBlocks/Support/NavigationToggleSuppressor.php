@@ -90,6 +90,12 @@ final class NavigationToggleSuppressor
 
     private function recordProjectedNavigationRelationship(DOMElement $control, DOMElement $target, DOMElement $navigation): void
     {
+        // A separate toggle cannot claim a panel that belongs to an operable
+        // native disclosure. Projecting it would suppress the details content
+        // even though the disclosure already owns its summary and open state.
+        if ( $this->isInsideNativeDisclosurePanel($target) || $this->isInsideNativeDisclosurePanel($navigation) ) {
+            return;
+        }
         if ( $this->context->navigationProjection()->isSuppressed($navigation) ) {
             return;
         }
