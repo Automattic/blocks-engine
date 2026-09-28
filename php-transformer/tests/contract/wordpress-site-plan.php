@@ -1059,6 +1059,18 @@ $strippedListed = $listedJournal; foreach ($strippedListed['source_reports']['co
 $strippedListed['source_reports']['conversion_report']['core_html_fallback_evidence'] = $strippedListed['source_reports']['core_html_fallback_evidence'] ?? array();
 $strippedPlan = (new WordPressSitePlan())->fromResult($strippedListed); $strippedPages = array(); foreach ($strippedPlan['pages'] as $page) $strippedPages[$page['source_path']] = $page;
 $assert('post' === ($strippedPages['journal/first/index.html']['post_type'] ?? null) && '2018-05-20T00:00:00Z' === ($strippedPages['journal/first/index.html']['publication_timestamp'] ?? null) && 'page' === ($strippedPages['journal/index.html']['post_type'] ?? null) && str_contains((string) ($strippedPages['journal/index.html']['canonical_block_markup'] ?? ''), '<!-- wp:query') && str_contains((string) ($strippedPages['journal/index.html']['canonical_block_markup'] ?? ''), '<!-- wp:post-content'), 'Staged compiled pages without retained source HTML still classify listing children from block markup and replace listing cards with a Query Loop.');
+$boundListing = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<main>Home</main>',
+    'journal/index.html' => '<main><article><h2><a href="/journal/first/index.html">First</a></h2><p>First summary</p></article><article><h2><a href="/journal/second/index.html">Second</a></h2><p>Second summary</p></article><form method="post" action="/subscribe"><label>Email <input type="email" name="email"></label><button type="submit">Subscribe</button></form></main>',
+    'journal/first/index.html' => '<meta property="article:published_time" content="2024-03-07T12:00:00Z"><main><article><h1>First</h1><p>First body</p></article></main>',
+    'journal/second/index.html' => '<meta property="article:published_time" content="2024-03-08T12:00:00Z"><main><article><h1>Second</h1><p>Second body</p></article></main>',
+)))->toArray();
+$boundListingPlan = $boundListing['source_reports']['wordpress_site_plan'] ?? array();
+$boundListingPages = array_column($boundListingPlan['pages'] ?? array(), null, 'source_path');
+$boundListingMarkup = $boundListingPages['journal/index.html']['canonical_block_markup'] ?? '';
+$boundListingBindings = array();
+foreach ($boundListingPlan['runtime_declarations'] ?? array() as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) if ('journal/index.html' === ($binding['source_path'] ?? null)) $boundListingBindings[] = $binding;
+$assert('failed' !== ($boundListing['status'] ?? null) && str_contains($boundListingMarkup, '<!-- wp:query') && 1 === count($boundListingBindings) && WordPressSitePlan::bindingPosition($boundListingBindings[0]['position'] ?? null, $boundListingMarkup, $boundListingBindings[0]['search_block_markup'] ?? ''), 'A page-owned form after converted listing cards keeps its exact block position after Query Loop replacement: ' . json_encode(array('status' => $boundListing['status'], 'query' => str_contains($boundListingMarkup, '<!-- wp:query'), 'bindings' => count($boundListingBindings), 'diagnostics' => $boundListing['source_reports']['wordpress_site_plan_diagnostics'] ?? array())));
 $escapedVisibleDate = $listedJournal;
 foreach ($escapedVisibleDate['source_reports']['compiled_site']['pages'] as &$page) {
     if ('journal/first/index.html' !== ($page['source_path'] ?? null)) {

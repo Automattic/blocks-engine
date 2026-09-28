@@ -214,7 +214,6 @@ final class WordPressSitePlan
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
-        foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
          self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
          $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus);
          $pages = $navigation['pages'];
@@ -222,7 +221,12 @@ final class WordPressSitePlan
          $menus = $navigation['menus'];
          $articleChrome = $this->extractPostArticleChrome($pages);
          $pages = $articleChrome['pages'];
-         $pages = $this->materializeListingQueryLoops($pages);
+         $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations);
+         // Query Loop projection can shorten page markup after shell extraction.
+         // Rebase retained runtime anchors on the final page before validation.
+         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
+         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
+         self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
          $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single']);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
@@ -1842,9 +1846,15 @@ final class WordPressSitePlan
         return str_contains($slice, 'Leave a Reply') || 1 === preg_match('/<iframe\b[^>]*(?:comment|Comment)/', $slice);
     }
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
-    private function materializeListingQueryLoops(array $pages): array
+    private function materializeListingQueryLoops(array $pages, array $runtimeDeclarations = array()): array
     {
         $postsByParent = array();
+        $bindingsBySource = array();
+        foreach ($runtimeDeclarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) {
+            $source = $binding['source_path'] ?? null;
+            $search = $binding['search_block_markup'] ?? null;
+            if (is_string($source) && is_string($search) && '' !== $search) $bindingsBySource[$source][] = $search;
+        }
         foreach ($pages as $page) {
             if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !is_string($page['route']['path'] ?? null)) {
                 continue;
@@ -1862,6 +1872,10 @@ final class WordPressSitePlan
             $replaced = $this->replaceListingMarkup($page['canonical_block_markup'], $posts);
             if (null === $replaced || $replaced === $page['canonical_block_markup']) {
                 continue;
+            }
+            // A template cannot replace a source region that owns a live entity.
+            foreach ($bindingsBySource[$page['source_path']] ?? array() as $anchor) {
+                if (substr_count($replaced, $anchor) !== substr_count($page['canonical_block_markup'], $anchor)) continue 2;
             }
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = self::contentHash($replaced);
