@@ -161,6 +161,7 @@
       "php tests/unit/rich-text-source-serialization.php",
       "php tests/unit/rich-text-svg-transaction.php",
       "php tests/unit/richtext-type-selector-preservation.php",
+      "php tests/unit/richtext-class-selector-projection.php",
       "php tests/unit/richtext-mark-carrier-role.php",
       "php tests/unit/richtext-unknown-inline-element.php",
       "php tests/unit/unknown-block-position-element.php",

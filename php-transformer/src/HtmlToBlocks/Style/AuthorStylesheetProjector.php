@@ -1464,12 +1464,10 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
-            // Shared stylesheets are projected once per document into that
-            // document's marker namespace. Class-bound rules still address
-            // emitted markup that kept the authored class (button inner HTML,
-            // extracted chrome), so dropping the class leaves those elements
-            // unmatched in every other consuming document.
-            if ( $context->keepAuthorClassSelectors && array() !== $projectedMarkers && $this->isClassBoundSelector($parsed) ) {
+            // A RichText-marked element can be emitted as a block wrapper in
+            // another responsive representation, where only its authored class
+            // remains available to the projected rule.
+            if ( array() !== $richTextLeaves && $this->isClassBoundSelector($parsed) ) {
                 $hasNonProjected = true;
             }
             if ( $hasNonProjected ) {
