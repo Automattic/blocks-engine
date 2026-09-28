@@ -1630,6 +1630,8 @@ final class WordPressSitePlan
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $templateSlug) && !in_array($templateSlug, $part['placement']['excluded_template_slugs'] ?? array(), true))) {
                  if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
                  $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '"} /-->' . "\n";
+                 $wrapper = $part['placement']['template_wrappers'][$templateSlug] ?? null;
+                 if (is_array($wrapper) && is_string($wrapper['opening'] ?? null) && is_string($wrapper['closing'] ?? null)) $reference = $wrapper['opening'] . "\n" . $reference . $wrapper['closing'] . "\n";
                  if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
              }
              if (in_array($templateSlug, array('index', 'search'), true)) {
