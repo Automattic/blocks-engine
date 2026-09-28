@@ -115,6 +115,22 @@ $assert(
     $paddedTextCss
 );
 
+$inlineTargets = (new HtmlTransformer())->transform(
+    '<style>.footer{display:flex;justify-content:space-between}.clock{font-size:12px}.clock span{display:inline}</style>'
+    . '<footer class="footer"><div class="clock"><span id="hours">09</span><span id="colon">:</span><span id="minutes">43</span> <span id="timezone">(GMT -4)</span></div><div>Status</div></footer>'
+)->toArray();
+$inlineMarkup = (string) ($inlineTargets['serialized_blocks'] ?? '');
+$assert(
+    1 === substr_count($inlineMarkup, 'class="wp-block-group clock')
+        && str_contains($inlineMarkup, '<p class="blocks-engine-inline-layout-carrier">')
+        && str_contains($inlineMarkup, 'id="colon"')
+        && str_contains($inlineMarkup, 'id="timezone"')
+        && 1 === substr_count($inlineMarkup, '"className":"blocks-engine-inline-layout-carrier"')
+        && 'pass' === ($inlineTargets['source_reports']['wp_block_validity']['status'] ?? ''),
+    'a flex item with multiple addressable inline spans stays one editable inline run with stable IDs',
+    $inlineMarkup
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Inline span paragraph host: {$failures} failed, {$passes} passed\n");
     exit(1);

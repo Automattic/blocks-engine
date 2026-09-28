@@ -27,6 +27,7 @@ final class FlowContainerElementContext
         private readonly Closure $authorLayoutBlock,
         private readonly Closure $hasMultipleRuntimeInlineTextTargets,
         private readonly Closure $paragraphBlockFromInlineContentWrapper,
+        private readonly Closure $inlineAddressableRunGroupBlock,
         private readonly Closure $isGeneratedComponentCandidate,
         private readonly Closure $isAuthorOwnedLayout,
         private readonly Closure $proofBackedWrapperCoalescing,
@@ -80,6 +81,8 @@ final class FlowContainerElementContext
     public function hasMultipleRuntimeInlineTextTargets(DOMElement $element): bool { return ($this->hasMultipleRuntimeInlineTextTargets)($element); }
     /** @return array<string, mixed>|null */
     public function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array { return ($this->paragraphBlockFromInlineContentWrapper)($element); }
+    /** @return array<string, mixed>|null */
+    public function inlineAddressableRunGroupBlock(DOMElement $element): ?array { return ($this->inlineAddressableRunGroupBlock)($element); }
     public function isGeneratedComponentCandidate(DOMElement $element): bool { return ($this->isGeneratedComponentCandidate)($element); }
     public function isAuthorOwnedLayout(DOMElement $element): bool { return ($this->isAuthorOwnedLayout)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
