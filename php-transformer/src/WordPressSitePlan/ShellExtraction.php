@@ -823,7 +823,9 @@ final class ShellExtraction
      * in the same order, each owning exactly one binding: identical chrome then
      * carries one entity, not a copy per page. The entity kept is the one bound
      * in the page whose markup becomes the part, so its document markers match
-     * the part; the other pages' copies are dropped. An entity is compared
+     * the part; the other pages' copies are dropped, and the kept entity lists
+     * every source fallback its one replacement stands for in
+     * `replaced_fallback_identities`. An entity is compared
      * without its binding, source, identities and document marker seeds.
      *
      * @param array<int,array<string,mixed>> $declarations
@@ -863,8 +865,16 @@ final class ShellExtraction
             if (null === $match) return null;
             $keep[] = $ref + array('position' => array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $match['block_index'], 'offset' => $match['offset'], 'length' => $match['length']), 'occurrence' => substr_count(substr($partMarkup, 0, $match['offset']), $search) + 1);
         }
+        // Each kept entity replaces its own source fallback and the matching
+        // fallbacks of the pages whose duplicates are dropped.
         $drop = array();
-        foreach ($indexes as $index) if ($index !== $canonical) foreach ($shellBindings[$index] ?? array() as $ref) $drop[] = array('declaration' => $ref['declaration'], 'entity' => $ref['entity']);
+        foreach ($keep as $position => $ref) $keep[$position]['replaced_fallback_identities'] = array();
+        foreach ($indexes as $index) foreach ($shellBindings[$index] ?? array() as $position => $ref) {
+            $identity = $declarations[$ref['declaration']]['payload']['entities'][$ref['entity']]['fallback_identity'] ?? null;
+            if (is_string($identity) && '' !== $identity) $keep[$position]['replaced_fallback_identities'][] = $identity;
+            if ($index !== $canonical) $drop[] = array('declaration' => $ref['declaration'], 'entity' => $ref['entity']);
+        }
+        foreach ($keep as $position => $ref) { $identities = array_values(array_unique($ref['replaced_fallback_identities'])); sort($identities, SORT_STRING); $keep[$position]['replaced_fallback_identities'] = $identities; }
         return array('keep' => $keep, 'drop' => $drop);
     }
 
@@ -874,7 +884,7 @@ final class ShellExtraction
         $bindings = $entity['bindings'] ?? null;
         if (!is_array($bindings) || 1 !== count($bindings) || !empty($entity['superseded_scripts'])) return null;
         $role = (string) ($bindings[array_key_first($bindings)]['role'] ?? '');
-        unset($entity['bindings'], $entity['reconciliation_identity'], $entity['fallback_identity']);
+        unset($entity['bindings'], $entity['reconciliation_identity'], $entity['fallback_identity'], $entity['replaced_fallback_identities']);
         return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson(self::withoutSourcePaths($entity)));
     }
 
@@ -904,6 +914,7 @@ final class ShellExtraction
             $binding['position'] = $ref['position'];
             unset($binding['projected_anchor']);
             $entity['source_path'] = $partSourcePath;
+            if (1 < count($ref['replaced_fallback_identities'])) $entity['replaced_fallback_identities'] = $ref['replaced_fallback_identities'];
             unset($binding, $entity);
         }
         $touched = array();

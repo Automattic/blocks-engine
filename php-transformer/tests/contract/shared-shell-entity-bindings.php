@@ -33,6 +33,7 @@ $forms = array_values(array_filter($entities($plan), static fn (array $entity): 
 $assert(1 === count($forms), 'The shared footer carries one form entity, not a copy per page: ' . count($forms));
 $binding = $forms[0]['bindings'][0];
 $assert($footer['source_path'] === $binding['source_path'] && $footer['source_path'] === $forms[0]['source_path'], 'The form entity and its binding belong to the shared footer part.');
+$assert(3 === count($forms[0]['replaced_fallback_identities'] ?? array()) && ($forms[0]['replaced_fallback_identities'] ?? null) === array_values(array_unique($forms[0]['replaced_fallback_identities'])) && in_array($forms[0]['fallback_identity'], $forms[0]['replaced_fallback_identities'], true), 'The shared form lists the source fallback of every page it replaces: ' . json_encode($forms[0]['replaced_fallback_identities'] ?? null));
 $assert(1 === $binding['occurrence'] && $binding['search_block_markup'] === substr($footer['canonical_block_markup'], $binding['position']['offset'], $binding['position']['length']), 'The binding anchors one exact block of the part markup.');
 foreach ($plan['pages'] as $row) $assert(!str_contains($row['canonical_block_markup'], 'Keep in touch'), $row['source_path'] . ' no longer renders its own footer.');
 
