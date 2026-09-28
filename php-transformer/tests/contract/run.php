@@ -422,10 +422,10 @@ $assert(
 );
 $linkedDimensionedImageResult = ( new HtmlTransformer() )->transform('<a href="/profile"><img src="avatar.jpg" style="width:44px;height:44px" width="44" height="44" alt="Profile"></a>')->toArray();
 $assert(
-    'custom/responsive-media' === ($linkedDimensionedImageResult['blocks'][0]['blockName'] ?? null)
-        && str_contains((string) ($linkedDimensionedImageResult['blocks'][0]['attrs']['content'] ?? ''), 'style="width:44px;height:44px"')
-        && '' === ($linkedDimensionedImageResult['blocks'][0]['innerHTML'] ?? 'x'),
-    'linked images use the responsive-media companion while preserving authored geometry'
+    'core/image' === ($linkedDimensionedImageResult['blocks'][0]['blockName'] ?? null)
+        && '/profile' === ($linkedDimensionedImageResult['blocks'][0]['attrs']['href'] ?? null)
+        && str_contains((string) ($linkedDimensionedImageResult['serialized_blocks'] ?? ''), 'style="width:44px;height:44px"'),
+    'linked images use core/image while preserving native links and authored geometry'
 );
 $visualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}</style><div class="media-column"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>')->toArray();
 $visualLayerImageCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $visualLayerImageResult['assets'] ?? array()));
@@ -831,7 +831,7 @@ $assert('18.5%' === ($percentLayoutTableBlock['innerBlocks'][0]['attrs']['width'
 $percentLayoutTableCss = implode("\n", array_column($percentLayoutTable['assets'] ?? array(), 'content'));
 $assert(str_contains((string) ($percentLayoutTable['serialized_blocks'] ?? ''), 'blocks-engine-layout-table-columns') && str_contains($percentLayoutTableCss, '.wp-block-columns.blocks-engine-layout-table-columns{display:flex;flex-wrap:nowrap;gap:0;box-sizing:border-box}') && str_contains($percentLayoutTableCss, '.wp-block-columns.blocks-engine-layout-table-columns>.wp-block-column{box-sizing:border-box;min-width:0}'), 'layout-table columns keep a single-row flex track and include cell padding inside percent widths');
 $assert('core/table' === (( new HtmlTransformer() )->transform('<table><tr><td>A</td><td>B</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'headerless tables without cell percentages remain data tables');
-$assert(! str_contains($nestedLayoutTableMarkup, '<!-- wp:html') && 'custom/responsive-media' === ($nestedLayoutTableLinkedMedia['blockName'] ?? null) && str_contains((string) ($nestedLayoutTableLinkedMedia['attrs']['content'] ?? ''), 'href="/quote"') && str_contains((string) ($nestedLayoutTableLinkedMedia['attrs']['content'] ?? ''), 'src="quote.jpg"') && str_contains($nestedLayoutTableMarkup, 'src="mark.jpg"') && str_contains($nestedLayoutTableMarkup, 'Layout copy'), 'nested layout table lowering preserves links, media, and content order without HTML fallback');
+$assert(! str_contains($nestedLayoutTableMarkup, '<!-- wp:html') && 'core/image' === ($nestedLayoutTableLinkedMedia['blockName'] ?? null) && '/quote' === ($nestedLayoutTableLinkedMedia['attrs']['href'] ?? null) && str_contains($nestedLayoutTableMarkup, 'src="mark.jpg"') && str_contains($nestedLayoutTableMarkup, 'Layout copy'), 'nested layout table lowering preserves native linked images and content order without HTML fallback');
 $assert('pass' === ($nestedLayoutTableResult['source_reports']['wp_block_validity']['status'] ?? null), 'nested layout table columns remain Gutenberg-valid');
 $nestedDataTableResult = ( new HtmlTransformer() )->transform('<table><tr><td><table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Ada</td></tr></tbody></table></td></tr></table>')->toArray();
 $assert('core/html' === ($nestedDataTableResult['blocks'][0]['blockName'] ?? null), 'nested data tables retain conservative HTML fallback');
@@ -1744,7 +1744,7 @@ $numericLinkedImageDimensions = ( new HtmlTransformer() )->transform(
 )->toArray();
 $numericLinkedImageAttrs = $numericLinkedImageDimensions['blocks'][0]['attrs'] ?? array();
 $numericLinkedImageMarkup = (string) ($numericLinkedImageDimensions['serialized_blocks'] ?? '');
-$assert('custom/responsive-media' === ($numericLinkedImageDimensions['blocks'][0]['blockName'] ?? null) && str_contains((string) ($numericLinkedImageAttrs['content'] ?? ''), 'style="object-fit:cover;width:44;height:44"') && str_contains($numericLinkedImageMarkup, 'responsive-media'), 'numeric linked-image dimensions remain in the reusable responsive-media companion markup');
+$assert('core/image' === ($numericLinkedImageDimensions['blocks'][0]['blockName'] ?? null) && 'https://example.com' === ($numericLinkedImageAttrs['href'] ?? null) && str_contains($numericLinkedImageMarkup, 'style="object-fit:cover;width:44px;height:44px"'), 'numeric linked-image dimensions remain valid in native image markup');
 
 $inlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg class="album-art" viewBox="0 0 100 100" role="img" aria-label="Album art"><rect width="100" height="100" fill="#111"/><circle cx="50" cy="50" r="30" fill="#c4581a"/></svg></main>'
@@ -3733,7 +3733,7 @@ $assert(! str_contains((string) ($deduplicatedMobileNavigation['serialized_block
 $decoratedImageLink = ( new HtmlTransformer() )->transform(
     '<a href="/photo.jpg" class="lightbox"><img src="/photo.jpg" alt="Photo"><div class="overlay"></div><div class="overlay-inner"></div></a>'
 )->toArray();
-$assert(str_contains((string) ($decoratedImageLink['serialized_blocks'] ?? ''), '<!-- wp:custom/responsive-media') && str_contains((string) ($decoratedImageLink['serialized_blocks'] ?? ''), 'photo.jpg'), 'an image-only link tolerates empty decorative overlay siblings without losing its media');
+$assert('core/image' === ($decoratedImageLink['blocks'][0]['blockName'] ?? null) && true === ($decoratedImageLink['blocks'][0]['attrs']['lightbox']['enabled'] ?? false) && str_contains((string) ($decoratedImageLink['serialized_blocks'] ?? ''), 'photo.jpg'), 'an image-only lightbox with decorative overlay siblings lowers to native core/image lightbox');
 
 $centeredSocialLinks = ( new HtmlTransformer() )->transform(
     '<div style="text-align:center"><span class="social-links"><a href="https://facebook.com/example" aria-label="Facebook"><span></span></a><a href="https://instagram.com/example" aria-label="Instagram"><span></span></a></span></div>'
@@ -4174,7 +4174,8 @@ $assert(str_contains($resolvedRootBackgroundMarkup, 'src="https://example.test/w
 $assert(str_contains($resolvedRootBackgroundMarkup, 'blocks-engine-background-image'), 'metadata-backed root-relative background remains an extracted editable image reference');
 
 $linkedRuntimeImage = ( new HtmlTransformer() )->transform(
-    '<main><a id="productHero" class="product-detail__main-image" href="/product"><img src="assets/product.jpg" alt="Product"></a></main>'
+    '<main><a id="productHero" class="product-detail__main-image" href="/product"><img src="assets/product.jpg" alt="Product"></a></main>',
+    array('runtime_dom_selectors' => array('#productHero', '.product-detail__main-image'))
 )->toArray();
 $linkedRuntimeImageSerialized = (string) ($linkedRuntimeImage['serialized_blocks'] ?? '');
 $linkedRuntimeImageContent = (string) ($linkedRuntimeImage['blocks'][0]['attrs']['content'] ?? '');

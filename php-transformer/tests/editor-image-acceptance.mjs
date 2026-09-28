@@ -30,6 +30,7 @@ try {
  const welcome = page.locator( '.components-modal__screen-overlay' ); if ( await welcome.isVisible() ) { await welcome.getByRole( 'button', { name: /Close|Get started/ } ).first().click(); await welcome.waitFor( { state: 'hidden' } ); }
  await canvas.locator( '[data-type="core/image"]' ).click();
  assert.equal( ( await editorBlock() ).attributes.id, source.first_attachment.id, 'the transformed core/image starts at the first real attachment' );
+ assert.equal( ( await editorBlock() ).attributes.href, '/item', 'the transformed core/image carries its link destination' );
  await page.screenshot( { path: `${ evidence }/editor-baseline.png`, fullPage: true } );
  await page.getByRole( 'button', { name: 'Replace' } ).click();
  await page.getByRole( 'menuitem', { name: /Open Media Library/ } ).click();
@@ -52,6 +53,7 @@ try {
   await page.waitForFunction( ( before ) => { const block=window.wp.data.select( 'core/block-editor' ).getBlocks().find( b => b.name === 'core/image' ); const attributes=block?.attributes; return attributes && ( attributes.id !== before.id || attributes.url !== before.url || attributes.width !== before.width || attributes.height !== before.height || JSON.stringify( attributes.crop ) !== JSON.stringify( before.crop ) ); }, replaced.attributes );
   const cropped = await editorBlock(); const cropChanged = cropped.attributes.id !== replaced.attributes.id || cropped.attributes.url !== replaced.attributes.url || cropped.attributes.width !== replaced.attributes.width || cropped.attributes.height !== replaced.attributes.height || JSON.stringify(cropped.attributes.crop) !== JSON.stringify(replaced.attributes.crop);
   assert.ok( cropChanged, 'applying a non-default crop commits changed image data' );
+  assert.equal( cropped.attributes.href, '/item', 'the WordPress 7.1 crop modal preserves the image link destination' );
   await page.screenshot( { path: `${ evidence }/crop-applied.png`, fullPage: true } );
  await writeFile( `${ evidence }/crop.json`, JSON.stringify( { before: replaced, after: cropped }, null, 2 ) + '\n' );
   const settings = page.getByRole( 'button', { name: 'Settings', exact: true } );
@@ -75,7 +77,8 @@ try {
   assert.ok( validation.blocks.every( ( block ) => block.registered && block.valid ), 'all saved blocks are registered and validate after reload' );
   assert.ok( validation.blocks.every( ( block ) => block.name !== 'core/missing' ), 'the saved document contains no core/missing blocks' );
  assert.equal( reloaded.attributes.alt, 'Edited alternative text', 'alternative text survives reload' );
- assert.equal( reloaded.attributes.id, cropped.attributes.id, 'crop outcome survives reload' );
+  assert.equal( reloaded.attributes.id, cropped.attributes.id, 'crop outcome survives reload' );
+  assert.equal( reloaded.attributes.href, '/item', 'the linked image destination survives crop and reload' );
  await writeFile( `${ evidence }/validation.json`, JSON.stringify( validation, null, 2 ) + '\n' );
  await page.goto( `${ baseUrl }/?page_id=${ postId }`, { waitUntil: 'networkidle' } );
   const image = page.locator( '.wp-block-image img' ); await image.waitFor();
