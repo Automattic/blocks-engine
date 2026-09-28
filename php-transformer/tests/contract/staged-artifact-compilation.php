@@ -188,6 +188,20 @@ $assert(!array_filter($largeFormsStaged['diagnostics'] ?? array(), static fn(arr
 $tamperedManifestPlan = $largeFormsPlan; $tamperedManifestPlan['runtime_entity_records'][0]['entity']['controls'][0]['options'][0]['label'] = 'forged';
 $throws(static fn() => WordPressSitePlan::assertValid($tamperedManifestPlan), 'Canonical WordPress plan validation rejects a content-addressed runtime record whose entity no longer matches its hash.');
 $throws(static fn() => RuntimeEntityManifest::fromEntities('generic/forms/v1', array(array('value' => str_repeat('x', RuntimeDeclarations::MAX_PAYLOAD_BYTES)))), 'Runtime entity manifests reject a single entity record that exceeds the 5 MiB payload cap.');
+// A many-page collection can fit at compiler intake as entity records, then
+// exceed the declaration cap when composition projects final binding anchors.
+$siteEntities = array();
+for ($index = 0; $index < 74; ++$index) $siteEntities[] = array('source_path' => 'page-' . $index . '.html', 'bindings' => array(array('source_path' => 'page-' . $index . '.html', 'search_block_markup' => str_repeat('x', 72000), 'occurrence' => 1)));
+$siteDeclaration = array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => array('schema' => 'generic/forms/v1', 'entities' => $siteEntities)));
+$throws(static fn() => RuntimeDeclarations::normalizeList($siteDeclaration), 'The projected 74-page forms collection reproduces the pre-factoring 5 MiB rejection.');
+$composingDeclarations = RuntimeDeclarations::normalizeForComposition($siteDeclaration);
+$siteFactor = RuntimeDeclarations::factor($composingDeclarations);
+$assert(count($siteFactor['records']) > 1 && RuntimeDeclarations::canonicalJson($siteEntities) === RuntimeDeclarations::canonicalJson(RuntimeDeclarations::materialize($siteFactor['declarations'], $siteFactor['records'])[0]['payload']['entities']), 'Composition retains all 74 entity bindings in bounded records without changing their content or order.');
+$assert(strlen(RuntimeDeclarations::canonicalJson($siteFactor['declarations'][0]['payload'])) <= RuntimeDeclarations::MAX_PAYLOAD_BYTES, 'The published declaration remains within the public 5 MiB payload limit.');
+$tamperedRuntimeRecord = $largeFormsPlan;
+$tamperedRuntimeRecord['runtime_declarations'] = $siteFactor['declarations'];
+$tamperedRuntimeRecord['runtime_records'] = $siteFactor['records'];
+$throws(static fn() => WordPressSitePlan::assertValid($tamperedRuntimeRecord), 'Plan validation resolves factored bindings and rejects anchors missing from published pages.');
 $rootAssetPath = "website/external/Happy Women's Day.jpg";
 $rootAssetUrl = "/external/Happy%20Women's%20Day.jpg";
 $rootAssetArtifact = array('entrypoint' => 'website/index.html', 'files' => array(
