@@ -57,4 +57,13 @@ $assert(array('about.html', 'wordpress-site-plan/shared/footer#footer') === $sou
 $aboutPage = array_values(array_filter($divergent['pages'], static fn (array $row): bool => 'about.html' === $row['source_path']))[0];
 $assert(str_contains($aboutPage['canonical_block_markup'], 'Subscribe'), 'The differing page still renders its own footer form.');
 
+// A form fallback diagnostic carries its fallback row's producer identity, so a
+// consumer can match every page's source finding to the entity that replaced it.
+$findings = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $page('Home', $signup), 'about.html' => $page('About', $signup)) + array('logo.png' => $logo)))->toArray();
+$fallbackIdentities = array_values(array_filter(array_column(array_filter($findings['fallbacks'] ?? array(), static fn (array $row): bool => 'html_form_fallback' === ($row['diagnostic_code'] ?? null)), 'fallback_identity')));
+$diagnosticIdentities = array_values(array_filter(array_column(array_filter($findings['diagnostics'] ?? array(), static fn (array $row): bool => 'html_form_fallback' === ($row['code'] ?? null)), 'fallback_identity')));
+sort($fallbackIdentities);
+sort($diagnosticIdentities);
+$assert(2 === count($fallbackIdentities) && $fallbackIdentities === array_values(array_unique($diagnosticIdentities)), 'Form fallback diagnostics carry their fallback identity: ' . json_encode(array($fallbackIdentities, $diagnosticIdentities)));
+
 echo "Shared shell entity bindings contract passed.\n";
