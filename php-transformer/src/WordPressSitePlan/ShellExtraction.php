@@ -406,7 +406,7 @@ final class ShellExtraction
             foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
             // The candidate's own block-tree offset is carried forward so removal
             // never needs to re-derive its position by searching for its bytes.
-            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
+            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
         }
         return $candidates;
     }
@@ -488,6 +488,141 @@ final class ShellExtraction
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
     }
 
+    /**
+     * Factor footer copy that is identical across otherwise distinct footer
+     * wrappers. The original wrappers stay where they were authored, while one
+     * editable template part owns the shared paragraph.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $parts
+     * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
+     */
+    public function factorSharedFooterContent(array $pages, array $parts): array
+    {
+        $documents = array();
+        foreach ($pages as $index => $page) {
+            $markup = (string) ($page['canonical_block_markup'] ?? '');
+            $regions = $this->footerContentRegions($markup, (string) ($page['source_path'] ?? ''));
+            if (1 !== count($regions)) continue;
+            $documents[] = array('kind' => 'page', 'index' => $index, 'source_path' => (string) ($page['source_path'] ?? ''), 'markup' => $markup, 'region' => $regions[0]);
+        }
+        foreach ($parts as $index => $part) {
+            if ('footer' !== ($part['area'] ?? null) || 'inline_shared_shell' === ($part['placement']['kind'] ?? null) || 'responsive_variant_partition' === ($part['provenance']['reason'] ?? null)) continue;
+            $markup = (string) ($part['canonical_block_markup'] ?? '');
+            $regions = $this->footerContentRegions($markup, (string) ($part['source_path'] ?? ''), true);
+            if (1 !== count($regions)) continue;
+            $sourcePaths = array();
+            if ('shared_shell' === ($part['placement']['kind'] ?? null) && is_array($part['provenance']['sources'] ?? null)) {
+                $excluded = array_fill_keys($part['placement']['excluded_template_slugs'] ?? array(), true);
+                foreach ($pages as $page) {
+                    if (!empty($page['synthetic']) || !isset($part['provenance']['sources'][$page['source_path'] ?? ''])) continue;
+                    if (!empty($page['entrypoint'])) $selected = in_array('front-page', $part['placement']['template_slugs'] ?? array(), true);
+                    elseif ('post' === ($page['post_type'] ?? null)) $selected = in_array('single', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded['single-' . ($page['slug'] ?? '')]);
+                    else $selected = in_array('page', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded['page-' . ($page['slug'] ?? '')]);
+                    if ($selected) $sourcePaths[] = (string) $page['source_path'];
+                }
+            }
+            if (array() === $sourcePaths) $sourcePaths[] = (string) ($part['source_path'] ?? '');
+            foreach ($sourcePaths as $sourcePath) $documents[] = array('kind' => 'part', 'index' => $index, 'source_path' => $sourcePath, 'markup' => $markup, 'region' => $regions[0]);
+        }
+        if (2 > count($documents)) return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => array());
+
+        $clusters = array();
+        foreach ($documents as $documentIndex => $document) {
+            $regionMarkup = substr($document['markup'], $document['region']['offset'], $document['region']['length']);
+            foreach (WordPressSitePlan::blockRanges($regionMarkup) as $range) {
+                $block = substr($regionMarkup, $range['offset'], $range['length']);
+                if (!preg_match('/^<!--\s*wp:paragraph\b/', ltrim($block))) continue;
+                $text = preg_replace('/<!--.*?-->/s', ' ', $block) ?? $block;
+                $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5);
+                $text = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
+                if ('' === $text) continue;
+                $identity = self::identityMarkup($block);
+                $key = hash('sha256', $identity);
+                $clusters[$key]['identity'] = $identity;
+                $clusters[$key]['text_length'] = strlen($text);
+                $clusters[$key]['documents'][$documentIndex][] = array(
+                    'kind' => $document['kind'],
+                    'index' => $document['index'],
+                    'source_path' => $document['source_path'],
+                    'offset' => $document['region']['offset'] + $range['offset'],
+                    'length' => $range['length'],
+                    'markup' => $block,
+                );
+            }
+        }
+        uasort($clusters, static fn(array $left, array $right): int => count($right['documents'] ?? array()) <=> count($left['documents'] ?? array()) ?: ($right['text_length'] ?? 0) <=> ($left['text_length'] ?? 0));
+        $cluster = reset($clusters);
+        if (!is_array($cluster) || count($cluster['documents'] ?? array()) < 2) return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => array());
+
+        $baseSlug = 'footer-content';
+        $slug = $baseSlug;
+        $existingSlugs = array_fill_keys(array_column($parts, 'slug'), true);
+        for ($suffix = 2; isset($existingSlugs[$slug]); ++$suffix) $slug = $baseSlug . '-' . $suffix;
+        $excludedTemplateSlugs = array();
+        foreach ($parts as $existingPart) foreach ($existingPart['placement']['excluded_template_slugs'] ?? array() as $templateSlug) if (is_string($templateSlug)) $excludedTemplateSlugs[$templateSlug] = true;
+        $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"footer","tagName":"div"} /-->';
+        $pageReplacements = array();
+        $partReplacements = array();
+        $sources = array();
+        foreach ($cluster['documents'] as $occurrences) foreach ($occurrences as $occurrence) {
+            $target = 'page' === $occurrence['kind'] ? 'page' : 'part';
+            $key = $occurrence['index'];
+            if ('page' === $target) $pageReplacements[$key][] = $occurrence; else $partReplacements[$key][] = $occurrence;
+            if ('' !== $occurrence['source_path']) $sources[$occurrence['source_path']] = hash('sha256', $occurrence['markup']);
+        }
+        foreach ($pageReplacements as $index => $replacements) {
+            usort($replacements, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
+            $markup = (string) $pages[$index]['canonical_block_markup'];
+            foreach ($replacements as $replacement) if (substr($markup, $replacement['offset'], $replacement['length']) === $replacement['markup']) $markup = substr($markup, 0, $replacement['offset']) . $reference . substr($markup, $replacement['offset'] + $replacement['length']);
+            $pages[$index]['canonical_block_markup'] = $markup;
+            $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
+        }
+        foreach ($partReplacements as $index => $replacements) {
+            $unique = array();
+            foreach ($replacements as $replacement) $unique[$replacement['offset'] . ':' . $replacement['length']] = $replacement;
+            $replacements = array_values($unique);
+            usort($replacements, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
+            $markup = (string) $parts[$index]['canonical_block_markup'];
+            foreach ($replacements as $replacement) if (substr($markup, $replacement['offset'], $replacement['length']) === $replacement['markup']) $markup = substr($markup, 0, $replacement['offset']) . $reference . substr($markup, $replacement['offset'] + $replacement['length']);
+            $parts[$index]['canonical_block_markup'] = $markup;
+            $parts[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
+        }
+
+        ksort($sources, SORT_STRING);
+        $sourcePath = 'wordpress-site-plan/shared/footer-content';
+        $partMarkup = (string) $cluster['identity'];
+        $part = array(
+            'source_path' => $sourcePath . '#footer',
+            'slug' => $slug,
+            'title' => 'Footer Content',
+            'post_type' => 'wp_template_part',
+            'parent_source_path' => '',
+            'entrypoint' => false,
+            'area' => 'footer',
+            'tag_name' => 'div',
+            'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => array_keys($sources), 'variant' => 1, 'excluded_template_slugs' => array_keys($excludedTemplateSlugs)),
+            'canonical_block_markup' => $partMarkup,
+            'metadata' => array(),
+            'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#footer', 'kind' => 'template_part'), 'title' => 'Footer Content', 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()),
+            'provenance' => array('schema' => 'blocks-engine/shell-extraction/v1', 'area' => 'footer', 'decision' => 'extracted', 'reason' => 'shared_inner_content', 'sources' => $sources, 'shell_identity' => hash('sha256', $partMarkup)),
+            'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#footer', 'parts/' . $slug . '.html'),
+            'content_hash' => WordPressSitePlan::contentHash($partMarkup),
+        );
+        return array(
+            'pages' => $pages,
+            'parts' => array_merge($parts, array($part)),
+            'diagnostics' => array(array('code' => 'wordpress_site_plan_footer_content_shared', 'severity' => 'info', 'message' => 'Extracted identical footer copy into one editable inline template part while retaining each route wrapper.', 'area' => 'footer', 'source_count' => count($sources), 'slug' => $slug)),
+        );
+    }
+
+    /** @return array<int,array{offset:int,length:int}> */
+    private function footerContentRegions(string $markup, string $sourcePath, bool $wholePart = false): array
+    {
+        if ($wholePart) return array(array('offset' => 0, 'length' => strlen($markup)));
+        return array_values(array_map(static fn(array $candidate): array => array('offset' => $candidate['offset'], 'length' => $candidate['length']), $this->nestedLandmarkCandidates($markup, $sourcePath, 'footer')));
+    }
+
     /** @return array<int,array{token:string,offset:int,closing:bool,name:string,attributes:string,self_closing:bool}> */
     private static function blockCommentTokens(string $markup): array
     {
@@ -524,7 +659,7 @@ final class ShellExtraction
                 $open = array_pop($stack);
                 if (!is_array($open) || empty($open['candidate'])) continue;
                 $length = $offset + strlen($token['token']) - $open['offset']; $candidateMarkup = substr($markup, $open['offset'], $length);
-                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])));
+                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])));
                 continue;
             }
             $name = $token['name']; $attributes = $token['attributes']; $attrs = '' === $attributes ? array() : json_decode($attributes, true);
@@ -533,7 +668,9 @@ final class ShellExtraction
             $tagName = is_array($attrs) ? ($attrs['tagName'] ?? null) : null;
             $className = is_array($attrs) && is_string($attrs['className'] ?? null) ? $attrs['className'] : '';
             $anchor = is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
+            $hasShellWrapperContract = false;
             if (is_array($attrs) && is_array($attrs['wrappers'] ?? null)) {
+                $hasShellWrapperContract = true;
                 foreach ($attrs['wrappers'] as $wrapper) {
                     if (!is_array($wrapper)) continue;
                     $wrapperAttributes = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
@@ -543,7 +680,9 @@ final class ShellExtraction
                     if (null === $tagName && is_string($wrapper['tagName'] ?? null) && in_array($wrapper['tagName'], array('header', 'footer', 'main', 'article', 'section', 'aside'), true)) $tagName = $wrapper['tagName'];
                 }
             }
-            $candidate = 0 < count($stack) && !$disallowedAncestor && $area === $tagName && self::isShellLandmarkBlock($name);
+            $footerClass = $hasShellWrapperContract ? self::footerAreaFromClassName($className) : null;
+            if ('footer' !== $tagName) $tagName = $footerClass ?? $tagName;
+            $candidate = 0 < count($stack) && !$disallowedAncestor && $area === $tagName && (self::isShellLandmarkBlock($name) || ('footer' === $area && $hasShellWrapperContract && 'footer' === $footerClass));
             // Whether page content precedes the landmark inside its ancestors: a
             // block other than the enclosing openings started or ended before it.
             $preceded = false;
@@ -551,7 +690,7 @@ final class ShellExtraction
                 $between = substr($markup, $stack[0]['offset'], $offset - $stack[0]['offset']);
                 $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
             }
-            if (!$selfClosing) $stack[] = array('offset' => $offset, 'tag_name' => $tagName, 'candidate' => $candidate, 'preceded' => $preceded, 'anchor' => $anchor, 'class_name' => $className);
+            if (!$selfClosing) $stack[] = array('offset' => $offset, 'tag_name' => $tagName, 'candidate' => $candidate, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'anchor' => $anchor, 'class_name' => $className);
         }
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
         foreach ($rows as $variant => &$row) $row['variant'] = $variant; unset($row);
@@ -592,6 +731,10 @@ final class ShellExtraction
         foreach (array('footer', 'header') as $area) {
             $candidates = array(); $clusters = array(); $excluded = array(); $overrides = array();
             $templateSlugs = array(); $excludedTemplateSlugs = array();
+            if ('footer' === $area && array_reduce($pages, static fn(bool $found, array $page): bool => $found || (bool) array_filter($page['shell_candidates'] ?? array(), static fn(array $candidate): bool => 'footer' === ($candidate['area'] ?? null) && !empty($candidate['wrapper_contract_shell'])), false)) {
+                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_wrapper_variant_retained', 'severity' => 'info', 'message' => 'The footer wrapper contract remains route-owned while identical footer copy is factored into a shared inner template part.', 'area' => 'footer');
+                continue;
+            }
             if (isset($reservedSlugs[$area])) {
                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell conflicts with an existing template part.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'existing_template_part'));
                 continue;
@@ -1350,6 +1493,14 @@ final class ShellExtraction
     private static function isShellLandmarkBlock(string $name): bool
     {
         return 'group' === $name || str_ends_with($name, '/scroll-state');
+    }
+
+    private static function footerAreaFromClassName(string $className): ?string
+    {
+        foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
+            if (in_array(strtolower($class), array('footer', 'site-footer', 'widget-footer', 'colophon', 'site-info'), true)) return 'footer';
+        }
+        return null;
     }
 
     /** @param array<string,mixed> $candidate @param array<string,mixed> $current */
