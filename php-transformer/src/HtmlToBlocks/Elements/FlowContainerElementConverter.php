@@ -139,6 +139,14 @@ final class FlowContainerElementConverter implements ElementConverter
             }
         }
 
+        // A flex/grid child may itself be an ordinary inline text run. Keep
+        // its own box as the layout item while its addressable spans share one
+        // editable RichText carrier instead of becoming stacked paragraphs.
+        if ( $this->hasMultipleAddressableInlineChildren($element) && $this->context->isDirectChildOfAuthorOwnedLayout($element) ) {
+            $inlineRun = $this->context->inlineAddressableRunGroupBlock($element);
+            if ( null !== $inlineRun ) return ConversionOutcome::handled($inlineRun);
+        }
+
         if ( 'button' !== strtolower(SourceDom::attr($element, 'role'))
             && ! SourceDom::hasClass($element, 'wp-block-columns')
             && ! $this->context->isGeneratedComponentCandidate($element)
@@ -293,6 +301,15 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->context->emptyVisualSpacerBlock($element));
         }
         return ConversionOutcome::handled(null);
+    }
+
+    private function hasMultipleAddressableInlineChildren(DOMElement $element): bool
+    {
+        $count = 0;
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement && '' !== trim($child->getAttribute('id')) && ++$count > 1) return true;
+        }
+        return false;
     }
 
     /**

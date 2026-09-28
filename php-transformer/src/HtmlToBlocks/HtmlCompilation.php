@@ -918,6 +918,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             authorLayoutBlock: fn (DOMElement $element, array &$fallbacks): array => $this->authorLayoutBlockFromElement($element, $fallbacks),
             hasMultipleRuntimeInlineTextTargets: fn (DOMElement $element): bool => $this->hasMultipleRuntimeInlineTextTargets($element),
             paragraphBlockFromInlineContentWrapper: fn (DOMElement $element): ?array => $this->paragraphBlockFromInlineContentWrapper($element),
+            inlineAddressableRunGroupBlock: fn (DOMElement $element): ?array => $this->inlineAddressableRunGroupBlock($element),
             isGeneratedComponentCandidate: fn (DOMElement $element): bool => $this->isGeneratedComponentCandidate($element),
             isAuthorOwnedLayout: fn (DOMElement $element): bool => $this->isAuthorOwnedLayout($element),
             proofBackedWrapperCoalescing: fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
@@ -6342,6 +6343,27 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
         $attrs['content'] = $content;
         return $this->createBlock('core/paragraph', $attrs, array(), $element);
+    }
+
+    /** @return array<string, mixed>|null */
+    private function inlineAddressableRunGroupBlock(DOMElement $element): ?array
+    {
+        if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) ) return null;
+
+        $addressable = 0;
+        foreach ($element->childNodes as $child) {
+            if ( ! $child instanceof DOMElement ) continue;
+            if ($this->requiresStandaloneInlineLayoutLeaf($child)) return null;
+            if ('' !== trim($this->attr($child, 'id'))) ++$addressable;
+        }
+        if ($addressable < 2) return null;
+        if ($this->isAuthorOwnedLayout($element) || $this->hasEmptyVisualInlineChild($element)) return null;
+
+        $content = $this->richTextMaterializer->content($element);
+        if ('' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallback($content)) return null;
+
+        $paragraph = $this->createBlock('core/paragraph', array('className' => self::INLINE_LAYOUT_CARRIER_CLASS, 'content' => $content));
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array($paragraph), $element);
     }
 
     private function hasMultipleRuntimeInlineTextTargets(DOMElement $element): bool

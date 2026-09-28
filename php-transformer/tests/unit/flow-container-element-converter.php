@@ -49,6 +49,7 @@ $operations = array(
     'authorLayoutBlock' => static fn (): array => array( 'blockName' => 'author-layout' ),
     'hasMultipleRuntimeInlineTextTargets' => $false,
     'paragraphBlockFromInlineContentWrapper' => $null,
+    'inlineAddressableRunGroupBlock' => $null,
     'isGeneratedComponentCandidate' => $false,
     'isAuthorOwnedLayout' => static fn (): bool => 'author-layout' === $state->mode,
     'proofBackedWrapperCoalescing' => $null,
