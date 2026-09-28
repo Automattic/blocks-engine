@@ -15,6 +15,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 
 $failures = 0;
 $passes   = 0;
@@ -26,6 +27,16 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $transform = static fn (string $html): string => (string) ( ( new HtmlTransformer() )->transform($html)->toArray()['serialized_blocks'] ?? '' );
+$factory = new BlockFactory();
+foreach ( array(
+    array( 'attrs' => array( 'title' => 'Heading' ), 'classes' => 'has-icon has-icon-right' ),
+    array( 'attrs' => array( 'title' => 'Heading', 'iconPosition' => 'left' ), 'classes' => 'has-icon has-icon-left' ),
+    array( 'attrs' => array( 'title' => 'Heading', 'showIcon' => false ), 'classes' => '' ),
+) as $case ) {
+    $markup = $factory->create('core/accordion-heading', $case['attrs'])['innerHTML'];
+    $expected = trim('wp-block-accordion-heading ' . $case['classes']);
+    $assert(str_contains($markup, 'class="' . $expected . '"'), 'accordion heading saves exactly the core icon-state classes for ' . json_encode($case['attrs']), $markup);
+}
 
 /** @return list<string> */
 $headingTitles = static function (string $blocks): array {
