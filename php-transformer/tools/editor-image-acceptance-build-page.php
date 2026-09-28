@@ -21,13 +21,13 @@ if ( $first_id < 1 || $second_id < 1 || '' === $first_url || '' === $second_url 
 }
 
 require_once WP_PLUGIN_DIR . '/blocks-engine-php-transformer/vendor/autoload.php';
-$source = '<media-frame style="display:block"><img src="assets/first.jpg" width="960" height="720" alt="Original gallery image"></media-frame>';
+$source = '<a href="/item"><img src="assets/first.jpg" width="960" height="720" alt="Original gallery image"></a>';
 $result = ( new HtmlTransformer() )->transform( $source, array( 'context' => array( 'asset_metadata' => array(
 	'assets/first.jpg' => array( 'id' => $first_id, 'url' => $first_url ),
 	'assets/second.jpg' => array( 'id' => $second_id, 'url' => $second_url ),
 ) ) ) )->toArray();
 $content = (string) ( $result['serialized_blocks'] ?? '' );
-if ( ! str_contains( $content, '<!-- wp:image' ) || ! str_contains( $content, '"id":' . $first_id ) || str_contains( $content, '<!-- wp:custom/responsive-media' ) ) {
+if ( ! str_contains( $content, '<!-- wp:image' ) || ! str_contains( $content, '"id":' . $first_id ) || ! str_contains( $content, '"href":"/item"' ) || str_contains( $content, '<!-- wp:custom/responsive-media' ) ) {
 	throw new RuntimeException( 'Transformer did not produce only the editable core image shape.' );
 }
 
@@ -46,5 +46,5 @@ echo wp_json_encode( array(
 	'first_attachment' => array( 'id' => $first_id, 'url' => $first_url ),
 	'second_attachment' => array( 'id' => $second_id, 'url' => $second_url ),
 	'transformed_content' => $content,
-	'unpromotable_reason' => 'Linked custom image wrappers retain responsive media because WordPress crop mutations discard core/image link presentation.',
+	'expected_link' => '/item',
 ), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . "\n";

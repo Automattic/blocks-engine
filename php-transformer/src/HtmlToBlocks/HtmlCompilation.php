@@ -8745,10 +8745,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $image = $this->firstChildElement($anchor, 'img');
             return $image instanceof DOMElement ? $this->convertImageElement($image) : null;
         }
-        // WordPress 7.0.4 crop replaces core/image link attributes. Retain every
-        // linked image shape rather than promote an editable shape whose supported
-        // edits lose its link presentation.
-        return $this->responsiveMediaBlock($anchor);
+        if ( $this->runtimeIslands->isRuntimeDomTarget($anchor)
+            || array() !== $this->eventMetadata($anchor)
+            || array() !== $this->interactiveAttributes($anchor)
+        ) {
+            return $this->responsiveMediaBlock($anchor);
+        }
+        $picture = $this->firstChildElement($anchor, 'picture');
+        if ( $picture instanceof DOMElement ) {
+            $image = $this->firstChildElement($picture, 'img');
+            return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $anchor) : null;
+        }
+        $image = $this->firstChildElement($anchor, 'img');
+        return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
     }
 
     /**
@@ -8756,9 +8765,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * RichText — RichText cannot represent `<img>`. Route it through the existing
      * core/image primitive instead of emitting a core/html island. Mixed content
      * (image plus real text or other inlines) is left for the RichText fallback.
-     *
-     * A valid link is retained as responsive media because core/image crop
-     * cannot preserve it.
      *
      * @return array<string, mixed>|null
      */
@@ -8795,7 +8801,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( '' !== LinkUrlSanitizer::sanitize($this->attr($child, 'href')) ) {
-            return $this->responsiveMediaBlock($child);
+            return $this->imageBlockFromAnchor($child);
         }
 
         $image = $this->firstChildElement($child, 'img');
