@@ -31,7 +31,7 @@ $interactive = (string) ($pagesOf($capturedPlan)['website/interactive/index.html
 $assert(str_contains($interactive, 'href="https://example.test/course/interactive/missing.zip?v=1#top"'), 'A document-relative link resolves against the page URL on the recorded source site, keeping its query and fragment.');
 $assert(str_contains($interactive, 'href="https://example.test/outside.html"'), 'Traversal above the captured root resolves against the source URL rather than escaping the artifact.');
 $assert(str_contains($interactive, 'href="/"') && !preg_match('~href=(?:"|\\\\u0022)\\.{1,2}/~', $interactive), 'Resolvable routes stay local and no document-relative navigation link remains.');
-$assert(1 === substr_count($interactive, 'href=\\u0022https://example.test/course/interactive/missing.zip\\u0022'), 'Linked media companion content carries the same absolute source URL.');
+$assert(1 === substr_count($interactive, 'href="https://example.test/course/interactive/missing.zip"'), 'Linked core/image markup carries the same absolute source URL.');
 $assert(str_contains((string) ($pagesOf($capturedPlan)['website/index.html'] ?? ''), 'href="/interactive"'), 'A directory link to a captured index document stays a local route.');
 $diagnostics = $linkDiagnostics($capturedPlan);
 $assert(3 === count($diagnostics), 'Each distinct unresolved navigation link on a page is reported once.');

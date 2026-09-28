@@ -15,6 +15,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 
 $failures = 0;
 $passes   = 0;
@@ -26,6 +27,16 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $transform = static fn (string $html): string => (string) ( ( new HtmlTransformer() )->transform($html)->toArray()['serialized_blocks'] ?? '' );
+$factory = new BlockFactory();
+foreach ( array(
+    array( 'attrs' => array( 'title' => 'Heading' ), 'classes' => 'has-icon has-icon-right' ),
+    array( 'attrs' => array( 'title' => 'Heading', 'iconPosition' => 'left' ), 'classes' => 'has-icon has-icon-left' ),
+    array( 'attrs' => array( 'title' => 'Heading', 'showIcon' => false ), 'classes' => '' ),
+) as $case ) {
+    $markup = $factory->create('core/accordion-heading', $case['attrs'])['innerHTML'];
+    $expected = trim('wp-block-accordion-heading ' . $case['classes']);
+    $assert(str_contains($markup, 'class="' . $expected . '"'), 'accordion heading saves exactly the core icon-state classes for ' . json_encode($case['attrs']), $markup);
+}
 
 /** @return list<string> */
 $headingTitles = static function (string $blocks): array {
@@ -91,6 +102,21 @@ foreach ( array( 'plain icon wrapper' => '', 'aria-hidden icon wrapper' => ' ari
         $blocks
     );
     $assert($isBalanced(preg_replace('/<!--.*?-->/s', '', $blocks) ?? ''), $case . ': the serialized accordion markup is balanced', $blocks);
+}
+
+$wrappedControlItem = static fn (string $index): string => '<div class="accordion-item"><div class="accordion-item__title"><button type="button" aria-expanded="false" aria-controls="panel-' . $index . '"><span>Question ' . $index . '</span></button></div><div id="panel-' . $index . '" role="region"><p>Answer ' . $index . '</p></div></div>';
+$wrappedResult = ( new HtmlTransformer() )->transform('<main><div class="accordion">' . $wrappedControlItem('1') . $wrappedControlItem('2') . '</div></main>')->toArray();
+$wrappedHeadings = array();
+$visitHeadings = static function ( array $blocks ) use ( &$visitHeadings, &$wrappedHeadings ): void {
+    foreach ( $blocks as $block ) {
+        if ( 'core/accordion-heading' === ( $block['blockName'] ?? null ) ) $wrappedHeadings[] = $block;
+        $visitHeadings($block['innerBlocks'] ?? array());
+    }
+};
+$visitHeadings($wrappedResult['blocks'] ?? array());
+$assert(2 === count($wrappedHeadings), 'two title wrappers still lower to editable accordion headings');
+foreach ($wrappedHeadings as $heading) {
+    $assert(!str_contains((string) ($heading['attrs']['title'] ?? ''), '<button') && 1 === substr_count((string) ($heading['innerHTML'] ?? ''), '<button'), 'a title wrapper contributes only its nested control label, not a button inside a button', (string) ($heading['innerHTML'] ?? ''));
 }
 
 if ( $failures > 0 ) {

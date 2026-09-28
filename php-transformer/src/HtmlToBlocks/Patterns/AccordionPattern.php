@@ -233,10 +233,14 @@ final class AccordionPattern implements PatternRecognizerInterface
      */
     private function disclosureControlElement(DOMElement $title): DOMElement
     {
-        if ( preg_match('/^h[1-6]$/', strtolower($title->tagName)) !== 1 ) {
+        $tag = strtolower($title->tagName);
+        if ( in_array($tag, array('button', 'summary'), true) || $title->hasAttribute('aria-expanded') || $title->hasAttribute('aria-controls') ) {
             return $title;
         }
 
+        // A styled title container can wrap the actual button just as a heading
+        // can. Use its inner label; core/accordion-heading supplies its own
+        // button, and copying the outer control would save nested buttons.
         return $this->headingDisclosureControlElement($title) ?? $title;
     }
 

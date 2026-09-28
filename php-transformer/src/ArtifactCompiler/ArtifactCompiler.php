@@ -2076,6 +2076,39 @@ final class ArtifactCompiler
         return $files;
     }
 
+    /**
+     * The media condition each stylesheet carries when every document linking
+     * it agrees on one non-empty value. Disagreement or any unconditioned link
+     * leaves the stylesheet unconditioned, as the browser would load it.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, string>
+     */
+    private function documentLinkMedia(array $files): array
+    {
+        $media = array();
+        foreach ( $files as $file ) {
+            if ( 'html' !== ($file['kind'] ?? null) || ! is_string($file['content'] ?? null) ) {
+                continue;
+            }
+            foreach ( StyleTagScanner::scanLinks($file['content']) as $link ) {
+                $tag = (string) $link['tag'];
+                if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute($tag, 'rel')) || ! StyleTagScanner::isCssType($this->htmlAttribute($tag, 'type')) ) {
+                    continue;
+                }
+                $path = $this->stylesheetPathFromHref($this->htmlAttribute($tag, 'href'), (string) $file['path'], $files);
+                if ( '' === $path ) {
+                    continue;
+                }
+                $value = trim($this->htmlAttribute($tag, 'media'));
+                $media[$path] = array_key_exists($path, $media) && $media[$path] !== $value ? '' : $value;
+            }
+        }
+
+        return array_filter($media, static fn (string $value): bool => '' !== $value && 'all' !== strtolower($value));
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
     private function stylesheetPathFromHref(string $href, string $sourcePath, array $files = array()): string
     {
         $href = (string) preg_replace('/[?#].*$/', '', $href);
@@ -4268,6 +4301,7 @@ final class ArtifactCompiler
     {
         $assets = array();
         $unsupportedStylesheets = $this->unsupportedStylesheetPaths($entryHtml, $entryPath);
+        $documentLinkMedia = $this->documentLinkMedia($files);
         foreach ( $files as $file ) {
             if ( $entryPath === $file['path'] || $this->isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
                 continue;
@@ -4314,6 +4348,11 @@ final class ArtifactCompiler
             }
             if ( isset($file['media']) && is_scalar($file['media']) && '' !== trim((string) $file['media']) ) {
                 $asset['media'] = (string) $file['media'];
+            } elseif ( ! isset($file['stylesheet_occurrence']) && isset($documentLinkMedia[$file['path']]) ) {
+                // Only the entry document annotates the site-wide file set. A
+                // stylesheet linked solely from other pages keeps the media
+                // every linking page gives it, or it would apply at all widths.
+                $asset['media'] = $documentLinkMedia[$file['path']];
             }
             if ( 'css' === ($file['kind'] ?? null) ) {
                 if (is_array($file['metadata']['compilation'] ?? null) || '' !== ArtifactNormalizer::inlineExpansionSourcePath($file)) {
