@@ -9203,7 +9203,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function hasOnlyInertImageHostAttributes(DOMElement $host): bool
     {
         foreach ( $host->attributes as $attribute ) {
-            if ( ! in_array(strtolower($attribute->name), array( 'class', 'style' ), true) ) {
+            $name = strtolower($attribute->name);
+            if ( in_array($name, array( 'class', 'style' ), true) ) {
+                continue;
+            }
+            if ( ! str_starts_with($name, 'data-')
+                || $this->runtimeIslands->isRuntimeDomTarget($host)
+                || $this->imageHostDataAttributeIsReferenced($host, $name) ) {
                 return false;
             }
         }
@@ -9211,6 +9217,31 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return ! $this->runtimeIslands->isRuntimeDomTarget($host)
             && array() === $this->interactiveAttributes($host)
             && ! $this->hasAuthorSemanticMarker($host);
+    }
+
+    private function imageHostDataAttributeIsReferenced(DOMElement $host, string $attribute): bool
+    {
+        foreach ( $this->cssRuleBlocks($this->authorStyles()->combinedCss()) as $rule ) {
+            foreach ( \Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary::dataAttributeSelectorsFromCssSelector($rule['selector']) as $selector ) {
+                if ( preg_match('/\\[' . preg_quote($attribute, '/') . '(?:\\]|[\\s*=~|^$*])/', $selector) ) {
+                    return true;
+                }
+            }
+        }
+
+        $document = $host->ownerDocument;
+        if ( ! $document instanceof DOMDocument ) {
+            return false;
+        }
+        $datasetName = preg_replace_callback('/-([a-z])/', static fn (array $match): string => strtoupper($match[1]), substr($attribute, 5));
+        $references = '/\\b' . preg_quote($attribute, '/') . '\\b|\\bdataset\\s*\.\\s*' . preg_quote((string) $datasetName, '/') . '\\b/i';
+        foreach ( $document->getElementsByTagName('script') as $script ) {
+            if ( $script instanceof DOMElement && preg_match($references, (string) $script->textContent) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasBlockFigureDisplay(DOMElement $host): bool
@@ -9270,7 +9301,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
-        return '' !== trim(CssValueInspector::withoutImportant((string) ($declarations['object-position']['value'] ?? '')));
+        $position = strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['object-position']['value'] ?? ''))));
+        return '' !== $position && ! in_array($position, array( 'center', 'center center', '50% 50%', 'unset', 'initial', 'revert', 'revert-layer' ), true);
     }
 
     private function customVideoElement(DOMElement $element): ?DOMElement
