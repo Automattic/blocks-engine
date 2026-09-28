@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 $drawer = '<details><summary>Menu</summary><ul>';
 foreach (array('Home', 'About', 'Services', 'Team', 'Projects') as $index => $label) {
@@ -35,21 +36,26 @@ if (
     exit(1);
 }
 
-$document = new DOMDocument();
-$document->loadHTML('<?xml encoding="utf-8" ?><body>' . $drawer . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
-$fallbacks = array();
+$sourceDocument = new DOMDocument();
+$sourceDocument->loadHTML('<?xml encoding="utf-8" ?><body>' . $drawer . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$projectedItems = '';
 $nativeSourceSelectors = array();
+foreach ($sourceDocument->getElementsByTagName('li') as $item) {
+    $projectedItems .= $sourceDocument->saveHTML($item);
+    $nativeSourceSelectors[] = SourceDom::elementSelector($item);
+}
+$projectedDocument = new DOMDocument();
+$projectedDocument->loadHTML('<?xml encoding="utf-8" ?><body><dialog>' . $projectedItems . '</dialog></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$fallbacks = array();
 $index = 0;
-foreach ($document->getElementsByTagName('li') as $item) {
+foreach ($projectedDocument->getElementsByTagName('li') as $item) {
     ++$index;
-    $sourceSelector = 'details:nth-of-type(1) > ul:nth-of-type(1) > li:nth-of-type(' . $index . ')';
     $projectedSelector = 'dialog:nth-of-type(1) > li:nth-of-type(' . $index . ')';
-    $nativeSourceSelectors[] = $sourceSelector;
     $fallbacks[] = array(
         'diagnostic_code' => 'html_unsupported_element',
         'tag' => 'li',
         'selector' => $projectedSelector,
-        'html' => $document->saveHTML($item),
+        'html' => $projectedDocument->saveHTML($item),
         'conversion_classification' => 'unsupported_loss',
     );
 }
