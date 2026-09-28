@@ -670,6 +670,21 @@ final class ShellExtraction
                 }
                 $withoutShells[$index] = $withoutShell;
             }
+            // The entry page can hold its chrome in a wrapper no other page has
+            // (a pinned layer that keeps the header fixed while the page
+            // scrolls). A wrapper whose only content is the chrome belongs to it:
+            // it moves with the chrome into the front-page template, around the
+            // shared part, instead of staying behind empty in the page.
+            $templateWrappers = array();
+            foreach ($cluster['indexes'] as $index) {
+                if (empty($pages[$index]['entrypoint']) || empty($candidates[$index][0]['nested_shell']) || array() !== ($candidates[$index][0]['additional_ranges'] ?? array())) continue;
+                $ranges = $this->nestedShellRanges($pages[$index]['canonical_block_markup'], $candidates[$index][0], $area);
+                if (1 !== count($ranges)) continue;
+                $wrapper = self::soleChromeWrapper($pages[$index]['canonical_block_markup'], $ranges[0]);
+                if (null === $wrapper) continue;
+                $templateWrappers['front-page'] = array('opening' => $wrapper['opening'], 'closing' => $wrapper['closing']);
+                $withoutShells[$index] = $wrapper['page'];
+            }
             $shellBindings = array();
             foreach ($cluster['indexes'] as $index) {
                 $page = $pages[$index];
@@ -762,7 +777,7 @@ final class ShellExtraction
             $tagName = is_array($absorbed) ? 'div' : ShellLandmarkPolicy::templatePartAreaTagName($area);
             $ancestorContext = is_array($absorbed) ? ($absorbed['ancestor_context'] ?? null) : ($first['ancestor_context'] ?? null);
             $container = isset($first['legacy_container_opening']) ? array('opening' => $first['legacy_container_opening'], 'closing' => $first['legacy_container_closing']) : null;
-            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => $tagName, 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $container), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : 'canonical', $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => $tagName, 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $container, 'template_wrappers' => in_array('front-page', $templateSlugs, true) && !$singlePage ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : 'canonical', $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
         foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);
@@ -1121,6 +1136,29 @@ final class ShellExtraction
             $markup = substr($markup, 0, $row['offset']) . substr($markup, $row['offset'] + $row['length']);
         }
         return '' === trim($markup) ? null : $markup;
+    }
+
+    /**
+     * The group block whose only content is the chrome at `$range`, and the
+     * page with that group and the chrome both removed.
+     *
+     * @param array{offset:int,length:int} $range
+     * @return array{opening:string,closing:string,page:string}|null
+     */
+    private static function soleChromeWrapper(string $markup, array $range): ?array
+    {
+        $before = substr($markup, 0, $range['offset']);
+        $after = substr($markup, $range['offset'] + $range['length']);
+        if (!preg_match('/(<!--\s*wp:group\s+\{[^>]*?\}\s*-->\s*<(div|section)\b[^>]*>)\s*$/s', $before, $open)) return null;
+        if (!preg_match('/^\s*(<\/' . $open[2] . '>\s*<!--\s*\/wp:group\s*-->)/s', $after, $close)) return null;
+        // A wrapper nested in another group's opening is still only a wrapper;
+        // its comment must open exactly one block.
+        if (1 !== preg_match_all('/<!--\s*wp:/', $open[1])) return null;
+        return array(
+            'opening' => trim($open[1]),
+            'closing' => trim($close[1]),
+            'page' => substr($before, 0, strlen($before) - strlen($open[0])) . substr($after, strlen($close[0])),
+        );
     }
 
     /** @param array<string,mixed> $page @param array<int,array<string,mixed>> $runtimeDeclarations */
