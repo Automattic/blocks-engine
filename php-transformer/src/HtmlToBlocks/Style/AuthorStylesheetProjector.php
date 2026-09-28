@@ -1467,7 +1467,7 @@ final class AuthorStylesheetProjector
             // A RichText-marked element can be emitted as a block wrapper in
             // another responsive representation, where only its authored class
             // remains available to the projected rule.
-            if ( array() !== $richTextLeaves && $this->isClassBoundSelector($parsed) ) {
+            if ( array() !== $richTextLeaves && $this->hasClassBoundSubject($parsed) ) {
                 $hasNonProjected = true;
             }
             if ( $hasNonProjected ) {
@@ -2213,6 +2213,23 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed */
+    /**
+     * The selector's subject (its last compound) is addressed by class alone.
+     * Ancestor compounds such as a responsive variant scope do not change what
+     * the rule sizes, so the subject's class still identifies the element.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function hasClassBoundSubject(array $parsed): bool
+    {
+        $compounds = $parsed['compounds'] ?? array();
+        if ( array() === $compounds ) {
+            return false;
+        }
+
+        return $this->isClassBoundSelector(array( 'compounds' => array( $compounds[array_key_last($compounds)] ) ));
+    }
+
     private function isClassBoundSelector(array $parsed): bool
     {
         $compounds = $parsed['compounds'] ?? array();
