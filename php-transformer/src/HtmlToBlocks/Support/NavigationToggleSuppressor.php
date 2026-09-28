@@ -703,6 +703,13 @@ final class NavigationToggleSuppressor
             return false;
         }
 
+        // A control inside a form belongs to that form's own fields (a country
+        // code picker, a date popup): it opens the field's list, never the
+        // site menu, however far up the page a menu dialog sits.
+        if ( $this->hasAncestorTag($element, 'form') ) {
+            return false;
+        }
+
         if ( '' !== $this->visibleMenuToggleLabel($element) ) {
             return false;
         }
@@ -728,6 +735,17 @@ final class NavigationToggleSuppressor
         // aria-label/title, or the text it hides visually (an off-screen
         // "Menu" behind a CSS-drawn glyph) — names a menu.
         return $this->accessibleNameNamesMenu($element);
+    }
+
+    private function hasAncestorTag(DOMElement $element, string $tagName): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $tagName === strtolower($node->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function accessibleNameNamesMenu(DOMElement $element): bool
