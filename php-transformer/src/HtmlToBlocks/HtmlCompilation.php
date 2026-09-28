@@ -1530,6 +1530,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
         $blocks = $this->compressProjectedGroupChains($blocks);
         $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
+        $this->reconcileNativeListItemFallbacks($fallbacks, $blocks);
         if (! $this->session->usesFallbackReductionMode()) {
             $blocks = $this->reduceCoreHtmlFallbackBlocks($blocks);
         }
@@ -6815,6 +6816,36 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         return null;
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks @param array<int, array<string, mixed>> $blocks */
+    private function reconcileNativeListItemFallbacks(array &$fallbacks, array $blocks): void
+    {
+        $selectors = array();
+        $collect = function (array $nodes) use (&$collect, &$selectors): void {
+            foreach ($nodes as $node) {
+                if (! is_array($node)) {
+                    continue;
+                }
+                if ('core/list-item' === ($node['blockName'] ?? null)) {
+                    $provenanceIds = is_array($node['_source_provenance_ids'] ?? null)
+                        ? $node['_source_provenance_ids']
+                        : array($node['_source_provenance_id'] ?? null);
+                    foreach ($provenanceIds as $provenanceId) {
+                        if (! is_int($provenanceId)) {
+                            continue;
+                        }
+                        $selector = $this->transformationProvenance()->source($provenanceId)['selector'] ?? null;
+                        if (is_string($selector) && '' !== $selector) {
+                            $selectors[$selector] = true;
+                        }
+                    }
+                }
+                $collect(is_array($node['innerBlocks'] ?? null) ? $node['innerBlocks'] : array());
+            }
+        };
+        $collect($blocks);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\NativeListItemFallbackReconciler::reconcile($fallbacks, $selectors);
     }
 
     /**
