@@ -669,31 +669,41 @@ final class ShellExtraction
                 }
                 $withoutShells[$index] = $withoutShell;
             }
+            $shellBindings = array();
             foreach ($cluster['indexes'] as $index) {
                 $page = $pages[$index];
                 $candidate = $candidates[$index][0];
                 $legacyContentRange = $candidate['legacy_content_range'] ?? null;
-                $containsBinding = false;
                 if (is_array($legacyContentRange)) {
-                    $containsBinding = $this->shellContainsRuntimeBindingOutsideRange($runtimeDeclarations, $page, $legacyContentRange['offset'], $legacyContentRange['length']);
-                } else {
-                    foreach ($this->nestedShellRanges($page['canonical_block_markup'], $candidate, $area) as $range) {
-                        if ($this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $range['offset'], $range['length'])) { $containsBinding = true; break; }
+                    if ($this->shellContainsRuntimeBindingOutsideRange($runtimeDeclarations, $page, $legacyContentRange['offset'], $legacyContentRange['length'])) {
+                        $retainedForRuntimeBinding = true;
+                        break;
                     }
+                    continue;
                 }
-                if ($containsBinding) {
-                    $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because it contains a runtime entity binding anchor.", 'area' => $area, 'source_path' => $page['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding', $candidates));
+                $found = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, $this->nestedShellRanges($page['canonical_block_markup'], $candidate, $area));
+                if ($found['blocked']) {
                     $retainedForRuntimeBinding = true;
                     break;
                 }
+                if (array() !== $found['refs']) $shellBindings[$index] = $found['refs'];
             }
-            if ($retainedForRuntimeBinding) continue;
+            $bindingHoist = array() === $shellBindings || $retainedForRuntimeBinding ? null : $this->sharedShellBindingHoist($runtimeDeclarations, $pages, $cluster['indexes'], $shellBindings, $first, $area);
+            if ($retainedForRuntimeBinding || (array() !== $shellBindings && null === $bindingHoist)) {
+                $retainedSource = array() !== $shellBindings ? $pages[array_key_first($shellBindings)]['source_path'] : $pages[$cluster['indexes'][0]]['source_path'];
+                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because it contains a runtime entity binding anchor that cannot move into a shared part.", 'area' => $area, 'source_path' => $retainedSource, 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding', $candidates));
+                continue;
+            }
             $absorbed = null;
             foreach ($withoutShells as $withoutShell) {
                 if ($this->retainsResponsiveVariantLandmark($withoutShell, $area)) {
                     $absorbed = $this->absorbResponsiveVariantLandmarks($pages, $cluster['indexes'], $area, $candidates, $withoutShells, $runtimeDeclarations);
                     break;
                 }
+            }
+            if (null !== $bindingHoist && null !== $absorbed) {
+                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because its runtime entity binding sits in a responsive variant.", 'area' => $area, 'source_path' => $pages[$cluster['indexes'][0]]['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding', $candidates));
+                continue;
             }
             if (false === $absorbed) {
                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because a responsive document variant still contains that landmark.", 'area' => $area, 'source_path' => $pages[$cluster['indexes'][0]]['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'responsive_variant_retained', $candidates));
@@ -732,13 +742,18 @@ final class ShellExtraction
                     $excludedTemplateSlugs = array_keys($overrides);
                 }
             }
+            $singlePage = 1 === count($applicable) && 1 === count($cluster['indexes']);
+            if (null !== $bindingHoist && $singlePage) {
+                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because it contains a runtime entity binding anchor.", 'area' => $area, 'source_path' => $pages[$cluster['indexes'][0]]['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding', $candidates));
+                continue;
+            }
             foreach ($withoutShells as $index => $withoutShell) {
                 $pages[$index]['canonical_block_markup'] = $withoutShell;
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
             }
+            if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, 'wordpress-site-plan/shared/' . $area . '#' . $area);
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
             $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
-            $singlePage = 1 === count($applicable) && 1 === count($cluster['indexes']);
             $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $area;
             $placement = $singlePage ? 'entry_shell' : 'shared_shell';
             if ($singlePage) $templateSlugs = array('front-page');
@@ -756,22 +771,159 @@ final class ShellExtraction
     /** @param array<int,array<string,mixed>> $declarations @param array<string,mixed> $page */
     private function shellContainsRuntimeBinding(array $declarations, array $page, int $offset, int $length): bool
     {
-        foreach ($declarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
+        $found = $this->runtimeBindingsInRanges($declarations, $page, array(array('offset' => $offset, 'length' => $length)));
+        return $found['blocked'] || array() !== $found['refs'];
+    }
+
+    /**
+     * Entity bindings of a page whose anchored block lies inside one of the
+     * ranges, and whether any other binding touches those ranges.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<string,mixed> $page
+     * @param array<int,array{offset:int,length:int}> $ranges
+     * @return array{refs:list<array{declaration:int|string,entity:int|string,binding:int|string,offset:int,range:array{offset:int,length:int}}>,blocked:bool}
+     */
+    private function runtimeBindingsInRanges(array $declarations, array $page, array $ranges): array
+    {
+        $refs = array();
+        $blocked = false;
+        if (array() === $ranges) return array('refs' => $refs, 'blocked' => false);
+        $blockRanges = null;
+        foreach ($declarations as $declarationIndex => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entityIndex => $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $bindingIndex => $binding) {
             $position = $binding['position'] ?? null;
             if (($binding['source_path'] ?? null) !== ($page['source_path'] ?? null)) continue;
             $search = $binding['search_block_markup'] ?? null;
             if (!is_string($search) || '' === $search) continue;
-            if (WordPressSitePlan::bindingPosition($position, $page['canonical_block_markup'], $search)) {
-                $indexedRange = WordPressSitePlan::blockRanges($page['canonical_block_markup'])[$position['block_index']] ?? null;
-                if (is_array($indexedRange) && $indexedRange['offset'] < $offset + $length && $indexedRange['offset'] + $indexedRange['length'] > $offset) return true;
+            $blockRanges ??= WordPressSitePlan::blockRanges($page['canonical_block_markup']);
+            $block = WordPressSitePlan::bindingPosition($position, $page['canonical_block_markup'], $search) ? ($blockRanges[$position['block_index']] ?? null) : null;
+            foreach ($ranges as $range) {
+                if (is_array($block) && $block['offset'] >= $range['offset'] && $block['offset'] + $block['length'] <= $range['offset'] + $range['length']) {
+                    $refs[] = array('declaration' => $declarationIndex, 'entity' => $entityIndex, 'binding' => $bindingIndex, 'offset' => $block['offset'], 'range' => $range);
+                    continue 2;
+                }
             }
-            // Some converters anchor a runtime entity on a projected block that
-            // is not itself a direct descendant range (for example, a form
-            // inside a responsive shell). Keep the shell page-owned whenever
-            // its exact declared anchor is present in the removed source slice.
-            if ($search === substr($page['canonical_block_markup'], $offset, $length) || str_contains(substr($page['canonical_block_markup'], $offset, $length), $search)) return true;
+            // A binding whose block only partly overlaps the shell, or whose
+            // exact anchor sits inside the shell without a positioned block (a
+            // converter can anchor on a projected block that is not a direct
+            // descendant range, such as a form in a responsive shell), cannot
+            // move with the chrome and keeps it page-owned.
+            foreach ($ranges as $range) {
+                $overlaps = is_array($block) && $block['offset'] < $range['offset'] + $range['length'] && $block['offset'] + $block['length'] > $range['offset'];
+                if ($overlaps || str_contains(substr($page['canonical_block_markup'], $range['offset'], $range['length']), $search)) $blocked = true;
+            }
         }
-        return false;
+        usort($refs, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        return array('refs' => $refs, 'blocked' => $blocked);
+    }
+
+    /**
+     * Decide whether the entity bindings inside a shared shell can move into
+     * the shared part. Every page in the cluster must bind the same entities,
+     * in the same order, each owning exactly one binding: identical chrome then
+     * carries one entity, not a copy per page. The entity kept is the one bound
+     * in the page whose markup becomes the part, so its document markers match
+     * the part; the other pages' copies are dropped, and the kept entity lists
+     * every source fallback its one replacement stands for in
+     * `replaced_fallback_identities`. An entity is compared
+     * without its binding, source, identities and document marker seeds.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,int> $indexes
+     * @param array<int,list<array<string,mixed>>> $shellBindings
+     * @param array<string,mixed> $first
+     * @return array{keep:list<array<string,mixed>>,drop:list<array{declaration:int|string,entity:int|string}>}|null
+     */
+    private function sharedShellBindingHoist(array $declarations, array $pages, array $indexes, array $shellBindings, array $first, string $area): ?array
+    {
+        $canonical = null;
+        foreach ($indexes as $index) if (($pages[$index]['source_path'] ?? null) === ($first['source_path'] ?? null)) $canonical = $index;
+        if (null === $canonical || !isset($shellBindings[$canonical]) || !empty($first['nested_shell']) && array() !== ($first['additional_ranges'] ?? array())) return null;
+        $partMarkup = (string) ($first['template_part_markup'] ?? '');
+        $keys = null;
+        foreach ($indexes as $index) {
+            $pageKeys = array();
+            foreach ($shellBindings[$index] ?? array() as $ref) {
+                $key = self::hoistableEntityKey($declarations[$ref['declaration']]['payload']['entities'][$ref['entity']]);
+                if (null === $key) return null;
+                $pageKeys[] = $key;
+            }
+            if (null !== $keys && $keys !== $pageKeys) return null;
+            $keys = $pageKeys;
+        }
+        $keep = array();
+        $partRanges = WordPressSitePlan::blockRanges($partMarkup);
+        $pageMarkup = $pages[$canonical]['canonical_block_markup'];
+        $pageRanges = WordPressSitePlan::blockRanges($pageMarkup);
+        foreach ($shellBindings[$canonical] as $ref) {
+            $search = $declarations[$ref['declaration']]['payload']['entities'][$ref['entity']]['bindings'][$ref['binding']]['search_block_markup'];
+            $rank = count(array_filter($pageRanges, static fn(array $range): bool => $range['offset'] >= $ref['range']['offset'] && $range['offset'] <= $ref['offset'] && $search === substr($pageMarkup, $range['offset'], $range['length'])));
+            $matches = array();
+            foreach ($partRanges as $blockIndex => $range) if ($search === substr($partMarkup, $range['offset'], $range['length'])) $matches[] = array('block_index' => $blockIndex) + $range;
+            $match = $matches[$rank - 1] ?? null;
+            if (null === $match) return null;
+            $keep[] = $ref + array('position' => array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $match['block_index'], 'offset' => $match['offset'], 'length' => $match['length']), 'occurrence' => substr_count(substr($partMarkup, 0, $match['offset']), $search) + 1);
+        }
+        // Each kept entity replaces its own source fallback and the matching
+        // fallbacks of the pages whose duplicates are dropped.
+        $drop = array();
+        foreach ($keep as $position => $ref) $keep[$position]['replaced_fallback_identities'] = array();
+        foreach ($indexes as $index) foreach ($shellBindings[$index] ?? array() as $position => $ref) {
+            $identity = $declarations[$ref['declaration']]['payload']['entities'][$ref['entity']]['fallback_identity'] ?? null;
+            if (is_string($identity) && '' !== $identity) $keep[$position]['replaced_fallback_identities'][] = $identity;
+            if ($index !== $canonical) $drop[] = array('declaration' => $ref['declaration'], 'entity' => $ref['entity']);
+        }
+        foreach ($keep as $position => $ref) { $identities = array_values(array_unique($ref['replaced_fallback_identities'])); sort($identities, SORT_STRING); $keep[$position]['replaced_fallback_identities'] = $identities; }
+        return array('keep' => $keep, 'drop' => $drop);
+    }
+
+    /** @param array<string,mixed> $entity */
+    private static function hoistableEntityKey(array $entity): ?string
+    {
+        $bindings = $entity['bindings'] ?? null;
+        if (!is_array($bindings) || 1 !== count($bindings) || !empty($entity['superseded_scripts'])) return null;
+        $role = (string) ($bindings[array_key_first($bindings)]['role'] ?? '');
+        unset($entity['bindings'], $entity['reconciliation_identity'], $entity['fallback_identity'], $entity['replaced_fallback_identities']);
+        return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson(self::withoutSourcePaths($entity)));
+    }
+
+    /** Where an entity was read from is provenance, not identity. */
+    private static function withoutSourcePaths(array $value): array
+    {
+        unset($value['source_path']);
+        foreach ($value as $key => $child) if (is_array($child)) $value[$key] = self::withoutSourcePaths($child);
+        return $value;
+    }
+
+    /**
+     * Re-anchor the kept bindings on the shared part and drop the duplicate
+     * entities the other pages carried for the same chrome.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array{keep:list<array<string,mixed>>,drop:list<array{declaration:int|string,entity:int|string}>} $hoist
+     * @return array<int,array<string,mixed>>
+     */
+    private static function applySharedShellBindingHoist(array $declarations, array $hoist, string $partSourcePath): array
+    {
+        foreach ($hoist['keep'] as $ref) {
+            $entity = &$declarations[$ref['declaration']]['payload']['entities'][$ref['entity']];
+            $binding = &$entity['bindings'][$ref['binding']];
+            $binding['source_path'] = $partSourcePath;
+            $binding['occurrence'] = $ref['occurrence'];
+            $binding['position'] = $ref['position'];
+            unset($binding['projected_anchor']);
+            $entity['source_path'] = $partSourcePath;
+            if (1 < count($ref['replaced_fallback_identities'])) $entity['replaced_fallback_identities'] = $ref['replaced_fallback_identities'];
+            unset($binding, $entity);
+        }
+        $touched = array();
+        foreach ($hoist['drop'] as $ref) {
+            unset($declarations[$ref['declaration']]['payload']['entities'][$ref['entity']]);
+            $touched[$ref['declaration']] = true;
+        }
+        foreach (array_keys($touched) as $declarationIndex) $declarations[$declarationIndex]['payload']['entities'] = array_values($declarations[$declarationIndex]['payload']['entities']);
+        return $declarations;
     }
 
     private function shellContainsRuntimeBindingOutsideRange(array $declarations, array $page, int $offset, int $length): bool

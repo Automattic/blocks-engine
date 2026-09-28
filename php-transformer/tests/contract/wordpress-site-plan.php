@@ -555,10 +555,12 @@ $sharedFormResult = (new ArtifactCompiler())->compile($sharedFormArtifact)->toAr
 $sharedFormPlan = $sharedFormResult['source_reports']['wordpress_site_plan'] ?? array();
 $sharedFormParts = array_column($sharedFormPlan['template_parts'] ?? array(), 'area');
 $sharedFormPages = array_column($sharedFormPlan['pages'] ?? array(), 'canonical_block_markup', 'source_path');
+$sharedFormDocuments = $sharedFormPages + array_column($sharedFormPlan['template_parts'] ?? array(), 'canonical_block_markup', 'source_path');
 $sharedFormDeclaration = current(array_filter($sharedFormPlan['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
-$assert(array() !== $sharedFormPlan && in_array('header', $sharedFormParts, true) && !in_array('footer', $sharedFormParts, true), 'An unbound shared header extracts while a shared footer containing a binding anchor remains page-owned.');
-foreach ($sharedFormPages as $markup) $assert(1 === substr_count($markup, '"tagName":"footer"'), 'Every runtime-bound shared shell remains exactly once in page content.');
-foreach ($sharedFormDeclaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) $assert('generic/block-binding/v1' === ($binding['schema'] ?? null) && ($binding['occurrence'] ?? 0) <= substr_count((string) ($sharedFormPages[$binding['source_path']] ?? ''), (string) ($binding['search_block_markup'] ?? '')) && !isset($binding['surface']), 'A retained shell keeps the existing page-owned binding contract.');
+$assert(array() !== $sharedFormPlan && in_array('header', $sharedFormParts, true) && in_array('footer', $sharedFormParts, true), 'A shared footer whose form is the same on every page extracts alongside the shared header.');
+foreach ($sharedFormPages as $markup) $assert(0 === substr_count($markup, '"tagName":"footer"'), 'The hoisted footer no longer renders in page content.');
+$assert(1 === count($sharedFormDeclaration['payload']['entities'] ?? array()) && 'wordpress-site-plan/shared/footer#footer' === ($sharedFormDeclaration['payload']['entities'][0]['bindings'][0]['source_path'] ?? null), 'The shared footer owns the single form entity binding.');
+foreach ($sharedFormDeclaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) $assert('generic/block-binding/v1' === ($binding['schema'] ?? null) && ($binding['occurrence'] ?? 0) <= substr_count((string) ($sharedFormDocuments[$binding['source_path']] ?? ''), (string) ($binding['search_block_markup'] ?? '')) && !isset($binding['surface']), 'A retained shell keeps the existing page-owned binding contract.');
 $detachedSharedFormPlan = $sharedFormPlan;
 foreach ($detachedSharedFormPlan['runtime_declarations'] as &$declaration) if ('forms' === ($declaration['type'] ?? null)) { $declaration['payload']['entities'][0]['bindings'][0]['search_block_markup'] = '<!-- wp:group -->detached<!-- /wp:group -->'; unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); }
 unset($declaration);
