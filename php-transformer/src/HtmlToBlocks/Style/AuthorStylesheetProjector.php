@@ -1464,12 +1464,10 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
-            // Shared stylesheets are projected once per document into that
-            // document's marker namespace. Class-bound rules still address
-            // emitted markup that kept the authored class (button inner HTML,
-            // extracted chrome), so dropping the class leaves those elements
-            // unmatched in every other consuming document.
-            if ( $context->keepAuthorClassSelectors && array() !== $projectedMarkers && $this->isClassBoundSelector($parsed) ) {
+            // A RichText-marked element can be emitted as a block wrapper in
+            // another responsive representation, where only its authored class
+            // remains available to the projected rule.
+            if ( array() !== $richTextLeaves && $this->hasClassBoundSubject($parsed) ) {
                 $hasNonProjected = true;
             }
             if ( $hasNonProjected ) {
@@ -2215,6 +2213,23 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed */
+    /**
+     * The selector's subject (its last compound) is addressed by class alone.
+     * Ancestor compounds such as a responsive variant scope do not change what
+     * the rule sizes, so the subject's class still identifies the element.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function hasClassBoundSubject(array $parsed): bool
+    {
+        $compounds = $parsed['compounds'] ?? array();
+        if ( array() === $compounds ) {
+            return false;
+        }
+
+        return $this->isClassBoundSelector(array( 'compounds' => array( $compounds[array_key_last($compounds)] ) ));
+    }
+
     private function isClassBoundSelector(array $parsed): bool
     {
         $compounds = $parsed['compounds'] ?? array();
