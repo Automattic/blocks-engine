@@ -499,18 +499,18 @@ final class ShellExtraction
      */
     public function factorSharedFooterContent(array $pages, array $parts): array
     {
-        $documents = array();
+        $documents = array(); $pageRegionCounts = array();
         foreach ($pages as $index => $page) {
             $markup = (string) ($page['canonical_block_markup'] ?? '');
             $regions = $this->footerContentRegions($markup, (string) ($page['source_path'] ?? ''));
-            if (1 !== count($regions)) continue;
-            $documents[] = array('kind' => 'page', 'index' => $index, 'source_path' => (string) ($page['source_path'] ?? ''), 'markup' => $markup, 'region' => $regions[0]);
+            $pageRegionCounts[$index] = count($regions);
+            foreach ($regions as $regionIndex => $region) $documents[] = array('kind' => 'page', 'index' => $index, 'region_index' => $regionIndex, 'source_path' => (string) ($page['source_path'] ?? ''), 'markup' => $markup, 'region' => $region);
         }
         foreach ($parts as $index => $part) {
             if ('footer' !== ($part['area'] ?? null) || 'inline_shared_shell' === ($part['placement']['kind'] ?? null) || 'responsive_variant_partition' === ($part['provenance']['reason'] ?? null)) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
             $regions = $this->footerContentRegions($markup, (string) ($part['source_path'] ?? ''), true);
-            if (1 !== count($regions)) continue;
+            if (array() === $regions) continue;
             $sourcePaths = array();
             if ('shared_shell' === ($part['placement']['kind'] ?? null) && is_array($part['provenance']['sources'] ?? null)) {
                 $excluded = array_fill_keys($part['placement']['excluded_template_slugs'] ?? array(), true);
@@ -523,7 +523,7 @@ final class ShellExtraction
                 }
             }
             if (array() === $sourcePaths) $sourcePaths[] = (string) ($part['source_path'] ?? '');
-            foreach ($sourcePaths as $sourcePath) $documents[] = array('kind' => 'part', 'index' => $index, 'source_path' => $sourcePath, 'markup' => $markup, 'region' => $regions[0]);
+            foreach ($sourcePaths as $sourcePath) foreach ($regions as $regionIndex => $region) $documents[] = array('kind' => 'part', 'index' => $index, 'region_index' => $regionIndex, 'source_path' => $sourcePath, 'markup' => $markup, 'region' => $region);
         }
         if (2 > count($documents)) return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => array());
 
@@ -541,6 +541,8 @@ final class ShellExtraction
                 $key = hash('sha256', $identity);
                 $clusters[$key]['identity'] = $identity;
                 $clusters[$key]['text_length'] = strlen($text);
+                $clusters[$key]['source_paths'][$document['source_path']] = true;
+                if ('page' === $document['kind']) $clusters[$key]['page_regions'][$document['index']][$document['region_index']] = true;
                 $clusters[$key]['documents'][$documentIndex][] = array(
                     'kind' => $document['kind'],
                     'index' => $document['index'],
@@ -551,9 +553,16 @@ final class ShellExtraction
                 );
             }
         }
-        uasort($clusters, static fn(array $left, array $right): int => count($right['documents'] ?? array()) <=> count($left['documents'] ?? array()) ?: ($right['text_length'] ?? 0) <=> ($left['text_length'] ?? 0));
+        foreach ($clusters as &$candidateCluster) {
+            foreach ($candidateCluster['page_regions'] ?? array() as $pageIndex => $coveredRegions) {
+                if (count($coveredRegions) !== ($pageRegionCounts[$pageIndex] ?? 0)) $candidateCluster['incomplete_responsive_regions'] = true;
+            }
+        }
+        unset($candidateCluster);
+        $clusters = array_filter($clusters, static fn(array $cluster): bool => empty($cluster['incomplete_responsive_regions']));
+        uasort($clusters, static fn(array $left, array $right): int => count($right['source_paths'] ?? array()) <=> count($left['source_paths'] ?? array()) ?: ($right['text_length'] ?? 0) <=> ($left['text_length'] ?? 0));
         $cluster = reset($clusters);
-        if (!is_array($cluster) || count($cluster['documents'] ?? array()) < 2) return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => array());
+        if (!is_array($cluster) || count($cluster['source_paths'] ?? array()) < 2) return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => array());
 
         $baseSlug = 'footer-content';
         $slug = $baseSlug;

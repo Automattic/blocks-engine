@@ -852,4 +852,40 @@ $assert(str_contains($footerFactorPages['projects.html']['canonical_block_markup
 $assert(str_contains($footerFactorPages['distinct.html']['canonical_block_markup'] ?? '', 'A genuinely different footer.') && !str_contains($footerFactorPages['distinct.html']['canonical_block_markup'] ?? '', '"slug":"footer-content"'), 'A genuinely distinct footer remains page-owned.');
 WordPressSitePlan::assertValid($footerFactorPlan);
 
+// The combined SSI import can project one responsive footer into multiple
+// wrapper-contract blocks in the same page document. Factor each matching
+// inner paragraph while leaving those authored wrappers in place.
+$combinedFooterArea = static function (string $copy, bool $padded): string {
+    $paragraph = '<!-- wp:paragraph {"style":{"spacing":{"margin":{"top":"0","right":"0","bottom":"0","left":"0"}}}} --><p style="margin-top:0;margin-right:0;margin-bottom:0;margin-left:0">' . $copy . '</p><!-- /wp:paragraph -->';
+    $inner = $padded
+        ? '<!-- wp:group {"tagName":"section","className":"footer-padding","style":{"spacing":{"padding":{"top":"32px","bottom":"32px"}}}} --><section class="wp-block-group footer-padding" style="padding-top:32px;padding-bottom:32px">' . $paragraph . '</section><!-- /wp:group -->'
+        : '<!-- wp:group {"tagName":"section","className":"footer-standard"} --><section class="wp-block-group footer-standard">' . $paragraph . '</section><!-- /wp:group -->';
+    return '<!-- wp:ssi-stadimax-loop10/layout-shell {"wrappers":[{"tagName":"div","attributes":{"class":"widget widget-footer"}},{"tagName":"footer","attributes":{"class":"site-footer"}},{"tagName":"section","attributes":{"class":"footer-inner"}}]} -->'
+        . '<div class="widget widget-footer"><footer class="site-footer"><section class="footer-inner">' . $inner . '</section></footer></div><!-- /wp:ssi-stadimax-loop10/layout-shell -->';
+};
+$combinedFooterResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<main><h1>Home</h1></main>',
+    'about.html' => '<main><h1>About</h1></main>',
+    'projects.html' => '<main><h1>Projects</h1></main>',
+    'distinct.html' => '<main><h1>Distinct</h1></main>',
+)))->toArray();
+foreach ($combinedFooterResult['source_reports']['compiled_site']['pages'] as &$page) {
+    $page['block_markup'] = '<!-- wp:group --><div class="wp-block-group"><main><h1>' . ($page['title'] ?? 'Page') . '</h1></main>'
+        . $combinedFooterArea('index.html' === ($page['source_path'] ?? '') || 'about.html' === ($page['source_path'] ?? '') || 'projects.html' === ($page['source_path'] ?? '') ? 'Shared responsive copy.' : 'A different responsive footer.', 'projects.html' === ($page['source_path'] ?? ''))
+        . $combinedFooterArea('index.html' === ($page['source_path'] ?? '') || 'about.html' === ($page['source_path'] ?? '') || 'projects.html' === ($page['source_path'] ?? '') ? 'Shared responsive copy.' : 'A different responsive footer.', 'projects.html' === ($page['source_path'] ?? ''))
+        . '</div><!-- /wp:group -->';
+}
+unset($page);
+$combinedFooterPlan = (new WordPressSitePlan())->fromResult($combinedFooterResult);
+$combinedFooterPages = $pages($combinedFooterPlan);
+$combinedFooterPart = array_values(array_filter($combinedFooterPlan['template_parts'], static fn(array $part): bool => 'footer-content' === ($part['slug'] ?? null)))[0] ?? array();
+$assert('inline_shared_shell' === ($combinedFooterPart['placement']['kind'] ?? null) && 'Shared responsive copy.' === trim(strip_tags($combinedFooterPart['canonical_block_markup'] ?? '')), 'Repeated responsive wrapper-contract regions share one editable inner-copy part.');
+foreach (array('index.html', 'about.html', 'projects.html') as $source) {
+    $markup = $combinedFooterPages[$source]['canonical_block_markup'] ?? '';
+    $assert(2 === substr_count($markup, '"slug":"footer-content"'), "{$source} replaces both equivalent responsive footer copies.");
+}
+$assert(str_contains($combinedFooterPages['projects.html']['canonical_block_markup'] ?? '', 'footer-padding') && str_contains($combinedFooterPages['projects.html']['canonical_block_markup'] ?? '', 'padding-top:32px') && str_contains($combinedFooterPages['projects.html']['canonical_block_markup'] ?? '', 'padding-bottom:32px'), 'Combined responsive factoring preserves project-specific footer section padding.');
+$assert(str_contains($combinedFooterPages['distinct.html']['canonical_block_markup'] ?? '', 'A different responsive footer.') && !str_contains($combinedFooterPages['distinct.html']['canonical_block_markup'] ?? '', '"slug":"footer-content"'), 'Distinct copy in repeated responsive footer regions remains page-owned.');
+WordPressSitePlan::assertValid($combinedFooterPlan);
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");
