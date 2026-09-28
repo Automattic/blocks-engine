@@ -940,6 +940,9 @@ final class WordPressSitePlan
         $detachedRoots = array();
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
+            // A one-page inline part still lives under its authored page layout.
+            // Its ancestor-scoped rules belong to that page, not global chrome.
+            if ('inline_shared_shell' === ($part['placement']['kind'] ?? '') && 1 === count($part['placement']['source_paths'] ?? array())) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
             if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) $classes[$class] = true;
             // The chrome's own authored hooks: rules written for them styled it

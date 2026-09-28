@@ -57,6 +57,18 @@ $compiledPage = $singleResult['source_reports']['compiled_site']['pages'][0] ?? 
 $assert('entry_shell' === ($compiledHeader['placement']['kind'] ?? null) && !str_contains($compiledHeader['block_markup'] ?? '', '"tagName":"header"') && !str_contains($compiledHeader['block_markup'] ?? '', '<header') && str_contains($compiledHeader['block_markup'] ?? '', '"className":"solo"') && str_contains($compiledHeader['block_markup'] ?? '', '"anchor":"solo-shell"') && str_contains($compiledHeader['block_markup'] ?? '', 'border-top:2px solid #111') && str_contains($compiledHeader['block_markup'] ?? '', 'Solo') && 1 === substr_count($compiledPage['block_markup'] ?? '', 'Solo</p>'), 'The compiled-site compatibility report retains exactly one entry shell until the plan accepts extraction.');
 $assert(str_contains($singleHeader['canonical_block_markup'] ?? '', '"className":"solo"') && str_contains($singleHeader['canonical_block_markup'] ?? '', '"anchor":"solo-shell"') && str_contains($singleHeader['canonical_block_markup'] ?? '', 'border-top:2px solid #111') && str_contains($singleHeader['canonical_block_markup'] ?? '', 'Solo') && !str_contains($singleHeader['canonical_block_markup'] ?? '', '"tagName":"header"') && !str_contains($singleHeader['canonical_block_markup'] ?? '', '<header'), 'The canonical plan retains source presentation without nesting a header landmark inside the template-part wrapper.');
 
+// CSS-owned wrappers must continue to contain their shared editable shell parts.
+$nestedViewportHtml = '<!doctype html><html><head><style>.viewport-shell{display:flex;flex-direction:column;height:100vh}.viewport-shell main{flex:1}</style></head><body><div class="viewport-shell"><header class="site-header"><h1>Brand</h1></header><main><p>Middle</p></main><section><p>Details</p></section><footer class="site-footer"><p>Colophon</p></footer></div></body></html>';
+$nestedViewportPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $nestedViewportHtml)))->toArray()['source_reports']['wordpress_site_plan'];
+$nestedViewportPage = $pages($nestedViewportPlan)['index.html']['canonical_block_markup'] ?? '';
+$nestedViewportParts = array_column($nestedViewportPlan['template_parts'], null, 'slug');
+$nestedViewportFront = $writes($nestedViewportPlan)['templates/front-page.html']['payload']['data'] ?? '';
+$headerRef = strpos($nestedViewportPage, '"slug":"header"');
+$main = strpos($nestedViewportPage, '>Middle</p>');
+$footerRef = strpos($nestedViewportPage, '"slug":"footer"');
+$assert(isset($nestedViewportParts['header'], $nestedViewportParts['footer']) && false !== $headerRef && false !== $main && false !== $footerRef && $headerRef < $main && $main < $footerRef && $footerRef < strrpos($nestedViewportPage, '</div><!-- /wp:group -->') && 1 === substr_count($nestedViewportPage, 'className":"viewport-shell') && 1 === substr_count($nestedViewportPage, 'class="wp-block-group viewport-shell') && str_contains($nestedViewportPage, 'wp:template-part') && !str_contains($nestedViewportFront, 'wp:template-part'), 'A viewport-height CSS-owned wrapper contains the two editable template parts in source order, without duplicating its wrapper in the front-page template.');
+WordPressSitePlan::assertValid($nestedViewportPlan);
+
 $heroResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header class="hero"><h1>Editable hero</h1><p>Page introduction</p></header><main><p>Content</p></main><footer>Footer</footer>')))->toArray();
 $heroPlan = $heroResult['source_reports']['wordpress_site_plan'];
 $heroPage = $pages($heroPlan)['index.html'] ?? array();
