@@ -66,7 +66,8 @@ An HTML detail document with exactly one valid schema.org `Event` JSON-LD claim
 can add a provider-neutral `entity_collection:events` declaration with
 `generic/events/v1` entities. Each entity retains `source_path`, its canonical
 `source_route`, name, ISO `start_date` and `end_date` with explicit offsets,
-optional description, venue name/address, and HTTP(S) image where observed. The existing page
+optional description, venue name/address, and HTTP(S) or portable root-relative
+image where observed. The existing page
 continues to own the route; event metadata does not create another page or
 assume tickets, a provider, or a time-relative publication policy. Malformed or
 ambiguous event evidence leaves the source document as an ordinary page.

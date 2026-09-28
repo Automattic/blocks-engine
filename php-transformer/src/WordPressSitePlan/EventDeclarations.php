@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use DateTimeImmutable;
 
 /** Source-backed Event facts; the existing page remains the sole route owner. */
@@ -79,7 +80,14 @@ final class EventDeclarations
             }
             $entity['venue'] = $place;
         }
-        if (is_string($image) && strlen($image) <= 2048 && preg_match('~^https?://~i', $image) && filter_var($image, FILTER_VALIDATE_URL)) $entity['image'] = $image;
+        if (is_string($image) && strlen($image) <= 2048) {
+            $remote = preg_match('~^https?://~i', $image) && filter_var($image, FILTER_VALIDATE_URL);
+            $relative = ltrim($image, '/');
+            $portable = str_starts_with($image, '/') && !str_starts_with($image, '//') && false === strpbrk($image, '?#')
+                && ArtifactPath::safeRelativePath($relative) === $relative
+                && preg_match('~\.(?:avif|gif|jpe?g|png|svg|webp)$~i', $relative);
+            if ($remote || $portable) $entity['image'] = $image;
+        }
         return $entity;
     }
 
