@@ -91,6 +91,22 @@ $assert(
     'a universal source matching the fallback image is not a source selection'
 );
 $assert(
+    ! $classifier->hasPictureSourceSelection($element('<picture><source media="(min-width: 0px)" srcset="photo.jpg 1x, photo-large.jpg 2x"><img src="photo.jpg"></picture>')),
+    'universal density candidates including the fallback image are not a source selection'
+);
+$assert(
+    $classifier->hasPictureSourceSelection($element('<picture><source media="(min-width: 0px)" srcset="other.jpg 1x, photo-large.jpg 2x"><img src="photo.jpg"></picture>')),
+    'universal density candidates without the fallback image remain a source selection'
+);
+$assert(
+    $classifier->hasPictureSourceSelection($element('<picture><source media="(min-width: 0px)" srcset="photo.jpg 400w, photo-large.jpg 800w" sizes="50vw"><img src="photo.jpg"></picture>')),
+    'width-descriptor candidates remain a source selection'
+);
+$assert(
+    $classifier->hasPictureSourceSelection($element('<picture><source media="(min-width: 0px)" type="image/avif" srcset="photo.jpg 1x, photo-large.jpg 2x"><img src="photo.jpg"></picture>')),
+    'a differing source format remains a source selection'
+);
+$assert(
     $classifier->hasPictureSourceSelection($element('<picture><source media="(max-width: 600px)" srcset="small.jpg"><img src="photo.jpg"></picture>')),
     'a source selected at a viewport breakpoint is a source selection'
 );

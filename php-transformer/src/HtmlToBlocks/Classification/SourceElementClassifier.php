@@ -571,7 +571,22 @@ final class SourceElementClassifier
             if ( '' !== $type && ('' === $imageType || $type !== $imageType) ) {
                 return true;
             }
-            $sourceUrls = SrcsetParser::urls(SourceDom::attr($source, 'srcset'));
+            $srcset = SourceDom::attr($source, 'srcset');
+            $candidates = SrcsetParser::parse($srcset);
+            $sourceUrls = array_column($candidates, 'url');
+            $densityOnly = '' !== $srcset;
+            foreach ( $candidates as $candidate ) {
+                if ( 1 !== preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)x$/i', $candidate['descriptor']) ) {
+                    $densityOnly = false;
+                    break;
+                }
+            }
+            if ( $densityOnly && $image instanceof DOMElement
+                && '' !== SourceDom::attr($image, 'src')
+                && in_array(SourceDom::attr($image, 'src'), $sourceUrls, true)
+            ) {
+                continue;
+            }
             if ( array_diff($sourceUrls, $imageUrls) || array_diff($imageUrls, $sourceUrls) ) {
                 return true;
             }
