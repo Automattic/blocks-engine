@@ -354,6 +354,9 @@ final class BlockFactory
             $level = (int) ($attrs['level'] ?? 3);
             $level = max(1, min(6, $level));
             $showIcon = ! array_key_exists('showIcon', $attrs) || false !== $attrs['showIcon'];
+            if ( $showIcon ) {
+                $attrs['className'] = SourceDom::mergeClassNames('has-icon has-icon-' . ('left' === ($attrs['iconPosition'] ?? 'right') ? 'left' : 'right'), (string) ($attrs['className'] ?? ''));
+            }
             $icon = $showIcon ? '<span class="wp-block-accordion-heading__toggle-icon" aria-hidden="true">+</span>' : '';
             $title = '<span class="wp-block-accordion-heading__toggle-title">' . ($attrs['title'] ?? '') . '</span>';
             $children = 'left' === ($attrs['iconPosition'] ?? 'right') ? $icon . $title : $title . $icon;
