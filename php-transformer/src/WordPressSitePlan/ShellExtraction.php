@@ -396,6 +396,7 @@ final class ShellExtraction
             if (in_array($area, $occupiedAreas, true)) continue;
             $rows = $this->nestedLandmarkCandidates($markup, $sourcePath, $area);
             if (array() === $rows) continue;
+            if (!empty($rows[0]['document_level']) && 1 < count($rows)) continue;
             $identities = array_column($rows, 'identity_markup');
             if (1 !== count(array_unique($identities))) continue;
             $row = $rows[0];
@@ -406,7 +407,7 @@ final class ShellExtraction
             foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
             // The candidate's own block-tree offset is carried forward so removal
             // never needs to re-derive its position by searching for its bytes.
-            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
+            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => !empty($row['document_level']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
         }
         return $candidates;
     }
@@ -424,6 +425,7 @@ final class ShellExtraction
             $candidates = array(); $variantCount = null; $rejected = false;
             foreach ($applicable as $index => $page) {
                 $rows = $this->nestedLandmarkCandidates($page['canonical_block_markup'], $page['source_path'], $area);
+                if (!empty($rows[0]['document_level']) && 1 < count($rows)) { $rejected = true; break; }
                 foreach ($rows as $row) if (null !== self::responsiveVariantClass($row)) continue 3;
                 if (array() === $rows) { $rejected = true; break; }
                 $count = self::logicalNestedVariantCount($rows);
@@ -524,7 +526,7 @@ final class ShellExtraction
                 $open = array_pop($stack);
                 if (!is_array($open) || empty($open['candidate'])) continue;
                 $length = $offset + strlen($token['token']) - $open['offset']; $candidateMarkup = substr($markup, $open['offset'], $length);
-                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])));
+                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'document_level' => empty($stack), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])));
                 continue;
             }
             $name = $token['name']; $attributes = $token['attributes']; $attrs = '' === $attributes ? array() : json_decode($attributes, true);
@@ -543,11 +545,13 @@ final class ShellExtraction
                     if (null === $tagName && is_string($wrapper['tagName'] ?? null) && in_array($wrapper['tagName'], array('header', 'footer', 'main', 'article', 'section', 'aside'), true)) $tagName = $wrapper['tagName'];
                 }
             }
-            $candidate = 0 < count($stack) && !$disallowedAncestor && $area === $tagName && self::isShellLandmarkBlock($name);
+            // Semantic shell landmarks can be direct document children when the
+            // source has no layout wrapper. Article-owned landmarks stay excluded.
+            $candidate = !$disallowedAncestor && $area === $tagName && self::isShellLandmarkBlock($name);
             // Whether page content precedes the landmark inside its ancestors: a
             // block other than the enclosing openings started or ended before it.
             $preceded = false;
-            if ($candidate) {
+            if ($candidate && 0 < count($stack)) {
                 $between = substr($markup, $stack[0]['offset'], $offset - $stack[0]['offset']);
                 $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
             }
@@ -761,8 +765,16 @@ final class ShellExtraction
             if (($binding['source_path'] ?? null) !== ($page['source_path'] ?? null)) continue;
             $search = $binding['search_block_markup'] ?? null;
             if (!is_string($search) || !WordPressSitePlan::bindingPosition($position, $page['canonical_block_markup'], $search)) continue;
-            $indexedRange = WordPressSitePlan::blockRanges($page['canonical_block_markup'])[$position['block_index']] ?? null;
+            $blockRanges = WordPressSitePlan::blockRanges($page['canonical_block_markup']);
+            $indexedRange = $blockRanges[$position['block_index']] ?? null;
             if (is_array($indexedRange) && $indexedRange['offset'] >= $offset && $indexedRange['offset'] + $indexedRange['length'] <= $offset + $length) return true;
+            // Removing an unbound duplicate of an entity anchor still changes
+            // the occurrence sequence used to rebase that page-owned binding.
+            // Keep this shell in page content rather than detaching the anchor.
+            foreach ($blockRanges as $range) {
+                if ($range['offset'] < $offset || $range['offset'] + $range['length'] > $offset + $length) continue;
+                if ($search === substr($page['canonical_block_markup'], $range['offset'], $range['length'])) return true;
+            }
         }
         return false;
     }
