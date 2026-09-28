@@ -490,6 +490,26 @@ final class ShellExtraction
     }
 
     /**
+     * Byte ranges of a document's blocks that runtime entity bindings anchor on.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<string,mixed> $document
+     * @return list<array{offset:int,length:int}>
+     */
+    private function boundBlockRanges(array $declarations, array $document): array
+    {
+        $markup = (string) ($document['canonical_block_markup'] ?? '');
+        $ranges = array();
+        foreach ($declarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
+            if (($binding['source_path'] ?? null) !== ($document['source_path'] ?? null)) continue;
+            $position = $binding['position'] ?? null;
+            $search = $binding['search_block_markup'] ?? null;
+            if (is_string($search) && WordPressSitePlan::bindingPosition($position, $markup, $search)) $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']);
+        }
+        return $ranges;
+    }
+
+    /**
      * Factor footer copy that is identical across otherwise distinct footer
      * wrappers. The original wrappers stay where they were authored, while one
      * editable template part owns the shared paragraph.
@@ -498,8 +518,15 @@ final class ShellExtraction
      * @param array<int,array<string,mixed>> $parts
      * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
      */
-    public function factorSharedFooterContent(array $pages, array $parts): array
+    public function factorSharedFooterContent(array $pages, array $parts, array $runtimeDeclarations = array()): array
     {
+        // A block a runtime entity binding anchors on is replaced whole by its
+        // provider (a form's labels live inside it), so its copy never moves.
+        $bound = array();
+        foreach (array('page' => $pages, 'part' => $parts) as $kind => $rows) foreach ($rows as $index => $row) {
+            $ranges = $this->boundBlockRanges($runtimeDeclarations, $row);
+            if (array() !== $ranges) $bound[$kind . ':' . $index] = $ranges;
+        }
         $documents = array(); $pageRegionCounts = array();
         foreach ($pages as $index => $page) {
             $markup = (string) ($page['canonical_block_markup'] ?? '');
@@ -534,6 +561,10 @@ final class ShellExtraction
             foreach (WordPressSitePlan::blockRanges($regionMarkup) as $range) {
                 $block = substr($regionMarkup, $range['offset'], $range['length']);
                 if (!preg_match('/^<!--\s*wp:paragraph\b/', ltrim($block))) continue;
+                $absolute = $document['region']['offset'] + $range['offset'];
+                foreach ($bound[$document['kind'] . ':' . $document['index']] ?? array() as $protected) {
+                    if ($absolute >= $protected['offset'] && $absolute + $range['length'] <= $protected['offset'] + $protected['length']) continue 2;
+                }
                 $text = preg_replace('/<!--.*?-->/s', ' ', $block) ?? $block;
                 $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5);
                 $text = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
