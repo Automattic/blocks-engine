@@ -207,6 +207,7 @@
       "php tests/unit/lowered-paragraph-margin.php",
       "php tests/unit/artifact-author-stylesheet-projection.php",
       "php tests/unit/fallback-finding-normalizer.php",
+      "php tests/unit/native-list-item-fallback-reconciler.php",
             "php tests/unit/editor-anchor-attribute-id-projection.php",
             "php tests/unit/editor-anchor-id-specificity.php",
             "php tests/unit/editor-list-view-container-names.php",

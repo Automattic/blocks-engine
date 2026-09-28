@@ -1530,6 +1530,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
         $blocks = $this->compressProjectedGroupChains($blocks);
         $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
+        $this->reconcileNativeListItemFallbacks($fallbacks, $blocks);
         if (! $this->session->usesFallbackReductionMode()) {
             $blocks = $this->reduceCoreHtmlFallbackBlocks($blocks);
         }
@@ -6815,6 +6816,28 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         return null;
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks @param array<int, array<string, mixed>> $blocks */
+    private function reconcileNativeListItemFallbacks(array &$fallbacks, array $blocks): void
+    {
+        $nativeListItemMarkup = array();
+        $collect = function (array $nodes) use (&$collect, &$nativeListItemMarkup): void {
+            foreach ($nodes as $node) {
+                if (! is_array($node)) {
+                    continue;
+                }
+                if ('core/list-item' === ($node['blockName'] ?? null)) {
+                    $content = $node['attrs']['content'] ?? null;
+                    if (is_string($content)) {
+                        $nativeListItemMarkup[] = $content;
+                    }
+                }
+                $collect(is_array($node['innerBlocks'] ?? null) ? $node['innerBlocks'] : array());
+            }
+        };
+        $collect($blocks);
+        \Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler::reconcile($fallbacks, $nativeListItemMarkup);
     }
 
     /**
