@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-multi-image-link-keeps-its-images",
-  "description": "A link whose content is images keeps that content whatever the image count. One image stays responsive media, because WordPress crop cannot preserve the link presentation. Several images — with or without insignificant whitespace between them — lower through the link-wrapper group into one core/image per source image, each carrying the anchor's href natively, so the result is a group of linked images rather than one merged image. A link that really wraps nothing is still dropped, but now records an unsupported-element fallback instead of vanishing.",
+  "description": "An image-only link with one image promotes to linked core/image; multi-image links remain groups with one linked core/image per source image.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-multi-image-link-keeps-its-images.json",
-    "notes": "Captured from https://www.madalenatavares.net/ (run r52), whose Instagram feed wraps 11 images in one text-less anchor. Every one of them, on all 22 pages, was discarded with the anchor: /about/ rendered 8 of its 15 source images."
+    "notes": "Neutral synthetic regression fixture for single-image and multi-image link lowering."
   },
   "legacy_comparison": {
     "skip": true,
@@ -19,7 +19,7 @@
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "feed" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "assets/one.jpg", "alt": "One", "href": "/gallery", "linkDestination": "custom" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/image", "attrs": { "url": "assets/two.jpg", "alt": "Two", "href": "/gallery", "linkDestination": "custom" } },
-    { "path": "blocks.1", "name": "custom/responsive-media" },
+    { "path": "blocks.1", "name": "core/image", "attrs": { "url": "assets/profile.jpg", "alt": "Profile", "href": "/profile", "linkDestination": "custom" } },
     { "path": "blocks.2", "name": "core/group", "attrs": { "className": "strip" } },
     { "path": "blocks.2.innerBlocks.0", "name": "core/image", "attrs": { "url": "assets/three.jpg", "alt": "Three", "href": "/strip", "linkDestination": "custom" } },
     { "path": "blocks.2.innerBlocks.1", "name": "core/image", "attrs": { "url": "assets/four.jpg", "alt": "Four", "href": "/strip", "linkDestination": "custom" } }
@@ -37,8 +37,8 @@
     { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "equals", "value": "assets/two.jpg" },
     { "path": "blocks.0.innerBlocks.1.attrs.href", "assert": "equals", "value": "/gallery" },
 
-    { "path": "blocks.1.blockName", "assert": "equals", "value": "custom/responsive-media" },
-    { "path": "blocks.1.attrs.content", "assert": "contains", "value": "<a class=\"portrait\" href=\"/profile\"><img src=\"assets/profile.jpg\"" },
+    { "path": "blocks.1.blockName", "assert": "equals", "value": "core/image" },
+    { "path": "blocks.1.attrs.href", "assert": "equals", "value": "/profile" },
 
     { "path": "blocks.2.blockName", "assert": "equals", "value": "core/group" },
     { "path": "blocks.2.innerBlocks", "assert": "count", "count": 2 },

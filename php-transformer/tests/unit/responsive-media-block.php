@@ -15,15 +15,6 @@ $assert = static function (bool $condition, string $message): void {
         exit(1);
     }
 };
-$flattenBlocks = static function (array $blocks) use (&$flattenBlocks): array {
-    $all = array();
-    foreach ($blocks as $block) {
-        $all[] = $block;
-        $all = array_merge($all, $flattenBlocks($block['innerBlocks'] ?? array()));
-    }
-    return $all;
-};
-
 $generator = new ResponsiveMediaBlockGenerator();
 $definition = $generator->definition('ssi-example');
 $assert('ssi-example/responsive-media' === ($definition['block_json']['name'] ?? null), 'one namespaced responsive-media block type is defined');
@@ -131,26 +122,22 @@ $assert('core/html' === ($inlineFlow['blocks'][0]['blockName'] ?? null) && str_c
 
 $wrappedSource = '<a class="profile-link" href="/profile" target="_blank" rel="noopener"><media-frame class="profile-frame" data-image-info="bounded"><img class="profile-image" src="profile.png" width="30" height="30" alt="Profile"></media-frame></a>';
 $wrapped = ( new HtmlTransformer() )->transform($wrappedSource)->toArray();
-$wrappedBlocks = $wrapped['blocks'][0]['innerBlocks'] ?? array();
-$assert('custom/responsive-media' === ($wrappedBlocks[0]['blockName'] ?? null) && str_contains((string) ($wrappedBlocks[0]['attrs']['content'] ?? ''), '<img class="profile-image" src="profile.png"'), 'a linked custom image wrapper remains responsive media because its source topology cannot be lowered to core/image');
+$assert('custom/responsive-media' === ($wrapped['blocks'][0]['blockName'] ?? null) && str_contains((string) ($wrapped['blocks'][0]['attrs']['content'] ?? ''), '<a class="profile-link" href="/profile"') && str_contains((string) ($wrapped['blocks'][0]['attrs']['content'] ?? ''), '<img class="profile-image" src="profile.png"'), 'a linked custom image wrapper remains a carrier when its source topology cannot be lowered to core/image');
 
 $nestedWrappedSource = '<a href="/profile"><div class="crop" style="overflow:hidden"><media-frame data-image-info="bounded"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame></div></a>';
 $nestedWrapped = ( new HtmlTransformer() )->transform($nestedWrappedSource)->toArray();
-$nestedWrappedInner = $nestedWrapped['blocks'][0]['innerBlocks'][0] ?? array();
-$assert('custom/responsive-media' === ($nestedWrappedInner['blockName'] ?? null) && str_contains((string) ($nestedWrappedInner['attrs']['content'] ?? ''), '<media-frame'), 'a linked image behind additional presentation topology remains responsive media');
+$assert('custom/responsive-media' === ($nestedWrapped['blocks'][0]['blockName'] ?? null) && str_contains((string) ($nestedWrapped['blocks'][0]['attrs']['content'] ?? ''), '<a href="/profile"><div class="crop"'), 'a linked image behind additional presentation topology remains responsive media');
 
 $artDirectedWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><media-frame><picture><source media="(min-width: 800px)" srcset="profile-wide.png 800w"><img src="profile.png" alt="Profile"></picture></media-frame></a>')->toArray();
-$artDirectedBlocks = $flattenBlocks($artDirectedWrapper['blocks'] ?? array());
-$artDirectedContent = implode('', array_map(static fn (array $block): string => (string) ($block['attrs']['content'] ?? ''), $artDirectedBlocks));
-$assert(in_array('custom/responsive-media', array_column($artDirectedBlocks, 'blockName'), true) && str_contains($artDirectedContent, '<source media="(min-width: 800px)" srcset="profile-wide.png 800w">'), 'art-directed custom wrappers remain responsive media because core/image cannot preserve picture source selection');
+$artDirectedContent = (string) ($artDirectedWrapper['blocks'][0]['attrs']['content'] ?? '');
+$assert('custom/responsive-media' === ($artDirectedWrapper['blocks'][0]['blockName'] ?? null) && str_contains($artDirectedContent, '<source media="(min-width: 800px)" srcset="profile-wide.png 800w">'), 'art-directed custom wrappers remain responsive media because core/image cannot preserve picture source selection');
 
 $srcsetWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><media-frame><img src="profile.png" srcset="profile.png 1x, profile-2x.png 2x" sizes="30px" alt="Profile"></media-frame></a>')->toArray();
-$srcsetBlocks = $flattenBlocks($srcsetWrapper['blocks'] ?? array());
-$srcsetContent = implode('', array_map(static fn (array $block): string => (string) ($block['attrs']['content'] ?? ''), $srcsetBlocks));
-$assert(in_array('custom/responsive-media', array_column($srcsetBlocks, 'blockName'), true) && str_contains($srcsetContent, 'srcset="profile.png 1x, profile-2x.png 2x"') && str_contains($srcsetContent, 'sizes="30px"'), 'responsive candidates remain responsive media because core/image cannot serialize srcset or sizes');
+$srcsetContent = (string) ($srcsetWrapper['blocks'][0]['attrs']['content'] ?? '');
+$assert('custom/responsive-media' === ($srcsetWrapper['blocks'][0]['blockName'] ?? null) && str_contains($srcsetContent, 'srcset="profile.png 1x, profile-2x.png 2x"') && str_contains($srcsetContent, 'sizes="30px"'), 'responsive candidates remain responsive media because core/image cannot serialize srcset or sizes');
 
 $selectorDependentWrapper = ( new HtmlTransformer() )->transform('<style>.media-frame .media-image{border-radius:50%}</style><a href="/profile"><media-frame class="media-frame"><img class="media-image" src="profile.png" alt="Profile"></media-frame></a>')->toArray();
-$assert(in_array('custom/responsive-media', array_column($flattenBlocks($selectorDependentWrapper['blocks'] ?? array()), 'blockName'), true), 'a custom wrapper whose descendant selector would change remains responsive media');
+$assert('custom/responsive-media' === ($selectorDependentWrapper['blocks'][0]['blockName'] ?? null), 'a custom wrapper whose descendant selector would change remains responsive media');
 
 $deferredHost = ( new HtmlTransformer() )->transform('<wow-image class="_wowImage" data-image-info="{&quot;alignType&quot;:&quot;center&quot;,&quot;imageData&quot;:{&quot;name&quot;:&quot;Logo.png&quot;,&quot;url&quot;:&quot;https://cdn.example.test/logo.png&quot;,&quot;alt&quot;:&quot;Logo.png&quot;}}"><picture><img alt="Logo.png"></picture></wow-image>')->toArray();
 $deferredContent = (string) ($deferredHost['blocks'][0]['attrs']['content'] ?? $deferredHost['serialized_blocks'] ?? '');

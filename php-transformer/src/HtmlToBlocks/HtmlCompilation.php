@@ -8762,6 +8762,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $picture instanceof DOMElement ) {
             return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $anchor) : null;
         }
+        if ( ! $image instanceof DOMElement && 0 < $anchor->getElementsByTagName('img')->length ) {
+            return $this->responsiveMediaBlock($anchor);
+        }
         return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
     }
 
