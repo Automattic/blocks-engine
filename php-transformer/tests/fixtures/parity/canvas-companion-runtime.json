@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
-  "name": "unsupported-html-fallback",
-  "description": "Preserves runtime-targeted native canvas HTML as bounded raw HTML plus runtime island metadata.",
+  "name": "canvas-companion-runtime",
+  "description": "Preserves an editable native canvas and bounded fallback text plus unresolved runtime metadata.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/smoke-unsupported-html-fallback-hook.php",
-    "notes": "Adapted to assert fallback reporting rather than downstream hook behavior."
+    "notes": "The canvas surface now has a typed block; script behavior remains an unresolved runtime island."
   },
   "legacy_comparison": {
     "skip": true,
@@ -19,7 +19,7 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/html", "attrs": { "content": "<canvas id=\"runtime-canvas\"><p>Fallback content</p></canvas>" } }
+    { "path": "blocks.0", "name": "custom/canvas", "attrs": { "canvasId": "runtime-canvas", "fallbackText": "Fallback content" } }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -30,7 +30,7 @@
     { "path": "source_reports.html.runtime_islands.0.kind", "assert": "equals", "value": "canvas" },
     { "path": "source_reports.html.runtime_islands.0.selector", "assert": "equals", "value": "#runtime-canvas" },
     { "path": "source_reports.html.runtime_islands.0.source_snippet", "assert": "contains", "value": "<canvas id=\"runtime-canvas\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:custom/canvas" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<canvas" },
     { "path": "diagnostics.0.code", "assert": "equals", "value": "html_to_blocks_core_slice" }
   ]

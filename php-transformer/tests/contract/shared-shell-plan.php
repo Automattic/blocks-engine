@@ -57,6 +57,18 @@ $compiledPage = $singleResult['source_reports']['compiled_site']['pages'][0] ?? 
 $assert('entry_shell' === ($compiledHeader['placement']['kind'] ?? null) && !str_contains($compiledHeader['block_markup'] ?? '', '"tagName":"header"') && !str_contains($compiledHeader['block_markup'] ?? '', '<header') && str_contains($compiledHeader['block_markup'] ?? '', '"className":"solo"') && str_contains($compiledHeader['block_markup'] ?? '', '"anchor":"solo-shell"') && str_contains($compiledHeader['block_markup'] ?? '', 'border-top:2px solid #111') && str_contains($compiledHeader['block_markup'] ?? '', 'Solo') && 1 === substr_count($compiledPage['block_markup'] ?? '', 'Solo</p>'), 'The compiled-site compatibility report retains exactly one entry shell until the plan accepts extraction.');
 $assert(str_contains($singleHeader['canonical_block_markup'] ?? '', '"className":"solo"') && str_contains($singleHeader['canonical_block_markup'] ?? '', '"anchor":"solo-shell"') && str_contains($singleHeader['canonical_block_markup'] ?? '', 'border-top:2px solid #111') && str_contains($singleHeader['canonical_block_markup'] ?? '', 'Solo') && !str_contains($singleHeader['canonical_block_markup'] ?? '', '"tagName":"header"') && !str_contains($singleHeader['canonical_block_markup'] ?? '', '<header'), 'The canonical plan retains source presentation without nesting a header landmark inside the template-part wrapper.');
 
+// CSS-owned wrappers must continue to contain their shared editable shell parts.
+$nestedViewportHtml = '<!doctype html><html><head><style>.viewport-shell{display:flex;flex-direction:column;height:100vh}.viewport-shell main{flex:1}</style></head><body><div class="viewport-shell"><header class="site-header"><h1>Brand</h1></header><main><p>Middle</p></main><section><p>Details</p></section><footer class="site-footer"><p>Colophon</p></footer></div></body></html>';
+$nestedViewportPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $nestedViewportHtml)))->toArray()['source_reports']['wordpress_site_plan'];
+$nestedViewportPage = $pages($nestedViewportPlan)['index.html']['canonical_block_markup'] ?? '';
+$nestedViewportParts = array_column($nestedViewportPlan['template_parts'], null, 'slug');
+$nestedViewportFront = $writes($nestedViewportPlan)['templates/front-page.html']['payload']['data'] ?? '';
+$headerRef = strpos($nestedViewportPage, '"slug":"header"');
+$main = strpos($nestedViewportPage, '>Middle</p>');
+$footerRef = strpos($nestedViewportPage, '"slug":"footer"');
+$assert(isset($nestedViewportParts['header'], $nestedViewportParts['footer']) && false !== $headerRef && false !== $main && false !== $footerRef && $headerRef < $main && $main < $footerRef && $footerRef < strrpos($nestedViewportPage, '</div><!-- /wp:group -->') && 1 === substr_count($nestedViewportPage, 'className":"viewport-shell') && 1 === substr_count($nestedViewportPage, 'class="wp-block-group viewport-shell') && str_contains($nestedViewportPage, 'wp:template-part') && !str_contains($nestedViewportFront, 'wp:template-part'), 'A viewport-height CSS-owned wrapper contains the two editable template parts in source order, without duplicating its wrapper in the front-page template.');
+WordPressSitePlan::assertValid($nestedViewportPlan);
+
 $heroResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header class="hero"><h1>Editable hero</h1><p>Page introduction</p></header><main><p>Content</p></main><footer>Footer</footer>')))->toArray();
 $heroPlan = $heroResult['source_reports']['wordpress_site_plan'];
 $heroPage = $pages($heroPlan)['index.html'] ?? array();
@@ -72,7 +84,7 @@ $incompletePages = $pages($incomplete); $incompleteWrites = $writes($incomplete)
 $incompleteHeader = current(array_filter($incomplete['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
 $incompleteDiagnostic = current(array_filter($incomplete['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_extracted' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)));
 $assert('header' === ($incompleteHeader['slug'] ?? null) && !str_contains($incompletePages['index.html']['canonical_block_markup'] ?? '', 'Shared') && !str_contains($incompletePages['about.html']['canonical_block_markup'] ?? '', 'Shared') && str_contains($incompletePages['contact.html']['canonical_block_markup'] ?? '', 'Contact') && str_contains($incompletePages['services.html']['canonical_block_markup'] ?? '', 'Services') && 1 === substr_count($incompleteWrites['templates/page-contact.html']['payload']['data'] ?? '', '"slug":"footer"') && !str_contains($incompleteWrites['templates/page-contact.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($incompleteWrites['templates/page-services.html']['payload']['data'] ?? '', '"slug":"footer"') && !str_contains($incompleteWrites['templates/page-services.html']['payload']['data'] ?? '', '"slug":"header"') && 2 === ($incompleteDiagnostic['page_count'] ?? null) && 4 === ($incompleteDiagnostic['applicable_page_count'] ?? null) && array(array('source_path' => 'contact.html', 'reason' => 'missing'), array('source_path' => 'services.html', 'reason' => 'non_equivalent')) === ($incompleteDiagnostic['exclusions'] ?? null), 'A dominant shell cluster extracts only for proven routes while missing and divergent shells remain local through deterministic route templates.');
-$postCluster = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header>Shared</header><main>Home</main>', 'notes/first.html' => '<header>Shared</header><main><article><time datetime="2026-08-01">First</time></article></main>', 'notes/second.html' => '<header>Shared</header><main><article><time datetime="2026-08-02">Second</time></article></main>', 'notes/variant.html' => '<header>Variant</header><main><article><time datetime="2026-08-03">Variant</time></article></main>')))->toArray()['source_reports']['wordpress_site_plan'];
+$postCluster = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header>Shared</header><main>Home</main>', 'notes/first.html' => '<header>Shared</header><main><article><time itemprop="datePublished" datetime="2026-08-01">First</time></article></main>', 'notes/second.html' => '<header>Shared</header><main><article><time itemprop="datePublished" datetime="2026-08-02">Second</time></article></main>', 'notes/variant.html' => '<header>Variant</header><main><article><time itemprop="datePublished" datetime="2026-08-03">Variant</time></article></main>')))->toArray()['source_reports']['wordpress_site_plan'];
 $postWrites = $writes($postCluster); $postPages = $pages($postCluster);
 $assert('post' === ($postPages['notes/first.html']['post_type'] ?? null) && 'post' === ($postPages['notes/second.html']['post_type'] ?? null) && 'post' === ($postPages['notes/variant.html']['post_type'] ?? null) && !str_contains($postWrites['templates/single-post-variant.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($postWrites['templates/index.html']['payload']['data'] ?? '', '"slug":"header"') && !isset($postWrites['templates/single-variant.html']) && !isset($postWrites['templates/single-post.html']), 'A divergent standard post receives the WordPress-specific single-post-{post_name} exclusion template without suppressing the shared shell for the clustered posts.');
 $mixedShells = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header>Shared header</header><main>Home</main><footer>Shared footer</footer>', 'about.html' => '<header>Shared header</header><main>About</main><footer>Shared footer</footer>', 'contact.html' => '<header>Shared header</header><main>Contact</main><footer>Contact footer</footer>')))->toArray()['source_reports']['wordpress_site_plan'];
@@ -451,8 +463,8 @@ $responsiveDuplicatePlan = (new ArtifactCompiler())->compile(array('entrypoint' 
 $responsiveDuplicateWrites = $writes($responsiveDuplicatePlan);
 $responsiveDuplicatePages = $pages($responsiveDuplicatePlan);
 $responsiveDuplicateParts = array_column($responsiveDuplicatePlan['template_parts'], null, 'slug');
-$assert(isset($responsiveDuplicateParts['header'], $responsiveDuplicateParts['footer']) && 'shared_shell' === ($responsiveDuplicateParts['header']['placement']['kind'] ?? null) && 'shared_shell' === ($responsiveDuplicateParts['footer']['placement']['kind'] ?? null), 'Identical nested chrome duplicated inside responsive documents still extracts one header and one footer template part.');
-$assert(str_contains($responsiveDuplicateWrites['parts/header.html']['payload']['data'] ?? '', 'site-header') && str_contains($responsiveDuplicateWrites['parts/footer.html']['payload']['data'] ?? '', 'Ticker'), 'Extracted responsive-duplicate parts keep the authored header and footer content.');
+$assert(isset($responsiveDuplicateParts['header'], $responsiveDuplicateParts['footer'], $responsiveDuplicateParts['footer-content']) && 'shared_shell' === ($responsiveDuplicateParts['header']['placement']['kind'] ?? null) && 'shared_shell' === ($responsiveDuplicateParts['footer']['placement']['kind'] ?? null) && 'inline_shared_shell' === ($responsiveDuplicateParts['footer-content']['placement']['kind'] ?? null), 'Identical nested chrome duplicated inside responsive documents keeps shared wrapper parts and factors their common footer copy.');
+$assert(str_contains($responsiveDuplicateWrites['parts/header.html']['payload']['data'] ?? '', 'site-header') && str_contains($responsiveDuplicateWrites['parts/footer-content.html']['payload']['data'] ?? '', 'Ticker') && str_contains($responsiveDuplicateWrites['parts/footer.html']['payload']['data'] ?? '', '"slug":"footer-content"'), 'The shared footer wrapper nests one editable content part.');
 foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
     $markup = $responsiveDuplicatePages[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, 'site-header') && !str_contains($markup, 'Ticker') && !str_contains($markup, 'wp:template-part') && str_contains($markup, '>' . $title . '</h1>'), "{$source} loses duplicated nested chrome and keeps its page content after shared-shell extraction.");
@@ -461,7 +473,7 @@ $assert(1 === substr_count($responsiveDuplicateWrites['templates/front-page.html
 $responsiveDuplicateTheme = json_decode($responsiveDuplicateWrites['theme.json']['payload']['data'] ?? '', true);
 $responsiveDuplicatePartNames = array_column($responsiveDuplicateTheme['templateParts'] ?? array(), 'name');
 sort($responsiveDuplicatePartNames, SORT_STRING);
-$assert(array('footer', 'header') === $responsiveDuplicatePartNames, 'Generated theme metadata exposes the extracted header and footer parts.');
+$assert(array('footer', 'footer-content', 'header') === $responsiveDuplicatePartNames, 'Generated theme metadata exposes the shared footer content part.');
 
 $responsiveMismatchPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => str_replace('Ticker', 'Desktop ticker', $responsiveDuplicateShell('Home', true, false)),
@@ -481,8 +493,8 @@ $unlabeledChromePlan = (new ArtifactCompiler())->compile(array('entrypoint' => '
 $unlabeledChromeWrites = $writes($unlabeledChromePlan);
 $unlabeledChromePages = $pages($unlabeledChromePlan);
 $unlabeledChromeParts = array_column($unlabeledChromePlan['template_parts'], null, 'slug');
-$assert(isset($unlabeledChromeParts['header'], $unlabeledChromeParts['footer']) && 'shared_shell' === ($unlabeledChromeParts['header']['placement']['kind'] ?? null) && 'shared_shell' === ($unlabeledChromeParts['footer']['placement']['kind'] ?? null) && 1 === count(array_filter($unlabeledChromePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && 1 === count(array_filter($unlabeledChromePlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null))), 'Identical unlabeled chrome duplicated inside responsive documents extracts one header and one footer template part.');
-$assert(str_contains($unlabeledChromeWrites['parts/header.html']['payload']['data'] ?? '', 'Acme') && str_contains($unlabeledChromeWrites['parts/header.html']['payload']['data'] ?? '', 'wp:navigation') && str_contains($unlabeledChromeWrites['parts/footer.html']['payload']['data'] ?? '', '© 2026 Acme'), 'Extracted unlabeled chrome parts keep the authored masthead, navigation, and colophon.');
+$assert(isset($unlabeledChromeParts['header'], $unlabeledChromeParts['footer'], $unlabeledChromeParts['footer-content']) && 'shared_shell' === ($unlabeledChromeParts['header']['placement']['kind'] ?? null) && 'shared_shell' === ($unlabeledChromeParts['footer']['placement']['kind'] ?? null) && 'inline_shared_shell' === ($unlabeledChromeParts['footer-content']['placement']['kind'] ?? null), 'Identical unlabeled chrome duplicated inside responsive documents nests one shared footer-copy part.');
+$assert(str_contains($unlabeledChromeWrites['parts/header.html']['payload']['data'] ?? '', 'Acme') && str_contains($unlabeledChromeWrites['parts/header.html']['payload']['data'] ?? '', 'wp:navigation') && str_contains($unlabeledChromeWrites['parts/footer-content.html']['payload']['data'] ?? '', '© 2026 Acme') && str_contains($unlabeledChromeWrites['parts/footer.html']['payload']['data'] ?? '', '"slug":"footer-content"'), 'The shared footer wrapper references the editable copyright content part.');
 foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
     $markup = $unlabeledChromePages[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, 'masthead') && !str_contains($markup, 'colophon') && !str_contains($markup, 'wp:navigation') && !str_contains($markup, 'wp:template-part') && str_contains($markup, '>' . $title . '</h1>'), "{$source} unlabeled dual-document content loses shared chrome and keeps its page title.");
@@ -520,7 +532,7 @@ $unlabeledClusterChrome = static function (string $title, string $current, bool 
         . $link('blog', 'Blog', $current)
         . '</nav></div>';
     $body = $deep
-        ? '<main><article><time datetime="2026-08-01">' . $title . '</time><h1>' . $title . '</h1></article></main>'
+        ? '<main><article><time itemprop="datePublished" datetime="2026-08-01">' . $title . '</time><h1>' . $title . '</h1></article></main>'
         : '<main><h1>' . $title . '</h1></main>';
     $frame = $masthead . $body . '<div class="colophon"><p>© 2026 Acme</p></div>';
     if (!$deep) {
@@ -815,5 +827,77 @@ foreach (array('index.html' => 'Home', 'services.html' => 'Services', 'contact.h
 $assert(str_contains($equivalentPages['about.html']['canonical_block_markup'] ?? '', 'Other brand') && !str_contains($equivalentWrites['templates/page-about.html']['payload']['data'] ?? '', 'wp:navigation'), 'A route whose header content differs stays page-owned and does not receive the shared navigation in its exclusion template.');
 $assert(1 === substr_count($equivalentWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($equivalentWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($equivalentWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'Generic templates reference the shared header and footer.');
 $assert(!str_contains($equivalentWrites['templates/front-page.html']['payload']['data'] ?? '', 'data-liberation-desktop-document'), 'Equivalent-document extraction does not invent a responsive-variant partition.');
+
+// Footer copy is repeated inside two different authored wrappers. Keep both
+// wrapper geometries in their source position while sharing only the identical
+// paragraph; a genuinely different footer paragraph stays route-owned.
+$footerVariant = static function (string $title, string $copy, bool $padded): string {
+    $paragraph = '<!-- wp:paragraph {"style":{"spacing":{"margin":{"top":"0","right":"0","bottom":"0","left":"0"}}}} --><p style="margin-top:0;margin-right:0;margin-bottom:0;margin-left:0">' . $copy . '</p><!-- /wp:paragraph -->';
+    $footerContent = $padded
+        ? '<!-- wp:group {"tagName":"section","className":"footer-padding","style":{"spacing":{"padding":{"top":"32px","bottom":"32px"}}}} --><section class="wp-block-group footer-padding" style="padding-top:32px;padding-bottom:32px">' . $paragraph . '</section><!-- /wp:group -->'
+        : '<!-- wp:group {"tagName":"section","className":"footer-standard"} --><section class="wp-block-group footer-standard">' . $paragraph . '</section><!-- /wp:group -->';
+    return '<!-- wp:group --><div class="wp-block-group"><main><h1>' . $title . '</h1></main><!-- wp:consumer/layout-shell {"wrappers":[{"tagName":"div","attributes":{"class":"widget-footer"}},{"tagName":"footer","attributes":{"class":"site-footer"}}]} -->'
+        . '<div class="widget-footer"><footer class="site-footer">' . $footerContent . '</footer></div><!-- /wp:consumer/layout-shell --></div><!-- /wp:group -->';
+};
+$footerFactorResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<main><h1>Home</h1></main>',
+    'about.html' => '<main><h1>About</h1></main>',
+    'projects.html' => '<main><h1>Projects</h1></main>',
+    'distinct.html' => '<main><h1>Distinct</h1></main>',
+)))->toArray();
+foreach ($footerFactorResult['source_reports']['compiled_site']['pages'] as &$page) {
+    $page['block_markup'] = match ($page['source_path'] ?? '') {
+        'index.html' => $footerVariant('Home', 'Shared legal copy.', false),
+        'about.html' => $footerVariant('About', 'Shared legal copy.', false),
+        'projects.html' => $footerVariant('Projects', 'Shared legal copy.', true),
+        default => $footerVariant('Distinct', 'A genuinely different footer.', true),
+    };
+}
+unset($page);
+$footerFactorPlan = (new WordPressSitePlan())->fromResult($footerFactorResult);
+$footerFactorPages = $pages($footerFactorPlan);
+$footerFactorPart = array_values(array_filter($footerFactorPlan['template_parts'], static fn(array $part): bool => 'footer-content' === ($part['slug'] ?? null)))[0] ?? array();
+$assert('inline_shared_shell' === ($footerFactorPart['placement']['kind'] ?? null) && 1 === substr_count($footerFactorPart['canonical_block_markup'] ?? '', 'Shared legal copy.'), 'One nested footer-content part owns the identical text across wrapper variants.');
+$assert(array() === array_filter(array('index.html', 'about.html', 'projects.html'), static fn(string $source): bool => !str_contains($footerFactorPages[$source]['canonical_block_markup'] ?? '', '"slug":"footer-content"')), 'Both shared-shell and page-owned footer wrappers reference the same editable inner part.');
+$assert(str_contains($footerFactorPages['projects.html']['canonical_block_markup'] ?? '', 'widget-footer') && str_contains($footerFactorPages['projects.html']['canonical_block_markup'] ?? '', 'site-footer'), 'Route-specific footer wrapper markup remains in page content around the shared part.');
+$assert(str_contains($footerFactorPages['projects.html']['canonical_block_markup'] ?? '', 'footer-padding') && str_contains($footerFactorPages['projects.html']['canonical_block_markup'] ?? '', 'padding-top:32px') && str_contains($footerFactorPages['projects.html']['canonical_block_markup'] ?? '', 'padding-bottom:32px'), 'Project footer wrapper retains its authored 32px vertical padding.');
+$assert(str_contains($footerFactorPages['distinct.html']['canonical_block_markup'] ?? '', 'A genuinely different footer.') && !str_contains($footerFactorPages['distinct.html']['canonical_block_markup'] ?? '', '"slug":"footer-content"'), 'A genuinely distinct footer remains page-owned.');
+WordPressSitePlan::assertValid($footerFactorPlan);
+
+// The combined SSI import can project one responsive footer into multiple
+// wrapper-contract blocks in the same page document. Factor each matching
+// inner paragraph while leaving those authored wrappers in place.
+$combinedFooterArea = static function (string $copy, bool $padded): string {
+    $paragraph = '<!-- wp:paragraph {"style":{"spacing":{"margin":{"top":"0","right":"0","bottom":"0","left":"0"}}}} --><p style="margin-top:0;margin-right:0;margin-bottom:0;margin-left:0">' . $copy . '</p><!-- /wp:paragraph -->';
+    $inner = $padded
+        ? '<!-- wp:group {"tagName":"section","className":"footer-padding","style":{"spacing":{"padding":{"top":"32px","bottom":"32px"}}}} --><section class="wp-block-group footer-padding" style="padding-top:32px;padding-bottom:32px">' . $paragraph . '</section><!-- /wp:group -->'
+        : '<!-- wp:group {"tagName":"section","className":"footer-standard"} --><section class="wp-block-group footer-standard">' . $paragraph . '</section><!-- /wp:group -->';
+    return '<!-- wp:ssi-stadimax-loop10/layout-shell {"wrappers":[{"tagName":"div","attributes":{"class":"widget widget-footer"}},{"tagName":"footer","attributes":{"class":"site-footer"}},{"tagName":"section","attributes":{"class":"footer-inner"}}]} -->'
+        . '<div class="widget widget-footer"><footer class="site-footer"><section class="footer-inner">' . $inner . '</section></footer></div><!-- /wp:ssi-stadimax-loop10/layout-shell -->';
+};
+$combinedFooterResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<main><h1>Home</h1></main>',
+    'about.html' => '<main><h1>About</h1></main>',
+    'projects.html' => '<main><h1>Projects</h1></main>',
+    'distinct.html' => '<main><h1>Distinct</h1></main>',
+)))->toArray();
+foreach ($combinedFooterResult['source_reports']['compiled_site']['pages'] as &$page) {
+    $page['block_markup'] = '<!-- wp:group --><div class="wp-block-group"><main><h1>' . ($page['title'] ?? 'Page') . '</h1></main>'
+        . $combinedFooterArea('index.html' === ($page['source_path'] ?? '') || 'about.html' === ($page['source_path'] ?? '') || 'projects.html' === ($page['source_path'] ?? '') ? 'Shared responsive copy.' : 'A different responsive footer.', 'projects.html' === ($page['source_path'] ?? ''))
+        . $combinedFooterArea('index.html' === ($page['source_path'] ?? '') || 'about.html' === ($page['source_path'] ?? '') || 'projects.html' === ($page['source_path'] ?? '') ? 'Shared responsive copy.' : 'A different responsive footer.', 'projects.html' === ($page['source_path'] ?? ''))
+        . '</div><!-- /wp:group -->';
+}
+unset($page);
+$combinedFooterPlan = (new WordPressSitePlan())->fromResult($combinedFooterResult);
+$combinedFooterPages = $pages($combinedFooterPlan);
+$combinedFooterPart = array_values(array_filter($combinedFooterPlan['template_parts'], static fn(array $part): bool => 'footer-content' === ($part['slug'] ?? null)))[0] ?? array();
+$assert('inline_shared_shell' === ($combinedFooterPart['placement']['kind'] ?? null) && 'Shared responsive copy.' === trim(strip_tags($combinedFooterPart['canonical_block_markup'] ?? '')), 'Repeated responsive wrapper-contract regions share one editable inner-copy part.');
+foreach (array('index.html', 'about.html', 'projects.html') as $source) {
+    $markup = $combinedFooterPages[$source]['canonical_block_markup'] ?? '';
+    $assert(2 === substr_count($markup, '"slug":"footer-content"'), "{$source} replaces both equivalent responsive footer copies.");
+}
+$assert(str_contains($combinedFooterPages['projects.html']['canonical_block_markup'] ?? '', 'footer-padding') && str_contains($combinedFooterPages['projects.html']['canonical_block_markup'] ?? '', 'padding-top:32px') && str_contains($combinedFooterPages['projects.html']['canonical_block_markup'] ?? '', 'padding-bottom:32px'), 'Combined responsive factoring preserves project-specific footer section padding.');
+$assert(str_contains($combinedFooterPages['distinct.html']['canonical_block_markup'] ?? '', 'A different responsive footer.') && !str_contains($combinedFooterPages['distinct.html']['canonical_block_markup'] ?? '', '"slug":"footer-content"'), 'Distinct copy in repeated responsive footer regions remains page-owned.');
+WordPressSitePlan::assertValid($combinedFooterPlan);
 
 fwrite(STDOUT, "shared-shell-plan contract passed\n");

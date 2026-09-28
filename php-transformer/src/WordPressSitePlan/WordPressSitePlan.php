@@ -17,6 +17,7 @@ use Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
+use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use InvalidArgumentException;
 
 /** A complete, destination-independent block-theme materialization contract. */
@@ -172,6 +173,14 @@ final class WordPressSitePlan
         $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
         $assets = $this->orderAssetsByDocumentStylesheetOrder($assets, $pages);
+        NativeListItemFallbackReconciler::reconcileBlockDocuments(
+            $data['fallbacks'],
+            array_values(array_filter(array_column($pages, 'canonical_block_markup'), 'is_string'))
+        );
+        $data['metrics']['fallback_count'] = count(array_filter(
+            $data['fallbacks'],
+            static fn (mixed $fallback): bool => is_array($fallback) && 'native_conversion' !== ($fallback['conversion_classification'] ?? '')
+        ));
         // Restore the semantic shell candidates before deriving binding positions.
         // Extracted parts intentionally contain only their inner markup; the page
         // representation owns the landmark wrapper until extraction is accepted.
@@ -207,6 +216,10 @@ final class WordPressSitePlan
         $shells = $this->shellExtraction->sharedShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations']);
         $inlineAreas = array_fill_keys(array_column($inlineShells['parts'], 'area'), true);
         $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
+        $footerContent = $this->shellExtraction->factorSharedFooterContent($shells['pages'], $shells['parts']);
+        $shells['pages'] = $footerContent['pages'];
+        $shells['parts'] = $footerContent['parts'];
+        $shells['diagnostics'] = array_merge($shells['diagnostics'], $footerContent['diagnostics']);
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
         $assets = self::projectSharedChromeStylesheets($assets, $parts, $pages, $references);
@@ -215,7 +228,6 @@ final class WordPressSitePlan
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
-        foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
          self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
          $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus);
          $pages = $navigation['pages'];
@@ -223,7 +235,12 @@ final class WordPressSitePlan
          $menus = $navigation['menus'];
          $articleChrome = $this->extractPostArticleChrome($pages);
          $pages = $articleChrome['pages'];
-         $pages = $this->materializeListingQueryLoops($pages);
+         $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations);
+         // Query Loop projection can shorten page markup after shell extraction.
+         // Rebase retained runtime anchors on the final page before validation.
+         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
+         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
+         self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
          $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single']);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
@@ -624,11 +641,22 @@ final class WordPressSitePlan
             if ( ! self::safePath($compiledTarget) ) throw new InvalidArgumentException('Compiled site asset lacks a safe target identity.');
             $target = 'assets/' . str_replace('\\', '/', $compiledTarget);
             if ( ! self::safePath($target) ) throw new InvalidArgumentException('Compiled site asset lacks a safe target identity.');
-            $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? '');
+            $assetContent = is_string($asset['content'] ?? null) ? $asset['content'] : null;
+            $media = trim((string) ($asset['media'] ?? ''));
+            if ( 'css' === ($asset['kind'] ?? '') && null !== $assetContent && '' !== $media && 'all' !== strtolower($media) ) {
+                // Some WordPress consumers persist a stylesheet as an asset but
+                // enqueue it without forwarding the source link's `media`
+                // attribute. Keep the condition in the stylesheet payload too,
+                // so responsive author rules cannot leak into the other
+                // responsive document variant (for example desktop-only
+                // absolute positioning collapsing the mobile carousel).
+                $assetContent = '@media ' . $media . "{\n" . $assetContent . "\n}\n";
+            }
+            $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($assetContent ?? '');
             $reference = self::payloadReference($asset['payload_reference'] ?? null);
             if (null !== $reference && !self::referenceBackedBinaryAsset($asset)) throw new InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.');
             $transportHash = is_string($asset['content_base64'] ?? null) ? self::contentHash($asset['content_base64']) : null;
-            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) ? $asset['references'] : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $asset['content'] ?? null, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $reference['sha256'] ?? self::contentHash($payload)), static fn(mixed $value): bool => null !== $value);
+            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) ? $asset['references'] : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $reference['sha256'] ?? self::contentHash($payload)), static fn(mixed $value): bool => null !== $value);
         }
         return $rows;
     }
@@ -1016,6 +1044,9 @@ final class WordPressSitePlan
         $detachedRoots = array();
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
+            // A one-page inline part still lives under its authored page layout.
+            // Its ancestor-scoped rules belong to that page, not global chrome.
+            if ('inline_shared_shell' === ($part['placement']['kind'] ?? '') && 1 === count($part['placement']['source_paths'] ?? array())) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
             if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) $classes[$class] = true;
             // The chrome's own authored hooks: rules written for them styled it
@@ -1460,7 +1491,7 @@ final class WordPressSitePlan
         $evidence = array(); $add = static function (array &$rows, string $source, ?string $value = null): void { if (count($rows) >= 16) return; $row = array('source' => $source); if (null !== $value) $row['publication_timestamp'] = $value; $rows[] = $row; };
         $timestamp = static fn(string $value): ?string => self::normalizePublicationTimestamp($value);
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) if (is_array($meta) && is_string($meta['content'] ?? null) && in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('article:published_time', 'article:published', 'pubdate', 'publishdate', 'date', 'dc.date.issued', 'dc.date', 'parsely-pub-date', 'releasedate'), true)) if (null !== ($date = $timestamp($meta['content']))) $add($evidence, 'meta:' . strtolower((string) ($meta['property'] ?? $meta['name'])), $date);
-        foreach (self::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if ('time' === ($node['name'] ?? null) && is_string($attributes['datetime'] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes['datetime'], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) $add($evidence, 'html:time[datetime]', $date); if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if (in_array($attributes['itemprop'] ?? null, array('datePublished', 'dateCreated'), true)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
+        foreach (self::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if ('datePublished' === ($attributes['itemprop'] ?? null)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
         foreach (self::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
@@ -1525,7 +1556,7 @@ final class WordPressSitePlan
     private static function isVisibleDateElement(string $name, array $attributes): bool
     {
         if ('time' === $name) {
-            return true;
+            return 'datePublished' === ($attributes['itemprop'] ?? null);
         }
         if (!in_array($name, array('p', 'span', 'div', 'li', 'td', 'mark'), true)) {
             return false;
@@ -1562,7 +1593,7 @@ final class WordPressSitePlan
     private function jsonLdPublicationEvidence(mixed $value, callable $timestamp): array
     {
         if (!is_array($value)) return array(); $rows = array();
-        if (isset($value['@type'])) { $types = is_array($value['@type']) ? $value['@type'] : array($value['@type']); if (array_intersect(array('Article', 'BlogPosting'), $types)) { $row = array('source' => 'json-ld:' . (in_array('BlogPosting', $types, true) ? 'BlogPosting' : 'Article')); foreach (array('datePublished', 'dateCreated') as $key) if (is_string($value[$key] ?? null) && null !== ($date = $timestamp($value[$key]))) { $row['publication_timestamp'] = $date; break; } $rows[] = $row; } }
+        if (isset($value['@type'])) { $types = is_array($value['@type']) ? $value['@type'] : array($value['@type']); if (array_intersect(array('Article', 'BlogPosting'), $types)) { $row = array('source' => 'json-ld:' . (in_array('BlogPosting', $types, true) ? 'BlogPosting' : 'Article')); if (is_string($value['datePublished'] ?? null) && null !== ($date = $timestamp($value['datePublished']))) $row['publication_timestamp'] = $date; $rows[] = $row; } }
         foreach ($value as $child) if (is_array($child)) $rows = array_merge($rows, $this->jsonLdPublicationEvidence($child, $timestamp));
         return $rows;
     }
@@ -1706,6 +1737,8 @@ final class WordPressSitePlan
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $templateSlug) && !in_array($templateSlug, $part['placement']['excluded_template_slugs'] ?? array(), true))) {
                  if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
                  $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '"} /-->' . "\n";
+                 $wrapper = $part['placement']['template_wrappers'][$templateSlug] ?? null;
+                 if (is_array($wrapper) && is_string($wrapper['opening'] ?? null) && is_string($wrapper['closing'] ?? null)) $reference = $wrapper['opening'] . "\n" . $reference . $wrapper['closing'] . "\n";
                  if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
              }
              if (in_array($templateSlug, array('index', 'search'), true)) {
@@ -1923,9 +1956,15 @@ final class WordPressSitePlan
         return str_contains($slice, 'Leave a Reply') || 1 === preg_match('/<iframe\b[^>]*(?:comment|Comment)/', $slice);
     }
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
-    private function materializeListingQueryLoops(array $pages): array
+    private function materializeListingQueryLoops(array $pages, array $runtimeDeclarations = array()): array
     {
         $postsByParent = array();
+        $bindingsBySource = array();
+        foreach ($runtimeDeclarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) {
+            $source = $binding['source_path'] ?? null;
+            $search = $binding['search_block_markup'] ?? null;
+            if (is_string($source) && is_string($search) && '' !== $search) $bindingsBySource[$source][] = $search;
+        }
         foreach ($pages as $page) {
             if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !is_string($page['route']['path'] ?? null)) {
                 continue;
@@ -1943,6 +1982,10 @@ final class WordPressSitePlan
             $replaced = $this->replaceListingMarkup($page['canonical_block_markup'], $posts);
             if (null === $replaced || $replaced === $page['canonical_block_markup']) {
                 continue;
+            }
+            // A template cannot replace a source region that owns a live entity.
+            foreach ($bindingsBySource[$page['source_path']] ?? array() as $anchor) {
+                if (substr_count($replaced, $anchor) !== substr_count($page['canonical_block_markup'], $anchor)) continue 2;
             }
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = self::contentHash($replaced);

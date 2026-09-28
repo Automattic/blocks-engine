@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-section-runtime-island-classification",
-  "description": "A genuine canvas/script section keeps its runtime canvas as a bounded island while surrounding content remains native and editable.",
+  "description": "A canvas/script section keeps an editable canvas element and its unresolved script dependency while surrounding content stays native.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-section-runtime-island-classification.json",
-    "notes": "Distilled from runtime-heavy canvas sections: native blocks cannot preserve the canvas runtime contract, so the assertion is classification, not conversion."
+    "notes": "Distilled from runtime-heavy canvas sections: the typed canvas is editable, while preserving the element alone cannot reproduce the source script."
   },
   "legacy_comparison": {
     "skip": true,
@@ -29,7 +29,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/html" },
+    { "path": "blocks.0.innerBlocks.0", "name": "custom/canvas" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph" }
   ],
   "expected_fallbacks": [],
@@ -41,6 +41,6 @@
     { "path": "source_reports.runtime_islands.0.runtime_requirement", "assert": "equals", "value": "canvas_element_and_client_script_execution" },
     { "path": "source_reports.runtime_islands.1.kind", "assert": "equals", "value": "script" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"anchor\":\"stage\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html --><canvas id=\"stage-canvas\"" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:custom/canvas {\"canvasId\":\"stage-canvas\"} --><canvas id=\"stage-canvas\"" }
   ]
 }

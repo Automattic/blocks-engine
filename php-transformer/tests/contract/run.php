@@ -422,10 +422,10 @@ $assert(
 );
 $linkedDimensionedImageResult = ( new HtmlTransformer() )->transform('<a href="/profile"><img src="avatar.jpg" style="width:44px;height:44px" width="44" height="44" alt="Profile"></a>')->toArray();
 $assert(
-    'custom/responsive-media' === ($linkedDimensionedImageResult['blocks'][0]['blockName'] ?? null)
-        && str_contains((string) ($linkedDimensionedImageResult['blocks'][0]['attrs']['content'] ?? ''), 'style="width:44px;height:44px"')
-        && '' === ($linkedDimensionedImageResult['blocks'][0]['innerHTML'] ?? 'x'),
-    'linked images use the responsive-media companion while preserving authored geometry'
+    'core/image' === ($linkedDimensionedImageResult['blocks'][0]['blockName'] ?? null)
+        && '/profile' === ($linkedDimensionedImageResult['blocks'][0]['attrs']['href'] ?? null)
+        && str_contains((string) ($linkedDimensionedImageResult['serialized_blocks'] ?? ''), 'style="width:44px;height:44px"'),
+    'linked images use core/image while preserving native links and authored geometry'
 );
 $visualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}</style><div class="media-column"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>')->toArray();
 $visualLayerImageCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $visualLayerImageResult['assets'] ?? array()));
@@ -831,7 +831,7 @@ $assert('18.5%' === ($percentLayoutTableBlock['innerBlocks'][0]['attrs']['width'
 $percentLayoutTableCss = implode("\n", array_column($percentLayoutTable['assets'] ?? array(), 'content'));
 $assert(str_contains((string) ($percentLayoutTable['serialized_blocks'] ?? ''), 'blocks-engine-layout-table-columns') && str_contains($percentLayoutTableCss, '.wp-block-columns.blocks-engine-layout-table-columns{display:flex;flex-wrap:nowrap;gap:0;box-sizing:border-box}') && str_contains($percentLayoutTableCss, '.wp-block-columns.blocks-engine-layout-table-columns>.wp-block-column{box-sizing:border-box;min-width:0}'), 'layout-table columns keep a single-row flex track and include cell padding inside percent widths');
 $assert('core/table' === (( new HtmlTransformer() )->transform('<table><tr><td>A</td><td>B</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'headerless tables without cell percentages remain data tables');
-$assert(! str_contains($nestedLayoutTableMarkup, '<!-- wp:html') && 'custom/responsive-media' === ($nestedLayoutTableLinkedMedia['blockName'] ?? null) && str_contains((string) ($nestedLayoutTableLinkedMedia['attrs']['content'] ?? ''), 'href="/quote"') && str_contains((string) ($nestedLayoutTableLinkedMedia['attrs']['content'] ?? ''), 'src="quote.jpg"') && str_contains($nestedLayoutTableMarkup, 'src="mark.jpg"') && str_contains($nestedLayoutTableMarkup, 'Layout copy'), 'nested layout table lowering preserves links, media, and content order without HTML fallback');
+$assert(! str_contains($nestedLayoutTableMarkup, '<!-- wp:html') && 'core/image' === ($nestedLayoutTableLinkedMedia['blockName'] ?? null) && '/quote' === ($nestedLayoutTableLinkedMedia['attrs']['href'] ?? null) && str_contains($nestedLayoutTableMarkup, 'src="mark.jpg"') && str_contains($nestedLayoutTableMarkup, 'Layout copy'), 'nested layout table lowering preserves native linked images and content order without HTML fallback');
 $assert('pass' === ($nestedLayoutTableResult['source_reports']['wp_block_validity']['status'] ?? null), 'nested layout table columns remain Gutenberg-valid');
 $nestedDataTableResult = ( new HtmlTransformer() )->transform('<table><tr><td><table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Ada</td></tr></tbody></table></td></tr></table>')->toArray();
 $assert('core/html' === ($nestedDataTableResult['blocks'][0]['blockName'] ?? null), 'nested data tables retain conservative HTML fallback');
@@ -1219,7 +1219,7 @@ $assert('preserve_runtime_island' === ($runtimeCanvasResult['source_reports']['r
 $assert($runtimeCanvasResult['source_reports']['runtime_islands'] === ($runtimeCanvasResult['source_reports']['conversion_report']['runtime_islands'] ?? array()), 'conversion report projects runtime islands');
 
 $assert(array() === ($runtimeCanvasResult['fallbacks'] ?? array()), 'runtime-targeted canvas preservation does not emit a fallback warning');
-$assert('core/html' === ($runtimeCanvasResult['blocks'][0]['blockName'] ?? null), 'runtime-targeted canvas is materialized as bounded raw HTML');
+$assert('custom/canvas' === ($runtimeCanvasResult['blocks'][0]['blockName'] ?? null), 'runtime-targeted canvas is materialized as a typed editable companion block');
 $assert(str_contains((string) ($runtimeCanvasResult['serialized_blocks'] ?? ''), 'id="fixture-canvas"'), 'runtime-targeted canvas remains addressable in serialized blocks');
 
 $runtimeAppShell = ( new HtmlTransformer() )->transform(
@@ -1744,7 +1744,7 @@ $numericLinkedImageDimensions = ( new HtmlTransformer() )->transform(
 )->toArray();
 $numericLinkedImageAttrs = $numericLinkedImageDimensions['blocks'][0]['attrs'] ?? array();
 $numericLinkedImageMarkup = (string) ($numericLinkedImageDimensions['serialized_blocks'] ?? '');
-$assert('custom/responsive-media' === ($numericLinkedImageDimensions['blocks'][0]['blockName'] ?? null) && str_contains((string) ($numericLinkedImageAttrs['content'] ?? ''), 'style="object-fit:cover;width:44;height:44"') && str_contains($numericLinkedImageMarkup, 'responsive-media'), 'numeric linked-image dimensions remain in the reusable responsive-media companion markup');
+$assert('core/image' === ($numericLinkedImageDimensions['blocks'][0]['blockName'] ?? null) && 'https://example.com' === ($numericLinkedImageAttrs['href'] ?? null) && str_contains($numericLinkedImageMarkup, 'style="object-fit:cover;width:44px;height:44px"'), 'numeric linked-image dimensions remain valid in native image markup');
 
 $inlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg class="album-art" viewBox="0 0 100 100" role="img" aria-label="Album art"><rect width="100" height="100" fill="#111"/><circle cx="50" cy="50" r="30" fill="#c4581a"/></svg></main>'
@@ -2530,7 +2530,7 @@ $mixedCanvasRuntime = ( new HtmlTransformer() )->transform(
     array('runtime_dom_selectors' => array('#count'), 'runtime_canvas_selectors' => array('#chart'))
 )->toArray();
 $mixedCanvasMarkup = (string) ($mixedCanvasRuntime['serialized_blocks'] ?? '');
-$assert(1 === substr_count($mixedCanvasMarkup, '<!-- wp:html') && str_contains($mixedCanvasMarkup, '<canvas id="chart">Chart</canvas>') && str_contains($mixedCanvasMarkup, 'Editable <span id="count">0</span>') && str_contains($mixedCanvasMarkup, 'Still editable'), 'an irreducible canvas remains one bounded runtime island without forcing editable siblings into Custom HTML', $mixedCanvasMarkup);
+$assert(1 === substr_count($mixedCanvasMarkup, '<!-- wp:custom/canvas') && !str_contains($mixedCanvasMarkup, '<!-- wp:html') && str_contains($mixedCanvasMarkup, '<canvas id="chart">Chart</canvas>') && str_contains($mixedCanvasMarkup, 'Editable <span id="count">0</span>') && str_contains($mixedCanvasMarkup, 'Still editable'), 'a canvas stays editable in a typed block without forcing neighboring text into Custom HTML', $mixedCanvasMarkup);
 
 $emptyRuntimeText = ( new HtmlTransformer() )->transform(
     '<footer class="footer"><div id="runtime-status" class="runtime-status"></div></footer>',
@@ -3733,7 +3733,7 @@ $assert(! str_contains((string) ($deduplicatedMobileNavigation['serialized_block
 $decoratedImageLink = ( new HtmlTransformer() )->transform(
     '<a href="/photo.jpg" class="lightbox"><img src="/photo.jpg" alt="Photo"><div class="overlay"></div><div class="overlay-inner"></div></a>'
 )->toArray();
-$assert(str_contains((string) ($decoratedImageLink['serialized_blocks'] ?? ''), '<!-- wp:custom/responsive-media') && str_contains((string) ($decoratedImageLink['serialized_blocks'] ?? ''), 'photo.jpg'), 'an image-only link tolerates empty decorative overlay siblings without losing its media');
+$assert('core/image' === ($decoratedImageLink['blocks'][0]['blockName'] ?? null) && true === ($decoratedImageLink['blocks'][0]['attrs']['lightbox']['enabled'] ?? false) && str_contains((string) ($decoratedImageLink['serialized_blocks'] ?? ''), 'photo.jpg'), 'an image-only lightbox with decorative overlay siblings lowers to native core/image lightbox');
 
 $centeredSocialLinks = ( new HtmlTransformer() )->transform(
     '<div style="text-align:center"><span class="social-links"><a href="https://facebook.com/example" aria-label="Facebook"><span></span></a><a href="https://instagram.com/example" aria-label="Instagram"><span></span></a></span></div>'
@@ -3938,8 +3938,8 @@ $assert(1 === count($canvasRuntimeIslands), 'runtime canvas projects as a bounde
 $assert('#bonsai' === ($canvasRuntimeIslands[0]['selector'] ?? ''), 'runtime canvas island preserves script-addressable selector');
 $assert(str_contains((string) ($canvasRuntimeIslands[0]['source_snippet'] ?? ''), '<canvas id="bonsai"'), 'runtime canvas island preserves bounded source snippet for runtime mapping');
 $assert(1 === count($canvasRuntimeIslands[0]['required_scripts'] ?? array()), 'runtime canvas island preserves required script context');
-$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime canvas emits bounded core/html preservation blocks');
-$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas id="bonsai"'), 'runtime canvas serializes raw canvas markup into block output');
+$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-- wp:custom/canvas'), 'runtime canvas emits a typed companion block instead of core/html');
+$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas id="bonsai"') && str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '>Fallback</canvas>'), 'runtime canvas preserves source canvas attributes and fallback text');
 
 $runtimePreserved = ( new HtmlTransformer() )->transform(
     '<main><canvas id="stage" aria-hidden="true"></canvas><input id="amount" value="10"><div id="app-shell">Runtime shell</div></main>',
@@ -4016,8 +4016,8 @@ $decorativeCanvas = ( new HtmlTransformer() )->transform(
     )
 )->toArray();
 $assert('success' === ($decorativeCanvas['status'] ?? ''), 'decorative canvas without runtime selectors does not trip strict fallback gates', (string) ($decorativeCanvas['status'] ?? ''));
-$assert(array() === ($decorativeCanvas['fallbacks'] ?? array()), 'decorative canvas without runtime selectors is omitted instead of reported as runtime fallback');
-$assert(! str_contains((string) ($decorativeCanvas['serialized_blocks'] ?? ''), '<canvas'), 'decorative canvas without runtime selectors is not emitted as raw markup');
+$assert(array() === ($decorativeCanvas['fallbacks'] ?? array()), 'decorative canvas without runtime selectors is preserved without a runtime fallback');
+$assert(str_contains((string) ($decorativeCanvas['serialized_blocks'] ?? ''), '<!-- wp:custom/canvas') && str_contains((string) ($decorativeCanvas['serialized_blocks'] ?? ''), 'aria-hidden="true"'), 'decorative canvas keeps its native accessible surface in a typed block');
 
 $staticCanvas = ( new HtmlTransformer() )->transform(
     '<main><canvas id="static-canvas" class="preview" width="640" height="360"></canvas><h2>Static preview</h2></main>',
@@ -4027,15 +4027,15 @@ $staticCanvas = ( new HtmlTransformer() )->transform(
     )
 )->toArray();
 $assert('success' === ($staticCanvas['status'] ?? ''), 'static canvas without runtime selectors does not trip strict fallback gates', (string) ($staticCanvas['status'] ?? ''));
-$assert(array() === ($staticCanvas['fallbacks'] ?? array()), 'static canvas without runtime selectors is omitted instead of reported as runtime fallback');
-$assert(! str_contains((string) ($staticCanvas['serialized_blocks'] ?? ''), '<canvas'), 'static canvas without runtime selectors is not emitted as raw markup');
+$assert(array() === ($staticCanvas['fallbacks'] ?? array()), 'static canvas without runtime selectors does not emit a runtime fallback');
+$assert(str_contains((string) ($staticCanvas['serialized_blocks'] ?? ''), '<!-- wp:custom/canvas') && str_contains((string) ($staticCanvas['serialized_blocks'] ?? ''), 'id="static-canvas"'), 'static canvas preserves its native element in a typed block');
 
 $starfieldCanvas = ( new HtmlTransformer() )->transform(
     '<main><canvas class="starfield" aria-hidden="true"></canvas><h1>Night sky</h1></main>'
 )->toArray();
 $assert(array() === ($starfieldCanvas['source_reports']['runtime_islands'] ?? array()), 'decorative starfield canvas without runtime selectors is not reported as a runtime island');
 $assert(array() === ($starfieldCanvas['fallbacks'] ?? array()), 'decorative starfield canvas without runtime selectors does not emit runtime fallback diagnostics');
-$assert(! str_contains((string) ($starfieldCanvas['serialized_blocks'] ?? ''), 'starfield'), 'decorative starfield canvas without runtime selectors is omitted from serialized blocks');
+$assert(str_contains((string) ($starfieldCanvas['serialized_blocks'] ?? ''), '<canvas class="starfield" aria-hidden="true"></canvas>'), 'decorative starfield canvas remains a native element without claiming animation parity');
 
 $safeDecorativeSvg = ( new HtmlTransformer() )->transform(
     '<main><svg aria-hidden="true" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle></svg><div class="site-logo"><svg viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg></div></main>'
@@ -4174,7 +4174,8 @@ $assert(str_contains($resolvedRootBackgroundMarkup, 'src="https://example.test/w
 $assert(str_contains($resolvedRootBackgroundMarkup, 'blocks-engine-background-image'), 'metadata-backed root-relative background remains an extracted editable image reference');
 
 $linkedRuntimeImage = ( new HtmlTransformer() )->transform(
-    '<main><a id="productHero" class="product-detail__main-image" href="/product"><img src="assets/product.jpg" alt="Product"></a></main>'
+    '<main><a id="productHero" class="product-detail__main-image" href="/product"><img src="assets/product.jpg" alt="Product"></a></main>',
+    array('runtime_dom_selectors' => array('#productHero', '.product-detail__main-image'))
 )->toArray();
 $linkedRuntimeImageSerialized = (string) ($linkedRuntimeImage['serialized_blocks'] ?? '');
 $linkedRuntimeImageContent = (string) ($linkedRuntimeImage['blocks'][0]['attrs']['content'] ?? '');
@@ -4740,7 +4741,7 @@ $assert(true === ($canvasDependency['generated_present'] ?? null), 'runtime depe
 $assert(null !== $stageDependency, 'runtime dependency parity records canvas class querySelector dependency');
 $assert(true === ($stageDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved canvas class target');
 $assert(str_contains($runtimeDependencyMarkup, '<canvas id="canvas" class="stage"></canvas>'), 'artifact compiler emits referenced canvas runtime target markup');
-$assert(! str_contains($runtimeDependencyMarkup, 'unused-canvas'), 'artifact compiler does not preserve unreferenced canvas markup');
+$assert(str_contains($runtimeDependencyMarkup, 'unused-canvas'), 'artifact compiler retains unreferenced canvas markup without treating it as proved runtime animation');
 $runtimeDependencyIslands = $runtimeDependencySite['source_reports']['runtime_islands'] ?? array();
 $runtimeDependencyIslandsByKind = array();
 foreach ( $runtimeDependencyIslands as $island ) {
@@ -4984,7 +4985,7 @@ $decorativeCanvasSite = $compiler->compile(
 $decorativeCanvasMarkup = (string) ($decorativeCanvasSite['serialized_blocks'] ?? '');
 $decorativeCanvasFallbacks = $decorativeCanvasSite['fallbacks'] ?? array();
 $assert(str_contains($decorativeCanvasMarkup, '<canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas>'), 'artifact compiler emits runtime canvas markup in serialized blocks');
-$assert(! str_contains($decorativeCanvasMarkup, 'hero-canvas'), 'artifact compiler omits decorative canvas touched by script without canvas API usage');
+$assert(str_contains($decorativeCanvasMarkup, '<canvas id="hero-canvas" aria-hidden="true"></canvas>'), 'artifact compiler preserves decorative canvas while distinguishing its unproven animation');
 $assert(array() === $decorativeCanvasFallbacks, 'artifact compiler preserves runtime canvas without fallback diagnostics');
 $assert(1 === count($decorativeCanvasSite['source_reports']['runtime_islands'] ?? array()), 'decorative canvas is not over-reported as a runtime island');
 $assert('#lab-canvas' === ($decorativeCanvasSite['source_reports']['runtime_islands'][0]['selector'] ?? ''), 'runtime island provenance points to the interactive canvas');
@@ -6211,13 +6212,13 @@ assertSame('core/paragraph', $result['blocks'][0]['innerBlocks'][1]['blockName']
 assertSame('core/list', $result['blocks'][1]['blockName'], 'ul should convert to a list block.');
 assertSame('core/list-item', $result['blocks'][1]['innerBlocks'][0]['blockName'], 'li should convert to list-item blocks.');
 assertSame(array(), $runtimeCanvasResult['fallbacks'], 'runtime-targeted canvas elements should be preserved without fallback diagnostics.');
-assertSame('core/html', $runtimeCanvasResult['blocks'][0]['blockName'], 'runtime-targeted canvas elements should be materialized as bounded raw HTML.');
+assertSame('custom/canvas', $runtimeCanvasResult['blocks'][0]['blockName'], 'runtime-targeted canvas elements should be materialized as an editable companion block.');
 $assert(str_contains((string) ($runtimeCanvasResult['serialized_blocks'] ?? ''), 'id="fixture-canvas"'), 'runtime-targeted canvas serialized output should preserve the native target.');
 assertContains('html_to_blocks_core_slice', array_column($result['diagnostics'], 'code'), 'expanded core-slice conversion diagnostic should be present.');
 assertSame('html', $result['provenance'][0]['source_format'], 'source provenance should identify HTML input.');
 assertSame(strlen($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><canvas>Fallback</canvas>"), $result['metrics']['input_bytes'], 'HTML metrics should expose input bytes.');
 assertSame(strlen($result['serialized_blocks']), $result['metrics']['output_bytes'], 'HTML metrics should expose output bytes.');
-assertSame(6, $result['metrics']['block_count'], 'HTML metrics should count nested blocks.');
+assertSame(7, $result['metrics']['block_count'], 'HTML metrics should count nested blocks and the typed canvas.');
 assertSame(0, $result['metrics']['fallback_count'], 'HTML metrics should not count non-runtime canvas as a runtime fallback.');
 assertSame(count($result['diagnostics']), $result['metrics']['diagnostic_count'], 'HTML metrics should expose diagnostic count.');
 $assert(is_float($result['metrics']['transform_duration_ms'] ?? null), 'HTML metrics expose transform duration');

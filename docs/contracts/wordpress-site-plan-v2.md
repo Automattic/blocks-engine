@@ -56,6 +56,11 @@ and `WordPressSitePlanResolver::resolve()`.
    class similarity. Repeated identical block markup remains distinct by position.
    Shared-shell extraction retains a shell in page content when it contains a
    binding anchor, so the materializer's page-owned binding contract is unchanged.
+   When consumer wrapper contracts make complete footer shells visually distinct,
+   deterministic site planning may factor an identical footer paragraph into one
+   `inline_shared_shell` part and reference it at each original page or part
+   content position. The route-owned outer wrappers remain in place, preserving their
+   layout and authored presentation while the shared copy is edited once.
    Validation rejects a binding whose declared markup, occurrence, or position is
    detached from its owning page.
 - `asset_publication` is the explicit declaration kind for materializing a declared

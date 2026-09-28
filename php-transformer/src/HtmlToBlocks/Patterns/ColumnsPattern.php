@@ -135,13 +135,27 @@ final class ColumnsPattern implements PatternRecognizerInterface
 
     private function looksLikeColumnsContainer(DOMElement $element, string $resolvedStyle): bool
     {
+        $inlineStyle = strtolower($this->attr($element, 'style'));
+        $style = strtolower('' !== trim($resolvedStyle) ? $resolvedStyle : $inlineStyle);
+
+        // An out-of-flow flex track is not a row of independent WordPress
+        // columns: its positioning and the containing viewport together define
+        // the gallery geometry. core/columns participates in normal flow and
+        // can wrap its children at the responsive breakpoint, growing the
+        // document by one item per row. Keep it as a group so the geometry
+        // carrier can preserve position/display and all child items.
+        // resolvedStyle() is the structural projection and can intentionally
+        // omit inline properties outside its allow-list (including position).
+        // Keep the explicit inline participation signal alongside it.
+        if ( preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\b/', $style . ';' . $inlineStyle) ) {
+            return false;
+        }
+
         if ( $this->hasClass($element, 'wp-block-columns') ) {
             return true;
         }
 
         $className = strtolower($this->attr($element, 'class'));
-        $inlineStyle = strtolower($this->attr($element, 'style'));
-        $style = strtolower('' !== trim($resolvedStyle) ? $resolvedStyle : $inlineStyle);
 
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style) && $this->hasDirectChildElement($element, 'svg') ) {
             return false;

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
 /** Shared predicates for comparing CSS values without changing their authored form. */
@@ -57,6 +58,12 @@ final class CssValueInspector
     public static function isImportant(string $value): bool
     {
         return 1 === preg_match('/\s*!\s*important\s*$/i', $value);
+    }
+
+    /** @see RenderEquivalentMarkup::isZeroLength() */
+    public static function isZeroLength(string $value): bool
+    {
+        return RenderEquivalentMarkup::isZeroLength($value);
     }
 
     /**
