@@ -66,6 +66,12 @@ $assert(SvgArtworkBlockGenerator::RENDERER === ($svgPayload['blocks'][0]['render
 $source = '<a class="social" href="/profile" target="_blank" rel="noopener" aria-label="Profile"><picture class="hero"><source media="(min-width: 800px)" type="image/webp" srcset="hero,wide.webp 1200w, hero.webp 600w" sizes="100vw"><img class="avatar" src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" width="44" height="44" alt="Profile"></picture></a>';
 $result = ( new HtmlTransformer() )->transform($source)->toArray();
 $assert('custom/responsive-media' === ($result['blocks'][0]['blockName'] ?? null), 'linked responsive media uses the companion');
+$plainPicture = ( new HtmlTransformer() )->transform('<picture><source media="(min-width: 0px)" srcset="photo.jpg"><img src="photo.jpg" alt="Example image"></picture>')->toArray();
+$assert('core/image' === ($plainPicture['blocks'][0]['blockName'] ?? null), 'a universally matching picture source promotes the fallback image to core/image');
+$selectedPicture = ( new HtmlTransformer() )->transform('<picture><source media="(max-width: 600px)" srcset="small.jpg"><img src="photo.jpg" alt="Example image"></picture>')->toArray();
+$assert('custom/responsive-media' === ($selectedPicture['blocks'][0]['blockName'] ?? null), 'a viewport-selected picture source remains responsive media');
+$typedPicture = ( new HtmlTransformer() )->transform('<picture><source type="image/avif" srcset="photo.avif"><img src="photo.jpg" alt="Example image"></picture>')->toArray();
+$assert('custom/responsive-media' === ($typedPicture['blocks'][0]['blockName'] ?? null), 'a format-selected picture source remains responsive media');
 $repeated = ( new HtmlTransformer() )->transform($source . $source)->toArray();
 $assert(2 === count($repeated['blocks'] ?? array()) && 1 === count($repeated['source_reports']['generated_blocks'] ?? array()), 'multiple instances need one generated definition');
 $content = (string) ($result['blocks'][0]['attrs']['content'] ?? '');
