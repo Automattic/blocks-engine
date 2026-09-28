@@ -78,6 +78,7 @@
             "php tests/contract/form-control-not-menu-toggle.php",
             "php tests/unit/canonical-zero-lengths.php",
             "php tests/contract/render-equivalent-chrome.php",
+            "php tests/contract/entry-chrome-wrapper.php",
       "php tests/contract/viewport-hidden-document-variants.php",
       "php tests/contract/product-grid-collection-anchors.php",
       "php tests/contract/header-link-cluster-navigation.php",
