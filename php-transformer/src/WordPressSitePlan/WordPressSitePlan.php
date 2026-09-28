@@ -17,6 +17,7 @@ use Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
+use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use InvalidArgumentException;
 
 /** A complete, destination-independent block-theme materialization contract. */
@@ -171,6 +172,14 @@ final class WordPressSitePlan
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
+        NativeListItemFallbackReconciler::reconcileBlockDocuments(
+            $data['fallbacks'],
+            array_values(array_filter(array_column($pages, 'canonical_block_markup'), 'is_string'))
+        );
+        $data['metrics']['fallback_count'] = count(array_filter(
+            $data['fallbacks'],
+            static fn (mixed $fallback): bool => is_array($fallback) && 'native_conversion' !== ($fallback['conversion_classification'] ?? '')
+        ));
         // Restore the semantic shell candidates before deriving binding positions.
         // Extracted parts intentionally contain only their inner markup; the page
         // representation owns the landmark wrapper until extraction is accepted.

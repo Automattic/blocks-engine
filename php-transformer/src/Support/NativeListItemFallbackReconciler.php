@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
+namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
 /** Reconciles list-item findings against native blocks after captured-dialog projection. */
 final class NativeListItemFallbackReconciler
@@ -22,7 +22,8 @@ final class NativeListItemFallbackReconciler
 
         foreach ($fallbacks as &$fallback) {
             if (
-                'html_unsupported_element' !== ($fallback['diagnostic_code'] ?? '')
+                'native_conversion' === ($fallback['conversion_classification'] ?? '')
+                || 'html_unsupported_element' !== ($fallback['diagnostic_code'] ?? '')
                 || 'li' !== strtolower((string) ($fallback['tag'] ?? ''))
             ) {
                 continue;
@@ -40,6 +41,57 @@ final class NativeListItemFallbackReconciler
             $fallback['reconciliation'] = 'matching_link_semantics_emitted_as_core_list_item';
         }
         unset($fallback);
+    }
+
+    /**
+     * Reconcile against final compiled documents as well as the immediate
+     * transform tree. Captured-dialog projection can emit list blocks only after
+     * the original finding has been recorded.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @param array<int, string> $documents
+     */
+    public static function reconcileBlockDocuments(array &$fallbacks, array $documents): void
+    {
+        $nativeListItemMarkup = array();
+        foreach ($documents as $document) {
+            self::collectListItemMarkup($document, $nativeListItemMarkup);
+        }
+        self::reconcile($fallbacks, $nativeListItemMarkup);
+    }
+
+    /** @param array<int, string> $nativeListItemMarkup */
+    private static function collectListItemMarkup(string $document, array &$nativeListItemMarkup): void
+    {
+        if (! preg_match_all('/<!--\s*(\/?)wp:([a-z0-9-]+)(?:\s+.*?)?-->/s', $document, $matches, PREG_OFFSET_CAPTURE)) {
+            return;
+        }
+
+        $stack = array();
+        foreach ($matches[0] as $index => $match) {
+            $token = $match[0];
+            $offset = $match[1];
+            $isClosing = '/' === $matches[1][$index][0];
+            $name = $matches[2][$index][0];
+            if ($isClosing) {
+                for ($stackIndex = count($stack) - 1; $stackIndex >= 0; --$stackIndex) {
+                    if ($name !== $stack[$stackIndex]['name']) {
+                        continue;
+                    }
+                    $open = $stack[$stackIndex];
+                    if ('list-item' === $name) {
+                        $nativeListItemMarkup[] = substr($document, $open['content_offset'], $offset - $open['content_offset']);
+                    }
+                    $stack = array_slice($stack, 0, $stackIndex);
+                    break;
+                }
+                continue;
+            }
+            if (str_ends_with(rtrim($token), '/-->')) {
+                continue;
+            }
+            $stack[] = array('name' => $name, 'content_offset' => $offset + strlen($token));
+        }
     }
 
     /**
