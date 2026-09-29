@@ -6,6 +6,7 @@ require __DIR__ . '/support/ResolvedPlanProjection.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanInput;
@@ -269,6 +270,40 @@ $declaredResult = (new ArtifactCompiler())->compile($declaredArtifact)->toArray(
 $assert($declaredPlan['runtime_declarations'] === $declaredResult['source_reports']['compiled_site']['runtime_declarations'] && $declaredPlan['runtime_declarations'] === (new WordPressSitePlanResolver())->resolve($declaredPlan, array('theme_uri' => 'https://example.test/theme'))['runtime_declarations'], 'Explicit generic runtime declarations round-trip through compiler, plan, and resolver unchanged after canonical normalization.');
 $changedDeclaration = $declaredArtifact; $changedDeclaration['runtime_declarations'][0]['payload']['entities'][0]['id'] = 'b'; $changedDeclarationResult = (new ArtifactCompiler())->compile($changedDeclaration)->toArray(); $changedDeclarationPlan = $changedDeclarationResult['source_reports']['wordpress_site_plan'];
 $assert(($declaredPlan['source']['source_hash'] ?? null) !== ($changedDeclarationPlan['source']['source_hash'] ?? null) && ($declaredPlan['runtime_declarations'][0]['reconciliation_identity'] ?? null) === ($changedDeclarationPlan['runtime_declarations'][0]['reconciliation_identity'] ?? null) && ($declaredPlan['runtime_declarations'][0]['payload_hash'] ?? null) !== ($changedDeclarationPlan['runtime_declarations'][0]['payload_hash'] ?? null), 'Declaration-only payload changes update source and declaration hashes without changing immutable reconciliation identity.');
+$candidateFixture = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><h1>Ordinary home</h1></main>', 'gathering.html' => '<main><h1>Community gathering</h1></main>')))->toArray();
+$candidateInput = $candidateFixture;
+unset($candidateInput['source_reports']['conversion_report'], $candidateInput['source_reports']['wordpress_site_plan']);
+$sourcePage = array_column($candidateFixture['source_reports']['wordpress_site_plan']['pages'], null, 'source_path')['gathering.html'];
+$eventRow = array('id' => 'event-1', 'source_path' => 'gathering.html', 'source_route' => $sourcePage['route']['path'], 'whole_page_candidate' => 'blocks-engine/whole-page-candidate/v1');
+$eventDeclaration = array('kind' => 'entity_collection', 'type' => 'events', 'source_path' => 'data/events.json', 'payload' => array('schema' => 'generic/events/v1', 'entities' => array($eventRow)));
+$candidateInput['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeList(array($eventDeclaration));
+$candidatePlan = (new WordPressSitePlan())->fromCompilerResult($candidateInput);
+$candidatePages = array_column($candidatePlan['pages'], null, 'source_path');
+$candidate = $candidatePages['gathering.html']['whole_page_candidates'][0] ?? array();
+$assert('blocks-engine/whole-page-candidate/v1' === ($candidate['schema'] ?? null) && 'gathering.html' === ($candidate['source_path'] ?? null) && $sourcePage['route']['path'] === ($candidate['source_route'] ?? null) && $sourcePage['reconciliation_identity'] === ($candidate['page_reconciliation_identity'] ?? null) && $candidatePlan['runtime_declarations'][0]['reconciliation_identity'] === ($candidate['declaration_reconciliation_identity'] ?? null) && 'event-1' === ($candidate['entity_id'] ?? null) && !isset($candidatePages['index.html']['whole_page_candidates']) && 2 === count(array_filter($candidatePlan['operations'], static fn(array $row): bool => 'create_page' === $row['kind'])), 'Only the declared event page carries a versioned hint; both pages keep their create operations.');
+$candidateResolved = (new WordPressSitePlanResolver())->resolve($candidatePlan, array('theme_uri' => 'https://example.test/theme', 'approved_plan_identity' => $candidatePlan['plan_identity']));
+$assert($candidate === (array_column($candidateResolved['pages'], null, 'source_path')['gathering.html']['whole_page_candidates'][0] ?? null) && $candidatePlan['plan_identity'] === $candidateResolved['plan_identity'], 'Candidate survives approved plan resolution.');
+$compactInput = $candidateInput;
+$manifest = RuntimeEntityManifest::fromEntities('generic/events/v1', array($eventRow));
+$compactInput['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeList(array(array_replace($eventDeclaration, array('payload' => $manifest['payload']))));
+$compactInput['source_reports']['compiled_site']['runtime_entity_records'] = $manifest['records'];
+$compactPlan = (new WordPressSitePlan())->fromCompilerResult($compactInput);
+$assert($candidate === (array_column($compactPlan['pages'], null, 'source_path')['gathering.html']['whole_page_candidates'][0] ?? null) && $compactPlan['plan_identity'] === (new WordPressSitePlanResolver())->resolve($compactPlan, array('theme_uri' => 'https://example.test/theme'))['plan_identity'], 'Content-addressed compact entities project the same candidate and retain plan identity through resolution.');
+$replayedPlan = json_decode(json_encode($compactPlan, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$assert($compactPlan['plan_identity'] === (new WordPressSitePlanResolver())->resolve($replayedPlan, array('theme_uri' => 'https://example.test/theme', 'approved_plan_identity' => $compactPlan['plan_identity']))['plan_identity'], 'Serialized compact checkpoint replays with approved plan identity and the same candidate.');
+foreach (array('source_path' => 'index.html', 'source_route' => '/wrong', 'whole_page_candidate' => 'blocks-engine/whole-page-candidate/v2') as $field => $value) {
+    $invalid = $candidateInput; $invalid['source_reports']['compiled_site']['runtime_declarations'][0]['payload']['entities'][0][$field] = $value;
+    $invalid['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeList(array(array_diff_key($invalid['source_reports']['compiled_site']['runtime_declarations'][0], array_flip(array('reconciliation_identity', 'payload_hash', 'content_hash')))));
+    $throws(static fn() => (new WordPressSitePlan())->fromCompilerResult($invalid), 'Detached or unsupported whole-page candidate is rejected: ' . $field);
+}
+$duplicateCandidate = $candidateInput; $duplicateCandidate['source_reports']['compiled_site']['runtime_declarations'][0]['payload']['entities'][] = $eventRow;
+$duplicateCandidate['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeList(array(array_diff_key($duplicateCandidate['source_reports']['compiled_site']['runtime_declarations'][0], array_flip(array('reconciliation_identity', 'payload_hash', 'content_hash')))));
+$throws(static fn() => (new WordPressSitePlan())->fromCompilerResult($duplicateCandidate), 'Duplicate producer row candidates are rejected.');
+foreach (array('source_route', 'page_reconciliation_identity', 'declaration_reconciliation_identity', 'entity_id') as $field) {
+    $stale = $candidatePlan; $stale['pages'][array_search('gathering.html', array_column($stale['pages'], 'source_path'), true)]['whole_page_candidates'][0][$field] = 'stale';
+    $stale['plan_identity'] = WordPressSitePlan::planIdentity($stale);
+    $throws(static fn() => WordPressSitePlan::assertValid($stale), 'Rehashed candidate cannot detach from canonical evidence: ' . $field);
+}
 $assert(array() === ((new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main>None</main>')))->toArray()['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? null), 'Absent runtime declarations remain an explicit empty collection.');
 $corruptByteStylesheet = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="assets/%ffform.css"><form method="post" class="contact"><input name="email"></form>', 'assets/%FFform.css' => '.contact{display:grid}')))->toArray();
 $corruptByteDeclaration = current(array_filter($corruptByteStylesheet['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
