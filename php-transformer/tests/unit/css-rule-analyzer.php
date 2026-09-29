@@ -184,6 +184,18 @@ $propertyInsideLayer = (new CssRuleAnalyzer())->analyze(
 );
 $assert(false === $propertyInsideLayer['truncated'] && array() === $propertyInsideLayer['diagnostics'] && 1 === count($propertyInsideLayer['rules']) && '.field' === ($propertyInsideLayer['rules'][0]['selector'] ?? null), 'non-style at-rules nested in a cascade layer are skipped so later layered style rules still analyze');
 
+$unspacedMediaAnalysis = (new CssRuleAnalyzer())->analyze(
+    array( array( 'content' => '@media(max-width:600px){.narrow-hidden{display:none}}@supports(display:grid){.grid{display:grid}}', 'source_path' => 'unspaced.css', 'source_hash' => hash('sha256', 'unspaced.css') ) ),
+    '',
+    array( 'display' ),
+    1024,
+    16,
+    16,
+    4
+);
+$unspacedConditions = array_map(static fn (array $rule): mixed => $rule['condition'] ?? null, $unspacedMediaAnalysis['rules']);
+$assert(array( array( 'kind' => 'media', 'query' => '(max-width:600px)' ), array( 'kind' => 'supports', 'query' => '(display:grid)' ) ) === $unspacedConditions, 'a condition written directly after its at-rule name gates its rules like a spaced one');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssRuleAnalyzer unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
