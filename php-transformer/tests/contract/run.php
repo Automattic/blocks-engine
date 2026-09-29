@@ -5020,10 +5020,13 @@ $motionSite = $compiler->compile($motionFixture)->toArray();
 $motionBlocks = $motionSite['source_reports']['companion_plugin_payload']['blocks'] ?? array();
 $sequence = array_values(array_filter($motionBlocks, static fn (array $block): bool => 'motion-sequence' === ($block['name'] ?? '')))[0] ?? array();
 $assert('ssi-motion-fixture/motion-sequence' === ($sequence['block_json']['name'] ?? '') && 'file:./view.js' === ($sequence['block_json']['viewScript'] ?? '') && str_contains((string) ($sequence['view_js'] ?? ''), 'step.target.textContent'), 'unreproduced capture motion offers editable sequence authoring through the existing companion asset contract');
+$liveClock = array_values(array_filter($motionBlocks, static fn (array $block): bool => 'live-clock' === ($block['name'] ?? '')))[0] ?? array();
+$assert('ssi-motion-fixture/live-clock' === ($liveClock['block_json']['name'] ?? '') && 'file:./view.js' === ($liveClock['block_json']['viewScript'] ?? '') && str_contains((string) ($liveClock['view_js'] ?? ''), 'currentTime'), 'unreproduced motion offers a generic editable live-clock companion beside text sequence');
 $assert(str_contains((string) ($motionSite['serialized_blocks'] ?? ''), 'Current editable text') && array() === ($motionSite['fallbacks'] ?? array()), 'offered motion sequence does not replace native editable source text or introduce fallbacks');
 unset($motionFixture['files']['capture-receipt.json']);
 $noMotionSite = $compiler->compile($motionFixture)->toArray();
 $assert(array() === array_values(array_filter($noMotionSite['source_reports']['companion_plugin_payload']['blocks'] ?? array(), static fn (array $block): bool => 'motion-sequence' === ($block['name'] ?? ''))), 'motion sequence is not registered when source behavior was not diagnosed');
+$assert(array() === array_values(array_filter($noMotionSite['source_reports']['companion_plugin_payload']['blocks'] ?? array(), static fn (array $block): bool => 'live-clock' === ($block['name'] ?? ''))), 'live clock is not registered when source behavior was not diagnosed');
 
 $decorativeSvgSite = $compiler->compile(
     array(
