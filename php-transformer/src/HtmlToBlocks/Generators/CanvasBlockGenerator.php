@@ -232,6 +232,18 @@ JS;
             $value = trim($canvas->getAttribute($name));
             if (preg_match('/^[1-9][0-9]{0,4}$/', $value)) $attrs[$name] = $value;
         }
+        // Authored, bounded portable effects are the same native editor settings
+        // as a manually configured canvas. Preserve them so source/runtime DOM
+        // dependencies still point at the generated editable block markup.
+        if ('particle-ripple' === $canvas->getAttribute('data-blocks-engine-canvas-effect')) {
+            $attrs['effect'] = 'particle-ripple';
+            foreach (array('data-blocks-engine-canvas-spacing' => array('particleSpacing', 10, 300), 'data-blocks-engine-canvas-size' => array('particleSize', 0.5, 10)) as $name => $config) {
+                $value = trim($canvas->getAttribute($name));
+                if (is_numeric($value) && (float) $value >= $config[1] && (float) $value <= $config[2]) $attrs[$config[0]] = $value;
+            }
+            $color = trim($canvas->getAttribute('data-blocks-engine-canvas-color'));
+            if (preg_match('/^#[0-9a-f]{6}$/i', $color)) $attrs['particleColor'] = $color;
+        }
         $fallback = trim($canvas->textContent ?? '');
         if ('' !== $fallback) $attrs['fallbackText'] = mb_substr($fallback, 0, 1024);
         $block = $this->createBlock->createBlock($registry->blockName(self::LOCAL_NAME), $attrs, array(), $canvas);
