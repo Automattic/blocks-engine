@@ -58,6 +58,38 @@ $check(0 < count(array_filter($graph['nodes'] ?? array(), static fn (array $node
 $check(0 < count($graph['variants'] ?? array()), 'responsive grid variant stays available');
 $check(! isset($entity['form']['action']), 'no submission handler inferred');
 
+// Ward's capture has four direct field children, not an inner choice shell.
+$ward = '<form><div class="field"><label>Preferred Contact</label>'
+    . '<button type="button" role="combobox" data-dla-listbox-trigger="contact">Email</button>'
+    . '<div hidden data-dla-listbox-panel="contact"><button type="button" role="option">Email</button></div>'
+    . '<select aria-hidden="true" tabindex="-1"><option value="email">Email</option><option value="phone" selected>Phone</option></select></div>'
+    . '<div class="field"><label>Service of Interest</label>'
+    . '<button type="button" role="combobox" data-dla-listbox-trigger="service">Choose a service</button>'
+    . '<div hidden data-dla-listbox-panel="service"><button type="button" role="option">Parent Training</button></div>'
+    . '<select aria-hidden="true" tabindex="-1"><option value="parent-training" selected>Parent Training</option><option value="other">Other</option></select></div></form>';
+$wardResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $ward)))->toArray();
+$wardDeclarations = array_values(array_filter(
+    $wardResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(),
+    static fn (array $item): bool => 'forms' === ($item['type'] ?? null)
+));
+$wardEntity = $wardDeclarations[0]['payload']['entities'][0] ?? array();
+$wardControls = $wardEntity['controls'] ?? array();
+$wardTriggers = array_values(array_filter($wardControls, static fn (array $control): bool => 'combobox' === ($control['role'] ?? '')));
+$check(2 === count($wardTriggers), 'Ward four-sibling fields produce two triggers');
+$check('Preferred Contact' === ($wardTriggers[0]['label'] ?? null)
+    && 'Service of Interest' === ($wardTriggers[1]['label'] ?? null), 'Ward direct labels reach producer triggers');
+$check('phone' === ($wardTriggers[0]['options'][1]['value'] ?? null)
+    && true === ($wardTriggers[0]['options'][1]['selected'] ?? null)
+    && 'parent-training' === ($wardTriggers[1]['options'][0]['value'] ?? null)
+    && true === ($wardTriggers[1]['options'][0]['selected'] ?? null), 'Ward native values and selection survive');
+$check(4 === count($wardControls), 'Ward portal options are not provider controls');
+$wardContext = $wardEntity['form'] ?? array();
+$check(0 === count($wardContext['context_before'] ?? array())
+    && 0 === count($wardContext['context_after'] ?? array())
+    && 0 === count($wardContext['unrepresented_context'] ?? array())
+    && 1 === count(array_filter($wardControls, static fn (array $control): bool => 'Preferred Contact' === ($control['label'] ?? null)))
+    && 1 === count(array_filter($wardControls, static fn (array $control): bool => 'Service of Interest' === ($control['label'] ?? null))), 'Ward labels are carried once, not repeated as form context');
+
 // A nearby but unrelated select must not be borrowed across a field wrapper.
 $unrelated = new DOMDocument();
 $unrelated->loadHTML('<form><div><button type="button" role="combobox">Pick</button></div><div><select hidden><option value="wrong">Wrong</option></select></div></form>');
@@ -71,6 +103,36 @@ $direct = new DOMDocument();
 $direct->loadHTML('<form><button type="button" role="combobox">Pick</button><select hidden><option value="direct">Direct</option></select></form>');
 $directButton = $direct->getElementsByTagName('button')->item(0);
 $check($directButton instanceof DOMElement && 'direct' === ($builder->control($directButton)['options'][0]['value'] ?? null), 'direct sibling remains associated');
+
+foreach ( array(
+    'unlinked panel' => array('<label>Nearby</label>', '<div hidden data-dla-listbox-panel="other"></div>'),
+    'extra node before trigger' => array('<label>Nearby</label><span>Other</span>', '<div hidden data-dla-listbox-panel="choice"></div>'),
+    'extra node between trigger and panel' => array('<label>Nearby</label>', '<span>Other</span><div hidden data-dla-listbox-panel="choice"></div>'),
+    'extra node between panel and select' => array('<label>Nearby</label>', '<div hidden data-dla-listbox-panel="choice"></div><span>Other</span>'),
+    'label in prior field' => array('', '<div hidden data-dla-listbox-panel="choice"></div>'),
+) as $case => $pieces ) {
+    $document = new DOMDocument();
+    $document->loadHTML('<form><div><label>Other Field</label><input></div><div class="field">'
+        . $pieces[0] . '<button type="button" role="combobox" data-dla-listbox-trigger="choice">Pick</button>'
+        . $pieces[1] . '<select aria-hidden="true" tabindex="-1"><option value="source">Source</option></select></div></form>');
+    $trigger = $document->getElementsByTagName('button')->item(0);
+    $check($trigger instanceof DOMElement && ! isset($builder->control($trigger)['label']), $case . ' cannot supply a positional choice label');
+}
+
+$explicit = new DOMDocument();
+$explicit->loadHTML('<form><label id="explicit-label" for="choice">Explicit</label><div><label>Positional</label>'
+    . '<button id="choice" type="button" role="combobox" aria-label="Accessible" data-dla-listbox-trigger="choice">Pick</button>'
+    . '<div hidden data-dla-listbox-panel="choice"></div><select hidden><option>One</option></select></div></form>');
+$explicitTrigger = $explicit->getElementsByTagName('button')->item(0);
+$check($explicitTrigger instanceof DOMElement && 'Accessible' === ($builder->control($explicitTrigger)['label'] ?? null)
+    && 'explicit-label' === ($builder->control($explicitTrigger)['label_id'] ?? null), 'explicit for association and aria label retain precedence');
+
+$aria = new DOMDocument();
+$aria->loadHTML('<form><span id="other">Referenced</span><div><label>Positional</label>'
+    . '<button type="button" role="combobox" aria-labelledby="other" data-dla-listbox-trigger="choice">Pick</button>'
+    . '<div hidden data-dla-listbox-panel="choice"></div><select hidden><option>One</option></select></div></form>');
+$ariaTrigger = $aria->getElementsByTagName('button')->item(0);
+$check($ariaTrigger instanceof DOMElement && 'Referenced' === ($builder->control($ariaTrigger)['label'] ?? null), 'explicit aria reference beats positional label');
 
 foreach (array(
     'unlinked panel' => '<div hidden data-dla-listbox-panel="other"></div>',

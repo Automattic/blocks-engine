@@ -27,7 +27,34 @@ final class FormControlLabel
                 return $parent;
             }
         }
-        return self::fieldWrapperLabel($control);
+        return self::capturedChoiceFieldLabel($control) ?? self::fieldWrapperLabel($control);
+    }
+
+    /** The captured choice field's four direct siblings supply one bounded positional label. */
+    private static function capturedChoiceFieldLabel(DOMElement $control): ?DOMElement
+    {
+        $field = $control->parentNode;
+        $label = $control->previousElementSibling;
+        $panel = $control->nextElementSibling;
+        if ( 'button' !== strtolower($control->tagName)
+            || ! $field instanceof DOMElement || 'div' !== strtolower($field->tagName)
+            || 4 !== $field->childElementCount || ! $label instanceof DOMElement
+            || 'label' !== strtolower($label->tagName) || $field->firstElementChild !== $label
+            || '' !== SourceDom::attr($label, 'for')
+            || ! $panel instanceof DOMElement
+            || ! $panel->nextElementSibling instanceof DOMElement
+            || $field->lastElementChild !== $panel->nextElementSibling
+            || null === FormControlClassifier::sourceSelectAfterCapturedPanel($panel) ) {
+            return null;
+        }
+
+        // An explicit aria reference to a different element wins over position.
+        $labelledBy = trim(SourceDom::attr($control, 'aria-labelledby'));
+        if ( '' !== $labelledBy && $labelledBy !== SourceDom::attr($label, 'id') ) {
+            return null;
+        }
+
+        return $label;
     }
 
     /**
