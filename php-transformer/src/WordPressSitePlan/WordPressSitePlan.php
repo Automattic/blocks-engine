@@ -101,6 +101,57 @@ final class WordPressSitePlan
         return self::planIdentity($plan)['hash'];
     }
 
+    /**
+     * Project opt-in entity evidence onto its canonical page. This is a hint to
+     * consumers, never an instruction to omit create_page or claim a route.
+     * Works for both inline entities and content-addressed entity manifests.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $records
+     * @return array<int,array<string,mixed>>
+     */
+    private static function attachWholePageCandidates(array $pages, array $declarations, array $records): array
+    {
+        $bySource = array_column($pages, null, 'source_path');
+        $candidates = array();
+        foreach ($declarations as $declaration) {
+            $payload = $declaration['payload'] ?? array();
+            $entities = RuntimeEntityManifest::SCHEMA === ($payload['schema'] ?? null)
+                ? RuntimeEntityManifest::resolve($payload, $records) : ($payload['entities'] ?? array());
+            if (!is_array($entities)) continue;
+            foreach ($entities as $entity) {
+                if (!is_array($entity) || !array_key_exists('whole_page_candidate', $entity)) continue;
+                $source = $entity['source_path'] ?? null;
+                $page = is_string($source) ? ($bySource[$source] ?? null) : null;
+                $id = $entity['id'] ?? null;
+                $route = $entity['source_route'] ?? null;
+                if ('blocks-engine/whole-page-candidate/v1' !== $entity['whole_page_candidate']
+                    || 'entity_collection' !== ($declaration['kind'] ?? null)
+                    || !is_string($id) || '' === $id || strlen($id) > 256
+                    || !is_array($page) || !empty($page['synthetic']) || 'page' !== ($page['post_type'] ?? null)
+                    || !is_string($route) || $route !== $page['route']['path']) {
+                    throw new InvalidArgumentException('Whole-page candidate must name one canonical source page and producer entity row.');
+                }
+                if (isset($candidates[$source]) || count($candidates) >= 100) throw new InvalidArgumentException('Whole-page candidates must be unique and bounded by source page.');
+                $candidates[$source][] = array(
+                    'schema' => 'blocks-engine/whole-page-candidate/v1',
+                    'source_path' => $source,
+                    'source_route' => $page['route']['path'],
+                    'page_reconciliation_identity' => $page['reconciliation_identity'],
+                    'declaration_reconciliation_identity' => $declaration['reconciliation_identity'],
+                    'entity_id' => $id,
+                );
+            }
+        }
+        foreach ($pages as &$page) {
+            if (!isset($candidates[$page['source_path']])) continue;
+            $page['whole_page_candidates'] = $candidates[$page['source_path']];
+        }
+        unset($page);
+        return $pages;
+    }
+
     /** @return array<string,mixed> */
     public function fromResult(TransformerResult|array $result): array
     {
@@ -239,6 +290,7 @@ final class WordPressSitePlan
          // Query Loop projection can shorten page markup after shell extraction.
          // Rebase retained runtime anchors on the final page before validation.
          $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
+         $pages = self::attachWholePageCandidates($pages, $runtimeDeclarations, $compiled['runtime_entity_records'] ?? array());
          foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
          self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
          $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single']);
@@ -397,6 +449,8 @@ final class WordPressSitePlan
             self::unique($documentIdentities, $page['reconciliation_identity'], 'page reconciliation identity');
             $pagesBySource[$page['source_path']] = $page;
         }
+        $expectedCandidatePages = self::attachWholePageCandidates(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), $plan['runtime_declarations'], $records);
+        foreach ($plan['pages'] as $index => $page) if (($expectedCandidatePages[$index]['whole_page_candidates'] ?? null) !== ($page['whole_page_candidates'] ?? null)) throw new InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.');
         foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
             $page = $pagesBySource[$scope['source_path']] ?? null;
             if (!is_array($page) || $scope['kind'] !== ('post' === $page['post_type'] ? 'post' : 'page') || $scope['route_path'] !== trim($page['route']['path'], '/') || $scope['reconciliation_identity'] !== $page['reconciliation_identity'] || $scope['front_page'] !== ('/' === $page['route']['path'])) throw new InvalidArgumentException('A page asset scope does not match its canonical page.');
