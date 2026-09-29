@@ -12,6 +12,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $failures = 0;
 $passes = 0;
@@ -93,6 +94,46 @@ $rows = array_column($authored['fallbacks'][0]['presentation_graph']['controls']
 $label = $rows[0]['label']['styles'] ?? null;
 $assert('.875rem' === ($label['font_size'] ?? null), 'a label that declares its own font size keeps it', json_encode($label));
 $assert(! isset($label['color']), 'the carrier adds nothing once the label declares typography itself', json_encode($label));
+
+// Multiple overlapping author rules still form a bounded cascade: the final
+// winning facts must survive into the provider declaration, not just a report.
+$rules = implode('', array_map(
+    static fn (int $index): string => 'textarea{color:rgb(' . $index . ',0,0)}',
+    range(0, 69)
+));
+$manyRules = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files' => array('website/index.html' => '<!doctype html><html><head><style>' . $rules
+        . 'textarea{font-family:Georgia;line-height:1.75}</style></head><body><form>'
+        . '<textarea rows="6" name="message"></textarea><button type="submit">Send</button>'
+        . '</form></body></html>'),
+))->toArray();
+$forms = array_values(array_filter(
+    $manyRules['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(),
+    static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)
+));
+$presentation = $forms[0]['payload']['entities'][0]['presentation_graph'] ?? null;
+$assert(
+    is_array($presentation) && false === $presentation['truncated']
+        && 'Georgia' === ($presentation['controls'][0]['control']['styles']['font_family'] ?? null)
+        && '1.75' === ($presentation['controls'][0]['control']['styles']['line_height'] ?? null),
+    'a dense but bounded cascade reaches the provider form entity',
+    json_encode(array('declaration' => $forms[0] ?? null, 'fallback' => $manyRules['fallbacks'][0]['presentation_graph'] ?? null))
+);
+
+$unsupported = implode('', array_map(
+    static fn (int $index): string => 'textarea:hover:nth-child(' . ($index + 1) . '){color:red}',
+    range(0, 39)
+));
+$tooManyRules = ( new HtmlTransformer() )->transform(
+    '<style>' . $unsupported . str_repeat('textarea{color:red}', 97) . '</style><form><textarea name="message"></textarea></form>'
+)->toArray()['fallbacks'][0]['presentation_graph'] ?? array();
+$assert(
+    true === ($tooManyRules['truncated'] ?? null)
+        && in_array('rules_per_role_limit', $tooManyRules['diagnostics'] ?? array(), true),
+    'a genuinely over-budget graph exposes its actual truncation reason despite unrelated selector diagnostics',
+    json_encode($tooManyRules['diagnostics'] ?? null)
+);
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "form presentation positional label: {$failures} failed, {$passes} passed\n");
