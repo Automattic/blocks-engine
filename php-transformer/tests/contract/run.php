@@ -2007,6 +2007,17 @@ $assert(str_contains($loneStyledInlineMarkup, 'blocks-engine-inline-layout-carri
 $assert(! str_contains($loneStyledInlineMarkup, '<p class="blocks-engine-synthetic-paragraph"><mark'), 'the span is not rewrapped as a synthetic paragraph host');
 $assert('pass' === ($loneStyledInline['source_reports']['wp_block_validity']['status'] ?? ''), 'lone styled inline carriers remain editor-valid');
 
+$addressableInline = (new HtmlTransformer())->transform(
+    '<style>.facts{display:flex}.value {display:inline-block;font-weight:700}#status-value {min-width:12ch}</style>'
+    . '<section class="facts"><span id="status-value" class="value">Current editable text</span><span id="status-label" style="visibility:visible">Label</span></section>'
+)->toArray();
+$addressableMarkup = (string) ($addressableInline['serialized_blocks'] ?? '');
+$addressableCss = implode("\n", array_column($addressableInline['assets'] ?? array(), 'content'));
+$assert(str_contains($addressableMarkup, '<p id="status-value" class="blocks-engine-inline-layout-carrier blocks-engine-addressable-inline-block value">Current editable text</p>'), 'simple standalone span identity moves onto a native paragraph anchor so RichText edits preserve it');
+$assert(!str_contains($addressableMarkup, '<span id="status-value"') && str_contains($addressableMarkup, '<span id="status-label" style="visibility:visible">Label</span>'), 'addressable inline conversion keeps complex or styled spans on the existing preservation path');
+$assert(str_contains($addressableCss, 'p.blocks-engine-addressable-inline-block){display:inline-block!important}') && 'pass' === ($addressableInline['source_reports']['wp_block_validity']['status'] ?? ''), 'addressable native paragraph retains inline sizing and editor-valid serialization');
+$assert(str_contains($addressableCss, 'p.blocks-engine-inline-layout-carrier.value{display:inline-block;font-weight:700}') && str_contains($addressableCss, 'p.blocks-engine-inline-layout-carrier#status-value{min-width:12ch}'), 'source class and ID rules with whitespace still style the moved inline target after RichText edits');
+
 $paddedTextWrapper = ( new HtmlTransformer() )->transform(
     '<style>.copy{padding:1rem;font-size:.875rem;line-height:1.625}</style><div class="copy">PLAN 1 (0-3s)</div>'
 )->toArray();
@@ -4993,6 +5004,26 @@ $assert(str_contains((string) ($decorativeCanvasSite['source_reports']['runtime_
 $drawingBlock = array_values(array_filter($decorativeCanvasSite['source_reports']['companion_plugin_payload']['blocks'] ?? array(), static fn (array $block): bool => 'canvas' === ($block['name'] ?? '')))[0] ?? array();
 $assert('Drawing Surface' === ($drawingBlock['block_json']['title'] ?? '') && 'file:./view.js' === ($drawingBlock['block_json']['viewScript'] ?? '') && str_contains((string) ($drawingBlock['view_js'] ?? ''), 'pointermove'), 'native drawing surface ships its own frontend effect via the existing companion view-script contract');
 $assert(!str_contains($decorativeCanvasMarkup, 'data-blocks-engine-canvas-effect'), 'unconfigured source canvases remain inert when converted');
+
+$motionFixture = array(
+    'site' => array('name' => 'Motion Fixture', 'slug' => 'motion-fixture'),
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => '<main><p id="status">Current editable text</p></main>',
+        'capture-receipt.json' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'sourceInteractivity' => array('schema' => 'data-liberation/source-interactivity/v1', 'unreproduced_route_count' => 1),
+        ), JSON_THROW_ON_ERROR),
+    ),
+);
+$motionSite = $compiler->compile($motionFixture)->toArray();
+$motionBlocks = $motionSite['source_reports']['companion_plugin_payload']['blocks'] ?? array();
+$sequence = array_values(array_filter($motionBlocks, static fn (array $block): bool => 'motion-sequence' === ($block['name'] ?? '')))[0] ?? array();
+$assert('ssi-motion-fixture/motion-sequence' === ($sequence['block_json']['name'] ?? '') && 'file:./view.js' === ($sequence['block_json']['viewScript'] ?? '') && str_contains((string) ($sequence['view_js'] ?? ''), 'step.target.textContent'), 'unreproduced capture motion offers editable sequence authoring through the existing companion asset contract');
+$assert(str_contains((string) ($motionSite['serialized_blocks'] ?? ''), 'Current editable text') && array() === ($motionSite['fallbacks'] ?? array()), 'offered motion sequence does not replace native editable source text or introduce fallbacks');
+unset($motionFixture['files']['capture-receipt.json']);
+$noMotionSite = $compiler->compile($motionFixture)->toArray();
+$assert(array() === array_values(array_filter($noMotionSite['source_reports']['companion_plugin_payload']['blocks'] ?? array(), static fn (array $block): bool => 'motion-sequence' === ($block['name'] ?? ''))), 'motion sequence is not registered when source behavior was not diagnosed');
 
 $decorativeSvgSite = $compiler->compile(
     array(
