@@ -65,7 +65,7 @@
     {
       "path": "serialized_blocks",
       "assert": "contains",
-      "value": "<figure class=\"wp-block-image is-resized fill top-crop be-inline-geometry-0920923a5c6cf48a blocks-engine-synthetic-image-figure\"><img src=\"https://example.com/offsite.jpg\""
+      "value": "<figure class=\"wp-block-image is-resized fill top-crop be-inline-geometry-0920923a5c6cf48a blocks-engine-synthetic-image-figure blocks-engine-synthetic-image-figure-fill\"><img src=\"https://example.com/offsite.jpg\""
     },
     {
       "path": "assets.0.content",

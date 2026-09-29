@@ -17,6 +17,7 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS = 'blocks-engine-synthetic-anchor-block-display';
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
+    public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
     public const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
@@ -52,6 +53,8 @@ final class SourceBlockAttributeProjector
             // so the alignment has nothing left to move.
             if ( $facts->syntheticImageFigureFollowsInlineFlow ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS);
+            } elseif ( $this->sourceImageFillsParent($sourceElement) ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS);
             }
         }
         if ( 'core/paragraph' === $name && $facts->isInlineSourceElement ) {
@@ -117,6 +120,21 @@ final class SourceBlockAttributeProjector
             }
         }
         return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
+    }
+
+    private function sourceImageFillsParent(DOMElement $image): bool
+    {
+        if ( 'img' !== strtolower($image->tagName) ) {
+            return false;
+        }
+        $shape = $this->styleResolver->imageShapeDeclarations($image);
+        foreach ( array( 'width', 'height' ) as $axis ) {
+            $value = $this->styleResolver->resolveCssVariablesInValue((string) ($shape[$axis]['value'] ?? ''), $image);
+            if ( '100%' !== CssValueInspector::comparable($value) ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static function isHiddenAccessibilitySupportElement(DOMElement $element): bool
