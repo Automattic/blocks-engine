@@ -3253,9 +3253,14 @@ final class ArtifactCompiler
         $siteNameEdge = $sharedTitle['edge'];
         $entryNavigationLabel = $this->entryNavigationLabel($artifact['files'], $siteNameSegments);
         $entryTitle = '';
+        $entryDocumentTitle = '';
         foreach ( $artifact['files'] as $file ) {
             if ( $entryPath === ($file['path'] ?? '') ) {
-                $entryTitle = $this->titleFromHtml((string) ($file['content'] ?? ''), $entryPath, $entryPath, '', $siteNameSegments, $siteNameEdge, $entryNavigationLabel);
+                $entryHtml = (string) ($file['content'] ?? '');
+                $entryTitle = $this->titleFromHtml($entryHtml, $entryPath, $entryPath, '', $siteNameSegments, $siteNameEdge, $entryNavigationLabel);
+                if ( preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $entryHtml, $match) ) {
+                    $entryDocumentTitle = (string) $match[1];
+                }
                 break;
             }
         }
@@ -3265,7 +3270,7 @@ final class ArtifactCompiler
             }
 
             $path = (string) ($file['path'] ?? '');
-            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle, $siteNameSegments, $siteNameEdge, $entryNavigationLabel);
+            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle, $siteNameSegments, $siteNameEdge, $entryNavigationLabel, $entryDocumentTitle);
             $slug = $this->slugFromPath($path, $entryPath);
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
@@ -3880,8 +3885,9 @@ final class ArtifactCompiler
      * @param string       $navigationLabel  Navigation label targeting the
      *                                       front page, when the compiled site
      *                                       has one.
+     * @param string       $entryDocumentTitle The front page's original head title.
      */
-    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = '', array $siteNameSegments = array(), string $siteNameEdge = '', string $navigationLabel = ''): string
+    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = '', array $siteNameSegments = array(), string $siteNameEdge = '', string $navigationLabel = '', string $entryDocumentTitle = ''): string
     {
         $normalize = static function (string $titleHtml): string {
             $titleHtml = preg_replace('/<\s*(?:br|\/\s*(?:div|h[1-6]|p))\b[^>]*>/i', ' ', $titleHtml) ?? $titleHtml;
@@ -3925,6 +3931,13 @@ final class ArtifactCompiler
             }
         }
         if ( '' !== $contentHeading ) {
+            if ( $path !== $entryPath && $contentHeading === $entryTitle
+                && preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $html, $match) ) {
+                $documentTitle = $normalize($match[1]);
+                if ( '' !== $documentTitle && $documentTitle !== $normalize($entryDocumentTitle) && $documentTitle !== $entryTitle ) {
+                    return $documentTitle;
+                }
+            }
             return $contentHeading;
         }
 
