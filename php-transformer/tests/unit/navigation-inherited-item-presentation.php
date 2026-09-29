@@ -14,6 +14,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 
 $failures = 0;
 $passes = 0;
@@ -86,6 +87,39 @@ $assert(
     str_contains($shared, '.wp-block-navigation.menu.navbar .wp-block-navigation-item__content{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}'),
     'presentation every item shares is still recovered onto the native navigation item',
     $shared
+);
+
+// A source list-item rule must beat the engine's generic navigation-item
+// font reset even though the latter targets the generated core classes.
+$itemType = ( new HtmlTransformer() )->transform(
+    '<style>.menu li{font-size:22px;font-family:Almarai}.menu{font-size:10px;font-family:Arial}</style>'
+    . '<nav class="menu" aria-label="Main"><ul>'
+    . '<li><a href="/">Home</a></li><li><a href="/about">About</a></li>'
+    . '</ul></nav>'
+)->toArray();
+$itemCss = implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    $itemType['assets'] ?? array()
+));
+$authorItemSelector = 1 === preg_match('/([^{}]+)\{font-size:22px;font-family:Almarai\}/', $itemCss, $authorItemMatch)
+    ? trim($authorItemMatch[1])
+    : '';
+$resetSelector = 1 === preg_match('/([^{}]+)\{font:inherit\}/', $itemCss, $resetMatch)
+    ? trim($resetMatch[1])
+    : '';
+$assert(
+    str_starts_with($authorItemSelector, '.menu :where(.blocks-engine-source-li-')
+        && str_contains($itemCss, '.wp-block-navigation.menu .wp-block-navigation-item__content{font-family:Almarai;font-size:22px}')
+        && 2 === substr_count((string) ($itemType['serialized_blocks'] ?? ''), '"fontSize":"22px"'),
+    'authored list-item typography and shared link presentation survive navigation projection',
+    $itemCss
+);
+$assert(
+    str_contains($resetSelector, '.wp-block-navigation-item.wp-block-navigation-link')
+        && '' !== $authorItemSelector
+        && CssSelectorMatcher::specificity(CssSelectorMatcher::parse($authorItemSelector)) > CssSelectorMatcher::specificity(CssSelectorMatcher::parse($resetSelector)),
+    'authored item font-size outranks the engine font reset in the CSS cascade',
+    $authorItemSelector . ' vs ' . $resetSelector
 );
 
 $allTransparent = $css(
