@@ -40,6 +40,9 @@ final class GeneratedSupportStylesheetState
     private array $navigationLinkBoxes = array();
 
     /** @var array<string, string> */
+    private array $navigationAnchorLineHeights = array();
+
+    /** @var array<string, string> */
     private array $navigationLinkIcons = array();
 
     /** @var array<string, string> */
@@ -135,6 +138,16 @@ final class GeneratedSupportStylesheetState
             'content' => '',
             'item_reset' => '',
         );
+    }
+
+    public function registerNavigationAnchorLineHeight(string $className, string $value): void
+    {
+        $this->navigationAnchorLineHeights[$className] = $value;
+    }
+
+    public function navigationAnchorLineHeight(string $className): string
+    {
+        return $this->navigationAnchorLineHeights[$className] ?? '';
     }
 
     public function registerDisclosureSummaryPresentation(string $className, string $declarations): void

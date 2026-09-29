@@ -240,6 +240,7 @@
       "php tests/unit/navigation-dropped-anchors.php",
       "php tests/unit/navigation-item-scoped-anchor-rules.php",
       "php tests/unit/navigation-link-box-carry.php",
+      "php tests/unit/navigation-link-line-height.php",
       "php tests/unit/navigation-nested-anchor-item-reset.php",
       "php tests/unit/navigation-inert-support-children.php",
       "php tests/unit/overlay-hidden-navigation.php",

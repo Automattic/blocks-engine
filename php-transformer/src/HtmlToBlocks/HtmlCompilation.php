@@ -2192,6 +2192,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $afterAuthorCss->absorb($engineSupportCss->generatedMarkupRepairCss($serializedBlocks));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkBoxRules($serializedBlocks));
+        $afterAuthorCss->absorb($this->navigationStyleProjector->navigationAnchorLineHeightRules($serializedBlocks));
         $afterAuthorCss->addAll(CascadeLayer::SOURCE_STYLE_PROJECTION, $this->session->sourceTargetProjectionState()->rules());
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks));
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkLeadingIconRules($serializedBlocks));

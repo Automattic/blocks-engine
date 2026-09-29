@@ -1877,6 +1877,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         $itemAttrs = array_replace_recursive($itemAttrs, $this->navigationAnchorTextAttributes($anchorAttrs, 'a' === strtolower($item?->tagName ?? 'a')));
         if ( null !== $navigationContext ) {
+            $lineHeightMarker = $navigationContext->navigationAnchorLineHeightMarker($anchorAttrs, $anchor, $item);
+            if ('' !== $lineHeightMarker) {
+                $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $lineHeightMarker);
+            }
             $resolvedTextColor = $this->navigationTextColorFromStyle($navigationContext->resolvedStyle($anchor));
             if ( '' !== $resolvedTextColor ) {
                 $itemAttrs['style']['color']['text'] = $resolvedTextColor;
