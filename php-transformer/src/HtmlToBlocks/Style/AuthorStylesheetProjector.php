@@ -1432,6 +1432,7 @@ final class AuthorStylesheetProjector
             $semanticLeaves = array();
             $richTextLeaves = array();
             $inlineLayoutCarriers = false;
+            $addressableInlineCarriers = false;
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
@@ -1446,6 +1447,10 @@ final class AuthorStylesheetProjector
                         continue;
                     }
                     $inlineLayoutCarriers = true;
+                    // Source analysis may add its own markers before stylesheet
+                    // projection. Only the emitted paragraph can own this ID;
+                    // unpromoted leaves make the additional selector inert.
+                    $addressableInlineCarriers = $addressableInlineCarriers || ('span' === strtolower($element->tagName) && '' !== SourceDom::attr($element, 'id'));
                 } elseif ( '' !== ($marker = $context->selectorProjections->richTextMarker($path)) ) {
                     $richTextLeaves[] = $marker;
                 } elseif ( '' !== ($marker = $context->selectorProjections->controlMarker($path)) ) {
@@ -1491,7 +1496,7 @@ final class AuthorStylesheetProjector
                 $rewritten[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker, $context);
             }
             if ( $inlineLayoutCarriers ) {
-                $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed);
+                $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed, $addressableInlineCarriers);
             }
         }
         $projected = implode(',', $rewritten);
@@ -2019,7 +2024,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed */
-    private function projectInlineLayoutCarrierSelector(string $selector, array $parsed): string
+    private function projectInlineLayoutCarrierSelector(string $selector, array $parsed, bool $addressable): string
     {
         $rightmost = $parsed['rightmost_compound_span'] ?? null;
         if ( ! is_array($rightmost) ) {
@@ -2032,7 +2037,15 @@ final class AuthorStylesheetProjector
         // wrapping the source leaf. Child combinators that targeted that leaf
         // must also reach it through the propagated anchor, or authored
         // typography on nested lockup spans is dropped.
-        return $prefix . $carrierChild . 'a > ' . $right . ',' . $prefix . $carrierChild . $right;
+        $selectors = array($prefix . $carrierChild . 'a > ' . $right, $prefix . $carrierChild . $right);
+        // A simple addressable inline leaf may now use the carrier paragraph as
+        // its native ID/class owner, keeping that selector alive after a text edit.
+        // On ordinary carriers this extra selector matches nothing.
+        $subject = trim($right);
+        if ($addressable && preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*(?:[.#][A-Za-z][A-Za-z0-9_-]*)*$/', $subject)) {
+            $selectors[] = $prefix . 'p.' . self::INLINE_LAYOUT_CARRIER_CLASS . $subject;
+        }
+        return implode(',', $selectors);
     }
 
     /** @param array<string, mixed> $parsed */
