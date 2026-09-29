@@ -64,6 +64,7 @@ final class InlineGeometry
             'align-items',
             'justify-content',
             'gap',
+            'grid-gap',
         );
     }
 

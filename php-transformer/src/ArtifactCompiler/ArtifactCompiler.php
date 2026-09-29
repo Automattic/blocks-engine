@@ -2278,9 +2278,11 @@ final class ArtifactCompiler
             $sharedStylesheets = array_merge(array_map('strval', array_keys($sharedByPath[$path] ?? array())), $stylesheets);
             // A page's projection repeats every rule it did not rewrite. Only the
             // rules missing from the site-wide copy go to a stylesheet the page
-            // alone loads, placed before the site-wide copy: every page already
-            // saw its own rules ahead of the authoritative copy, so the cascade is
-            // unchanged while each page stops shipping its projection site-wide.
+            // alone loads. Place it after the site-wide copy: the latter may
+            // contain a generic selector that still matches the lowered block
+            // (e.g. a grid's default two-column rule), while the page projection
+            // carries the source's later attribute-specific responsive winner.
+            $output[] = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
             foreach ( $pages as $owner => $pageStylesheets ) {
                 $delta = $transformer->rulesAbsentFrom($pageStylesheets, $sharedStylesheets);
                 if ( '' === trim($delta) ) {
@@ -2291,7 +2293,6 @@ final class ArtifactCompiler
                 $pageFile['metadata']['page_stylesheet_of'] = $path;
                 $output[] = $pageFile;
             }
-            $output[] = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
         }
         return $output;
     }
@@ -4412,15 +4413,19 @@ final class ArtifactCompiler
         }
         $orderedPaths = array();
         $pageStylesheets = array();
+        $pageStylesheetParents = array();
         foreach ( $files as $file ) {
             if ( is_string($file['metadata']['page_stylesheet_of'] ?? null) ) {
-                $pageStylesheets[$file['metadata']['page_stylesheet_of']][] = (string) $file['path'];
+                $parent = $file['metadata']['page_stylesheet_of'];
+                $pageStylesheets[$parent][] = (string) $file['path'];
+                $pageStylesheetParents[(string) $file['path']] = $parent;
             }
         }
-        // A page's projected stylesheet loads immediately before the site-wide
-        // stylesheet it was split from, the position its rules held there.
+        // The page's attribute-specific projection follows the shared copy at
+        // the same source stylesheet boundary, before the next linked sheet.
         foreach ( array_column($this->stylesheetAssetsForSource($entryHtml, $entryPath, $files), 'path') as $path ) {
-            array_push($orderedPaths, ...($pageStylesheets[$path] ?? array()), ...array( $path ));
+            $path = $pageStylesheetParents[$path] ?? $path;
+            array_push($orderedPaths, $path, ...($pageStylesheets[$path] ?? array()));
         }
         $ordered = array();
         $consumed = array();
