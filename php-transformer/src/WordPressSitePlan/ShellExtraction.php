@@ -397,6 +397,7 @@ final class ShellExtraction
             if (in_array($area, $occupiedAreas, true)) continue;
             $rows = $this->nestedLandmarkCandidates($markup, $sourcePath, $area);
             if (array() === $rows) continue;
+            if (!empty($rows[0]['document_level']) && 1 < count($rows)) continue;
             $identities = array_column($rows, 'identity_markup');
             if (1 !== count(array_unique($identities))) continue;
             $row = $rows[0];
@@ -407,7 +408,7 @@ final class ShellExtraction
             foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
             // The candidate's own block-tree offset is carried forward so removal
             // never needs to re-derive its position by searching for its bytes.
-            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
+            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null);
         }
         return $candidates;
     }
@@ -425,6 +426,7 @@ final class ShellExtraction
             $candidates = array(); $variantCount = null; $rejected = false; $variantBindings = array();
             foreach ($applicable as $index => $page) {
                 $rows = $this->nestedLandmarkCandidates($page['canonical_block_markup'], $page['source_path'], $area);
+                if (!empty($rows[0]['document_level']) && 1 < count($rows)) { $rejected = true; break; }
                 foreach ($rows as $row) if (null !== self::responsiveVariantClass($row)) continue 3;
                 if (array() === $rows) { $rejected = true; break; }
                 $count = self::logicalNestedVariantCount($rows);
@@ -510,7 +512,67 @@ final class ShellExtraction
             }
             $diagnostics[] = array('code' => 'wordpress_site_plan_shell_inline_extracted', 'severity' => 'info', 'message' => "Extracted nested responsive {$area} variants at their authored page positions.", 'area' => $area, 'variant_count' => $variantCount, 'page_count' => count($applicable), 'source_paths' => $sourcePaths);
         }
+        if (array() === array_filter($parts, static fn(array $part): bool => 'header' === ($part['area'] ?? null))) {
+            $routeHeaders = $this->routeSharedHeaderVariants($pages, $reservedSlugs, $runtimeDeclarations);
+            $pages = $routeHeaders['pages'];
+            $parts = array_merge($parts, $routeHeaders['parts']);
+            $diagnostics = array_merge($diagnostics, $routeHeaders['diagnostics']);
+        }
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * Distinct repeated headers can each be editable without forcing a single
+     * dominant style onto routes which authored a different variant. The part
+     * stays at the header's original position in page content; singletons and
+     * ambiguous or bound candidates remain page-owned.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<string,true> $reservedSlugs
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
+     */
+    private function routeSharedHeaderVariants(array $pages, array $reservedSlugs, array $runtimeDeclarations): array
+    {
+        $clusters = array(); $parts = array(); $diagnostics = array();
+        foreach ($pages as $index => $page) {
+            if (!empty($page['synthetic'])) continue;
+            $rows = $this->nestedLandmarkCandidates($page['canonical_block_markup'], $page['source_path'], 'header');
+            if (1 !== count($rows) || '' === ($rows[0]['identity_markup'] ?? '')) continue;
+            $identity = hash('sha256', $rows[0]['identity_markup']);
+            $clusters[$identity][$index] = $rows[0];
+        }
+        $repeated = array_filter($clusters, static fn(array $rows): bool => count($rows) >= 2);
+        // A single repeated cluster belongs to sharedShells(), which can bind
+        // the normal header part in the site's templates without page blocks.
+        if (count($repeated) < 2) return compact('pages', 'parts', 'diagnostics');
+        ksort($repeated, SORT_STRING);
+        foreach ($repeated as $identity => $rows) {
+            $slug = 'header-' . substr($identity, 0, 12);
+            if (isset($reservedSlugs[$slug])) continue;
+            $after = array(); $valid = true;
+            foreach ($rows as $index => $row) {
+                $page = $pages[$index];
+                $markup = $page['canonical_block_markup'];
+                if ($row['markup'] !== substr($markup, $row['offset'], $row['length']) || $this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $row['offset'], $row['length'])) { $valid = false; break; }
+                $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"header","tagName":"header"} /-->';
+                $replacement = substr($markup, 0, $row['offset']) . $reference . substr($markup, $row['offset'] + $row['length']);
+                if ('' === trim($replacement)) { $valid = false; break; }
+                $after[$index] = $replacement;
+            }
+            if (!$valid) continue;
+            foreach ($after as $index => $markup) {
+                $pages[$index]['canonical_block_markup'] = $markup;
+                $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
+            }
+            $first = reset($rows);
+            $sourcePath = 'wordpress-site-plan/shared/' . $slug;
+            $sources = array_map(static fn(int $index): string => $pages[$index]['source_path'], array_keys($rows));
+            $partMarkup = self::withoutLandmarkTagName(self::withoutCurrentNavigationState($first['markup']));
+            $parts[] = array('source_path' => $sourcePath . '#header', 'slug' => $slug, 'title' => 'Header Variant ' . (count($parts) + 1), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => 'header', 'tag_name' => 'header', 'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => $sources, 'variant' => count($parts) + 1), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#header', 'kind' => 'template_part'), 'title' => 'Header Variant ' . (count($parts) + 1), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance('header', 'extracted', 'route_variant', array_values($rows), $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#header', 'parts/' . $slug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup));
+            $diagnostics[] = array('code' => 'wordpress_site_plan_shell_route_variant_extracted', 'severity' => 'info', 'message' => 'Extracted a repeated route-specific header as an editable template part.', 'area' => 'header', 'slug' => $slug, 'page_count' => count($rows), 'source_paths' => $sources);
+        }
+        return compact('pages', 'parts', 'diagnostics');
     }
 
     /**
@@ -724,7 +786,7 @@ final class ShellExtraction
                 $open = array_pop($stack);
                 if (!is_array($open) || empty($open['candidate'])) continue;
                 $length = $offset + strlen($token['token']) - $open['offset']; $candidateMarkup = substr($markup, $open['offset'], $length);
-                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])));
+                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'document_level' => empty($stack), 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])));
                 continue;
             }
             $name = $token['name']; $attributes = $token['attributes']; $attrs = '' === $attributes ? array() : json_decode($attributes, true);
@@ -745,13 +807,16 @@ final class ShellExtraction
                     if (null === $tagName && is_string($wrapper['tagName'] ?? null) && in_array($wrapper['tagName'], array('header', 'footer', 'main', 'article', 'section', 'aside'), true)) $tagName = $wrapper['tagName'];
                 }
             }
+            // Semantic shell landmarks can be direct document children when the
+            // source has no layout wrapper. The footer still requires an
+            // enclosing wrapper, and article-owned landmarks stay excluded.
             $footerClass = $hasShellWrapperContract ? self::footerAreaFromClassName($className) : null;
             if ('footer' !== $tagName) $tagName = $footerClass ?? $tagName;
-            $candidate = 0 < count($stack) && !$disallowedAncestor && $area === $tagName && (self::isShellLandmarkBlock($name) || ('footer' === $area && $hasShellWrapperContract && 'footer' === $footerClass));
+            $candidate = ('header' === $area || 0 < count($stack)) && !$disallowedAncestor && $area === $tagName && (self::isShellLandmarkBlock($name) || ('footer' === $area && $hasShellWrapperContract && 'footer' === $footerClass));
             // Whether page content precedes the landmark inside its ancestors: a
             // block other than the enclosing openings started or ended before it.
             $preceded = false;
-            if ($candidate) {
+            if ($candidate && 0 < count($stack)) {
                 $between = substr($markup, $stack[0]['offset'], $offset - $stack[0]['offset']);
                 $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
             }

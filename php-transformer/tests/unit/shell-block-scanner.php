@@ -14,7 +14,11 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $scanner = new ReflectionClass(ShellExtraction::class);
-$call = static fn (string $method, string $markup): array => $scanner->getMethod($method)->invoke(null, $markup);
+$extraction = new ShellExtraction(new Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan());
+$call = static function (string $method, string $markup) use ($scanner, $extraction): array {
+    $arguments = 'nestedLandmarkCandidates' === $method ? array($markup, '', 'header') : array($markup);
+    return $scanner->getMethod($method)->invoke($extraction, ...$arguments);
+};
 
 // A block attribute may carry a raw '>' (a label, hand-written or older
 // serialized content). Every structural walk must see the same block tree.
@@ -35,6 +39,11 @@ $assert(str_ends_with(substr($header, $children[1]['offset'], $children[1]['leng
 $tokens = $call('blockCommentTokens', $page);
 $assert(9 === count($tokens), 'the token scan sees every block comment (4 openers, 4 closers, 1 self-closing)', (string) count($tokens));
 $assert(1 === count(array_filter($tokens, static fn (array $token): bool => $token['self_closing'])), 'exactly one token is self-closing');
+
+$sharedHeader = '<!-- wp:group {"tagName":"header"} --><header><!-- wp:navigation --><!-- /wp:navigation --></header><!-- /wp:group -->';
+$articleHeader = '<!-- wp:group {"tagName":"article"} --><article><!-- wp:group {"tagName":"header"} --><header><!-- wp:heading --><h1>Hero</h1><!-- /wp:heading --></header><!-- /wp:group --></article><!-- /wp:group -->';
+$assert(1 === count($call('nestedLandmarkCandidates', $sharedHeader)), 'root-level navigational headers are semantic shell candidates');
+$assert(array() === $call('nestedLandmarkCandidates', $articleHeader), 'article-owned hero headers remain page content');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "shell block scanner FAILED: {$passes} passed, {$failures} failed\n");

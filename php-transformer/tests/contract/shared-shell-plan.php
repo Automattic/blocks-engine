@@ -46,6 +46,25 @@ $nearPages = $pages($nearMatch);
 $nearDiagnostic = current(array_filter($nearMatch['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_retained_ambiguous' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)));
 $assert(str_contains($nearPages['index.html']['canonical_block_markup'] ?? '', 'Home') && str_contains($nearPages['about.html']['canonical_block_markup'] ?? '', 'Contact us') && 1 === substr_count($nearPages['index.html']['canonical_block_markup'] ?? '', '"tagName":"header"') && 1 === substr_count($nearPages['about.html']['canonical_block_markup'] ?? '', '"tagName":"header"') && !array_filter($nearMatch['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)) && 'retained' === ($nearDiagnostic['provenance']['decision'] ?? null) && 'non_equivalent' === ($nearDiagnostic['provenance']['reason'] ?? null) && array('about.html', 'index.html') === array_keys($nearDiagnostic['provenance']['sources'] ?? array()), 'Ambiguous multipage headers remain exactly once per page with generic retained-extraction provenance.');
 
+$variantHeader = static fn(string $appearance, string $title): string => '<header class="site-header ' . $appearance . '"><p>Company brand</p><nav><a href="/">Home</a><a href="/about">About</a></nav></header><main><h1>' . $title . '</h1></main>';
+$variantPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $variantHeader('light', 'Homepage'),
+    'team.html' => $variantHeader('light', 'Team'),
+    'about.html' => $variantHeader('dark', 'About'),
+    'events.html' => $variantHeader('dark', 'Events'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$variantParts = array_values(array_filter($variantPlan['template_parts'] ?? array(), static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$variantPages = $pages($variantPlan);
+$assert(2 === count($variantParts) && count(array_unique(array_column($variantParts, 'slug'))) === 2 && 2 === count(array_filter($variantParts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null))), 'Two distinct, repeated source header appearances become two editable shared variants.');
+foreach (array('index.html' => 'Homepage', 'team.html' => 'Team', 'about.html' => 'About', 'events.html' => 'Events') as $source => $title) {
+    $markup = $variantPages[$source]['canonical_block_markup'] ?? '';
+    $assert(1 === substr_count($markup, '<!-- wp:template-part') && !str_contains($markup, 'Company brand') && str_contains($markup, $title), "{$source} binds only its corresponding header variant and keeps page content.");
+}
+$assert(1 === count(array_filter($variantParts, static fn(array $part): bool => str_contains((string) ($part['canonical_block_markup'] ?? ''), 'site-header light'))) && 1 === count(array_filter($variantParts, static fn(array $part): bool => str_contains((string) ($part['canonical_block_markup'] ?? ''), 'site-header dark'))), 'Route variants retain their independently authored appearance.');
+WordPressSitePlan::assertValid($variantPlan);
+$variantBootstrap = $writes($variantPlan)['functions.php']['payload']['data'] ?? '';
+$assert(!str_contains($variantBootstrap, "    \$slugs = array (") && 2 === count(array_filter($variantPlan['template_parts'], static fn(array $part): bool => 'route_variant' === ($part['provenance']['reason'] ?? null))), 'Route variants retain Core template-part semantic header wrappers instead of stripping them at render time.');
+
 $singleResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header id="solo-shell" class="solo" style="border-top:2px solid #111"><p>Solo</p></header><main>Home</main><footer>Solo footer</footer>')))->toArray();
 $single = $singleResult['source_reports']['wordpress_site_plan'];
 $singleWrites = $writes($single);
@@ -77,6 +96,33 @@ $assert(!array_filter($heroPlan['template_parts'], static fn(array $part): bool 
 $siteTitleResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header><h1>Site title</h1><nav><a href="/">Home</a></nav></header><main>Home</main>', 'about.html' => '<header><h1>Site title</h1><nav><a href="/">Home</a></nav></header><main>About</main>')))->toArray();
 $siteTitlePlan = $siteTitleResult['source_reports']['wordpress_site_plan'];
 $assert(1 === count(array_filter($siteTitlePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains(($pages($siteTitlePlan)['index.html']['canonical_block_markup'] ?? ''), 'Site title'), 'A repeated header with both a site title and navigation remains eligible shared chrome.');
+
+$documentHeader = static fn(string $hero): string => '<header class="site-header"><h1>Lake Country Players</h1><nav><a href="/">Home</a><a href="/about">About</a></nav></header><main><header class="hero"><h2>' . $hero . '</h2></header><p>Page content</p></main>';
+$documentHeaderResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $documentHeader('Home production'),
+    'about.html' => $documentHeader('About the company'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$documentHeaderPages = $pages($documentHeaderResult);
+$documentHeaderPart = current(array_filter($documentHeaderResult['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$assert(is_array($documentHeaderPart) && str_contains($documentHeaderPart['canonical_block_markup'] ?? '', 'Lake Country Players') && str_contains($documentHeaderPart['canonical_block_markup'] ?? '', 'wp:navigation'), 'An equivalent root-level site header becomes one editable shared template part with navigation.');
+foreach (array('index.html' => 'Home production', 'about.html' => 'About the company') as $source => $hero) {
+    $markup = $documentHeaderPages[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, 'Lake Country Players') && !str_contains($markup, 'wp:navigation') && str_contains($markup, $hero), "{$source} leaves shared header markup out of page content while retaining its page-owned hero.");
+}
+$documentHeaderWrites = $writes($documentHeaderResult);
+$assert(1 === substr_count($documentHeaderWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($documentHeaderWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"'), 'Front-page and page templates each bind the editable shared header once.');
+
+$boundForm = '<form method="post"><input type="email" name="email"><button type="submit">Join</button></form>';
+$duplicateBoundFormResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<div id="siteWrapper" class="site-wrapper"><header><nav><a href="/">Home</a><a href="/about">About</a></nav></header><main><h1>Home</h1>' . $boundForm . '</main><footer>' . $boundForm . '</footer></div>',
+    'about.html' => '<div id="siteWrapper" class="site-wrapper"><header><nav><a href="/">Home</a><a href="/about">About</a></nav></header><main><h1>About</h1>' . $boundForm . '</main><footer>' . $boundForm . '</footer></div>',
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$duplicateBoundFormPages = $pages($duplicateBoundFormResult);
+$assert(1 === count(array_filter($duplicateBoundFormResult['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !array_filter($duplicateBoundFormResult['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)), 'A duplicate runtime-form anchor in an otherwise shared footer keeps that footer page-owned while the independent shared header extracts.');
+foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
+    $markup = $duplicateBoundFormPages[$source]['canonical_block_markup'] ?? '';
+    $assert(2 === substr_count($markup, 'Join') && str_contains($markup, $title), "{$source} retains both runtime form anchors and its unique page body after shared-header extraction.");
+}
 
 $incomplete = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header>Shared</header><main>Home</main><footer>Shared footer</footer>', 'about.html' => '<header>Shared</header><main>About</main><footer>Shared footer</footer>', 'contact.html' => '<main>Contact</main><footer>Shared footer</footer>', 'services.html' => '<header>Services</header><main>Services</main><footer>Shared footer</footer>')))->toArray()['source_reports']['wordpress_site_plan'];
 $multiple = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header>One</header><header>Two</header><main>Home</main>', 'about.html' => '<header>One</header><header>Two</header><main>About</main>')))->toArray()['source_reports']['wordpress_site_plan'];
