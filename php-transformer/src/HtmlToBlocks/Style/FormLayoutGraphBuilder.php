@@ -107,9 +107,26 @@ final class FormLayoutGraphBuilder
         $this->truncated = $this->truncated || $customPropertyAnalysis['truncated'];
         $nodes = array();
         $variants = array();
+        $resolved = array();
+        $hidden = array();
         foreach ( $entries as $entry ) {
             $matched = $this->matched($entry['element'], $analysis['rules']);
             $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
+            $resolved[$entry['id']] = array( $matched, $conditional );
+            foreach ( $conditional as $encoded => $facts ) {
+                if ( 'none' === strtolower(trim((string) ($facts['display']['value'] ?? ''))) ) {
+                    $hidden[$entry['id']][$encoded] = true;
+                }
+            }
+        }
+        $parents = array_column($entries, 'parent', 'id');
+        foreach ( $entries as $entry ) {
+            [ $matched, $conditional ] = $resolved[$entry['id']];
+            // Under a condition where an ancestor is display:none, a descendant's
+            // conditional layout never renders; it is not a responsive variant.
+            for ( $ancestor = $parents[$entry['id']] ?? null; null !== $ancestor; $ancestor = $parents[$ancestor] ?? null ) {
+                $conditional = array_diff_key($conditional, $hidden[$ancestor] ?? array());
+            }
             $base = $this->withoutAmbiguousCustomProperties($matched['base'], $entry['element'], $conditional, $customPropertyAnalysis['rules']);
             $layout = $this->layout($base, $entry['element'], null, $customPropertyAnalysis['rules']);
             if ( array() === $layout && array() === $conditional ) {

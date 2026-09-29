@@ -249,7 +249,9 @@ final class CssRuleAnalyzer
     private function atRule(string $prelude): ?array
     {
         $prelude = $this->normalizeAtRuleComments($prelude);
-        if ( preg_match('/^@(media|container|supports)\s+(.+)$/i', $prelude, $match) ) {
+        // A condition may follow the name directly: `@media(max-width:600px)`
+        // is the same rule as `@media (max-width:600px)`.
+        if ( preg_match('/^@(media|container|supports)(?:\s+|(?=\())(.+)$/is', $prelude, $match) ) {
             return array( 'name' => strtolower($match[1]), 'query' => trim($match[2]) );
         }
         // A cascade layer block's name is optional (an anonymous layer is valid

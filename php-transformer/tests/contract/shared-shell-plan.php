@@ -192,8 +192,8 @@ foreach ($bindingPlan['runtime_declarations'] ?? array() as $declaration) foreac
     $search = $binding['search_block_markup'] ?? '';
     $bindingAnchors[] = is_string($search) && '' !== $search && 1 === substr_count($markup, $search);
 }
-$bindingHeader = array_values(array_filter($bindingPlan['template_parts'] ?? array(), static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
-$assert('shared_shell' === ($bindingHeader['placement']['kind'] ?? null) && str_contains((string) ($bindingHeader['canonical_block_markup'] ?? ''), 'shared-signup'), 'Responsive shared chrome whose form is the same on every page extracts with its form.');
+$bindingHeaders = array_column(array_filter($bindingPlan['template_parts'] ?? array(), static fn(array $part): bool => 'header' === ($part['area'] ?? null)), null, 'slug');
+$assert(array('header-1', 'header-2') === array_keys($bindingHeaders) && 'inline_shared_shell' === ($bindingHeaders['header-1']['placement']['kind'] ?? null) && str_contains((string) ($bindingHeaders['header-1']['canonical_block_markup'] ?? ''), 'shared-signup') && !str_contains((string) ($bindingHeaders['header-2']['canonical_block_markup'] ?? ''), 'shared-signup'), 'Responsive shared chrome whose form is the same on every page extracts each viewport header, with the form in its own variant.');
 $assert(3 === count($bindingAnchors) && array() === array_filter($bindingAnchors, static fn(bool $resolved): bool => !$resolved), 'The shared form resolves once in the part and each page-local form once on its page.');
 WordPressSitePlan::assertValid($bindingPlan);
 
@@ -943,5 +943,17 @@ foreach (array('index.html', 'about.html', 'projects.html') as $source) {
 $assert(str_contains($combinedFooterPages['projects.html']['canonical_block_markup'] ?? '', 'footer-padding') && str_contains($combinedFooterPages['projects.html']['canonical_block_markup'] ?? '', 'padding-top:32px') && str_contains($combinedFooterPages['projects.html']['canonical_block_markup'] ?? '', 'padding-bottom:32px'), 'Combined responsive factoring preserves project-specific footer section padding.');
 $assert(str_contains($combinedFooterPages['distinct.html']['canonical_block_markup'] ?? '', 'A different responsive footer.') && !str_contains($combinedFooterPages['distinct.html']['canonical_block_markup'] ?? '', '"slug":"footer-content"'), 'Distinct copy in repeated responsive footer regions remains page-owned.');
 WordPressSitePlan::assertValid($combinedFooterPlan);
+
+// A footer whose only child is a wrapper chain stays a footer group block:
+// wrapper coalescing must not fold the landmark into a layout shell's wrapper
+// list, where it loses its block identity and can no longer be shared.
+$foldedFooterPage = static fn(string $title): string => '<div id="site-root"><main><h1>' . $title . '</h1></main><footer id="page-footer" class="page-footer"><section class="footer-band"><div class="footer-inner"><p>Shared colophon.</p><p>Second line.</p></div></section></footer></div>';
+$foldedFooterResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $foldedFooterPage('Home'), 'about.html' => $foldedFooterPage('About'), 'projects.html' => $foldedFooterPage('Projects'))))->toArray();
+$foldedFooterPlan = $foldedFooterResult['source_reports']['wordpress_site_plan'];
+$foldedFooterPart = array_values(array_filter($foldedFooterPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null) && 'shared_shell' === ($part['placement']['kind'] ?? null)))[0] ?? array();
+$assert(array() !== $foldedFooterPart && str_contains($foldedFooterPart['canonical_block_markup'] ?? '', 'footer-band'), 'A footer landmark wrapping a wrapper chain is extracted as the shared footer part.');
+foreach ($foldedFooterResult['source_reports']['compiled_site']['pages'] as $page) $assert(str_contains($page['block_markup'], '"anchor":"page-footer"') && str_contains($page['block_markup'], '"tagName":"footer"'), "{$page['source_path']} keeps its footer as a group block rather than a folded layout-shell wrapper.");
+foreach ($pages($foldedFooterPlan) as $source => $row) $assert(!str_contains($row['canonical_block_markup'] ?? '', 'Shared colophon.') && str_contains($row['canonical_block_markup'] ?? '', 'site-root'), "{$source} hands its footer to the shared part and keeps its own wrappers.");
+WordPressSitePlan::assertValid($foldedFooterPlan);
 
 fwrite(STDOUT, "shared-shell-plan contract passed\n");

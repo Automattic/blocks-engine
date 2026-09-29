@@ -202,6 +202,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     use DomHelpersTrait;
 
     private const MAX_INTERACTION_CANDIDATES = 100;
+    private const LANDMARK_GROUP_TAGS = array('header', 'footer');
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
     private string $capturedRootTheme = '';
 
@@ -5130,13 +5131,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if (isset($block['_binding_token'])) return 'binding_boundary';
         if ($this->hasIndependentWrapperOwnership($block)) return 'owned_wrapper';
         if (in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)) return 'list_semantics';
+        if (in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), self::LANDMARK_GROUP_TAGS, true)) return 'landmark_semantics';
         return 'serialization_unsafe';
     }
 
     /** @param array<string,mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
     private function foldableWrapperDescriptor(array $block): ?array
     {
-        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || isset($block['_binding_token']) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)) return null;
+        // A landmark stays its own group block: folded into a layout shell's
+        // wrapper list, a header or footer loses its block identity
+        // for the editor and for shell extraction.
+        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || isset($block['_binding_token']) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true)) return null;
         return $this->groupWrapperDescriptor($block);
     }
 
