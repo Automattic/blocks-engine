@@ -16,6 +16,7 @@ use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\MotionSequenceBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LiveClockBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -475,6 +476,7 @@ final class ArtifactCompiler
             $namespace = $companionPluginPayloadBuilder->blockNamespace($artifact);
             if ('' !== $namespace) {
                 $allGeneratedBlocks[] = (new MotionSequenceBlockGenerator())->definition($namespace . '/' . MotionSequenceBlockGenerator::LOCAL_NAME);
+                $allGeneratedBlocks[] = (new LiveClockBlockGenerator())->definition($namespace . '/' . LiveClockBlockGenerator::LOCAL_NAME);
             }
         }
         $themeOwnedRequiredScripts = RuntimeIslandPackageBuilder::themeOwnedRequiredScriptOccurrences($runtimeIslandPackage, $compiledSite['pages'] ?? array());
