@@ -272,7 +272,10 @@ final class AuthorSelectorSemanticPreparer
                     'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
                     'margin', 'padding', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'grid', 'grid-area',
                 )));
-                if ( ! $hasBoxGeometry && 'img' !== strtolower($element->tagName) ) {
+                if ( ! $hasBoxGeometry
+                    && ! $this->selectorRuleDeclaresBoxGeometry($authorSelector['selector'], $authorStyles)
+                    && 'img' !== strtolower($element->tagName)
+                ) {
                     continue;
                 }
                 $path = $element->getNodePath() ?? '';
@@ -282,6 +285,26 @@ final class AuthorSelectorSemanticPreparer
                 }
             }
         }
+    }
+
+    private function selectorRuleDeclaresBoxGeometry(string $selector, AuthorStyleAnalysis $authorStyles): bool
+    {
+        $geometry = array_fill_keys(array(
+            'display', 'position', 'inset', 'top', 'right', 'bottom', 'left',
+            'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
+            'margin', 'padding', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'grid', 'grid-area',
+        ), true);
+        foreach ($authorStyles->styleRules() as $rule) {
+            foreach ($rule['selectors'] ?? array() as $candidate) {
+                if ($selector !== ($candidate['selector'] ?? null)) {
+                    continue;
+                }
+                if (array_intersect_key($rule['declarations'] ?? array(), $geometry) !== array()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private function discoverNegatedDataAttributeState(string $selector, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
