@@ -240,7 +240,7 @@ final class CommerceStructureRecognizer
             )));
 
             foreach ( $tokens as $token ) {
-                if ( str_contains($haystack, $token) ) {
+                if ( $this->classifier->hasTokenBoundary($haystack, $token) ) {
                     return $descendant;
                 }
             }

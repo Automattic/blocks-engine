@@ -472,6 +472,17 @@ final class SourceElementClassifier
         return false;
     }
 
+    public function hasTokenBoundary(string $value, string $token): bool
+    {
+        $value = strtolower($value);
+        $token = strtolower(trim($token));
+        if ( '' === $token ) {
+            return false;
+        }
+
+        return 1 === preg_match('/(?<![a-z0-9])' . preg_quote($token, '/') . '(?![a-z0-9])/', $value);
+    }
+
     public function isMetadataLayoutStyle(string $style): bool
     {
         return 1 === preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?(?:grid|flex)\b/i', $style);
