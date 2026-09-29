@@ -92,6 +92,13 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
             $parts[] = '.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS) ) {
+            // The source image fills both axes of its parent. Its core/image
+            // figure is an extra box; give that box the source's full inline
+            // extent so the image's percentage width does not size from an
+            // aspect-ratio-constrained, shrink-to-fit figure instead.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '){width:100%}';
+        }
         if ( str_contains($serializedBlocks, '<video') ) {
             $parts[] = 'video{max-width:100%}';
         }
