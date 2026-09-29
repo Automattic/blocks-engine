@@ -21,7 +21,7 @@ final class ShellLandmarkPolicy
     private const GLOBAL_SHELL_LANDMARK_TAGS = array( 'header', 'footer', 'nav' );
 
     /** @var array<int, string> */
-    private const SEMANTIC_GROUP_TAGS = array( 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main' );
+    private const SEMANTIC_GROUP_TAGS = array( 'header', 'nav', 'search', 'section', 'article', 'aside', 'footer', 'main' );
 
     /**
      * Elements whose content model is flow content, so their children convert
@@ -31,10 +31,10 @@ final class ShellLandmarkPolicy
      *
      * @var array<int, string>
      */
-    private const FLOW_CONTAINER_TAGS = array( 'article', 'aside', 'body', 'center', 'div', 'fieldset', 'footer', 'header', 'main', 'nav', 'section' );
+    private const FLOW_CONTAINER_TAGS = array( 'article', 'aside', 'body', 'center', 'div', 'fieldset', 'footer', 'header', 'main', 'nav', 'search', 'section' );
 
     /** @var array<int, string> */
-    private const WRAPPER_PRESERVING_TAGS = array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' );
+    private const WRAPPER_PRESERVING_TAGS = array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'search', 'section' );
 
     /** @var array<int, string> */
     private const INLINE_TOKEN_CONTAINER_TAGS = array( 'div', 'footer', 'header', 'main', 'nav', 'section' );
