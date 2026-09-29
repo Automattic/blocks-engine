@@ -56,6 +56,15 @@ JS;
         if ( typeof selector !== 'string' || selector.length > 120 ) return null;
         try { return document.querySelector( selector ); } catch ( error ) { return null; }
     }
+    function textTarget( selector ) {
+        var element = select( selector );
+        if ( ! element ) return null;
+        if ( ! element.children.length ) return element;
+        // A native paragraph may carry the saved editable text inside the
+        // source-addressable wrapper. Animate that leaf, never the wrapper.
+        var child = element.firstElementChild;
+        return element.children.length === 1 && child.tagName === 'P' && ! child.children.length ? child : null;
+    }
     function bounded( value, fallback, max ) {
         if ( value === undefined || value === null || value === '' ) return fallback;
         var number = Number( value );
@@ -78,7 +87,7 @@ JS;
         var timezone = select( config.timezoneSelector );
         if ( ! hours || ! minutes || ! timezone || hours.children.length || minutes.children.length || timezone.children.length ) return;
         var ampm = select( config.ampmSelector );
-        var date = select( config.dateSelector );
+        var date = textTarget( config.dateSelector );
         var colon = select( config.colonSelector );
         var trigger = select( config.triggerSelector );
         var ripple = select( config.rippleSelector );

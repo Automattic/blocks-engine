@@ -71,6 +71,13 @@ JS;
         if ( typeof selector !== 'string' || selector.length > 120 ) return null;
         try { return document.querySelector( selector ); } catch ( error ) { return null; }
     }
+    function textTarget( selector ) {
+        var element = select( selector );
+        if ( ! element ) return null;
+        if ( ! element.children.length ) return element;
+        var child = element.firstElementChild;
+        return element.children.length === 1 && child.tagName === 'P' && ! child.children.length ? child : null;
+    }
     function bounded( value, fallback, min, max ) {
         var number = Number( value );
         return Number.isFinite( number ) && number >= min && number <= max ? number : fallback;
@@ -84,8 +91,8 @@ JS;
         if ( ! Array.isArray( input ) ) return;
         var steps = input.slice( 0, 8 ).map( function( item ) {
             if ( ! item || typeof item !== 'object' ) return null;
-            var target = select( item.selector );
-            if ( ! target || target.children.length > 0 ) return null;
+            var target = textTarget( item.selector );
+            if ( ! target ) return null;
             var text = target.textContent || '';
             if ( text.length > 500 ) return null;
             return {
