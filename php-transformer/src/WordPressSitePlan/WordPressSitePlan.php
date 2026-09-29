@@ -431,6 +431,7 @@ final class WordPressSitePlan
         $partSlugs = array();
         $overrideTemplateSlugs = array();
         foreach ($plan['template_parts'] as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (is_string($slug)) $overrideTemplateSlugs[$slug] = true;
+        foreach ($plan['template_parts'] as $part) foreach (array_keys($part['placement']['template_wrappers'] ?? array()) as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrideTemplateSlugs[$slug] = true;
         foreach ( $plan['template_parts'] as $part ) {
             self::assertDocument($part, 'template part', true, $tokens);
             if ($part['content_hash'] !== self::contentHash($part['canonical_block_markup'])) throw new InvalidArgumentException('WordPress site plan template part has a stale content hash.');
@@ -496,7 +497,7 @@ final class WordPressSitePlan
                 throw new InvalidArgumentException('WordPress site plan template part lacks its canonical write.');
             }
             $boundTemplates = in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true) ? $part['placement']['template_slugs'] : array();
-            foreach (array_keys($overrideTemplateSlugs) as $slug) if (!in_array($slug, $part['placement']['excluded_template_slugs'] ?? array(), true)) $boundTemplates[] = $slug;
+            if (in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true)) foreach (array_keys($overrideTemplateSlugs) as $slug) if (!in_array($slug, $part['placement']['excluded_template_slugs'] ?? array(), true)) $boundTemplates[] = $slug;
             foreach ( $plan['templates'] as $template ) {
                 $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
                 if (in_array($template['slug'], $boundTemplates, true) && 1 !== $references) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
@@ -1814,6 +1815,7 @@ final class WordPressSitePlan
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
         $overrides = array();
         foreach ($bound as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
+        foreach ($bound as $part) foreach (array_keys($part['placement']['template_wrappers'] ?? array()) as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
         foreach ($surfaces as $surface) {
             $declaration = $surface['template_surface']; $slug = $declaration['slug']; $target = 'templates/' . $slug . '.html';

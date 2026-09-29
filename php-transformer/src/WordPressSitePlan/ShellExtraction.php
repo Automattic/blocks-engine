@@ -861,21 +861,24 @@ final class ShellExtraction
                 }
                 $withoutShells[$index] = $withoutShell;
             }
-            // The entry page can hold its chrome in a wrapper no other page has
-            // (a pinned layer that keeps the header fixed while the page
-            // scrolls). A wrapper whose only content is the chrome belongs to it:
-            // it moves with the chrome into the front-page template, around the
-            // shared part, instead of staying behind empty in the page.
+            // A wrapper whose only content is chrome moves to that route's
+            // template around the shared part. Keep its authored attributes
+            // per route; another page may render the same part unwrapped.
             $templateWrappers = array();
+            $pageWrappers = array();
             foreach ($cluster['indexes'] as $index) {
-                if (empty($pages[$index]['entrypoint']) || empty($candidates[$index][0]['nested_shell']) || array() !== ($candidates[$index][0]['additional_ranges'] ?? array())) continue;
+                if (empty($candidates[$index][0]['nested_shell']) || array() !== ($candidates[$index][0]['additional_ranges'] ?? array())) continue;
                 $ranges = $this->nestedShellRanges($pages[$index]['canonical_block_markup'], $candidates[$index][0], $area);
                 if (1 !== count($ranges)) continue;
                 $wrapper = self::soleChromeWrapper($pages[$index]['canonical_block_markup'], $ranges[0]);
                 if (null === $wrapper) continue;
-                $templateWrappers['front-page'] = array('opening' => $wrapper['opening'], 'closing' => $wrapper['closing']);
+                $slug = !empty($pages[$index]['entrypoint']) ? 'front-page' : ('post' === ($pages[$index]['post_type'] ?? null) ? 'single-' . $pages[$index]['post_type'] . '-' . $pages[$index]['slug'] : 'page-' . $pages[$index]['slug']);
+                $templateWrappers[$slug] = array('opening' => $wrapper['opening'], 'closing' => $wrapper['closing']);
+                if ('page' === ($pages[$index]['post_type'] ?? null) && empty($pages[$index]['entrypoint'])) $pageWrappers[$index] = $templateWrappers[$slug];
                 $withoutShells[$index] = $wrapper['page'];
             }
+            $innerPages = array_filter($applicable, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null) && empty($page['entrypoint']));
+            if (array() !== $innerPages && count($pageWrappers) === count($innerPages) && 1 === count(array_unique(array_map('serialize', $pageWrappers)))) $templateWrappers['page'] = reset($pageWrappers);
             $shellBindings = array();
             foreach ($cluster['indexes'] as $index) {
                 $page = $pages[$index];
@@ -968,7 +971,7 @@ final class ShellExtraction
             $tagName = is_array($absorbed) ? 'div' : ShellLandmarkPolicy::templatePartAreaTagName($area);
             $ancestorContext = is_array($absorbed) ? ($absorbed['ancestor_context'] ?? null) : ($first['ancestor_context'] ?? null);
             $container = isset($first['legacy_container_opening']) ? array('opening' => $first['legacy_container_opening'], 'closing' => $first['legacy_container_closing']) : null;
-            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => $tagName, 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineEntryShell ? array($sourcePath) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $container, 'template_wrappers' => in_array('front-page', $templateSlugs, true) && !$singlePage ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : 'canonical', $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => $tagName, 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineEntryShell ? array($sourcePath) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $container, 'template_wrappers' => !$singlePage ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : 'canonical', $candidates, $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
         foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);
