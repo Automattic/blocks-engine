@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\MotionSequenceBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -73,6 +74,21 @@ final class ArtifactCompiler
     {
         $this->wordpressCompat = new WordPressCompatCss();
         $this->runtimeScriptEvidenceAnalyzer = new RuntimeScriptEvidenceAnalyzer();
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function hasUnreproducedSourceMotion(array $files): bool
+    {
+        foreach ($files as $file) {
+            if ('capture-receipt.json' !== ($file['path'] ?? null) || !is_string($file['content'] ?? null) || strlen($file['content']) > 2 * 1024 * 1024) continue;
+            $receipt = json_decode($file['content'], true);
+            return is_array($receipt)
+                && 'data-liberation/capture-receipt/v1' === ($receipt['schema'] ?? null)
+                && 'data-liberation/source-interactivity/v1' === ($receipt['sourceInteractivity']['schema'] ?? null)
+                && is_int($receipt['sourceInteractivity']['unreproduced_route_count'] ?? null)
+                && $receipt['sourceInteractivity']['unreproduced_route_count'] > 0;
+        }
+        return false;
     }
 
     /** @return array<string, int> */
@@ -454,6 +470,12 @@ final class ArtifactCompiler
                 'content'      => $editorModule['content'],
                 'dependencies' => $editorModule['script_dependencies'],
             );
+        }
+        if ($this->hasUnreproducedSourceMotion($normalized['files'])) {
+            $namespace = $companionPluginPayloadBuilder->blockNamespace($artifact);
+            if ('' !== $namespace) {
+                $allGeneratedBlocks[] = (new MotionSequenceBlockGenerator())->definition($namespace . '/' . MotionSequenceBlockGenerator::LOCAL_NAME);
+            }
         }
         $themeOwnedRequiredScripts = RuntimeIslandPackageBuilder::themeOwnedRequiredScriptOccurrences($runtimeIslandPackage, $compiledSite['pages'] ?? array());
         $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $allGeneratedBlocks, $runtimeIslandPackage, $editorScripts, $themeOwnedRequiredScripts);
