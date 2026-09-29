@@ -422,7 +422,7 @@ final class ShellExtraction
             $sourcePaths = array_values(array_map(static fn(array $page): string => $page['source_path'], $applicable));
             $areaArtifacts = array_values(array_filter($canonicalArtifacts, static fn(array $artifact): bool => $area === ($artifact['area'] ?? null)));
             usort($areaArtifacts, static fn(array $left, array $right): int => ($left['variant'] ?? 0) <=> ($right['variant'] ?? 0));
-            $candidates = array(); $variantCount = null; $rejected = false;
+            $candidates = array(); $variantCount = null; $rejected = false; $variantBindings = array();
             foreach ($applicable as $index => $page) {
                 $rows = $this->nestedLandmarkCandidates($page['canonical_block_markup'], $page['source_path'], $area);
                 foreach ($rows as $row) if (null !== self::responsiveVariantClass($row)) continue 3;
@@ -430,7 +430,11 @@ final class ShellExtraction
                 $count = self::logicalNestedVariantCount($rows);
                 if (null !== $variantCount && $variantCount !== $count) { $rejected = true; break; }
                 $variantCount = $count; $candidates[$index] = $rows;
-                foreach ($rows as $candidate) if ($this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $candidate['offset'], $candidate['length'])) { $rejected = true; break 2; }
+                foreach ($rows as $candidate) {
+                    $found = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array(array('offset' => $candidate['offset'], 'length' => $candidate['length'])));
+                    if ($found['blocked']) { $rejected = true; break 2; }
+                    if (array() !== $found['refs']) $variantBindings[$candidate['variant']][$index] = $found['refs'];
+                }
             }
             if ($rejected || null === $variantCount || 1 === $variantCount) continue;
             $expectedSources = $sourcePaths; sort($expectedSources, SORT_STRING);
@@ -463,6 +467,17 @@ final class ShellExtraction
                 if ($candidate['markup'] !== substr($pages[$index]['canonical_block_markup'], $candidate['offset'], $candidate['length'])) { $rejected = true; break 2; }
             }
             if ($rejected) continue;
+            // A runtime binding inside a variant moves into that variant's part
+            // when every page binds the same entities there, as for a shared shell.
+            $partMarkups = array(); $hoists = array();
+            foreach ($slugs as $variant => $slug) {
+                $first = $candidates[array_key_first($candidates)][$variant];
+                $partMarkups[$variant] = self::withoutCurrentNavigationState($canonical ? (string) ($areaArtifacts[$variant]['canonical_block_markup'] ?? '') : $first['markup']);
+                if (!isset($variantBindings[$variant])) continue;
+                $hoists[$slug] = $this->sharedShellBindingHoist($runtimeDeclarations, $pages, array_keys($candidates), $variantBindings[$variant], array('source_path' => $first['source_path'], 'template_part_markup' => $partMarkups[$variant]), $area);
+                if (null === $hoists[$slug]) { $rejected = true; break; }
+            }
+            if ($rejected) continue;
             foreach ($candidates as $index => $rows) {
                 usort($rows, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
                 $markup = $pages[$index]['canonical_block_markup'];
@@ -480,9 +495,18 @@ final class ShellExtraction
                 $sourcePath = 'wordpress-site-plan/shared/' . $slug;
                 $candidateRows = array(); foreach ($candidates as $index => $rows) $candidateRows[$index] = array($rows[$variant]);
                 $title = ucfirst($area) . (1 === $variantCount ? '' : ' Variant ' . ($variant + 1));
-                $partMarkup = $canonical ? (string) ($artifact['canonical_block_markup'] ?? '') : $first['markup'];
-                $partMarkup = self::withoutCurrentNavigationState($partMarkup);
+                $partMarkup = $partMarkups[$variant];
                 $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $slug, 'title' => $title, 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => ShellLandmarkPolicy::templatePartAreaTagName($area), 'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => $sourcePaths, 'variant' => $variant + 1), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'inline_responsive_variant', $candidateRows, hash('sha256', $variants[$variant])), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $slug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup));
+            }
+            if (array() !== $hoists) {
+                $drops = array();
+                foreach ($hoists as $slug => $hoist) {
+                    $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, array('keep' => $hoist['keep'], 'drop' => array()), 'wordpress-site-plan/shared/' . $slug . '#' . $area);
+                    array_push($drops, ...$hoist['drop']);
+                }
+                $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, array('keep' => array(), 'drop' => $drops), '');
+                foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
+                $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
             }
             $diagnostics[] = array('code' => 'wordpress_site_plan_shell_inline_extracted', 'severity' => 'info', 'message' => "Extracted nested responsive {$area} variants at their authored page positions.", 'area' => $area, 'variant_count' => $variantCount, 'page_count' => count($applicable), 'source_paths' => $sourcePaths);
         }
