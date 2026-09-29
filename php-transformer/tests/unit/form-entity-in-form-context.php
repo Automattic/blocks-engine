@@ -173,6 +173,38 @@ $assert(
     json_encode($resolvedHeading)
 );
 
+// Provider forms commonly put a visually hidden submission token before their
+// visible intro. It must not turn that intro into interleaved context.
+$hiddenProviderControl = $formContext(
+    '<main><h2>Contact Us</h2><form aria-live="polite">'
+    . '<input type="text" name="_app_id" style="display:none">'
+    . '<h4>Drop us a line!</h4><input type="text" name="name">'
+    . '<button type="submit">Send</button></form></main>'
+);
+$hiddenBefore = $hiddenProviderControl['context_before'] ?? array();
+$assert(
+    1 === count($hiddenBefore)
+        && 'heading' === ( $hiddenBefore[0]['type'] ?? '' )
+        && 4 === ( $hiddenBefore[0]['level'] ?? 0 )
+        && 'Drop us a line!' === ( $hiddenBefore[0]['text'] ?? '' )
+        && empty($hiddenProviderControl['interleaved_context']),
+    'hidden provider controls do not hide the form introduction',
+    json_encode($hiddenProviderControl)
+);
+$rendered = ( new HtmlTransformer() )->transform(
+    '<main><h2>Contact Us</h2><form aria-live="polite"><input type="text" name="_app_id" style="display:none">'
+    . '<h4>Drop us a line!</h4><input type="text" name="name"><button type="submit">Send</button></form></main>',
+    array()
+)->toArray();
+$headingBlock = $rendered['blocks'][0]['innerBlocks'][0] ?? array();
+$assert(
+    'core/heading' === ( $headingBlock['blockName'] ?? '' )
+        && 2 === ( $headingBlock['attrs']['level'] ?? 0 )
+        && 'Contact Us' === ( $headingBlock['attrs']['content'] ?? '' ),
+    'adjacent section heading remains a native level-two block',
+    json_encode($headingBlock)
+);
+
 // A plain paragraph title whose inner span carries the declarations reads its
 // typography through that sole text carrier.
 $carrierTitle = $formContext(
