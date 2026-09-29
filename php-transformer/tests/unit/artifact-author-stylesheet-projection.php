@@ -509,9 +509,9 @@ $assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']
 $responsiveGrid = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
-        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="cards.css"><main><ul class="cards" data-count="2"><li>One</li><li>Two</li></ul></main>' ),
-        array( 'path' => 'people.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="cards.css"><main><ul class="cards" data-count="4" style="grid-gap:100px 100px"><li><img src="one.jpg" alt="One"></li><li>Two</li><li>Three</li><li>Four</li></ul></main>' ),
-        array( 'path' => 'cards.css', 'kind' => 'css', 'content' => '.cards{display:grid;gap:20px;grid-template-columns:1fr}.cards:not([data-count="1"]){grid-template-columns:repeat(2,1fr)}@media(min-width:768px){.cards[data-count="4"]{grid-template-columns:repeat(3,1fr)}}@media(min-width:1100px){.cards[data-count="4"]{grid-template-columns:repeat(4,1fr)}}@media(max-width:600px){.cards[data-count="4"]{grid-template-columns:1fr}}' ),
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="cards.css"><header class="shared">Shared header</header><main><ul class="cards" data-count="2"><li>One</li><li>Two</li></ul></main>' ),
+        array( 'path' => 'people.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="cards.css"><header class="shared">Shared header</header><main><ul class="cards" data-count="4" style="grid-gap:100px 100px"><li><img src="one.jpg" alt="One"></li><li>Two</li><li>Three</li><li>Four</li></ul></main>' ),
+        array( 'path' => 'cards.css', 'kind' => 'css', 'content' => '.shared{color:#456}.cards{display:grid;gap:20px;grid-template-columns:1fr}.cards:not([data-count="1"]){grid-template-columns:repeat(2,1fr)}@media(min-width:768px){.cards[data-count="4"]{grid-template-columns:repeat(3,1fr)}}@media(min-width:1100px){.cards[data-count="4"]{grid-template-columns:repeat(4,1fr)}}@media(max-width:600px){.cards[data-count="4"]{grid-template-columns:1fr}}' ),
         array( 'path' => 'one.jpg', 'kind' => 'image', 'content' => 'image-bytes' ),
     ),
 ) )->toArray();
@@ -526,6 +526,21 @@ $gridMarker = $gridMarkerMatch[0] ?? '';
 $gridPages = array_column($responsiveGrid['source_reports']['compiled_site']['pages'] ?? array(), null, 'source_path');
 $gridMarkup = (string) ($gridPages['people.html']['block_markup'] ?? '');
 $assert(false !== $gridBaseIndex && count($gridPageAssets) === 1 && array_search($gridPageAssets[0]['path'], array_column($gridAssets, 'path'), true) > $gridBaseIndex, 'the page-specific grid projection follows its shared stylesheet');
+$gridPlanPaths = array_column($responsiveGrid['source_reports']['wordpress_site_plan']['assets'] ?? array(), 'source_path');
+$gridPlanBase = array_search('cards.css', $gridPlanPaths, true);
+$gridPlanPage = array_search($gridPageAssets[0]['path'] ?? '', $gridPlanPaths, true);
+$assert(false !== $gridPlanBase && false !== $gridPlanPage && $gridPlanBase < $gridPlanPage, 'the WordPress site plan preserves the shared-then-page stylesheet cascade through theme enqueue');
+$gridSource = 'cards.css';
+$gridPage = 'cards.page-123456789abc.css';
+$orderedGridStyles = ( new ReflectionMethod(\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::class, 'orderPageStylesheetProjections') )->invoke(null, array(
+    array('kind' => 'css', 'source_path' => $gridPage, 'content' => '.cards:not([data-count="1"]){grid-template-columns:repeat(4,1fr)}'),
+    array('kind' => 'css', 'source_path' => $gridPage . '.shared-chrome', 'content' => '.shared{color:#456}'),
+    array('kind' => 'css', 'source_path' => 'unrelated.css', 'content' => '.other{color:#789}'),
+    array('kind' => 'css', 'source_path' => $gridSource, 'content' => '.cards:not([data-count="1"]){grid-template-columns:repeat(2,1fr)}'),
+    array('kind' => 'css', 'source_path' => $gridSource . '.shared-chrome', 'content' => '.shared{color:#123}'),
+));
+$orderedGridSources = array_column($orderedGridStyles, 'source_path');
+$assert(array('unrelated.css', $gridSource, $gridSource . '.shared-chrome', $gridPage, $gridPage . '.shared-chrome') === $orderedGridSources, 'a linked shared stylesheet stays before its page-scoped winner after chrome factoring without moving unrelated CSS');
 $assert('' !== $gridMarker && str_contains($gridPageCss, 'grid-template-columns:repeat(4,1fr)') && str_contains($gridPageCss, '@media(max-width:600px)') && str_contains($gridBaseCss, 'grid-template-columns:repeat(2,1fr)'), 'desktop and mobile grid variants retain their authored media conditions against the shared fallback');
 $assert(str_contains(implode("\n", array_column($gridAssets, 'content')), 'grid-gap:100px 100px') && str_contains($gridMarkup, 'be-inline-geometry-'), 'the editable grid keeps its inline-authored legacy gap through the existing layout carrier');
 $assert(str_contains($gridMarkup, 'blocks-engine-css-owned-grid') && str_contains($gridMarkup, $gridMarker) && 'pass' === ( new Runtime() )->validateBlockSerialization($gridMarkup)['status'], 'the attribute-selected four-card grid remains a valid editable Group document');
@@ -540,6 +555,8 @@ foreach ( $gridDocument->getElementsByTagName('ul') as $candidate ) {
 }
 $gridCascade = new StaticCssCascade($gridDocument, $gridBaseCss . $gridPageCss);
 $assert($gridElement instanceof DOMElement && 'repeat(4,1fr)' === ($gridCascade->resolve($gridElement, array( 'grid-template-columns' ), array())['grid-template-columns'] ?? ''), 'the projected four-column rule wins the shared two-column fallback in source order at the desktop reference');
+$gridCascade = new StaticCssCascade($gridDocument, implode("\n", array_column($orderedGridStyles, 'content')));
+$assert('repeat(4,1fr)' === ($gridCascade->resolve($gridElement, array('grid-template-columns'), array())['grid-template-columns'] ?? ''), 'the final site-plan stylesheet order preserves the four-column browser winner');
 
 $pageSubsetArtifact = array(
     'entrypoint' => 'index.html',
