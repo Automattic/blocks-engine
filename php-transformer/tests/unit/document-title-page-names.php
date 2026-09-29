@@ -58,6 +58,18 @@ $plain = $titles(array(
 ));
 $assert('Meet the team' === ($plain['about.html'] ?? null), 'titles without a shared site-name segment keep heading names', json_encode($plain));
 
+$sharedHero = $titles(array(
+    'index.html' => $page('Creative Studio', 'Artistry Unleashed'),
+    'f/finding-your-voice/index.html' => $page('Finding Your Voice at Creative Studio', 'Artistry Unleashed'),
+));
+$assert('Finding Your Voice at Creative Studio' === ($sharedHero['f/finding-your-voice/index.html'] ?? null), 'a repeated homepage hero must not replace a distinct article document title', json_encode($sharedHero));
+
+$unchangedTitle = $titles(array(
+    'index.html' => $page('Creative Studio', 'Artistry Unleashed'),
+    'about.html' => $page('Creative Studio', 'Artistry Unleashed'),
+));
+$assert('Artistry Unleashed' === ($unchangedTitle['about.html'] ?? null), 'a generic shared document title does not replace the author heading', json_encode($unchangedTitle));
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "document title page names: {$failures} failed, {$passes} passed\n");
     exit(1);
