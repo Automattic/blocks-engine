@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
 
@@ -1432,6 +1433,7 @@ final class AuthorStylesheetProjector
             $semanticLeaves = array();
             $richTextLeaves = array();
             $inlineLayoutCarriers = false;
+            $addressableInlineCarriers = false;
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
@@ -1446,6 +1448,7 @@ final class AuthorStylesheetProjector
                         continue;
                     }
                     $inlineLayoutCarriers = true;
+                    $addressableInlineCarriers = $addressableInlineCarriers || null !== AddressableInlineLayoutLeaf::identity($element, $this->styleResolver);
                 } elseif ( '' !== ($marker = $context->selectorProjections->richTextMarker($path)) ) {
                     $richTextLeaves[] = $marker;
                 } elseif ( '' !== ($marker = $context->selectorProjections->controlMarker($path)) ) {
@@ -1491,7 +1494,7 @@ final class AuthorStylesheetProjector
                 $rewritten[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker, $context);
             }
             if ( $inlineLayoutCarriers ) {
-                $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed);
+                $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed, $addressableInlineCarriers);
             }
         }
         $projected = implode(',', $rewritten);
@@ -2019,7 +2022,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed */
-    private function projectInlineLayoutCarrierSelector(string $selector, array $parsed): string
+    private function projectInlineLayoutCarrierSelector(string $selector, array $parsed, bool $addressable): string
     {
         $rightmost = $parsed['rightmost_compound_span'] ?? null;
         if ( ! is_array($rightmost) ) {
@@ -2032,7 +2035,14 @@ final class AuthorStylesheetProjector
         // wrapping the source leaf. Child combinators that targeted that leaf
         // must also reach it through the propagated anchor, or authored
         // typography on nested lockup spans is dropped.
-        return $prefix . $carrierChild . 'a > ' . $right . ',' . $prefix . $carrierChild . $right;
+        $selectors = array($prefix . $carrierChild . 'a > ' . $right, $prefix . $carrierChild . $right);
+        // A simple addressable inline leaf may now use the carrier paragraph as
+        // its native ID/class owner, keeping that selector alive after a text edit.
+        // On ordinary carriers this extra selector matches nothing.
+        if ($addressable && preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*(?:[.#][A-Za-z][A-Za-z0-9_-]*)*$/', $right)) {
+            $selectors[] = $prefix . 'p.' . self::INLINE_LAYOUT_CARRIER_CLASS . $right;
+        }
+        return implode(',', $selectors);
     }
 
     /** @param array<string, mixed> $parsed */

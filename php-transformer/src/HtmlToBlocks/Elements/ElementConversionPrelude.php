@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
@@ -271,26 +272,8 @@ final class ElementConversionPrelude
         // A lone addressable span becomes the paragraph's own native anchor.
         // RichText discards unknown <span id> wrappers when its text is edited;
         // keeping the ID on core/paragraph lets the edit survive save/reload.
-        $id = SourceDom::attr($element, 'id');
-        $addressable = 'span' === strtolower($element->tagName)
-            && 1 === preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,199}$/', $id)
-            && 0 === SourceDom::childElementCount($element)
-            && '' === SourceDom::attr($element, 'style');
-        $display = '';
-        if ($addressable) {
-            foreach ($element->attributes as $attribute) {
-                if (!in_array(strtolower($attribute->name), array('id', 'class'), true)) {
-                    $addressable = false;
-                    break;
-                }
-            }
-            if ($addressable) {
-                $declaredDisplay = $this->styleResolver->declaredPresentation($element, 'display');
-                $addressable = ! $declaredDisplay->isConditional();
-                $display = $declaredDisplay->base();
-            }
-        }
-        $content = $addressable ? SourceDom::innerHtml($element) : SourceDom::outerHtml($element);
+        $identity = AddressableInlineLayoutLeaf::identity($element, $this->styleResolver);
+        $content = null !== $identity ? SourceDom::innerHtml($element) : SourceDom::outerHtml($element);
         $inlineSvgContent = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
         if ( null !== $inlineSvgContent ) {
             $content = $inlineSvgContent;
@@ -300,16 +283,16 @@ final class ElementConversionPrelude
         }
 
         $className = AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS;
-        if ($addressable) {
-            $className .= ' blocks-engine-addressable-inline-' . ('inline-block' === $display ? 'block' : 'text');
-            $className .= ' ' . SourceDom::attr($element, 'class');
+        if (null !== $identity) {
+            $className .= ' blocks-engine-addressable-inline-' . ('inline-block' === $identity['display'] ? 'block' : 'text');
+            $className .= ' ' . $identity['class_name'];
         }
         $attrs = array(
             'className' => trim($className),
             'content' => $content,
             'preserveInlineLayoutLeaf' => true,
         );
-        if ($addressable) $attrs['anchor'] = $id;
+        if (null !== $identity) $attrs['anchor'] = $identity['id'];
         return $this->createBlock->createBlock('core/paragraph', $attrs);
     }
 
