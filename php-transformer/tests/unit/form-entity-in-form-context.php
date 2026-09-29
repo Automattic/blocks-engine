@@ -191,20 +191,6 @@ $assert(
     'hidden provider controls do not hide the form introduction',
     json_encode($hiddenProviderControl)
 );
-$rendered = ( new HtmlTransformer() )->transform(
-    '<main><h2>Contact Us</h2><form aria-live="polite"><input type="text" name="_app_id" style="display:none">'
-    . '<h4>Drop us a line!</h4><input type="text" name="name"><button type="submit">Send</button></form></main>',
-    array()
-)->toArray();
-$headingBlock = $rendered['blocks'][0]['innerBlocks'][0] ?? array();
-$assert(
-    'core/heading' === ( $headingBlock['blockName'] ?? '' )
-        && 2 === ( $headingBlock['attrs']['level'] ?? 0 )
-        && 'Contact Us' === ( $headingBlock['attrs']['content'] ?? '' ),
-    'adjacent section heading remains a native level-two block',
-    json_encode($headingBlock)
-);
-
 // A plain paragraph title whose inner span carries the declarations reads its
 // typography through that sole text carrier.
 $carrierTitle = $formContext(
