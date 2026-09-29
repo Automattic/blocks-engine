@@ -129,6 +129,12 @@ final class EngineSupportCss
             // measured against that instead of its own line height. A stacked
             // brand lockup grew by the difference on every line.
             $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '>a){display:contents}';
+            if ( str_contains($serializedBlocks, 'blocks-engine-addressable-inline-block') ) {
+                $parts[] = ':where(p.blocks-engine-addressable-inline-block){display:inline-block!important}';
+            }
+            if ( str_contains($serializedBlocks, 'blocks-engine-addressable-inline-text') ) {
+                $parts[] = ':where(p.blocks-engine-addressable-inline-text){display:inline!important}';
+            }
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_CLASS) ) {
             // Gutenberg inserts two editor-only InnerBlocks wrappers between a
