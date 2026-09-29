@@ -20,7 +20,7 @@ use InvalidArgumentException;
 final class FormPresentationGraphBuilder
 {
     private const MAX_CONTROLS = 128;
-    private const MAX_RULES_PER_ROLE = 32;
+    private const MAX_RULES_PER_ROLE = 96;
     private const MAX_RULES = 8192;
     private const MAX_SELECTORS = 16384;
     private const MAX_CONDITION_DEPTH = 8;
@@ -28,7 +28,7 @@ final class FormPresentationGraphBuilder
     private const MAX_VISUAL_PARTS = 32;
     private const MAX_VISUAL_BYTES = 12288;
     private const MAX_VISUAL_DIMENSION = 4096;
-    private const MAX_PROVENANCE = 16;
+    private const MAX_PROVENANCE = 32;
     private const MAX_DIAGNOSTICS = 32;
     /** The text properties a label role reads from its text carrier when the label declares none itself. */
     private const TYPOGRAPHY_PROPERTIES = array(
@@ -338,6 +338,11 @@ final class FormPresentationGraphBuilder
             }
         }
 
+        $diagnostics = array_values(array_unique($this->diagnostics));
+        // Unsupported selectors can fill the diagnostic budget before the
+        // actual bound that made this graph unsafe to publish. Keep that cause
+        // visible so a dropped provider presentation graph is actionable.
+        $bounds = array_values(array_filter($diagnostics, static fn (string $diagnostic): bool => str_ends_with($diagnostic, '_limit') || str_contains($diagnostic, '_truncated:')));
         $graph = array(
             'schema' => array() === $visualParts && ! $hasRequiredMarker && array() === $controlContainers ? 'generic/computed-form-presentation/v1' : 'generic/computed-form-presentation/v2',
             'basis' => 'source_css_cascade',
@@ -345,7 +350,7 @@ final class FormPresentationGraphBuilder
             'limits' => array( 'controls' => self::MAX_CONTROLS, 'rules_per_role' => self::MAX_RULES_PER_ROLE ),
             'controls' => $controls,
             'variants' => $variants,
-            'diagnostics' => array_slice(array_values(array_unique($this->diagnostics)), 0, self::MAX_DIAGNOSTICS),
+            'diagnostics' => array_slice(array_values(array_unique(array_merge($bounds, $diagnostics))), 0, self::MAX_DIAGNOSTICS),
         );
         if ( 'generic/computed-form-presentation/v2' === $graph['schema'] ) {
             $graph['visual_parts'] = $visualParts;
