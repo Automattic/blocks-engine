@@ -133,13 +133,13 @@ final class FormControlMetadataBuilder
             if ( ! $node instanceof DOMElement || ! FormControlClassifier::isControlElement($node) ) {
                 continue;
             }
+            if ( FormControlClassifier::isNonAuthoredControl($node) ) {
+                continue;
+            }
             ++$totalControls;
             $labelElement = $this->labelElement($node);
             if ( $labelElement instanceof DOMElement ) {
                 $claimedLabels[] = $labelElement;
-            }
-            if ( FormControlClassifier::isNonAuthoredControl($node) ) {
-                continue;
             }
             $description = $this->describeControl($node, $labelElement);
             // Only a resolved description is carried by the control manifest.
@@ -156,7 +156,9 @@ final class FormControlMetadataBuilder
                 continue;
             }
             if ( FormControlClassifier::isControlElement($node) ) {
-                ++$seenControls;
+                if ( ! FormControlClassifier::isNonAuthoredControl($node) ) {
+                    ++$seenControls;
+                }
                 continue;
             }
 

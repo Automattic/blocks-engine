@@ -79,6 +79,12 @@ final class FormControlClassifier
     /** Hidden honeypots and aria-hidden traps are not authored fields. */
     public static function isNonAuthoredControl(DOMElement $control): bool
     {
+        if ( 'hidden' === self::controlType($control) ) {
+            return true;
+        }
+        if ( 1 === preg_match('/(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/i', $control->getAttribute('style')) ) {
+            return true;
+        }
         if ( 'new-password' === strtolower(trim($control->getAttribute('autocomplete'))) ) {
             return true;
         }
