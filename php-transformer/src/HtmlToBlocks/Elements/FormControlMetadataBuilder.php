@@ -312,6 +312,7 @@ final class FormControlMetadataBuilder
             'label_class'      => $labelElement instanceof DOMElement ? $this->classNames($labelElement) : '',
             'name'             => SourceDom::attr($control, 'name'),
             'type'             => $this->authoredInputType($control, $type),
+            'role'             => SourceDom::attr($control, 'role'),
             'label'            => $this->label($control),
             'aria_haspopup'    => SourceDom::attr($control, 'aria-haspopup'),
             'aria_describedby' => SourceDom::attr($control, 'aria-describedby'),
@@ -400,8 +401,44 @@ final class FormControlMetadataBuilder
                 $metadata['options'] = $listboxOptions;
             }
         }
+        $sourceSelect = $this->adjacentChoiceSelect($control);
+        if ( $sourceSelect instanceof DOMElement ) {
+            // Keep the visible trigger and the native value carrier as separate
+            // controls in the topology, but connect their source evidence here.
+            $metadata['options'] = $this->options($sourceSelect);
+            $metadata['choice_source_selector'] = ($this->elementSelector)($sourceSelect);
+            if ( $sourceSelect->hasAttribute('required') || 'true' === strtolower(trim($sourceSelect->getAttribute('aria-required'))) ) {
+                $metadata['required'] = true;
+            }
+        }
 
         return $metadata;
+    }
+
+    /** A hidden native select immediately beside its visible combobox trigger. */
+    private function adjacentChoiceSelect(DOMElement $control): ?DOMElement
+    {
+        if ( 'button' !== strtolower($control->tagName)
+            || ( 'combobox' !== strtolower(trim($control->getAttribute('role')))
+                && 'listbox' !== strtolower(trim($control->getAttribute('aria-haspopup'))) ) ) {
+            return null;
+        }
+
+        foreach ( array( $control->previousElementSibling, $control->nextElementSibling ) as $sibling ) {
+            if ( ! $sibling instanceof DOMElement || 'select' !== strtolower($sibling->tagName) ) {
+                continue;
+            }
+            if ( ! $sibling->hasAttribute('hidden')
+                && ! ( 'true' === strtolower(trim($sibling->getAttribute('aria-hidden')))
+                    && '-1' === trim($sibling->getAttribute('tabindex')) ) ) {
+                continue;
+            }
+            if ( array() !== $this->options($sibling) ) {
+                return $sibling;
+            }
+        }
+
+        return null;
     }
 
     public function label(DOMElement $control): string
