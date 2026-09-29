@@ -277,6 +277,7 @@ final class WordPressSitePlan
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
         $assets = self::projectSharedChromeStylesheets($assets, $parts, $pages, $references);
         $assets = self::projectDetachedChromePaintOrder($assets, $parts);
+        $assets = self::orderPageStylesheetProjections($assets);
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
@@ -1195,6 +1196,48 @@ final class WordPressSitePlan
             $projected[] = $sharedAsset;
         }
         return $projected;
+    }
+
+    /**
+     * A page-specific projection must follow its source stylesheet in the
+     * WordPress enqueue list, even when another document's linked CSS forces
+     * the original stylesheet into a later slot. Keep each detached shared
+     * chrome slice with its page projection at that same source boundary.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return array<int,array<string,mixed>>
+     */
+    private static function orderPageStylesheetProjections(array $assets): array
+    {
+        $sources = array_fill_keys(array_column($assets, 'source_path'), true);
+        $children = array();
+        foreach ($assets as $asset) {
+            $source = (string) ($asset['source_path'] ?? '');
+            if ('css' !== ($asset['kind'] ?? null)
+                || !preg_match('/^(.*)\.page-[a-f0-9]{12}\.css(\.shared-chrome)?$/D', $source, $match)
+                || !isset($sources[$match[1] . '.css'])
+            ) {
+                continue;
+            }
+            $children[$match[1] . '.css'][] = $asset;
+        }
+        if (array() === $children) return $assets;
+
+        $ordered = array();
+        foreach ($assets as $asset) {
+            $source = (string) ($asset['source_path'] ?? '');
+            if (preg_match('/^(.*)\.page-[a-f0-9]{12}\.css(?:\.shared-chrome)?$/D', $source, $match)
+                && isset($children[$match[1] . '.css'])
+            ) {
+                continue;
+            }
+            $ordered[] = $asset;
+            $parent = str_ends_with($source, '.shared-chrome') ? substr($source, 0, -strlen('.shared-chrome')) : $source;
+            if (isset($children[$parent]) && ($source === $parent . '.shared-chrome' || !isset($sources[$parent . '.shared-chrome']))) {
+                array_push($ordered, ...$children[$parent]);
+            }
+        }
+        return $ordered;
     }
 
     /** @param array<string,mixed> $asset */
