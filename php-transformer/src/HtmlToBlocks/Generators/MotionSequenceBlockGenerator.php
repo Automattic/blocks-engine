@@ -49,6 +49,20 @@ final class MotionSequenceBlockGenerator
 JS;
         $view = <<<'JS'
 ( function() {
+    var activeSequences = 0;
+    var previousBusy = null;
+    function beginBusy() {
+        if ( activeSequences++ === 0 ) {
+            previousBusy = document.body.getAttribute( 'aria-busy' );
+            document.body.setAttribute( 'aria-busy', 'true' );
+        }
+    }
+    function endBusy() {
+        if ( --activeSequences === 0 ) {
+            if ( previousBusy === null ) document.body.removeAttribute( 'aria-busy' );
+            else document.body.setAttribute( 'aria-busy', previousBusy );
+        }
+    }
     function select( selector ) {
         if ( typeof selector !== 'string' || selector.length > 120 ) return null;
         try { return document.querySelector( selector ); } catch ( error ) { return null; }
@@ -81,6 +95,7 @@ JS;
             };
         } ).filter( Boolean );
         if ( steps.length === 0 ) return;
+        beginBusy();
 
         async function play( step, delay ) {
             if ( step.running ) return;
@@ -98,12 +113,18 @@ JS;
             step.running = false;
         }
         steps.forEach( function( step ) {
-            if ( step.click ) step.click.addEventListener( 'click', function() { if ( marker.dataset.blocksEngineMotionReady ) void play( step, false ); } );
+            if ( step.click ) step.click.addEventListener( 'click', function() {
+                if ( ! marker.dataset.blocksEngineMotionReady ) return;
+                beginBusy();
+                void play( step, false ).finally( endBusy );
+            } );
             step.target.textContent = '';
         } );
         ( async function() {
-            for ( var index = 0; index < steps.length; index++ ) await play( steps[ index ], true );
-            marker.dataset.blocksEngineMotionReady = 'true';
+            try {
+                for ( var index = 0; index < steps.length; index++ ) await play( steps[ index ], true );
+                marker.dataset.blocksEngineMotionReady = 'true';
+            } finally { endBusy(); }
         } )();
     }
     function mountAll() {
