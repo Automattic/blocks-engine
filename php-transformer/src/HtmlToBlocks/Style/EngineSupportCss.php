@@ -129,6 +129,12 @@ final class EngineSupportCss
             // measured against that instead of its own line height. A stacked
             // brand lockup grew by the difference on every line.
             $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '>a){display:contents}';
+            if ( str_contains($serializedBlocks, 'blocks-engine-addressable-inline-block') ) {
+                $parts[] = ':where(p.blocks-engine-addressable-inline-block){display:inline-block!important}';
+            }
+            if ( str_contains($serializedBlocks, 'blocks-engine-addressable-inline-text') ) {
+                $parts[] = ':where(p.blocks-engine-addressable-inline-text){display:inline!important}';
+            }
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_CLASS) ) {
             // Gutenberg inserts two editor-only InnerBlocks wrappers between a
@@ -155,6 +161,11 @@ final class EngineSupportCss
             // Positioned fragment links retain their source anchor and selectors;
             // their valid paragraph host must not create a line box in document flow.
             $parts[] = ':where(.' . ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}';
+        }
+        if ( str_contains($serializedBlocks, ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS) ) {
+            // Empty labelled links have no intrinsic inline box. Fill the
+            // paragraph host, whose saved block attributes carry source geometry.
+            $parts[] = ':where(a.' . ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS . '){display:block;width:100%;height:100%;min-height:inherit}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS) ) {
             // A synthesized core/buttons wrapper is required for validity, but it

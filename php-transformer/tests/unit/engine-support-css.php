@@ -71,6 +71,13 @@ $fragment = $css->beforeAuthorCss(ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK
 $assert(1 === count($fragment), 'positioned fragment link emits one before-author rule');
 $assert(':where(.' . ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}' === $fragment[0], 'positioned fragment link reuses ButtonLinkDispatcher constant');
 
+$accessibleEmptyLink = $css->beforeAuthorCss(ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS, 'blocks-engine/layout-shell');
+$assert(1 === count($accessibleEmptyLink), 'accessible empty link emits click-region CSS');
+$assert(
+    ':where(a.' . ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS . '){display:block;width:100%;height:100%;min-height:inherit}' === $accessibleEmptyLink[0],
+    'accessible empty link fills its geometry-carrying host to create a rendered click region'
+);
+
 $neutralButtons = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS, 'blocks-engine/layout-shell');
 $assert(1 === count($neutralButtons), 'layout-neutral buttons wrapper emits one before-author rule');
 $assert(

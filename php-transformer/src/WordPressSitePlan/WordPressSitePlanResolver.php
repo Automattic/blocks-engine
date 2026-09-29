@@ -31,10 +31,12 @@ final class WordPressSitePlanResolver
         unset($part);
         foreach ($plan['templates'] as &$template) $template['resolved_block_markup'] = self::resolvePayload($template['canonical_block_markup'], $references);
         unset($template);
-        // Provider bindings replace page markup, so their anchors must use the
-        // same destination projection as the page materialized by consumers.
-        $plan['runtime_declarations'] = self::resolveEntityBindings($plan['runtime_declarations'], $plan['pages'], $references);
-        $plan['runtime_entity_resolution'] = self::resolveManifestEntities($plan['runtime_declarations'], $plan['runtime_entity_records'], $plan['pages'], $references);
+        // Provider bindings replace page or shared template part markup, so their
+        // anchors must use the same destination projection as the document
+        // materialized by consumers.
+        $bindingDocuments = array_merge($plan['pages'], $plan['template_parts']);
+        $plan['runtime_declarations'] = self::resolveEntityBindings($plan['runtime_declarations'], $bindingDocuments, $references);
+        $plan['runtime_entity_resolution'] = self::resolveManifestEntities($plan['runtime_declarations'], $plan['runtime_entity_records'], $bindingDocuments, $references);
         foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) { $write['canonical_payload'] = $write['payload']['data']; $write['canonical_payload_hash'] = WordPressSitePlan::contentHash($write['canonical_payload']); $write['payload']['data'] = self::resolveWritePayload($write['canonical_payload'], $plan['reference_tokens'], $themeUri, $write['target_path']); $write['payload_hash'] = WordPressSitePlan::contentHash($write['payload']['data']); }
         unset($write);
         foreach (array('pages', 'template_parts') as $documents) foreach ($plan[$documents] as &$document) foreach (array('links', 'scripts') as $kind) { if (!is_array($document['document_metadata'][$kind] ?? null)) continue; foreach ($document['document_metadata'][$kind] as &$declaration) if (is_string($declaration['asset_reference'] ?? null)) $declaration['resolved_url'] = self::resolvePayload($declaration['asset_reference'], $references); }
@@ -73,7 +75,7 @@ final class WordPressSitePlanResolver
                     $canonicalOffset = self::occurrenceOffset($canonical, $binding['search_block_markup'], $binding['occurrence']);
                     $blockIndex = null;
                     foreach (self::blockRanges($canonical) as $index => $range) if ($range['offset'] === $canonicalOffset && $binding['search_block_markup'] === substr($canonical, $range['offset'], $range['length'])) { $blockIndex = $index; break; }
-                    if (!is_int($blockIndex)) throw new InvalidArgumentException('WordPress site plan runtime binding cannot be resolved from its canonical source-page anchor.');
+                    if (!is_int($blockIndex)) throw new InvalidArgumentException('WordPress site plan runtime binding cannot be resolved from its canonical source document anchor.');
                     $search = self::resolvePayload($binding['search_block_markup'], $references);
                     // A token can change byte length, and filtered malformed ranges can
                     // shift a serialized block index. Project the canonical byte prefix
@@ -81,7 +83,7 @@ final class WordPressSitePlanResolver
                     $resolvedOffset = strlen(self::resolvePayload(substr($canonical, 0, $canonicalOffset), $references));
                     $range = null;
                     foreach (self::blockRanges($resolved) as $index => $candidate) if ($candidate['offset'] === $resolvedOffset && $search === substr($resolved, $candidate['offset'], $candidate['length'])) { $range = $candidate; $blockIndex = $index; break; }
-                    if (!is_array($range)) throw new InvalidArgumentException('WordPress site plan runtime binding resolved anchor is detached from its source page.');
+                    if (!is_array($range)) throw new InvalidArgumentException('WordPress site plan runtime binding resolved anchor is detached from its source document.');
                     $binding['search_block_markup'] = $search;
                     $binding['occurrence'] = self::occurrenceAtOffset($resolved, $search, $range['offset']);
                     $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $range['offset'], 'length' => $range['length']);

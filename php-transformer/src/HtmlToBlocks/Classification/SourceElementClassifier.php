@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use DOMElement;
 use DOMText;
 
@@ -544,8 +545,49 @@ final class SourceElementClassifier
 
     public function hasPictureSourceSelection(DOMElement $element): bool
     {
+        $images = $element->getElementsByTagName('img');
+        $image = $images->length ? $images->item(0) : null;
+        $imageUrls = $image instanceof DOMElement
+            ? array_unique(array_merge(
+                '' !== SourceDom::attr($image, 'src') ? array(SourceDom::attr($image, 'src')) : array(),
+                SrcsetParser::urls(SourceDom::attr($image, 'srcset'))
+            ))
+            : array();
+        $imageType = '';
+        if ( $image instanceof DOMElement ) {
+            $path = parse_url(SourceDom::attr($image, 'src'), PHP_URL_PATH);
+            $extension = strtolower((string) pathinfo(is_string($path) ? $path : '', PATHINFO_EXTENSION));
+            $imageType = array('jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'avif' => 'image/avif', 'png' => 'image/png', 'webp' => 'image/webp', 'gif' => 'image/gif')[$extension] ?? '';
+        }
         foreach ( $element->getElementsByTagName('source') as $source ) {
-            if ( $source instanceof DOMElement && '' !== SourceDom::attr($source, 'srcset') ) {
+            if ( ! $source instanceof DOMElement || '' === SourceDom::attr($source, 'srcset') ) {
+                continue;
+            }
+            $media = strtolower(preg_replace('/\s+/', '', trim(SourceDom::attr($source, 'media'))) ?? '');
+            if ( '' !== $media && 'all' !== $media && ! in_array($media, array('(min-width:0)', '(min-width:0px)'), true) ) {
+                return true;
+            }
+            $type = strtolower(trim(SourceDom::attr($source, 'type')));
+            if ( '' !== $type && ('' === $imageType || $type !== $imageType) ) {
+                return true;
+            }
+            $srcset = SourceDom::attr($source, 'srcset');
+            $candidates = SrcsetParser::parse($srcset);
+            $sourceUrls = array_column($candidates, 'url');
+            $densityOnly = '' !== $srcset;
+            foreach ( $candidates as $candidate ) {
+                if ( 1 !== preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)x$/i', $candidate['descriptor']) ) {
+                    $densityOnly = false;
+                    break;
+                }
+            }
+            if ( $densityOnly && $image instanceof DOMElement
+                && '' !== SourceDom::attr($image, 'src')
+                && in_array(SourceDom::attr($image, 'src'), $sourceUrls, true)
+            ) {
+                continue;
+            }
+            if ( array_diff($sourceUrls, $imageUrls) || array_diff($imageUrls, $sourceUrls) ) {
                 return true;
             }
         }

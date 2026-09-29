@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CanvasBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Closure;
 use DOMElement;
@@ -37,23 +38,20 @@ final class RuntimeResourceElementConverter implements ElementConverter
     {
         $session = $this->session;
         $emitter = $session->fallbackEmitter();
-        if ( ! $emitter->isRuntimeCanvasTarget($element) ) {
-            return null;
+        if ($emitter->isRuntimeCanvasTarget($element)) {
+            $emitter->recordRuntimeIsland(
+                $element,
+                'canvas',
+                'canvas_requires_runtime',
+                'canvas_element_and_client_script_execution',
+                array(
+                    'script_dependency_hint' => 'A source script paints this canvas; the element alone does not reproduce its animation.',
+                    'required_scripts' => $emitter->requiredScriptsForElement($element),
+                ),
+                $session->runtimeDomState()
+            );
         }
-
-        $emitter->recordRuntimeIsland(
-            $element,
-            'canvas',
-            'canvas_requires_runtime',
-            'canvas_element_and_client_script_execution',
-            array(
-                'script_dependency_hint' => 'Scripts may target this canvas and call canvas APIs such as getContext(); preserving the native element keeps the runtime addressable.',
-                'required_scripts'        => $emitter->requiredScriptsForElement($element),
-            ),
-            $session->runtimeDomState()
-        );
-
-        return ($this->htmlPreservationBlock)($element);
+        return (new CanvasBlockGenerator($session, $this->createBlock))->convert($element);
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */

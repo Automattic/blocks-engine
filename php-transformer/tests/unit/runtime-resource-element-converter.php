@@ -4,6 +4,8 @@ declare(strict_types=1);
 require __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeResourceElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -33,6 +35,7 @@ $elementFrom = static function (string $html): DOMElement {
 };
 
 $session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+$session->installGeneratedBlockRegistry(new GeneratedBlockRegistry('blocks-engine'));
 $selectors = new RuntimeSelectorState(
     array( '#config' => true ),
     array(),
@@ -60,10 +63,11 @@ $unhandled = $converter->convert($elementFrom('<div></div>'), 'div', $fallbacks)
 $assert(! $unhandled->handled, 'non-runtime-resource-unhandled');
 
 $plainCanvas = $converter->convert($elementFrom('<canvas></canvas>'), 'canvas', $fallbacks);
-$assert($plainCanvas->handled && null === $plainCanvas->block && 0 === $preserved, 'non-runtime-canvas-dropped');
+$assert($plainCanvas->handled && 'blocks-engine/canvas' === ($plainCanvas->block['blockName'] ?? '') && 0 === $preserved, 'plain-canvas-native-custom-block');
 
-$runtimeCanvas = $converter->convert($elementFrom('<canvas id="stage"></canvas>'), 'canvas', $fallbacks);
-$assert('core/html' === ($runtimeCanvas->block['blockName'] ?? '') && 1 === $preserved, 'runtime-canvas-preserved');
+$runtimeCanvas = $converter->convert($elementFrom('<canvas id="stage" width="320" height="180"></canvas>'), 'canvas', $fallbacks);
+$assert('blocks-engine/canvas' === ($runtimeCanvas->block['blockName'] ?? '') && '<canvas id="stage" width="320" height="180"></canvas>' === ($runtimeCanvas->block['innerHTML'] ?? '') && 0 === $preserved, 'runtime-canvas-native-surface-preserved');
+$assert(1 === count($session->generatedBlockRegistry()->definitions()) && 'canvas' === ($session->generatedBlockRegistry()->definitions()[0]['name'] ?? ''), 'canvas-block-registered-once');
 $canvasIsland = $session->runtimeDomState()->islands()[0] ?? array();
 $assert('canvas' === ($canvasIsland['kind'] ?? '') && 'canvas_requires_runtime' === ($canvasIsland['preservation_reason'] ?? ''), 'runtime-canvas-island-recorded');
 
@@ -103,6 +107,13 @@ $assert('script_requires_runtime' === ($fallbacks[0]['reason'] ?? ''), 'runtime-
 $template = $converter->convert($elementFrom('<template id="card"><p>Card</p></template>'), 'template', $fallbacks);
 $assert($template->handled && null === $template->block, 'template-produces-no-content-block');
 $assert('template' === ($fallbacks[1]['tag'] ?? ''), 'template-fallback-captured');
+
+$canvasResult = (new HtmlTransformer())->transform('<style>#drawing{position:fixed;width:100%;height:100%}</style><canvas id="drawing" width="320" height="180"></canvas><main><h1>Art</h1></main>')->toArray();
+$canvasMarkup = (string) ($canvasResult['serialized_blocks'] ?? '');
+$canvasDefinitions = $canvasResult['source_reports']['generated_blocks'] ?? array();
+$assert(1 === substr_count($canvasMarkup, '<!-- wp:custom/canvas') && str_contains($canvasMarkup, '<canvas id="drawing" width="320" height="180"></canvas>'), 'static-html-canvas-keeps-native-element');
+$assert(1 === count($canvasDefinitions) && 'canvas' === ($canvasDefinitions[0]['name'] ?? '') && 'custom/canvas' === ($canvasDefinitions[0]['block_json']['name'] ?? '') && isset($canvasDefinitions[0]['assets']['index.js']), 'canvas-companion-registration-materializes');
+$assert(array() === ($canvasResult['fallbacks'] ?? null) && 'pass' === ($canvasResult['source_reports']['wp_block_validity']['status'] ?? ''), 'canvas-custom-block-has-no-html-fallback-and-valid-document');
 
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");

@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
@@ -268,7 +269,11 @@ final class ElementConversionPrelude
     /** @return array<string, mixed>|null */
     private function inlineLayoutCarrierBlock(DOMElement $element): ?array
     {
-        $content = SourceDom::outerHtml($element);
+        // A lone addressable span becomes the paragraph's own native anchor.
+        // RichText discards unknown <span id> wrappers when its text is edited;
+        // keeping the ID on core/paragraph lets the edit survive save/reload.
+        $identity = AddressableInlineLayoutLeaf::identity($element, $this->styleResolver);
+        $content = null !== $identity ? SourceDom::innerHtml($element) : SourceDom::outerHtml($element);
         $inlineSvgContent = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
         if ( null !== $inlineSvgContent ) {
             $content = $inlineSvgContent;
@@ -277,11 +282,18 @@ final class ElementConversionPrelude
             return null;
         }
 
-        return $this->createBlock->createBlock('core/paragraph', array(
-            'className' => AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS,
+        $className = AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS;
+        if (null !== $identity) {
+            $className .= ' blocks-engine-addressable-inline-' . ('inline-block' === $identity['display'] ? 'block' : 'text');
+            $className .= ' ' . $identity['class_name'];
+        }
+        $attrs = array(
+            'className' => trim($className),
             'content' => $content,
             'preserveInlineLayoutLeaf' => true,
-        ));
+        );
+        if (null !== $identity) $attrs['anchor'] = $identity['id'];
+        return $this->createBlock->createBlock('core/paragraph', $attrs);
     }
 
     private function containsCapturedProviderForm(DOMElement $element): bool

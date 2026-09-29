@@ -48,6 +48,21 @@ and `WordPressSitePlanResolver::resolve()`.
   to 5 MiB. Resolution exposes complete records in
   `runtime_entity_resolution`, so materializers consume every entity without
   expanding or changing the canonical declaration.
+- A producer may opt one entity row into a whole-page replacement *candidate* by
+  setting `whole_page_candidate` to `blocks-engine/whole-page-candidate/v1` and
+  declaring a bounded `id`, canonical `source_path`, and `source_route` equal to
+  the owning page's `route.path`. Planning projects this onto that page's optional
+  `whole_page_candidates` list. Each row carries `schema`, `source_path`,
+  `source_route`, `page_reconciliation_identity`,
+  `declaration_reconciliation_identity`, and `entity_id`. At most one candidate
+  may claim each nonsynthetic page, with at most 100 candidates per plan. The list is ordered,
+  part of `plan_identity`, and validated against the declaration entity (inline
+  or content-addressed record) and the canonical nonsynthetic page. Missing,
+  duplicate, detached, or stale claims fail validation. No candidate alters
+  `routes`, `operations`, or page ownership: consumers must separately prove a
+  successful provider destination, content/image coverage, and rollback before
+  deciding whether to suppress a source page. Resolution preserves the hint;
+  checkpoint replay must use the approved plan identity and the same entity row.
 - Provider entity block bindings use `generic/block-binding/v1`. In addition to
   materializer-compatible `search_block_markup` and `occurrence`, each binding
   carries a `blocks-engine/runtime-binding-position/v1` emitted-block identity:
@@ -56,6 +71,11 @@ and `WordPressSitePlanResolver::resolve()`.
    class similarity. Repeated identical block markup remains distinct by position.
    Shared-shell extraction retains a shell in page content when it contains a
    binding anchor, so the materializer's page-owned binding contract is unchanged.
+   When consumer wrapper contracts make complete footer shells visually distinct,
+   deterministic site planning may factor an identical footer paragraph into one
+   `inline_shared_shell` part and reference it at each original page or part
+   content position. The route-owned outer wrappers remain in place, preserving their
+   layout and authored presentation while the shared copy is edited once.
    Validation rejects a binding whose declared markup, occurrence, or position is
    detached from its owning page.
 - `asset_publication` is the explicit declaration kind for materializing a declared

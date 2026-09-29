@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\MotionSequenceBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -73,6 +74,21 @@ final class ArtifactCompiler
     {
         $this->wordpressCompat = new WordPressCompatCss();
         $this->runtimeScriptEvidenceAnalyzer = new RuntimeScriptEvidenceAnalyzer();
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function hasUnreproducedSourceMotion(array $files): bool
+    {
+        foreach ($files as $file) {
+            if ('capture-receipt.json' !== ($file['path'] ?? null) || !is_string($file['content'] ?? null) || strlen($file['content']) > 2 * 1024 * 1024) continue;
+            $receipt = json_decode($file['content'], true);
+            return is_array($receipt)
+                && 'data-liberation/capture-receipt/v1' === ($receipt['schema'] ?? null)
+                && 'data-liberation/source-interactivity/v1' === ($receipt['sourceInteractivity']['schema'] ?? null)
+                && is_int($receipt['sourceInteractivity']['unreproduced_route_count'] ?? null)
+                && $receipt['sourceInteractivity']['unreproduced_route_count'] > 0;
+        }
+        return false;
     }
 
     /** @return array<string, int> */
@@ -240,7 +256,7 @@ final class ArtifactCompiler
         $components = is_array($reduction['components'] ?? null) ? $reduction['components'] : $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
         $blockTypes = is_array($reduction['block_types'] ?? null) ? $reduction['block_types'] : $this->detectBlockTypes($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
-        if (!empty($reduction['inline_compilation'])) $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
+        $normalized['files'] = $this->withStylesheetMediaForDocuments($normalized['files']);
         $this->indexFiles($normalized['files']);
         $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
         $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
@@ -454,6 +470,12 @@ final class ArtifactCompiler
                 'content'      => $editorModule['content'],
                 'dependencies' => $editorModule['script_dependencies'],
             );
+        }
+        if ($this->hasUnreproducedSourceMotion($normalized['files'])) {
+            $namespace = $companionPluginPayloadBuilder->blockNamespace($artifact);
+            if ('' !== $namespace) {
+                $allGeneratedBlocks[] = (new MotionSequenceBlockGenerator())->definition($namespace . '/' . MotionSequenceBlockGenerator::LOCAL_NAME);
+            }
         }
         $themeOwnedRequiredScripts = RuntimeIslandPackageBuilder::themeOwnedRequiredScriptOccurrences($runtimeIslandPackage, $compiledSite['pages'] ?? array());
         $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $allGeneratedBlocks, $runtimeIslandPackage, $editorScripts, $themeOwnedRequiredScripts);
@@ -1984,6 +2006,128 @@ final class ArtifactCompiler
             $byPath[$alias] = count($files) - 1;
         }
         return $files;
+    }
+
+    /**
+     * Carry linked stylesheet media metadata from every page into the site
+     * asset set. Per-page CSS analysis sees link media directly; the global
+     * WordPress asset plan is built later from file records and otherwise loses
+     * the condition that keeps responsive declarations on their source
+     * breakpoint.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @return array<int,array<string,mixed>>
+     */
+    private function withStylesheetMediaForDocuments(array $files): array
+    {
+        $files = self::withoutStylesheetOccurrenceRecords($files);
+        $initialCount = count($files);
+        $byPath = array();
+        $reserved = array();
+        foreach ( $files as $index => $file ) {
+            $path = (string) ($file['path'] ?? '');
+            if ( '' === $path ) continue;
+            $byPath[$path] = $index;
+            $reserved[$path] = true;
+        }
+
+        /** @var array<string,array<string,string>> $variants */
+        $variants = array();
+        /** @var array<string,int> $occurrences */
+        $occurrences = array();
+        foreach ( array_slice($files, 0, $initialCount) as $document ) {
+            if ( 'html' !== ($document['kind'] ?? null) || ! is_string($document['path'] ?? null) || ! is_string($document['content'] ?? null) ) continue;
+            $documentPath = $document['path'];
+            $links = StyleTagScanner::scanLinks($document['content']);
+            foreach ( $links as $linkIndex => $link ) {
+                $tag = $link['tag'];
+                if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute($tag, 'rel')) || ! StyleTagScanner::isCssType($this->htmlAttribute($tag, 'type')) ) continue;
+                $sourcePath = $this->stylesheetPathFromHref($this->htmlAttribute($tag, 'href'), $documentPath, $files);
+                $index = $byPath[$sourcePath] ?? null;
+                if ( ! is_int($index) || 'css' !== ($files[$index]['kind'] ?? null) ) continue;
+                $media = trim($this->htmlAttribute($tag, 'media'));
+                if ( '' === $media ) $media = trim((string) ($files[$index]['media'] ?? ''));
+                $type = trim($this->htmlAttribute($tag, 'type'));
+                $variant = $media . "\0" . $type;
+                $reference = array(
+                    'source_path' => $documentPath,
+                    'selector' => 'link:nth-of-type(' . ($linkIndex + 1) . ')',
+                    'element' => 'link',
+                    'attribute' => 'href',
+                    'value' => $this->htmlAttribute($tag, 'href'),
+                    'url' => $this->htmlAttribute($tag, 'href'),
+                );
+                if ( isset($variants[$sourcePath][$variant]) ) {
+                    $variantPath = $variants[$sourcePath][$variant];
+                    $variantIndex = $byPath[$variantPath] ?? null;
+                    if ( is_int($variantIndex) ) {
+                        $files[$variantIndex]['references'] = array_values(array_unique(array_merge($files[$variantIndex]['references'] ?? array(), array($reference)), SORT_REGULAR));
+                    }
+                    continue;
+                }
+
+                if ( ! isset($variants[$sourcePath]) ) {
+                    $variants[$sourcePath][$variant] = $sourcePath;
+                    $files[$index]['media'] = $media;
+                    $files[$index]['type'] = $type;
+                    $files[$index]['stylesheet_source_path'] = $sourcePath;
+                    $files[$index]['stylesheet_occurrence'] = 1;
+                    $files[$index]['references'] = array_values(array_unique(array_merge($files[$index]['references'] ?? array(), array($reference)), SORT_REGULAR));
+                    $occurrences[$sourcePath] = 1;
+                    continue;
+                }
+
+                $occurrence = ++$occurrences[$sourcePath];
+                $alias = $this->allocateStylesheetOccurrencePath($this->stylesheetOccurrencePath($sourcePath, $occurrence), $reserved);
+                $aliasFile = $files[$index];
+                $aliasFile['path'] = $alias;
+                $aliasFile['source'] = 'stylesheet-occurrence';
+                $aliasFile['source_path'] = $sourcePath;
+                $aliasFile['stylesheet_source_path'] = $sourcePath;
+                $aliasFile['stylesheet_occurrence'] = $occurrence;
+                $aliasFile['media'] = $media;
+                $aliasFile['type'] = $type;
+                $aliasFile['references'] = array($reference);
+                $aliasFile['provenance']['source_path'] = $sourcePath;
+                $files[] = $aliasFile;
+                $byPath[$alias] = count($files) - 1;
+                $variants[$sourcePath][$variant] = $alias;
+            }
+        }
+
+        return $files;
+    }
+
+    /**
+     * The media condition each stylesheet carries when every document linking
+     * it agrees on one non-empty value. Disagreement or any unconditioned link
+     * leaves the stylesheet unconditioned, as the browser would load it.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, string>
+     */
+    private function documentLinkMedia(array $files): array
+    {
+        $media = array();
+        foreach ( $files as $file ) {
+            if ( 'html' !== ($file['kind'] ?? null) || ! is_string($file['content'] ?? null) ) {
+                continue;
+            }
+            foreach ( StyleTagScanner::scanLinks($file['content']) as $link ) {
+                $tag = (string) $link['tag'];
+                if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute($tag, 'rel')) || ! StyleTagScanner::isCssType($this->htmlAttribute($tag, 'type')) ) {
+                    continue;
+                }
+                $path = $this->stylesheetPathFromHref($this->htmlAttribute($tag, 'href'), (string) $file['path'], $files);
+                if ( '' === $path ) {
+                    continue;
+                }
+                $value = trim($this->htmlAttribute($tag, 'media'));
+                $media[$path] = array_key_exists($path, $media) && $media[$path] !== $value ? '' : $value;
+            }
+        }
+
+        return array_filter($media, static fn (string $value): bool => '' !== $value && 'all' !== strtolower($value));
     }
 
     /** @param array<int, array<string, mixed>> $files */
@@ -4179,6 +4323,7 @@ final class ArtifactCompiler
     {
         $assets = array();
         $unsupportedStylesheets = $this->unsupportedStylesheetPaths($entryHtml, $entryPath);
+        $documentLinkMedia = $this->documentLinkMedia($files);
         foreach ( $files as $file ) {
             if ( $entryPath === $file['path'] || $this->isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
                 continue;
@@ -4225,6 +4370,11 @@ final class ArtifactCompiler
             }
             if ( isset($file['media']) && is_scalar($file['media']) && '' !== trim((string) $file['media']) ) {
                 $asset['media'] = (string) $file['media'];
+            } elseif ( ! isset($file['stylesheet_occurrence']) && isset($documentLinkMedia[$file['path']]) ) {
+                // Only the entry document annotates the site-wide file set. A
+                // stylesheet linked solely from other pages keeps the media
+                // every linking page gives it, or it would apply at all widths.
+                $asset['media'] = $documentLinkMedia[$file['path']];
             }
             if ( 'css' === ($file['kind'] ?? null) ) {
                 if (is_array($file['metadata']['compilation'] ?? null) || '' !== ArtifactNormalizer::inlineExpansionSourcePath($file)) {

@@ -17,6 +17,7 @@ use Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
+use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use InvalidArgumentException;
 
 /** A complete, destination-independent block-theme materialization contract. */
@@ -100,6 +101,57 @@ final class WordPressSitePlan
         return self::planIdentity($plan)['hash'];
     }
 
+    /**
+     * Project opt-in entity evidence onto its canonical page. This is a hint to
+     * consumers, never an instruction to omit create_page or claim a route.
+     * Works for both inline entities and content-addressed entity manifests.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $records
+     * @return array<int,array<string,mixed>>
+     */
+    private static function attachWholePageCandidates(array $pages, array $declarations, array $records): array
+    {
+        $bySource = array_column($pages, null, 'source_path');
+        $candidates = array();
+        foreach ($declarations as $declaration) {
+            $payload = $declaration['payload'] ?? array();
+            $entities = RuntimeEntityManifest::SCHEMA === ($payload['schema'] ?? null)
+                ? RuntimeEntityManifest::resolve($payload, $records) : ($payload['entities'] ?? array());
+            if (!is_array($entities)) continue;
+            foreach ($entities as $entity) {
+                if (!is_array($entity) || !array_key_exists('whole_page_candidate', $entity)) continue;
+                $source = $entity['source_path'] ?? null;
+                $page = is_string($source) ? ($bySource[$source] ?? null) : null;
+                $id = $entity['id'] ?? null;
+                $route = $entity['source_route'] ?? null;
+                if ('blocks-engine/whole-page-candidate/v1' !== $entity['whole_page_candidate']
+                    || 'entity_collection' !== ($declaration['kind'] ?? null)
+                    || !is_string($id) || '' === $id || strlen($id) > 256
+                    || !is_array($page) || !empty($page['synthetic']) || 'page' !== ($page['post_type'] ?? null)
+                    || !is_string($route) || $route !== $page['route']['path']) {
+                    throw new InvalidArgumentException('Whole-page candidate must name one canonical source page and producer entity row.');
+                }
+                if (isset($candidates[$source]) || count($candidates) >= 100) throw new InvalidArgumentException('Whole-page candidates must be unique and bounded by source page.');
+                $candidates[$source][] = array(
+                    'schema' => 'blocks-engine/whole-page-candidate/v1',
+                    'source_path' => $source,
+                    'source_route' => $page['route']['path'],
+                    'page_reconciliation_identity' => $page['reconciliation_identity'],
+                    'declaration_reconciliation_identity' => $declaration['reconciliation_identity'],
+                    'entity_id' => $id,
+                );
+            }
+        }
+        foreach ($pages as &$page) {
+            if (!isset($candidates[$page['source_path']])) continue;
+            $page['whole_page_candidates'] = $candidates[$page['source_path']];
+        }
+        unset($page);
+        return $pages;
+    }
+
     /** @return array<string,mixed> */
     public function fromResult(TransformerResult|array $result): array
     {
@@ -159,6 +211,7 @@ final class WordPressSitePlan
         $surfaces = $this->templateSurfaces($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
         $routeMap = $this->canonicalRoutes($documents, $input->routes);
+        $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations);
         $this->routeSources = array();
         $this->routeTargets = array();
         $this->routeReferenceCache = array();
@@ -171,6 +224,15 @@ final class WordPressSitePlan
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
+        $assets = $this->orderAssetsByDocumentStylesheetOrder($assets, $pages);
+        NativeListItemFallbackReconciler::reconcileBlockDocuments(
+            $data['fallbacks'],
+            array_values(array_filter(array_column($pages, 'canonical_block_markup'), 'is_string'))
+        );
+        $data['metrics']['fallback_count'] = count(array_filter(
+            $data['fallbacks'],
+            static fn (mixed $fallback): bool => is_array($fallback) && 'native_conversion' !== ($fallback['conversion_classification'] ?? '')
+        ));
         // Restore the semantic shell candidates before deriving binding positions.
         // Extracted parts intentionally contain only their inner markup; the page
         // representation owns the landmark wrapper until extraction is accepted.
@@ -207,6 +269,10 @@ final class WordPressSitePlan
         $shells = $this->shellExtraction->sharedShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations']);
         $inlineAreas = array_fill_keys(array_column($inlineShells['parts'], 'area'), true);
         $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
+        $footerContent = $this->shellExtraction->factorSharedFooterContent($shells['pages'], $shells['parts'], $shells['runtime_declarations']);
+        $shells['pages'] = $footerContent['pages'];
+        $shells['parts'] = $footerContent['parts'];
+        $shells['diagnostics'] = array_merge($shells['diagnostics'], $footerContent['diagnostics']);
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
         $assets = self::projectSharedChromeStylesheets($assets, $parts, $pages, $references);
@@ -214,16 +280,21 @@ final class WordPressSitePlan
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
-        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
-        foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
-         self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
+        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
+         self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
          $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus);
          $pages = $navigation['pages'];
          $parts = $navigation['parts'];
          $menus = $navigation['menus'];
          $articleChrome = $this->extractPostArticleChrome($pages);
          $pages = $articleChrome['pages'];
-         $pages = $this->materializeListingQueryLoops($pages);
+         $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations);
+         // Query Loop projection can shorten page markup after shell extraction.
+         // Rebase retained runtime anchors on the final page before validation.
+         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
+         $pages = self::attachWholePageCandidates($pages, $runtimeDeclarations, $compiled['runtime_entity_records'] ?? array());
+         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
+         self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
          $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single']);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
@@ -267,11 +338,16 @@ final class WordPressSitePlan
         return $plan;
     }
 
-    /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $assets */
-    private static function assertEntityBindingsRemainPageOwned(array $declarations, array $pages, array $assets): void
+    /**
+     * Every entity binding names the document that renders its block: a page,
+     * or a shared template part that chrome containing the entity moved into.
+     *
+     * @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $assets
+     */
+    private static function assertEntityBindingsAnchored(array $declarations, array $pages, array $parts, array $assets): void
     {
         $markupBySource = array();
-        foreach ($pages as $page) if (is_string($page['source_path'] ?? null) && is_string($page['canonical_block_markup'] ?? null)) $markupBySource[$page['source_path']] = is_string($page['resolved_block_markup'] ?? null) ? $page['resolved_block_markup'] : $page['canonical_block_markup'];
+        foreach (array_merge($pages, $parts) as $page) if (is_string($page['source_path'] ?? null) && is_string($page['canonical_block_markup'] ?? null)) $markupBySource[$page['source_path']] = is_string($page['resolved_block_markup'] ?? null) ? $page['resolved_block_markup'] : $page['canonical_block_markup'];
         $assetsBySource = array_column($assets, null, 'source_path');
         $scriptsBySource = array();
         foreach ( $pages as $page ) foreach ( $page['document_metadata']['scripts'] ?? array() as $script ) if ( is_array($script) && is_string($script['selector'] ?? null) ) $scriptsBySource[$page['source_path'] . "\n" . $script['selector']] = $script;
@@ -284,7 +360,7 @@ final class WordPressSitePlan
                     $ownedMarkup = $markupBySource[$source] ?? null;
                     $position = $binding['position'] ?? null;
                     $offset = is_string($ownedMarkup) && is_string($search) && is_int($occurrence) ? self::occurrenceOffset($ownedMarkup, $search, $occurrence) : null;
-                    if ( !is_string($source) || !is_string($search) || '' === $search || !is_int($occurrence) || $occurrence < 1 || !is_string($ownedMarkup) || null === $offset || (null !== $position && (!self::bindingPosition($position, $ownedMarkup, $search) || $position['offset'] !== $offset)) ) throw new InvalidArgumentException('A runtime entity binding no longer has its declared source-page block anchor after shell extraction: ' . (is_string($source) ? $source : 'unknown') . ' (' . (is_string($binding['role'] ?? null) ? $binding['role'] : 'unknown') . ').');
+                    if ( !is_string($source) || !is_string($search) || '' === $search || !is_int($occurrence) || $occurrence < 1 || !is_string($ownedMarkup) || null === $offset || (null !== $position && (!self::bindingPosition($position, $ownedMarkup, $search) || $position['offset'] !== $offset)) ) throw new InvalidArgumentException('A runtime entity binding no longer has its declared source document block anchor after shell extraction: ' . (is_string($source) ? $source : 'unknown') . ' (' . (is_string($binding['role'] ?? null) ? $binding['role'] : 'unknown') . ').');
                 }
                 $formId = is_array($entity) && is_array($entity['form'] ?? null) && is_string($entity['form']['id'] ?? null) ? $entity['form']['id'] : '';
                 foreach ( is_array($entity) && is_array($entity['superseded_scripts'] ?? null) ? $entity['superseded_scripts'] : array() as $supersession ) {
@@ -318,7 +394,7 @@ final class WordPressSitePlan
         $records = RuntimeEntityManifest::normalizeRecords($plan['runtime_entity_records']);
         if ($records !== $plan['runtime_entity_records']) throw new InvalidArgumentException('WordPress site plan runtime entity records are not canonically normalized.');
         foreach ($plan['runtime_declarations'] as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) RuntimeEntityManifest::resolve($declaration['payload'], $records);
-        self::assertEntityBindingsRemainPageOwned($plan['runtime_declarations'], $plan['pages'], $plan['assets']);
+        self::assertEntityBindingsAnchored($plan['runtime_declarations'], $plan['pages'], $plan['template_parts'], $plan['assets']);
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
@@ -375,6 +451,8 @@ final class WordPressSitePlan
             self::unique($documentIdentities, $page['reconciliation_identity'], 'page reconciliation identity');
             $pagesBySource[$page['source_path']] = $page;
         }
+        $expectedCandidatePages = self::attachWholePageCandidates(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $plan['pages']), $plan['runtime_declarations'], $records);
+        foreach ($plan['pages'] as $index => $page) if (($expectedCandidatePages[$index]['whole_page_candidates'] ?? null) !== ($page['whole_page_candidates'] ?? null)) throw new InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.');
         foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
             $page = $pagesBySource[$scope['source_path']] ?? null;
             if (!is_array($page) || $scope['kind'] !== ('post' === $page['post_type'] ? 'post' : 'page') || $scope['route_path'] !== trim($page['route']['path'], '/') || $scope['reconciliation_identity'] !== $page['reconciliation_identity'] || $scope['front_page'] !== ('/' === $page['route']['path'])) throw new InvalidArgumentException('A page asset scope does not match its canonical page.');
@@ -619,11 +697,22 @@ final class WordPressSitePlan
             if ( ! self::safePath($compiledTarget) ) throw new InvalidArgumentException('Compiled site asset lacks a safe target identity.');
             $target = 'assets/' . str_replace('\\', '/', $compiledTarget);
             if ( ! self::safePath($target) ) throw new InvalidArgumentException('Compiled site asset lacks a safe target identity.');
-            $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? '');
+            $assetContent = is_string($asset['content'] ?? null) ? $asset['content'] : null;
+            $media = trim((string) ($asset['media'] ?? ''));
+            if ( 'css' === ($asset['kind'] ?? '') && null !== $assetContent && '' !== $media && 'all' !== strtolower($media) ) {
+                // Some WordPress consumers persist a stylesheet as an asset but
+                // enqueue it without forwarding the source link's `media`
+                // attribute. Keep the condition in the stylesheet payload too,
+                // so responsive author rules cannot leak into the other
+                // responsive document variant (for example desktop-only
+                // absolute positioning collapsing the mobile carousel).
+                $assetContent = '@media ' . $media . "{\n" . $assetContent . "\n}\n";
+            }
+            $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($assetContent ?? '');
             $reference = self::payloadReference($asset['payload_reference'] ?? null);
             if (null !== $reference && !self::referenceBackedBinaryAsset($asset)) throw new InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.');
             $transportHash = is_string($asset['content_base64'] ?? null) ? self::contentHash($asset['content_base64']) : null;
-            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) ? $asset['references'] : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $asset['content'] ?? null, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $reference['sha256'] ?? self::contentHash($payload)), static fn(mixed $value): bool => null !== $value);
+            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) ? $asset['references'] : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $reference['sha256'] ?? self::contentHash($payload)), static fn(mixed $value): bool => null !== $value);
         }
         return $rows;
     }
@@ -661,6 +750,81 @@ final class WordPressSitePlan
         }
         unset($asset);
         return $assets;
+    }
+
+    /**
+     * The artifact's file inventory can be path-sorted independently of a
+     * document's stylesheet links. Rebuild the relative order of linked CSS
+     * assets from each compiled document before bootstrap emits enqueue calls;
+     * otherwise equal-specificity declarations can reverse their source
+     * cascade. Unlinked/generated assets retain their existing slots.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<int,array<string,mixed>>
+     */
+    private function orderAssetsByDocumentStylesheetOrder(array $assets, array $pages): array
+    {
+        $indexesByToken = array();
+        foreach ($assets as $index => $asset) {
+            if ('css' === ($asset['kind'] ?? null) && is_string($asset['token'] ?? null)) {
+                $indexesByToken[$asset['token']] = $index;
+            }
+        }
+
+        $linkedIndexes = array();
+        $edges = array();
+        $indegree = array();
+        foreach ($pages as $page) {
+            $ordered = array();
+            $links = is_array($page['document_metadata']['links'] ?? null) ? $page['document_metadata']['links'] : array();
+            usort($links, static fn(array $left, array $right): int => (int) ($left['order'] ?? PHP_INT_MAX) <=> (int) ($right['order'] ?? PHP_INT_MAX));
+            foreach ($links as $link) {
+                if (!is_array($link) || !in_array('stylesheet', preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array(), true)) continue;
+                $reference = (string) ($link['asset_reference'] ?? '');
+                if (!preg_match('/^' . preg_quote(self::TOKEN_PREFIX, '/') . '(asset-[a-f0-9]{16})}}$/', $reference, $match)) continue;
+                $index = $indexesByToken[$match[1]] ?? null;
+                if (!is_int($index)) continue;
+                $linkedIndexes[$index] = true;
+                if (!in_array($index, $ordered, true)) $ordered[] = $index;
+            }
+            for ($position = 1, $count = count($ordered); $position < $count; ++$position) {
+                $before = $ordered[$position - 1];
+                $after = $ordered[$position];
+                if ($before === $after || isset($edges[$before][$after])) continue;
+                $edges[$before][$after] = true;
+                $indegree[$after] = (int) ($indegree[$after] ?? 0) + 1;
+                $indegree[$before] ??= 0;
+            }
+        }
+        if (count($linkedIndexes) < 2) return $assets;
+
+        $available = array();
+        foreach (array_keys($linkedIndexes) as $index) if (0 === (int) ($indegree[$index] ?? 0)) $available[] = $index;
+        sort($available, SORT_NUMERIC);
+        $orderedIndexes = array();
+        while (array() !== $available) {
+            $index = array_shift($available);
+            $orderedIndexes[] = $index;
+            foreach (array_keys($edges[$index] ?? array()) as $next) {
+                --$indegree[$next];
+                if (0 === $indegree[$next]) {
+                    $available[] = $next;
+                    sort($available, SORT_NUMERIC);
+                }
+            }
+        }
+        // Conflicting per-document sequences can occur for disjoint page scopes.
+        // Keep any cyclic remainder stable; no single global ordering can satisfy
+        // contradictory constraints, while the acyclic constraints are honored.
+        foreach (array_keys($linkedIndexes) as $index) if (!in_array($index, $orderedIndexes, true)) $orderedIndexes[] = $index;
+
+        $slots = array_keys($linkedIndexes);
+        sort($slots, SORT_NUMERIC);
+        $orderedAssets = array_map(static fn(int $index): array => $assets[$index], $orderedIndexes);
+        foreach ($slots as $position => $slot) $assets[$slot] = $orderedAssets[$position];
+
+        return array_values($assets);
     }
 
     /** The selector with every `:not(...)` removed: what it targets, not what it excludes. */
@@ -936,6 +1100,9 @@ final class WordPressSitePlan
         $detachedRoots = array();
         foreach ($parts as $part) {
             if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
+            // A one-page inline part still lives under its authored page layout.
+            // Its ancestor-scoped rules belong to that page, not global chrome.
+            if ('inline_shared_shell' === ($part['placement']['kind'] ?? '') && 1 === count($part['placement']['source_paths'] ?? array())) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
             if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) $classes[$class] = true;
             // The chrome's own authored hooks: rules written for them styled it
@@ -1380,7 +1547,7 @@ final class WordPressSitePlan
         $evidence = array(); $add = static function (array &$rows, string $source, ?string $value = null): void { if (count($rows) >= 16) return; $row = array('source' => $source); if (null !== $value) $row['publication_timestamp'] = $value; $rows[] = $row; };
         $timestamp = static fn(string $value): ?string => self::normalizePublicationTimestamp($value);
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) if (is_array($meta) && is_string($meta['content'] ?? null) && in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('article:published_time', 'article:published', 'pubdate', 'publishdate', 'date', 'dc.date.issued', 'dc.date', 'parsely-pub-date', 'releasedate'), true)) if (null !== ($date = $timestamp($meta['content']))) $add($evidence, 'meta:' . strtolower((string) ($meta['property'] ?? $meta['name'])), $date);
-        foreach (self::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if ('time' === ($node['name'] ?? null) && is_string($attributes['datetime'] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes['datetime'], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) $add($evidence, 'html:time[datetime]', $date); if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if (in_array($attributes['itemprop'] ?? null, array('datePublished', 'dateCreated'), true)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
+        foreach (self::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if ('datePublished' === ($attributes['itemprop'] ?? null)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
         foreach (self::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
@@ -1445,7 +1612,7 @@ final class WordPressSitePlan
     private static function isVisibleDateElement(string $name, array $attributes): bool
     {
         if ('time' === $name) {
-            return true;
+            return 'datePublished' === ($attributes['itemprop'] ?? null);
         }
         if (!in_array($name, array('p', 'span', 'div', 'li', 'td', 'mark'), true)) {
             return false;
@@ -1482,7 +1649,7 @@ final class WordPressSitePlan
     private function jsonLdPublicationEvidence(mixed $value, callable $timestamp): array
     {
         if (!is_array($value)) return array(); $rows = array();
-        if (isset($value['@type'])) { $types = is_array($value['@type']) ? $value['@type'] : array($value['@type']); if (array_intersect(array('Article', 'BlogPosting'), $types)) { $row = array('source' => 'json-ld:' . (in_array('BlogPosting', $types, true) ? 'BlogPosting' : 'Article')); foreach (array('datePublished', 'dateCreated') as $key) if (is_string($value[$key] ?? null) && null !== ($date = $timestamp($value[$key]))) { $row['publication_timestamp'] = $date; break; } $rows[] = $row; } }
+        if (isset($value['@type'])) { $types = is_array($value['@type']) ? $value['@type'] : array($value['@type']); if (array_intersect(array('Article', 'BlogPosting'), $types)) { $row = array('source' => 'json-ld:' . (in_array('BlogPosting', $types, true) ? 'BlogPosting' : 'Article')); if (is_string($value['datePublished'] ?? null) && null !== ($date = $timestamp($value['datePublished']))) $row['publication_timestamp'] = $date; $rows[] = $row; } }
         foreach ($value as $child) if (is_array($child)) $rows = array_merge($rows, $this->jsonLdPublicationEvidence($child, $timestamp));
         return $rows;
     }
@@ -1626,6 +1793,8 @@ final class WordPressSitePlan
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $templateSlug) && !in_array($templateSlug, $part['placement']['excluded_template_slugs'] ?? array(), true))) {
                  if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
                  $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '"} /-->' . "\n";
+                 $wrapper = $part['placement']['template_wrappers'][$templateSlug] ?? null;
+                 if (is_array($wrapper) && is_string($wrapper['opening'] ?? null) && is_string($wrapper['closing'] ?? null)) $reference = $wrapper['opening'] . "\n" . $reference . $wrapper['closing'] . "\n";
                  if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
              }
              if (in_array($templateSlug, array('index', 'search'), true)) {
@@ -1843,9 +2012,15 @@ final class WordPressSitePlan
         return str_contains($slice, 'Leave a Reply') || 1 === preg_match('/<iframe\b[^>]*(?:comment|Comment)/', $slice);
     }
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
-    private function materializeListingQueryLoops(array $pages): array
+    private function materializeListingQueryLoops(array $pages, array $runtimeDeclarations = array()): array
     {
         $postsByParent = array();
+        $bindingsBySource = array();
+        foreach ($runtimeDeclarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) {
+            $source = $binding['source_path'] ?? null;
+            $search = $binding['search_block_markup'] ?? null;
+            if (is_string($source) && is_string($search) && '' !== $search) $bindingsBySource[$source][] = $search;
+        }
         foreach ($pages as $page) {
             if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !is_string($page['route']['path'] ?? null)) {
                 continue;
@@ -1863,6 +2038,10 @@ final class WordPressSitePlan
             $replaced = $this->replaceListingMarkup($page['canonical_block_markup'], $posts);
             if (null === $replaced || $replaced === $page['canonical_block_markup']) {
                 continue;
+            }
+            // A template cannot replace a source region that owns a live entity.
+            foreach ($bindingsBySource[$page['source_path']] ?? array() as $anchor) {
+                if (substr_count($replaced, $anchor) !== substr_count($page['canonical_block_markup'], $anchor)) continue 2;
             }
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = self::contentHash($replaced);
@@ -2809,8 +2988,16 @@ final class WordPressSitePlan
      * @param array<int,array<string,mixed>> $routes
      * @return array<int,array<string,mixed>>
      */
-    private function canonicalEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages): array
+    private function canonicalEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array()): array
     {
+        // A binding owned by a shared part was re-anchored on the part's final
+        // markup when the chrome moved; it needs no source projection, and the
+        // part markup is its own projected source.
+        $partSources = array();
+        foreach ($parts as $part) if (is_string($part['source_path'] ?? null) && is_string($part['canonical_block_markup'] ?? null)) {
+            $partSources[$part['source_path']] = true;
+            $pages[] = array('source_path' => $part['source_path'], 'canonical_block_markup' => $part['canonical_block_markup'], '_projected_source_block_markup' => $part['canonical_block_markup']);
+        }
         foreach ( $declarations as &$declaration ) {
             if ( ! is_array($declaration) || ! isset($declaration['payload']['entities']) || ! is_array($declaration['payload']['entities']) ) {
                 continue;
@@ -2823,6 +3010,7 @@ final class WordPressSitePlan
                     if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
                         $sourceMarkup = $binding['search_block_markup'];
                         if (!is_array($binding['projected_anchor'] ?? null)) $binding['projected_anchor'] = array_filter(array('schema' => 'blocks-engine/projected-binding-anchor/v1', 'source_block_markup' => $sourceMarkup, 'source_occurrence' => $binding['occurrence'] ?? null, 'source_position' => $binding['position'] ?? null), static fn(mixed $value): bool => null !== $value);
+                        if (isset($partSources[$binding['source_path']])) continue;
                         $markup = $references->content($sourceMarkup, $binding['source_path']);
                         $binding['search_block_markup'] = $this->routeLinks($markup, $binding['source_path'], $routes);
                     }
