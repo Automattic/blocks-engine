@@ -31,6 +31,10 @@ final class MotionSequenceBlockGenerator
                             el( components.TextControl, { label: 'Text selector', value: step.selector || '', onChange: function( value ) { update( index, 'selector', value ); } } ),
                             el( components.TextControl, { label: 'Delay after previous step (ms)', type: 'number', min: 0, max: 5000, value: step.delayMs || '0', onChange: function( value ) { update( index, 'delayMs', value ); } } ),
                             el( components.TextControl, { label: 'Character interval (ms)', type: 'number', min: 10, max: 500, value: step.intervalMs || '50', onChange: function( value ) { update( index, 'intervalMs', value ); } } ),
+                            el( components.TextControl, { label: 'Pending message before text', value: step.pendingText || '', onChange: function( value ) { update( index, 'pendingText', value ); } } ),
+                            el( components.ToggleControl, { label: 'Animate trailing dots', checked: !! step.pendingDots, onChange: function( value ) { update( index, 'pendingDots', value ); } } ),
+                            el( components.TextControl, { label: 'Dot interval (ms)', type: 'number', min: 100, max: 2000, value: step.pendingIntervalMs || '500', onChange: function( value ) { update( index, 'pendingIntervalMs', value ); } } ),
+                            el( components.TextControl, { label: 'Replay delay (ms)', type: 'number', min: 0, max: 5000, value: step.replayDelayMs || '0', onChange: function( value ) { update( index, 'replayDelayMs', value ); } } ),
                             el( components.TextControl, { label: 'Click to replay (selector)', value: step.clickSelector || '', onChange: function( value ) { update( index, 'clickSelector', value ); } } ),
                             el( components.TextControl, { label: 'Ripple canvas (selector)', value: step.rippleSelector || '', onChange: function( value ) { update( index, 'rippleSelector', value ); } } ),
                             el( components.Button, { isDestructive: true, onClick: function() { props.setAttributes( { steps: steps.filter( function( _, position ) { return position !== index; } ) } ); } }, 'Remove step' )
@@ -89,19 +93,44 @@ JS;
                 text: Array.from( text ),
                 delay: bounded( item.delayMs, 500, 0, 5000 ),
                 interval: bounded( item.intervalMs, 50, 10, 500 ),
+                pending: typeof item.pendingText === 'string' ? item.pendingText.slice( 0, 120 ) : '',
+                pendingDots: item.pendingDots === true,
+                pendingInterval: bounded( item.pendingIntervalMs, 500, 100, 2000 ),
+                replayDelay: bounded( item.replayDelayMs, 0, 0, 5000 ),
                 click: select( item.clickSelector ),
                 ripple: select( item.rippleSelector ),
+                pendingTimer: null,
                 running: false
             };
         } ).filter( Boolean );
         if ( steps.length === 0 ) return;
         beginBusy();
 
+        function showPending( step ) {
+            if ( step.pendingTimer !== null ) window.clearInterval( step.pendingTimer );
+            step.target.textContent = step.pending;
+            if ( step.pending && step.pendingDots ) {
+                var dots = 0;
+                step.pendingTimer = window.setInterval( function() {
+                    dots = ( dots + 1 ) % 4;
+                    step.target.textContent = step.pending + '.'.repeat( dots );
+                }, step.pendingInterval );
+            } else step.pendingTimer = null;
+        }
+
+        function endPending( step ) {
+            if ( step.pendingTimer !== null ) window.clearInterval( step.pendingTimer );
+            step.pendingTimer = null;
+            step.target.textContent = '';
+        }
+
         async function play( step, delay ) {
             if ( step.running ) return;
             step.running = true;
-            step.target.textContent = '';
-            if ( delay ) await wait( step.delay );
+            showPending( step );
+            var waitMs = delay ? step.delay : step.replayDelay;
+            if ( waitMs ) await wait( waitMs );
+            endPending( step );
             for ( var index = 0; index < step.text.length; index++ ) {
                 step.target.textContent += step.text[ index ];
                 await wait( step.interval );
@@ -118,7 +147,7 @@ JS;
                 beginBusy();
                 void play( step, false ).finally( endBusy );
             } );
-            step.target.textContent = '';
+            showPending( step );
         } );
         ( async function() {
             try {
