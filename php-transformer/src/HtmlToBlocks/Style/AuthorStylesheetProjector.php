@@ -11,7 +11,6 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
 
@@ -1448,7 +1447,10 @@ final class AuthorStylesheetProjector
                         continue;
                     }
                     $inlineLayoutCarriers = true;
-                    $addressableInlineCarriers = $addressableInlineCarriers || null !== AddressableInlineLayoutLeaf::identity($element, $this->styleResolver);
+                    // Source analysis may add its own markers before stylesheet
+                    // projection. Only the emitted paragraph can own this ID;
+                    // unpromoted leaves make the additional selector inert.
+                    $addressableInlineCarriers = $addressableInlineCarriers || ('span' === strtolower($element->tagName) && '' !== SourceDom::attr($element, 'id'));
                 } elseif ( '' !== ($marker = $context->selectorProjections->richTextMarker($path)) ) {
                     $richTextLeaves[] = $marker;
                 } elseif ( '' !== ($marker = $context->selectorProjections->controlMarker($path)) ) {
