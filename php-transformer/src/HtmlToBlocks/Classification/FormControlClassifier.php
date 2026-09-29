@@ -89,12 +89,43 @@ final class FormControlClassifier
             return true;
         }
         for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( null !== self::sourceSelectAfterCapturedPanel($parent) ) {
+                return true;
+            }
             if ( 'true' === strtolower($parent->getAttribute('aria-hidden')) ) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * A capture-only popup is bounded by its linked visible trigger and the
+     * immediately following hidden native value carrier. Only its descendants
+     * leave provider control topology; the panel remains in the page replay.
+     */
+    public static function sourceSelectAfterCapturedPanel(DOMElement $panel): ?DOMElement
+    {
+        $key = trim($panel->getAttribute('data-dla-listbox-panel'));
+        if ( '' === $key || ! $panel->hasAttribute('hidden') ) {
+            return null;
+        }
+        $trigger = $panel->previousElementSibling;
+        $select = $panel->nextElementSibling;
+        if ( ! $trigger instanceof DOMElement || 'button' !== strtolower($trigger->tagName)
+            || $key !== trim($trigger->getAttribute('data-dla-listbox-trigger'))
+            || ( 'combobox' !== strtolower(trim($trigger->getAttribute('role')))
+                && 'listbox' !== strtolower(trim($trigger->getAttribute('aria-haspopup'))) )
+            || ! $select instanceof DOMElement || 'select' !== strtolower($select->tagName)
+            || ( ! $select->hasAttribute('hidden')
+                && ! ( 'true' === strtolower(trim($select->getAttribute('aria-hidden')))
+                    && '-1' === trim($select->getAttribute('tabindex')) ) )
+            || 0 === $select->getElementsByTagName('option')->length ) {
+            return null;
+        }
+
+        return $select;
     }
 
     public static function hasDataEntryControls(DOMElement $form): bool

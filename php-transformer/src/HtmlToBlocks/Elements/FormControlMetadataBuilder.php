@@ -426,8 +426,9 @@ final class FormControlMetadataBuilder
 
         $next = $control->nextElementSibling;
         $key = trim(SourceDom::attr($control, 'data-dla-listbox-trigger'));
-        if ( '' !== $key && $next instanceof DOMElement && $next->hasAttribute('hidden')
-            && $key === trim($next->getAttribute('data-dla-listbox-panel')) ) {
+        if ( '' !== $key && $next instanceof DOMElement
+            && $key === trim($next->getAttribute('data-dla-listbox-panel'))
+            && null !== FormControlClassifier::sourceSelectAfterCapturedPanel($next) ) {
             // Capture inserts precisely one linked popup between the visible
             // trigger and its source value carrier. Do not skip other nodes.
             $next = $next->nextElementSibling;
