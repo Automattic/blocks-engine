@@ -93,6 +93,50 @@ $assert(str_contains($mixedWrites['templates/page-contact.html']['payload']['dat
 $assert(str_contains($mixedWrites['templates/search.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($mixedWrites['templates/search.html']['payload']['data'] ?? '', '"slug":"footer"'), 'The search template rides along with index for both the shared header and the shared footer, not only the header.');
 $assert(!array_filter($multiple['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)) && in_array('wordpress_site_plan_shell_retained_incomplete', array_column($multiple['diagnostics'], 'code'), true), 'Multiple shell candidates remain page-local with bounded incomplete diagnostics.');
 
+// Authored visibility belongs around each route's shared part reference, not
+// inside the owner-editable part (where it would affect unrelated routes).
+$footerPage = static fn(string $title, string $wrapper): string => '<!doctype html><html><body><main><h1>' . $title . '</h1></main>' . str_replace('%s', '<footer class="site-footer"><p>Shared colophon</p></footer>', $wrapper) . '</body></html>';
+$footerPlanFor = static function (array $routes) use ($footerPage): array {
+    $files = array();
+    foreach ($routes as $source => $wrapper) $files[$source] = $footerPage(ucfirst(pathinfo($source, PATHINFO_FILENAME)), $wrapper);
+    $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
+    // Supply the authored block tree at the plan boundary: the HTML converter
+    // may fold a sole ancestor into its footer group before planning begins.
+    foreach ($result['source_reports']['compiled_site']['pages'] as &$page) {
+        $title = ucfirst(pathinfo($page['source_path'], PATHINFO_FILENAME));
+        $footer = '<!-- wp:group {"className":"site-footer","tagName":"footer"} --><footer class="wp-block-group site-footer"><!-- wp:paragraph --><p>Shared colophon</p><!-- /wp:paragraph --></footer><!-- /wp:group -->';
+        $wrapper = $routes[$page['source_path']];
+        preg_match('/class="([^"]+)"/', $wrapper, $class);
+        $wrapped = '%s' === $wrapper ? $footer : '<!-- wp:group {"className":"' . $class[1] . '"} --><div class="wp-block-group ' . $class[1] . '">' . $footer . '</div><!-- /wp:group -->';
+        $page['block_markup'] = '<!-- wp:group {"tagName":"main"} --><main class="wp-block-group"><!-- wp:heading --><h2 class="wp-block-heading">' . $title . '</h2><!-- /wp:heading --></main><!-- /wp:group -->' . $wrapped;
+    }
+    unset($page);
+    return (new WordPressSitePlan())->fromResult($result);
+};
+$footerPlan = $footerPlanFor(array(
+    'index.html' => '<div class="hidden lg:block">%s</div>',
+    'about.html' => '<div class="hidden lg:block">%s</div>',
+    'team.html' => '<div class="hidden lg:block">%s</div>',
+));
+$footerTemplates = array_column($footerPlan['templates'], 'canonical_block_markup', 'slug');
+$footerParts = array_values(array_filter($footerPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['slug'] ?? null)));
+$assert(1 === count($footerParts) && 'shared_shell' === ($footerParts[0]['placement']['kind'] ?? null) && in_array('hidden', $footerParts[0]['ancestor_context']['classes'] ?? array(), true) && in_array('lg:block', $footerParts[0]['ancestor_context']['classes'] ?? array(), true), 'The repeated footer has one shared owner and retains authored ancestor evidence.');
+foreach (array('front-page', 'page', 'page-about', 'page-team') as $slug) {
+    $markup = $footerTemplates[$slug] ?? '';
+    $assert(1 === preg_match('/<!-- wp:group [^>]*"className":"hidden lg:block"[^>]*--><div class="wp-block-group hidden lg:block">\s*<!-- wp:template-part \{"slug":"footer"[^>]*\/-->\s*<\/div><!-- \/wp:group -->/', $markup), "{$slug} wraps its one editable footer reference in the authored responsive group: {$markup}");
+}
+$assert(!str_contains($footerParts[0]['canonical_block_markup'], 'hidden lg:block') && !str_contains($pages($footerPlan)['about.html']['canonical_block_markup'] ?? '', 'hidden lg:block'), 'The visibility wrapper is neither global part content nor an empty page remnant.');
+WordPressSitePlan::assertValid($footerPlan);
+
+$variantFooterPlan = $footerPlanFor(array(
+    'index.html' => '<div class="hidden lg:block">%s</div>',
+    'about.html' => '<div class="hidden lg:block">%s</div>',
+    'contact.html' => '<div class="lg:hidden">%s</div>',
+));
+$variantTemplates = array_column($variantFooterPlan['templates'], 'canonical_block_markup', 'slug');
+$assert(1 === substr_count($variantTemplates['page-about'] ?? '', '"slug":"footer"') && str_contains($variantTemplates['page-about'] ?? '', 'hidden lg:block') && 1 === substr_count($variantTemplates['page-contact'] ?? '', '"slug":"footer"') && str_contains($variantTemplates['page-contact'] ?? '', 'lg:hidden') && !str_contains($variantTemplates['page-contact'] ?? '', 'hidden lg:block') && !str_contains($variantTemplates['page'] ?? '', 'hidden lg:block') && 1 === count(array_filter($variantFooterPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['slug'] ?? null))), 'Distinct authored visibility wrappers vary by route while the footer remains one shared editable part.');
+WordPressSitePlan::assertValid($variantFooterPlan);
+
 $responsiveLandmark = static function (string $area, string $id, string $class, string $content): string {
     return '<!-- wp:group {"anchor":"' . $id . '","className":"site-' . $area . ' ' . $class . '","tagName":"' . $area . '"} --><' . $area . ' id="' . $id . '" class="wp-block-group site-' . $area . ' ' . $class . '"><!-- wp:paragraph --><p>' . $content . '</p><!-- /wp:paragraph --></' . $area . '><!-- /wp:group -->';
 };
