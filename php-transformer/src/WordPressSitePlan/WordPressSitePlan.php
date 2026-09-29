@@ -160,6 +160,7 @@ final class WordPressSitePlan
         $surfaces = $this->templateSurfaces($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
         $routeMap = $this->canonicalRoutes($documents, $input->routes);
+        $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations);
         $this->routeSources = array();
         $this->routeTargets = array();
         $this->routeReferenceCache = array();

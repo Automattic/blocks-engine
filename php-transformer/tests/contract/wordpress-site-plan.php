@@ -16,6 +16,31 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\AssetReferenceCanon
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\MissingMediaRecovery;
 
 $assert = static function (bool $condition, string $message): void { if (! $condition) throw new RuntimeException($message); };
+$eventJson = static fn(array $event): string => '<script type="application/ld+json">' . json_encode($event, JSON_THROW_ON_ERROR) . '</script><main><h1>Event</h1></main>';
+$event = static fn(string $start, string $end): array => array('@context' => 'https://schema.org', '@type' => 'Event', 'name' => 'Community gathering', 'description' => 'Neighbors meet for the evening.', 'startDate' => $start, 'endDate' => $end, 'location' => array('@type' => 'Place', 'name' => 'Town Hall', 'address' => array('streetAddress' => '1 Main St', 'addressLocality' => 'Springfield')), 'image' => 'https://example.test/event.jpg');
+$eventArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<main>Home</main>',
+    array('path' => 'events/old.html', 'content' => $eventJson($event('2020-02-01T10:00:00-05:00', '2020-02-01T12:00:00-05:00')), 'metadata' => array('route_path' => '/calendar/old')),
+    'events/future.html' => $eventJson(array('@context' => 'https://schema.org', '@graph' => array($event('2032-08-01T10:00:00+02:00', '2032-08-01T11:00:00+02:00')))),
+    'events/portable.html' => $eventJson(array_replace($event('2032-08-01T12:00:00+02:00', '2032-08-01T13:00:00+02:00'), array('image' => array('@type' => 'ImageObject', 'url' => '/media/event-image.avif')))),
+    'events/minimal.html' => $eventJson(array('@context' => 'https://schema.org', '@type' => 'Event', 'name' => 'Virtual gathering', 'startDate' => '2032-08-02T10:00:00+02:00', 'endDate' => '2032-08-02T11:00:00+02:00')),
+    'media/event-image.avif' => 'portable image bytes',
+    'events/plain.html' => '<main><h1>Not an event</h1></main>',
+    'events/broken.html' => $eventJson($event('2032-02-30T10:00:00+02:00', '2032-02-30T11:00:00+02:00')),
+    'events/ambiguous.html' => $eventJson(array('@graph' => array($event('2032-08-01T10:00:00Z', '2032-08-01T11:00:00Z'), $event('2032-08-02T10:00:00Z', '2032-08-02T11:00:00Z')))),
+));
+$eventResult = (new ArtifactCompiler())->compile($eventArtifact)->toArray();
+$eventPlan = $eventResult['source_reports']['wordpress_site_plan'];
+$eventDeclarations = array_values(array_filter($eventPlan['runtime_declarations'], static fn(array $row): bool => 'events' === ($row['type'] ?? null)));
+$assert(1 === count($eventDeclarations) && 'generic/events/v1' === $eventDeclarations[0]['payload']['schema'], 'Only source-backed Event JSON-LD produces a neutral events collection.');
+$eventEntities = array_column($eventDeclarations[0]['payload']['entities'], null, 'source_path');
+$assert(4 === count($eventEntities) && '/calendar/old' === $eventEntities['events/old.html']['source_route'] && '/events/future' === $eventEntities['events/future.html']['source_route'], 'Past and upcoming events retain their existing canonical source-page route identities.');
+$assert('2020-02-01T10:00:00-05:00' === $eventEntities['events/old.html']['start_date'] && 'Town Hall' === $eventEntities['events/old.html']['venue']['name'] && '1 Main St' === $eventEntities['events/old.html']['venue']['address']['streetAddress'] && 'https://example.test/event.jpg' === $eventEntities['events/old.html']['image'] && 'Neighbors meet for the evening.' === $eventEntities['events/old.html']['description'], 'Event fields preserve offset, description, venue and image evidence.');
+$assert(!isset($eventEntities['events/minimal.html']['venue']) && !isset($eventEntities['events/minimal.html']['image']) && 'Virtual gathering' === $eventEntities['events/minimal.html']['name'], 'Dated events without venue or image remain representable without invented optional fields.');
+$assert('/media/event-image.avif' === $eventEntities['events/portable.html']['image'], 'Portable source-local image evidence survives event declaration.');
+$eventRoutes = array_column($eventPlan['routes'], 'source_path');
+$assert(!isset($eventEntities['events/plain.html'], $eventEntities['events/broken.html'], $eventEntities['events/ambiguous.html']) && count($eventRoutes) === count(array_unique($eventRoutes)) && in_array('events/plain.html', $eventRoutes, true) && in_array('events/broken.html', $eventRoutes, true), 'Malformed, ambiguous and non-event documents remain pages without inventing event entities or duplicate route owners.');
+$assert(array() === array_filter($eventPlan['runtime_declarations'], static fn(array $row): bool => 'tickets' === ($row['type'] ?? null)), 'Event facts do not invent ticket entities.');
 $throws = static function (callable $callback, string $message) use ($assert): void { try { $callback(); } catch (InvalidArgumentException) { return; } $assert(false, $message); };
 $validationFailure = static function (callable $callback) use ($assert): ValidationException { try { $callback(); } catch (ValidationException $exception) { return $exception; } $assert(false, 'Expected a contextual WordPress site plan validation failure.'); };
 $writeMap = static function (array $writes): array { $map = array(); foreach ($writes as $write) $map[$write['target_path']] = $write; return $map; };
