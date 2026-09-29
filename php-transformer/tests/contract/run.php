@@ -2008,7 +2008,7 @@ $assert(! str_contains($loneStyledInlineMarkup, '<p class="blocks-engine-synthet
 $assert('pass' === ($loneStyledInline['source_reports']['wp_block_validity']['status'] ?? ''), 'lone styled inline carriers remain editor-valid');
 
 $addressableInline = (new HtmlTransformer())->transform(
-    '<style>.facts{display:flex}.value{display:inline-block;min-width:12ch;font-weight:700}</style>'
+    '<style>.facts{display:flex}.value {display:inline-block;font-weight:700}#status-value {min-width:12ch}</style>'
     . '<section class="facts"><span id="status-value" class="value">Current editable text</span><span id="status-label" style="visibility:visible">Label</span></section>'
 )->toArray();
 $addressableMarkup = (string) ($addressableInline['serialized_blocks'] ?? '');
@@ -2016,7 +2016,7 @@ $addressableCss = implode("\n", array_column($addressableInline['assets'] ?? arr
 $assert(str_contains($addressableMarkup, '<p id="status-value" class="blocks-engine-inline-layout-carrier blocks-engine-addressable-inline-block value">Current editable text</p>'), 'simple standalone span identity moves onto a native paragraph anchor so RichText edits preserve it');
 $assert(!str_contains($addressableMarkup, '<span id="status-value"') && str_contains($addressableMarkup, '<span id="status-label" style="visibility:visible">Label</span>'), 'addressable inline conversion keeps complex or styled spans on the existing preservation path');
 $assert(str_contains($addressableCss, 'p.blocks-engine-addressable-inline-block){display:inline-block!important}') && 'pass' === ($addressableInline['source_reports']['wp_block_validity']['status'] ?? ''), 'addressable native paragraph retains inline sizing and editor-valid serialization');
-$assert(str_contains($addressableCss, 'p.blocks-engine-inline-layout-carrier.value{display:inline-block;min-width:12ch;font-weight:700}'), 'source class rules still style the moved inline target after RichText edits');
+$assert(str_contains($addressableCss, 'p.blocks-engine-inline-layout-carrier.value{display:inline-block;font-weight:700}') && str_contains($addressableCss, 'p.blocks-engine-inline-layout-carrier#status-value{min-width:12ch}'), 'source class and ID rules with whitespace still style the moved inline target after RichText edits');
 
 $paddedTextWrapper = ( new HtmlTransformer() )->transform(
     '<style>.copy{padding:1rem;font-size:.875rem;line-height:1.625}</style><div class="copy">PLAN 1 (0-3s)</div>'

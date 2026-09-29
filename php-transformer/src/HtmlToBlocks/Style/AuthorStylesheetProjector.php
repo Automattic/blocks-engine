@@ -2041,8 +2041,9 @@ final class AuthorStylesheetProjector
         // A simple addressable inline leaf may now use the carrier paragraph as
         // its native ID/class owner, keeping that selector alive after a text edit.
         // On ordinary carriers this extra selector matches nothing.
-        if ($addressable && preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*(?:[.#][A-Za-z][A-Za-z0-9_-]*)*$/', $right)) {
-            $selectors[] = $prefix . 'p.' . self::INLINE_LAYOUT_CARRIER_CLASS . $right;
+        $subject = trim($right);
+        if ($addressable && preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*(?:[.#][A-Za-z][A-Za-z0-9_-]*)*$/', $subject)) {
+            $selectors[] = $prefix . 'p.' . self::INLINE_LAYOUT_CARRIER_CLASS . $subject;
         }
         return implode(',', $selectors);
     }
