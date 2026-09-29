@@ -60,6 +60,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispa
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkLeftovers;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredMotionMarkerConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormCompositionPlanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatchContext;
@@ -2992,6 +2993,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
         $tagName = strtolower($element->tagName);
+
+        $authoredMotion = (new AuthoredMotionMarkerConverter($this->session, $this))->convert($element);
+        if (null !== $authoredMotion) return $authoredMotion;
 
         $prelude = $this->elementPrelude->convert($element, $tagName, $fallbacks, $captureUnsupported);
         if ( $prelude->handled ) {

@@ -5022,6 +5022,17 @@ $authoredCanvasMarkup = (string) ($authoredCanvasSite['serialized_blocks'] ?? ''
 $assert(str_contains($authoredCanvasMarkup, 'data-blocks-engine-canvas-effect="particle-ripple"') && str_contains($authoredCanvasMarkup, 'data-blocks-engine-canvas-spacing="90"'), 'authored portable ripple settings survive as native editable canvas block attributes');
 $assert(array() === array_values(array_filter($authoredCanvasSite['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? ''))), 'authored runtime canvas selector remains present in generated block markup');
 
+$portableMarkerSite = $compiler->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => '<main><p id="message">Editable</p></main><span hidden data-blocks-engine-motion-steps="[{&quot;selector&quot;:&quot;#message&quot;}] "></span><span hidden data-blocks-engine-live-clock="{&quot;hourSelector&quot;:&quot;#hour&quot;}"></span><script src="motion.js"></script>',
+        'motion.js' => 'document.querySelectorAll("[data-blocks-engine-motion-steps]"); document.querySelectorAll("[data-blocks-engine-live-clock]");',
+    ),
+))->toArray();
+$portableMarkup = (string) ($portableMarkerSite['serialized_blocks'] ?? '');
+$assert(str_contains($portableMarkup, '/motion-sequence') && str_contains($portableMarkup, '/live-clock'), 'author-provided inert motion markers lower to native editable companion blocks');
+$assert(array() === ($portableMarkerSite['source_reports']['runtime_islands'] ?? array()), 'native marker save markup fulfills authored script targets without runtime islands');
+
 $motionFixture = array(
     'site' => array('name' => 'Motion Fixture', 'slug' => 'motion-fixture'),
     'entrypoint' => 'index.html',

@@ -389,6 +389,12 @@ final class RuntimeIslandAnalyzer
 
     public function canRetainRuntimeDomContractNatively(DOMElement $element, string $blockName): bool
     {
+        // The authored hidden marker is the exact save() DOM contract for these
+        // companion blocks. A native editable marker is not a runtime island.
+        if ('span' === strtolower($element->tagName) && $element->hasAttribute('hidden') && (
+            ($blockName === $this->context->generatedBlockName('live-clock') && $element->hasAttribute('data-blocks-engine-live-clock'))
+            || ($blockName === $this->context->generatedBlockName('motion-sequence') && $element->hasAttribute('data-blocks-engine-motion-steps'))
+        )) return true;
         if ( ! in_array($blockName, array('core/group', 'core/paragraph', 'core/heading'), true) ) {
             return false;
         }
