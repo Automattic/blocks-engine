@@ -103,6 +103,9 @@ $assert(
     1 === count($headings)
         && 2 === ($headings[0]['attrs']['level'] ?? null)
         && 'Contact Us' === trim(strip_tags((string) ($headings[0]['attrs']['content'] ?? '')))
+        && 'inherit' === ($headings[0]['attrs']['style']['typography']['fontSize'] ?? null)
+        && '0' === ($headings[0]['attrs']['style']['spacing']['margin']['top'] ?? null)
+        && '0' === ($headings[0]['attrs']['style']['spacing']['margin']['bottom'] ?? null)
         && 1 === count($separators)
         && 'pass' === ( ( new BlockValidityValidator() )->validateBlocks($decoratedHeading['blocks'] ?? array())['status'] ?? '' ),
     'A decorated heading retains an editable heading landmark and its separator.'

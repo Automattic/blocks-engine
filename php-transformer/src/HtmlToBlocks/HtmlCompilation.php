@@ -3616,6 +3616,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                             $children[$index] = $this->createBlock('core/heading', array(
                                 'content' => $children[$index]['attrs']['content'],
                                 'level' => $attrs['level'] ?? 2,
+                                'style' => array(
+                                    'typography' => array('fontSize' => 'inherit'),
+                                    'spacing' => array('margin' => array('top' => '0', 'bottom' => '0')),
+                                ),
                             ));
                         }
                     }
