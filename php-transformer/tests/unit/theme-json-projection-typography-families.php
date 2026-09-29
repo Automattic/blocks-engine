@@ -160,7 +160,7 @@ $assert(
 //    sources stay authored-CSS owned.
 // ---------------------------------------------------------------------------
 $facedProjection = $project( array(
-    $cssAsset( '@font-face{font-family:"Lora";font-style:normal;font-weight:400;src:url(fonts/lora.woff2) format("woff2")}@font-face{font-family:Lora;font-style:italic;font-weight:400;src:url(fonts/lora-italic.woff2)}@font-face{font-family:"Remote";src:url(https://fonts.example.test/remote.woff2)}body{font-family:Lora,serif}h1{font-family:"Remote",serif}' ),
+    $cssAsset( '@font-face{font-family:"Lora";font-style:normal;font-weight:400;src:url(fonts/lora.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131}@font-face{font-family:Lora;font-style:italic;font-weight:400;src:url(fonts/lora-italic.woff2);unicode-range:U+0100-024F}@font-face{font-family:"Remote";src:url(https://fonts.example.test/remote.woff2)}body{font-family:Lora,serif}h1{font-family:"Remote",serif}' ),
     array( 'kind' => 'font', 'source_path' => 'assets/fonts/lora.woff2', 'target_path' => 'assets/fonts/lora.woff2', 'mime_type' => 'font/woff2' ),
     array( 'kind' => 'font', 'source_path' => 'assets/fonts/lora-italic.woff2', 'target_path' => 'assets/fonts/lora-italic.woff2', 'mime_type' => 'font/woff2' ),
 ) );
@@ -179,6 +179,10 @@ $assert(
     ) === array_map( static fn( array $face ): array => array_intersect_key( $face, array_flip( array( 'family', 'src', 'fontStyle', 'fontWeight' ) ) ), $lora['fontFace'] ?? array() ),
     '7: materialized woff2 faces attach to the Lora family preset',
     json_encode( $lora ?? null )
+);
+$assert(
+    array('U+0000-00FF, U+0131', 'U+0100-024F') === array_column($lora['fontFace'] ?? array(), 'unicodeRange'),
+    '7a: theme.json keeps each materialized face restricted to its authored Unicode subsets'
 );
 $remote = null;
 foreach ( $families as $family ) {
