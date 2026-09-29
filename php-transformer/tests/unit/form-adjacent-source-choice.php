@@ -7,11 +7,13 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $html = '<main><form><div class="grid"><div class="field">'
     . '<label id="contact-label">Preferred Contact</label>'
-    . '<div class="select-shell"><button type="button" role="combobox" aria-haspopup="listbox" aria-labelledby="contact-label" aria-required="true">Email</button>'
+    . '<div class="select-shell"><button type="button" role="combobox" aria-haspopup="listbox" aria-labelledby="contact-label" aria-required="true" data-dla-listbox-trigger="contact">Email</button>'
+    . '<div hidden data-dla-listbox-panel="contact"><div role="listbox"><div role="option">Email</div><div role="option">Phone</div></div></div>'
     . '<select aria-hidden="true" tabindex="-1" required><option value="email" selected>Email</option><option value="phone">Phone</option></select></div></div>'
     . '<div class="field"><label id="service-label">Service of Interest</label><div class="select-shell">'
-    . '<button type="button" role="combobox" aria-haspopup="listbox" aria-labelledby="service-label">Choose a service</button>'
-    . '<select hidden><option value="">Choose a service</option>';
+    . '<button type="button" role="combobox" aria-haspopup="listbox" aria-labelledby="service-label" data-dla-listbox-trigger="service">Choose a service</button>'
+    . '<div hidden data-dla-listbox-panel="service"><div role="listbox"><div role="option">Service 0</div></div></div>'
+    . '<select hidden>';
 for ( $i = 0; $i < 11; ++$i ) {
     $html .= '<option value="service-' . $i . '">Service ' . $i . '</option>';
 }
@@ -36,9 +38,9 @@ $check('Preferred Contact' === ($triggers[0]['label'] ?? null), 'trigger retains
 $check(true === ($triggers[0]['required'] ?? null), 'required state reaches trigger');
 $check('email' === ($triggers[0]['options'][0]['value'] ?? null) && 'Email' === ($triggers[0]['options'][0]['label'] ?? null)
     && true === ($triggers[0]['options'][0]['selected'] ?? null) && 'phone' === ($triggers[0]['options'][1]['value'] ?? null), 'distinct native values, labels and selection survive');
-$check(12 === count($triggers[1]['options'] ?? array()) && 'service-10' === ($triggers[1]['options'][11]['value'] ?? null), 'all eleven literal service choices survive');
+$check(11 === count($triggers[1]['options'] ?? array()) && 'service-10' === ($triggers[1]['options'][10]['value'] ?? null), 'all eleven literal service choices survive');
 $check(isset($triggers[0]['choice_source_selector'], $triggers[1]['choice_source_selector'])
-    && $triggers[0]['choice_source_selector'] !== $triggers[1]['choice_source_selector'], 'each trigger points to its own adjacent native select');
+    && $triggers[0]['choice_source_selector'] !== $triggers[1]['choice_source_selector'], 'each trigger points past its linked captured panel to its native select');
 $check(2 === count(array_filter($controls, static fn (array $control): bool => 'select' === ($control['tag'] ?? null))), 'native controls stay in the manifest');
 $nodes = $entity['control_topology']['nodes'] ?? array();
 $siblings = array_values(array_filter($nodes, static fn (array $node): bool => 'control' === ($node['kind'] ?? '') && in_array($node['control'] ?? -1, array(0, 1), true)));
@@ -55,6 +57,23 @@ $builder = new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\Form
 );
 $button = $unrelated->getElementsByTagName('button')->item(0);
 $check($button instanceof DOMElement && ! isset($builder->control($button)['choice_source_selector']), 'unrelated select is not associated');
+
+$direct = new DOMDocument();
+$direct->loadHTML('<form><button type="button" role="combobox">Pick</button><select hidden><option value="direct">Direct</option></select></form>');
+$directButton = $direct->getElementsByTagName('button')->item(0);
+$check($directButton instanceof DOMElement && 'direct' === ($builder->control($directButton)['options'][0]['value'] ?? null), 'direct sibling remains associated');
+
+foreach (array(
+    'unlinked panel' => '<div hidden data-dla-listbox-panel="other"></div>',
+    'ordinary intervening node' => '<div>Other field content</div>',
+    'two linked panels' => '<div hidden data-dla-listbox-panel="choice"></div><div hidden data-dla-listbox-panel="choice"></div>',
+) as $case => $between) {
+    $document = new DOMDocument();
+    $document->loadHTML('<form><button type="button" role="combobox" data-dla-listbox-trigger="choice">Pick</button>'
+        . $between . '<select aria-hidden="true" tabindex="-1"><option value="wrong">Wrong</option></select></form>');
+    $trigger = $document->getElementsByTagName('button')->item(0);
+    $check($trigger instanceof DOMElement && ! isset($builder->control($trigger)['choice_source_selector']), $case . ' does not bridge to a select');
+}
 
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");

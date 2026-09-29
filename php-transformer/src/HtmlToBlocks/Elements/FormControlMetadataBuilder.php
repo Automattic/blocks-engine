@@ -415,7 +415,7 @@ final class FormControlMetadataBuilder
         return $metadata;
     }
 
-    /** A hidden native select immediately beside its visible combobox trigger. */
+    /** A hidden native select beside its visible trigger, possibly behind its captured popup. */
     private function adjacentChoiceSelect(DOMElement $control): ?DOMElement
     {
         if ( 'button' !== strtolower($control->tagName)
@@ -424,7 +424,16 @@ final class FormControlMetadataBuilder
             return null;
         }
 
-        foreach ( array( $control->previousElementSibling, $control->nextElementSibling ) as $sibling ) {
+        $next = $control->nextElementSibling;
+        $key = trim(SourceDom::attr($control, 'data-dla-listbox-trigger'));
+        if ( '' !== $key && $next instanceof DOMElement && $next->hasAttribute('hidden')
+            && $key === trim($next->getAttribute('data-dla-listbox-panel')) ) {
+            // Capture inserts precisely one linked popup between the visible
+            // trigger and its source value carrier. Do not skip other nodes.
+            $next = $next->nextElementSibling;
+        }
+
+        foreach ( array( $control->previousElementSibling, $next ) as $sibling ) {
             if ( ! $sibling instanceof DOMElement || 'select' !== strtolower($sibling->tagName) ) {
                 continue;
             }
