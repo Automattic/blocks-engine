@@ -86,6 +86,31 @@ $assert(
     'Void wbr presentation hints are removed from RichText without rejecting the editable paragraph.'
 );
 
+$decoratedHeading = ( new HtmlTransformer() )->transform(
+    '<main><h2 class="section-title"><span>Contact Us</span><div class="rule"><hr aria-hidden="true"></div></h2></main>'
+)->toArray();
+$decoratedBlocks = array();
+$visitDecorated = static function (array $blocks) use (&$visitDecorated, &$decoratedBlocks): void {
+    foreach ( $blocks as $block ) {
+        $decoratedBlocks[] = $block;
+        $visitDecorated($block['innerBlocks'] ?? array());
+    }
+};
+$visitDecorated($decoratedHeading['blocks'] ?? array());
+$headings = array_values(array_filter($decoratedBlocks, static fn (array $block): bool => 'core/heading' === ($block['blockName'] ?? null)));
+$separators = array_values(array_filter($decoratedBlocks, static fn (array $block): bool => 'core/separator' === ($block['blockName'] ?? null)));
+$assert(
+    1 === count($headings)
+        && 2 === ($headings[0]['attrs']['level'] ?? null)
+        && 'Contact Us' === trim(strip_tags((string) ($headings[0]['attrs']['content'] ?? '')))
+        && 'inherit' === ($headings[0]['attrs']['style']['typography']['fontSize'] ?? null)
+        && '0' === ($headings[0]['attrs']['style']['spacing']['margin']['top'] ?? null)
+        && '0' === ($headings[0]['attrs']['style']['spacing']['margin']['bottom'] ?? null)
+        && 1 === count($separators)
+        && 'pass' === ( ( new BlockValidityValidator() )->validateBlocks($decoratedHeading['blocks'] ?? array())['status'] ?? '' ),
+    'A decorated heading retains an editable heading landmark and its separator.'
+);
+
 if ( 0 === $failures ) {
     echo "rich-text source serialization ok\n";
 }

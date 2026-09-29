@@ -3602,6 +3602,30 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $structuralFallbacks = array();
             $children = $this->convertChildren($sourceElement, $structuralFallbacks, true);
             if ( array() !== $children ) {
+                // Core headings cannot store a block-level decoration in RichText.
+                // Keep the decorated wrapper but retain its one text child as an
+                // editable heading rather than silently turning it into a paragraph.
+                if ( 'core/heading' === $name ) {
+                    $textChildren = array_keys(array_filter($children, static fn (array $child): bool =>
+                        'core/paragraph' === ($child['blockName'] ?? null)
+                        && '' !== trim(strip_tags((string) ($child['attrs']['content'] ?? '')))
+                    ));
+                    if ( 1 === count($textChildren) ) {
+                        $index = $textChildren[0];
+                        $headingText = html_entity_decode(strip_tags((string) $children[$index]['attrs']['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                        $normalizeText = static fn (string $text): string => trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
+                        if ( $normalizeText($headingText) === $normalizeText((string) $sourceElement->textContent) ) {
+                            $children[$index] = $this->createBlock('core/heading', array(
+                                'content' => $children[$index]['attrs']['content'],
+                                'level' => $attrs['level'] ?? 2,
+                                'style' => array(
+                                    'typography' => array('fontSize' => 'inherit'),
+                                    'spacing' => array('margin' => array('top' => '0', 'bottom' => '0')),
+                                ),
+                            ));
+                        }
+                    }
+                }
                 return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($sourceElement), $children, $sourceElement, $logicalSourceElement);
             }
         }
