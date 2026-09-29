@@ -178,6 +178,45 @@ final class NavigationPatternContext
         return $marker;
     }
 
+    /** Core's item can interrupt an anchor's authored or safely inherited line-height. */
+    public function navigationAnchorLineHeightMarker(array $anchorAttrs, DOMElement $anchor, DOMElement $sourceItem): string
+    {
+        $value = $anchorAttrs['style']['typography']['lineHeight'] ?? null;
+        if (! $this->session instanceof HtmlTransformerSession) {
+            return '';
+        }
+        if (!is_string($value) || '' === trim($value)) {
+            if (! $this->styleResolver instanceof StyleResolver || $anchor->isSameNode($sourceItem)) {
+                return '';
+            }
+            // Relative units are computed on the source owner. Repeating them
+            // on the anchor is equivalent only when both used the same font size.
+            if ($this->styleResolver->authoredInheritedPropertyWinner($anchor, 'font-size')
+                !== $this->styleResolver->authoredInheritedPropertyWinner($sourceItem, 'font-size')
+                || '' === $this->styleResolver->authoredInheritedPropertyWinner($anchor, 'line-height')
+            ) {
+                return '';
+            }
+            $value = '';
+            for ($node = $anchor; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
+                $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($node));
+                if (isset($declarations['line-height'])) {
+                    $value = trim((string) $declarations['line-height']);
+                    break;
+                }
+                if ($node->isSameNode($sourceItem)) break;
+            }
+        }
+        $value = trim((string) $value);
+        if ('' === $value || preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $value)) {
+            return '';
+        }
+
+        $marker = 'blocks-engine-navigation-anchor-line-height-' . hash('sha256', $value);
+        $this->session->generatedSupportStylesheetState()->registerNavigationAnchorLineHeight($marker, $value);
+        return $marker;
+    }
+
     /** A box declaration only carries when it paints or pads visibly and safely. */
     private function safeNavigationBoxValue(string $property, string $value): bool
     {

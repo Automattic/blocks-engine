@@ -1491,6 +1491,35 @@ final class NavigationStyleProjector
         );
     }
 
+    /** Restate an authored anchor's relative line-height on Core's rendered anchor. */
+    public function navigationAnchorLineHeightRules(string $serializedBlocks): array
+    {
+        $prefix = 'blocks-engine-navigation-anchor-line-height-';
+        if (!str_contains($serializedBlocks, $prefix)
+            || !preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches)
+        ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ($matches[1] as $json) {
+            $attrs = json_decode($json, true);
+            if (!is_array($attrs)) continue;
+            foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
+                if (!str_starts_with($class, $prefix)) continue;
+                $value = $this->context->generatedSupportStyles()->navigationAnchorLineHeight($class);
+                if ('' === $value) continue;
+                $rules[$class] = '.wp-block-navigation .wp-block-navigation-item.' . $class
+                    . '>.wp-block-navigation-item__content{line-height:' . $value . '}';
+            }
+        }
+
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::SOURCE_STYLE_PROJECTION, $css),
+            array_values($rules)
+        );
+    }
+
     /**
      * Restore a navigation icon beside a label core/navigation-link kept.
      *
