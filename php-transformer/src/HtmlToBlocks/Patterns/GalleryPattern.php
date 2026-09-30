@@ -102,6 +102,11 @@ final class GalleryPattern implements PatternRecognizerInterface
         }
 
         $images = array_values(array_filter($images));
+        // Core Gallery only permits native Image children. An image needing
+        // an identity wrapper must retain its structure through normal flow.
+        if ( array_filter($images, static fn (array $image): bool => 'core/image' !== ($image['blockName'] ?? null)) ) {
+            return null;
+        }
         if ( count($images) < 2 ) {
             return $this->matchImageSlideshow($element, $convertImageElement, $createBlock);
         }

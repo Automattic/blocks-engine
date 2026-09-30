@@ -9004,7 +9004,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
+        $linkAnchor = '';
         if ( $link instanceof DOMElement ) {
+            $linkAnchor = $this->safeAnchor($this->attr($link, 'id'));
+            if ( '' !== $linkAnchor ) {
+                $projections = $this->session->authorSelectorProjectionState();
+                $projections->installImageLinkMarker($linkAnchor, $link->getNodePath() ?? '');
+                $attrs['className'] = $this->mergeClassNames(
+                    (string) ($attrs['className'] ?? ''),
+                    $projections->ensureImageWrapperMarker($image->getNodePath() ?? '')
+                );
+                if ( empty($attrs['anchor']) || $linkAnchor === $attrs['anchor'] ) {
+                    $attrs['anchor'] = $linkAnchor;
+                    $linkAnchor = '';
+                }
+            }
             // A source link whose only job is to open the same image larger is
             // a lightbox trigger, not a destination. Core owns that behavior
             // natively, so project it onto the image instead of leaving a link
@@ -9017,7 +9031,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        return $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
+        $block = $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
+        if ( '' !== $linkAnchor ) {
+            // A native image has only one anchor. Keep an existing figure/image
+            // identity and the link's fragment target on separate native hosts.
+            return $this->createBlock('core/group', array(
+                'anchor' => $linkAnchor,
+                'layout' => array('type' => 'default'),
+            ), array($block));
+        }
+
+        return $block;
     }
 
 
@@ -10232,10 +10256,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $attrs = array(
             'href'            => LinkUrlSanitizer::sanitize($this->attr($link, 'href')),
             'linkDestination' => 'custom',
-            'linkAnchor'      => $this->safeAnchor($this->attr($link, 'id')),
             'linkTarget'      => $this->attr($link, 'target'),
             'rel'             => $this->attr($link, 'rel'),
-            'linkClass'       => $this->attr($link, 'class'),
+            'linkClass'       => $this->mergeClassNames(
+                $this->attr($link, 'class'),
+                ...$this->session->authorSelectorProjectionState()->semanticMarkersForPath($link->getNodePath() ?? '')
+            ),
         );
 
         return array_filter($attrs, static fn (string $value): bool => '' !== trim($value));
