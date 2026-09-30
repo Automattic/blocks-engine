@@ -26,8 +26,8 @@ final class FormLayoutGraphBuilder
     private const MAX_CONDITION_DEPTH = 8;
     private const MAX_VARIANTS = 256;
     private const MAX_PROVENANCE = 16;
-    private const PROPERTIES = array( 'display', 'width', 'height', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-items', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end' );
-    private const LAYOUT_KEYS = array( 'display', 'width', 'height', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_items', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis', 'margin_block_start', 'margin_block_end', 'margin_inline_start', 'margin_inline_end' );
+    private const PROPERTIES = array( 'display', 'width', 'height', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-items', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end' );
+    private const LAYOUT_KEYS = array( 'display', 'width', 'height', 'min_height', 'padding', 'padding_top', 'padding_right', 'padding_bottom', 'padding_left', 'padding_block_start', 'padding_block_end', 'padding_inline_start', 'padding_inline_end', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_items', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis', 'margin_block_start', 'margin_block_end', 'margin_inline_start', 'margin_inline_end' );
     private const V1_PROPERTIES = array( 'display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
     private const V1_LAYOUT_KEYS = array( 'display', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis' );
     // Cascade layers are not unlayered flex/grid structure, but a field-list
@@ -36,6 +36,7 @@ final class FormLayoutGraphBuilder
 
     private array $diagnostics = array();
     private bool $truncated = false;
+    private array $nodeIds = array();
 
     /**
      * @param list<array<string, mixed>> $stylesheets
@@ -48,9 +49,29 @@ final class FormLayoutGraphBuilder
         $this->truncated = false;
         $controls = array();
         $relevant = array();
+        $this->nodeIds = array();
         foreach ( $this->controls($form) as $index => $control ) {
             $controls[$control->getNodePath()] = $index;
             for ( $node = $control->parentNode; $node instanceof DOMElement && $node !== $form; $node = $node->parentNode ) {
+                $relevant[$node->getNodePath()] = true;
+            }
+        }
+
+        // Reserve the existing control-topology wrapper coordinate before
+        // inserting copy-only nodes. Adding an introduction must not renumber
+        // a field or submit wrapper used by the paired provider target map.
+        $controlEntries = array();
+        $wrapper = 0;
+        $this->collect($form, null, 0, -1, $controls, $relevant, $controlEntries, $wrapper);
+        foreach ($controlEntries as $entry) $this->nodeIds[$entry['element']->getNodePath()] = $entry['id'];
+
+        // Copy-only boxes participate in the source tree independently of
+        // control topology. Control indices retain their shared enumeration.
+        foreach ( $form->getElementsByTagName('*') as $copy ) {
+            if ( ! $copy instanceof DOMElement || ! in_array(strtolower($copy->tagName), array( 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true) || '' === trim($copy->textContent) ) {
+                continue;
+            }
+            for ( $node = $copy; $node instanceof DOMElement && $node !== $form; $node = $node->parentNode ) {
                 $relevant[$node->getNodePath()] = true;
             }
         }
@@ -106,6 +127,7 @@ final class FormLayoutGraphBuilder
         $this->diagnostics = array_merge($this->diagnostics, $customPropertyAnalysis['diagnostics']);
         $this->truncated = $this->truncated || $customPropertyAnalysis['truncated'];
         $nodes = array();
+        $presentationBuilder = new FormPresentationGraphBuilder();
         $variants = array();
         $resolved = array();
         $hidden = array();
@@ -129,11 +151,15 @@ final class FormLayoutGraphBuilder
             }
             $base = $this->withoutAmbiguousCustomProperties($matched['base'], $entry['element'], $conditional, $customPropertyAnalysis['rules']);
             $layout = $this->layout($base, $entry['element'], null, $customPropertyAnalysis['rules']);
-            if ( array() === $layout && array() === $conditional ) {
-                continue;
-            }
-
             $nodes[$entry['id']] = $this->node($entry, $layout, $this->provenance($base, null));
+            if ( 'container' === $entry['kind'] && 'form' !== $entry['id'] ) {
+                $presentation = $presentationBuilder->buildElement($entry['element'], $stylesheets, $inlineCss);
+                $nodes[$entry['id']]['presentation'] = $presentation;
+                if ( $presentation['truncated'] ) {
+                    $this->truncated = true;
+                    $this->diagnostics[] = 'element_presentation_limit';
+                }
+            }
             foreach ( $conditional as $encoded => $facts ) {
                 if ( count($variants) >= self::MAX_VARIANTS ) {
                     $this->truncated = true;
@@ -173,7 +199,7 @@ final class FormLayoutGraphBuilder
         $this->hoistFieldGroupSpacing($entries, $nodes, $analysis['rules'], $customPropertyAnalysis['rules']);
 
         $graph = array(
-            'schema' => 'generic/computed-layout-graph/v2',
+            'schema' => 'generic/computed-layout-graph/v3',
             'basis' => 'source_css_cascade',
             'truncated' => $this->truncated,
             'limits' => array( 'nodes' => self::MAX_NODES, 'depth' => self::MAX_DEPTH, 'rules_per_node' => self::MAX_RULES_PER_NODE ),
@@ -197,10 +223,11 @@ final class FormLayoutGraphBuilder
     {
         $schema = $graph['schema'] ?? null;
         $v1 = 'generic/computed-layout-graph/v1' === $schema;
+        $v2 = 'generic/computed-layout-graph/v2' === $schema;
         $depth = $v1 ? 8 : self::MAX_DEPTH;
-        $properties = $v1 ? self::V1_PROPERTIES : self::PROPERTIES;
-        $layoutKeys = $v1 ? self::V1_LAYOUT_KEYS : self::LAYOUT_KEYS;
-        if ( (! $v1 && 'generic/computed-layout-graph/v2' !== $schema) || 'source_css_cascade' !== ($graph['basis'] ?? null) || ! is_bool($graph['truncated'] ?? null) || ! is_array($graph['limits'] ?? null) || self::MAX_NODES !== ($graph['limits']['nodes'] ?? null) || $depth !== ($graph['limits']['depth'] ?? null) || self::MAX_RULES_PER_NODE !== ($graph['limits']['rules_per_node'] ?? null) || ! is_array($graph['nodes'] ?? null) || ! is_array($graph['variants'] ?? null) || ! is_array($graph['diagnostics'] ?? null) ) {
+        $properties = $v1 ? self::V1_PROPERTIES : ($v2 ? array_diff(self::PROPERTIES, array( 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end' )) : self::PROPERTIES);
+        $layoutKeys = $v1 ? self::V1_LAYOUT_KEYS : ($v2 ? array_diff(self::LAYOUT_KEYS, array( 'min_height', 'padding', 'padding_top', 'padding_right', 'padding_bottom', 'padding_left', 'padding_block_start', 'padding_block_end', 'padding_inline_start', 'padding_inline_end' )) : self::LAYOUT_KEYS);
+        if ( (! $v1 && ! $v2 && 'generic/computed-layout-graph/v3' !== $schema) || 'source_css_cascade' !== ($graph['basis'] ?? null) || ! is_bool($graph['truncated'] ?? null) || ! is_array($graph['limits'] ?? null) || self::MAX_NODES !== ($graph['limits']['nodes'] ?? null) || $depth !== ($graph['limits']['depth'] ?? null) || self::MAX_RULES_PER_NODE !== ($graph['limits']['rules_per_node'] ?? null) || ! is_array($graph['nodes'] ?? null) || ! is_array($graph['variants'] ?? null) || ! is_array($graph['diagnostics'] ?? null) ) {
             throw new InvalidArgumentException('Form layout graph envelope is invalid.');
         }
         if ( count($graph['nodes']) > self::MAX_NODES ) {
@@ -212,6 +239,13 @@ final class FormLayoutGraphBuilder
                 throw new InvalidArgumentException('Form layout graph node is invalid.');
             }
             $ids[$node['id']] = true;
+            if ('generic/computed-layout-graph/v3' === $schema) {
+                if (!is_string($node['source']['selector'] ?? null) || '' === trim($node['source']['selector']) || strlen($node['source']['selector']) > 2048 || count($node['source']['classes']) > 64) throw new InvalidArgumentException('Form source element identity is invalid.');
+                if (isset($node['presentation'])) {
+                    if ('container' !== $node['kind'] || !is_array($node['presentation'])) throw new InvalidArgumentException('Form source element presentation owner is invalid.');
+                    FormPresentationGraphBuilder::assertElement($node['presentation']);
+                }
+            }
         }
         foreach ( $graph['nodes'] as $node ) {
             if ( null !== ($node['parent'] ?? null) && ! isset($ids[$node['parent']]) ) {
@@ -312,7 +346,7 @@ final class FormLayoutGraphBuilder
             $this->diagnostics[] = 'node_or_depth_limit';
             return;
         }
-        $id = $root ? 'form' : (isset($controls[$path]) ? 'control-' . $controls[$path] : 'wrapper-' . $wrapper++);
+        $id = $root ? 'form' : (isset($controls[$path]) ? 'control-' . $controls[$path] : ($this->nodeIds[$path] ?? (array() === $this->nodeIds ? 'wrapper-' : 'context-') . $wrapper++));
         $entries[] = array( 'id' => $id, 'kind' => isset($controls[$path]) ? 'control' : 'container', 'parent' => $parent, 'order' => $order, 'element' => $element );
         $childOrder = 0;
         foreach ( $element->childNodes as $child ) {
@@ -733,7 +767,7 @@ final class FormLayoutGraphBuilder
 
     private static function layoutKey(string $property): string
     {
-        return array( 'grid-template-columns' => 'columns', 'grid-template-rows' => 'rows', 'row-gap' => 'row_gap', 'column-gap' => 'column_gap', 'grid-column' => 'column', 'grid-row' => 'row', 'grid-area' => 'area', 'flex-direction' => 'direction', 'flex-wrap' => 'wrap', 'align-items' => 'align_items', 'align-content' => 'align_content', 'justify-content' => 'justify_content', 'align-self' => 'align_self', 'justify-items' => 'justify_items', 'justify-self' => 'justify_self', 'flex-grow' => 'flex_grow', 'flex-shrink' => 'flex_shrink', 'flex-basis' => 'flex_basis', 'margin-block-start' => 'margin_block_start', 'margin-block-end' => 'margin_block_end', 'margin-inline-start' => 'margin_inline_start', 'margin-inline-end' => 'margin_inline_end' )[$property] ?? $property;
+        return array( 'grid-template-columns' => 'columns', 'grid-template-rows' => 'rows', 'row-gap' => 'row_gap', 'column-gap' => 'column_gap', 'grid-column' => 'column', 'grid-row' => 'row', 'grid-area' => 'area', 'flex-direction' => 'direction', 'flex-wrap' => 'wrap', 'align-items' => 'align_items', 'align-content' => 'align_content', 'justify-content' => 'justify_content', 'align-self' => 'align_self', 'justify-items' => 'justify_items', 'justify-self' => 'justify_self', 'flex-grow' => 'flex_grow', 'flex-shrink' => 'flex_shrink', 'flex-basis' => 'flex_basis', 'margin-block-start' => 'margin_block_start', 'margin-block-end' => 'margin_block_end', 'margin-inline-start' => 'margin_inline_start', 'margin-inline-end' => 'margin_inline_end', 'min-height' => 'min_height', 'padding-top' => 'padding_top', 'padding-right' => 'padding_right', 'padding-bottom' => 'padding_bottom', 'padding-left' => 'padding_left', 'padding-block-start' => 'padding_block_start', 'padding-block-end' => 'padding_block_end', 'padding-inline-start' => 'padding_inline_start', 'padding-inline-end' => 'padding_inline_end' )[$property] ?? $property;
     }
 
     /** @return array<string, array<string, array<string, mixed>>> */
@@ -783,7 +817,11 @@ final class FormLayoutGraphBuilder
     /** @return array<string, mixed> */
     private function source(DOMElement $element): array
     {
-        $classes = SourceDom::boundedClassTokens($element->getAttribute('class'));
-        return array( 'tag' => strtolower($element->tagName), 'id' => 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $element->getAttribute('id')) ? $element->getAttribute('id') : null, 'classes' => $classes );
+        $classes = SourceDom::boundedClassTokens($element->getAttribute('class'), 65);
+        if ( count($classes) > 64 ) {
+            $this->truncated = true;
+            $this->diagnostics[] = 'source_class_limit';
+        }
+        return array( 'tag' => strtolower($element->tagName), 'selector' => SourceDom::elementSelector($element), 'id' => 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $element->getAttribute('id')) ? $element->getAttribute('id') : null, 'classes' => array_slice($classes, 0, 64) );
     }
 }

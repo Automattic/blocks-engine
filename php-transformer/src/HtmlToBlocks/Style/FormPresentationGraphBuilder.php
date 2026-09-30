@@ -94,6 +94,77 @@ final class FormPresentationGraphBuilder
         return $this->truncated || (!$styles && !$variants) ? array() : array('schema' => 'generic/form-container-presentation/v1', 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null), 'variants' => $variants);
     }
 
+    /** Element-owned box facts and inherited text use the existing cascade. */
+    public function buildElement(DOMElement $element, array $stylesheets, string $inlineCss = ''): array
+    {
+        $this->diagnostics = array();
+        $this->truncated = false;
+        $this->typographyAnalysis ??= $this->typographyAnalysis($stylesheets, $inlineCss);
+        $analysis = $this->typographyAnalysis;
+        $this->truncated = $analysis['truncated'];
+        if ($this->truncated) $this->diagnostics[] = 'css_analysis_limit';
+        $matched = $this->matched($element, $analysis['rules']);
+        $base = $matched['base'];
+        $conditional = $this->effectiveConditional($matched['conditional'], $base);
+        $inherited = array_flip(self::TYPOGRAPHY_PROPERTIES);
+        // Inheritance is per property: a local font-size does not prevent the
+        // family and color from coming from the nearest declaring ancestor.
+        for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            $parent = $this->matched($ancestor, $analysis['rules']);
+            foreach (array_intersect_key($parent['base'], $inherited) as $property => $fact) {
+                if (!isset($base[$property])) $base[$property] = $fact + array('element' => $ancestor);
+            }
+            foreach ($this->effectiveConditional($parent['conditional'], $parent['base']) as $encoded => $facts) {
+                foreach (array_intersect_key($facts, $inherited) as $property => $fact) {
+                    if (isset($matched['base'][$property]) || isset($conditional[$encoded][$property])) continue;
+                    if (isset($base[$property]['element']) && !$base[$property]['element']->isSameNode($ancestor)) continue;
+                    $conditional[$encoded][$property] = $fact + array('element' => $ancestor);
+                }
+            }
+            // Once a property has a nearest declaring ancestor, further
+            // ancestors cannot override it, even with higher specificity.
+            foreach (array_keys($parent['base']) as $property) unset($inherited[$property]);
+        }
+        foreach ($base as $property => $fact) {
+            $owner = $fact['element'] ?? $element;
+            foreach (FormCustomPropertyResolver::conditionsChanging($fact['value'], $owner, $analysis['customProperties'], true) as $condition) {
+                $encoded = json_encode($condition);
+                $conditional[$encoded][$property] ??= $fact;
+            }
+        }
+        $styles = $this->styles($base, $element, null, $analysis['customProperties'], true);
+        $provenance = $this->provenance($base, null);
+        $variants = array();
+        foreach ($conditional as $encoded => $facts) {
+            if (count($variants) >= self::MAX_RULES_PER_ROLE) {
+                $this->truncated = true;
+                $this->diagnostics[] = 'variant_limit';
+                break;
+            }
+            $condition = json_decode($encoded, true);
+            $patch = $this->styles($facts, $element, $condition, $analysis['customProperties']);
+            foreach ($patch as $key => $value) if (($styles[$key] ?? null) === $value) unset($patch[$key]);
+            $facts = array_filter($facts, static fn(array $fact, string $property): bool => isset($patch[self::key($property)]), ARRAY_FILTER_USE_BOTH);
+            if ($patch) $variants[] = array('condition' => $condition, 'styles' => $patch, 'precedence' => $this->precedence($facts), 'provenance' => $this->provenance($facts, $condition));
+        }
+        $result = array('schema' => 'generic/form-element-presentation/v1', 'styles' => $styles, 'provenance' => $provenance, 'variants' => $variants, 'truncated' => $this->truncated, 'diagnostics' => array_slice(array_values(array_unique($this->diagnostics)), 0, self::MAX_DIAGNOSTICS));
+        self::assertElement($result);
+        return $result;
+    }
+
+    public static function assertElement(array $presentation): void
+    {
+        if ('generic/form-element-presentation/v1' !== ($presentation['schema'] ?? null) || !is_array($presentation['styles'] ?? null) || !is_array($presentation['provenance'] ?? null) || !is_array($presentation['variants'] ?? null) || count($presentation['variants']) > self::MAX_RULES_PER_ROLE || !is_bool($presentation['truncated'] ?? null) || !is_array($presentation['diagnostics'] ?? null) || count($presentation['diagnostics']) > self::MAX_DIAGNOSTICS) throw new InvalidArgumentException('Form element presentation envelope is invalid.');
+        self::assertStyles($presentation['styles']);
+        self::assertProvenance($presentation['provenance'], $presentation['styles'], null);
+        foreach ($presentation['variants'] as $variant) {
+            if (!is_array($variant) || !is_array($variant['condition'] ?? null) || !self::validCondition($variant['condition']) || !is_array($variant['styles'] ?? null) || !is_array($variant['provenance'] ?? null) || !is_array($variant['precedence'] ?? null)) throw new InvalidArgumentException('Form element presentation variant is invalid.');
+            self::assertStyles($variant['styles']);
+            self::assertProvenance($variant['provenance'], $variant['styles'], $variant['condition']);
+            foreach ($variant['precedence'] as $property => $rank) if (!in_array($property, self::PROPERTIES, true) || !isset($variant['styles'][self::key($property)]) || !is_array($rank) || !is_int($rank['source_order'] ?? null) || !is_int($rank['specificity'] ?? null) || !is_bool($rank['important'] ?? null)) throw new InvalidArgumentException('Form element presentation precedence is invalid.');
+        }
+    }
+
     /**
      * Resolved typography facts for one element, through the same cascade and
      * custom-property resolution the presentation graph roles use — the one
@@ -715,11 +786,12 @@ final class FormPresentationGraphBuilder
     }
 
     /** @param list<array<string, mixed>> $rules */
-    private function styles(array $facts, DOMElement $element, ?array $condition, array $rules): array
+    private function styles(array $facts, DOMElement $element, ?array $condition, array $rules, bool $unconditionalBase = false): array
     {
         $result = array();
         foreach ( $facts as $property => $fact ) {
-            $value = FormCustomPropertyResolver::resolve($fact['value'], $element, $condition, $rules);
+            $owner = $fact['element'] ?? $element;
+            $value = FormCustomPropertyResolver::resolve($fact['value'], $owner, $condition, $rules, $unconditionalBase);
             if ( null !== $this->resolveValue && str_contains($value, 'var(') ) $value = ($this->resolveValue)($element, $value);
             $result[self::key($property)] = $value;
         }

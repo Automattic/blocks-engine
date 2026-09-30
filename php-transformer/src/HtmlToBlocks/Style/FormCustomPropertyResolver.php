@@ -15,7 +15,7 @@ final class FormCustomPropertyResolver
     private const DEFAULT_VIEWPORT_PX = 1280;
 
     /** @param list<array<string, mixed>> $rules */
-    public static function resolve(string $value, DOMElement $element, ?array $condition, array $rules): string
+    public static function resolve(string $value, DOMElement $element, ?array $condition, array $rules, bool $unconditionalBase = false): string
     {
         if ( ! str_contains($value, 'var(') ) {
             return trim($value);
@@ -29,7 +29,7 @@ final class FormCustomPropertyResolver
             // Cascade each element before applying its declarations over inherited values.
             $declared = array();
             foreach ( $rules as $rule ) {
-                if ( ! self::ruleConditionApplies($rule['condition'] ?? null, $condition) || ! CssSelectorMatcher::matches($ancestor, $rule['parsed_selector'])['matches'] ) {
+                if ( ($unconditionalBase && null === $condition && null !== ($rule['condition'] ?? null)) || ! self::ruleConditionApplies($rule['condition'] ?? null, $condition) || ! CssSelectorMatcher::matches($ancestor, $rule['parsed_selector'])['matches'] ) {
                     continue;
                 }
                 foreach ( $rule['declarations'] as $declaration ) {
@@ -64,12 +64,12 @@ final class FormCustomPropertyResolver
     }
 
     /** @param list<array<string, mixed>> $rules @return list<array<string, mixed>> */
-    public static function conditionsChanging(string $value, DOMElement $element, array $rules): array
+    public static function conditionsChanging(string $value, DOMElement $element, array $rules, bool $unconditionalBase = false): array
     {
         if ( ! str_contains($value, 'var(') ) {
             return array();
         }
-        $base = self::resolve($value, $element, null, $rules);
+        $base = self::resolve($value, $element, null, $rules, $unconditionalBase);
         $conditions = array();
         foreach ( $rules as $rule ) {
             $condition = $rule['condition'] ?? null;
