@@ -2289,7 +2289,7 @@ final class ArtifactCompiler
             // carries the source's later attribute-specific responsive winner.
             $output[] = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $transformer->concatenateWithoutRedundantRules($sharedStylesheets) ))));
             foreach ( $pages as $owner => $pageStylesheets ) {
-                $delta = $transformer->rulesAbsentFrom($pageStylesheets, $sharedStylesheets);
+                $delta = $transformer->rulesAbsentFrom($pageStylesheets, $sharedStylesheets, true);
                 if ( '' === trim($delta) ) {
                     continue;
                 }

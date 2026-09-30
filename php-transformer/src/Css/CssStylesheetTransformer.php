@@ -173,11 +173,14 @@ final class CssStylesheetTransformer
      * The rules of `$stylesheets`, in order and each once, that do not occur
      * with the same text inside the same conditional group rules in `$present`.
      * Malformed input yields the stylesheets unchanged.
+     * When preserving cascade for a later-loaded page projection, keep the
+     * suffix after the first changed rule: unchanged later rules may need to
+     * outrank that rule even though they already exist in the shared sheet.
      *
      * @param list<string> $stylesheets
      * @param list<string> $present
      */
-    public function rulesAbsentFrom(array $stylesheets, array $present): string
+    public function rulesAbsentFrom(array $stylesheets, array $present, bool $preserveCascade = false): string
     {
         foreach ( array_merge($stylesheets, $present) as $stylesheet ) {
             if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
@@ -193,14 +196,16 @@ final class CssStylesheetTransformer
             }
         }
         $kept = array();
+        $changed = false;
         foreach ( $stylesheets as $stylesheet ) {
             $units = array();
             $this->collectRuleUnits($stylesheet, array(), $units);
             foreach ( $units as $unit ) {
                 $key = self::ruleUnitKey($unit);
-                if ( $unit['dedupable'] && isset($seen[ $key ]) ) {
+                if ( $unit['dedupable'] && isset($seen[ $key ]) && ! ($preserveCascade && $changed) ) {
                     continue;
                 }
+                $changed = true;
                 $seen[ $key ] = true;
                 $kept[] = $unit;
             }
