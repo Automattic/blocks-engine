@@ -3623,8 +3623,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                             $children[$index] = $this->createBlock('core/heading', array(
                                 'content' => $children[$index]['attrs']['content'],
                                 'level' => $attrs['level'] ?? 2,
+                                // The decorated wrapper keeps the source heading's
+                                // classes, so its typography is the source's. The
+                                // inner heading inherits all of it instead of adding
+                                // the destination's heading defaults (bold, size).
                                 'style' => array(
-                                    'typography' => array('fontSize' => 'inherit'),
+                                    'typography' => array_fill_keys(array( 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textTransform', 'fontStyle' ), 'inherit'),
                                     'spacing' => array('margin' => array('top' => '0', 'bottom' => '0')),
                                 ),
                             ));

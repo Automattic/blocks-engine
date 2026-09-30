@@ -218,6 +218,7 @@
       "php tests/unit/css-owned-grid-item-min-width-safety.php",
       "php tests/unit/propagated-link-layout-transparency.php",
       "php tests/unit/link-wrapped-component-content.php",
+      "php tests/unit/decorated-heading-typography.php",
       "php tests/unit/lowered-paragraph-margin.php",
       "php tests/unit/artifact-author-stylesheet-projection.php",
       "php tests/unit/fallback-finding-normalizer.php",
