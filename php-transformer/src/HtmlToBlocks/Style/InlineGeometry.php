@@ -230,7 +230,7 @@ final class InlineGeometry
             return true;
         }
 
-        return 'absolute' === $position && $this->hasInlinePositionedAncestor($element);
+        return 'absolute' === $position && $this->hasProvablePositionedAncestor($element);
     }
 
     /**
@@ -508,7 +508,8 @@ final class InlineGeometry
         foreach ($geometry as $property => $value) {
             if ( isset($inlineListMarkerPropertyLookup[$property])
                 || isset($overridePropertyLookup[$property])
-                || ( isset($inlineLayoutPropertyLookup[$property]) && ! isset($forcedPropertyLookup[$property]) )
+                || ( isset($inlineLayoutPropertyLookup[$property]) && ! isset($forcedPropertyLookup[$property])
+                    && ! ( 'display' === $property && 'contents' === CssValueInspector::comparable($value) ) )
             ) {
                 // Preserve source inline layout and list markers over a later
                 // plain author class without introducing !important.
@@ -989,14 +990,15 @@ final class InlineGeometry
         return $declarations;
     }
 
-    private function hasInlinePositionedAncestor(DOMElement $element): bool
+    private function hasProvablePositionedAncestor(DOMElement $element): bool
     {
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
             if ( in_array(strtolower($parent->tagName), array( 'body', 'html' ), true) ) {
                 return false;
             }
+            // Resolve authored CSS as well as inline containing-block declarations.
             $position = CssValueInspector::comparable(
-                (string) (($this->cssDeclarations)(SourceDom::attr($parent, 'style'))['position'] ?? '')
+                (string) (($this->structuralPresentationDeclarations)($parent)['position'] ?? '')
             );
             if ( in_array($position, array( 'relative', 'absolute', 'fixed', 'sticky' ), true) ) {
                 return true;
