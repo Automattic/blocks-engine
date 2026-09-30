@@ -24,6 +24,9 @@ final class CapturedCollectionFilterProjector
         foreach ($receipt['routes'] ?? array() as $route) $routes[rtrim($route['url'] ?? '', '/')] = $route['path'] ?? '';
         if (count($report['pages'] ?? array()) > 128) return $files;
         foreach ($report['pages'] ?? array() as $page) {
+            if (!is_array($page) || !is_array($page['states'] ?? null)) continue;
+            $states = array_values(array_filter($page['states'], static fn($state): bool => is_array($state) && 'typed-search' === ($state['kind'] ?? '') && 'captured' === ($state['status'] ?? '') && is_array($state['collectionFilter'] ?? null)));
+            if (array() === $states) continue;
             $path = $routes[rtrim($page['sourceUrl'] ?? '', '/')] ?? '';
             foreach ($files as &$file) {
                 if ($path !== ($file['path'] ?? '') || ! str_ends_with($path, '.html')) continue;
@@ -34,8 +37,15 @@ final class CapturedCollectionFilterProjector
                 libxml_use_internal_errors($previous);
                 $xpath = new DOMXPath($document);
                 $key = 0;
-                foreach ($page['states'] ?? array() as $state) {
+                foreach ($states as $state) {
                     $evidence = $state['collectionFilter'] ?? array();
+                    if (!is_array($evidence['items'] ?? null) || !is_array($evidence['categories'] ?? null) || !is_string($evidence['target']['selector'] ?? null)) continue;
+                    foreach ($evidence['items'] as $item) {
+                        if (!is_array($item) || !is_string($item['key'] ?? null) || !is_array($item['categories'] ?? null)) continue 2;
+                    }
+                    foreach ($evidence['categories'] as $category) {
+                        if (!is_array($category) || !is_string($category['activeHtml'] ?? null) || '' === $category['activeHtml'] || !is_string($category['inactiveHtml'] ?? null) || '' === $category['inactiveHtml']) continue 2;
+                    }
                     if ('typed-search' !== ($state['kind'] ?? '') || 'captured' !== ($state['status'] ?? '') || 'verified' !== ($evidence['replay'] ?? '') || 'verified' !== ($evidence['restoration'] ?? '') || 'normalized-text-includes' !== ($evidence['predicate'] ?? '') || 'blocked' !== ($evidence['network']['dataRequests'] ?? '') || empty($evidence['items']) || count($evidence['items']) > 100 || empty($evidence['categories']) || count($evidence['categories']) > 32 || !is_int($evidence['initialCategory'] ?? null) || !isset($evidence['categories'][$evidence['initialCategory']]) || strlen(json_encode($evidence)) > 524288) continue;
                     $id = (string) $key++;
                     $targets = $xpath->query('//*[@data-dla-collection="' . $id . '"]');
