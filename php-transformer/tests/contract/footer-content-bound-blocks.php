@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
@@ -35,5 +37,14 @@ $assert(str_contains($factoredFooter, $form), 'The bound form block, consent lin
 $assert(1 === substr_count($factoredFooter, $form), 'The binding still finds exactly one block to replace.');
 $contentPart = array_values(array_filter($result['parts'], static fn (array $row): bool => 'footer-content' === ($row['slug'] ?? null)))[0] ?? null;
 $assert(is_array($contentPart) && str_contains((string) $contentPart['canonical_block_markup'], '12 Harbour Street'), 'Shared copy outside the bound block is still factored into its own part.');
+
+// The same form stored as a runtime entity manifest record keeps the position
+// it was compiled with, which page canonicalization can shift. Its block is
+// still left whole.
+$recordedBinding = $declarations[0]['payload']['entities'][0]['bindings'][0];
+$recordedBinding['position']['offset'] += 7;
+$manifest = RuntimeEntityManifest::fromEntities('generic/forms/v1', array(array('bindings' => array($recordedBinding))));
+$recorded = $extraction->factorSharedFooterContent($pages, array($part), RuntimeDeclarations::normalizeList(array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => $manifest['payload']))), $manifest['records']);
+$assert(1 === substr_count((string) $recorded['parts'][0]['canonical_block_markup'], $form), 'A bound block whose entity lives in a manifest record is untouched: ' . $recorded['parts'][0]['canonical_block_markup']);
 
 echo "Footer content bound blocks contract passed.\n";

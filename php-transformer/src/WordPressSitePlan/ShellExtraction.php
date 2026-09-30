@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -23,8 +24,31 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
  */
 final class ShellExtraction
 {
+    /** @var array<string,array<int,array<string,mixed>>> Entities of this call's manifest declarations, by payload hash. */
+    private array $manifestEntities = array();
+
     public function __construct(private readonly WordPressSitePlan $plan)
     {
+    }
+
+    /**
+     * Resolve manifest declarations once per extraction so the bindings their
+     * records hold are read like inline ones.
+     *
+     * @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $records
+     */
+    private function resolveManifestEntities(array $declarations, array $records): void
+    {
+        $this->manifestEntities = array();
+        foreach ($declarations as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) $this->manifestEntities[RuntimeDeclarations::hash($declaration['payload'])] = RuntimeEntityManifest::resolve($declaration['payload'], $records);
+    }
+
+    /** @param array<string,mixed> $declaration @return array<int|string,mixed> */
+    private function entities(array $declaration): array
+    {
+        $payload = $declaration['payload'] ?? array();
+        if (RuntimeEntityManifest::SCHEMA === ($payload['schema'] ?? null)) return $this->manifestEntities[RuntimeDeclarations::hash($payload)];
+        return is_array($payload['entities'] ?? null) ? $payload['entities'] : array();
     }
 
     /** @param array<string,mixed> $document @return array<int,array<string,mixed>> */
@@ -414,8 +438,9 @@ final class ShellExtraction
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
-    public function inlineSharedShells(array $pages, array $reservedSlugs, array $runtimeDeclarations, array $canonicalArtifacts = array()): array
+    public function inlineSharedShells(array $pages, array $reservedSlugs, array $runtimeDeclarations, array $canonicalArtifacts = array(), array $runtimeEntityRecords = array()): array
     {
+        $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
         if (count(array_filter($pages, static fn(array $page): bool => empty($page['synthetic']))) < 2) return array('pages' => $pages, 'parts' => array(), 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => array());
         $parts = array(); $diagnostics = array();
         foreach (array('header', 'footer') as $area) {
@@ -586,11 +611,15 @@ final class ShellExtraction
     {
         $markup = (string) ($document['canonical_block_markup'] ?? '');
         $ranges = array();
-        foreach ($declarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
+        foreach ($declarations as $declaration) foreach ($this->entities($declaration) as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
             if (($binding['source_path'] ?? null) !== ($document['source_path'] ?? null)) continue;
             $position = $binding['position'] ?? null;
             $search = $binding['search_block_markup'] ?? null;
-            if (is_string($search) && WordPressSitePlan::bindingPosition($position, $markup, $search)) $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']);
+            if (!is_string($search) || '' === $search) continue;
+            if (WordPressSitePlan::bindingPosition($position, $markup, $search)) { $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']); continue; }
+            // A manifest record keeps the position it was compiled with, which
+            // page canonicalization can shift; protect every block it may name.
+            for ($offset = strpos($markup, $search); false !== $offset; $offset = strpos($markup, $search, $offset + strlen($search))) $ranges[] = array('offset' => $offset, 'length' => strlen($search));
         }
         return $ranges;
     }
@@ -604,8 +633,9 @@ final class ShellExtraction
      * @param array<int,array<string,mixed>> $parts
      * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
      */
-    public function factorSharedFooterContent(array $pages, array $parts, array $runtimeDeclarations = array()): array
+    public function factorSharedFooterContent(array $pages, array $parts, array $runtimeDeclarations = array(), array $runtimeEntityRecords = array()): array
     {
+        $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
         // A block a runtime entity binding anchors on is replaced whole by its
         // provider (a form's labels live inside it), so its copy never moves.
         $bound = array();
@@ -855,8 +885,9 @@ final class ShellExtraction
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
-    public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array()): array
+    public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array(), array $runtimeEntityRecords = array()): array
     {
+        $this->resolveManifestEntities($runtimeDeclarations, $runtimeEntityRecords);
         $parts = array(); $diagnostics = array();
         foreach (array('footer', 'header') as $area) {
             $candidates = array(); $clusters = array(); $excluded = array(); $overrides = array();
@@ -1121,7 +1152,10 @@ final class ShellExtraction
         $blocked = false;
         if (array() === $ranges) return array('refs' => $refs, 'blocked' => false);
         $blockRanges = null;
-        foreach ($declarations as $declarationIndex => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entityIndex => $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $bindingIndex => $binding) {
+        foreach ($declarations as $declarationIndex => $declaration) foreach ($this->entities($declaration) as $entityIndex => $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $bindingIndex => $binding) {
+            // A binding stored as a manifest record is not rewritten here, so
+            // chrome holding one stays page-owned rather than moving.
+            $movable = RuntimeEntityManifest::SCHEMA !== ($declaration['payload']['schema'] ?? null);
             $position = $binding['position'] ?? null;
             if (($binding['source_path'] ?? null) !== ($page['source_path'] ?? null)) continue;
             $search = $binding['search_block_markup'] ?? null;
@@ -1130,7 +1164,8 @@ final class ShellExtraction
             $block = WordPressSitePlan::bindingPosition($position, $page['canonical_block_markup'], $search) ? ($blockRanges[$position['block_index']] ?? null) : null;
             foreach ($ranges as $range) {
                 if (is_array($block) && $block['offset'] >= $range['offset'] && $block['offset'] + $block['length'] <= $range['offset'] + $range['length']) {
-                    $refs[] = array('declaration' => $declarationIndex, 'entity' => $entityIndex, 'binding' => $bindingIndex, 'offset' => $block['offset'], 'range' => $range);
+                    if ($movable) $refs[] = array('declaration' => $declarationIndex, 'entity' => $entityIndex, 'binding' => $bindingIndex, 'offset' => $block['offset'], 'range' => $range);
+                    else $blocked = true;
                     continue 2;
                 }
             }
@@ -1270,7 +1305,7 @@ final class ShellExtraction
 
     private function shellContainsRuntimeBindingOutsideRange(array $declarations, array $page, int $offset, int $length): bool
     {
-        foreach ($declarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
+        foreach ($declarations as $declaration) foreach ($this->entities($declaration) as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
             $position = $binding['position'] ?? null;
             if (($binding['source_path'] ?? null) !== ($page['source_path'] ?? null)) continue;
             $search = $binding['search_block_markup'] ?? null;
