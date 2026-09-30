@@ -781,7 +781,7 @@ final class WordPressSitePlan
             }
         }
 
-        // Page-owned <style> assets record how many document links precede
+        // Page-owned <style> assets record how many stylesheet links precede
         // them, so they join that page's sequence between the same links.
         $inlineIndexesByPage = array();
         foreach ($assets as $index => $asset) {
@@ -795,17 +795,20 @@ final class WordPressSitePlan
         $edges = array();
         $indegree = array();
         foreach ($pages as $page) {
-            // Links sort at 2*order+1 and inline styles at 2*position, so a
-            // style preceded by N links lands before the link at order N.
+            // The Nth stylesheet link sorts at 2N+1 and a <style> preceded by
+            // N stylesheet links sorts at 2N, placing it before that link.
             $sequence = array();
             $links = is_array($page['document_metadata']['links'] ?? null) ? $page['document_metadata']['links'] : array();
+            usort($links, static fn(array $left, array $right): int => (int) ($left['order'] ?? PHP_INT_MAX) <=> (int) ($right['order'] ?? PHP_INT_MAX));
+            $stylesheetLinkPosition = 0;
             foreach ($links as $link) {
                 if (!is_array($link) || !in_array('stylesheet', preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array(), true)) continue;
+                $position = $stylesheetLinkPosition++;
                 $reference = (string) ($link['asset_reference'] ?? '');
                 if (!preg_match('/^' . preg_quote(self::TOKEN_PREFIX, '/') . '(asset-[a-f0-9]{16})}}$/', $reference, $match)) continue;
                 $index = $indexesByToken[$match[1]] ?? null;
                 if (!is_int($index)) continue;
-                $sequence[] = array(2 * (int) ($link['order'] ?? PHP_INT_MAX >> 1) + 1, $index);
+                $sequence[] = array(2 * $position + 1, $index);
             }
             foreach ($inlineIndexesByPage[(string) ($page['source_path'] ?? '')] ?? array() as $index) {
                 $sequence[] = array(2 * (int) $assets[$index]['stylesheet_link_position'], $index);

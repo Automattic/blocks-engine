@@ -574,11 +574,12 @@ final class ArtifactNormalizer
             }
 
             // A page's <style> and <link> elements form one cascade sequence.
-            // Record how many document links precede each <style> so later
+            // Record how many stylesheet links precede each <style> so later
             // enqueue ordering can place it between the same links.
             $linkOffsets = array();
             foreach ( StyleTagScanner::scanLinks($content) as $link ) {
-                if ( '' !== $this->htmlAttribute($link['tag'], 'href') ) {
+                $rel = preg_split('/\s+/', strtolower(trim($this->htmlAttribute($link['tag'], 'rel')))) ?: array();
+                if ( in_array('stylesheet', $rel, true) && '' !== $this->htmlAttribute($link['tag'], 'href') ) {
                     $linkOffsets[] = $link['offset'];
                 }
             }
