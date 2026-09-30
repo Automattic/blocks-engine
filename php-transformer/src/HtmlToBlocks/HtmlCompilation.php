@@ -9006,14 +9006,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $linkAnchor = '';
         if ( $link instanceof DOMElement ) {
-            $linkAnchor = $this->safeAnchor($this->attr($link, 'id'));
+            $linkAnchor = SourceDom::anchorAttributeValue($this->attr($link, 'id'));
             if ( '' !== $linkAnchor ) {
-                $projections = $this->session->authorSelectorProjectionState();
-                $projections->installImageLinkMarker($linkAnchor, $link->getNodePath() ?? '');
-                $attrs['className'] = $this->mergeClassNames(
-                    (string) ($attrs['className'] ?? ''),
-                    $projections->ensureImageWrapperMarker($image->getNodePath() ?? '')
-                );
+                $selectorAnchor = $this->safeAnchor($linkAnchor);
+                if ( '' !== $selectorAnchor ) {
+                    $projections = $this->session->authorSelectorProjectionState();
+                    $projections->installImageLinkMarker($selectorAnchor, $link->getNodePath() ?? '');
+                    $attrs['className'] = $this->mergeClassNames(
+                        (string) ($attrs['className'] ?? ''),
+                        $projections->ensureImageWrapperMarker($image->getNodePath() ?? '')
+                    );
+                }
                 if ( empty($attrs['anchor']) || $linkAnchor === $attrs['anchor'] ) {
                     $attrs['anchor'] = $linkAnchor;
                     $linkAnchor = '';
