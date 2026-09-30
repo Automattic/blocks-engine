@@ -5033,6 +5033,16 @@ $portableMarkerSite = $compiler->compile(array(
 $portableMarkup = (string) ($portableMarkerSite['serialized_blocks'] ?? '');
 $assert(str_contains($portableMarkup, '/motion-sequence') && str_contains($portableMarkup, '/live-clock'), 'author-provided inert motion markers lower to native editable companion blocks');
 $assert(array() === ($portableMarkerSite['source_reports']['runtime_islands'] ?? array()), 'native marker save markup fulfills authored script targets without runtime islands');
+$markerRuntimeSite = $compiler->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => '<main><p id="message">Editable</p></main><span hidden data-blocks-engine-motion-steps="[{&quot;selector&quot;:&quot;#message&quot;}]"></span><script defer src="motion/runtime.js" data-blocks-engine-marker-runtime="motion"></script><script src="other.js"></script>',
+        'motion/runtime.js' => 'document.querySelectorAll("[data-blocks-engine-motion-steps]");',
+        'other.js' => 'window.other = true;',
+    ),
+))->toArray();
+$markerRuntimeScripts = $markerRuntimeSite['source_reports']['wordpress_site_plan']['pages'][0]['document_metadata']['scripts'] ?? array();
+$assert(1 === count($markerRuntimeScripts) && 'blocking' === ($markerRuntimeScripts[0]['effective_loading'] ?? null) && str_contains((string) ($markerRuntimeSite['serialized_blocks'] ?? ''), '/motion-sequence'), 'a declared static interpreter of motion markers is replaced by the lowered blocks view scripts, not loaded beside them');
 
 $motionFixture = array(
     'site' => array('name' => 'Motion Fixture', 'slug' => 'motion-fixture'),
