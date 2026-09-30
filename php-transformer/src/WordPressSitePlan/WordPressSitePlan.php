@@ -283,11 +283,11 @@ final class WordPressSitePlan
         $runtimeDeclarations = $shells['runtime_declarations'];
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
          self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
-         $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus);
+         $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus, $runtimeDeclarations, $compiled['runtime_entity_records'] ?? array());
          $pages = $navigation['pages'];
          $parts = $navigation['parts'];
          $menus = $navigation['menus'];
-         $articleChrome = $this->extractPostArticleChrome($pages);
+         $articleChrome = $this->extractPostArticleChrome($pages, $parts);
          $pages = $articleChrome['pages'];
          $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations);
          // Query Loop projection can shorten page markup after shell extraction.
@@ -334,6 +334,7 @@ final class WordPressSitePlan
             'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $input->coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy),
             'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $recoveryDiagnostics), $surfaces),
         );
+        $plan['reference_semantics']['navigation_entities'] = NavigationEntityProjection::REFERENCE_CONTRACT;
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
         return $plan;
@@ -400,6 +401,7 @@ final class WordPressSitePlan
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
         self::assertRows($plan['menus'], 'menu', array('kind', 'source_path', 'target_slug', 'source_relation', 'order', 'items'), array('title', 'block_markup', 'token', 'reconciliation_identity'));
+        NavigationEntityProjection::assertReferences($plan);
         $assetTargets = array();
         $assetTokens = array();
         $assetIdentities = array();
@@ -429,6 +431,10 @@ final class WordPressSitePlan
         }
         if ( count($tokens) !== count($assetTargets) ) {
             throw new InvalidArgumentException('WordPress site plan must declare exactly one token for each asset.');
+        }
+        foreach ($plan['menus'] as $menu) if (is_string($menu['block_markup'] ?? null)) {
+            self::assertTokens($menu['block_markup'], $tokens);
+            self::assertNoLocalBrowserReferences($menu['block_markup']);
         }
         $partSlugs = array();
         $overrideTemplateSlugs = array();
@@ -1873,7 +1879,7 @@ final class WordPressSitePlan
      * @param array<int,array<string,mixed>> $pages
      * @return array{pages:array<int,array<string,mixed>>,single:?string}
      */
-    private function extractPostArticleChrome(array $pages): array
+    private function extractPostArticleChrome(array $pages, array $parts = array()): array
     {
         $posts = array();
         $indexes = array();
@@ -1883,6 +1889,14 @@ final class WordPressSitePlan
             }
             $posts[] = $page;
             $indexes[] = $index;
+        }
+        // A second chrome pass must not hoist occurrence-owned regions into a
+        // generic single template after their source placement was established.
+        $postSources = array_fill_keys(array_column($posts, 'source_path'), true);
+        foreach ($parts as $part) {
+            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null) && array_intersect_key(array_fill_keys($part['placement']['source_paths'] ?? array(), true), $postSources)) {
+                return array('pages' => $pages, 'single' => null);
+            }
         }
         if (count($posts) < 2) {
             return array('pages' => $pages, 'single' => null);
@@ -3523,6 +3537,9 @@ final class WordPressSitePlan
         if ($resolution['runtime_capabilities'] !== $capabilities || $resolution['asset_publication_references'] !== $expectedPublicationReferences || $resolution['unsupported_optional_capabilities'] !== $unsupported) throw new InvalidArgumentException('WordPress site plan publication resolution is malformed or stale.');
         foreach (array('pages', 'template_parts', 'templates') as $kind) foreach ($plan[$kind] as $document) {
             if (!is_array($document) || !is_string($document['canonical_block_markup'] ?? null) || !is_string($document['resolved_block_markup'] ?? null) || WordPressSitePlanResolver::resolvePayload($document['canonical_block_markup'], $references) !== $document['resolved_block_markup']) throw new InvalidArgumentException("WordPress site plan resolved {$kind} payload is not canonical.");
+        }
+        foreach ($plan['menus'] as $menu) if (is_string($menu['block_markup'] ?? null)) {
+            if (!is_string($menu['resolved_block_markup'] ?? null) || WordPressSitePlanResolver::resolvePayload($menu['block_markup'], $references) !== $menu['resolved_block_markup']) throw new InvalidArgumentException('WordPress site plan resolved navigation content is not canonical.');
         }
         foreach ($writes as $write) {
             if ('utf8' !== ($write['payload']['encoding'] ?? null)) { if (isset($write['canonical_payload'], $write['canonical_payload_hash'])) throw new InvalidArgumentException('WordPress site plan binary write cannot carry a resolution projection.'); continue; }

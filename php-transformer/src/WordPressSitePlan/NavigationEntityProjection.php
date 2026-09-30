@@ -3,240 +3,194 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
+use InvalidArgumentException;
+
+/** Owns navigation content sharing and exact document occurrences. */
 final class NavigationEntityProjection
 {
-    /**
-     * @param array<int,array<string,mixed>> $pages
-     * @param array<int,array<string,mixed>> $parts
-     * @param array<int,array<string,mixed>> $menus
-     * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,menus:array<int,array<string,mixed>>}
-     */
-    public static function project(array $pages, array $parts, array $menus): array
-    {
-        $occurrences = array();
-        foreach ($parts as $index => $part) {
-            foreach (self::navigationBlocks((string) ($part['canonical_block_markup'] ?? '')) as $block) {
-                $signature = self::destinationSignature($block['inner']);
-                if ('' === $signature) {
-                    continue;
-                }
-                $occurrences[] = array(
-                    'document' => 'part',
-                    'index' => $index,
-                    'block' => $block,
-                    'signature' => $signature,
-                    'items' => $block['items'],
-                    'source_path' => self::partSourcePath($part),
-                    'title' => self::documentTitle($part, 'Navigation'),
-                    'area' => (string) ($part['area'] ?? ''),
-                );
-            }
-        }
-        foreach ($pages as $index => $page) {
-            foreach (self::navigationBlocks((string) ($page['canonical_block_markup'] ?? '')) as $block) {
-                $signature = self::destinationSignature($block['inner']);
-                if ('' === $signature) {
-                    continue;
-                }
-                $occurrences[] = array(
-                    'document' => 'page',
-                    'index' => $index,
-                    'block' => $block,
-                    'signature' => $signature,
-                    'items' => $block['items'],
-                    'source_path' => (string) ($page['source_path'] ?? ''),
-                    'title' => 'Navigation',
-                    'area' => '',
-                );
-            }
-        }
-        if (array() === $occurrences) {
-            return array('pages' => $pages, 'parts' => $parts, 'menus' => $menus);
-        }
+    public const REFERENCE_CONTRACT = 'explicit_refs/v1';
 
+    /** @return array{pages:array,parts:array,menus:array} */
+    public static function project(array $pages, array $parts, array $menus, array $declarations = array(), array $records = array()): array
+    {
         $clusters = array();
-        foreach ($occurrences as $occurrence) {
-            $clusters[$occurrence['signature']][] = $occurrence;
+        $protected = self::bindingRanges($declarations, $records);
+        foreach (array('part' => $parts, 'page' => $pages) as $kind => $documents) {
+            foreach ($documents as $index => $document) {
+                $source = (string) ($document['source_path'] ?? '');
+                foreach (self::navigationBlocks((string) ($document['canonical_block_markup'] ?? '')) as $block) {
+                    // Provider-owned ancestors and descendants keep their exact
+                    // anchors. Unrelated navigation in the same document can share.
+                    if (self::overlapsBinding($block, $protected[$source] ?? array())) continue;
+                    $inner = ShellExtraction::withoutCurrentNavigationState($block['inner']);
+                    $identity = self::contentIdentity($inner);
+                    $clusters[$identity][] = array(
+                        'kind' => $kind, 'index' => $index, 'block' => $block,
+                        'inner' => $inner, 'source_path' => $source,
+                        'area' => (string) ($document['area'] ?? ''),
+                        'title' => 'part' === $kind ? (string) ($document['title'] ?? 'Navigation') : 'Navigation',
+                    );
+                }
+            }
         }
+        if (array() === $clusters) return array('pages' => $pages, 'parts' => $parts, 'menus' => $menus);
 
         $entities = array();
         $usedSlugs = array();
-        $order = 0;
-        foreach ($clusters as $cluster) {
-            $canonical = self::canonicalOccurrence($cluster);
-            $inner = ShellExtraction::withoutCurrentNavigationState($canonical['block']['inner']);
-            $sourcePath = $canonical['source_path'];
-            $slug = self::slugFromTitle($canonical['title']);
-            if (isset($usedSlugs[$slug])) {
-                $slug .= '-' . substr(WordPressSitePlan::identity('menu', $sourcePath, $slug), 0, 8);
-            }
+        $replacements = array();
+        foreach ($clusters as $contentIdentity => $occurrences) {
+            usort($occurrences, static fn(array $left, array $right): int =>
+                ('header' === $left['area'] ? 0 : 1) <=> ('header' === $right['area'] ? 0 : 1)
+                ?: ('part' === $left['kind'] ? 0 : 1) <=> ('part' === $right['kind'] ? 0 : 1)
+                ?: strcmp($left['source_path'], $right['source_path'])
+                ?: $left['block']['offset'] <=> $right['block']['offset']);
+            $canonical = $occurrences[0];
+            $title = trim($canonical['title']) ?: 'Navigation';
+            $slug = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '-', $title), '-')) ?: 'navigation';
+            if (isset($usedSlugs[$slug])) $slug .= '-' . substr($contentIdentity, 0, 16);
             $usedSlugs[$slug] = true;
-            $identity = WordPressSitePlan::identity('menu', $sourcePath, $slug);
+            $identity = WordPressSitePlan::identity('menu', $canonical['source_path'], $slug);
             $token = 'navigation-' . substr($identity, 0, 16);
             $entities[] = array(
-                'kind' => 'menu',
-                'source_path' => $sourcePath,
-                'target_slug' => $slug,
-                'title' => $canonical['title'],
-                'source_relation' => 'navigation_entity',
-                'order' => $order,
-                'items' => $canonical['items'],
-                'block_markup' => $inner,
-                'token' => $token,
-                'reconciliation_identity' => $identity,
+                'kind' => 'menu', 'source_path' => $canonical['source_path'],
+                'target_slug' => $slug, 'title' => $title,
+                'source_relation' => 'navigation_entity', 'order' => count($entities),
+                'items' => $canonical['block']['items'], 'block_markup' => $canonical['inner'],
+                'token' => $token, 'reconciliation_identity' => $identity,
             );
-            ++$order;
+            foreach ($occurrences as $occurrence) {
+                $attrs = $occurrence['block']['attrs'];
+                $attrs['ref'] = WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $token . '}}';
+                $replacements[$occurrence['kind']][$occurrence['index']][] = array(
+                    'offset' => $occurrence['block']['offset'], 'length' => $occurrence['block']['length'],
+                    'markup' => '<!-- wp:navigation ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . ' /-->',
+                );
+            }
         }
-
+        self::replaceOccurrences($pages, $replacements['page'] ?? array());
+        self::replaceOccurrences($parts, $replacements['part'] ?? array());
         return array('pages' => $pages, 'parts' => $parts, 'menus' => $entities);
     }
 
-    /**
-     * @param array<int,array<string,mixed>> $cluster
-     * @return array<string,mixed>
-     */
-    private static function canonicalOccurrence(array $cluster): array
+    /** Apply only recognized positions, without another content match. */
+    private static function replaceOccurrences(array &$documents, array $replacements): void
     {
-        usort($cluster, static function (array $left, array $right): int {
-            $leftHeader = 'header' === ($left['area'] ?? '') ? 0 : 1;
-            $rightHeader = 'header' === ($right['area'] ?? '') ? 0 : 1;
-            if ($leftHeader !== $rightHeader) {
-                return $leftHeader <=> $rightHeader;
-            }
-            $leftPart = 'part' === ($left['document'] ?? '') ? 0 : 1;
-            $rightPart = 'part' === ($right['document'] ?? '') ? 0 : 1;
-            if ($leftPart !== $rightPart) {
-                return $leftPart <=> $rightPart;
-            }
-            return ($left['index'] ?? 0) <=> ($right['index'] ?? 0);
-        });
-        return $cluster[0];
+        foreach ($replacements as $index => $edits) {
+            usort($edits, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
+            $markup = $documents[$index]['canonical_block_markup'];
+            foreach ($edits as $edit) $markup = substr($markup, 0, $edit['offset']) . $edit['markup'] . substr($markup, $edit['offset'] + $edit['length']);
+            $documents[$index]['canonical_block_markup'] = $markup;
+            $documents[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
+        }
     }
 
-    /**
-     * @return array<int,array{offset:int,length:int,inner:string,attrs:array<string,mixed>,items:int}>
-     */
+    private static function bindingRanges(array $declarations, array $records): array
+    {
+        $ranges = array();
+        foreach ($declarations as $declaration) {
+            $payload = $declaration['payload'] ?? array();
+            $entities = RuntimeEntityManifest::SCHEMA === ($payload['schema'] ?? null)
+                ? RuntimeEntityManifest::resolve($payload, $records) : ($payload['entities'] ?? array());
+            foreach ($entities as $entity) foreach ($entity['bindings'] ?? array() as $binding) {
+                if (is_string($binding['source_path'] ?? null) && is_array($binding['position'] ?? null)) $ranges[$binding['source_path']][] = $binding['position'];
+            }
+        }
+        return $ranges;
+    }
+
+    private static function overlapsBinding(array $block, array $ranges): bool
+    {
+        foreach ($ranges as $range) if ($block['offset'] < $range['offset'] + $range['length'] && $range['offset'] < $block['offset'] + $block['length']) return true;
+        return false;
+    }
+
+    private static function itemCount(string $markup): int
+    {
+        return preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)(?=[\s{\/])/', $markup);
+    }
+
+    /** JSON escape spelling and object key order are transport, not paint. */
+    private static function contentIdentity(string $markup): string
+    {
+        $canonical = preg_replace_callback('/<!--\s*wp:([^\s]+)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match): string {
+            $attrs = json_decode($match[2], true);
+            if (!is_array($attrs)) return $match[0];
+            $normalize = static function (array &$value) use (&$normalize): void {
+                if (!array_is_list($value)) ksort($value);
+                foreach ($value as &$child) if (is_array($child)) $normalize($child);
+            };
+            $normalize($attrs);
+            return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . ' ' . ($match[3] ?? '') . '-->';
+        }, $markup);
+        return hash('sha256', $canonical ?? $markup);
+    }
+
+    /** @return list<array{offset:int,length:int,inner:string,attrs:array,items:int}> */
     private static function navigationBlocks(string $markup): array
     {
         $blocks = array();
         foreach (WordPressSitePlan::blockRanges($markup) as $range) {
             $block = substr($markup, $range['offset'], $range['length']);
-            if (!preg_match('/^<!--\s*wp:navigation(?!-)/', $block)) {
-                continue;
-            }
-            $openEnd = strpos($block, '-->');
-            if (false === $openEnd) {
-                continue;
-            }
-            $opening = substr($block, 0, $openEnd + 3);
-            if (preg_match('/\/\s*-->$/', $opening)) {
-                continue;
-            }
-            $attrs = array();
-            if (preg_match('/\{.*\}/s', $opening, $json)) {
-                $decoded = json_decode($json[0], true);
-                if (is_array($decoded)) {
-                    $attrs = $decoded;
-                }
-            }
-            if (isset($attrs['ref'])) {
-                continue;
-            }
-            $innerEnd = strrpos($block, '<!-- /wp:navigation');
-            if (false === $innerEnd) {
-                continue;
-            }
-            $inner = substr($block, $openEnd + 3, $innerEnd - ($openEnd + 3));
-            $items = self::destinationItems($inner);
-            if (array() === $items) {
-                continue;
-            }
-            $blocks[] = array(
-                'offset' => $range['offset'],
-                'length' => $range['length'],
-                'inner' => $inner,
-                'attrs' => $attrs,
-                'items' => count($items),
-            );
+            if (!preg_match('/^<!--\s*wp:navigation(?:\s+(\{.*?\}))?\s*-->/', $block, $opening)) continue;
+            $attrs = isset($opening[1]) ? json_decode($opening[1], true) : array();
+            if (!is_array($attrs) || isset($attrs['ref'])) continue;
+            $end = strrpos($block, '<!-- /wp:navigation');
+            if (false === $end) continue;
+            $inner = substr($block, strlen($opening[0]), $end - strlen($opening[0]));
+            $items = self::itemCount($inner);
+            if (0 === $items) continue;
+            // Invalid nested navigation hosts cannot become overlapping edits.
+            if (preg_match('/<!--\s*wp:navigation(?=[\s{\/])/', $inner)) continue;
+            $blocks[] = $range + array('inner' => $inner, 'attrs' => $attrs, 'items' => $items);
         }
         return $blocks;
     }
 
-    /**
-     * The identity of a navigation block's contents: its items' visible labels
-     * and destination paths. Consumers that bind materialized navigation
-     * entities back to blocks match with this same signature.
-     */
-    public static function destinationSignature(string $inner): string
+    /** Validate entity declarations and document references as one contract. */
+    public static function assertReferences(array $plan): void
     {
-        return implode("\n", self::destinationItems($inner));
-    }
-
-    private static function destinationPath(string $url): string
-    {
-        $path = preg_replace('/#.*$/s', '', $url);
-
-        return is_string($path) ? $path : $url;
-    }
-
-    /** @return array<int,string> */
-    private static function destinationItems(string $inner): array
-    {
-        $items = array();
-        $offset = 0;
-        while (preg_match('/<!--\s*wp:navigation-(?:link|submenu)\s*/', $inner, $match, PREG_OFFSET_CAPTURE, $offset)) {
-            $start = $match[0][1];
-            $openEnd = strpos($inner, '-->', $start);
-            if (false === $openEnd) {
-                break;
-            }
-            $opening = substr($inner, $start, $openEnd + 3 - $start);
-            $attrs = array();
-            if (preg_match('/\{.*\}/s', $opening, $json)) {
-                $decoded = json_decode($json[0], true);
-                if (is_array($decoded)) {
-                    $attrs = $decoded;
-                }
-            }
-            $items[] = self::visibleLabel((string) ($attrs['label'] ?? '')) . "\t" . self::destinationPath((string) ($attrs['url'] ?? ''));
-            $offset = $openEnd + 3;
+        if (isset($plan['reference_semantics']['navigation_entities']) && self::REFERENCE_CONTRACT !== $plan['reference_semantics']['navigation_entities']) {
+            throw new InvalidArgumentException('WordPress site plan navigation reference contract is unsupported.');
         }
-        return $items;
-    }
-
-    /**
-     * A menu item is identified by what a visitor reads, not by the rich-text
-     * wrappers and per-document markers its label was serialized with. The
-     * same menu compiled in two places (a desktop bar and a phone panel, or two
-     * pages) then resolves to one navigation entity.
-     */
-    private static function visibleLabel(string $label): string
-    {
-        $text = html_entity_decode(strip_tags($label), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        return trim((string) preg_replace('/\s+/u', ' ', $text));
-    }
-
-    /** @param array<string,mixed> $part */
-    private static function partSourcePath(array $part): string
-    {
-        $source = (string) ($part['source_path'] ?? '');
-        if ('' !== $source) {
-            return $source;
+        $entities = array();
+        $identities = array();
+        foreach ($plan['menus'] as $menu) {
+            if (!isset($menu['token'])) continue;
+            $token = $menu['token'];
+            if (!is_string($token) || !preg_match('/^navigation-[a-f0-9]{16}$/', $token) || isset($entities[$token])
+                || !is_string($menu['block_markup'] ?? null) || 0 === self::itemCount($menu['block_markup'])
+                || self::itemCount($menu['block_markup']) !== ($menu['items'] ?? null)
+                || !is_string($menu['reconciliation_identity'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $menu['reconciliation_identity'])
+                || isset($identities[$menu['reconciliation_identity']])) {
+                throw new InvalidArgumentException('WordPress site plan navigation entity declaration is invalid or duplicated.');
+            }
+            $entities[$token] = false;
+            $identities[$menu['reconciliation_identity']] = true;
         }
-        $slug = (string) ($part['slug'] ?? 'navigation');
-        return 'parts/' . $slug . '.html';
+        foreach (array('pages', 'template_parts', 'templates') as $group) foreach ($plan[$group] as $document) self::assertMarkupReferences($document['canonical_block_markup'], $entities);
+        foreach ($plan['writes'] as $write) if ('utf8' === ($write['payload']['encoding'] ?? null)) self::assertMarkupReferences($write['payload']['data'], $entities);
+        if (array() !== $entities && (self::REFERENCE_CONTRACT !== ($plan['reference_semantics']['navigation_entities'] ?? null) || in_array(false, $entities, true))) {
+            throw new InvalidArgumentException('WordPress site plan navigation entities require explicit owned references.');
+        }
     }
 
-    /** @param array<string,mixed> $document */
-    private static function documentTitle(array $document, string $fallback): string
+    private static function assertMarkupReferences(string $markup, array &$entities): void
     {
-        $title = trim((string) ($document['title'] ?? ''));
-        return '' !== $title ? $title : $fallback;
-    }
-
-    private static function slugFromTitle(string $title): string
-    {
-        $slug = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '-', $title), '-'));
-        return '' !== $slug ? $slug : 'navigation';
+        if (!str_contains($markup, WordPressSitePlan::NAVIGATION_TOKEN_PREFIX)) return;
+        $remaining = $markup;
+        foreach (WordPressSitePlan::blockRanges($markup) as $range) {
+            $block = substr($markup, $range['offset'], $range['length']);
+            if (!preg_match('/^<!--\s*wp:navigation\s+(\{.*?\})\s*\/-->$/s', $block, $match)) continue;
+            $attrs = json_decode($match[1], true);
+            $ref = $attrs['ref'] ?? null;
+            if (!is_string($ref) || !str_starts_with($ref, WordPressSitePlan::NAVIGATION_TOKEN_PREFIX)) continue;
+            if (!preg_match('/^' . preg_quote(WordPressSitePlan::NAVIGATION_TOKEN_PREFIX, '/') . '(navigation-[a-f0-9]{16})}}$/', $ref, $token) || !array_key_exists($token[1], $entities)) {
+                throw new InvalidArgumentException('WordPress site plan contains an undeclared navigation reference.');
+            }
+            $entities[$token[1]] = true;
+            $remaining = str_replace($block, '', $remaining);
+        }
+        if (str_contains($remaining, WordPressSitePlan::NAVIGATION_TOKEN_PREFIX)) throw new InvalidArgumentException('WordPress site plan navigation references must belong to navigation blocks.');
     }
 }

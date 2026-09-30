@@ -57,6 +57,16 @@ $projectedEnd = false === $projectedStart ? false : strpos($projectedMarkup, '<!
 $projectedPanel = false === $projectedEnd ? '' : substr($projectedMarkup, $projectedStart, $projectedEnd - $projectedStart);
 $assert(str_contains($projectedPanel, '"url":"/about"') && str_contains($projectedPanel, '"url":"/"'), 'a separate header control cannot suppress a native disclosure panel with its own links');
 
+// Native source HTML has the same ownership boundary as captured disclosures.
+// A sibling desktop copy cannot make its details-owned mobile panel redundant.
+$plain = '<style>.primary{display:flex}.drawer{display:none}@media(max-width:600px){.primary{display:none}.drawer{display:block}}</style><header><nav class="primary"><a href="/">Home</a><a href="/about">About</a></nav><details class="drawer"><summary>Menu</summary><div class="panel"><nav class="mobile"><a href="/">Home</a><a href="/about">About</a></nav></div></details></header>';
+$plainMarkup = (new HtmlTransformer())->transform($plain)->toArray()['serialized_blocks'];
+$plainStart = strpos($plainMarkup, '<!-- wp:details');
+$plainEnd = strpos($plainMarkup, '<!-- /wp:details -->', $plainStart);
+$plainPanel = substr($plainMarkup, $plainStart, $plainEnd - $plainStart);
+$assert(str_contains($plainPanel, '"url":"/about"') && str_contains($plainPanel, '"url":"/"'), 'ordinary native details retains its menu despite an equivalent desktop sibling');
+$assert(!str_contains(substr($plainMarkup, 0, $plainStart), '"overlayMenu":"mobile"'), 'a details-owned mobile counterpart does not fabricate a replacement desktop overlay');
+
 if ( $failures > 0 ) {
     exit(1);
 }

@@ -125,7 +125,7 @@ final class NavigationBlockNormalizer
      */
     private function normalizeRecursive(array $blocks, array &$seen, array $sourceProvenance, array $sourceBaseHiddenStates, bool $preserveDisclosureNavigation): array
     {
-        $blocks = $this->preferVisibleSiblings($blocks, $sourceBaseHiddenStates);
+        if (!$preserveDisclosureNavigation) $blocks = $this->preferVisibleSiblings($blocks, $sourceBaseHiddenStates);
         $deduplicated = array();
         foreach ( $blocks as $block ) {
             if ( ! is_array($block) ) {
@@ -168,11 +168,10 @@ final class NavigationBlockNormalizer
         return $deduplicated;
     }
 
-    /** Native DLA disclosures retain independent desktop and mobile panels. */
+    /** Native disclosures own their panels regardless of capture provenance. */
     private function isNativeDisclosure(array $block): bool
     {
-        return 'core/details' === ($block['blockName'] ?? '')
-            && (bool) preg_match('/(?:^|\s)dla-disclosure(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''));
+        return 'core/details' === ($block['blockName'] ?? '');
     }
 
     private function isDocumentVariant(array $block): bool

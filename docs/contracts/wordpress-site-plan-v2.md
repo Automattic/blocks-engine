@@ -111,6 +111,25 @@ and `WordPressSitePlanResolver::resolve()`.
   to exactly one declared asset target. Validation rejects unsafe paths, missing
   scaffold writes, duplicate targets, missing asset writes, undeclared tokens, and
    template or part writes that do not match their declarations.
+- Navigation entity references are separate from asset `reference_tokens`: each
+  projected inline `core/navigation` occurrence points at its producer-declared
+  menu `token` using `{{wordpress-site-plan:navigation:navigation-<16hex>}}` in
+  the block's `ref` attribute. Sharing compares complete menu content (including
+  nesting, full URLs with query/fragment suffixes, link behavior, rich labels and
+  item presentation), normalizing JSON transport spelling and route-current
+  state. The token names the entity's reconciliation identity. Host attributes and
+  surrounding block ancestry remain in the owning document. Different item
+  presentation therefore remains a different entity. This is destination
+  independent: consumers persist the declared menu and replace this exact token
+  with the resulting WordPress entity ID. They must not infer entity ownership
+  by rescanning serialized blocks or matching labels and URLs. The `v2` schema
+  and navigation token spelling are additive. `reference_semantics.navigation_entities`
+  declares `explicit_refs/v1`; consumers must support this contract before
+  materializing navigation entities. Duplicate declarations, unknown references,
+  unreferenced entities, and non-navigation placeholder ownership are rejected.
+  Asset resolution projects each entity's `resolved_block_markup` while leaving
+  navigation IDs to the destination materializer. Provider-owned block anchors
+  retain their inline navigation rather than being invalidated by factoring.
 - `source.source_documents` is additive source evidence. Each row records a
   compiled document path, payload hash, and producer provenance. Template-surface
   variants must exactly match a catalog row. This evidence supports structural
