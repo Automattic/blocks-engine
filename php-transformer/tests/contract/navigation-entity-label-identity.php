@@ -21,7 +21,7 @@ $page = static fn (string $title): string => '<!doctype html><html><head><style>
     . '<main><section id="about"><h1>' . $title . '</h1></section><section id="services"><p>S</p></section><section id="team"><p>T</p></section></main></body></html>';
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $page('Home'), 'about.html' => $page('About'))))->toWordPressSitePlanView()['wordpress_site_plan'];
 $menus = array_values(array_filter($plan['menus'], static fn (array $menu): bool => 3 === ($menu['items'] ?? 0)));
-$assert(1 === count($menus), 'The same three-item menu rendered twice is one navigation entity: ' . json_encode(array_column($plan['menus'], 'target_slug')));
+$assert(2 === count($menus), 'Different authored label presentation remains separate entity content: ' . json_encode(array_column($plan['menus'], 'target_slug')));
 
 // A menu whose items read differently is its own entity.
 $other = str_replace('>Team<', '>Our Team<', $page('Home'));

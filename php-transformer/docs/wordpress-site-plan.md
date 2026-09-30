@@ -102,6 +102,33 @@ set `require_proven_dynamic_client_assets` are rejected only for that unproven s
 Supported external URLs remain in the generated scaffold for callers that accept the
 runtime-reference risk, but cannot pass that proof gate.
 
+## Shared regions and navigation ownership
+
+Header/footer content ownership and its rendered position are separate decisions.
+An extracted region with layout ancestors uses `inline_shared_shell`: the owning
+page retains its ancestors and receives a template-part reference at each exact
+source occurrence. `placement.source_paths` accounts for the participating routes.
+The shared part carries its authored landmark; the generated runtime unwraps
+Core's template-part transport wrapper. This preserves direct-child CSS, flex/grid
+participation, sibling order, and native disclosure containment without detached
+selector or paint-order compensation. Later article-template projection retains
+these occurrence-owned regions. Top-level shells can still bind through templates;
+heterogeneous responsive bundles retain their explicit viewport-partition contract.
+
+Navigation entities use the producer-owned `explicit_refs/v1` contract declared in
+`reference_semantics.navigation_entities`. Every factored `core/navigation` host
+has a `ref` of `{{wordpress-site-plan:navigation:navigation-<16hex>}}`, and retains
+its own overlay, layout and class attributes. Entity content preserves hierarchy,
+full destinations, link behavior, rich labels and item presentation. Different
+presentation remains separate unless its serialized content is equivalent.
+Native `core/details` owns its panel even when a desktop sibling repeats the same
+menu; capture-specific class names do not determine this ownership.
+
+Consumers persist declared entities and resolve their references to integer IDs.
+They do not rediscover menu equivalence. The plan validator checks declarations
+and reference ownership together; the resolver projects entity asset references
+into `resolved_block_markup` without introducing destination IDs.
+
 ## Reporting
 
 `reporting` is a compiler-output summary:

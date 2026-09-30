@@ -27,7 +27,7 @@ $assert(1 === count($menus), 'Clustered header destinations become one navigatio
 $assert(2 === ($menus[0]['items'] ?? null) && str_contains((string) ($menus[0]['block_markup'] ?? ''), '"label":"Home"') && str_contains((string) ($menus[0]['block_markup'] ?? ''), '"url":"/"') && str_contains((string) ($menus[0]['block_markup'] ?? ''), '"label":"About"') && str_contains((string) ($menus[0]['block_markup'] ?? ''), '"url":"/about"'), 'The navigation entity keeps source labels, mapped routes, and order.');
 $assert(!str_contains((string) ($menus[0]['block_markup'] ?? ''), '<!-- wp:navigation '), 'Navigation entity content is the inner links, not a nested navigation wrapper.');
 $assert(is_string($menus[0]['token'] ?? null) && preg_match('/^navigation-[a-f0-9]{16}$/', (string) $menus[0]['token']) && is_string($menus[0]['reconciliation_identity'] ?? null) && 64 === strlen((string) $menus[0]['reconciliation_identity']), 'The navigation entity has a deterministic token and reconciliation identity.');
-$assert(str_contains($headerMarkup, 'wp:navigation-link') && str_contains($headerMarkup, 'primary'), 'The plan keeps inline navigation children so WordPress can render the header before a materializer substitutes ref.');
+$assert(!str_contains($headerMarkup, 'wp:navigation-link') && str_contains($headerMarkup, 'primary') && str_contains($headerMarkup, '{{wordpress-site-plan:navigation:' . $menus[0]['token'] . '}}'), 'The producer binds the exact header occurrence while preserving its host presentation.');
 $assert(str_contains((string) (array_column($sharedPlan['writes'], null, 'target_path')['functions.php']['payload']['data'] ?? ''), "render_block_core/navigation-link"), 'Current-page navigation-link recovery still ships in the theme bootstrap.');
 
 $ownedPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
@@ -74,10 +74,10 @@ $variantPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.ht
 )))->toArray()['source_reports']['wordpress_site_plan'];
 $variantMenus = $entityMenus($variantPlan);
 $variantMarkup = implode("\n", array_map(static fn(array $document): string => (string) ($document['canonical_block_markup'] ?? ''), array_merge($variantPlan['template_parts'] ?? array(), $variantPlan['pages'] ?? array())));
-$assert(1 === count($variantMenus), 'Variant menus that differ only by a URL fragment become one navigation entity.');
+$assert(2 === count($variantMenus), 'Variant menus with different fragment destinations remain separate navigation entities.');
 $assert(3 === ($variantMenus[0]['items'] ?? null) && str_contains((string) ($variantMenus[0]['block_markup'] ?? ''), '"label":"Home"') && str_contains((string) ($variantMenus[0]['block_markup'] ?? ''), '"label":"Journal"') && str_contains((string) ($variantMenus[0]['block_markup'] ?? ''), '"label":"Events"'), 'The shared variant entity keeps the ordered item set.');
 $assert(2 <= substr_count($variantMarkup, '<!-- wp:navigation '), 'Both viewport navigations remain separate blocks.');
-$assert(!str_contains($variantMarkup, '{{wordpress-site-plan:navigation:'), 'Variant hosts stay inline until a materializer can bind an integer ref.');
+$assert(2 <= substr_count($variantMarkup, '{{wordpress-site-plan:navigation:'), 'The producer explicitly binds both viewport occurrences.');
 
 $divergentVariant = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => $variantMenu('Home', '/shop'),

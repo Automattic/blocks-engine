@@ -26,7 +26,7 @@ $diagnostics = array_column($plan['diagnostics'], 'code');
 
 $assert('header' === ($header['slug'] ?? null) && 1 === count(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && 'extracted' === ($header['provenance']['decision'] ?? null) && 'canonical' === ($header['provenance']['reason'] ?? null), 'One canonical header template part is generated with accepted extraction provenance for semantically equivalent source shells.');
 $assert(!array_filter($plan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)), 'Differing document footers remain page-local rather than becoming an ambiguous shared part.');
-$assert(str_contains($header['canonical_block_markup'] ?? '', '"url":"/guides/about"') && str_contains($header['canonical_block_markup'] ?? '', '"url":"/"'), 'Route-relative navigation destinations are canonicalized before shell identity comparison.');
+$assert(str_contains($header['canonical_block_markup'] ?? '', '{{wordpress-site-plan:navigation:' . $plan['menus'][0]['token'] . '}}') && str_contains($plan['menus'][0]['block_markup'], '"url":"/guides/about"') && str_contains($plan['menus'][0]['block_markup'], '"url":"/"'), 'The shared header references navigation whose route-relative destinations are canonicalized before shell identity comparison.');
 $assert(str_contains($header['canonical_block_markup'] ?? '', '"anchor":"site-chrome"') && str_contains($header['canonical_block_markup'] ?? '', 'site-header') && str_contains($header['canonical_block_markup'] ?? '', 'border'), 'Shared shell preserves its canonical landmark wrapper anchor, class, and style attributes.');
 foreach (array('index.html', 'guides/about.html', 'guides/team.html') as $source) {
     $markup = $documents[$source]['canonical_block_markup'] ?? '';
@@ -166,12 +166,12 @@ $footerPlan = $footerPlanFor(array(
 ));
 $footerTemplates = array_column($footerPlan['templates'], 'canonical_block_markup', 'slug');
 $footerParts = array_values(array_filter($footerPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['slug'] ?? null)));
-$assert(1 === count($footerParts) && 'shared_shell' === ($footerParts[0]['placement']['kind'] ?? null) && in_array('hidden', $footerParts[0]['ancestor_context']['classes'] ?? array(), true) && in_array('lg:block', $footerParts[0]['ancestor_context']['classes'] ?? array(), true), 'The repeated footer has one shared owner and retains authored ancestor evidence.');
-foreach (array('front-page', 'page', 'page-about', 'page-team') as $slug) {
-    $markup = $footerTemplates[$slug] ?? '';
-    $assert(1 === preg_match('/<!-- wp:group [^>]*"className":"hidden lg:block"[^>]*--><div class="wp-block-group hidden lg:block">\s*<!-- wp:template-part \{"slug":"footer"[^>]*\/-->\s*<\/div><!-- \/wp:group -->/', $markup), "{$slug} wraps its one editable footer reference in the authored responsive group: {$markup}");
+$assert(1 === count($footerParts) && 'inline_shared_shell' === ($footerParts[0]['placement']['kind'] ?? null) && in_array('hidden', $footerParts[0]['ancestor_context']['classes'] ?? array(), true) && in_array('lg:block', $footerParts[0]['ancestor_context']['classes'] ?? array(), true), 'The repeated footer has one shared owner and retains authored ancestor evidence.');
+foreach (array('index.html', 'about.html', 'team.html') as $source) {
+    $markup = $pages($footerPlan)[$source]['canonical_block_markup'] ?? '';
+    $assert(1 === preg_match('/<!-- wp:group [^>]*"className":"hidden lg:block"[^>]*--><div class="wp-block-group hidden lg:block">\s*<!-- wp:template-part \{"slug":"footer"[^>]*\/-->\s*<\/div><!-- \/wp:group -->/', $markup), "{$source} wraps its one editable footer reference in the authored responsive group: {$markup}");
 }
-$assert(!str_contains($footerParts[0]['canonical_block_markup'], 'hidden lg:block') && !str_contains($pages($footerPlan)['about.html']['canonical_block_markup'] ?? '', 'hidden lg:block'), 'The visibility wrapper is neither global part content nor an empty page remnant.');
+$assert(!str_contains($footerParts[0]['canonical_block_markup'], 'hidden lg:block') && str_contains($pages($footerPlan)['about.html']['canonical_block_markup'] ?? '', 'hidden lg:block'), 'The visibility wrapper stays route-owned around its reference rather than becoming global part content.');
 WordPressSitePlan::assertValid($footerPlan);
 
 $variantFooterPlan = $footerPlanFor(array(
@@ -180,7 +180,8 @@ $variantFooterPlan = $footerPlanFor(array(
     'contact.html' => '<div class="lg:hidden">%s</div>',
 ));
 $variantTemplates = array_column($variantFooterPlan['templates'], 'canonical_block_markup', 'slug');
-$assert(1 === substr_count($variantTemplates['page-about'] ?? '', '"slug":"footer"') && str_contains($variantTemplates['page-about'] ?? '', 'hidden lg:block') && 1 === substr_count($variantTemplates['page-contact'] ?? '', '"slug":"footer"') && str_contains($variantTemplates['page-contact'] ?? '', 'lg:hidden') && !str_contains($variantTemplates['page-contact'] ?? '', 'hidden lg:block') && !str_contains($variantTemplates['page'] ?? '', 'hidden lg:block') && 1 === count(array_filter($variantFooterPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['slug'] ?? null))), 'Distinct authored visibility wrappers vary by route while the footer remains one shared editable part.');
+$variantPages = $pages($variantFooterPlan);
+$assert(1 === substr_count($variantPages['about.html']['canonical_block_markup'], '"slug":"footer"') && str_contains($variantPages['about.html']['canonical_block_markup'], 'hidden lg:block') && 1 === substr_count($variantPages['contact.html']['canonical_block_markup'], '"slug":"footer"') && str_contains($variantPages['contact.html']['canonical_block_markup'], 'lg:hidden') && !str_contains($variantPages['contact.html']['canonical_block_markup'], 'hidden lg:block') && !str_contains($variantTemplates['page'] ?? '', 'hidden lg:block') && 1 === count(array_filter($variantFooterPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['slug'] ?? null))), 'Distinct authored visibility wrappers vary by route while the footer remains one shared editable part.');
 WordPressSitePlan::assertValid($variantFooterPlan);
 
 $responsiveLandmark = static function (string $area, string $id, string $class, string $content): string {
@@ -304,7 +305,9 @@ $assert(array_keys($unicodeArtifacts) === array_keys($unicodeParts), 'Every comp
 foreach ($unicodeParts as $slug => $part) {
     $content = (string) ($unicodeWrites['parts/' . $slug . '.html']['payload']['data'] ?? '');
     $assert(1 === preg_match('//u', $content) && !str_contains($content, 'Îœ') && !str_contains($content, 'Â©') && ($part['canonical_block_markup'] ?? null) === $content && hash('sha256', $content) === ($unicodeWrites['parts/' . $slug . '.html']['payload_hash'] ?? null) && 'pass' === ($unicodeRoundTrip->report($content, $unicodeSource)['status'] ?? null), "{$slug} remains byte-identical and valid UTF-8 through template-part materialization.");
-    foreach ($unicodeExpected[$slug] as $fragment) $assert(str_contains($content, $fragment), "{$slug} materialization preserves {$fragment}.");
+    $ownedContent = $content;
+    foreach ($unicodePlan['menus'] as $menu) if (str_contains($content, '{{wordpress-site-plan:navigation:' . $menu['token'] . '}}')) $ownedContent .= $menu['block_markup'];
+    foreach ($unicodeExpected[$slug] as $fragment) $assert(str_contains($ownedContent, $fragment), "{$slug} materialization preserves {$fragment} through its owned navigation entity.");
 }
 
 $styledSvg = '<svg viewBox="0 0 16 16"><path fill="#123456" d="M1 1h14v14H1z"/></svg>';
@@ -359,7 +362,7 @@ $statefulResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index
 $statefulPlan = $statefulResult['source_reports']['wordpress_site_plan']; $statefulPages = $pages($statefulPlan);
 $statefulHeader = array_values(array_filter($statefulPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
 $statefulDiagnostic = current(array_filter($statefulPlan['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_extracted' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)));
-$statefulMarkup = (string) ($statefulHeader['canonical_block_markup'] ?? '');
+$statefulMarkup = (string) ($statefulHeader['canonical_block_markup'] ?? '') . implode('', array_column($statefulPlan['menus'], 'block_markup'));
 $assert(1 === count(array_filter($statefulPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains($statefulPages['index.html']['canonical_block_markup'] ?? '', 'header-wrapper') && !str_contains($statefulPages['about.html']['canonical_block_markup'] ?? '', 'header-wrapper') && !str_contains($statefulPages['services.html']['canonical_block_markup'] ?? '', 'header-wrapper'), 'Nested headers differing only by route-current navigation state produce one shared header and leave page content without its shell.');
 $assert(!str_contains($statefulMarkup, 'blocks-engine-current-navigation-item') && 1 === preg_match_all('/blocks-engine-navigation-current-color-[a-f0-9]{64}/', $statefulMarkup) && str_contains($statefulMarkup, 'blocks-engine-navigation-link-color-states-0') && !str_contains($statefulMarkup, 'blocks-engine-navigation--color-') && !str_contains($statefulMarkup, '"anchor":"home-source"') && str_contains($statefulMarkup, 'site-link'), 'The emitted header keeps its navigation-root current-color and link-state carriers while removing child route state without corrupting tokens or non-state presentation.');
 $assert(str_contains($statefulPages['contact.html']['canonical_block_markup'] ?? '', 'Contact') && !str_contains($statefulPages['contact.html']['canonical_block_markup'] ?? '', 'header-wrapper') && array(array('source_path' => 'contact.html', 'reason' => 'missing')) === ($statefulDiagnostic['exclusions'] ?? null), 'A responsive route without an equivalent nested header candidate remains explicitly page-owned.');
@@ -424,13 +427,13 @@ $nestedThemePlan = (new WordPressSitePlan())->fromResult($nestedThemeResult);
 $nestedThemePages = $pages($nestedThemePlan);
 $nestedThemeWrites = $writes($nestedThemePlan);
 $nestedThemeHeaderPart = array_values(array_filter($nestedThemePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
-$assert('shared_shell' === ($nestedThemeHeaderPart['placement']['kind'] ?? null) && 1 === count(array_filter($nestedThemePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))), 'A repeated nested header becomes one shared theme chrome part rather than page-owned markup.');
-$assert(str_contains($nestedThemeHeaderPart['canonical_block_markup'] ?? '', 'Brand') && str_contains($nestedThemeHeaderPart['canonical_block_markup'] ?? '', 'SITE_HEADER') && !str_contains($nestedThemeHeaderPart['canonical_block_markup'] ?? '', '"tagName":"header"') && !str_contains($nestedThemeHeaderPart['canonical_block_markup'] ?? '', '<header'), 'Extracted nested header keeps its presentation hooks without nesting a landmark inside the template-part wrapper.');
+$assert('inline_shared_shell' === ($nestedThemeHeaderPart['placement']['kind'] ?? null) && 1 === count(array_filter($nestedThemePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))), 'A repeated nested header has one shared owner with source-position references.');
+$assert(str_contains($nestedThemeHeaderPart['canonical_block_markup'] ?? '', 'Brand') && str_contains($nestedThemeHeaderPart['canonical_block_markup'] ?? '', 'SITE_HEADER') && 1 === substr_count($nestedThemeHeaderPart['canonical_block_markup'] ?? '', '<header'), 'The shared part retains its authored landmark and presentation beneath an unwrapped transport reference.');
 foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
     $markup = $nestedThemePages[$source]['canonical_block_markup'] ?? '';
-    $assert(!str_contains($markup, 'SITE_HEADER') && !str_contains($markup, 'Brand') && !str_contains($markup, 'wp:template-part') && str_contains($markup, '>' . $title . '</h2>'), "{$source} page content loses the nested header and does not keep an inline template-part reference.");
+    $assert(!str_contains($markup, 'SITE_HEADER') && !str_contains($markup, 'Brand') && 1 === substr_count($markup, '"slug":"header"') && str_contains($markup, '>' . $title . '</h2>'), "{$source} replaces duplicated header content with one reference at the source position.");
 }
-$assert(1 === substr_count($nestedThemeWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($nestedThemeWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"'), 'Singular templates bind the nested header as theme chrome so the page editor does not own it.');
+$assert(!str_contains($nestedThemeWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($nestedThemeWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"'), 'Singular templates do not duplicate nested shared chrome outside its source layout.');
 
 $nestedThemeDivergentResult = $nestedThemeResult;
 foreach ($nestedThemeDivergentResult['source_reports']['compiled_site']['pages'] as &$nestedThemePage) {
@@ -553,17 +556,17 @@ $responsiveDuplicatePlan = (new ArtifactCompiler())->compile(array('entrypoint' 
 $responsiveDuplicateWrites = $writes($responsiveDuplicatePlan);
 $responsiveDuplicatePages = $pages($responsiveDuplicatePlan);
 $responsiveDuplicateParts = array_column($responsiveDuplicatePlan['template_parts'], null, 'slug');
-$assert(isset($responsiveDuplicateParts['header'], $responsiveDuplicateParts['footer'], $responsiveDuplicateParts['footer-content']) && 'shared_shell' === ($responsiveDuplicateParts['header']['placement']['kind'] ?? null) && 'shared_shell' === ($responsiveDuplicateParts['footer']['placement']['kind'] ?? null) && 'inline_shared_shell' === ($responsiveDuplicateParts['footer-content']['placement']['kind'] ?? null), 'Identical nested chrome duplicated inside responsive documents keeps shared wrapper parts and factors their common footer copy.');
-$assert(str_contains($responsiveDuplicateWrites['parts/header.html']['payload']['data'] ?? '', 'site-header') && str_contains($responsiveDuplicateWrites['parts/footer-content.html']['payload']['data'] ?? '', 'Ticker') && str_contains($responsiveDuplicateWrites['parts/footer.html']['payload']['data'] ?? '', '"slug":"footer-content"'), 'The shared footer wrapper nests one editable content part.');
+$assert(isset($responsiveDuplicateParts['header'], $responsiveDuplicateParts['footer']) && !isset($responsiveDuplicateParts['footer-content']) && 'inline_shared_shell' === ($responsiveDuplicateParts['header']['placement']['kind'] ?? null) && 'inline_shared_shell' === ($responsiveDuplicateParts['footer']['placement']['kind'] ?? null), 'Identical nested responsive chrome has one shared owner per region without redundant footer indirection.');
+$assert(str_contains($responsiveDuplicateWrites['parts/header.html']['payload']['data'] ?? '', 'site-header') && str_contains($responsiveDuplicateWrites['parts/footer.html']['payload']['data'] ?? '', 'Ticker'), 'Shared footer copy remains editable in its one owner.');
 foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
     $markup = $responsiveDuplicatePages[$source]['canonical_block_markup'] ?? '';
-    $assert(!str_contains($markup, 'site-header') && !str_contains($markup, 'Ticker') && !str_contains($markup, 'wp:template-part') && str_contains($markup, '>' . $title . '</h1>'), "{$source} loses duplicated nested chrome and keeps its page content after shared-shell extraction.");
+    $assert(!str_contains($markup, 'site-header') && !str_contains($markup, 'Ticker') && str_contains($markup, '"slug":"header"') && str_contains($markup, '"slug":"footer"') && str_contains($markup, '>' . $title . '</h1>'), "{$source} replaces duplicated chrome with source-position references and keeps its page content.");
 }
-$assert(1 === substr_count($responsiveDuplicateWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($responsiveDuplicateWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($responsiveDuplicateWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"footer"') && 1 === substr_count($responsiveDuplicateWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'Generic templates bind the shared header and footer so new pages receive chrome.');
+$assert(!str_contains($responsiveDuplicateWrites['templates/front-page.html']['payload']['data'] ?? '', 'wp:template-part') && !str_contains($responsiveDuplicateWrites['templates/page.html']['payload']['data'] ?? '', 'wp:template-part'), 'Generic templates do not duplicate source-position shared chrome.');
 $responsiveDuplicateTheme = json_decode($responsiveDuplicateWrites['theme.json']['payload']['data'] ?? '', true);
 $responsiveDuplicatePartNames = array_column($responsiveDuplicateTheme['templateParts'] ?? array(), 'name');
 sort($responsiveDuplicatePartNames, SORT_STRING);
-$assert(array('footer', 'footer-content', 'header') === $responsiveDuplicatePartNames, 'Generated theme metadata exposes the shared footer content part.');
+$assert(array('footer', 'header') === $responsiveDuplicatePartNames, 'Generated theme metadata exposes one shared owner per region.');
 
 $responsiveMismatchPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => str_replace('Ticker', 'Desktop ticker', $responsiveDuplicateShell('Home', true, false)),
@@ -583,19 +586,19 @@ $unlabeledChromePlan = (new ArtifactCompiler())->compile(array('entrypoint' => '
 $unlabeledChromeWrites = $writes($unlabeledChromePlan);
 $unlabeledChromePages = $pages($unlabeledChromePlan);
 $unlabeledChromeParts = array_column($unlabeledChromePlan['template_parts'], null, 'slug');
-$assert(isset($unlabeledChromeParts['header'], $unlabeledChromeParts['footer'], $unlabeledChromeParts['footer-content']) && 'shared_shell' === ($unlabeledChromeParts['header']['placement']['kind'] ?? null) && 'shared_shell' === ($unlabeledChromeParts['footer']['placement']['kind'] ?? null) && 'inline_shared_shell' === ($unlabeledChromeParts['footer-content']['placement']['kind'] ?? null), 'Identical unlabeled chrome duplicated inside responsive documents nests one shared footer-copy part.');
-$assert(str_contains($unlabeledChromeWrites['parts/header.html']['payload']['data'] ?? '', 'Acme') && str_contains($unlabeledChromeWrites['parts/header.html']['payload']['data'] ?? '', 'wp:navigation') && str_contains($unlabeledChromeWrites['parts/footer-content.html']['payload']['data'] ?? '', '© 2026 Acme') && str_contains($unlabeledChromeWrites['parts/footer.html']['payload']['data'] ?? '', '"slug":"footer-content"'), 'The shared footer wrapper references the editable copyright content part.');
+$assert(isset($unlabeledChromeParts['header'], $unlabeledChromeParts['footer']) && 'inline_shared_shell' === ($unlabeledChromeParts['header']['placement']['kind'] ?? null) && 'inline_shared_shell' === ($unlabeledChromeParts['footer']['placement']['kind'] ?? null), 'Identical unlabeled responsive chrome shares content while retaining placement.');
+$assert(str_contains($unlabeledChromeWrites['parts/header.html']['payload']['data'] ?? '', 'Acme') && str_contains($unlabeledChromeWrites['parts/header.html']['payload']['data'] ?? '', 'wp:navigation') && str_contains($unlabeledChromeWrites['parts/footer.html']['payload']['data'] ?? '', '© 2026 Acme'), 'The copyright has one editable shared footer owner.');
 foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
     $markup = $unlabeledChromePages[$source]['canonical_block_markup'] ?? '';
-    $assert(!str_contains($markup, 'masthead') && !str_contains($markup, 'colophon') && !str_contains($markup, 'wp:navigation') && !str_contains($markup, 'wp:template-part') && str_contains($markup, '>' . $title . '</h1>'), "{$source} unlabeled dual-document content loses shared chrome and keeps its page title.");
+    $assert(!str_contains($markup, 'masthead') && !str_contains($markup, 'colophon') && !str_contains($markup, 'wp:navigation') && str_contains($markup, '"slug":"header"') && str_contains($markup, '"slug":"footer"') && str_contains($markup, '>' . $title . '</h1>'), "{$source} replaces duplicate dual-document content with shared references and keeps its title.");
 }
-$assert(1 === substr_count($unlabeledChromeWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($unlabeledChromeWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($unlabeledChromeWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"footer"') && 1 === substr_count($unlabeledChromeWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'Generic templates bind unlabeled shared chrome so the page editor does not own the header or footer.');
+$assert(!str_contains($unlabeledChromeWrites['templates/front-page.html']['payload']['data'] ?? '', 'wp:template-part') && !str_contains($unlabeledChromeWrites['templates/page.html']['payload']['data'] ?? '', 'wp:template-part'), 'Generic templates do not move unlabeled chrome away from its source ancestors.');
 $unlabeledSinglePlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => $unlabeledChrome('Home', false),
     'about.html' => $unlabeledChrome('About', false),
 )))->toArray()['source_reports']['wordpress_site_plan'];
 $unlabeledSingleParts = array_column($unlabeledSinglePlan['template_parts'], null, 'slug');
-$assert(isset($unlabeledSingleParts['header'], $unlabeledSingleParts['footer']) && 'shared_shell' === ($unlabeledSingleParts['header']['placement']['kind'] ?? null), 'Identical unlabeled chrome without document variants still extracts shared header and footer parts.');
+$assert(isset($unlabeledSingleParts['header'], $unlabeledSingleParts['footer']) && 'inline_shared_shell' === ($unlabeledSingleParts['header']['placement']['kind'] ?? null), 'Identical unlabeled chrome without variants still shares header and footer content in place.');
 foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
     $markup = $pages($unlabeledSinglePlan)[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, 'wp:navigation') && str_contains($markup, '>' . $title . '</h1>'), "{$source} single-document unlabeled content loses the shared masthead navigation.");
@@ -630,21 +633,23 @@ $unlabeledClusterChrome = static function (string $title, string $current, bool 
     }
     return '<div class="page-shell"><div class="article-frame">' . $frame . '</div></div>';
 };
-$unlabeledClusterPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+$unlabeledClusterResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => $unlabeledClusterChrome('Home', 'index', false),
     'about.html' => $unlabeledClusterChrome('About', 'about', false),
     'blog/index.html' => $unlabeledClusterChrome('Blog', 'blog', true),
     'blog/first.html' => $unlabeledClusterChrome('First post', 'blog', true),
-)))->toArray()['source_reports']['wordpress_site_plan'];
+)))->toArray();
+$assert(isset($unlabeledClusterResult['source_reports']['wordpress_site_plan']), 'Mixed page/post chrome produces a valid plan: ' . json_encode($unlabeledClusterResult['diagnostics']));
+$unlabeledClusterPlan = $unlabeledClusterResult['source_reports']['wordpress_site_plan'];
 $unlabeledClusterWrites = $writes($unlabeledClusterPlan);
 $unlabeledClusterPages = $pages($unlabeledClusterPlan);
 $unlabeledClusterParts = array_column($unlabeledClusterPlan['template_parts'], null, 'slug');
-$assert(isset($unlabeledClusterParts['header']) && 'shared_shell' === ($unlabeledClusterParts['header']['placement']['kind'] ?? null) && 1 === count(array_filter($unlabeledClusterPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))), 'Post-like pages whose unlabeled chrome sits behind extra wrappers still join the shared header cluster.');
+$assert(isset($unlabeledClusterParts['header']) && 'inline_shared_shell' === ($unlabeledClusterParts['header']['placement']['kind'] ?? null) && 1 === count(array_filter($unlabeledClusterPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))), 'Post-like pages whose unlabeled chrome sits behind extra wrappers still join the shared header cluster.');
 foreach (array('index.html' => 'Home', 'about.html' => 'About', 'blog/index.html' => 'Blog', 'blog/first.html' => 'First post') as $source => $title) {
     $markup = $unlabeledClusterPages[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, 'wp:navigation') && str_contains($markup, '>' . $title . '</h1>'), "{$source} loses shared unlabeled chrome across wrapper-depth clusters and keeps its title.");
 }
-$assert(str_contains($unlabeledClusterWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($unlabeledClusterWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($unlabeledClusterWrites['templates/single.html']['payload']['data'] ?? '', '"slug":"header"'), 'Marketing pages and post-like routes bind the same shared header.');
+$assert(!str_contains($unlabeledClusterWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($unlabeledClusterWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($unlabeledClusterWrites['templates/single.html']['payload']['data'] ?? '', '"slug":"header"'), 'Page and post templates retain occurrence-owned references inside their source layouts.');
 
 $transparentHeader = static function (string $title, bool $deep): string {
     $header = '<!-- wp:group {"className":"masthead"} --><div class="wp-block-group masthead"><!-- wp:navigation --><!-- wp:navigation-link {"label":"Home","url":"/"} /--><!-- wp:navigation-link {"label":"Blog","url":"/blog"} /--><!-- /wp:navigation --></div><!-- /wp:group -->';
@@ -711,7 +716,7 @@ $listMenuPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.h
 )))->toArray()['source_reports']['wordpress_site_plan'];
 $listMenuHeader = array_values(array_filter($listMenuPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
 $listMenuPages = $pages($listMenuPlan);
-$assert('shared_shell' === ($listMenuHeader['placement']['kind'] ?? null) && str_contains($listMenuHeader['canonical_block_markup'] ?? '', 'Studio Name'), 'A header whose plain-link menu marks each route current still extracts as one shared part: ' . json_encode(array_column($listMenuPlan['diagnostics'], 'code')));
+$assert('inline_shared_shell' === ($listMenuHeader['placement']['kind'] ?? null) && str_contains($listMenuHeader['canonical_block_markup'] ?? '', 'Studio Name'), 'A nested header whose menu marks each route current still has one shared owner in place: ' . json_encode(array_column($listMenuPlan['diagnostics'], 'code')));
 $assert(!str_contains($listMenuHeader['canonical_block_markup'] ?? '', 'aria-current'), 'The shared part does not freeze one route\'s aria-current selection.');
 foreach (array('index.html', 'about.html', 'team.html') as $source) {
     $assert(!str_contains($listMenuPages[$source]['canonical_block_markup'] ?? '', 'Studio Name') && str_contains($listMenuPages[$source]['canonical_block_markup'] ?? '', 'Body for ' . $source), "{$source} keeps only its own content once the header is shared.");
@@ -734,8 +739,8 @@ $framedPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.htm
 )))->toArray()['source_reports']['wordpress_site_plan'];
 $framedFooter = array_values(array_filter($framedPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)))[0] ?? array();
 $contextCss = implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($framedPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && str_contains((string) ($asset['path'] ?? ''), 'shared-chrome-'))));
-$assert('shared_shell' === ($framedFooter['placement']['kind'] ?? null), 'The nested footer extracts as a shared part: ' . json_encode(array_column($framedPlan['diagnostics'], 'code')));
-$assert(str_contains($contextCss, ':is(#frame.mesh,:where(:has(> #site-foot))) #site-foot{position:relative}'), 'A rule that reached the footer through its page ancestors also reaches it through the part wrapper, at source specificity: ' . $contextCss);
+$assert('inline_shared_shell' === ($framedFooter['placement']['kind'] ?? null), 'The nested footer has a shared owner at its source position: ' . json_encode(array_column($framedPlan['diagnostics'], 'code')));
+$assert(str_contains($contextCss, '#frame.mesh #site-foot{position:relative}') && !str_contains($contextCss, ':has(> #site-foot)'), 'Ancestor selectors keep their original meaning without detached-context compensation: ' . $contextCss);
 $assert(!str_contains($contextCss, 'color:red') && !str_contains($contextCss, 'padding:1px'), 'Rules through ancestors the footer never sat under, or targeting other elements, are not re-anchored: ' . $contextCss);
 
 // A fixed page background that preceded the header in the source now renders
@@ -758,8 +763,8 @@ foreach (array(true, false) as $backgroundFirst) {
     )))->toArray()['source_reports']['wordpress_site_plan'];
     $layeredHeader = array_values(array_filter($layeredPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
     $layeredCss = $contextCssFor($layeredPlan);
-    $assert('shared_shell' === ($layeredHeader['placement']['kind'] ?? null), 'The layered header extracts as a shared part.');
-    $assert($backgroundFirst === str_contains($layeredCss, ':where(#site-top){z-index:1}'), ($backgroundFirst ? 'A header preceded by page layers restores its source paint order: ' : 'A header first in its page adds no paint-order rule: ') . $layeredCss);
+    $assert('inline_shared_shell' === ($layeredHeader['placement']['kind'] ?? null), 'The layered header has one shared owner at the source position.');
+    $assert(!str_contains($layeredCss, ':where(#site-top){z-index:1}'), 'Source paint order is retained without synthetic z-index compensation: ' . $layeredCss);
 }
 
 // Shared chrome whose title size is restated by an id-targeted desktop media
@@ -876,7 +881,8 @@ $partitionHeaderMarkup = (string) ($partitionHeader['canonical_block_markup'] ??
 $partitionMenus = array_values(array_filter($partitionPlan['menus'] ?? array(), static fn(array $menu): bool => is_string($menu['token'] ?? null) && is_string($menu['block_markup'] ?? null)));
 $assert('header' === ($partitionHeader['slug'] ?? null) && 'footer' === ($partitionFooter['slug'] ?? null) && 'responsive_variant_partition' === ($partitionHeader['provenance']['reason'] ?? null) && 'responsive_variant_partition' === ($partitionFooter['provenance']['reason'] ?? null), 'Viewport-partitioned chrome still extracts one shared header and footer when both viewports contain navigation: ' . json_encode(array_map(static fn(array $part): string => ($part['slug'] ?? '') . ':' . ($part['provenance']['reason'] ?? ''), $partitionPlan['template_parts'])));
 $assert(str_contains($partitionHeaderMarkup, 'data-liberation-desktop-document') && str_contains($partitionHeaderMarkup, 'data-liberation-mobile-document') && 2 <= substr_count($partitionHeaderMarkup, '<!-- wp:navigation '), 'The shared header keeps both viewport navigations.');
-$assert(1 === count($partitionMenus) && str_contains((string) ($partitionMenus[0]['block_markup'] ?? ''), '"label":"Home"') && str_contains((string) ($partitionMenus[0]['block_markup'] ?? ''), '"label":"Shop"'), 'Both viewport navigations reference one navigation entity.');
+$assert(2 === count($partitionMenus) && str_contains((string) ($partitionMenus[0]['block_markup'] ?? ''), '"label":"Home"') && str_contains((string) ($partitionMenus[0]['block_markup'] ?? ''), '"label":"Shop"'), 'Viewport menus preserve their distinct fragment destinations in separate navigation entities.');
+foreach ($partitionMenus as $menu) $assert(str_contains($partitionHeaderMarkup, '{{wordpress-site-plan:navigation:' . $menu['token'] . '}}'), 'Each viewport navigation binds its own declared content.');
 foreach (array('index.html', 'journal.html', 'shop.html') as $source) {
     $markup = $pages($partitionPlan)[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, '"tagName":"header"') && !str_contains($markup, '"tagName":"footer"'), "{$source} does not keep viewport chrome in page content.");
@@ -907,15 +913,16 @@ $equivalentHeader = array_values(array_filter($equivalentPlan['template_parts'],
 $equivalentFooter = array_values(array_filter($equivalentPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)))[0] ?? array();
 $equivalentMenus = $equivalentPlan['menus'] ?? array();
 $equivalentHeaderMarkup = (string) ($equivalentHeader['canonical_block_markup'] ?? '');
-$assert('shared_shell' === ($equivalentHeader['placement']['kind'] ?? null) && 'shared_shell' === ($equivalentFooter['placement']['kind'] ?? null), 'An equivalent-document capture extracts one shared header even when the landmark is a scroll-state carrier on only some routes: ' . json_encode(array_column(array_filter($equivalentPlan['diagnostics'], static fn(array $diagnostic): bool => 'header' === ($diagnostic['area'] ?? null)), 'message')));
+foreach ($equivalentMenus as $menu) if (str_contains($equivalentHeaderMarkup, '{{wordpress-site-plan:navigation:' . $menu['token'] . '}}')) $equivalentHeaderMarkup .= $menu['block_markup'];
+$assert('inline_shared_shell' === ($equivalentHeader['placement']['kind'] ?? null) && 'inline_shared_shell' === ($equivalentFooter['placement']['kind'] ?? null), 'An equivalent-document capture shares nested header and footer content in place even when a landmark is a scroll-state carrier on only some routes: ' . json_encode(array_column(array_filter($equivalentPlan['diagnostics'], static fn(array $diagnostic): bool => 'header' === ($diagnostic['area'] ?? null)), 'message')));
 $assert(str_contains($equivalentHeaderMarkup, 'Acme') && str_contains($equivalentHeaderMarkup, 'Open Menu') && str_contains($equivalentHeaderMarkup, 'nav-item--home') && !str_contains($equivalentHeaderMarkup, 'nav-item--active') && !str_contains($equivalentHeaderMarkup, 'Other brand'), 'The shared header keeps the repeated brand, stable home marker, and menu toggle, not a divergent route\'s brand or one page\'s current flag.');
-$assert(1 === count($equivalentMenus) && str_contains((string) ($equivalentMenus[0]['block_markup'] ?? ''), '"label":"Home"') && str_contains((string) ($equivalentMenus[0]['block_markup'] ?? ''), '"url":"/services"'), 'Repeated header destinations become one shared navigation entity.');
+$assert(1 === count($equivalentMenus) && str_contains((string) ($equivalentMenus[0]['block_markup'] ?? ''), '"label":"Home"') && str_contains((string) ($equivalentMenus[0]['block_markup'] ?? ''), '"url":"/services"'), 'Repeated equivalent header content becomes one shared navigation entity.');
 foreach (array('index.html' => 'Home', 'services.html' => 'Services', 'contact.html' => 'Contact') as $source => $title) {
     $markup = $equivalentPages[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, 'wp:navigation') && !str_contains($markup, 'Open Menu') && str_contains($markup, '>' . $title . '</h1>'), "{$source} keeps its content and does not duplicate the shared header navigation.");
 }
 $assert(str_contains($equivalentPages['about.html']['canonical_block_markup'] ?? '', 'Other brand') && !str_contains($equivalentWrites['templates/page-about.html']['payload']['data'] ?? '', 'wp:navigation'), 'A route whose header content differs stays page-owned and does not receive the shared navigation in its exclusion template.');
-$assert(1 === substr_count($equivalentWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($equivalentWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($equivalentWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'Generic templates reference the shared header and footer.');
+$assert(!str_contains($equivalentWrites['templates/front-page.html']['payload']['data'] ?? '', 'wp:template-part') && !str_contains($equivalentWrites['templates/page.html']['payload']['data'] ?? '', 'wp:template-part'), 'Generic templates do not duplicate source-position chrome.');
 $assert(!str_contains($equivalentWrites['templates/front-page.html']['payload']['data'] ?? '', 'data-liberation-desktop-document'), 'Equivalent-document extraction does not invent a responsive-variant partition.');
 
 // Footer copy is repeated inside two different authored wrappers. Keep both
@@ -996,7 +1003,7 @@ WordPressSitePlan::assertValid($combinedFooterPlan);
 $foldedFooterPage = static fn(string $title): string => '<div id="site-root"><main><h1>' . $title . '</h1></main><footer id="page-footer" class="page-footer"><section class="footer-band"><div class="footer-inner"><p>Shared colophon.</p><p>Second line.</p></div></section></footer></div>';
 $foldedFooterResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $foldedFooterPage('Home'), 'about.html' => $foldedFooterPage('About'), 'projects.html' => $foldedFooterPage('Projects'))))->toArray();
 $foldedFooterPlan = $foldedFooterResult['source_reports']['wordpress_site_plan'];
-$foldedFooterPart = array_values(array_filter($foldedFooterPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null) && 'shared_shell' === ($part['placement']['kind'] ?? null)))[0] ?? array();
+$foldedFooterPart = array_values(array_filter($foldedFooterPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null) && 'inline_shared_shell' === ($part['placement']['kind'] ?? null)))[0] ?? array();
 $assert(array() !== $foldedFooterPart && str_contains($foldedFooterPart['canonical_block_markup'] ?? '', 'footer-band'), 'A footer landmark wrapping a wrapper chain is extracted as the shared footer part.');
 foreach ($foldedFooterResult['source_reports']['compiled_site']['pages'] as $page) $assert(str_contains($page['block_markup'], '"anchor":"page-footer"') && str_contains($page['block_markup'], '"tagName":"footer"'), "{$page['source_path']} keeps its footer as a group block rather than a folded layout-shell wrapper.");
 foreach ($pages($foldedFooterPlan) as $source => $row) $assert(!str_contains($row['canonical_block_markup'] ?? '', 'Shared colophon.') && str_contains($row['canonical_block_markup'] ?? '', 'site-root'), "{$source} hands its footer to the shared part and keeps its own wrappers.");

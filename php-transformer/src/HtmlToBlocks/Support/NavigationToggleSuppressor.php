@@ -1232,17 +1232,17 @@ final class NavigationToggleSuppressor
         }
 
         $navigationRoot = $this->navigationLandmarkAncestor($navigation) ?? $navigation;
-        // A captured details disclosure owns its summary and panel navigation.
+        // A native details disclosure owns its summary and panel navigation.
         // It remains an independent mobile surface, rather than evidence that a
         // sibling desktop navigation should be replaced by Core's overlay toggle.
-        if ( $this->isInsideCapturedDisclosure($navigationRoot) ) {
+        if ( $this->isInsideNativeDisclosure($navigationRoot) ) {
             return false;
         }
         $signature = $this->sourceNavigationSignature($navigationRoot);
         if ( '' === $signature ) {
             return false;
         }
-        if ( $this->hasCapturedDisclosureNavigation($document, $signature) ) {
+        if ( $this->hasNativeDisclosureNavigation($document, $signature) ) {
             return false;
         }
 
@@ -1250,7 +1250,7 @@ final class NavigationToggleSuppressor
             if ( ! $candidate instanceof DOMElement
                 || $candidate->isSameNode($navigationRoot)
                 || $this->isInsideProjectedNavigationSuppressed($candidate)
-                || $this->isInsideCapturedDisclosure($candidate)
+                || $this->isInsideNativeDisclosure($candidate)
                 || SourceDom::elementContains($navigationRoot, $candidate)
                 || SourceDom::elementContains($candidate, $navigationRoot)
                 || ! $this->isEquivalentNavigationVariantCandidate($candidate)
@@ -1297,10 +1297,10 @@ final class NavigationToggleSuppressor
         return 1 === preg_match('/(?:^|[\s_-])(?:nav|navbar|navigation|menu)(?:$|[\s_-])/', $identity);
     }
 
-    private function hasCapturedDisclosureNavigation(DOMDocument $document, string $signature): bool
+    private function hasNativeDisclosureNavigation(DOMDocument $document, string $signature): bool
     {
         foreach ( $document->getElementsByTagName('details') as $disclosure ) {
-            if ( ! $disclosure instanceof DOMElement || ! $this->isCapturedDialogControl($disclosure) ) {
+            if ( ! $disclosure instanceof DOMElement || ! $this->isNativeDisclosureWithPanel($disclosure) ) {
                 continue;
             }
 
@@ -1314,10 +1314,10 @@ final class NavigationToggleSuppressor
         return false;
     }
 
-    private function isInsideCapturedDisclosure(DOMElement $element): bool
+    private function isInsideNativeDisclosure(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( 'details' === strtolower($node->tagName) && $this->isCapturedDialogControl($node) ) {
+            if ( 'details' === strtolower($node->tagName) && $this->isNativeDisclosureWithPanel($node) ) {
                 return true;
             }
         }

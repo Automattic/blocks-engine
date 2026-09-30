@@ -73,6 +73,8 @@
             "php tests/contract/html-transformer-editability-policy.php",
             "php tests/contract/shared-shell-plan.php",
             "php tests/contract/shared-navigation-entity.php",
+            "php tests/contract/navigation-explicit-references.php",
+            "php tests/contract/shared-shell-containment.php",
             "php tests/contract/shared-chrome-stylesheet-scope.php",
             "php tests/contract/shared-chrome-authored-rules.php",
             "php tests/contract/shared-empty-data-carrier-geometry.php",

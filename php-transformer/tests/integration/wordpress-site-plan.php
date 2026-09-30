@@ -31,6 +31,19 @@ $previousPageOnFront = get_option('page_on_front');
 $previousUserId = get_current_user_id();
 $editorUserId = 0;
 $pageIds = array();
+$bindNavigation = static function (array $plan, string $markup) use (&$pageIds): string {
+    $references = array();
+    foreach ($plan['menus'] as $menu) {
+        if (!isset($menu['token'])) continue;
+        $id = wp_insert_post(array('post_type' => 'wp_navigation', 'post_status' => 'publish', 'post_title' => $menu['title'], 'post_content' => wp_slash($menu['block_markup'])), true);
+        if (is_wp_error($id)) throw new RuntimeException($id->get_error_message());
+        $pageIds['navigation-' . $id] = $id;
+        $references['"ref":"' . WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}"'] = '"ref":' . $id;
+    }
+    $resolved = strtr($markup, $references);
+    if (str_contains($resolved, WordPressSitePlan::NAVIGATION_TOKEN_PREFIX)) throw new RuntimeException('The integration consumer did not bind every navigation entity.');
+    return $resolved;
+};
 try {
 if (!is_dir($themeDir) && !mkdir($themeDir, 0777, true) && !is_dir($themeDir)) throw new RuntimeException('Could not create integration theme directory.');
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
@@ -337,9 +350,9 @@ $assert(str_contains($singleTemplate, 'wp:post-content') && str_contains($single
 // aria-current="page" when the link's id/kind resolve against the queried
 // object, which never happens for the "custom" kind links this engine emits
 // for a static-site import. The generated theme bootstrap instead recovers
-// the missing attribute at render time, keyed off the frontend
-// blocks-engine-current-navigation-item className the engine already emits
-// for the page's own current item. Prove this against a real WordPress
+// the missing attribute at render time. Entity factoring excludes frozen
+// source current state, so the integration consumer binds actual navigation
+// posts and renders against the actual front-page request. Prove this in WordPress:
 // render: the current item gets aria-current="page", its sibling does not.
 $currentNavArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><body><nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav><main><p>Home</p></main></body></html>')))->toArray();
 $currentNavPlan = $currentNavArtifact['source_reports']['wordpress_site_plan'] ?? array();
@@ -351,7 +364,8 @@ $currentNavClosureEnd = strpos($currentNavBootstrap, "\n}, 10, 2 );", $currentNa
 if (false === $currentNavClosureEnd) throw new RuntimeException('The navigation-link current-item filter closure has no discoverable closing statement.');
 eval('$currentNavFilter = ' . substr($currentNavBootstrap, $currentNavClosureStart, $currentNavClosureEnd + 2 - $currentNavClosureStart) . ';');
 add_filter('render_block_core/navigation-link', $currentNavFilter, 10, 2);
-$currentNavPageMarkup = (string) ($currentNavPlan['pages'][0]['canonical_block_markup'] ?? '');
+$currentNavPageMarkup = $bindNavigation($currentNavPlan, (string) ($currentNavPlan['pages'][0]['canonical_block_markup'] ?? ''));
+$setRequest($frontPage, true);
 $currentNavRendered = do_blocks($currentNavPageMarkup);
 remove_filter('render_block_core/navigation-link', $currentNavFilter, 10);
 $assert(str_contains($currentNavRendered, '<a class="wp-block-navigation-item__content" aria-current="page"  href="/"><span class="wp-block-navigation-item__label">Home</span></a>'), 'WordPress renders the current navigation-link item with aria-current="page", recovering both accessibility semantics and the source stylesheet\'s own [aria-current] active-state styling hook.');
@@ -375,7 +389,7 @@ $sharedRouteNavArtifact = (new ArtifactCompiler())->compile(array('entrypoint' =
 $sharedRouteNavPlan = $sharedRouteNavArtifact['source_reports']['wordpress_site_plan'] ?? array();
 $sharedRouteNavHeader = current(array_filter($sharedRouteNavPlan['template_parts'] ?? array(), static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
 if (!is_array($sharedRouteNavHeader) || array() === $sharedRouteNavHeader) throw new RuntimeException('Expected the repeated navigation header to extract into a shared template part.');
-$sharedRouteNavHeaderMarkup = (string) ($sharedRouteNavHeader['canonical_block_markup'] ?? '');
+$sharedRouteNavHeaderMarkup = $bindNavigation($sharedRouteNavPlan, (string) ($sharedRouteNavHeader['canonical_block_markup'] ?? ''));
 $assert(!str_contains($sharedRouteNavHeaderMarkup, 'blocks-engine-current-navigation-item'), 'The shared header carries no static current-item marker, since one rendered part serves every route.');
 $sharedRouteNavWrites = array(); foreach ($sharedRouteNavPlan['writes'] ?? array() as $write) $sharedRouteNavWrites[$write['target_path']] = $write;
 $sharedRouteNavBootstrap = (string) ($sharedRouteNavWrites['functions.php']['payload']['data'] ?? '');
