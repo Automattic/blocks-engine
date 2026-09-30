@@ -1323,6 +1323,43 @@ final class AuthorStylesheetProjector
         return $this->isButtonPlacementProperty($property) || isset($placementVars[$property]);
     }
 
+    /** Keep ancestor states intact when only the image link's identity moved. */
+    private function projectImageLinkIdentitySelector(string $selector, AuthorStylesheetProjectionContext $context): string
+    {
+        $markers = $context->selectorProjections->imageLinkMarkers();
+        if ( array() === $markers ) {
+            return $selector;
+        }
+        $state = CssSyntaxScanner::state();
+        $replacements = array();
+        for ( $offset = 0; $offset < strlen($selector); ) {
+            if ( '#' === $selector[$offset] && '' === $state['quote'] && ! $state['comment'] && 0 === $state['brackets']
+                && preg_match('/\G#([A-Za-z][A-Za-z0-9_-]*)/', $selector, $match, 0, $offset)
+                && isset($markers[$match[1]])
+            ) {
+                $end = $offset + strlen($match[0]);
+                // A non-ASCII or escaped suffix belongs to the same CSS ID.
+                // Do not rewrite a safe-ID prefix of that different token.
+                if ( isset($selector[$end]) && ('\\' === $selector[$end] || ord($selector[$end]) >= 128) ) {
+                    $offset = $end;
+                    continue;
+                }
+                $replacements[$offset] = array(
+                    'end' => $end,
+                    'value' => ':where(.' . $markers[$match[1]] . '):not(#' . $context->authorStyles->idSpecificityShim() . ')',
+                );
+                $offset = $end;
+                continue;
+            }
+            $next = CssSyntaxScanner::consume($selector, $offset, $state);
+            if ( null === $next ) {
+                return $selector;
+            }
+            $offset = $next;
+        }
+        return $this->replaceSelectorSpans($selector, $replacements);
+    }
+
     private function rewriteSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
@@ -1347,7 +1384,7 @@ final class AuthorStylesheetProjector
             if ( ! $parsed['supported'] ) {
                 $projectedControls = $this->projectUnsupportedFunctionalControlSelector($selector, $context, $controlWrapper);
                 if ( array() === $projectedControls ) {
-                    $rewritten[] = $selector;
+                    $rewritten[] = $this->projectImageLinkIdentitySelector($selector, $context);
                 } else {
                     array_push($rewritten, ...$projectedControls);
                 }
@@ -1455,6 +1492,8 @@ final class AuthorStylesheetProjector
                     $richTextLeaves[] = $marker;
                 } elseif ( '' !== ($marker = $context->selectorProjections->controlMarker($path)) ) {
                     $controls[] = $marker;
+                } elseif ( '' !== ($marker = $context->selectorProjections->imageWrapperMarker($path)) ) {
+                    $semanticLeaves[] = $marker;
                 } elseif ( '' !== ($marker = $context->selectorProjections->semanticMarker($path)) ) {
                     $semanticLeaves[] = $marker;
                 } else {
@@ -1810,7 +1849,19 @@ final class AuthorStylesheetProjector
                 $imageMatches,
                 fn (DOMElement $element): bool => ! in_array($element, $mediaTextImages, true)
             ));
-            if ( array() !== $ordinaryImages ) {
+            $hasUnmarkedImage = false;
+            foreach ( $ordinaryImages as $element ) {
+                $marker = $context->selectorProjections->imageWrapperMarker($element->getNodePath() ?? '');
+                if ( '' === $marker ) {
+                    $hasUnmarkedImage = true;
+                    continue;
+                }
+                // The source link's ID now belongs to the native figure. A
+                // descendant selector cannot retain that former ancestry.
+                $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+                $projected[] = $this->imageLeafSelectorList(':where(.' . $marker . ').wp-block-image', $this->selectorSpecificityShims($parsed, $context) . $suffix);
+            }
+            if ( $hasUnmarkedImage ) {
                 $projected[] = $this->projectImageSelector($selector, $parsed, $context);
             }
         }

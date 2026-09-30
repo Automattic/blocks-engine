@@ -47,6 +47,12 @@ final class AuthorSelectorProjectionState
     private array $mediaTextImageMarkers = array();
 
     /** @var array<string, string> */
+    private array $imageWrapperMarkers = array();
+
+    /** @var array<string, string> */
+    private array $imageLinkMarkers = array();
+
+    /** @var array<string, string> */
     private array $tableMarkers = array();
 
     /** @var array<int, bool> */
@@ -124,6 +130,27 @@ final class AuthorSelectorProjectionState
     public function isButtonLabelPath(string $path): bool
     {
         return isset($this->buttonLabelPaths[$path]);
+    }
+
+    public function installImageLinkMarker(string $id, string $path): void
+    {
+        $this->imageLinkMarkers[$id] = $this->ensureSemanticMarker($path);
+    }
+
+    /** @return array<string, string> */
+    public function imageLinkMarkers(): array
+    {
+        return $this->imageLinkMarkers;
+    }
+
+    public function ensureImageWrapperMarker(string $path): string
+    {
+        return $this->imageWrapperMarkers[$path] ??= $this->allocateMarker('semantic');
+    }
+
+    public function imageWrapperMarker(string $path): string
+    {
+        return $this->imageWrapperMarkers[$path] ?? '';
     }
 
     public function ensureSemanticMarker(string $path): string
