@@ -59,7 +59,8 @@ export function refresh(root, context) {
     const target = root.querySelector('.blocks-engine-collection-target');
     if (!target) return;
     const nativeItems = target.querySelectorAll('.wp-block-accordion-item');
-    const items = nativeItems.length ? Array.from(nativeItems) : Array.from(target.children);
+    const nativeContainer = target.querySelector(':scope > .wp-block-group') || target;
+    const items = nativeItems.length ? Array.from(nativeItems) : Array.from(nativeContainer.children);
     if (items.length !== context.memberships.length) return;
     let count = 0;
     items.forEach((item, index) => {

@@ -3,6 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedCollectionFilterProjector;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $assert = static function(bool $condition, string $message): void { if (!$condition) { fwrite(STDERR, "FAIL: $message\n"); exit(1); } };
@@ -21,9 +22,18 @@ $assert(1 === substr_count($markup,'<!-- wp:accordion '), 'all items share one n
 $assert(str_contains($markup,'blocks-engine-collection-target'), 'the native collection is addressable after serialization');
 $assert(str_contains($markup,'wp:paragraph'), 'answers remain native editor paragraphs');
 $assert(str_contains($markup,'data-collection-empty="true"'), 'the external source empty state remains editable and local');
+$assert(64 === strlen(RuntimeDeclarations::hash($result['source_reports']['generated_blocks'])), 'companion declarations cross the actual staged runtime transport contract');
 $files[2]['content'] = str_replace('"replay":"verified"','"replay":"unsupported"',$files[2]['content']);
 $rejected = (new CapturedCollectionFilterProjector())->project($files);
 $assert(!str_contains($rejected[0]['content'],'data-blocks-engine-collection='), 'unverified predicates are not promoted');
 file_put_contents(sys_get_temp_dir() . '/collection-filter-view.mjs', $result['source_reports']['generated_blocks'][0]['view_js']);
 file_put_contents(sys_get_temp_dir() . '/collection-filter-editor.js', $result['source_reports']['generated_blocks'][0]['assets']['index.js']);
+$cards = preg_replace('/<div data-dla-collection-item="0".*?<\/div><\/div><div data-dla-collection-item="1".*?<\/div><\/div>/s', '<article data-dla-collection-item="0" data-dla-collection-members="[0,1]"><h2>Same card</h2><p>Answer orchid.</p></article><article data-dla-collection-item="1" data-dla-collection-members="[0]"><h2>Same card</h2><p>Answer violet.</p></article>', $source);
+$cardFiles = $files;
+$cardFiles[0]['content'] = $cards;
+$cardFiles[2]['content'] = str_replace('"replay":"unsupported"', '"replay":"verified"', $cardFiles[2]['content']);
+$cardProjection = (new CapturedCollectionFilterProjector())->project($cardFiles);
+$cardResult = (new HtmlTransformer())->transform($cardProjection[0]['content'])->toArray();
+$assert(str_contains($cardResult['serialized_blocks'], 'blocks-engine-collection-target') && !str_contains($cardResult['serialized_blocks'], 'wp:accordion'), 'ordinary native card collections use the same verified filter primitive');
+file_put_contents(sys_get_temp_dir() . '/collection-filter-cards.json', json_encode($cardResult));
 fwrite(STDOUT,"PASS: verified canonical collection projection and native answer authoring\n");

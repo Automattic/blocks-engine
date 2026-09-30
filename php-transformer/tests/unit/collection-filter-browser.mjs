@@ -19,4 +19,15 @@ const states = await page.evaluate(() => {
 });
 assert.deepEqual(states,[{visible:[0,1],empty:false},{visible:[0],empty:false},{visible:[],empty:true},{visible:[0],empty:false},{visible:[],empty:true},{visible:[0],empty:false},{visible:[],empty:true}]);
 await browser.close();
+const cardBrowser = await chromium.launch({headless:true});
+const cardPage = await cardBrowser.newPage();
+await cardPage.setContent(JSON.parse(readFileSync(`${tmpdir()}/collection-filter-cards.json`)).serialized_blocks);
+await cardPage.addScriptTag({content:view.replace(/^import .*;$/m,'').replace('export function refresh','function refresh').replace(/store\('custom\/collection-filter',[\s\S]*$/,'') + '\nwindow.refreshCollection=refresh;'});
+const cards = await cardPage.evaluate(() => {
+    const root=document.querySelector('[data-wp-interactive]'), context=JSON.parse(root.dataset.wpContext);
+    context.query='VIOLET';context.category=0;window.refreshCollection(root,context);
+    return Array.from(root.querySelectorAll('article')).filter(item=>!item.hidden).map(item=>item.textContent);
+});
+assert.deepEqual(cards,['Same cardAnswer violet.']);
+await cardBrowser.close();
 console.log('PASS: answer-only search, case, category composition, external empty state, owner-edited live text');
