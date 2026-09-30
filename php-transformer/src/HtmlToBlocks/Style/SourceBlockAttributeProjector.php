@@ -11,6 +11,8 @@ use DOMElement;
 final class SourceBlockAttributeProjector
 {
     public const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
+    /** A synthetic paragraph that is itself a lowered block-level source box, not a transparent carrier. */
+    public const SOURCE_BOX_PARAGRAPH_CLASS = 'blocks-engine-source-box-paragraph';
     public const SYNTHETIC_SVG_PARAGRAPH_CLASS = 'blocks-engine-synthetic-svg-paragraph';
     public const HIDDEN_RICH_TEXT_MARKER_CLASS = 'blocks-engine-hidden-richtext-marker';
     public const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';

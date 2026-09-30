@@ -6306,7 +6306,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $attrs = $this->styleResolver->presentationAttributes($element);
-        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
+        // The paragraph is this block-level wrapper's own box (it carries the
+        // wrapper's identity and classes), so it must not become transparent.
+        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS . ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS);
         $attrs['content'] = $content;
         return $this->createBlock('core/paragraph', $attrs, array(), $element);
     }

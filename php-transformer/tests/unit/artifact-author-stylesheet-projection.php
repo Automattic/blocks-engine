@@ -283,7 +283,7 @@ $assert(! str_contains($nexusGeometryMarkup, 'wp-block-media-text is-stacked-on-
     && ! str_contains($nexusGeometryCss, '.h-9 .wp-block-media-text__media > img')
     && ! str_contains($nexusGeometryCss, '.max-w-[120px]{max-width:120px}')
     && ! str_contains($nexusGeometryCss, '.h-9{height:2.25rem}')
-    && str_contains($nexusGeometryCss, ':where(p.blocks-engine-synthetic-paragraph){display:contents}')
+    && str_contains($nexusGeometryCss, ':where(p.blocks-engine-synthetic-paragraph:not(.blocks-engine-source-box-paragraph)){display:contents}')
      && 'pass' === ($nexusGeometryValidity['source_reports']['wp_block_validity']['status'] ?? ''),
     'full artifact geometry fixture preserves footer image classes and makes floating link carriers transparent while remaining valid');
 
