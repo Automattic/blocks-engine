@@ -18,8 +18,10 @@ $markup = $result['serialized_blocks'];
 $document = new DOMDocument();
 $document->loadHTML($markup, LIBXML_NOERROR | LIBXML_NOWARNING);
 $xpath = new DOMXPath($document);
-$assert(1 === $xpath->query('//button[@type="submit"]/div[@class="label-shell"][@data-label="true"]/p[@class="caption"][@style="color:white;font-family:Inter"]')->length, 'styled label ancestry and native submit semantics survive conversion');
+$assert(1 === $xpath->query('//button[@type="submit"]/div[contains(@class,"label-shell")][@data-label="true"]/p[contains(@class,"caption")][@style="color:white;font-family:Inter"]')->length, 'styled label ancestry and native submit semantics survive conversion');
 $assert('Submit' === trim($xpath->query('//button')->item(0)->textContent), 'label stays plain editable text inside its presentation chain');
+$typed = (new HtmlTransformer())->transform('<style>p{color:white;font-size:14px}</style><form><button type="submit"><p>Submit</p></button></form>', array())->toArray();
+$assert(str_contains($typed['serialized_blocks'], 'blocks-engine-source-p-'), 'retained label tags receive the same identity that carried type selectors address');
 $generator = new AuthoredButtonBlockGenerator();
 $wrappers = array(
     array('tagName' => 'div', 'attributes' => array('class' => 'label-shell')),
@@ -41,4 +43,4 @@ if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);
 }
-echo "Authored button label presentation passed: 7 assertions\n";
+echo "Authored button label presentation passed: 8 assertions\n";
