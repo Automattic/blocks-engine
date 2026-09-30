@@ -18,7 +18,7 @@ final class CollectionFilterBlockGenerator
             'label' => array('type' => 'string', 'default' => ''),
             'placeholder' => array('type' => 'string', 'default' => ''),
             'index' => array('type' => 'number', 'default' => 0),
-            'config' => array('type' => 'object', 'default' => (object) array()),
+            'config' => array('type' => 'object', 'default' => array('initialCategory' => 0, 'memberships' => array(), 'categories' => array())),
         );
         $editor = <<<'JS'
 (function(blocks, editor, element) {
