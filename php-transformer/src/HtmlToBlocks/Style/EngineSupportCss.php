@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
+
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 
@@ -321,6 +323,11 @@ final class EngineSupportCss
             // lays out those children directly; the link stays clickable
             // through them.
             $parts[] = ':root :where(.' . HtmlCompilation::PROPAGATED_LINK_CARRIER_CLASS . ')>a:only-child{display:contents}';
+        }
+        if ( str_contains($serializedBlocks, FallbackEmitter::LINK_CONTENTS_CLASS) ) {
+            // A source link restored around frozen component content adds only
+            // navigation: its content keeps the source box and paint.
+            $parts[] = ':root :where(a.' . FallbackEmitter::LINK_CONTENTS_CLASS . '){display:contents;color:inherit;text-decoration:inherit}';
         }
         if ( str_contains($serializedBlocks, self::PROPAGATED_LINK_COLOR_CARRIER_CLASS) ) {
             // The source painted this text; the anchor around it only exists
