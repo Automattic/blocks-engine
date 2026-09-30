@@ -36,6 +36,12 @@ final class MotionSequenceBlockGenerator
                             el( components.TextControl, { label: 'Dot interval (ms)', type: 'number', min: 100, max: 2000, value: step.pendingIntervalMs || '500', onChange: function( value ) { update( index, 'pendingIntervalMs', value ); } } ),
                             el( components.TextControl, { label: 'Replay delay (ms)', type: 'number', min: 0, max: 5000, value: step.replayDelayMs || '0', onChange: function( value ) { update( index, 'replayDelayMs', value ); } } ),
                             el( components.TextControl, { label: 'Click to replay (selector)', value: step.clickSelector || '', onChange: function( value ) { update( index, 'clickSelector', value ); } } ),
+                            el( components.TextControl, { label: 'Hidden until typing starts (selector:display or selector:visibility, comma-separated)', value: ( step.revealSelectors || [] ).map( function( item ) { return item.selector + ':' + ( item.hideWith === 'display' ? 'display' : 'visibility' ); } ).join( ', ' ), onChange: function( value ) {
+                                update( index, 'revealSelectors', value.split( ',' ).map( function( part ) {
+                                    var match = /^(.+?)(?::(display|visibility))?$/.exec( part.trim() );
+                                    return match && match[1] ? { selector: match[1].trim(), hideWith: match[2] || 'visibility' } : null;
+                                } ).filter( Boolean ).slice( 0, 8 ) );
+                            } } ),
                             el( components.TextControl, { label: 'Ripple canvas (selector)', value: step.rippleSelector || '', onChange: function( value ) { update( index, 'rippleSelector', value ); } } ),
                             el( components.Button, { isDestructive: true, onClick: function() { props.setAttributes( { steps: steps.filter( function( _, position ) { return position !== index; } ) } ); } }, 'Remove step' )
                         );
@@ -85,6 +91,25 @@ JS;
     function wait( duration ) {
         return new Promise( function( resolve ) { window.setTimeout( resolve, duration ); } );
     }
+    // Elements hidden while a step is pending and shown when its typing starts.
+    // `visibility` keeps layout; `display` removes the element from it.
+    function reveals( list ) {
+        return ( Array.isArray( list ) ? list : [] ).slice( 0, 8 ).map( function( item ) {
+            var element = item && select( item.selector );
+            if ( ! element ) return null;
+            var property = item.hideWith === 'display' ? 'display' : 'visibility';
+            return { element: element, property: property, hidden: property === 'display' ? 'none' : 'hidden', original: element.style.getPropertyValue( property ), priority: element.style.getPropertyPriority( property ) };
+        } ).filter( Boolean );
+    }
+    function hideReveals( list ) {
+        list.forEach( function( item ) { item.element.style.setProperty( item.property, item.hidden, 'important' ); } );
+    }
+    function showReveals( list ) {
+        list.forEach( function( item ) {
+            if ( item.original ) item.element.style.setProperty( item.property, item.original, item.priority );
+            else item.element.style.removeProperty( item.property );
+        } );
+    }
     function mount( marker ) {
         var input;
         try { input = JSON.parse( marker.getAttribute( 'data-blocks-engine-motion-steps' ) || '[]' ); } catch ( error ) { return; }
@@ -106,6 +131,7 @@ JS;
                 replayDelay: bounded( item.replayDelayMs, 0, 0, 5000 ),
                 click: select( item.clickSelector ),
                 ripple: select( item.rippleSelector ),
+                reveal: reveals( item.revealSelectors ),
                 pendingTimer: null,
                 running: false
             };
@@ -115,6 +141,7 @@ JS;
 
         function showPending( step ) {
             if ( step.pendingTimer !== null ) window.clearInterval( step.pendingTimer );
+            hideReveals( step.reveal );
             step.target.textContent = step.pending;
             if ( step.pending && step.pendingDots ) {
                 var dots = 0;
@@ -138,6 +165,7 @@ JS;
             var waitMs = delay ? step.delay : step.replayDelay;
             if ( waitMs ) await wait( waitMs );
             endPending( step );
+            showReveals( step.reveal );
             for ( var index = 0; index < step.text.length; index++ ) {
                 step.target.textContent += step.text[ index ];
                 await wait( step.interval );
