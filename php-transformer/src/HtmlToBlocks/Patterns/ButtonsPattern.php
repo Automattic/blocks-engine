@@ -186,6 +186,7 @@ final class ButtonsPattern
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
         $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
+        $attrs = array_replace_recursive($attrs, $this->buttonLabelTextAttributes($anchor, $buttons));
 
         return $context->createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,
@@ -194,6 +195,20 @@ final class ButtonsPattern
             'linkTarget' => $buttons->attribute($anchor, 'target'),
             'rel'        => $buttons->attribute($anchor, 'rel'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
+    }
+
+    /** The box and a whole-label descendant can have different source owners. */
+    private function buttonLabelTextAttributes(DOMElement $anchor, ButtonPatternContext $buttons): array
+    {
+        $text = $this->plainText(SourceDom::innerHtml($anchor));
+        $style = array();
+        foreach ($anchor->getElementsByTagName('*') as $label) {
+            if (!$label instanceof DOMElement || '' === $text || $this->plainText(SourceDom::innerHtml($label)) !== $text) continue;
+            $native = $this->styleResolver->nativeAttributes($buttons->resolvedStyle($label))['style'] ?? array();
+            if (isset($native['typography'])) $style['typography'] = array_replace($style['typography'] ?? array(), $native['typography']);
+            if (isset($native['color']['text'])) $style['color']['text'] = $native['color']['text'];
+        }
+        return array() === $style ? array() : array('style' => $style);
     }
 
     /**
