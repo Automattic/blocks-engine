@@ -44,6 +44,9 @@ $patches = $presentation['variants'] ?? array();
 $assert(1 === count($patches) && '27px' === ($patches[0]['styles']['font_size'] ?? null) && '2px' === ($patches[0]['styles']['letter_spacing'] ?? null) && !isset($patches[0]['styles']['padding']), 'Responsive patches carry changing properties only, including variable-only changes.');
 $assert('source.css' === ($presentation['provenance'][0]['source_path'] ?? null) && hash('sha256', $css) === ($presentation['provenance'][0]['source_sha256'] ?? null), 'Resolved presentation keeps stylesheet provenance.');
 $assert('7px 0 13px' === ($byClass['note-box']['layout']['padding'] ?? null) && isset($note['source_selector']), 'Disclaimer-only source box reaches actual compiler output.');
+$ariaNamed = $compile('<!doctype html><html><head><link rel="stylesheet" href="source.css"></head><body><main class="page"><form method="post"><label for="n">Name</label><input id="n" name="n"><textarea aria-label="Message" placeholder="Message" name="m"></textarea><button type="submit">Send</button></form></main></body></html>');
+$ariaControls = $ariaNamed['controls'] ?? array();
+$assert('Message' === ($ariaControls[1]['label'] ?? null) && false === ($ariaControls[1]['label_visible'] ?? null) && !array_key_exists('label_visible', $ariaControls[0] ?? array()) && !array_key_exists('label_visible', $ariaControls[2] ?? array()), 'An aria-only accessible name is marked as having no rendered label box.');
 $tooMany = implode(' ', array_map(static fn(int $i): string => 'hook-' . $i, range(1, 70)));
 $bounded = $compile(str_replace($classes, $tooMany, $html));
 $assert(!isset($bounded['layout_graph']) && in_array('source_class_limit', $bounded['source_contract_losses'] ?? array(), true), 'Source identity exhaustion is visible in runtime declarations and its partial graph is excluded.');
@@ -51,4 +54,4 @@ if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);
 }
-echo "Form source ownership compiler contract passed (10 assertions).\n";
+echo "Form source ownership compiler contract passed (11 assertions).\n";

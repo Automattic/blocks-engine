@@ -336,6 +336,13 @@ final class FormControlMetadataBuilder
             'description'      => $description['description'],
         ), static fn (string $value): bool => '' !== $value);
 
+        // An accessible name from aria-label or aria-labelledby is not a rendered
+        // label box beside the control. A provider that always renders its own
+        // label element must keep that name for assistive technology only.
+        if ( isset($metadata['label']) && ! $labelElement instanceof DOMElement && ! in_array($type, array( 'button', 'reset', 'submit', 'hidden' ), true) ) {
+            $metadata['label_visible'] = false;
+        }
+
         // More than one candidate means the text cannot be safely attributed to
         // this control alone; the caller surfaces it as a diagnostic instead of
         // guessing, via this internal marker stripped before publication.
