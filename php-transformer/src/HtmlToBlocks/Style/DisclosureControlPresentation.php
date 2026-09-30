@@ -77,11 +77,13 @@ final class DisclosureControlPresentation
         $conditionalDisplay = $this->styles->conditionalDisplayRules($control);
         $css = $this->disclosureControlCarriedCss($control, array() !== $conditionalDisplay);
         $conditionalPresentation = $this->conditionalPresentation($control);
+        $titleCss = str_starts_with($prefix, 'blocks-engine-accordion-toggle-')
+            ? $this->styles->cssDeclarationString($this->disclosureSummaryLabelTypography($control)) : '';
         if ( '' === $css && array() === $conditionalDisplay && array() === $conditionalPresentation ) {
             return '';
         }
 
-        $marker = $prefix . substr(hash('sha256', $css . '|' . serialize($conditionalDisplay) . '|' . serialize($conditionalPresentation)), 0, 12);
+        $marker = $prefix . substr(hash('sha256', $css . '|' . serialize($conditionalDisplay) . '|' . serialize($conditionalPresentation) . '|' . $titleCss), 0, 12);
         if ( '' !== $css ) {
             if ( str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ) {
                 $this->support->registerAccordionTogglePresentation($marker, $css);
@@ -94,6 +96,12 @@ final class DisclosureControlPresentation
         }
         if ( array() !== $conditionalPresentation ) {
             $this->support->registerDisclosureControlConditionalPresentation($marker, $conditionalPresentation);
+        }
+        if ( '' !== $titleCss ) {
+            // Core inserts a title span around the source label. Its own line
+            // box otherwise inherits the larger trigger font and makes rows
+            // taller even when the nested source label remains styled correctly.
+            $this->support->registerAccordionTitlePresentation($marker, $titleCss);
         }
 
         return $marker;
