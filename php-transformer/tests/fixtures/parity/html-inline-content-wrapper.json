@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "hours-row" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "address blocks-engine-synthetic-paragraph", "content": "<strong>412 Coalyard Lane</strong> Pearl District<br>Portland, OR" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "address blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph", "content": "<strong>412 Coalyard Lane</strong> Pearl District<br>Portland, OR" } },
     { "path": "blocks.0.innerBlocks.2", "name": "core/group" }
   ],
   "expected_fallbacks": [],

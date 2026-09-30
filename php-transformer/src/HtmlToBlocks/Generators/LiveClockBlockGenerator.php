@@ -134,6 +134,7 @@ JS;
                 ripple.dispatchEvent( new CustomEvent( 'blocks-engine-ripple', { detail: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } } ) );
             }
             running = false;
+            marker.dataset.blocksEngineClockReady = 'true';
         }
         window.setInterval( currentTime, 1000 );
         if ( initialFrame ) { hours.textContent = initialFrame; minutes.textContent = initialFrame; }

@@ -3696,10 +3696,14 @@ final class ArtifactCompiler
             if ('' === $href) continue;
             $links[] = array_merge(array('order' => count($links), 'placement' => $placement($link['offset'])), $attributes($tag, array('rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes')), $reference($href));
         }
+        $scriptIndex = 0;
         if (preg_match_all('/<script\b[^>]*>(?:.*?)<\/script\s*>/is', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
             $tag = (string) $match[0]; $open = strstr($tag, '>', true) . '>'; $src = $this->htmlAttribute($open, 'src');
+            $selector = 'script:nth-of-type(' . (++$scriptIndex) . ')';
+            // A static-site interpreter of the inert motion markers is replaced by
+            // the view scripts of the blocks those markers lower to.
+            if ($this->hasHtmlAttribute($open, 'data-blocks-engine-marker-runtime')) continue;
             $async = $this->hasHtmlAttribute($open, 'async'); $defer = $this->hasHtmlAttribute($open, 'defer'); $module = 'module' === strtolower($this->htmlAttribute($open, 'type'));
-            $selector = 'script:nth-of-type(' . (count($scripts) + 1) . ')';
             $supersededBy = $this->htmlAttribute($open, 'data-blocks-engine-superseded-by');
             $inlineBodyHash = hash('sha256', trim((string) preg_replace('/^.*?>|<\/script\s*>$/is', '', $tag)));
             $inline = isset($inlineScripts[$selector]) ? $reference($inlineScripts[$selector]) : array('source_kind' => 'inline', 'body_hash' => $inlineBodyHash);

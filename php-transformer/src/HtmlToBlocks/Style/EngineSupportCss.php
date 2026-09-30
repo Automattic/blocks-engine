@@ -56,7 +56,8 @@ final class EngineSupportCss
                 // it has no source box. Let the source anchor/span remain the
                 // layout participant unless a separate carrier explicitly
                 // owns a box.
-                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){display:contents}'
+                // A lowered block-level source wrapper keeps its box.
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:contents}'
                 // A parent's sibling-spacing rule (`.stack > * + *`) now matches the
                 // carrier, whose margins do nothing as display:contents. The
                 // anchor it stands for takes them instead, as in the source.

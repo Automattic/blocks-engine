@@ -2765,7 +2765,10 @@ $syntheticInlineParagraphs = ( new HtmlTransformer() )->transform(
 )->toArray();
 $syntheticInlineMarkup = (string) ($syntheticInlineParagraphs['serialized_blocks'] ?? '');
 $syntheticInlineCss = implode("\n", array_column(array_filter($syntheticInlineParagraphs['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
-$assert(2 <= substr_count($syntheticInlineMarkup, 'blocks-engine-synthetic-paragraph') && str_contains($syntheticInlineMarkup, 'Verified Artifact') && str_contains($syntheticInlineMarkup, '<p class="blocks-engine-synthetic-paragraph"><span>Portable input.</span></p>') && ! str_contains($syntheticInlineMarkup, 'wp-block-blocks-engine-author-layout'), 'native anchors and standalone spans retain valid synthetic paragraph wrappers');
+$assert(2 <= substr_count($syntheticInlineMarkup, 'blocks-engine-synthetic-paragraph') && str_contains($syntheticInlineMarkup, 'Verified Artifact') && str_contains($syntheticInlineMarkup, '<p class="blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph"><span>Portable input.</span></p>') && ! str_contains($syntheticInlineMarkup, 'wp-block-blocks-engine-author-layout'), 'native anchors and standalone spans retain valid synthetic paragraph wrappers');
+$lowerableClock = ( new HtmlTransformer() )->transform('<style>.footer{display:flex;flex-direction:column}</style><div class="footer"><div id="clock"><span>09</span>:<span>41</span> <span>AM</span></div><div>DATE</div></div>')->toArray();
+$lowerableClockMarkup = (string) ($lowerableClock['serialized_blocks'] ?? '');
+$assert(! preg_match('/<p[^>]*class="[^"]*blocks-engine-synthetic-paragraph(?![^"]*blocks-engine-source-box-paragraph)[^"]*"[^>]*id="clock"/', $lowerableClockMarkup) && ! preg_match('/<p id="clock" class="(?![^"]*blocks-engine-source-box-paragraph)[^"]*blocks-engine-synthetic-paragraph/', $lowerableClockMarkup), 'a block-level wrapper lowered to a paragraph keeps its own box instead of releasing its inline children into a flex parent');
 $assert(str_contains($syntheticInlineCss, ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}') && strpos($syntheticInlineCss, ':root :where(.blocks-engine-synthetic-paragraph)') < strpos($syntheticInlineCss, ':where(.blocks-engine-source-p-'), 'synthetic paragraph reset precedes projected author CSS so explicit source margins retain cascade precedence');
 $assert(preg_match('/<p class="blocks-engine-source-p-[^"]+">Source paragraph\.<\/p>/', $syntheticInlineMarkup) === 1 && ! str_contains($syntheticInlineMarkup, 'blocks-engine-synthetic-paragraph blocks-engine-source-p-') && 'pass' === ($syntheticInlineParagraphs['source_reports']['wp_block_validity']['status'] ?? ''), 'source paragraphs retain source-p selector provenance without the synthetic inline wrapper reset');
 
@@ -2784,7 +2787,7 @@ $responsiveDivParagraph = ( new HtmlTransformer() )->transform(
 )->toArray();
 $responsiveDivParagraphMarkup = (string) ($responsiveDivParagraph['serialized_blocks'] ?? '');
 $responsiveDivParagraphCss = implode("\n", array_column(array_filter($responsiveDivParagraph['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
-$assert(preg_match('/<p class="paragraph blocks-engine-synthetic-paragraph (blocks-engine-source-div-[^"]+)"><span>Responsive copy\.<\/span><\/p>/', $responsiveDivParagraphMarkup, $responsiveDivParagraphMarker) === 1, 'div-backed native paragraphs retain source-div selector provenance');
+$assert(preg_match('/<p class="paragraph blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph (blocks-engine-source-div-[^"]+)"><span>Responsive copy\.<\/span><\/p>/', $responsiveDivParagraphMarkup, $responsiveDivParagraphMarker) === 1, 'div-backed native paragraphs retain source-div selector provenance');
 $assert(str_contains($responsiveDivParagraphCss, ':where(.' . ($responsiveDivParagraphMarker[1] ?? '') . ')') && str_contains($responsiveDivParagraphCss, 'padding-bottom:20px') && str_contains($responsiveDivParagraphCss, 'padding-bottom:8px'), 'source div selectors preserve responsive paragraph spacing after the native tag changes');
 $assert('pass' === ($responsiveDivParagraph['source_reports']['wp_block_validity']['status'] ?? ''), 'source-div paragraph selector projection preserves valid block markup');
 
@@ -5033,6 +5036,16 @@ $portableMarkerSite = $compiler->compile(array(
 $portableMarkup = (string) ($portableMarkerSite['serialized_blocks'] ?? '');
 $assert(str_contains($portableMarkup, '/motion-sequence') && str_contains($portableMarkup, '/live-clock'), 'author-provided inert motion markers lower to native editable companion blocks');
 $assert(array() === ($portableMarkerSite['source_reports']['runtime_islands'] ?? array()), 'native marker save markup fulfills authored script targets without runtime islands');
+$markerRuntimeSite = $compiler->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => '<main><p id="message">Editable</p></main><span hidden data-blocks-engine-motion-steps="[{&quot;selector&quot;:&quot;#message&quot;}]"></span><script defer src="motion/runtime.js" data-blocks-engine-marker-runtime="motion"></script><script src="other.js"></script>',
+        'motion/runtime.js' => 'document.querySelectorAll("[data-blocks-engine-motion-steps]");',
+        'other.js' => 'window.other = true;',
+    ),
+))->toArray();
+$markerRuntimeScripts = $markerRuntimeSite['source_reports']['wordpress_site_plan']['pages'][0]['document_metadata']['scripts'] ?? array();
+$assert(1 === count($markerRuntimeScripts) && 'blocking' === ($markerRuntimeScripts[0]['effective_loading'] ?? null) && str_contains((string) ($markerRuntimeSite['serialized_blocks'] ?? ''), '/motion-sequence'), 'a declared static interpreter of motion markers is replaced by the lowered blocks view scripts, not loaded beside them');
 
 $motionFixture = array(
     'site' => array('name' => 'Motion Fixture', 'slug' => 'motion-fixture'),
@@ -5050,7 +5063,8 @@ $motionBlocks = $motionSite['source_reports']['companion_plugin_payload']['block
 $sequence = array_values(array_filter($motionBlocks, static fn (array $block): bool => 'motion-sequence' === ($block['name'] ?? '')))[0] ?? array();
 $assert('ssi-motion-fixture/motion-sequence' === ($sequence['block_json']['name'] ?? '') && 'file:./view.js' === ($sequence['block_json']['viewScript'] ?? '') && str_contains((string) ($sequence['view_js'] ?? ''), 'step.target.textContent'), 'unreproduced capture motion offers editable sequence authoring through the existing companion asset contract');
 $liveClock = array_values(array_filter($motionBlocks, static fn (array $block): bool => 'live-clock' === ($block['name'] ?? '')))[0] ?? array();
-$assert('ssi-motion-fixture/live-clock' === ($liveClock['block_json']['name'] ?? '') && 'file:./view.js' === ($liveClock['block_json']['viewScript'] ?? '') && str_contains((string) ($liveClock['view_js'] ?? ''), 'currentTime'), 'unreproduced motion offers a generic editable live-clock companion beside text sequence');
+$assert(str_contains((string) ($sequence['view_js'] ?? ''), 'revealSelectors') && str_contains((string) ($sequence['view_js'] ?? ''), 'showReveals( step.reveal )'), 'motion steps hide learned reveal elements until their typing starts');
+$assert('ssi-motion-fixture/live-clock' === ($liveClock['block_json']['name'] ?? '') && 'file:./view.js' === ($liveClock['block_json']['viewScript'] ?? '') && str_contains((string) ($liveClock['view_js'] ?? ''), 'currentTime') && str_contains((string) ($liveClock['view_js'] ?? ''), 'blocksEngineClockReady'), 'unreproduced motion offers a generic editable live-clock companion beside text sequence');
 $assert(str_contains((string) ($motionSite['serialized_blocks'] ?? ''), 'Current editable text') && array() === ($motionSite['fallbacks'] ?? array()), 'offered motion sequence does not replace native editable source text or introduce fallbacks');
 unset($motionFixture['files']['capture-receipt.json']);
 $noMotionSite = $compiler->compile($motionFixture)->toArray();
