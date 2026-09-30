@@ -201,6 +201,20 @@ final class FormLayoutGraphBuilder
                 $nodes[$entry['id']]['sizing'] = $sizing;
             }
         }
+        // Structural ancestors restored without layout facts of their own still
+        // carry resolved presentation (inherited alignment and typography), so a
+        // consumer reading any box on the path sees what that box renders.
+        foreach ( $entries as $entry ) {
+            if ( ! isset($nodes[$entry['id']]) || isset($nodes[$entry['id']]['presentation']) || 'container' !== $entry['kind'] || 'form' === $entry['id'] ) {
+                continue;
+            }
+            $presentation = $presentationBuilder->buildElement($entry['element'], $stylesheets, $inlineCss);
+            $nodes[$entry['id']]['presentation'] = $presentation;
+            if ( $presentation['truncated'] ) {
+                $this->truncated = true;
+                $this->diagnostics[] = 'element_presentation_limit';
+            }
+        }
         $this->hoistFieldListSpacing($entries, $nodes, $analysis['rules'], $customPropertyAnalysis['rules']);
         $this->hoistFieldGroupSpacing($entries, $nodes, $analysis['rules'], $customPropertyAnalysis['rules']);
 

@@ -13,10 +13,10 @@ $classes = implode(' ', array_map(static fn(int $i): string => 'hook-' . $i, ran
 $html = '<!doctype html><html><head><link rel="stylesheet" href="source.css"></head><body><main class="page"><form method="post">'
     . '<div class="intro-box"><p class="' . $classes . '">A neutral introduction.</p></div>'
     . '<label for="email">Email</label><input id="email" type="email" name="email" required>'
-    . '<div class="submit-box"><button type="submit">Send</button></div>'
+    . '<div class="submit-box"><div><button type="submit">Send</button></div></div>'
     . '<div class="note-box"><p class="note">Please review your details.</p></div></form></main></body></html>';
 $css = '.page{--copy:21px;font-family:Georgia;color:#123456;text-align:center}.wide-copy{font-size:var(--copy)}'
-    . '.intro-box{padding:3px 5px}.submit-box{min-height:73px;padding-bottom:19px}'
+    . '.intro-box{padding:3px 5px}.submit-box{min-height:73px;padding-bottom:19px}.submit-box button{min-height:41px}'
     . '.note-box{padding:7px 0 13px}.note{font-size:11px}'
     . '@media (min-width:1200px){.page{--copy:27px}.wide-copy{letter-spacing:2px}.note-box{padding-bottom:17px}}';
 $compile = static function (string $html) use ($css): array {
@@ -40,7 +40,8 @@ $controls = array_column(array_filter($graph['nodes'] ?? array(), static fn(arra
 $assert(!isset($controls['control-1']['layout']['min_height'], $controls['control-1']['layout']['padding_bottom']) && 'email' === ($form['controls'][0]['name'] ?? null) && true === ($form['controls'][0]['required'] ?? null), 'Box ownership preserves native field and submit semantics.');
 $presentation = $byClass['wide-copy']['presentation'] ?? array();
 $assert('21px' === ($presentation['styles']['font_size'] ?? null) && 'Georgia' === ($presentation['styles']['font_family'] ?? null) && '#123456' === ($presentation['styles']['color'] ?? null), 'Context presentation resolves inherited typography and ancestor variables.');
-$assert('center' === ($byClass['submit-box']['presentation']['styles']['text_align'] ?? null), 'Wrapper presentation resolves inherited text alignment for inline-level content.');
+$innerSubmitBox = current(array_filter($graph['nodes'] ?? array(), static fn(array $node): bool => ($node['parent'] ?? null) === ($byClass['submit-box']['id'] ?? '') && 'container' === $node['kind'])) ?: array();
+$assert('center' === ($byClass['submit-box']['presentation']['styles']['text_align'] ?? null) && 'center' === ($innerSubmitBox['presentation']['styles']['text_align'] ?? null), 'Wrapper presentation, including fact-less structural wrappers, resolves inherited text alignment.');
 $patches = $presentation['variants'] ?? array();
 $assert(1 === count($patches) && '27px' === ($patches[0]['styles']['font_size'] ?? null) && '2px' === ($patches[0]['styles']['letter_spacing'] ?? null) && !isset($patches[0]['styles']['padding']), 'Responsive patches carry changing properties only, including variable-only changes.');
 $assert('source.css' === ($presentation['provenance'][0]['source_path'] ?? null) && hash('sha256', $css) === ($presentation['provenance'][0]['source_sha256'] ?? null), 'Resolved presentation keeps stylesheet provenance.');
