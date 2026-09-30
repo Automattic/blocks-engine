@@ -288,8 +288,9 @@ final class AuthoredFormControlBlockConverter
             'className' => SourceDom::attr($button, 'class'),
             'style' => SourceDom::attr($button, 'style'),
             'text' => $this->metadataBuilder->submitText($button, 'Submit'),
+            'labelWrappers' => AuthoredButtonBlockGenerator::labelWrappers($button),
             'disabled' => $button->hasAttribute('disabled'),
-        ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $markup = $generator->markup($attrs);
 
         return array(
