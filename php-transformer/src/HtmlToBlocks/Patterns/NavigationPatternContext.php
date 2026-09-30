@@ -44,6 +44,28 @@ final class NavigationPatternContext
         return $this->session?->authorSelectorProjectionState()->semanticMarkersForPath($element->getNodePath() ?? '') ?? array();
     }
 
+    /** Marks a block element inside a link label that paints the label text itself. */
+    public const LABEL_TYPOGRAPHY_BOX_CLASS = 'blocks-engine-label-typography';
+
+    /**
+     * Whether a block-level element inside a navigation link declares its own
+     * text presentation. Such an element (a logo heading) is what paints the
+     * label, so it must survive the label's inline reduction.
+     */
+    public function ownsLabelTypography(DOMElement $element): bool
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver || 1 !== preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName) ) {
+            return false;
+        }
+        $declarations = $this->styleResolver->presentationDeclarations($element);
+        foreach ( array( 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'text-transform', 'color', 'line-height', 'font-style' ) as $property ) {
+            if ( '' !== trim((string) ($declarations[ $property ] ?? '')) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
         return $this->runtimeIslands?->isRuntimeDomTarget($element) ?? false;

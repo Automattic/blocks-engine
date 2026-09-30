@@ -15,7 +15,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
 
-    private const BLOCK_LEVEL_LABEL_TAGS = 'address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul';
+    public const BLOCK_LEVEL_LABEL_TAGS = 'address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul';
 
     private const LINK_COLOR_CLASS_PREFIX = 'blocks-engine-navigation-link-color-';
 
@@ -1811,7 +1811,10 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $markered = SourceDom::innerHtmlWithProjectedMarkers(
             $anchor,
-            static fn (DOMElement $element): array => $navigationContext->labelPresentationMarkers($element)
+            static fn (DOMElement $element): array => array_merge(
+                $navigationContext->labelPresentationMarkers($element),
+                $navigationContext->ownsLabelTypography($element) ? array( NavigationPatternContext::LABEL_TYPOGRAPHY_BOX_CLASS ) : array()
+            )
         );
 
         // The transformer's own serializer performs rich-text lowering the plain
@@ -1824,7 +1827,21 @@ final class NavigationPattern implements PatternRecognizerInterface
         $html = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html;
         $html = preg_replace('/<span\b[^>]*>\s*<\/span>/i', '', $html) ?? $html;
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
-        $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
+        // A label is inline RichText, so block-level tags cannot survive. A block
+        // element that declares its own text presentation (a logo heading inside
+        // the brand link) is what paints the label, so it keeps its presentation
+        // hooks as an inline span; other block tags carry nothing and are dropped.
+        $html = preg_replace_callback(
+            '/<(\/?)(' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b([^>]*)>/i',
+            static function (array $match): string {
+                if ( '/' === $match[1] ) {
+                    return '</' . strtolower($match[2]) . '>';
+                }
+                return str_contains($match[3], NavigationPatternContext::LABEL_TYPOGRAPHY_BOX_CLASS) && 'hr' !== strtolower($match[2]) ? '<span' . $match[3] . '>' : '<' . strtolower($match[2]) . '>';
+            },
+            $html
+        ) ?? $html;
+        $html = self::closeRetainedBlockLabelTags($html);
         $html = trim($html);
 
         // Markup carrying no text of its own is not a label. An anchor built from
@@ -1836,6 +1853,31 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $html;
+    }
+
+    /**
+     * Pair each retained (span) opening with its own closing tag and drop the
+     * tags of unclassed block elements, walking the tag sequence as a stack.
+     */
+    private static function closeRetainedBlockLabelTags(string $html): string
+    {
+        $stack = array();
+        return preg_replace_callback(
+            '/<(\/?)(span|' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i',
+            static function (array $match) use (&$stack): string {
+                $tag = strtolower($match[2]);
+                if ( '/' !== $match[1] ) {
+                    $retained = 'span' === $tag && str_starts_with(strtolower($match[0]), '<span');
+                    $stack[] = $retained;
+                    return $retained ? $match[0] : '';
+                }
+                if ( array() === $stack ) {
+                    return '';
+                }
+                return array_pop($stack) ? '</span>' : '';
+            },
+            $html
+        ) ?? $html;
     }
 
     /**
