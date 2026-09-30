@@ -3,6 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedCollectionProjector;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $assert = static function (bool $value, string $message): void { if (!$value) { fwrite(STDERR, "FAIL: {$message}\n"); exit(1); } };
@@ -29,6 +30,7 @@ $assert(1 === $projected['projected_count'], 'verified source transitions establ
 $html = $projected['files'][0]['content'];
 $result = (new HtmlTransformer())->transform($html)->toArray();
 $markup = $result['serialized_blocks'];
+$assert('' !== RuntimeDeclarations::canonicalJson($result['source_reports']['generated_blocks']), 'generated definitions retain the bounded canonical runtime payload contract');
 $assert(str_contains($markup, 'wp:custom/collection-filter ') && str_contains($markup, 'wp:custom/collection-filter-field ') && str_contains($markup, 'wp:custom/collection-filter-choice '), 'native editable collection controls replace the source field without a global WordPress search');
 $assert(!str_contains($markup, 'wp:search') && !str_contains($markup, 'wp:html') && !str_contains($markup, 'wp:tabs'), 'the verified relationship contains no global search, raw HTML or per-category snapshots');
 $assert(1 === substr_count($markup, '>Alpha answer</p>') && 1 === substr_count($markup, '>Beta answer</p>'), 'duplicate labels with distinct answers remain one editable copy each');

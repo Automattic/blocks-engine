@@ -20,11 +20,11 @@ final class CollectionFilterBlockGenerator
         $attributes = array(
             'className' => array('type' => 'string', 'default' => ''),
             'anchor' => array('type' => 'string', 'default' => ''),
-            'sourceStyle' => array('type' => 'object', 'default' => new \stdClass()),
+            'sourceStyle' => array('type' => 'object'),
         );
         if (self::ROOT === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'), 'items' => array('type' => 'array', 'default' => array()), 'initialCategory' => array('type' => 'number', 'default' => 0));
         if (self::FIELD === $local) $attributes += array('inputType' => array('type' => 'string', 'default' => 'search'), 'placeholder' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'value' => array('type' => 'string', 'default' => ''));
-        if (self::CHOICE === $local) $attributes += array('label' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'index' => array('type' => 'number', 'default' => 0), 'initial' => array('type' => 'boolean', 'default' => false), 'active' => array('type' => 'object', 'default' => new \stdClass()), 'inactive' => array('type' => 'object', 'default' => new \stdClass()));
+        if (self::CHOICE === $local) $attributes += array('label' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'index' => array('type' => 'number', 'default' => 0), 'initial' => array('type' => 'boolean', 'default' => false), 'active' => array('type' => 'object'), 'inactive' => array('type' => 'object'));
         $editor = <<<'JS'
 (function(blocks,editor,components,element){
 var el=element.createElement,role=__ROLE__,store=__STORE__;
