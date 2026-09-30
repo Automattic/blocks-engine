@@ -377,7 +377,11 @@ final class BlockFactory
                 $label = is_array($tab) ? (string) ($tab['label'] ?? '') : '';
                 $buttons .= '<button type="button" role="tab">' . $this->preserveRichTextPunctuation($label) . '</button>';
             }
-            return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-tab-list') . ' role="tablist">' . $buttons . '</div>';
+            // Layout renders blockGap as scoped CSS, not a saved inline gap.
+            // Retain the attribute for the editor and server layout engine.
+            unset($attrs['style']['spacing']['blockGap']);
+            $ariaLabel = $this->htmlAttrs(array('aria-label' => (string) ($attrs['ariaLabel'] ?? '')));
+            return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-tab-list') . ' role="tablist"' . $ariaLabel . '>' . $buttons . '</div>';
         }
 
         if ( 'core/tab-panels' === $name ) {

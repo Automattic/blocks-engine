@@ -25,6 +25,12 @@ final class GeneratedSupportStylesheetState
     private array $accordionTogglePresentation = array();
 
     /** @var array<string, string> */
+    private array $accordionTitlePresentation = array();
+
+    /** @var array<string, array<string, string>> */
+    private array $disclosureControlConditionalPresentation = array();
+
+    /** @var array<string, string> */
     private array $syntheticHeaderAnchorRules = array();
 
     /** @var array<string, string> */
@@ -166,6 +172,17 @@ final class GeneratedSupportStylesheetState
         $this->accordionTogglePresentation[$className] = $declarations;
     }
 
+    public function registerAccordionTitlePresentation(string $className, string $declarations): void
+    {
+        $this->accordionTitlePresentation[$className] = $declarations;
+    }
+
+    /** @param array<string, string> $rules */
+    public function registerDisclosureControlConditionalPresentation(string $className, array $rules): void
+    {
+        $this->disclosureControlConditionalPresentation[$className] = $rules;
+    }
+
     public function registerNavigationLinkIcon(string $className, string $declarations): void
     {
         $this->navigationLinkIcons[$className] = $declarations;
@@ -273,6 +290,20 @@ final class GeneratedSupportStylesheetState
                 // source trigger's box is restated on it from here rather than
                 // carried as markup.
                 $parts[] = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle{' . $declarations . '}';
+            }
+        }
+        foreach ($this->disclosureControlConditionalPresentation as $className => $rules) {
+            if (!str_contains($serializedBlocks, $className)) continue;
+            $selector = str_starts_with($className, 'blocks-engine-accordion-toggle-')
+                ? '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle'
+                : '.wp-block-details.' . $className . '>summary';
+            foreach ($rules as $condition => $declarations) {
+                $parts[] = $condition . '{' . $selector . '{' . $declarations . '}' . str_repeat('}', substr_count($condition, '{') + 1);
+            }
+        }
+        foreach ($this->accordionTitlePresentation as $className => $declarations) {
+            if (str_contains($serializedBlocks, $className)) {
+                $parts[] = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle>.wp-block-accordion-heading__toggle-title{' . $declarations . '}';
             }
         }
         foreach ($this->navigationSpacing as $className => $declarations) {
