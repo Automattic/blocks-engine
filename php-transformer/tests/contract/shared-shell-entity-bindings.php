@@ -4,6 +4,9 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assert = static function (bool $condition, string $message): void {
@@ -56,6 +59,34 @@ sort($sources);
 $assert(array('about.html', 'wordpress-site-plan/shared/footer#footer') === $sources, 'The matching pages share one form in the part; the differing page keeps its own: ' . json_encode($sources));
 $aboutPage = array_values(array_filter($divergent['pages'], static fn (array $row): bool => 'about.html' === $row['source_path']))[0];
 $assert(str_contains($aboutPage['canonical_block_markup'], 'Subscribe'), 'The differing page still renders its own footer form.');
+
+// Forms over the declaration budget are stored as runtime entity manifest
+// records. Their bindings are not rewritten by shell extraction, so the shared
+// footer holding one stays page-owned, and every binding still resolves on the
+// page that renders its form.
+$twoPage = static fn (string $title): string => str_replace('<a href="team.html">Team</a>', '', $page($title, $signup));
+$manifestInput = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $twoPage('Home'), 'about.html' => $twoPage('About'), 'logo.png' => $logo)))->toArray();
+unset($manifestInput['source_reports']['conversion_report'], $manifestInput['source_reports']['wordpress_site_plan']);
+$manifestDeclarations = $manifestInput['source_reports']['compiled_site']['runtime_declarations'];
+foreach ($manifestDeclarations as &$declaration) {
+    if ('forms' !== ($declaration['type'] ?? null)) continue;
+    $manifest = RuntimeEntityManifest::fromEntities('generic/forms/v1', $declaration['payload']['entities']);
+    $declaration = array('kind' => $declaration['kind'], 'type' => $declaration['type'], 'source_path' => $declaration['source_path'], 'payload' => $manifest['payload']);
+}
+unset($declaration);
+$assert(isset($manifest) && 2 === count($manifest['records']), 'Both pages declare a form entity to store as a manifest record.');
+$manifestInput['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeList($manifestDeclarations);
+$manifestInput['source_reports']['compiled_site']['runtime_entity_records'] = $manifest['records'];
+$manifestPlan = (new WordPressSitePlan())->fromCompilerResult($manifestInput);
+$manifestResolved = (new WordPressSitePlanResolver())->resolve($manifestPlan, array('theme_uri' => 'https://example.test/wp-content/themes/captured'));
+$assert(array() === array_filter($manifestPlan['template_parts'], static fn (array $part): bool => 'footer' === ($part['area'] ?? null)) && in_array('wordpress_site_plan_shell_retained_runtime_binding', array_column($manifestPlan['diagnostics'], 'code'), true), 'A footer whose form lives in a manifest record stays page-owned: ' . json_encode(array_column($manifestPlan['diagnostics'], 'code')));
+foreach ($manifestPlan['pages'] as $row) $assert(1 === substr_count($row['canonical_block_markup'], 'Keep in touch') && str_contains($row['canonical_block_markup'], '<form'), $row['source_path'] . ' keeps its own footer and form.');
+$manifestPages = array_column($manifestResolved['pages'], null, 'source_path');
+$manifestBindings = array();
+foreach ($manifestResolved['runtime_entity_resolution'] as $declaration) foreach ($declaration['entities'] as $entity) foreach ($entity['bindings'] as $binding) $manifestBindings[$binding['source_path']] = $binding;
+ksort($manifestBindings);
+$assert(array('about.html', 'index.html') === array_keys($manifestBindings), 'Each page keeps the binding for its own form: ' . json_encode(array_keys($manifestBindings)));
+foreach ($manifestBindings as $source => $binding) $assert($binding['search_block_markup'] === substr($manifestPages[$source]['resolved_block_markup'], $binding['position']['offset'], $binding['position']['length']), $source . ' resolves its manifest binding to one exact block of its page.');
 
 // A form fallback diagnostic carries its fallback row's producer identity, so a
 // consumer can match every page's source finding to the entity that replaced it.
