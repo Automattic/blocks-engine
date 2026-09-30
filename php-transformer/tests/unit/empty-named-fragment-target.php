@@ -63,8 +63,8 @@ $hrefEmpty = $transformer->transform(
     '<main><a href="/x"></a><p>After</p></main>'
 )->toArray();
 $assert(
-    'html_unsupported_element' === ( $hrefEmpty['fallbacks'][0]['diagnostic_code'] ?? null ),
-    '14: an empty destination-bearing anchor remains an unsupported element',
+    array() === $hrefEmpty['fallbacks'] && str_contains($hrefEmpty['serialized_blocks'], 'href="/x"'),
+    '14: an empty destination-bearing anchor remains a native link rather than a fragment target',
     json_encode($hrefEmpty['fallbacks'] ?? array())
 );
 

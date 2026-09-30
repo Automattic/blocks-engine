@@ -129,8 +129,8 @@ $assert($islandRecorded, 'runtime-button-records-control-island');
 // A plain button that matches no pattern yields nothing.
 $assert(null === $makeDispatcher()->convertButton($elementFrom('<button>go</button>')), 'unmatched-button-yields-nothing');
 
-// An empty anchor with no accessible name drops.
-$assert(null === $makeDispatcher()->convertAnchor($elementFrom('<a href="/x"></a>'), $fallbacks), 'empty-anchor-drops');
+// An empty safe link retains its destination on a native RichText host.
+$assert('core/paragraph' === ($makeDispatcher()->convertAnchor($elementFrom('<a href="/x"></a>'), $fallbacks)['blockName'] ?? ''), 'empty-anchor-retains-destination');
 
 // Untitled inline SVG is visual content. Convert children instead of dropping.
 $svgChildren = $makeDispatcher(array(

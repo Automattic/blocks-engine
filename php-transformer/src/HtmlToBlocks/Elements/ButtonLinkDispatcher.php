@@ -72,6 +72,16 @@ final class ButtonLinkDispatcher
             return $this->paragraphHost($element);
         }
 
+        // A childless whitespace-only link still owns its destination and may
+        // own a CSS hitbox. Use the same native RichText host as other links;
+        // neither a duplicate sibling destination nor absent text proves that
+        // it is safe to omit. Keep media-bearing anchors on their own lowering.
+        if ( 0 === SourceDom::childElementCount($element)
+            && '' === trim($element->textContent ?? '')
+            && '' !== $this->context->safeLinkUrl(SourceDom::attr($element, 'href')) ) {
+            return $this->paragraphHost($element);
+        }
+
         // A text-less anchor is not an empty anchor: icons, one image, a whole
         // image feed, a media carrier — whatever it wraps is content, and the
         // link-wrapper group is the lowering that keeps it while propagating the
