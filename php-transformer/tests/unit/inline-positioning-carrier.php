@@ -14,7 +14,9 @@ declare(strict_types=1);
  *
  * Positioning is preserved, never synthesized: only an element whose own inline
  * style declares it is carried, and `absolute` additionally requires a
- * containing block that is itself carried inline.
+ * proven positioned ancestor — an inline declaration or an authored class
+ * rule resolved through the static cascade (see
+ * class-positioned-containing-block.php).
  *
  * Offsets (`left`/`top`/`right`/`bottom`, plus `inset`/`z-index`) are different:
  * they only place a box when the used `position` is not `static`, and that
