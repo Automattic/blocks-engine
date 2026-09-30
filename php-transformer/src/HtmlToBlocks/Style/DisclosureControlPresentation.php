@@ -76,11 +76,12 @@ final class DisclosureControlPresentation
     {
         $conditionalDisplay = $this->styles->conditionalDisplayRules($control);
         $css = $this->disclosureControlCarriedCss($control, array() !== $conditionalDisplay);
-        if ( '' === $css && array() === $conditionalDisplay ) {
+        $conditionalPresentation = $this->conditionalPresentation($control);
+        if ( '' === $css && array() === $conditionalDisplay && array() === $conditionalPresentation ) {
             return '';
         }
 
-        $marker = $prefix . substr(hash('sha256', $css . '|' . serialize($conditionalDisplay)), 0, 12);
+        $marker = $prefix . substr(hash('sha256', $css . '|' . serialize($conditionalDisplay) . '|' . serialize($conditionalPresentation)), 0, 12);
         if ( '' !== $css ) {
             if ( str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ) {
                 $this->support->registerAccordionTogglePresentation($marker, $css);
@@ -90,6 +91,9 @@ final class DisclosureControlPresentation
         }
         if ( array() !== $conditionalDisplay ) {
             $this->support->registerDisclosureControlConditionalDisplay($marker, $conditionalDisplay);
+        }
+        if ( array() !== $conditionalPresentation ) {
+            $this->support->registerDisclosureControlConditionalPresentation($marker, $conditionalPresentation);
         }
 
         return $marker;
@@ -123,6 +127,15 @@ final class DisclosureControlPresentation
         // restating it on the summary reaches the label again, and any rule the
         // label still owns keeps winning over it.
         $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
+        // A source button inherits body type; the generated h3 introduces a
+        // theme heading font between it and that ancestor. Carry the authored
+        // inherited winner across that new semantic wrapper.
+        if ( ! isset($carried['font-family']) ) {
+            $font = $this->styles->authoredInheritedPropertyWinner($control, 'font-family');
+            if ( '' !== $font ) {
+                $carried['font-family'] = $this->styles->resolveCssVariablesInValue($font, $control);
+            }
+        }
         // A `display` the source states per viewport is carried with its
         // conditions instead. Restating the reference viewport's value here
         // unconditionally would outrank the author's own responsive rule, which
@@ -132,6 +145,22 @@ final class DisclosureControlPresentation
         }
 
         return $this->styles->cssDeclarationString($carried);
+    }
+
+    /** @return array<string, string> */
+    private function conditionalPresentation(DOMElement $control): array
+    {
+        $rules = array();
+        // These are the same visual families the bare core trigger cannot
+        // retain. Preserve viewport conditions instead of baking a scalar box.
+        $properties = array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'font-family', 'font-size', 'font-weight', 'line-height', 'min-height', 'min-width', 'height', 'width', 'color', 'background-color', 'border-radius', 'align-items', 'justify-content');
+        foreach ( $properties as $property ) {
+            foreach ( $this->styles->declaredPresentation($control, $property)->conditional() as $condition => $value ) {
+                $declarations = $this->styles->safeVisualDeclarations(array($property => $this->styles->resolveCssVariablesInValue($value, $control)));
+                $rules[$condition] = array_merge($rules[$condition] ?? array(), $declarations);
+            }
+        }
+        return array_map($this->styles->cssDeclarationString(...), $rules);
     }
 
     /**

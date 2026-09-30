@@ -86,6 +86,16 @@ $assert(
 );
 
 // A trigger with nothing of its own to carry stays unmarked.
+$responsive = $transform(
+    '<style>body{font-family:Arial,sans-serif}.trigger{padding:20px}.label{font-size:16px;line-height:24px}'
+    . '@media(min-width:768px){.trigger{padding:24px}}</style><main><div>'
+    . $item('<span class="label">Responsive one</span>', 'A') . $item('<span class="label">Responsive two</span>', 'B')
+    . '</div></main>'
+);
+$responsiveCss = $supportCss($responsive);
+$assert(1 === preg_match('/wp-block-accordion-heading__toggle\{[^}]*font-family:Arial,sans-serif/', $responsiveCss), 'the toggle keeps source inherited body typography rather than destination heading typography', $responsiveCss);
+$assert(1 === preg_match('/@media\s*\(min-width:768px\)\{[^}]*wp-block-accordion-heading__toggle\{[^}]*padding:24px/', $responsiveCss), 'responsive toggle padding travels with its source breakpoint', $responsiveCss);
+
 $bare = $transform(
     '<main><div class="w-full">'
     . '<div><h3><button type="button" aria-expanded="false">Plain one</button></h3><div><p>A</p></div></div>'
