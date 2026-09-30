@@ -306,6 +306,15 @@ trait StagedTransport
         if (self::COMPACT_RECEIPT_SCHEMA === $pagePlan['receipt_schema']) {
             unset($pagePlan['terminal_reduction']['files'], $pagePlan['terminal_reduction']['entry_blocks']);
         }
+        // Final reduction reads a non-entry document through its serialized
+        // markup and precomputed editability report; its parsed block tree is
+        // the largest per-page payload and composition never reads it. Only
+        // the entry document keeps its tree, which terminal reports walk.
+        foreach ($pagePlan['compiled_documents'] as $path => $document) {
+            if ($path !== $entryPath && is_array($document['editability_report'] ?? null)) {
+                unset($pagePlan['compiled_documents'][$path]['blocks']);
+            }
+        }
         /*
          * Observational work data is deliberately excluded from the receipt
          * digest so independently resumed work has stable canonical identity.
