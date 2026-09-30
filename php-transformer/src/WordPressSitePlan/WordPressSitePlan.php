@@ -287,7 +287,7 @@ final class WordPressSitePlan
          $pages = $navigation['pages'];
          $parts = $navigation['parts'];
          $menus = $navigation['menus'];
-         $articleChrome = $this->extractPostArticleChrome($pages, $parts);
+        $articleChrome = $this->extractPostArticleChrome($pages, $parts);
          $pages = $articleChrome['pages'];
          $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations);
          // Query Loop projection can shorten page markup after shell extraction.
@@ -1877,9 +1877,10 @@ final class WordPressSitePlan
     }
     /**
      * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $parts
      * @return array{pages:array<int,array<string,mixed>>,single:?string}
      */
-    private function extractPostArticleChrome(array $pages, array $parts = array()): array
+    private function extractPostArticleChrome(array $pages, array $parts): array
     {
         $posts = array();
         $indexes = array();
@@ -1890,16 +1891,20 @@ final class WordPressSitePlan
             $posts[] = $page;
             $indexes[] = $index;
         }
-        // A second chrome pass must not hoist occurrence-owned regions into a
-        // generic single template after their source placement was established.
-        $postSources = array_fill_keys(array_column($posts, 'source_path'), true);
-        foreach ($parts as $part) {
-            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null) && array_intersect_key(array_fill_keys($part['placement']['source_paths'] ?? array(), true), $postSources)) {
-                return array('pages' => $pages, 'single' => null);
-            }
-        }
         if (count($posts) < 2) {
             return array('pages' => $pages, 'single' => null);
+        }
+        // Article factoring targets one global single template. Inline shell
+        // references belong to the source documents, including their wrappers.
+        // Keep the entire article in post-content rather than hoisting those
+        // references (or splitting their authored ancestor context).
+        foreach ($parts as $part) {
+            if ('inline_shared_shell' !== ($part['placement']['kind'] ?? null)) continue;
+            foreach ($posts as $post) {
+                if (str_contains($post['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) {
+                    return array('pages' => $pages, 'single' => null);
+                }
+            }
         }
         $shared = $this->sharedPostChromeIdentities($posts);
         $single = null;
