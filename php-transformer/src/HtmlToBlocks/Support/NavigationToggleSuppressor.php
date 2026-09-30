@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
+use SplObjectStorage;
 
 /**
  * Decides which source menu toggles and overlay menus are superseded by the
@@ -24,10 +25,33 @@ use DOMNode;
  */
 final class NavigationToggleSuppressor
 {
+    /**
+     * NavigationPattern outcome per source element. Toggle ownership asks the
+     * same question of every element in a candidate scope, for every toggle,
+     * every ancestor scope and every navigation, so an unmemoized deep document
+     * re-runs the full recognizer (and its cascade matching) hundreds of times
+     * per element. Keyed by element identity — the storage holds each wrapper,
+     * so identity stays stable while node paths may shift — and cleared
+     * whenever source markup mutates after selector analysis.
+     *
+     * @var SplObjectStorage<DOMElement, bool>
+     */
+    private SplObjectStorage $coreNavigationRecognitions;
+
+    /** Recognizer executions behind {@see self::convertsToCoreNavigation()}. */
+    public int $coreNavigationRecognitionExecutions = 0;
+
     public function __construct(
         private readonly NavigationToggleSuppressionContext $context,
         private readonly StyleResolver $styleResolver
     ) {
+        $this->coreNavigationRecognitions = new SplObjectStorage();
+    }
+
+    /** Source markup changed after selector analysis, so memoized recognitions are stale. */
+    public function forgetCoreNavigationRecognitions(): void
+    {
+        $this->coreNavigationRecognitions = new SplObjectStorage();
     }
     /**
      * Bind a hidden dialog/menu to its source hamburger before recursive
@@ -1530,13 +1554,18 @@ final class NavigationToggleSuppressor
 
     public function convertsToCoreNavigation(DOMElement $element): bool
     {
+        if ( $this->coreNavigationRecognitions->offsetExists($element) ) {
+            return $this->coreNavigationRecognitions[$element];
+        }
+
+        ++$this->coreNavigationRecognitionExecutions;
         $navigation = $this->context->patternRecognizers()->firstMatch(
             $element,
             $this->context->probePatternContext(),
             array( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern::class )
         );
 
-        return null !== $navigation && 'core/navigation' === ($navigation->block()['blockName'] ?? '');
+        return $this->coreNavigationRecognitions[$element] = null !== $navigation && 'core/navigation' === ($navigation->block()['blockName'] ?? '');
     }
 
     private function elementWithId(DOMElement $context, string $id): ?DOMElement

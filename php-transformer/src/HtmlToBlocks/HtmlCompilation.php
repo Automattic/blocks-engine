@@ -1077,6 +1077,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function onSourceMarkupMutated(): void
     {
         $this->sourceStyles()->invalidateSelectorMatches();
+        $this->navigationToggleSuppressor->forgetCoreNavigationRecognitions();
     }
 
     /** Collaborator surface for {@see StyleResolver}. */
