@@ -106,7 +106,10 @@ final class FormPresentationGraphBuilder
         $matched = $this->matched($element, $analysis['rules']);
         $base = $matched['base'];
         $conditional = $this->effectiveConditional($matched['conditional'], $base);
-        $inherited = array_flip(self::TYPOGRAPHY_PROPERTIES);
+        // Inherited text properties reach this element from the nearest declaring
+        // ancestor. `text-align` is inherited too: it places inline-level content
+        // (an inline-block submit) inside a block wrapper a provider flattens.
+        $inherited = array_flip(array_merge(self::TYPOGRAPHY_PROPERTIES, array( 'text-align' )));
         // Inheritance is per property: a local font-size does not prevent the
         // family and color from coming from the nearest declaring ancestor.
         for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
@@ -330,9 +333,23 @@ final class FormPresentationGraphBuilder
                 $matched = $this->matched($element, $analysis['rules']);
                 $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules']);
                 $provenance = $this->provenance($matched['base'], null);
-                if ( 'label' === $role && array() === array_intersect_key($styles, array_flip(array_map(self::key(...), self::TYPOGRAPHY_PROPERTIES))) ) {
+                if ( 'label' === $role ) {
+                    // The label's text is painted by its sole text carrier (a `<p>`
+                    // or `<span>` inside it). Typography that carrier declares wins
+                    // over the label's own for that text, property by property, so a
+                    // provider label that renders the text directly keeps it.
                     $carried = $this->carrierTypography($roles, $element, $analysis['rules'], $customPropertyAnalysis['rules']);
                     if ( array() !== $carried ) {
+                        $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
+                        foreach ( $provenance as $index => $fact ) {
+                            $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
+                            if ( array() === $fact['properties'] ) {
+                                unset($provenance[$index]);
+                            } else {
+                                $provenance[$index] = $fact;
+                            }
+                        }
+                        $provenance = array_values($provenance);
                         $styles = array_merge($styles, $carried['styles']);
                         ksort($styles);
                         $provenance = array_merge($provenance, $carried['provenance']);

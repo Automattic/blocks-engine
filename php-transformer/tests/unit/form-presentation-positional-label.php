@@ -82,7 +82,8 @@ $label = $rows[0]['label']['styles'] ?? null;
 $assert('15px' === ($label['font_size'] ?? null), 'a nested label inherits its font size from the declaring carrier', json_encode($rows[0] ?? null));
 $assert('#f3f2ed' === ($label['color'] ?? null), 'a nested label inherits its color from the declaring carrier', json_encode($label));
 
-// A label that declares typography itself keeps it; the carrier never adds to it.
+// The browser paints the text in the carrier, so its declared size and color
+// win over the label's own declaration; a provider label renders that text.
 $authored = ( new HtmlTransformer() )->transform(
     '<style>.lbl{font-size:.875rem}.t{font-size:var(--l-size,12px);color:var(--l-color,#111111)}</style>'
     . '<div style="--l-size:15px;--l-color:#f3f2ed"><form method="post">'
@@ -92,8 +93,8 @@ $authored = ( new HtmlTransformer() )->transform(
 )->toArray();
 $rows = array_column($authored['fallbacks'][0]['presentation_graph']['controls'] ?? array(), null, 'index');
 $label = $rows[0]['label']['styles'] ?? null;
-$assert('.875rem' === ($label['font_size'] ?? null), 'a label that declares its own font size keeps it', json_encode($label));
-$assert(! isset($label['color']), 'the carrier adds nothing once the label declares typography itself', json_encode($label));
+$assert('15px' === ($label['font_size'] ?? null), 'the carrier-painted font size wins over the label declaration', json_encode($label));
+$assert('#f3f2ed' === ($label['color'] ?? null), 'the carrier-painted color reaches a label that declares other typography', json_encode($label));
 
 // Multiple overlapping author rules still form a bounded cascade: the final
 // winning facts must survive into the provider declaration, not just a report.
@@ -134,6 +135,32 @@ $assert(
     'a genuinely over-budget graph exposes its actual truncation reason despite unrelated selector diagnostics',
     json_encode($tooManyRules['diagnostics'] ?? null)
 );
+
+// A label that declares some typography of its own still paints its text
+// through its sole carrier. Carrier-declared typography wins per property;
+// label-only facts (here the family) are kept.
+$partial = ( new HtmlTransformer() )->transform(
+    '<style>.opt{font-family:Georgia;font-size:16px;display:flex}.opt p{color:rgb(145, 145, 145);font-size:15px}</style>'
+    . '<form method="post"><input name="email" type="email">'
+    . '<label class="opt"><input type="checkbox" name="optin"><div></div><p>Keep me posted</p></label>'
+    . '<button type="submit">Go</button></form>',
+    array()
+)->toArray();
+$partialLabel = array_column($partial['fallbacks'][0]['presentation_graph']['controls'] ?? array(), null, 'index')[1]['label'] ?? array();
+$assert(
+    'rgb(145, 145, 145)' === ($partialLabel['styles']['color'] ?? null)
+        && '15px' === ($partialLabel['styles']['font_size'] ?? null)
+        && 'Georgia' === ($partialLabel['styles']['font_family'] ?? null),
+    'a label with partial typography takes its carrier-painted color and size',
+    json_encode($partialLabel)
+);
+$fontSizeOwners = array();
+foreach ( $partialLabel['provenance'] ?? array() as $fact ) {
+    if ( in_array('font-size', $fact['properties'] ?? array(), true) ) {
+        $fontSizeOwners[] = $fact['selector'];
+    }
+}
+$assert(array( '.opt p' ) === $fontSizeOwners, 'overridden label typography keeps only the carrier provenance', json_encode($partialLabel['provenance'] ?? null));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "form presentation positional label: {$failures} failed, {$passes} passed\n");
