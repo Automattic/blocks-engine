@@ -45,6 +45,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedDialogC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedChoiceGroupConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedListboxConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedSelectableSetConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedCollectionConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InertScaffoldingSuppressor;
@@ -1058,7 +1059,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $recognizePatterns,
             fn (DOMElement $element): bool => $this->requiresStandaloneInlineLayoutLeaf($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
-            fn (DOMElement $element): ?array => $this->wrapperCoalescer->layoutGeometryProofFor($element)
+            fn (DOMElement $element): ?array => $this->wrapperCoalescer->layoutGeometryProofFor($element),
+            capturedCollection: new CapturedCollectionConverter(
+                $this->session,
+                function (DOMElement $element, array &$fallbacks) use ($convertChildren): array { return $convertChildren($element, $fallbacks, true); },
+                fn (DOMElement $element, array &$fallbacks): ?array => $this->convertElement($element, $fallbacks, true)
+            )
         );
         $this->wrapperCoalescer = new WrapperCoalescer(
             $this->sourceElementClassifier,

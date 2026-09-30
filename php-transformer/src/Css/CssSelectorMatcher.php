@@ -148,6 +148,7 @@ final class CssSelectorMatcher
         $classes = count($compound['classes']) - (int) ( $zero['classes'] ?? 0 )
             + count($compound['attributes']) - (int) ( $zero['attributes'] ?? 0 )
             + ( null !== $compound['nth_child'] ? 1 : 0 )
+            + ( null !== ($compound['nth_type'] ?? null) ? 1 : 0 )
             + (int) $compound['first_child']
             + (int) $compound['last_child']
             + (int) ( $compound['root'] ?? false )
@@ -450,7 +451,7 @@ final class CssSelectorMatcher
                     $hasSimple = true;
                     continue;
                 }
-                if ( 'nth-child' === $lowerName && '(' === ($source[ $offset ] ?? '') ) {
+                if ( in_array($lowerName, array('nth-child', 'nth-of-type'), true) && '(' === ($source[ $offset ] ?? '') ) {
                     $closing = strpos($source, ')', $offset + 1);
                     if ( false === $closing ) {
                         return null;
@@ -459,7 +460,7 @@ final class CssSelectorMatcher
                     if ( ! preg_match('/^[1-9][0-9]*$/', $argument) ) {
                         return null;
                     }
-                    $compound['nth_child'] = (int) $argument;
+                    $compound['nth-child' === $lowerName ? 'nth_child' : 'nth_type'] = (int) $argument;
                     $offset = $closing + 1;
                     $hasSimple = true;
                     continue;
@@ -827,6 +828,13 @@ final class CssSelectorMatcher
         }
         if ( null !== $compound['nth_child'] && $childIndex !== $compound['nth_child'] ) {
             return false;
+        }
+        if (null !== ($compound['nth_type'] ?? null)) {
+            $typeIndex = 1;
+            for ($previous = self::previousElementSibling($element); null !== $previous; $previous = self::previousElementSibling($previous)) {
+                if (strtolower($previous->tagName) === strtolower($element->tagName)) ++$typeIndex;
+            }
+            if ($typeIndex !== $compound['nth_type']) return false;
         }
         if ( $compound['first_child'] && 1 !== $childIndex ) {
             return false;

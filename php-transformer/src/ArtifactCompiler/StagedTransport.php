@@ -588,11 +588,12 @@ trait StagedTransport
         // meaning as inline compilation before ownership partitions are made.
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $capturedDialogsProjection = (new CapturedDialogProjector())->project($normalized['files']);
-        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($capturedDialogsProjection['files']);
+        $collectionsProjection = (new CapturedCollectionProjector())->project($capturedDialogsProjection['files']);
+        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($collectionsProjection['files']);
         $choiceGroupsProjection = (new CapturedChoiceGroupProjector())->project($selectableSetsProjection['files']);
         $scrollStatesProjection = (new ScrollStateProjector())->project($choiceGroupsProjection['files']);
         $capturedDialogs = array(
-            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
+            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $collectionsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
             'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
         );
         if (0 < $selectableSetsProjection['projected_count']) {
