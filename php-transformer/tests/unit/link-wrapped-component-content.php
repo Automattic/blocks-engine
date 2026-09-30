@@ -34,8 +34,13 @@ $assert(!str_contains($unlinked, 'blocks-engine-link-contents') && !str_contains
 $unsafe = (string) ((new HtmlTransformer())->transform($nest('<a href="javascript:alert(1)">' . $body . '</a>'), array())->toArray()['serialized_blocks'] ?? '');
 $assert(!str_contains($unsafe, 'javascript:') && !str_contains($unsafe, 'blocks-engine-link-contents'), 'unsafe-href-is-not-restored', $unsafe);
 
+// A viewport-fixed layer that is not pinned must not reserve its source box in flow.
+$fixed = (new HtmlTransformer())->transform('<main><p>Body</p><div class="badge" style="width:256px;height:60px;position:fixed;bottom:14px;right:-186px"><textarea style="display:none"></textarea></div></main>', array())->toArray();
+$fixedJson = json_encode($fixed);
+$assert(str_contains((string) ($fixed['serialized_blocks'] ?? ''), 'badge') && !preg_match('/be-inline-geometry-[a-f0-9]+\{[^}]*(?:width|height|position):/', $fixedJson), 'unpinned-fixed-layer-reserves-no-flow-size', $fixedJson);
+
 if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);
 }
-echo "Link-wrapped component content tests: 6 passed\n";
+echo "Link-wrapped component content tests: 7 passed\n";

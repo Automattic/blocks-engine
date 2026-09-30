@@ -384,6 +384,10 @@ final class InlineGeometry
         if ('hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''))) {
             $properties[] = 'visibility';
         }
+        // A viewport-fixed layer is deliberately not pinned (see
+        // inlineDeclaresPositioning()), so it stays in flow. The source box never
+        // occupied flow, so its fixed dimensions must not either; the layer keeps
+        // only its own content's size instead of reserving source space.
         $collapsedHeight = CssValueInspector::comparable((string) ($declarations['height'] ?? $declarations['max-height'] ?? ''));
         if (
             1 === preg_match('/^0(?:px|em|rem|%|vh|vw)?$/', $collapsedHeight)
@@ -397,7 +401,14 @@ final class InlineGeometry
         ) {
             $properties = array_merge($properties, $this->backgroundCarrierProperties());
         }
-        foreach (array_values(array_unique(array_merge($properties, $forcedProperties))) as $property) {
+        $carried = array_values(array_unique(array_merge($properties, $forcedProperties)));
+        if ( 'fixed' === CssValueInspector::comparable((string) ($declarations['position'] ?? '')) ) {
+            // A viewport-fixed layer is deliberately not pinned (see
+            // inlineDeclaresPositioning()), so it stays in flow. Its source box
+            // never occupied flow, so no carrier may reserve those dimensions.
+            $carried = array_values(array_diff($carried, array( 'width', 'height', 'min-width', 'min-height' )));
+        }
+        foreach ($carried as $property) {
             if (in_array($property, $excludedProperties, true)) {
                 continue;
             }
