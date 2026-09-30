@@ -187,7 +187,7 @@ $assert('Phone *' === ($rowShell['innerBlocks'][1]['innerBlocks'][0]['attrs']['l
 $assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($rowGrouped['innerBlocks'][1]['innerBlocks'][0]['blockName'] ?? ''), 'standalone-control-stays-a-direct-form-child');
 $rowGraph = $builder->layoutGraph() ?? array();
 $rowNodes = array_column($rowGraph['nodes'] ?? array(), null, 'id');
-$assert('generic/computed-layout-graph/v2' === ($rowGraph['schema'] ?? null), 'degrade-path-consumes-layout-graph');
+$assert('generic/computed-layout-graph/v3' === ($rowGraph['schema'] ?? null), 'degrade-path-consumes-layout-graph');
 $assert('grid' === ($rowNodes['wrapper-0']['layout']['display'] ?? null), 'row-display-comes-from-the-layout-graph');
 $assert('1fr 1fr' === ($rowNodes['wrapper-0']['layout']['columns'] ?? null), 'row-columns-come-from-the-layout-graph');
 $assert('1.5rem' === ($rowNodes['wrapper-0']['layout']['gap'] ?? null), 'row-gap-comes-from-the-layout-graph');

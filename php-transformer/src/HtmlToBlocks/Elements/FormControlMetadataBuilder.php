@@ -20,6 +20,9 @@ final class FormControlMetadataBuilder
     /** A field description reads as a note, not an article; bound it like other in-form copy. */
     private const MAX_DESCRIPTION_LENGTH = 240;
 
+    /** Context selectors are more numerous than control styling hooks; exhaustion is explicit. */
+    private const MAX_CONTEXT_CLASSES = 64;
+
     /**
      * @param Closure(DOMElement): string $elementSelector
      * @param Closure(DOMElement): array<string, string>|null $typographyStyles Resolved snake_case typography
@@ -215,11 +218,17 @@ final class FormControlMetadataBuilder
             return null;
         }
 
+        $item['source_selector'] = ($this->elementSelector)($node);
+
         // Author rules address the element itself, so a consumer reproducing
         // this copy as a block needs the classes to re-apply those rules.
-        $class = $this->classNames($node);
-        if ( '' !== $class ) {
-            $item['class'] = $class;
+        $classes = SourceDom::boundedClassTokens(SourceDom::attr($node, 'class'), self::MAX_CONTEXT_CLASSES);
+        if ( array() !== $classes ) {
+            $item['class'] = implode(' ', $classes);
+            $validClassCount = count(SourceDom::boundedClassTokens(SourceDom::attr($node, 'class'), self::MAX_CONTEXT_CLASSES + 1));
+            if ( $validClassCount > self::MAX_CONTEXT_CLASSES ) {
+                $item['classes_truncated'] = true;
+            }
         }
 
         // A source styles in-form copy through custom properties set on

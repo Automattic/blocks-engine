@@ -1078,6 +1078,9 @@ final class ArtifactCompiler
                         if ( $declarable ) $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'layout_graph', $error->getMessage());
                     }
                 }
+                if (true === ($fallback['layout_graph']['truncated'] ?? false)) {
+                    $form['source_contract_losses'] = array_slice(array_values(array_filter($fallback['layout_graph']['diagnostics'] ?? array(), 'is_string')), 0, 32);
+                }
                 if ( is_array($fallback['presentation_graph'] ?? null) && true !== ($fallback['presentation_graph']['truncated'] ?? false) ) { FormPresentationGraphBuilder::assertValid($fallback['presentation_graph']); $form['presentation_graph'] = $fallback['presentation_graph']; }
                 if ( is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ) {
                     $form['bindings'] = array(array_merge($fallback['binding'], array('source_path' => $sourcePath)));
