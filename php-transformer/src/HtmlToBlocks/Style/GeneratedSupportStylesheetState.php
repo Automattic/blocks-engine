@@ -26,6 +26,8 @@ final class GeneratedSupportStylesheetState
 
     /** @var array<string, string> */
     private array $accordionTitlePresentation = array();
+    /** @var array<string, array<string, string>> */
+    private array $accordionIconPresentation = array();
 
     /** @var array<string, array<string, string>> */
     private array $disclosureControlConditionalPresentation = array();
@@ -177,6 +179,12 @@ final class GeneratedSupportStylesheetState
         $this->accordionTitlePresentation[$className] = $declarations;
     }
 
+    /** @param array<string, string> $states */
+    public function registerAccordionIconPresentation(string $className, array $states): void
+    {
+        $this->accordionIconPresentation[$className] = $states;
+    }
+
     /** @param array<string, string> $rules */
     public function registerDisclosureControlConditionalPresentation(string $className, array $rules): void
     {
@@ -305,6 +313,12 @@ final class GeneratedSupportStylesheetState
             if (str_contains($serializedBlocks, $className)) {
                 $parts[] = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle>.wp-block-accordion-heading__toggle-title{' . $declarations . '}';
             }
+        }
+        foreach ($this->accordionIconPresentation as $className => $states) {
+            if (!str_contains($serializedBlocks, $className)) continue;
+            $toggle = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle';
+            $parts[] = $toggle . '>.wp-block-accordion-heading__toggle-icon{' . $states['closed'] . '}';
+            $parts[] = $toggle . '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon{' . $states['open'] . '}';
         }
         foreach ($this->navigationSpacing as $className => $declarations) {
             if (str_contains($serializedBlocks, $className)) {

@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use DOMElement;
+use Closure;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 /**
  * Presentation for disclosure controls core saves without a box of its own.
@@ -24,7 +26,8 @@ final class DisclosureControlPresentation
 {
     public function __construct(
         private readonly StyleResolver $styles,
-        private readonly GeneratedSupportStylesheetState $support
+        private readonly GeneratedSupportStylesheetState $support,
+        private readonly ?Closure $svgMarkup = null
     ) {
     }
 
@@ -79,11 +82,12 @@ final class DisclosureControlPresentation
         $conditionalPresentation = $this->conditionalPresentation($control);
         $titleCss = str_starts_with($prefix, 'blocks-engine-accordion-toggle-')
             ? $this->styles->cssDeclarationString($this->disclosureSummaryLabelTypography($control)) : '';
-        if ( '' === $css && array() === $conditionalDisplay && array() === $conditionalPresentation ) {
+        $icon = str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ? $this->accordionIcon($control) : array();
+        if ( '' === $css && array() === $conditionalDisplay && array() === $conditionalPresentation && array() === $icon ) {
             return '';
         }
 
-        $marker = $prefix . substr(hash('sha256', $css . '|' . serialize($conditionalDisplay) . '|' . serialize($conditionalPresentation) . '|' . $titleCss), 0, 12);
+        $marker = $prefix . substr(hash('sha256', $css . '|' . serialize($conditionalDisplay) . '|' . serialize($conditionalPresentation) . '|' . $titleCss . '|' . serialize($icon)), 0, 12);
         if ( '' !== $css ) {
             if ( str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ) {
                 $this->support->registerAccordionTogglePresentation($marker, $css);
@@ -103,8 +107,63 @@ final class DisclosureControlPresentation
             // taller even when the nested source label remains styled correctly.
             $this->support->registerAccordionTitlePresentation($marker, $titleCss);
         }
+        if ( array() !== $icon ) {
+            $this->support->registerAccordionIconPresentation($marker, $icon);
+        }
 
         return $marker;
+    }
+
+    /** Core owns the icon span; carry observed passive SVG artwork through CSS.
+     * Expanded class/style attributes come from a verified producer drive.
+     * No icon shape or vendor class name defines an expanded-state rotation.
+     * @return array<string, string>
+     */
+    private function accordionIcon(DOMElement $control): array
+    {
+        $icons = $control->getElementsByTagName('svg');
+        if ( null === $this->svgMarkup || 1 !== $icons->length ) return array();
+        $svg = $icons->item(0);
+        if ( ! $svg instanceof DOMElement || ! SourceDom::svgHasDrawableContent($svg) ) return array();
+        $declarations = $this->styles->resolvedPresentationDeclarations($svg);
+        $dimensions = array();
+        foreach ( array('width', 'height') as $property ) {
+            $value = trim((string) ($declarations[$property] ?? $svg->getAttribute($property)));
+            if ( is_numeric($value) ) $value .= 'px';
+            if ( ! preg_match('/^\d+(?:\.\d+)?(?:px|em|rem)$/', $value) ) return array();
+            $dimensions[$property] = $value;
+        }
+        $clone = $svg->cloneNode(true);
+        if ( ! $clone instanceof DOMElement ) return array();
+        $clone->setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        $inline = $this->styles->cssDeclarations($clone->getAttribute('style'));
+        unset($inline['transform'], $inline['rotate']);
+        $color = (string) ($declarations['color'] ?? $this->styles->authoredInheritedPropertyWinner($svg, 'color'));
+        if ( '' !== $color ) {
+            $color = $this->styles->resolveCssVariablesInValue($color, $svg);
+            $paint = $this->styles->safeVisualDeclarations(array('color' => $color));
+            $inline = array_merge($inline, $paint);
+        }
+        $clone->setAttribute('style', $this->styles->cssDeclarationString($inline));
+        $markup = ($this->svgMarkup)($clone);
+        if ( ! SourceDom::isSafeSvgContent($markup) ) return array();
+        $base = $this->styles->cssDeclarationString($dimensions)
+            . ';display:inline-block;flex-shrink:0;font-size:0;line-height:0;transform:none;rotate:none'
+            . ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '");background-repeat:no-repeat;background-position:center;background-size:contain';
+        $stateCss = static fn (array $values): string => implode(';', array_map(
+            static fn (string $property): string => $property . ':' . (string) ($values[$property] ?? 'none'),
+            array('transform', 'rotate')
+        ));
+        $closed = $this->styles->matchedCascadedDeclarations($svg);
+        $expanded = $svg->cloneNode(true);
+        if ( ! $expanded instanceof DOMElement ) return array();
+        foreach ( array('class', 'style') as $attribute ) {
+            if ( $svg->hasAttribute('data-dla-disclosure-open-' . $attribute) ) {
+                $expanded->setAttribute($attribute, $svg->getAttribute('data-dla-disclosure-open-' . $attribute));
+            }
+        }
+        $open = $this->styles->matchedCascadedDeclarations($expanded);
+        return array('closed' => $base . ';' . $stateCss($closed), 'open' => $stateCss($open));
     }
 
     /**
