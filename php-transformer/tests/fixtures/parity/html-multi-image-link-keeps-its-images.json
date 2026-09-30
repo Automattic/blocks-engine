@@ -22,11 +22,12 @@
     { "path": "blocks.1", "name": "core/image", "attrs": { "url": "assets/profile.jpg", "alt": "Profile", "href": "/profile", "linkDestination": "custom" } },
     { "path": "blocks.2", "name": "core/group", "attrs": { "className": "strip" } },
     { "path": "blocks.2.innerBlocks.0", "name": "core/image", "attrs": { "url": "assets/three.jpg", "alt": "Three", "href": "/strip", "linkDestination": "custom" } },
-    { "path": "blocks.2.innerBlocks.1", "name": "core/image", "attrs": { "url": "assets/four.jpg", "alt": "Four", "href": "/strip", "linkDestination": "custom" } }
+    { "path": "blocks.2.innerBlocks.1", "name": "core/image", "attrs": { "url": "assets/four.jpg", "alt": "Four", "href": "/strip", "linkDestination": "custom" } },
+    { "path": "blocks.3", "name": "core/paragraph" }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "blocks", "assert": "count", "count": 3 },
+    { "path": "blocks", "assert": "count", "count": 4 },
 
     { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
@@ -52,11 +53,9 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/strip\"><img src=\"assets/three.jpg\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/strip\"><img src=\"assets/four.jpg\"" },
 
-    { "path": "fallbacks", "assert": "count", "count": 1 },
-    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_unsupported_element" },
-    { "path": "fallbacks.0.tag", "assert": "equals", "value": "a" },
-    { "path": "fallbacks.0.selector", "assert": "contains", "value": "a:nth-of-type(4)" },
-    { "path": "fallbacks.0.loss_class", "assert": "equals", "value": "unsupported_element_loss" },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+    { "path": "blocks.3.blockName", "assert": "equals", "value": "core/paragraph" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/nothing\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }
