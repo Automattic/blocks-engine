@@ -32,7 +32,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:tabs" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-tab-list schedule-tabs__list blocks-engine-editor-anchor-day-tabs\" role=\"tablist\"><button type=\"button\" role=\"tab\">Day One</button>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-tab-list schedule-tabs__list blocks-engine-editor-anchor-day-tabs\" role=\"tablist\" aria-label=\"Conference days\"><button type=\"button\" role=\"tab\">Day One</button>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "id=\"day-tabs\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<section id=\"day-one\" class=\"wp-block-tab-panel schedule-panel" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "type=\"radio\"" },

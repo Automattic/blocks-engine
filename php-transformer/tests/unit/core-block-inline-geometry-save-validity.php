@@ -78,6 +78,15 @@ $assert(
 );
 
 $factory = new BlockFactory();
+$tabs = $factory->create('core/tab-list', array(
+    'ariaLabel' => 'Topics & answers',
+    'tabs' => array(array('label' => 'Insurance &amp; Billing'), array('label' => '<em>Services</em>')),
+    'style' => array('spacing' => array('blockGap' => '.5rem'), 'typography' => array('fontSize' => '14px')),
+));
+$assert(str_contains($tabs['innerHTML'], 'aria-label="Topics &amp; answers"'), 'tab lists serialize their accessible label');
+$assert(str_contains($tabs['innerHTML'], 'style="font-size:14px"') && ! str_contains($tabs['innerHTML'], 'gap:'), 'tab-list gap belongs to layout CSS, not save markup', $tabs['innerHTML']);
+$assert('.5rem' === ($tabs['attrs']['style']['spacing']['blockGap'] ?? null), 'tab-list gap remains owner editable through the layout attribute');
+$assert(str_contains($tabs['innerHTML'], '<em>Services</em>'), 'tab labels retain supported rich text');
 $styleCases = array(
     'middle' => array(
         'input' => 'width:1px;display:block;height:2px',
