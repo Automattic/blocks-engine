@@ -871,6 +871,8 @@ final class ArtifactCompiler
             'target' => $asset['stylesheet_target'] ?? 'both',
             'placement' => $asset['stylesheet_placement'] ?? '',
             'media' => $asset['media'] ?? '',
+            // A linked stylesheet between two <style> elements splits the run.
+            'link_position' => $asset['stylesheet_link_position'] ?? null,
         ), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     }
 
@@ -4122,6 +4124,7 @@ final class ArtifactCompiler
                     'selector'         => $asset['selector'] ?? '',
                     'references'       => $asset['references'] ?? array(),
                     'compilation'      => 'css' === ($asset['kind'] ?? null) ? ($asset['compilation'] ?? null) : null,
+                    'stylesheet_link_position' => 'css' === ($asset['kind'] ?? null) && is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null,
                 ),
                 static fn (mixed $value, string $key): bool => ('content' === $key && is_string($value)) || (null !== $value && '' !== $value),
                 ARRAY_FILTER_USE_BOTH
@@ -4402,6 +4405,9 @@ final class ArtifactCompiler
             if ( 'css' === ($file['kind'] ?? null) ) {
                 if (is_array($file['metadata']['compilation'] ?? null) || '' !== ArtifactNormalizer::inlineExpansionSourcePath($file)) {
                     $asset['compilation'] = $this->fileOwnership($file);
+                }
+                if ( is_int($file['stylesheet_link_position'] ?? null) ) {
+                    $asset['stylesheet_link_position'] = $file['stylesheet_link_position'];
                 }
             }
             foreach ( array('defer', 'async') as $field ) {

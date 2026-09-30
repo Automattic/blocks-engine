@@ -266,6 +266,9 @@ final class ArtifactNormalizer
                     $normalized[$field] = (string) $file[$field];
                 }
             }
+            if ( is_int($file['stylesheet_link_position'] ?? null) ) {
+                $normalized['stylesheet_link_position'] = $file['stylesheet_link_position'];
+            }
             foreach ( array('defer', 'async') as $field ) {
                 if ( isset($file[$field]) ) {
                     $normalized[$field] = (bool) $file[$field];
@@ -570,6 +573,15 @@ final class ArtifactNormalizer
                 continue;
             }
 
+            // A page's <style> and <link> elements form one cascade sequence.
+            // Record how many document links precede each <style> so later
+            // enqueue ordering can place it between the same links.
+            $linkOffsets = array();
+            foreach ( StyleTagScanner::scanLinks($content) as $link ) {
+                if ( '' !== $this->htmlAttribute($link['tag'], 'href') ) {
+                    $linkOffsets[] = $link['offset'];
+                }
+            }
             $styles = array();
             foreach ( StyleTagScanner::scan($content) as $style ) {
                 $attributes = $style['attributes'];
@@ -577,7 +589,8 @@ final class ArtifactNormalizer
                 if ( '' === $css || ! StyleTagScanner::isCssType($this->htmlAttribute($attributes, 'type')) ) {
                     continue;
                 }
-                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'type' => $this->htmlAttribute($attributes, 'type') );
+                $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
+                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
             // Spacing an author declares inline on <body> is page content the
             // reader sees, but the document is re-wrapped in a bare <body>
@@ -607,6 +620,7 @@ final class ArtifactNormalizer
                     'source'    => 'inline-style',
                     'source_path' => ArtifactPath::safeRelativePath((string) ($file['path'] ?? 'index.html')),
                     'stylesheet_index' => $index + 1,
+                    'stylesheet_link_position' => $style['link_position'] ?? null,
                     'media' => $style['media'],
                     'type' => $style['type'],
                 ));
