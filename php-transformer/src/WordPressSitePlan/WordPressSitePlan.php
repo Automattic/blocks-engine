@@ -287,7 +287,7 @@ final class WordPressSitePlan
          $pages = $navigation['pages'];
          $parts = $navigation['parts'];
          $menus = $navigation['menus'];
-         $articleChrome = $this->extractPostArticleChrome($pages);
+        $articleChrome = $this->extractPostArticleChrome($pages, $parts);
          $pages = $articleChrome['pages'];
          $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations);
          // Query Loop projection can shorten page markup after shell extraction.
@@ -1871,9 +1871,10 @@ final class WordPressSitePlan
     }
     /**
      * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $parts
      * @return array{pages:array<int,array<string,mixed>>,single:?string}
      */
-    private function extractPostArticleChrome(array $pages): array
+    private function extractPostArticleChrome(array $pages, array $parts): array
     {
         $posts = array();
         $indexes = array();
@@ -1886,6 +1887,18 @@ final class WordPressSitePlan
         }
         if (count($posts) < 2) {
             return array('pages' => $pages, 'single' => null);
+        }
+        // Article factoring targets one global single template. Inline shell
+        // references belong to the source documents, including their wrappers.
+        // Keep the entire article in post-content rather than hoisting those
+        // references (or splitting their authored ancestor context).
+        foreach ($parts as $part) {
+            if ('inline_shared_shell' !== ($part['placement']['kind'] ?? null)) continue;
+            foreach ($posts as $post) {
+                if (str_contains($post['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) {
+                    return array('pages' => $pages, 'single' => null);
+                }
+            }
         }
         $shared = $this->sharedPostChromeIdentities($posts);
         $single = null;
