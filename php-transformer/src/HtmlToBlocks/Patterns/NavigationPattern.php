@@ -271,6 +271,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
         }
 
+        $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $element, $navigationContext);
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $element);
 
         if ( ! $label instanceof DOMElement ) {
@@ -369,6 +370,38 @@ final class NavigationPattern implements PatternRecognizerInterface
         return new PatternRecognitionResult(
             $context->createBlock('core/group', $context->presentationAttributes($element), array_values(array_filter($blocks)), $element)
         );
+    }
+
+    /**
+     * Keep custom families out of core/navigation's legacy block migration.
+     *
+     * Its old font-family migration also migrates navigationMenuId to ref,
+     * discarding a modern ref and letting the editor choose a fallback menu.
+     * Arbitrary CSS families are not preset slugs; project them onto the native
+     * host with the existing source-to-target stylesheet instead.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withProjectedFontFamily(array $attrs, DOMElement $element, ?NavigationPatternContext $context): array
+    {
+        $family = trim((string) ($attrs['style']['typography']['fontFamily'] ?? ''));
+        if ( '' === $family || null === $context ) {
+            return $attrs;
+        }
+
+        $marker = 'blocks-engine-navigation-font-family-' . substr(hash('sha256', $family), 0, 12);
+        $context->projectSourceToNativeTarget($element, '.wp-block-navigation.' . $marker, 'font-family:' . $family);
+        $attrs = $this->withClassName($attrs, $marker);
+        unset($attrs['style']['typography']['fontFamily']);
+        if ( array() === $attrs['style']['typography'] ) {
+            unset($attrs['style']['typography']);
+        }
+        if ( array() === $attrs['style'] ) {
+            unset($attrs['style']);
+        }
+
+        return $attrs;
     }
 
     private function overlayMenu(DOMElement $element, ?NavigationPatternContext $context): string
@@ -679,6 +712,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
         }
 
+        $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $cluster, $navigationContext);
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $cluster);
 
         // The carrier is the authored `<nav>`, so it keeps that tag (see above).
