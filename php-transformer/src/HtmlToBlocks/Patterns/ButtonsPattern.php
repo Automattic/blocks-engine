@@ -174,7 +174,9 @@ final class ButtonsPattern
     /** @return array<string, mixed> */
     private function buttonBlockFromAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons, ?DOMElement $presentationElement = null): array
     {
-        $presentationElement ??= $this->buttonSurfaceElement($anchor) ?? $anchor;
+        $presentationElement ??= $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
+            ? $anchor
+            : ($this->buttonSurfaceElement($anchor) ?? $anchor);
         $resolvedPresentation = trim($buttons->resolvedStyle($presentationElement));
         $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));
         $attrs = $this->buttonPresentationAttributes($presentationElement, $context, $buttons);
