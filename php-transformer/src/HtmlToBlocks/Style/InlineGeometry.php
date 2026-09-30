@@ -508,7 +508,8 @@ final class InlineGeometry
         foreach ($geometry as $property => $value) {
             if ( isset($inlineListMarkerPropertyLookup[$property])
                 || isset($overridePropertyLookup[$property])
-                || ( isset($inlineLayoutPropertyLookup[$property]) && ! isset($forcedPropertyLookup[$property]) )
+                || ( isset($inlineLayoutPropertyLookup[$property]) && ! isset($forcedPropertyLookup[$property])
+                    && ! ( 'display' === $property && 'contents' === CssValueInspector::comparable($value) ) )
             ) {
                 // Preserve source inline layout and list markers over a later
                 // plain author class without introducing !important.

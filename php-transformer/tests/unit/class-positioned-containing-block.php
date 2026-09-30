@@ -180,6 +180,17 @@ $assert(
     'an inline static override removes the authored containing-block proof'
 );
 
+$transparent = $transform(
+    '<style>.page .stage{display:flex;position:relative}</style>'
+    . '<div class="page"><div class="stage" style="display:contents">'
+    . '<section style="position:relative"><div style="position:absolute;inset:0"><p>Layer</p></div><h1>Copy</h1></section>'
+    . '</div></div>'
+);
+$assert(
+    str_contains($carrierRules($transparent), 'display:contents !important'),
+    'a source-inline transparent wrapper stays boxless when later authored selectors match it'
+);
+
 if ( 0 < $failures ) {
     fwrite(STDERR, sprintf('class-positioned containing block contract FAILED: %d passed, %d failed%s', $passes, $failures, PHP_EOL));
     exit(1);
