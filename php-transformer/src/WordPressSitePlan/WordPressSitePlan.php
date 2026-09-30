@@ -721,7 +721,7 @@ final class WordPressSitePlan
             $reference = self::payloadReference($asset['payload_reference'] ?? null);
             if (null !== $reference && !self::referenceBackedBinaryAsset($asset)) throw new InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.');
             $transportHash = is_string($asset['content_base64'] ?? null) ? self::contentHash($asset['content_base64']) : null;
-            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) ? $asset['references'] : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $reference['sha256'] ?? self::contentHash($payload)), static fn(mixed $value): bool => null !== $value);
+            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) ? $asset['references'] : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'stylesheet_link_position' => is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $reference['sha256'] ?? self::contentHash($payload)), static fn(mixed $value): bool => null !== $value);
         }
         return $rows;
     }
@@ -732,7 +732,7 @@ final class WordPressSitePlan
         $pagesBySource = array_column($pages, null, 'source_path');
         foreach ($assets as &$asset) {
             $compilation = $asset['compilation'] ?? null;
-            unset($asset['compilation']);
+            unset($asset['compilation'], $asset['stylesheet_link_position']);
             if ('css' !== $asset['kind']) continue;
             if ('shared' === ($compilation['scope'] ?? null)) {
                 $asset['scopes'] = array(array('kind' => 'global'));
@@ -781,21 +781,43 @@ final class WordPressSitePlan
             }
         }
 
+        // Page-owned <style> assets record how many stylesheet links precede
+        // them, so they join that page's sequence between the same links.
+        $inlineIndexesByPage = array();
+        foreach ($assets as $index => $asset) {
+            $owner = $asset['compilation'] ?? null;
+            if ('css' === ($asset['kind'] ?? null) && is_int($asset['stylesheet_link_position'] ?? null) && is_array($owner) && 'page' === ($owner['scope'] ?? null) && is_string($owner['id'] ?? null)) {
+                $inlineIndexesByPage[$owner['id']][] = $index;
+            }
+        }
+
         $linkedIndexes = array();
         $edges = array();
         $indegree = array();
         foreach ($pages as $page) {
-            $ordered = array();
+            // The Nth stylesheet link sorts at 2N+1 and a <style> preceded by
+            // N stylesheet links sorts at 2N, placing it before that link.
+            $sequence = array();
             $links = is_array($page['document_metadata']['links'] ?? null) ? $page['document_metadata']['links'] : array();
             usort($links, static fn(array $left, array $right): int => (int) ($left['order'] ?? PHP_INT_MAX) <=> (int) ($right['order'] ?? PHP_INT_MAX));
+            $stylesheetLinkPosition = 0;
             foreach ($links as $link) {
                 if (!is_array($link) || !in_array('stylesheet', preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array(), true)) continue;
+                $position = $stylesheetLinkPosition++;
                 $reference = (string) ($link['asset_reference'] ?? '');
                 if (!preg_match('/^' . preg_quote(self::TOKEN_PREFIX, '/') . '(asset-[a-f0-9]{16})}}$/', $reference, $match)) continue;
                 $index = $indexesByToken[$match[1]] ?? null;
                 if (!is_int($index)) continue;
-                $linkedIndexes[$index] = true;
-                if (!in_array($index, $ordered, true)) $ordered[] = $index;
+                $sequence[] = array(2 * $position + 1, $index);
+            }
+            foreach ($inlineIndexesByPage[(string) ($page['source_path'] ?? '')] ?? array() as $index) {
+                $sequence[] = array(2 * (int) $assets[$index]['stylesheet_link_position'], $index);
+            }
+            usort($sequence, static fn(array $left, array $right): int => $left[0] <=> $right[0] ?: $left[1] <=> $right[1]);
+            $ordered = array();
+            foreach ($sequence as $entry) {
+                $linkedIndexes[$entry[1]] = true;
+                if (!in_array($entry[1], $ordered, true)) $ordered[] = $entry[1];
             }
             for ($position = 1, $count = count($ordered); $position < $count; ++$position) {
                 $before = $ordered[$position - 1];
