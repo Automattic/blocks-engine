@@ -151,6 +151,12 @@ final class FormLayoutGraphBuilder
             }
             $base = $this->withoutAmbiguousCustomProperties($matched['base'], $entry['element'], $conditional, $customPropertyAnalysis['rules']);
             $layout = $this->layout($base, $entry['element'], null, $customPropertyAnalysis['rules']);
+            // Copy-only context nodes are always identity-bearing, because form
+            // context items join them by selector. Other nodes need own facts;
+            // their structural ancestors are restored below.
+            if ( array() === $layout && array() === $conditional && ! str_starts_with($entry['id'], 'context-') ) {
+                continue;
+            }
             $nodes[$entry['id']] = $this->node($entry, $layout, $this->provenance($base, null));
             if ( 'container' === $entry['kind'] && 'form' !== $entry['id'] ) {
                 $presentation = $presentationBuilder->buildElement($entry['element'], $stylesheets, $inlineCss);
