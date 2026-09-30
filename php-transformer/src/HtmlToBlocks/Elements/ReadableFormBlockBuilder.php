@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Closure;
@@ -20,7 +19,6 @@ final class ReadableFormBlockBuilder
      * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
-     * @param Closure(string): string                                                                       $generatedBlockName Resolves a local name through the transform's registry.
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed>       $layoutShellBlockForElements
      * @param Closure(): list<array<string, mixed>>|null                                                    $stylesheetAssets
      * @param Closure(): string|null                                                                        $formLayoutCss
@@ -33,7 +31,6 @@ final class ReadableFormBlockBuilder
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
-        private readonly Closure $generatedBlockName,
         private readonly Closure $layoutShellBlockForElements,
         private readonly ?Closure $stylesheetAssets = null,
         private readonly ?Closure $formLayoutCss = null
@@ -56,7 +53,6 @@ final class ReadableFormBlockBuilder
             return null;
         }
 
-        $authoredInputName = ($this->generatedBlockName)(AuthoredInputBlockGenerator::LOCAL_NAME);
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
             if ( array() !== ($this->eventMetadata)($control) || ! FormControlClassifier::isReadableControl($control) ) {
                 return null;
@@ -67,7 +63,7 @@ final class ReadableFormBlockBuilder
             }
         }
 
-        $contentBlocks = $this->groupedContentBlocks($form, $authoredInputName);
+        $contentBlocks = $this->groupedContentBlocks($form);
         if ( array() === $contentBlocks ) {
             return null;
         }
@@ -89,7 +85,7 @@ final class ReadableFormBlockBuilder
      *
      * @return array<int, array<string, mixed>>
      */
-    private function groupedContentBlocks(DOMElement $form, string $authoredInputName): array
+    private function groupedContentBlocks(DOMElement $form): array
     {
         $structure = array();
         $this->layoutGraph = (new FormLayoutGraphBuilder())->build(
@@ -103,7 +99,7 @@ final class ReadableFormBlockBuilder
             $children[ $entry['parent'] ?? '' ][] = $entry;
         }
 
-        return $this->blocksFromGraphEntries($children['form'] ?? array(), $children, $authoredInputName);
+        return $this->blocksFromGraphEntries($children['form'] ?? array(), $children);
     }
 
     /**
@@ -111,23 +107,28 @@ final class ReadableFormBlockBuilder
      * @param array<string, list<array<string, mixed>>> $children
      * @return array<int, array<string, mixed>>
      */
-    private function blocksFromGraphEntries(array $entries, array $children, string $authoredInputName): array
+    private function blocksFromGraphEntries(array $entries, array $children): array
     {
         $blocks = array();
+        $graphNodes = array_column($this->layoutGraph['nodes'] ?? array(), null, 'id');
         foreach ( $entries as $entry ) {
             if ( 'control' === $entry['kind'] ) {
-                $block = $this->convertDataEntryControl($entry['element'], $authoredInputName);
+                $block = $this->convertDataEntryControl($entry['element']);
                 if ( null !== $block ) {
                     $blocks[] = $block;
                 }
                 continue;
             }
 
-            $inner = $this->blocksFromGraphEntries($children[ $entry['id'] ] ?? array(), $children, $authoredInputName);
+            $inner = $this->blocksFromGraphEntries($children[ $entry['id'] ] ?? array(), $children);
             if ( array() === $inner ) {
                 continue;
             }
-            if ( 2 <= count($inner) ) {
+            // A one-control container can own paint, inherited variables and sizing.
+            // Text-bearing labels are already represented by the authored control.
+            $element = $entry['element'];
+            $ownedLabel = 'label' === strtolower($element->tagName) && '' !== $this->metadataBuilder->labelText($element);
+            if ( 2 <= count($inner) || (! $ownedLabel && ($element->hasAttributes() || isset($graphNodes[$entry['id']])) ) ) {
                 $blocks[] = ($this->layoutShellBlockForElements)(array( $entry['element'] ), $inner, $entry['element']);
                 continue;
             }
@@ -139,7 +140,7 @@ final class ReadableFormBlockBuilder
     }
 
     /** @return array<string, mixed>|null */
-    private function convertDataEntryControl(DOMElement $control, string $authoredInputName): ?array
+    private function convertDataEntryControl(DOMElement $control): ?array
     {
         // A submit control must stay a native submit control: Gutenberg's
         // core/button saves as an anchor, which cannot submit this form.
@@ -155,8 +156,6 @@ final class ReadableFormBlockBuilder
             return null;
         }
 
-        return $authoredInputName === ($readableControlBlock['blockName'] ?? '')
-            ? $this->createBlock->createBlock('core/group', array(), array( $readableControlBlock ), $control)
-            : $readableControlBlock;
+        return $readableControlBlock;
     }
 }
