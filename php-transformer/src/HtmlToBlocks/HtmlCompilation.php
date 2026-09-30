@@ -1058,7 +1058,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $recognizePatterns,
             fn (DOMElement $element): bool => $this->requiresStandaloneInlineLayoutLeaf($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
-            fn (DOMElement $element): ?array => $this->wrapperCoalescer->layoutGeometryProofFor($element)
+            fn (DOMElement $element): ?array => $this->wrapperCoalescer->layoutGeometryProofFor($element),
+            new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CollectionFilterConverter(
+                $this->session,
+                $this->styleResolver,
+                function (DOMElement $element, array &$fallbacks) use ($convertChildren): array { return $convertChildren($element, $fallbacks, true); },
+                fn (DOMElement $element, array &$fallbacks): ?array => $this->convertElement($element, $fallbacks, true)
+            )
         );
         $this->wrapperCoalescer = new WrapperCoalescer(
             $this->sourceElementClassifier,
