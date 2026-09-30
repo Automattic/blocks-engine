@@ -10456,6 +10456,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 continue;
             }
 
+            // Companion content frozen from inside this link already carries
+            // the link it was restored with (see FallbackEmitter::withEnclosingLink()).
+            $content = $block['attrs']['content'] ?? null;
+            if ( is_string($content) && str_starts_with($content, '<a href="' . htmlspecialchars((string) ($linkAttrs['href'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"') && str_contains($content, 'class="' . FallbackEmitter::LINK_CONTENTS_CLASS . '"') ) {
+                $preserved = true;
+                continue;
+            }
+
             if ( 'core/image' === $name ) {
                 if ( $this->propagateLinkOntoImage($blocks[$index], $linkAttrs) ) {
                     $preserved = true;

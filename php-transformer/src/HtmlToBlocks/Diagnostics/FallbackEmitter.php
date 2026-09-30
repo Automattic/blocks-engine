@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMDocument;
@@ -155,6 +156,7 @@ final class FallbackEmitter
         if ( '' === trim($content) ) {
             return null;
         }
+        $content = $this->withEnclosingLink($element, $content);
 
         $namespace = $this->sanitizeNameSegment($registry->namespace());
         if ( '' === $namespace ) {
@@ -186,6 +188,42 @@ final class FallbackEmitter
             'blockName' => $namespace . '/' . $localName,
             'attrs'     => $this->blockGenerator->referenceAttributes($content),
         );
+    }
+
+    /** Class on a link restored around frozen component content; styled layout-transparent. */
+    public const LINK_CONTENTS_CLASS = 'blocks-engine-link-contents';
+
+    /**
+     * A block-level `<a href>` around content becomes a layout group whose link
+     * is pushed onto its native text blocks. A component frozen into companion
+     * content has no native text block to carry it, so the anchor is restored
+     * around that content. The link is layout-transparent and inherits the
+     * source text paint, so only navigation is added.
+     */
+    private function withEnclosingLink(DOMElement $element, string $content): string
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'a' !== strtolower($ancestor->tagName) ) {
+                continue;
+            }
+            $href = LinkUrlSanitizer::sanitize(trim($ancestor->getAttribute('href')));
+            if ( '' === $href ) {
+                return $content;
+            }
+            $attributes = ' href="' . htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            foreach ( array( 'target', 'rel' ) as $name ) {
+                $value = trim($ancestor->getAttribute($name));
+                if ( '' !== $value && 1 === preg_match('/^[A-Za-z0-9_ -]{1,64}$/D', $value) ) {
+                    $attributes .= ' ' . $name . '="' . $value . '"';
+                }
+            }
+            $label = trim($ancestor->getAttribute('aria-label'));
+            if ( '' !== $label ) {
+                $attributes .= ' aria-label="' . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+            return '<a' . $attributes . ' class="' . self::LINK_CONTENTS_CLASS . '">' . $content . '</a>';
+        }
+        return $content;
     }
 
     public function isRepeatableContentComponent(DOMElement $element): bool
