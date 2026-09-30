@@ -130,10 +130,12 @@ final class DisclosureControlPresentation
         // A source button inherits body type; the generated h3 introduces a
         // theme heading font between it and that ancestor. Carry the authored
         // inherited winner across that new semantic wrapper.
-        if ( ! isset($carried['font-family']) ) {
-            $font = $this->styles->authoredInheritedPropertyWinner($control, 'font-family');
-            if ( '' !== $font ) {
-                $carried['font-family'] = $this->styles->resolveCssVariablesInValue($font, $control);
+        foreach ( array('font-family', 'line-height') as $property ) {
+            if ( ! isset($carried[$property]) || in_array(strtolower(trim($carried[$property])), array('inherit', 'unset'), true) ) {
+                $value = $this->styles->authoredInheritedPropertyWinner($control, $property);
+                if ( '' !== $value ) {
+                    $carried[$property] = $this->styles->resolveCssVariablesInValue($value, $control);
+                }
             }
         }
         // A `display` the source states per viewport is carried with its
