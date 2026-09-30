@@ -745,6 +745,11 @@ final class AuthorStyleRuleProjector
         if ( '100%' !== strtolower(CssValueInspector::withoutImportant($height)) ) {
             return $body;
         }
+        // Conditional positioning is not part of the unconditional source cascade.
+        $position = strtolower(CssValueInspector::withoutImportant((string) ($declarations['position'] ?? '')));
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return $body;
+        }
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors ) {
             return $body;
