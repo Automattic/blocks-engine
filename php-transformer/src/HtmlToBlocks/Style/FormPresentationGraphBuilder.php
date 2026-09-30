@@ -106,7 +106,10 @@ final class FormPresentationGraphBuilder
         $matched = $this->matched($element, $analysis['rules']);
         $base = $matched['base'];
         $conditional = $this->effectiveConditional($matched['conditional'], $base);
-        $inherited = array_flip(self::TYPOGRAPHY_PROPERTIES);
+        // Inherited text properties reach this element from the nearest declaring
+        // ancestor. `text-align` is inherited too: it places inline-level content
+        // (an inline-block submit) inside a block wrapper a provider flattens.
+        $inherited = array_flip(array_merge(self::TYPOGRAPHY_PROPERTIES, array( 'text-align' )));
         // Inheritance is per property: a local font-size does not prevent the
         // family and color from coming from the nearest declaring ancestor.
         for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
