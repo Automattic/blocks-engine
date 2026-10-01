@@ -216,6 +216,12 @@ final class SvgMaterializer implements SvgElementMaterializer
         $sourceDisplay = strtolower(trim((string) ($presentation['display'] ?? '')));
         $parent = $element->parentNode;
         $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
+        // display:contents is not a percentage containing block. The effective
+        // parent is the nearest ancestor that actually establishes a box.
+        while ( $parent instanceof DOMElement && 'contents' === strtolower(trim((string) ($parentPresentation['display'] ?? ''))) ) {
+            $parent = $parent->parentNode;
+            $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
+        }
         $parentDisplay = strtolower(trim((string) ($parentPresentation['display'] ?? '')));
         $isFlexOrGridItem = in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
         $sourceObjectFit = strtolower(trim((string) ($presentation['object-fit'] ?? '')));
@@ -226,12 +232,21 @@ final class SvgMaterializer implements SvgElementMaterializer
         // or a positioned media wrapper when object-fit makes that intent explicit.
         // Make the generated core/image figure fill that wrapper and drop its
         // default margin instead of collapsing to intrinsic viewBox geometry.
-        $isResponsiveFillSvg = (
+        $sourceWidth = trim((string) ($presentation['width'] ?? SourceDom::attr($element, 'width')));
+        $sourceHeight = trim((string) ($presentation['height'] ?? SourceDom::attr($element, 'height')));
+        $fillsSizedParent = ! $richTextImage
+            && $parent instanceof DOMElement
+            && CssValueInspector::hasDefiniteWidth($this->styleResolver->cssDeclarationString($parentPresentation))
+            && CssValueInspector::hasDefiniteHeight($this->styleResolver->cssDeclarationString($parentPresentation))
+            && '100%' === $sourceWidth && '100%' === $sourceHeight;
+        $isResponsiveFillSvg = $fillsSizedParent || (
+            (
             ($isFlexOrGridItem && $parent instanceof DOMElement && $this->declarationsOwnMediaBox($parentPresentation))
             || ($isPositionedMediaBox && in_array($sourceObjectFit, array( 'contain', 'cover', 'fill', 'none', 'scale-down' ), true))
-        )
+            )
             && null !== $this->svgPercentageWidth(trim(SourceDom::attr($element, 'width')))
-            && null !== $this->svgPercentageWidth(trim(SourceDom::attr($element, 'height')));
+            && null !== $this->svgPercentageWidth(trim(SourceDom::attr($element, 'height')))
+        );
         if ( $isResponsiveFillSvg ) {
             $dimensions = array();
             // This is generated fill geometry, not an authored image support.
@@ -245,7 +260,9 @@ final class SvgMaterializer implements SvgElementMaterializer
             // parent-fill path.
             $imgRule = '>img{width:100%;height:100%;-o-object-fit:' . $objectFit . ';object-fit:' . $objectFit . '}';
             $fillClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule);
-            $this->context->layoutGeometry()->registerRule($fillClass, '.' . $fillClass . $figureRule . '.wp-block-image.' . $fillClass . $imgRule);
+            $linkedImgRule = str_replace('>img', '>a>img', $imgRule);
+            $this->context->layoutGeometry()->registerRule($fillClass, '.' . $fillClass . $figureRule . '.wp-block-image.' . $fillClass . $imgRule
+                . '.wp-block-image.' . $fillClass . $linkedImgRule . '.' . $fillClass . '>a{display:block;width:100%;height:100%}');
             $attrs = array(
                 'url'       => $url,
                 'alt'       => $this->svgImageAlt($element),
@@ -334,13 +351,16 @@ final class SvgMaterializer implements SvgElementMaterializer
             $style = trim($style, ';') . ( '' === trim($style, ';') ? '' : ';' ) . $dimension . ':' . $resolvedSourceDimensions[$dimension];
         }
         if ( $this->cssOwnsMediaBox($element) ) {
-            $resolved = $this->richTextSvgDimensions($element, $this->styleResolver->presentationDeclarations($element));
+            $presentation = $this->styleResolver->presentationDeclarations($element);
+            $resolved = $this->richTextSvgDimensions($element, $presentation);
+            $declarations = $this->styleResolver->cssDeclarations($style);
             foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $dimension ) {
-                if ( ! isset($resolved[$dimension]) || preg_match('/(?:^|;)\s*' . preg_quote($dimension, '/') . '\s*:/i', $style) ) {
+                if ( ! isset($resolved[$dimension]) || (isset($declarations[$dimension]) && ($presentation[$dimension] ?? '') === $resolved[$dimension]) ) {
                     continue;
                 }
-                $style = trim($style, ';') . ( '' === trim($style, ';') ? '' : ';' ) . $dimension . ':' . $resolved[$dimension];
+                $declarations[$dimension] = $resolved[$dimension];
             }
+            $style = $this->styleResolver->cssDeclarationString($declarations);
         }
         foreach ( array( 'width', 'height' ) as $dimension ) {
             if ( empty($attrs[$dimension]) || preg_match('/(?:^|;)\s*' . $dimension . '\s*:/i', $style) ) {

@@ -217,4 +217,14 @@ $assert(array() === $inlineSvgAssets($unsafeWeight), 'Metadata admission does no
 $animatedPaint = (new HtmlTransformer())->transform('<style>.icon path{animation:pulse 1s infinite}@keyframes pulse{to{opacity:0}}</style><svg class="icon" color="#123456" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg>')->toArray();
 $assert(array() === $inlineSvgAssets($animatedPaint), 'Page-CSS animated descendants still require inline document context.');
 
+$cssFilledIcon = (new HtmlTransformer())->transform('<style>.icon-box{width:30px;height:30px;position:relative}</style><a href="/details"><div><h2>Details</h2><div class="icon-box"><div style="display:contents"><svg color="#123456" viewBox="0 0 10 10" style="width:100%;height:100%;display:inline-block"><g weight="light"><path d="M0 0h10v10H0z"></path></g></svg></div></div></div></a>')->toArray();
+$cssFilledMarkup = (string) ($cssFilledIcon['serialized_blocks'] ?? '');
+$cssFilledStyles = implode('', array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssFilledIcon['assets'] ?? array()));
+$assert(str_contains($cssFilledMarkup, '<!-- wp:image') && str_contains($cssFilledMarkup, '<a href="/details"><img'), 'A linked CSS-filled icon uses the valid core/image link shape.');
+$assert(str_contains($cssFilledStyles, '>a>img{width:100%;height:100%') && str_contains($cssFilledStyles, '>a{display:block;width:100%;height:100%}'), 'Both native link and image carriers retain the percentage media box across a transparent source wrapper.');
+
+$richTextIcon = (new HtmlTransformer())->transform('<style>.icon-box{width:20px;height:20px}</style><a href="/details">Details<span class="icon-box"><span style="display:contents"><svg color="#123456" viewBox="0 0 10 10" style="width:100%;height:100%;display:inline-block"><g weight="light"><path d="M0 0h10v10H0z"></path></g></svg></span></span></a>')->toArray();
+$richTextMarkup = (string) ($richTextIcon['serialized_blocks'] ?? '');
+$assert(preg_match('/<img[^>]*style="[^"]*width:20px;[^"]*height:20px/', $richTextMarkup) === 1, 'Flattened RichText artwork resolves CSS-authored percentage axes against its original icon box.');
+
 fwrite(STDOUT, 'SVG materialized paint cascade tests: ' . $assertions . " passed\n");
