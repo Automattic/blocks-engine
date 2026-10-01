@@ -52,7 +52,14 @@ import { store, getContext, getElement } from '@wordpress/interactivity';
 const rootOf = ref => ref.closest('[data-wp-interactive="__NAME__"]');
 const normalizedText = item => {
     const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT), parts = [];
-    while (walker.nextNode()) parts.push(walker.currentNode.textContent);
+    while (walker.nextNode()) {
+        const parent = walker.currentNode.parentElement;
+        // Native save-valid icon text can be replaced by an authored SVG in CSS.
+        // Exclude that zero-font, aria-hidden decoration, not closed answers or
+        // visible author symbols (even when their ancestor is aria-hidden).
+        if (parent?.closest('[aria-hidden="true"]') && parseFloat(getComputedStyle(parent).fontSize) === 0) continue;
+        parts.push(walker.currentNode.textContent);
+    }
     return parts.join(' ').replace(/\s+/g, ' ').trim().toLowerCase();
 };
 export function refresh(root, context) {

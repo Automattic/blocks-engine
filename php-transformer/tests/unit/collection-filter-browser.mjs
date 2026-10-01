@@ -18,6 +18,28 @@ const states = await page.evaluate(() => {
     return results;
 });
 assert.deepEqual(states,[{visible:[0,1],empty:false},{visible:[0],empty:false},{visible:[],empty:true},{visible:[0],empty:false},{visible:[],empty:true},{visible:[0],empty:false},{visible:[],empty:true}]);
+await page.addStyleTag({content:'.wp-block-accordion-heading__toggle-icon{font-size:0}'});
+const semanticStates = await page.evaluate(() => {
+    const root=document.querySelector('[data-wp-interactive]'), context=JSON.parse(root.dataset.wpContext);
+    const items=Array.from(root.querySelectorAll('.wp-block-accordion-item'));
+    const run=query=>{context.query=query;context.category=0;window.refreshCollection(root,context);return items.map((item,index)=>!item.hidden?index:null).filter(index=>index!==null);};
+    const results=[run('+')];
+    const author=document.createElement('span');author.textContent='C++ author symbol';items[0].querySelector('p').append(author);
+    results.push(run('+'));
+    author.remove();
+    const visibleDecorative=document.createElement('span');visibleDecorative.setAttribute('aria-hidden','true');visibleDecorative.style.fontSize='16px';visibleDecorative.textContent='+';items[1].querySelector('p').append(visibleDecorative);
+    results.push(run('+'));
+    visibleDecorative.remove();
+    const decorativeAncestor=document.createElement('span');decorativeAncestor.setAttribute('aria-hidden','true');decorativeAncestor.style.fontSize='0';
+    const visibleChild=document.createElement('span');visibleChild.style.fontSize='16px';visibleChild.textContent='+';decorativeAncestor.append(visibleChild);items[1].querySelector('p').append(decorativeAncestor);
+    results.push(run('+'));decorativeAncestor.remove();
+    const closedAnswer=items[0].querySelector('.wp-block-accordion-panel');closedAnswer.hidden=true;closedAnswer.setAttribute('aria-hidden','true');closedAnswer.style.fontSize='16px';
+    results.push(run('magnolia'));
+    const zeroFontAuthor=document.createElement('span');zeroFontAuthor.style.fontSize='0';zeroFontAuthor.textContent='ZeroFontAuthorWord';items[1].querySelector('.wp-block-accordion-heading').append(zeroFontAuthor);
+    results.push(run('ZeroFontAuthorWord'));
+    return results;
+});
+assert.deepEqual(semanticStates,[[],[0],[1],[1],[0],[1]],'only zero-font aria-hidden decoration is excluded; closed answers and author symbols remain searchable');
 await browser.close();
 const cardBrowser = await chromium.launch({headless:true});
 const cardPage = await cardBrowser.newPage();
