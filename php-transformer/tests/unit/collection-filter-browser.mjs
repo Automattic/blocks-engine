@@ -41,6 +41,18 @@ const semanticStates = await page.evaluate(() => {
     return results;
 });
 assert.deepEqual(semanticStates,[[],[0],[1],[1],[0],[1]],'only zero-font aria-hidden decoration is excluded; closed answers and author symbols remain searchable');
+const ownerRelationships = await page.evaluate(() => {
+    const root=document.querySelector('[data-wp-interactive]'), context=JSON.parse(root.dataset.wpContext);
+    const items=Array.from(root.querySelectorAll('.wp-block-accordion-item')), container=items[0].parentElement;
+    const run=(query,category)=>{context.query=query;context.category=category;window.refreshCollection(root,context);return Array.from(container.children).filter(item=>!item.hidden).map(item=>item.querySelector('p')?.textContent);};
+    container.insertBefore(items[1],items[0]);
+    const results=[run('',1)];
+    const added=document.createElement('div');added.className='wp-block-accordion-item';added.innerHTML='<h3>New owner item?</h3><div><p>Owner added rosemary.</p></div>';container.append(added);
+    results.push(run('rosemary',0),run('rosemary',1),run('',1));
+    items[1].remove();results.push(run('',1));
+    return results;
+});
+assert.deepEqual(ownerRelationships,[['Owner edited answer magnolia.'],['Owner added rosemary.'],[],['Owner edited answer magnolia.'],['Owner edited answer magnolia.']],'saved item identities preserve memberships through reorder and deletion; new items remain usable in the full collection');
 await browser.close();
 const cardBrowser = await chromium.launch({headless:true});
 const cardPage = await cardBrowser.newPage();

@@ -21,6 +21,18 @@ $assert(2 === substr_count($markup,'<!-- wp:accordion-item '), 'answers are nati
 $assert(1 === substr_count($markup,'<!-- wp:accordion '), 'all items share one native accordion tree');
 $assert(str_contains($markup,'blocks-engine-collection-target'), 'the native collection is addressable after serialization');
 $assert(str_contains($markup,'wp:paragraph'), 'answers remain native editor paragraphs');
+$walk = static function(array $blocks) use (&$walk): array { return array_merge(...array_map(static fn(array $block): array => array_merge(array($block), $walk($block['innerBlocks'] ?? array())), $blocks)); };
+$allBlocks = $walk($result['blocks']);
+$nativeItems = array_values(array_filter($allBlocks, static fn(array $block): bool => 'core/accordion-item' === $block['blockName']));
+$rootBlock = $result['blocks'][0];
+$itemMarkers = array();
+foreach ($nativeItems as $itemBlock) {
+    preg_match('/blocks-engine-collection-item-[a-f0-9]{16}/', $itemBlock['attrs']['className'] ?? '', $matches);
+    $assert(isset($matches[0]), 'each native item saves an opaque stable identity in ordinary className metadata');
+    $itemMarkers[] = $matches[0];
+}
+$assert(count(array_unique($itemMarkers)) === 2, 'duplicate headings retain distinct item identities');
+$assert($rootBlock['attrs']['config']['memberships'][$itemMarkers[0]] === array(0,1) && $rootBlock['attrs']['config']['memberships'][$itemMarkers[1]] === array(0), 'category membership is keyed by saved item identity rather than position');
 $assert(str_contains($markup,'data-collection-empty="true"'), 'the external source empty state remains editable and local');
 $assert(str_contains($markup,'<input type="text"') || preg_match('/<input[^>]+type="text"/', $markup), 'an omitted source input type keeps the native HTML text default');
 $searchFiles = $files;
@@ -29,6 +41,13 @@ $searchProjection = (new CapturedCollectionFilterProjector())->project($searchFi
 $searchResult = (new HtmlTransformer())->transform($searchProjection[0]['content'])->toArray();
 $assert((bool) preg_match('/<input[^>]+type="search"/', $searchResult['serialized_blocks']), 'an explicit source search input keeps its search type');
 $assert(64 === strlen(RuntimeDeclarations::hash($result['source_reports']['generated_blocks'])), 'companion declarations cross the actual staged runtime transport contract');
+$driftFiles = $files;
+$driftReport = json_decode($driftFiles[2]['content'], true);
+$driftReport['pages'][0]['states'][0]['collectionFilter']['items'] = array_reverse($driftReport['pages'][0]['states'][0]['collectionFilter']['items']);
+$driftFiles[2]['content'] = json_encode($driftReport);
+$driftProjection = (new CapturedCollectionFilterProjector())->project($driftFiles);
+$driftResult = (new HtmlTransformer())->transform($driftProjection[0]['content'])->toArray();
+$assert($driftResult['blocks'][0]['attrs']['config']['memberships'] === $rootBlock['attrs']['config']['memberships'], 'portable annotations bind by item key even if evidence order differs');
 $files[2]['content'] = str_replace('"replay":"verified"','"replay":"unsupported"',$files[2]['content']);
 $rejected = (new CapturedCollectionFilterProjector())->project($files);
 $assert(!str_contains($rejected[0]['content'],'data-blocks-engine-collection='), 'unverified predicates are not promoted');

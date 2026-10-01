@@ -37,7 +37,7 @@ final class CollectionFilterBlockGenerator
         edit({attributes:a,setAttributes}) {
             if(a.kind === 'field') return el('input',Object.assign(props(a),{onChange:()=>{},value:'',disabled:true}));
             if(a.kind === 'category') return el(RichText,Object.assign(props(a),{tagName:'button',value:a.label,allowedFormats:[],onChange:label=>setAttributes({label})}));
-            return el(a.tag,{className:a.className},el(InnerBlocks));
+            return el(a.tag,{className:a.className},a.kind === 'root' ? el('p',{className:'blocks-engine-collection-editor-help'},'New items appear in the full collection. Category memberships follow existing items when reordered.') : null,el(InnerBlocks));
         },
         save({attributes:a}) {
             if(a.kind === 'field') return el('input',props(a));
@@ -66,13 +66,14 @@ const normalizedText = item => {
 export function refresh(root, context) {
     const target = root.querySelector('.blocks-engine-collection-target');
     if (!target) return;
-    const nativeItems = target.querySelectorAll('.wp-block-accordion-item');
-    const nativeContainer = target.querySelector(':scope > .wp-block-group') || target;
-    const items = nativeItems.length ? Array.from(nativeItems) : Array.from(nativeContainer.children);
-    if (items.length !== context.memberships.length) return;
+    const nativeContainer = target.firstElementChild || target;
+    const items = Array.from(nativeContainer.children).filter(item => !item.matches('[data-collection-empty]'));
     let count = 0;
-    items.forEach((item, index) => {
-        const show = context.memberships[index].includes(context.category) && normalizedText(item).includes(context.query.toLowerCase());
+    items.forEach(item => {
+        const marker = Array.from(item.classList).find(token => Object.prototype.hasOwnProperty.call(context.memberships, token));
+        // Unassigned owner-added items remain usable in the proven full collection.
+        const memberships = marker ? context.memberships[marker] : [context.initialCategory];
+        const show = memberships.includes(context.category) && normalizedText(item).includes(context.query.toLowerCase());
         item.hidden = !show;
         // Core disclosure styles must not override a filtered item's visibility.
         if (show) item.style.removeProperty('display'); else item.style.setProperty('display', 'none', 'important');

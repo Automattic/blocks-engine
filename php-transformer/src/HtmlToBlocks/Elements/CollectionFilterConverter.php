@@ -7,13 +7,14 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CollectionFil
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Closure;
 use DOMElement;
 
 /** Keeps controls local and authoring content native, without category snapshots. */
 final class CollectionFilterConverter implements ElementConverter
 {
-    public function __construct(private readonly HtmlTransformerSession $session, private readonly StyleResolver $styleResolver, private readonly Closure $convertChildren, private readonly Closure $convertElement) {}
+    public function __construct(private readonly HtmlTransformerSession $session, private readonly StyleResolver $styleResolver, private readonly Closure $convertChildren, private readonly Closure $convertElement, private readonly SourceBlockCreator $createBlock) {}
 
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
@@ -31,8 +32,20 @@ final class CollectionFilterConverter implements ElementConverter
         while (!$root->hasAttribute('data-blocks-engine-collection') && $root->parentNode instanceof DOMElement) $root = $root->parentNode;
         $config = json_decode($root->getAttribute('data-blocks-engine-collection'), true);
         if (!is_array($config)) return ConversionOutcome::unhandled();
-        if ('target' === $kind && (!in_array($targetBlock['blockName'], array('core/accordion', 'core/group'), true) || count($targetBlock['innerBlocks'] ?? array()) !== count($config['memberships']))) {
-            $fallbacks[] = array('type' => 'unsupported_element', 'reason' => 'collection_item_mapping_unproven', 'diagnostic_code' => 'html_collection_item_mapping_unproven', 'source_format' => 'html', 'tag' => $tagName, 'selector' => SourceDom::elementSelector($element), 'html' => SourceDom::outerHtml($element));
+        if ('target' === $kind) {
+            $markers = array();
+            foreach ($element->childNodes as $child) {
+                if ($child instanceof DOMElement && $child->hasAttribute('data-blocks-engine-collection-item-marker')) $markers[] = $child->getAttribute('data-blocks-engine-collection-item-marker');
+            }
+            if (!in_array($targetBlock['blockName'], array('core/accordion', 'core/group'), true) || count($targetBlock['innerBlocks'] ?? array()) !== count($config['memberships']) || count($markers) !== count($targetBlock['innerBlocks'] ?? array())) {
+                $fallbacks[] = array('type' => 'unsupported_element', 'reason' => 'collection_item_mapping_unproven', 'diagnostic_code' => 'html_collection_item_mapping_unproven', 'source_format' => 'html', 'tag' => $tagName, 'selector' => SourceDom::elementSelector($element), 'html' => SourceDom::outerHtml($element));
+            } else {
+                foreach ($targetBlock['innerBlocks'] as $index => $itemBlock) {
+                    $itemAttrs = $itemBlock['attrs'];
+                    $itemAttrs['className'] = trim(($itemAttrs['className'] ?? '') . ' ' . $markers[$index]);
+                    $targetBlock['innerBlocks'][$index] = $this->createBlock->createBlock($itemBlock['blockName'], $itemAttrs, $itemBlock['innerBlocks'] ?? array());
+                }
+            }
         }
         $generator = new CollectionFilterBlockGenerator();
         $registry = $this->session->generatedBlockRegistry();

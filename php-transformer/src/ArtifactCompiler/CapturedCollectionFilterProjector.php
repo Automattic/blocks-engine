@@ -56,8 +56,20 @@ final class CapturedCollectionFilterProjector
                     $target = $targets->item(0);
                     $items = $xpath->query('./*[@data-dla-collection-item]', $target);
                     if (count($evidence['items']) !== $items->length) continue;
-                    foreach ($items as $index => $item) {
-                        if ($item->getAttribute('data-dla-collection-item') !== (string) $evidence['items'][$index]['key'] || json_decode($item->getAttribute('data-dla-collection-members'), true) !== $evidence['items'][$index]['categories']) continue 2;
+                    $byKey = array();
+                    foreach ($evidence['items'] as $item) {
+                        if (isset($byKey[$item['key']])) continue 2;
+                        $byKey[$item['key']] = $item;
+                    }
+                    $memberships = array();
+                    $markersByKey = array();
+                    foreach ($items as $item) {
+                        $itemKey = $item->getAttribute('data-dla-collection-item');
+                        if (!isset($byKey[$itemKey]) || json_decode($item->getAttribute('data-dla-collection-members'), true) !== $byKey[$itemKey]['categories']) continue 2;
+                        $marker = 'blocks-engine-collection-item-' . substr(hash('sha256', $path . "\n" . $evidence['target']['selector'] . "\n" . $itemKey), 0, 16);
+                        if (isset($memberships[$marker])) continue 2;
+                        $memberships[$marker] = $byKey[$itemKey]['categories'];
+                        $markersByKey[$itemKey] = $marker;
                     }
                     $nodes = array_merge(array($target, $fields->item(0), $empty->item(0)), iterator_to_array($controls));
                     $root = $target->parentNode;
@@ -83,7 +95,8 @@ final class CapturedCollectionFilterProjector
                         }
                         $categories[] = $shapes;
                     }
-                    $root->setAttribute('data-blocks-engine-collection', json_encode(array('initialCategory' => $evidence['initialCategory'], 'memberships' => array_column($evidence['items'], 'categories'), 'categories' => $categories), JSON_THROW_ON_ERROR));
+                    foreach ($items as $item) $item->setAttribute('data-blocks-engine-collection-item-marker', $markersByKey[$item->getAttribute('data-dla-collection-item')]);
+                    $root->setAttribute('data-blocks-engine-collection', json_encode(array('initialCategory' => $evidence['initialCategory'], 'memberships' => $memberships, 'categories' => $categories), JSON_THROW_ON_ERROR));
                     $target->setAttribute('data-blocks-engine-collection-target', 'true');
                     $target->setAttribute('data-blocks-engine-collection-projected-selector', $evidence['target']['selector']);
                     $fields->item(0)->setAttribute('data-blocks-engine-collection-control', 'field');
