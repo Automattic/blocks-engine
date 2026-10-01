@@ -177,4 +177,44 @@ $assert(
 );
 $assert(! str_contains($quotedFontContent, 'var(--font-mono)'), 'The standalone SVG asset does not retain the unresolved font-family custom property.');
 
+// Standard SVG color and inert icon-exporter metadata do not imply behavior.
+// Their paint must survive the native-image boundary rather than being removed.
+$attributeColor = (new HtmlTransformer())->transform('<svg color="#c95a12" fill="currentColor" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg>')->toArray();
+$attributeColorAssets = $inlineSvgAssets($attributeColor);
+$assert(1 === count($attributeColorAssets), 'An SVG color presentation attribute does not disqualify passive artwork.');
+$attributeColorContent = (string) ($attributeColorAssets[0]['content'] ?? '');
+$assert(str_contains($attributeColorContent, 'fill="#c95a12"') && ! str_contains($attributeColorContent, 'currentColor'), 'The SVG color attribute supplies currentColor in the standalone asset.');
+
+$groupWeight = (new HtmlTransformer())->transform('<svg color="#123456" viewBox="0 0 10 10"><g weight="light"><path fill="currentColor" d="M0 0h10v10H0z"></path></g></svg>')->toArray();
+$assert(1 === count($inlineSvgAssets($groupWeight)) && 'core/image' === ($groupWeight['blocks'][0]['blockName'] ?? null), 'Inert group weight metadata remains native SVG artwork.');
+$assert(str_contains((string) ($inlineSvgAssets($groupWeight)[0]['content'] ?? ''), 'fill="#123456"'), 'Exporter metadata admission preserves icon paint.');
+
+$descendantColor = (new HtmlTransformer())->transform('<svg color="#123456" viewBox="0 0 10 10"><g color="#fedcba" weight="light"><path fill="currentColor" d="M0 0h10v10H0z"></path></g></svg>')->toArray();
+$assert(str_contains((string) ($inlineSvgAssets($descendantColor)[0]['content'] ?? ''), 'fill="#fedcba"'), 'Descendant artwork resolves currentColor at its own group scope rather than the SVG root.');
+$descendantVariable = (new HtmlTransformer())->transform('<svg style="--icon-color:#123456" viewBox="0 0 10 10"><g style="--icon-color:#fedcba" weight="light"><path fill="var(--icon-color,rgb(0,0,0))" d="M0 0h10v10H0z"></path></g></svg>')->toArray();
+$assert(str_contains((string) ($inlineSvgAssets($descendantVariable)[0]['content'] ?? ''), 'fill="#fedcba"'), 'Descendant presentation variables use their own inherited custom-property scope.');
+
+$cascadeColor = (new HtmlTransformer())->transform('<style>.icon{color:#abcdef}</style><svg class="icon" color="#123456" fill="currentColor" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg>')->toArray();
+$assert(str_contains((string) ($inlineSvgAssets($cascadeColor)[0]['content'] ?? ''), 'fill="#abcdef"'), 'Matched CSS color overrides the SVG presentation attribute.');
+
+$ancestorColor = (new HtmlTransformer())->transform('<svg color="#654321" viewBox="0 0 10 10"><g><svg fill="currentColor" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg></g></svg>')->toArray();
+$assert(str_contains((string) ($inlineSvgAssets($ancestorColor)[0]['content'] ?? ''), '#654321'), 'Ancestor SVG presentation color remains available during artwork materialization.');
+
+$functionFallback = (new HtmlTransformer())->transform('<svg color="var(--icon-color, rgb(255, 255, 255))" style="fill:var(--icon-color, rgb(255, 255, 255))" viewBox="0 0 10 10"><g weight="regular"><path d="M0 0h10v10H0z"></path></g></svg>')->toArray();
+$functionFallbackContent = (string) ($inlineSvgAssets($functionFallback)[0]['content'] ?? '');
+$assert(1 === count($inlineSvgAssets($functionFallback)), 'Function-valued color fallbacks materialize through the existing SVG image path.');
+$assert(str_contains($functionFallbackContent, 'rgb(255, 255, 255)') && ! str_contains($functionFallbackContent, 'var('), 'Function-valued paint fallbacks are baked without unresolved variables.');
+
+$definedOuter = (new HtmlTransformer())->transform('<style>:root{--icon-color:#13579b}</style><svg color="var(--icon-color,var(--missing,rgb(0,0,0)))" fill="currentColor" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg>')->toArray();
+$assert(str_contains((string) ($inlineSvgAssets($definedOuter)[0]['content'] ?? ''), 'fill="#13579b"'), 'A defined paint variable wins without evaluating its nested fallback.');
+
+$unresolvedPaint = (new HtmlTransformer())->transform('<svg color="var(--missing)" fill="currentColor" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg>')->toArray();
+$assert(array() === $inlineSvgAssets($unresolvedPaint), 'Unresolved color remains inline rather than being baked as a guessed image color.');
+$unknownAttribute = (new HtmlTransformer())->transform('<svg custom-behavior="live" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg>')->toArray();
+$assert(array() === $inlineSvgAssets($unknownAttribute), 'Unknown behavior-bearing attributes retain the existing inline floor.');
+$unsafeWeight = (new HtmlTransformer())->transform('<svg viewBox="0 0 10 10"><g weight="javascript:alert(1)"><path d="M0 0h10v10H0z"></path></g></svg>')->toArray();
+$assert(array() === $inlineSvgAssets($unsafeWeight), 'Metadata admission does not bypass unsafe-value checks.');
+$animatedPaint = (new HtmlTransformer())->transform('<style>.icon path{animation:pulse 1s infinite}@keyframes pulse{to{opacity:0}}</style><svg class="icon" color="#123456" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg>')->toArray();
+$assert(array() === $inlineSvgAssets($animatedPaint), 'Page-CSS animated descendants still require inline document context.');
+
 fwrite(STDOUT, 'SVG materialized paint cascade tests: ' . $assertions . " passed\n");

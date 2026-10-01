@@ -3755,36 +3755,14 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function expandCssVariableReferences(string $value, array $customProperties): string
     {
-        for ( $pass = 0; $pass < 5; ++$pass ) {
-            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', static function (array $matches) use ($customProperties): string {
-                $name = (string) $matches[1];
-                $propertyValue = (string) ($customProperties[$name] ?? '');
-                // A custom property authored as a bare CSS-wide keyword
-                // (`--token:unset`) is a common "no override" sentinel: a
-                // design-system token deliberately left unset so a consuming
-                // `var(--token, <default>)` falls through to its own default,
-                // exactly as if `--token` were never declared. Per spec these
-                // keywords have no special meaning once substituted into
-                // another property's value (the declaration would simply be
-                // invalid), so honoring the sentinel intent here -- rather
-                // than substituting the literal word "unset" -- is a closer
-                // approximation of the cascade's real outcome than treating
-                // it as a normal value.
-                $isCssWideKeywordSentinel = in_array(strtolower(trim($propertyValue)), array( 'unset', 'initial', 'inherit', 'revert', 'revert-layer' ), true);
-                if ( isset($customProperties[$name]) && '' !== $propertyValue && ! $isCssWideKeywordSentinel ) {
-                    return $propertyValue;
-                }
-
-                return isset($matches[2]) && '' !== trim((string) $matches[2]) ? trim((string) $matches[2]) : (string) $matches[0];
-            }, $value);
-
-            if ( ! is_string($expanded) || $expanded === $value ) {
-                break;
-            }
-            $value = $expanded;
-        }
-
-        return trim($value);
+        return CssVariableExpander::expand($value, static function (string $name) use ($customProperties): ?string {
+            $propertyValue = trim((string) ($customProperties[$name] ?? ''));
+            // Retain the existing design-token sentinel policy while sharing
+            // balanced nested/function fallback substitution with form paint.
+            return '' === $propertyValue || in_array(strtolower($propertyValue), array( 'unset', 'initial', 'inherit', 'revert', 'revert-layer' ), true)
+                ? null
+                : $propertyValue;
+        }) ?? trim($value);
     }
 
     /**
