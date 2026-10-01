@@ -50,7 +50,7 @@
             }
         },
         {
-            "path": "blocks.0.innerBlocks.1.innerBlocks.0",
+            "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0",
             "name": "custom/authored-select",
             "attrs": {
                 "label": "Project Type",
@@ -58,7 +58,7 @@
             }
         },
         {
-            "path": "blocks.0.innerBlocks.2",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0",
             "name": "custom/authored-textarea",
             "attrs": {
                 "label": "Project Details *",

@@ -316,6 +316,10 @@ final class SourceBlockAttributeProjector
         string $logicalControlPath
     ): bool
     {
+        // A label flattened to plain text no longer owns a separate paint surface.
+        if (1 !== preg_match('/<(?:span|mark|font|em|strong|b|i|small)\b[^>]*\s(?:class|style|color)=/i', $label)) {
+            return false;
+        }
         $paths = array_fill_keys(self::buttonLabelPaths($sourceElement, $logicalControl, $label), true);
         if ( array() === $paths ) {
             return false;

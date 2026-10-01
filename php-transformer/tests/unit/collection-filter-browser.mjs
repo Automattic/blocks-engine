@@ -1,0 +1,56 @@
+import { readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+import assert from 'node:assert/strict';
+
+const result = JSON.parse(readFileSync(`${tmpdir()}/collection-filter-result.json`));
+const view = readFileSync(`${tmpdir()}/collection-filter-view.mjs`, 'utf8');
+const browser = await chromium.launch({headless:true});
+const page = await browser.newPage();
+await page.setContent(result.serialized_blocks);
+assert.equal(await page.locator('input').getAttribute('type'), 'text', 'native field retains the source text input type');
+await page.addScriptTag({content:view.replace(/^import .*;$/m,'').replace('export function refresh','function refresh').replace(/store\('__NAME__'.*/s,'').replace(/store\('custom\/collection-filter',[\s\S]*$/,'') + '\nwindow.refreshCollection=refresh;'});
+const states = await page.evaluate(() => {
+    const root = document.querySelector('[data-wp-interactive]'), context=JSON.parse(root.dataset.wpContext);
+    const run = (query, category) => { context.query=query;context.category=category;window.refreshCollection(root,context);return {visible:Array.from(root.querySelectorAll('.wp-block-accordion-item')).map((item,index)=>!item.hidden?index:null).filter(index=>index!==null),empty:!root.querySelector('[data-collection-empty]').hidden}; };
+    const results=[run('',0),run('ORCHID',0),run('violet',1),run('orchid',1),run('not-present',0)];
+    root.querySelector('.wp-block-accordion-item p').textContent='Owner edited answer magnolia.';
+    results.push(run('magnolia',0),run('orchid',0));
+    return results;
+});
+assert.deepEqual(states,[{visible:[0,1],empty:false},{visible:[0],empty:false},{visible:[],empty:true},{visible:[0],empty:false},{visible:[],empty:true},{visible:[0],empty:false},{visible:[],empty:true}]);
+await page.addStyleTag({content:'.wp-block-accordion-heading__toggle-icon{font-size:0}'});
+const semanticStates = await page.evaluate(() => {
+    const root=document.querySelector('[data-wp-interactive]'), context=JSON.parse(root.dataset.wpContext);
+    const items=Array.from(root.querySelectorAll('.wp-block-accordion-item'));
+    const run=query=>{context.query=query;context.category=0;window.refreshCollection(root,context);return items.map((item,index)=>!item.hidden?index:null).filter(index=>index!==null);};
+    const results=[run('+')];
+    const author=document.createElement('span');author.textContent='C++ author symbol';items[0].querySelector('p').append(author);
+    results.push(run('+'));
+    author.remove();
+    const visibleDecorative=document.createElement('span');visibleDecorative.setAttribute('aria-hidden','true');visibleDecorative.style.fontSize='16px';visibleDecorative.textContent='+';items[1].querySelector('p').append(visibleDecorative);
+    results.push(run('+'));
+    visibleDecorative.remove();
+    const decorativeAncestor=document.createElement('span');decorativeAncestor.setAttribute('aria-hidden','true');decorativeAncestor.style.fontSize='0';
+    const visibleChild=document.createElement('span');visibleChild.style.fontSize='16px';visibleChild.textContent='+';decorativeAncestor.append(visibleChild);items[1].querySelector('p').append(decorativeAncestor);
+    results.push(run('+'));decorativeAncestor.remove();
+    const closedAnswer=items[0].querySelector('.wp-block-accordion-panel');closedAnswer.hidden=true;closedAnswer.setAttribute('aria-hidden','true');closedAnswer.style.fontSize='16px';
+    results.push(run('magnolia'));
+    const zeroFontAuthor=document.createElement('span');zeroFontAuthor.style.fontSize='0';zeroFontAuthor.textContent='ZeroFontAuthorWord';items[1].querySelector('.wp-block-accordion-heading').append(zeroFontAuthor);
+    results.push(run('ZeroFontAuthorWord'));
+    return results;
+});
+assert.deepEqual(semanticStates,[[],[0],[1],[1],[0],[1]],'only zero-font aria-hidden decoration is excluded; closed answers and author symbols remain searchable');
+await browser.close();
+const cardBrowser = await chromium.launch({headless:true});
+const cardPage = await cardBrowser.newPage();
+await cardPage.setContent(JSON.parse(readFileSync(`${tmpdir()}/collection-filter-cards.json`)).serialized_blocks);
+await cardPage.addScriptTag({content:view.replace(/^import .*;$/m,'').replace('export function refresh','function refresh').replace(/store\('custom\/collection-filter',[\s\S]*$/,'') + '\nwindow.refreshCollection=refresh;'});
+const cards = await cardPage.evaluate(() => {
+    const root=document.querySelector('[data-wp-interactive]'), context=JSON.parse(root.dataset.wpContext);
+    context.query='VIOLET';context.category=0;window.refreshCollection(root,context);
+    return Array.from(root.querySelectorAll('article')).filter(item=>!item.hidden).map(item=>item.textContent);
+});
+assert.deepEqual(cards,['Same cardAnswer violet.']);
+await cardBrowser.close();
+console.log('PASS: answer-only search, case, category composition, external empty state, owner-edited live text');
