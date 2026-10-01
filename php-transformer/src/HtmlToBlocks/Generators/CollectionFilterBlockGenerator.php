@@ -26,35 +26,203 @@ final class CollectionFilterBlockGenerator
         if (self::FIELD === $local) $attributes += array('inputType' => array('type' => 'string', 'default' => 'search'), 'placeholder' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'value' => array('type' => 'string', 'default' => ''));
         if (self::CHOICE === $local) $attributes += array('label' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'index' => array('type' => 'number', 'default' => 0), 'initial' => array('type' => 'boolean', 'default' => false), 'active' => array('type' => 'object'), 'inactive' => array('type' => 'object'));
         $editor = <<<'JS'
-(function(blocks,editor,components,element){
-var el=element.createElement,role=__ROLE__,store=__STORE__;
-function common(a){return {className:a.className||undefined,id:a.anchor||undefined,style:Object.keys(a.sourceStyle||{}).length?a.sourceStyle:undefined};}
-function context(a){return role==='collection-filter'?{query:'',category:a.initialCategory||0,items:a.items||[],matchCount:(a.items||[]).length}:{choiceIndex:a.index,active:a.active,inactive:a.inactive};}
-function props(a){var p=common(a);if(role==='collection-filter'){p.className=((p.className||'')+' blocks-engine-collection-scope').trim();p['data-wp-interactive']=store;p['data-wp-context']=JSON.stringify(context(a));p['data-wp-init']='callbacks.init';p['data-wp-watch']='callbacks.refresh';}
-if(role==='collection-filter-field'){p.type=a.inputType||'search';p.placeholder=a.placeholder||undefined;p['aria-label']=a.ariaLabel||undefined;p.value=a.value||'';p['data-wp-on--input']=store+'::actions.query';}
-if(role==='collection-filter-choice'){var state=a.initial?a.active:a.inactive;p.type='button';p.className=(state&&state.className)||undefined;p.style=(state&&state.style)||undefined;p['aria-label']=a.ariaLabel||undefined;p['aria-pressed']=String(!!a.initial);p['aria-selected']=state&&state.selected||undefined;p['data-state']=state&&state.dataState||undefined;p['data-wp-context']=JSON.stringify(context(a));p['data-wp-on--click']=store+'::actions.choose';p['data-wp-bind--class']=store+'::state.choiceClass';p['data-wp-bind--style']=store+'::state.choiceStyle';p['data-wp-bind--aria-pressed']=store+'::state.choicePressed';p['data-wp-bind--aria-selected']=store+'::state.choiceSelected';p['data-wp-bind--data-state']=store+'::state.choiceDataState';}
-if(role==='collection-filter-empty'){p.hidden=true;p['data-wp-bind--hidden']=store+'::state.hasMatches';}return p;}
-blocks.registerBlockType(__NAME__,{attributes:__ATTRIBUTES__,supports:{html:false,customClassName:false,interactivity:true},
-edit:function(p){var a=p.attributes,inspector;
-if(role==='collection-filter-field'){inspector=el(editor.InspectorControls,null,el(components.PanelBody,{title:'Collection search'},el(components.TextControl,{label:'Placeholder',value:a.placeholder,onChange:function(value){p.setAttributes({placeholder:value});}}),el(components.TextControl,{label:'Accessible label',value:a.ariaLabel,onChange:function(value){p.setAttributes({ariaLabel:value});}})));return el(element.Fragment,null,inspector,el('input',Object.assign({},editor.useBlockProps(common(a)),{type:a.inputType||'search',placeholder:a.placeholder,'aria-label':a.ariaLabel,value:a.value,onChange:function(event){p.setAttributes({value:event.target.value});}})));}
-if(role==='collection-filter-choice')return el(editor.RichText,Object.assign({},editor.useBlockProps(common(a)),{tagName:'button',type:'button',value:a.label,allowedFormats:[],onChange:function(value){p.setAttributes({label:value});}}));
-if(role==='collection-filter')inspector=el(editor.InspectorControls,null,el(components.PanelBody,{title:'Collection membership'},el(components.TextareaControl,{label:'Item membership (JSON)',value:JSON.stringify(a.items,null,2),onChange:function(value){try{var items=JSON.parse(value);if(Array.isArray(items)&&items.every(function(item){return /^blocks-engine-collection-item-[a-z0-9-]+$/.test(item.marker)&&Array.isArray(item.categories)&&item.categories.every(Number.isInteger);})){p.setAttributes({items:items});}}catch(error){}}})));
-var tag=role==='collection-filter'?a.tagName||'div':'div';return el(element.Fragment,null,inspector,el(tag,editor.useInnerBlocksProps(editor.useBlockProps(common(a)))));},
-save:function(p){var a=p.attributes;if(role==='collection-filter-field')return el('input',props(a));if(role==='collection-filter-choice')return el(editor.RichText.Content,Object.assign(props(a),{tagName:'button',value:a.label}));var tag=role==='collection-filter'?a.tagName||'div':'div';return el(tag,editor.useInnerBlocksProps.save(props(a)));}
-});
-})(window.wp.blocks,window.wp.blockEditor,window.wp.components,window.wp.element);
+( function( blocks, editor, components, element ) {
+    var el = element.createElement;
+    var role = __ROLE__;
+    var store = __STORE__;
+
+    function common( attrs ) {
+        return {
+            className: attrs.className || undefined,
+            id: attrs.anchor || undefined,
+            style: Object.keys( attrs.sourceStyle || {} ).length ? attrs.sourceStyle : undefined,
+        };
+    }
+
+    function context( attrs ) {
+        return role === 'collection-filter'
+            ? { query: '', category: attrs.initialCategory || 0, items: attrs.items || [], matchCount: ( attrs.items || [] ).length }
+            : { choiceIndex: attrs.index, active: attrs.active, inactive: attrs.inactive };
+    }
+
+    function saveProps( attrs ) {
+        var props = common( attrs );
+        if ( role === 'collection-filter' ) {
+            props.className = ( ( props.className || '' ) + ' blocks-engine-collection-scope' ).trim();
+            props[ 'data-wp-interactive' ] = store;
+            props[ 'data-wp-context' ] = JSON.stringify( context( attrs ) );
+            props[ 'data-wp-init' ] = 'callbacks.init';
+            props[ 'data-wp-watch' ] = 'callbacks.refresh';
+        }
+        if ( role === 'collection-filter-field' ) {
+            props.type = attrs.inputType || 'search';
+            props.placeholder = attrs.placeholder || undefined;
+            props[ 'aria-label' ] = attrs.ariaLabel || undefined;
+            props.value = attrs.value || '';
+            props[ 'data-wp-on--input' ] = store + '::actions.query';
+        }
+        if ( role === 'collection-filter-choice' ) {
+            var state = attrs.initial ? attrs.active : attrs.inactive;
+            props.type = 'button';
+            props.className = ( state && state.className ) || undefined;
+            props.style = ( state && state.style ) || undefined;
+            props[ 'aria-label' ] = attrs.ariaLabel || undefined;
+            props[ 'aria-pressed' ] = String( !! attrs.initial );
+            props[ 'aria-selected' ] = state && state.selected || undefined;
+            props[ 'data-state' ] = state && state.dataState || undefined;
+            props[ 'data-wp-context' ] = JSON.stringify( context( attrs ) );
+            props[ 'data-wp-on--click' ] = store + '::actions.choose';
+            props[ 'data-wp-bind--class' ] = store + '::state.choiceClass';
+            props[ 'data-wp-bind--style' ] = store + '::state.choiceStyle';
+            props[ 'data-wp-bind--aria-pressed' ] = store + '::state.choicePressed';
+            props[ 'data-wp-bind--aria-selected' ] = store + '::state.choiceSelected';
+            props[ 'data-wp-bind--data-state' ] = store + '::state.choiceDataState';
+        }
+        if ( role === 'collection-filter-empty' ) {
+            props.hidden = true;
+            props[ 'data-wp-bind--hidden' ] = store + '::state.hasMatches';
+        }
+        return props;
+    }
+
+    blocks.registerBlockType( __NAME__, {
+        attributes: __ATTRIBUTES__,
+        supports: { html: false, customClassName: false, interactivity: true },
+        edit: function( props ) {
+            var attrs = props.attributes;
+            var inspector;
+            if ( role === 'collection-filter-field' ) {
+                inspector = el( editor.InspectorControls, null,
+                    el( components.PanelBody, { title: 'Collection search' },
+                        el( components.TextControl, {
+                            label: 'Placeholder', value: attrs.placeholder,
+                            onChange: function( value ) { props.setAttributes( { placeholder: value } ); },
+                        } ),
+                        el( components.TextControl, {
+                            label: 'Accessible label', value: attrs.ariaLabel,
+                            onChange: function( value ) { props.setAttributes( { ariaLabel: value } ); },
+                        } )
+                    )
+                );
+                return el( element.Fragment, null, inspector,
+                    el( 'input', Object.assign( {}, editor.useBlockProps( common( attrs ) ), {
+                        type: attrs.inputType || 'search', placeholder: attrs.placeholder,
+                        'aria-label': attrs.ariaLabel, value: attrs.value,
+                        onChange: function( event ) { props.setAttributes( { value: event.target.value } ); },
+                    } ) )
+                );
+            }
+            if ( role === 'collection-filter-choice' ) {
+                return el( editor.RichText, Object.assign( {}, editor.useBlockProps( common( attrs ) ), {
+                    tagName: 'button', type: 'button', value: attrs.label, allowedFormats: [],
+                    onChange: function( value ) { props.setAttributes( { label: value } ); },
+                } ) );
+            }
+            if ( role === 'collection-filter' ) {
+                inspector = el( editor.InspectorControls, null,
+                    el( components.PanelBody, { title: 'Collection membership' },
+                        el( components.TextareaControl, {
+                            label: 'Item membership (JSON)', value: JSON.stringify( attrs.items, null, 2 ),
+                            onChange: function( value ) {
+                                try {
+                                    var items = JSON.parse( value );
+                                    if ( Array.isArray( items ) && items.every( function( item ) {
+                                        return /^blocks-engine-collection-item-[a-z0-9-]+$/.test( item.marker )
+                                            && Array.isArray( item.categories ) && item.categories.every( Number.isInteger );
+                                    } ) ) props.setAttributes( { items: items } );
+                                } catch ( error ) {}
+                            },
+                        } )
+                    )
+                );
+            }
+            var tag = role === 'collection-filter' ? attrs.tagName || 'div' : 'div';
+            return el( element.Fragment, null, inspector,
+                el( tag, editor.useInnerBlocksProps( editor.useBlockProps( common( attrs ) ) ) )
+            );
+        },
+        save: function( props ) {
+            var attrs = props.attributes;
+            if ( role === 'collection-filter-field' ) return el( 'input', saveProps( attrs ) );
+            if ( role === 'collection-filter-choice' ) {
+                return el( editor.RichText.Content, Object.assign( saveProps( attrs ), { tagName: 'button', value: attrs.label } ) );
+            }
+            var tag = role === 'collection-filter' ? attrs.tagName || 'div' : 'div';
+            return el( tag, editor.useInnerBlocksProps.save( saveProps( attrs ) ) );
+        },
+    } );
+} )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
         $view = <<<'JS'
-import {getContext,getElement,store} from '@wordpress/interactivity';
-const namespace=__STORE__;
-const choice=()=>{const c=getContext(namespace);return c.choiceIndex===c.category?c.active:c.inactive;};
-const text=node=>{const walker=document.createTreeWalker(node,NodeFilter.SHOW_TEXT),parts=[];while(walker.nextNode()){const parent=walker.currentNode.parentElement;if(parent?.closest('[aria-hidden="true"]'))continue;parts.push(walker.currentNode.textContent);}return parts.join(' ').replace(/\s+/g,' ').trim().toLowerCase();};
-const css=styles=>Object.entries(styles||{}).map(([key,value])=>(key.startsWith('--')?key:key==='cssFloat'?'float':key.replace(/[A-Z]/g,letter=>'-'+letter.toLowerCase()))+':'+value).join(';');
-store(namespace,{
-actions:{query(event){getContext(namespace).query=event.target.value;},choose(){const c=getContext(namespace);c.category=c.choiceIndex;}},
-state:{get choiceClass(){return choice()?.className||null;},get choiceStyle(){return css(choice()?.style)||null;},get choicePressed(){const c=getContext(namespace);return String(c.choiceIndex===c.category);},get choiceSelected(){return choice()?.selected??null;},get choiceDataState(){return choice()?.dataState??null;},get hasMatches(){return getContext(namespace).matchCount>0;}},
-callbacks:{init(){const root=getElement().ref,field=root.querySelector('[data-wp-on--input="'+namespace+'::actions.query"]');if(field)getContext(namespace).query=field.value;},refresh(){const c=getContext(namespace),root=getElement().ref,query=(c.query||'').toLowerCase(),category=c.category;let count=0;for(const item of c.items||[]){const nodes=root.querySelectorAll('.'+item.marker);for(const node of nodes){const show=item.categories.includes(category)&&text(node).includes(query);node.hidden=!show;if(show)count++;}}if(c.matchCount!==count)c.matchCount=count;}}
-});
+import { getContext, getElement, store } from '@wordpress/interactivity';
+
+const namespace = __STORE__;
+const choice = () => {
+    const context = getContext( namespace );
+    return context.choiceIndex === context.category ? context.active : context.inactive;
+};
+
+// Read the owner-edited native content, including collapsed answers, while
+// excluding generated decorations such as core's accordion toggle glyph.
+const text = ( node ) => {
+    const walker = document.createTreeWalker( node, NodeFilter.SHOW_TEXT );
+    const parts = [];
+    while ( walker.nextNode() ) {
+        if ( walker.currentNode.parentElement?.closest( '[aria-hidden="true"]' ) ) continue;
+        parts.push( walker.currentNode.textContent );
+    }
+    return parts.join( ' ' ).replace( /\s+/g, ' ' ).trim().toLowerCase();
+};
+
+const css = ( styles ) => Object.entries( styles || {} ).map( ( [ key, value ] ) => {
+    let property = key.startsWith( '--' ) ? key
+        : key === 'cssFloat' ? 'float' : key.replace( /[A-Z]/g, ( letter ) => '-' + letter.toLowerCase() );
+    if ( /^ms[A-Z]/.test( key ) ) property = '-' + property;
+    return property + ':' + value;
+} ).join( ';' );
+
+store( namespace, {
+    actions: {
+        query( event ) { getContext( namespace ).query = event.target.value; },
+        choose() {
+            const context = getContext( namespace );
+            context.category = context.choiceIndex;
+        },
+    },
+    state: {
+        get choiceClass() { return choice()?.className || null; },
+        get choiceStyle() { return css( choice()?.style ) || null; },
+        get choicePressed() {
+            const context = getContext( namespace );
+            return String( context.choiceIndex === context.category );
+        },
+        get choiceSelected() { return choice()?.selected ?? null; },
+        get choiceDataState() { return choice()?.dataState ?? null; },
+        get hasMatches() { return getContext( namespace ).matchCount > 0; },
+    },
+    callbacks: {
+        init() {
+            const root = getElement().ref;
+            const field = root.querySelector( '[data-wp-on--input="' + namespace + '::actions.query"]' );
+            if ( field ) getContext( namespace ).query = field.value;
+        },
+        refresh() {
+            const context = getContext( namespace );
+            const root = getElement().ref;
+            const query = ( context.query || '' ).toLowerCase();
+            const category = context.category;
+            let count = 0;
+            for ( const item of context.items || [] ) {
+                for ( const node of root.querySelectorAll( '.' + item.marker ) ) {
+                    const show = item.categories.includes( category ) && text( node ).includes( query );
+                    node.hidden = ! show;
+                    if ( show ) count++;
+                }
+            }
+            if ( context.matchCount !== count ) context.matchCount = count;
+        },
+    },
+} );
 JS;
         $replace = array('__NAME__' => json_encode($name), '__STORE__' => json_encode($store), '__ROLE__' => json_encode($local), '__ATTRIBUTES__' => json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
         $json = array('apiVersion' => 3, 'name' => $name, 'title' => match ($local) { self::ROOT => 'Filtered Collection', self::FIELD => 'Collection Search Field', self::CHOICE => 'Collection Category', default => 'Collection Empty State' }, 'category' => 'widgets', 'editorScript' => 'file:./index.js', 'attributes' => $attributes, 'supports' => array('html' => false, 'customClassName' => false, 'interactivity' => true));
@@ -127,6 +295,7 @@ JS;
         foreach ($style as $key => $value) {
             $property = str_starts_with($key, '--') ? $key : preg_replace_callback('/[A-Z]/', static fn ($match): string => '-' . strtolower($match[0]), $key);
             if ('cssFloat' === $key) $property = 'float';
+            if (1 === preg_match('/^ms[A-Z]/', $key)) $property = '-' . $property;
             $parts[] = $property . ':' . $value;
         }
         return implode(';', $parts);
