@@ -24,6 +24,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
  */
 final class DisclosureControlPresentation
 {
+    public const SUMMARY_CONTENT_CARRIER_CLASS = 'blocks-engine-summary-content-carrier';
+
     public function __construct(
         private readonly StyleResolver $styles,
         private readonly GeneratedSupportStylesheetState $support,
@@ -78,8 +80,9 @@ final class DisclosureControlPresentation
     private function disclosureControlMarker(DOMElement $control, string $prefix): string
     {
         $conditionalDisplay = $this->styles->conditionalDisplayRules($control);
-        $css = $this->disclosureControlCarriedCss($control, array() !== $conditionalDisplay);
-        $conditionalPresentation = $this->conditionalPresentation($control);
+        $isSummary = str_starts_with($prefix, 'blocks-engine-disclosure-summary-');
+        $css = $this->disclosureControlCarriedCss($control, array() !== $conditionalDisplay, $isSummary);
+        $conditionalPresentation = $this->conditionalPresentation($control, $isSummary);
         $titleCss = str_starts_with($prefix, 'blocks-engine-accordion-toggle-')
             ? $this->styles->cssDeclarationString($this->disclosureSummaryLabelTypography($control)) : '';
         $icon = str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ? $this->accordionIcon($control) : array();
@@ -172,7 +175,7 @@ final class DisclosureControlPresentation
      * Both core/details and core/accordion-heading save a bare trigger element,
      * so the source control's own presentation has to be restated as CSS.
      */
-    private function disclosureControlCarriedCss(DOMElement $control, bool $displayIsConditional = false): string
+    private function disclosureControlCarriedCss(DOMElement $control, bool $displayIsConditional = false, bool $carrySummaryLayout = false): string
     {
         $summary = $control;
         $declarations = $this->styles->safeVisualDeclarations(
@@ -189,6 +192,9 @@ final class DisclosureControlPresentation
             ),
             ARRAY_FILTER_USE_KEY
         );
+        if ( $carrySummaryLayout ) {
+            $carried = array_merge($carried, array_intersect_key($declarations, array_flip(array('gap', 'row-gap', 'column-gap', 'flex-direction', 'flex-wrap'))));
+        }
         // The label the source painted keeps its classes but loses the toggle
         // ancestor those rules were written against. Its type is inheritable, so
         // restating it on the summary reaches the label again, and any rule the
@@ -217,12 +223,15 @@ final class DisclosureControlPresentation
     }
 
     /** @return array<string, string> */
-    private function conditionalPresentation(DOMElement $control): array
+    private function conditionalPresentation(DOMElement $control, bool $carrySummaryLayout = false): array
     {
         $rules = array();
         // These are the same visual families the bare core trigger cannot
         // retain. Preserve viewport conditions instead of baking a scalar box.
         $properties = array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'font-family', 'font-size', 'font-weight', 'line-height', 'min-height', 'min-width', 'height', 'width', 'color', 'background-color', 'border-radius', 'align-items', 'justify-content');
+        if ( $carrySummaryLayout ) {
+            $properties = array_merge($properties, array('gap', 'row-gap', 'column-gap', 'flex-direction', 'flex-wrap'));
+        }
         foreach ( $properties as $property ) {
             foreach ( $this->styles->declaredPresentation($control, $property)->conditional() as $condition => $value ) {
                 $declarations = $this->styles->safeVisualDeclarations(array($property => $this->styles->resolveCssVariablesInValue($value, $control)));
