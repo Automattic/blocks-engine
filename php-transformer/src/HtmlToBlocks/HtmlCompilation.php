@@ -10636,6 +10636,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             );
         }
         if ( 'none' === (string) ($linkAttrs['textDecoration'] ?? '') ) {
+            $replacementAttrs['className'] = $this->mergeClassNames(
+                (string) ($replacementAttrs['className'] ?? ''),
+                SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS
+            );
             $style = is_array($replacementAttrs['style'] ?? null) ? $replacementAttrs['style'] : array();
             $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
             $typography['textDecoration'] = 'none';
