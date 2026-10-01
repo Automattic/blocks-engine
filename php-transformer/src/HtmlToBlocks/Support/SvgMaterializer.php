@@ -1379,7 +1379,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         return false;
     }
 
-    private function isPassiveSvgMarkup(DOMElement $element): bool
+    public static function isPassiveSvgMarkup(DOMElement $element): bool
     {
         // Full set of safe SVG structure/presentation/text/filter elements. These carry
         // only geometry, gradients, filters, and text — no scripting or external embedding
@@ -1433,19 +1433,19 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( in_array(strtolower($child->tagName), array('style', 'link'), true) ) {
                 continue;
             }
-            if ( ! $child instanceof DOMElement || ! $this->isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {
+            if ( ! $child instanceof DOMElement || ! self::isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {
                 return false;
             }
         }
 
-        return $this->isPassiveSvgElement($element, $allowedTags, $allowedAttributes);
+        return self::isPassiveSvgElement($element, $allowedTags, $allowedAttributes);
     }
 
     /**
      * @param array<string, int> $allowedTags
      * @param array<string, int> $allowedAttributes
      */
-    private function isPassiveSvgElement(DOMElement $element, array $allowedTags, array $allowedAttributes): bool
+    private static function isPassiveSvgElement(DOMElement $element, array $allowedTags, array $allowedAttributes): bool
     {
         if ( ! isset($allowedTags[strtolower($element->tagName)]) ) {
             return false;
