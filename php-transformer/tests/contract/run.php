@@ -1546,6 +1546,23 @@ foreach (array(
 ) as $label => $mutate) {
     try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder::assertElement($mutate($elementPresentation)); $assert(false, 'element presentation validation rejects ' . $label); } catch (\InvalidArgumentException $e) { $assert(true, 'element presentation validation rejects ' . $label); }
 }
+$topologyDocument = new \DOMDocument(); @$topologyDocument->loadHTML('<form><div class="row"><label for="a">A</label><input id="a"></div><fieldset><legend>Who</legend><p><label>B<input name="b"></label></p></fieldset><label for="c">C</label><input id="c"></form>');
+$topologyForm = $topologyDocument->getElementsByTagName('form')->item(0);
+$topologyBuilder = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder();
+$controlTopology = $topologyBuilder->build($topologyForm);
+$controlCount = count(array_filter($controlTopology['nodes'], static fn (array $node): bool => 'control' === $node['kind']));
+\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder::assertValid($controlTopology, $controlCount);
+\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder::assertSiblingRelations($topologyBuilder->directLabelControlPairs($topologyForm), $controlCount);
+foreach (array(
+    'unknown key' => static function (array $t): array { $t['extra'] = 1; return $t; },
+    'child before parent' => static function (array $t): array { $t['nodes'] = array_reverse($t['nodes']); return $t; },
+    'unsafe wrapper class' => static function (array $t): array { foreach ($t['nodes'] as &$n) if ('wrapper' === $n['kind']) { $n['class'] = 'a"b'; break; } return $t; },
+    'non-group wrapper tag' => static function (array $t): array { foreach ($t['nodes'] as &$n) if ('wrapper' === $n['kind']) { $n['tag'] = 'script'; break; } return $t; },
+    'duplicate control' => static function (array $t): array { $c = array_keys(array_filter($t['nodes'], static fn (array $n): bool => 'control' === $n['kind'])); $t['nodes'][$c[1]]['control'] = $t['nodes'][$c[0]]['control']; return $t; },
+) as $label => $mutate) {
+    try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder::assertValid($mutate($controlTopology), $controlCount); $assert(false, 'control topology validation rejects ' . $label); } catch (\InvalidArgumentException $e) { $assert(true, 'control topology validation rejects ' . $label); }
+}
+try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder::assertSiblingRelations(array('schema' => 'generic/form-sibling-relations/v1', 'max_pairs' => 128, 'truncated' => false, 'pairs' => array(array('control' => 99))), $controlCount); $assert(false, 'sibling relations reject an unknown control'); } catch (\InvalidArgumentException $e) { $assert(true, 'sibling relations reject an unknown control'); }
 $v1LayoutGraph = $layoutGraph; $v1LayoutGraph['schema'] = 'generic/computed-layout-graph/v1'; $v1LayoutGraph['limits']['depth'] = 8;
 $v1LayoutKeys = array('display' => true, 'columns' => true, 'rows' => true, 'gap' => true, 'row_gap' => true, 'column_gap' => true, 'column' => true, 'row' => true, 'area' => true, 'direction' => true, 'wrap' => true, 'align_items' => true, 'align_content' => true, 'justify_content' => true, 'align_self' => true, 'justify_self' => true, 'order' => true, 'flex' => true, 'flex_grow' => true, 'flex_shrink' => true, 'flex_basis' => true);
 $v1LayoutProperties = array('display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis');
