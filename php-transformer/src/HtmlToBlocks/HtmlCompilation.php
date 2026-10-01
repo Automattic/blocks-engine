@@ -1533,6 +1533,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $sourceProvenance,
             $authorStylesheetProjections
         );
+        $vectorArtwork = $this->generatedSupportStyles()->accordionVectorArtwork($serializedBlocks);
+        $vectorScript = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\VectorIconPresentation())->script($vectorArtwork);
+        if ('' !== $vectorScript) {
+            $hash = hash('sha256', $vectorScript);
+            $path = 'assets/js/vector-icon-presentation-' . substr($hash, 0, 16) . '.js';
+            $this->materializedAssets()->register($path, array(
+                'source' => 'engine-presentation', 'source_path' => $this->currentSourcePath,
+                'path' => $path, 'target_path' => $path, 'kind' => 'js', 'role' => 'script',
+                'mime_type' => 'application/javascript', 'media_type' => 'application/javascript',
+                'content' => $vectorScript, 'bytes' => strlen($vectorScript), 'encoding' => 'utf-8',
+                'binary' => false, 'hash' => $hash, 'source_hash' => $hash,
+                'selector' => implode(',', array_keys($vectorArtwork)),
+            ));
+        }
         $this->navigationStyleProjector->materializeEditorStaticStateStylesheet(
             implode("\n\n", array_column($authorStylesheetProjections, 'content'))
         );

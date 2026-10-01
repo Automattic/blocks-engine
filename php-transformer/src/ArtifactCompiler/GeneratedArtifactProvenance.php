@@ -43,9 +43,10 @@ final class GeneratedArtifactProvenance
      * @param array<string, mixed>             $runtimeIslandPackage Generic runtime-island package.
      * @param array<int, array<string, mixed>> $editorScripts  Editor-only scripts for existing core blocks.
      * @param array<string, bool>              $themeOwnedRequiredScripts Theme-owned required scripts keyed by source path and selector.
+     * @param array<int, array<string, mixed>> $viewScripts Generated passive frontend presentation scripts.
      * @return array<string, string>
      */
-    public function fromArtifactInputs(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array(), array $runtimeIslandPackage = array(), array $editorScripts = array(), array $themeOwnedRequiredScripts = array()): array
+    public function fromArtifactInputs(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array(), array $runtimeIslandPackage = array(), array $editorScripts = array(), array $themeOwnedRequiredScripts = array(), array $viewScripts = array()): array
     {
         return array(
             'schema' => self::SCHEMA,
@@ -59,6 +60,7 @@ final class GeneratedArtifactProvenance
                 'runtime_island_package' => $runtimeIslandPackage,
                 'editor_scripts' => $editorScripts,
                 'theme_owned_required_scripts' => $themeOwnedRequiredScripts,
+                'view_scripts' => $viewScripts,
             )),
         );
     }

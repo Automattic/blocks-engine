@@ -88,6 +88,23 @@ final class DisclosureControlPresentation
             $titleCss .= ';display:contents';
         }
         $icon = str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ? $this->accordionIcon($control) : array();
+        if (array() !== $icon) {
+            // Core clips its toggle by default. A source button's default is
+            // visible: an extra clip changes vector rasterization even when the
+            // artwork fits, and clips translated/scaled artwork when it does not.
+            $source = $this->styles->matchedCascadedDeclarations($control);
+            $overflow = array('overflow' => $source['overflow'] ?? 'visible');
+            foreach (array('overflow-x', 'overflow-y') as $property) {
+                if (isset($source[$property])) $overflow[$property] = $source[$property];
+            }
+            foreach ($overflow as $property => $value) $overflow[$property] = $this->styles->resolveCssVariablesInValue($value, $control);
+            $css .= ';' . $this->styles->cssDeclarationString($overflow);
+            foreach (array('overflow', 'overflow-x', 'overflow-y') as $property) {
+                foreach ($this->styles->declaredPresentation($control, $property)->conditional() as $condition => $value) {
+                    $conditionalPresentation[$condition] = ($conditionalPresentation[$condition] ?? '') . ';' . $property . ':' . $this->styles->resolveCssVariablesInValue($value, $control);
+                }
+            }
+        }
         if ( '' === $css && array() === $conditionalDisplay && array() === $conditionalPresentation && array() === $icon ) {
             return '';
         }
@@ -141,7 +158,7 @@ final class DisclosureControlPresentation
         $clone = $svg->cloneNode(true);
         if ( ! $clone instanceof DOMElement ) return array();
         $inline = $this->styles->cssDeclarations($clone->getAttribute('style'));
-        unset($inline['transform'], $inline['rotate']);
+        foreach (array('transform', 'rotate', 'translate', 'scale', 'transform-origin', 'transform-box') as $property) unset($inline[$property]);
         $color = (string) ($declarations['color'] ?? $this->styles->authoredInheritedPropertyWinner($svg, 'color'));
         if ( '' !== $color ) {
             $color = $this->styles->resolveCssVariablesInValue($color, $svg);
@@ -177,7 +194,15 @@ final class DisclosureControlPresentation
             $scope = $parent;
         }
         $open = $stateCss($expanded);
-        return array('closed' => $base . ';' . $closed, 'open' => $open);
+        $vectorState = function (DOMElement $element) use ($stateCss): string {
+            $css = $stateCss($element);
+            $declarations = $this->styles->matchedCascadedDeclarations($element);
+            foreach (array('translate' => 'none', 'scale' => 'none', 'transform-origin' => '50% 50%', 'transform-box' => 'view-box') as $property => $default) {
+                $css .= ';' . $property . ':' . $this->styles->resolveCssVariablesInValue((string) ($declarations[$property] ?? $default), $element);
+            }
+            return $css;
+        };
+        return array('closed' => $base . ';' . $closed, 'open' => $open, 'svg' => $markup, 'vector_closed' => $vectorState($svg), 'vector_open' => $vectorState($expanded));
     }
 
     /**

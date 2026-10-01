@@ -656,7 +656,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $entries = array();
         foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-            $declared = trim((string) ( $rule['declarations'][ $property ] ?? '' ));
+            $declared = trim((string) ( $rule['declarations'][ $property ] ?? $rule['cascadedDeclarations'][ $property ] ?? '' ));
             if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
                 continue;
             }
@@ -3367,6 +3367,13 @@ final class StyleResolver implements ElementPresentationResolver
             // Passive icon state presentation crosses core-owned markup.
             'transform' => true,
             'rotate' => true,
+            'translate' => true,
+            'scale' => true,
+            'transform-origin' => true,
+            'transform-box' => true,
+            'overflow' => true,
+            'overflow-x' => true,
+            'overflow-y' => true,
             // Grid-item placement: resolved for native core grid child
             // layout (Automattic/blocks-engine#2139).
             'grid-area' => true,

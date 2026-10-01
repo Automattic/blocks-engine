@@ -185,6 +185,21 @@ final class GeneratedSupportStylesheetState
         $this->accordionIconPresentation[$className] = $states;
     }
 
+    /** Compile-time sanitized artwork for core-owned, save-valid icon spans.
+     * @return array<string, string>
+     */
+    public function accordionVectorArtwork(string $serializedBlocks): array
+    {
+        $artwork = array();
+        foreach ($this->accordionIconPresentation as $className => $states) {
+            if (str_contains($serializedBlocks, $className) && isset($states['svg'])) {
+                $artwork['.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle>.wp-block-accordion-heading__toggle-icon'] = $states['svg'];
+            }
+        }
+        ksort($artwork);
+        return $artwork;
+    }
+
     /** @param array<string, string> $rules */
     public function registerDisclosureControlConditionalPresentation(string $className, array $rules): void
     {
@@ -319,6 +334,15 @@ final class GeneratedSupportStylesheetState
             $toggle = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle';
             $parts[] = $toggle . '>.wp-block-accordion-heading__toggle-icon{' . $states['closed'] . '}';
             $parts[] = $toggle . '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon{' . $states['open'] . '}';
+            if (isset($states['svg'])) {
+                $vector = '>.wp-block-accordion-heading__toggle-icon[data-blocks-engine-vector-icon]';
+                // Keep the saved carrier's layout slot, but transform the actual
+                // inline vector. Transforming its parent composites the artwork
+                // differently; transforming inside an image clips its overflow.
+                $parts[] = $toggle . $vector . '{background-image:none;transform:none;rotate:none;translate:none;scale:none;overflow:visible}';
+                $parts[] = $toggle . $vector . '>svg{display:block;width:100%;height:100%;' . $states['vector_closed'] . '}';
+                $parts[] = $toggle . '[aria-expanded="true"]' . $vector . '>svg{' . $states['vector_open'] . '}';
+            }
         }
         foreach ($this->navigationSpacing as $className => $declarations) {
             if (str_contains($serializedBlocks, $className)) {
