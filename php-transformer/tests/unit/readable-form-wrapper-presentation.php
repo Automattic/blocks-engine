@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $failures = array();
 $assert = static function (bool $condition, string $message) use (&$failures): void {
@@ -34,8 +35,22 @@ $labelDocument = new DOMDocument();
 $labelDocument->loadHTML($labelled['serialized_blocks'], LIBXML_NOERROR | LIBXML_NOWARNING);
 $assert(0 === (new DOMXPath($labelDocument))->query('//label/label')->length, 'retaining fields does not nest reconstructed labels');
 
+$cells = '';
+foreach (array('first', 'second', 'third') as $name) {
+    $cells .= '<td style="width:33.333333333333%"><div class="field"><input name="' . $name . '"></div></td>';
+}
+$deepHtml = '<form method="post" action="#" class="deep-form">' . str_repeat('<div>', 9)
+    . '<table><tbody><tr>' . $cells . '</tr></tbody></table>' . str_repeat('</div>', 9) . '<button type="submit">Send</button></form>';
+$deep = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $deepHtml)))->toArray();
+$declaration = current(array_filter($deep['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $entry): bool => 'forms' === ($entry['type'] ?? null)));
+$widths = array_filter($declaration['payload']['entities'][0]['layout_graph']['nodes'] ?? array(), static fn(array $node): bool => 'td' === ($node['source']['tag'] ?? null) && '33.333333333333%' === ($node['layout']['width'] ?? null));
+$assert(3 === count($widths), 'deep retained form wrappers still produce a self-contained runtime declaration with all source cell widths');
+$deepDocument = new DOMDocument();
+$deepDocument->loadHTML($deep['serialized_blocks'], LIBXML_NOERROR | LIBXML_NOWARNING);
+$assert(3 === (new DOMXPath($deepDocument))->query('//table/tbody/tr/td/div')->length, 'folded layout-shell chains preserve source table ancestry');
+
 if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);
 }
-echo "Readable form wrapper presentation passed: 6 assertions\n";
+echo "Readable form wrapper presentation passed: 8 assertions\n";

@@ -106,9 +106,11 @@ $assert(
     '2: associated labels remain visible',
     $serialized
 );
+$fieldDocument = new DOMDocument();
+$fieldDocument->loadHTML($serialized, LIBXML_NOERROR | LIBXML_NOWARNING);
 $assert(
-    str_contains($serialized, 'authored-input') && 3 <= substr_count($serialized, '<!-- wp:group'),
-    '3: authored fields are wrapped so stacked layout survives flattening',
+    str_contains($serialized, 'authored-input') && 3 === (new DOMXPath($fieldDocument))->query('//form/label/input[@style="display:block;width:100%"]')->length,
+    '3: associated authored labels retain each source control and its declared stacked sizing',
     $serialized
 );
 

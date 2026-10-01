@@ -120,16 +120,32 @@ final class ReadableFormBlockBuilder
                 continue;
             }
 
-            $inner = $this->blocksFromGraphEntries($children[ $entry['id'] ] ?? array(), $children);
+            $element = $entry['element'];
+            $ownedLabel = 'label' === strtolower($element->tagName) && '' !== $this->metadataBuilder->labelText($element);
+            $ownsShell = ! $ownedLabel && ($element->hasAttributes() || isset($graphNodes[$entry['id']]));
+            $elements = array($element);
+            $descendants = $children[$entry['id']] ?? array();
+            // One layout-shell can retain a consecutive source wrapper chain.
+            // Keeping each DOM wrapper as a separate block inflates form entity
+            // nesting past the runtime declaration bound without adding editability.
+            if ($ownsShell) {
+                while (1 === count($descendants) && 'control' !== $descendants[0]['kind']) {
+                    $next = $descendants[0];
+                    $nextElement = $next['element'];
+                    $nextOwnedLabel = 'label' === strtolower($nextElement->tagName) && '' !== $this->metadataBuilder->labelText($nextElement);
+                    if ($nextOwnedLabel || (! $nextElement->hasAttributes() && ! isset($graphNodes[$next['id']]))) break;
+                    $elements[] = $nextElement;
+                    $descendants = $children[$next['id']] ?? array();
+                }
+            }
+            $inner = $this->blocksFromGraphEntries($descendants, $children);
             if ( array() === $inner ) {
                 continue;
             }
             // A one-control container can own paint, inherited variables and sizing.
             // Text-bearing labels are already represented by the authored control.
-            $element = $entry['element'];
-            $ownedLabel = 'label' === strtolower($element->tagName) && '' !== $this->metadataBuilder->labelText($element);
-            if ( 2 <= count($inner) || (! $ownedLabel && ($element->hasAttributes() || isset($graphNodes[$entry['id']])) ) ) {
-                $blocks[] = ($this->layoutShellBlockForElements)(array( $entry['element'] ), $inner, $entry['element']);
+            if ( 2 <= count($inner) || $ownsShell ) {
+                $blocks[] = ($this->layoutShellBlockForElements)($elements, $inner, $element);
                 continue;
             }
 
