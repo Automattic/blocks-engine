@@ -83,6 +83,9 @@ final class EngineSupportCss
             // block-library default it must beat) and so still outranks this.
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS . '){margin-top:0;margin-bottom:0}';
         }
+        if (str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS)) {
+            $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS) ) {
             // A standalone SVG becomes valid RichText image markup inside a
             // paragraph. Its source was a block box, so remove the paragraph's

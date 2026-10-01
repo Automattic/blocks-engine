@@ -333,20 +333,22 @@ final class FormPresentationGraphBuilder
                 $matched = $this->matched($element, $analysis['rules']);
                 $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules']);
                 $provenance = $this->provenance($matched['base'], null);
+                $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
+                $carried = array();
                 if ( 'label' === $role ) {
                     // The label's text is painted by its sole text carrier (a `<p>`
                     // or `<span>` inside it). Typography that carrier declares wins
                     // over the label's own for that text, property by property, so a
                     // provider label that renders the text directly keeps it.
-                    $carried = $this->carrierTypography($roles, $element, $analysis['rules'], $customPropertyAnalysis['rules']);
+                    $carried = $this->carrierTypography($roles, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $conditional);
                     if ( array() !== $carried ) {
                         $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
-                        foreach ( $provenance as $index => $fact ) {
+                        foreach ( $provenance as $factIndex => $fact ) {
                             $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
                             if ( array() === $fact['properties'] ) {
-                                unset($provenance[$index]);
+                                unset($provenance[$factIndex]);
                             } else {
-                                $provenance[$index] = $fact;
+                                $provenance[$factIndex] = $fact;
                             }
                         }
                         $provenance = array_values($provenance);
@@ -359,26 +361,39 @@ final class FormPresentationGraphBuilder
                             $this->diagnostics[] = 'provenance_limit';
                         }
                     }
+                    foreach ( $carried['conditional'] ?? array() as $encoded => $patch ) {
+                        $conditional[$encoded] ??= array();
+                    }
                 }
                 if ( array() !== $styles || 'required_marker' === $role ) {
                     $row[$role] = array( 'styles' => $styles, 'provenance' => $provenance );
                 }
-                foreach ( $this->effectiveConditional($matched['conditional'], $matched['base']) as $encoded => $facts ) {
+                foreach ( $conditional as $encoded => $facts ) {
                     if ( count($variants) >= self::MAX_VARIANTS ) {
                         $this->truncated = true;
                         $this->diagnostics[] = 'variant_limit';
                         break 2;
                     }
                     $condition = json_decode($encoded, true);
+                    $carrierPatch = $carried['conditional'][$encoded] ?? array();
+                    $facts = array_diff_key($facts, array_flip(array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys($carrierPatch['styles'] ?? array()))));
                     $patch = $this->styles($facts, $element, $condition, $customPropertyAnalysis['rules']);
+                    $patch = array_merge($patch, $carrierPatch['styles'] ?? array());
+                    ksort($patch);
                     if ( array() !== $patch ) {
+                        $variantProvenance = array_merge($this->provenance($facts, $condition), $carrierPatch['provenance'] ?? array());
+                        if ( count($variantProvenance) > self::MAX_PROVENANCE ) {
+                            $variantProvenance = array_slice($variantProvenance, 0, self::MAX_PROVENANCE);
+                            $this->truncated = true;
+                            $this->diagnostics[] = 'provenance_limit';
+                        }
                         $variants[] = array(
                             'index' => $index,
                             'role' => $role,
                             'condition' => $condition,
                             'style_patch' => $patch,
-                            'precedence' => $this->precedence($facts),
-                            'provenance' => $this->provenance($facts, $condition),
+                            'precedence' => array_merge($this->precedence($facts), $carrierPatch['precedence'] ?? array()),
+                            'provenance' => $variantProvenance,
                         );
                     }
                 }
@@ -518,37 +533,60 @@ final class FormPresentationGraphBuilder
      * nearest element between it and the label that declares it — often an
      * intermediate carrier (`<p>`) above the spans that hold the text — so each
      * property is resolved where it is declared, walking from the deepest
-     * carrier up to (not including) the label. Only reached when the label's
-     * own declarations carry none of the typography properties, so the label's
-     * own declarations always win.
+     * carrier up to (not including) the label. Base and condition-scoped facts
+     * are resolved at the same declaring element.
      *
      * @param array<string, mixed> $roles
      * @param list<array<string, mixed>> $rules
      * @param list<array<string, mixed>> $customPropertyRules
-     * @return array{styles: array<string, string>, provenance: list<array<string, mixed>>}
+     * @return array<string, mixed>
      */
-    private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules): array
+    private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules, array $labelConditional = array()): array
     {
         $excluded = array_values(array_filter(
             array( $roles['control'] ?? null, $roles['required_marker'] ?? null ),
             static fn (mixed $element): bool => $element instanceof DOMElement
         ));
         $carrier = self::soleTextCarrier($label, $excluded);
-        $styles = array();
-        $provenance = array();
+        $chain = array();
+        $conditions = array_fill_keys(array_keys($labelConditional), true);
         for ( $element = $carrier; $element instanceof DOMElement && ! $element->isSameNode($label); $element = $element->parentNode instanceof DOMElement ? $element->parentNode : null ) {
-            $facts = array_diff_key(
-                array_intersect_key($this->matched($element, $rules)['base'], array_flip(self::TYPOGRAPHY_PROPERTIES)),
-                array_flip(array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys($styles)))
-            );
-            if ( array() === $facts ) {
-                continue;
+            $matched = $this->matched($element, $rules);
+            $base = array_intersect_key($matched['base'], array_flip(self::TYPOGRAPHY_PROPERTIES));
+            $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
+            foreach ( $conditional as $encoded => &$facts ) {
+                $facts = array_intersect_key($facts, array_flip(self::TYPOGRAPHY_PROPERTIES));
+                if ( array() !== $facts ) $conditions[$encoded] = true;
             }
-            $styles += $this->styles($facts, $element, null, $customPropertyRules);
-            $provenance = array_merge($provenance, $this->provenance($facts, null));
+            unset($facts);
+            $chain[] = array( 'element' => $element, 'base' => $base, 'conditional' => $conditional );
         }
-
-        return array() === $styles ? array() : array( 'styles' => $styles, 'provenance' => $provenance );
+        $resolve = function (?array $condition) use ($chain, $customPropertyRules): array {
+            $styles = array(); $provenance = array(); $precedence = array();
+            $encoded = null === $condition ? '' : json_encode($condition);
+            foreach ( $chain as $row ) {
+                $facts = array_diff_key(
+                    array_replace($row['base'], $row['conditional'][$encoded] ?? array()),
+                    array_flip(array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys($styles)))
+                );
+                $styles += $this->styles($facts, $row['element'], $condition, $customPropertyRules);
+                $provenance = array_merge($provenance, $this->provenance($facts, $condition));
+                $precedence += $this->precedence($facts);
+            }
+            ksort($styles); ksort($precedence);
+            return array( 'styles' => $styles, 'provenance' => $provenance, 'precedence' => $precedence );
+        };
+        $result = $resolve(null);
+        $result['conditional'] = array();
+        if ( count($conditions) > self::MAX_VARIANTS ) {
+            $this->truncated = true;
+            $this->diagnostics[] = 'variant_limit';
+        }
+        foreach ( array_slice(array_keys($conditions), 0, self::MAX_VARIANTS) as $encoded ) {
+            $patch = $resolve(json_decode($encoded, true));
+            if ( array() !== $patch['styles'] ) $result['conditional'][$encoded] = $patch;
+        }
+        return array() === $result['styles'] && array() === $result['conditional'] ? array() : $result;
     }
 
     /**
@@ -704,7 +742,12 @@ final class FormPresentationGraphBuilder
         foreach ( $this->controls($form) as $control ) {
             $label = $this->label($control);
             if ( $label instanceof DOMElement ) $elements[] = $label;
-            if ( null !== $this->requiredMarker && ($marker = ($this->requiredMarker)($control)) instanceof DOMElement ) $elements[] = $marker;
+            $excluded = array( $control );
+            if ( null !== $this->requiredMarker && ($marker = ($this->requiredMarker)($control)) instanceof DOMElement ) {
+                $elements[] = $marker;
+                $excluded[] = $marker;
+            }
+            if ( $label instanceof DOMElement && ($carrier = self::soleTextCarrier($label, $excluded)) instanceof DOMElement ) $elements[] = $carrier;
         }
         return $elements;
     }

@@ -59,7 +59,8 @@ $authoredConverter = new AuthoredFormControlBlockConverter(
         $echoes[] = $text;
     },
     new Runtime(),
-    static fn (string $id): string => $id
+    static fn (string $id): string => $id,
+    static fn (DOMElement $element): DOMElement => $element
 );
 $converter = new ReadableFormControlBlockConverter(
     $metadataBuilder,

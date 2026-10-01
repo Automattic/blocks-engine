@@ -3364,6 +3364,9 @@ final class StyleResolver implements ElementPresentationResolver
             'stroke-width' => true,
             'animation' => true,
             'animation-name' => true,
+            // Passive icon state presentation crosses core-owned markup.
+            'transform' => true,
+            'rotate' => true,
             // Grid-item placement: resolved for native core grid child
             // layout (Automattic/blocks-engine#2139).
             'grid-area' => true,
