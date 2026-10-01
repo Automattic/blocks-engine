@@ -24,7 +24,8 @@ final class DisclosureControlPresentation
 {
     public function __construct(
         private readonly StyleResolver $styles,
-        private readonly GeneratedSupportStylesheetState $support
+        private readonly GeneratedSupportStylesheetState $support,
+        private readonly ?DisclosureIconPresentation $icons = null
     ) {
     }
 
@@ -79,11 +80,12 @@ final class DisclosureControlPresentation
         $conditionalPresentation = $this->conditionalPresentation($control);
         $titleCss = str_starts_with($prefix, 'blocks-engine-accordion-toggle-')
             ? $this->styles->cssDeclarationString($this->disclosureSummaryLabelTypography($control)) : '';
-        if ( '' === $css && array() === $conditionalDisplay && array() === $conditionalPresentation ) {
+        $iconRules = str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ? ($this->icons?->rules($control) ?? array()) : array();
+        if ( '' === $css && '' === $titleCss && array() === $iconRules && array() === $conditionalDisplay && array() === $conditionalPresentation ) {
             return '';
         }
 
-        $marker = $prefix . substr(hash('sha256', $css . '|' . serialize($conditionalDisplay) . '|' . serialize($conditionalPresentation) . '|' . $titleCss), 0, 12);
+        $marker = $prefix . substr(hash('sha256', $css . '|' . serialize($conditionalDisplay) . '|' . serialize($conditionalPresentation) . '|' . $titleCss . '|' . serialize($iconRules)), 0, 12);
         if ( '' !== $css ) {
             if ( str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ) {
                 $this->support->registerAccordionTogglePresentation($marker, $css);
@@ -103,6 +105,7 @@ final class DisclosureControlPresentation
             // taller even when the nested source label remains styled correctly.
             $this->support->registerAccordionTitlePresentation($marker, $titleCss);
         }
+        if (array() !== $iconRules) $this->support->registerAccordionIconPresentation($marker, $iconRules);
 
         return $marker;
     }

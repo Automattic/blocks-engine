@@ -86,6 +86,17 @@ $assert(
 );
 
 // A trigger with nothing of its own to carry stays unmarked.
+$provedIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="source-icon" data-dla-disclosure-closed-class="source-icon" data-dla-disclosure-open-class="source-icon source-open"><path d="m6 9 6 6 6-6"/></svg>';
+$icons = $transform('<style>.source-icon{color:#345;transition-property:transform;transition-duration:150ms}.source-open{transform:rotate(135deg)}</style><main><div>'
+    . '<div><button aria-expanded="false" aria-controls="one">One' . $provedIcon . '</button><div role="region" id="one" hidden><p>A</p></div></div>'
+    . '<div><button aria-expanded="false" aria-controls="two">Two' . $provedIcon . '</button><div role="region" id="two" hidden><p>B</p></div></div>'
+    . '</div></main>');
+$iconCss = $supportCss($icons);
+$assert(str_contains($iconCss, 'data:image/svg+xml;base64,'), 'a source-proved vector occupies the native icon slot through CSS, not invalid extra markup', $iconCss);
+$assert(str_contains($iconCss, 'width:18px') && str_contains($iconCss, 'height:18px'), 'the source icon box replaces the larger core default', $iconCss);
+$assert(str_contains($iconCss, '[aria-expanded="true"]') && str_contains($iconCss, 'transform:rotate(135deg)'), 'open presentation comes from the observed class state, not a fixed rotation guess', $iconCss);
+$assert(!str_contains($icons['serialized_blocks'], '<svg') && str_contains($icons['serialized_blocks'], 'aria-hidden="true">+</span>'), 'core accordion save markup remains canonical', $icons['serialized_blocks']);
+
 $responsive = $transform(
     '<style>body{font-family:Arial,sans-serif;line-height:1.6}button{font-family:inherit;line-height:inherit}.trigger{padding:20px}.label{font-size:16px;line-height:24px}'
     . '@media(min-width:768px){.trigger{padding:24px}}</style><main><div>'
