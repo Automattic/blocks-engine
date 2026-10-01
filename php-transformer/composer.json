@@ -401,7 +401,8 @@
               "php tests/unit/fixed-size-button-label-centering.php",
             "php tests/unit/runtime-resource-element-converter.php",
             "php tests/unit/link-bearing-element-lowering.php",
-            "php tests/unit/link-wrapper-text-color-parity.php"
+            "php tests/unit/link-wrapper-text-color-parity.php",
+            "php tests/unit/propagated-link-decoration.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
