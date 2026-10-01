@@ -24,6 +24,16 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $transformer = new HtmlTransformer();
+$captionResult = $transformer->transform('<style>.caption{color:#ffffff;font-family:Inter;font-size:14px;font-weight:600;line-height:1.2}</style><form method="post"><input name="email" type="email"><button type="submit"><div><p class="caption">Send quote</p></div></button></form>')->toArray();
+$captionControl = current(array_filter($captionResult['fallbacks'][0]['controls'] ?? array(), static fn(array $control): bool => 'submit' === ($control['type'] ?? '')));
+$captionStyle = $captionControl['presentation']['style'] ?? array();
+$assert(
+    '14px' === ($captionStyle['typography']['fontSize'] ?? null)
+        && 'Inter' === ($captionStyle['typography']['fontFamily'] ?? null)
+        && '#ffffff' === ($captionStyle['color']['text'] ?? null),
+    'provider metadata carries the whole-label text carrier typography independently from its submit box',
+    json_encode($captionStyle)
+);
 $boxResult = $transformer->transform('<form method="post"><input name="name"><button type="submit">Send</button></form>', array('static_css' => 'form{max-width:500px;margin:0 auto;text-align:left}@media (max-width:600px){form{max-width:100%}}'))->toArray();
 $box = $boxResult['fallbacks'][0]['form']['container_presentation'] ?? array();
 $assert('500px' === ($box['styles']['max_width'] ?? null) && '0 auto' === ($box['styles']['margin'] ?? null) && 'left' === ($box['styles']['text_align'] ?? null) && '100%' === ($box['variants'][0]['styles']['max_width'] ?? null), 'form container owns base and responsive presentation independently of controls');
