@@ -86,6 +86,18 @@ $assert(
 );
 
 // A trigger with nothing of its own to carry stays unmarked.
+$responsive = $transform(
+    '<style>body{font-family:Arial,sans-serif;line-height:1.6}button{font-family:inherit;line-height:inherit}.trigger{padding:20px}.label{font-size:16px;line-height:24px}'
+    . '@media(min-width:768px){.trigger{padding:24px}}</style><main><div>'
+    . $item('<span class="label">Responsive one</span>', 'A') . $item('<span class="label">Responsive two</span>', 'B')
+    . '</div></main>'
+);
+$responsiveCss = $supportCss($responsive);
+$assert(1 === preg_match('/wp-block-accordion-heading__toggle\{[^}]*font-family:Arial,sans-serif/', $responsiveCss), 'the toggle keeps source inherited body typography rather than destination heading typography', $responsiveCss);
+$assert(1 === preg_match('/wp-block-accordion-heading__toggle\{[^}]*line-height:1.6/', $responsiveCss), 'an authored inherited line height crosses the generated heading wrapper', $responsiveCss);
+$assert(1 === preg_match('/wp-block-accordion-heading__toggle-title\{[^}]*font-size:16px;line-height:24px/', $responsiveCss), 'the generated title wrapper keeps the source label line box instead of enlarging each row', $responsiveCss);
+$assert(1 === preg_match('/@media\s*\(min-width:768px\)\{[^}]*wp-block-accordion-heading__toggle\{[^}]*padding:24px/', $responsiveCss), 'responsive toggle padding travels with its source breakpoint', $responsiveCss);
+
 $bare = $transform(
     '<main><div class="w-full">'
     . '<div><h3><button type="button" aria-expanded="false">Plain one</button></h3><div><p>A</p></div></div>'
@@ -97,6 +109,18 @@ $assert(
     'a trigger with no resolved box of its own carries no marker',
     (string) ( $bare['serialized_blocks'] ?? '' )
 );
+
+$iconItem = static fn (string $label): string => '<article><button type="button" aria-expanded="false">'
+    . $label . '<svg class="resting-mark" data-dla-disclosure-open-class="expanded-mark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button><div role="region" hidden><p>Answer</p></div></article>';
+$iconResult = $transform('<style>.resting-mark{color:#345678;rotate:0deg}.expanded-mark{rotate:180deg}</style><main><section>'
+    . $iconItem('Neutral one') . $iconItem('Neutral two') . '</section></main>');
+$iconCss = $supportCss($iconResult);
+$assert(str_contains($iconCss, 'background-image:url("data:image/svg+xml,'), 'native icon CSS retains source SVG artwork', $iconCss);
+$assert(str_contains(rawurldecode($iconCss), 'm6 9 6 6 6-6'), 'retained icon uses observed shape rather than a guessed icon family');
+$assert(str_contains(rawurldecode($iconCss), 'color:#345678'), 'standalone currentColor artwork retains authored source paint', rawurldecode($iconCss));
+$assert(str_contains($iconCss, 'width:18px;height:18px'), 'native icon uses source dimensions');
+$assert(str_contains($iconCss, '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon{transform:none;rotate:180deg}'), 'expanded rotation comes from observed source classes', $iconCss);
+$assert(str_contains((string) $iconResult['serialized_blocks'], '<span class="wp-block-accordion-heading__toggle-icon" aria-hidden="true">+</span>'), 'core icon save markup remains valid and unchanged');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Accordion toggle presentation: {$failures} failed, {$passes} passed\n");

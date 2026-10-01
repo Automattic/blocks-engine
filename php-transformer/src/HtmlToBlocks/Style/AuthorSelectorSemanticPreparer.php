@@ -232,14 +232,17 @@ final class AuthorSelectorSemanticPreparer
         foreach ( $authorSelectors as $authorSelector ) {
             $parsed = $authorSelector['parsed'];
             $this->discoverNegatedDataAttributeState($authorSelector['selector'], $authorStyles, $projections);
+            $pseudoHost = CssSelectorMatcher::pseudoElementHost($authorSelector['selector']);
+            $selector = $pseudoHost['selector'] ?? $authorSelector['selector'];
+            $parsed = $pseudoHost['parsed'] ?? $parsed;
             if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
                 continue;
             }
 
             $rightmostSpan = $parsed['rightmost_compound_span'] ?? null;
-            $ancestry = is_array($rightmostSpan) ? substr($authorSelector['selector'], 0, (int) $rightmostSpan['start']) : '';
+            $ancestry = is_array($rightmostSpan) ? substr($selector, 0, (int) $rightmostSpan['start']) : '';
             if ( preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry) ) {
-                foreach ( $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $parsed) as $element ) {
+                foreach ( $this->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
                     $parent = $element->parentNode;
                     if ( preg_match('/>\s*$/', trim($ancestry)) && $parent instanceof DOMElement ) {
                         $parentPath = $parent->getNodePath() ?? '';
@@ -265,14 +268,14 @@ final class AuthorSelectorSemanticPreparer
             if ( array() === $hasDataAttribute ) {
                 continue;
             }
-            foreach ( $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $parsed) as $element ) {
+            foreach ( $this->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
                 $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
                 $hasBoxGeometry = array() !== array_intersect_key($declarations, array_flip(array(
                     'display', 'position', 'inset', 'top', 'right', 'bottom', 'left',
                     'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
                     'margin', 'padding', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'grid', 'grid-area',
                 )));
-                if ( ! $hasBoxGeometry
+                if ( null === $pseudoHost && ! $hasBoxGeometry
                     && ! $this->selectorRuleDeclaresBoxGeometry($authorSelector['selector'], $authorStyles)
                     && 'img' !== strtolower($element->tagName)
                 ) {

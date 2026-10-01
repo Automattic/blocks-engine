@@ -141,6 +141,10 @@ $assert(".x{color:red\n.x{color:red}" === $transformer->concatenateWithoutRedund
 
 $assert('.a-only{color:blue}@media (min-width:600px){.wide-a{margin:1px}}' === $transformer->rulesAbsentFrom(array('.shared{color:red}.a-only{color:blue}@media (min-width:600px){.wide{margin:0}.wide-a{margin:1px}}', '.a-only{color:blue}'), array('.shared{color:red}@media (min-width:600px){.wide{margin:0}}')), 'only rules missing from the present stylesheets remain, once each, in order and inside their conditional groups');
 $assert('@layer base{.x{color:red}}' === $transformer->rulesAbsentFrom(array('@layer base{.x{color:red}}'), array('@layer base{.x{color:red}}')), 'layer blocks are never treated as already present');
+$source = '.small{padding:20px}@media(min-width:768px){.wide{padding:32px}}';
+$projection = '.small:not(.control){padding:20px}@media(min-width:768px){.wide{padding:32px}}';
+$assert($projection === $transformer->rulesAbsentFrom(array($projection), array($source), true), 'a later page delta retains responsive rules after its rewritten base rule, preserving cascade order');
+$assert('' === $transformer->rulesAbsentFrom(array($source), array($source), true), 'an unchanged projection still needs no page stylesheet');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssStylesheetTransformer unit tests: {$failures} failed, {$passes} passed\n");

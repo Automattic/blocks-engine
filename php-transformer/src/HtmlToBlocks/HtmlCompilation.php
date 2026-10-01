@@ -1057,7 +1057,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $recognizePatterns,
             fn (DOMElement $element): bool => $this->requiresStandaloneInlineLayoutLeaf($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
-            fn (DOMElement $element): ?array => $this->wrapperCoalescer->layoutGeometryProofFor($element)
+            fn (DOMElement $element): ?array => $this->wrapperCoalescer->layoutGeometryProofFor($element),
+            new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CollectionFilterConverter(
+                $this->session,
+                $this->styleResolver,
+                function (DOMElement $element, array &$fallbacks) use ($convertChildren): array { return $convertChildren($element, $fallbacks, true); },
+                fn (DOMElement $element, array &$fallbacks): ?array => $this->convertElement($element, $fallbacks, true)
+            )
         );
         $this->wrapperCoalescer = new WrapperCoalescer(
             $this->sourceElementClassifier,
@@ -1352,7 +1358,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function disclosureControlPresentation(): DisclosureControlPresentation
     {
-        return new DisclosureControlPresentation($this->styleResolver, $this->generatedSupportStyles());
+        return new DisclosureControlPresentation(
+            $this->styleResolver,
+            $this->generatedSupportStyles(),
+            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
+        );
     }
 
     /** The width and height core/image can carry for a source image. */
@@ -10625,6 +10635,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             );
         }
         if ( 'none' === (string) ($linkAttrs['textDecoration'] ?? '') ) {
+            $replacementAttrs['className'] = $this->mergeClassNames(
+                (string) ($replacementAttrs['className'] ?? ''),
+                SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS
+            );
             $style = is_array($replacementAttrs['style'] ?? null) ? $replacementAttrs['style'] : array();
             $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
             $typography['textDecoration'] = 'none';
