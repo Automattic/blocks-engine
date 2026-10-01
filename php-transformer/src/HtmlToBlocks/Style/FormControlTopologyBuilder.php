@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use DOMElement;
+use InvalidArgumentException;
 
 /** Builds the bounded source wrapper topology for form fallback metadata. */
 final class FormControlTopologyBuilder
@@ -52,6 +53,84 @@ final class FormControlTopologyBuilder
             'nodes'     => $nodes,
             'truncated' => $truncated,
         );
+    }
+
+    /**
+     * Validate a control topology against the producer contract.
+     *
+     * The topology is a wrapper tree over exactly the form's flat controls:
+     * parents precede children, sibling orders are unique, every control index
+     * appears once, and wrapper presentation hooks are bounded safe tokens.
+     *
+     * @param array<string, mixed> $topology
+     */
+    public static function assertValid(array $topology, int $controlCount): void
+    {
+        $maxDepth = $topology['max_depth'] ?? null;
+        $maxNodes = $topology['max_nodes'] ?? null;
+        $nodes = $topology['nodes'] ?? null;
+        if ( 'generic/form-control-topology/v1' !== ($topology['schema'] ?? null) || array_diff(array_keys($topology), array( 'schema', 'max_depth', 'max_nodes', 'nodes', 'truncated' )) || ! is_bool($topology['truncated'] ?? null) || ! is_int($maxDepth) || $maxDepth < 0 || $maxDepth > self::MAX_DEPTH || ! is_int($maxNodes) || $maxNodes < 1 || $maxNodes > self::MAX_NODES || ! is_array($nodes) || ! array_is_list($nodes) || count($nodes) > $maxNodes ) {
+            throw new InvalidArgumentException('Form control topology envelope is invalid.');
+        }
+        $seen = array();
+        $controls = array();
+        $orders = array();
+        foreach ( $nodes as $node ) {
+            $wrapper = is_array($node) && 'wrapper' === ($node['kind'] ?? null);
+            if ( ! is_array($node) || array_diff(array_keys($node), $wrapper ? array( 'id', 'kind', 'parent', 'order', 'depth', 'tag', 'source_id', 'class', 'fieldset_semantics', 'legend' ) : array( 'id', 'kind', 'parent', 'order', 'depth', 'control' )) || ! is_string($node['id'] ?? null) || 1 !== preg_match('/^(?:wrapper|control)-[A-Za-z0-9_-]{1,80}$/D', $node['id']) || isset($seen[$node['id']]) || ! in_array($node['kind'] ?? null, array( 'wrapper', 'control' ), true) || ! str_starts_with($node['id'], $node['kind'] . '-') || ! is_int($node['order'] ?? null) || $node['order'] < 0 || ! is_int($node['depth'] ?? null) || $node['depth'] < 0 || $node['depth'] > $maxDepth ) {
+                throw new InvalidArgumentException('Form control topology node is invalid.');
+            }
+            $parent = $node['parent'] ?? null;
+            if ( null === $parent ? 0 !== $node['depth'] : (! is_string($parent) || ! isset($seen[$parent]) || 'wrapper' !== $seen[$parent]['kind'] || $node['depth'] !== $seen[$parent]['depth'] + 1) ) {
+                throw new InvalidArgumentException('Form control topology must be a wrapper tree with parents before children.');
+            }
+            $parentKey = $parent ?? '$root';
+            if ( isset($orders[$parentKey][$node['order']]) ) {
+                throw new InvalidArgumentException('Form control topology sibling order must be unique.');
+            }
+            if ( ! $wrapper ) {
+                $control = $node['control'] ?? null;
+                if ( ! is_int($control) || $control < 0 || $control >= $controlCount || isset($controls[$control]) ) {
+                    throw new InvalidArgumentException('Form control topology must reference unique flat control indexes.');
+                }
+                $controls[$control] = true;
+            } else {
+                if ( (isset($node['tag']) && ! in_array($node['tag'], self::WRAPPER_TAGS, true)) || (isset($node['source_id']) && (! is_string($node['source_id']) || 1 !== preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $node['source_id']))) || (isset($node['class']) && (! is_string($node['class']) || 1 !== preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}(?: [A-Za-z_][A-Za-z0-9_-]{0,79}){0,' . (self::MAX_CLASSES - 1) . '}$/D', $node['class']))) ) {
+                    throw new InvalidArgumentException('Form control topology wrapper hooks are unsafe.');
+                }
+                if ( isset($node['fieldset_semantics']) && ('fieldset' !== ($node['tag'] ?? '') || ! in_array($node['fieldset_semantics'], array( 'plain_group', 'labelled_group', 'disabled_group', 'attributed_group' ), true)) ) {
+                    throw new InvalidArgumentException('Form control topology fieldset semantics must describe a fieldset wrapper.');
+                }
+                if ( isset($node['legend']) && ('labelled_group' !== ($node['fieldset_semantics'] ?? '') || ! is_string($node['legend']) || '' === trim($node['legend']) || strlen($node['legend']) > self::MAX_LEGEND_BYTES) ) {
+                    throw new InvalidArgumentException('Form control topology legends must be bounded labelled-group text.');
+                }
+            }
+            $seen[$node['id']] = array( 'kind' => $node['kind'], 'depth' => $node['depth'] );
+            $orders[$parentKey][$node['order']] = true;
+        }
+        if ( ! $topology['truncated'] && count($controls) !== $controlCount ) {
+            throw new InvalidArgumentException('Form control topology must cover every flat control exactly once.');
+        }
+    }
+
+    /**
+     * Validate direct label/control sibling relations against the producer contract.
+     *
+     * @param array<string, mixed> $relations
+     */
+    public static function assertSiblingRelations(array $relations, int $controlCount): void
+    {
+        $maxPairs = $relations['max_pairs'] ?? null;
+        if ( 'generic/form-sibling-relations/v1' !== ($relations['schema'] ?? null) || array_diff(array_keys($relations), array( 'schema', 'max_pairs', 'truncated', 'pairs' )) || ! is_int($maxPairs) || $maxPairs < 1 || $maxPairs > self::MAX_NODES || ! is_bool($relations['truncated'] ?? null) || ! is_array($relations['pairs'] ?? null) || ! array_is_list($relations['pairs']) || count($relations['pairs']) > $maxPairs ) {
+            throw new InvalidArgumentException('Form sibling relations envelope is invalid.');
+        }
+        $seen = array();
+        foreach ( $relations['pairs'] as $pair ) {
+            if ( ! is_array($pair) || array( 'control' ) !== array_keys($pair) || ! is_int($pair['control']) || $pair['control'] < 0 || $pair['control'] >= $controlCount || isset($seen[$pair['control']]) ) {
+                throw new InvalidArgumentException('Form sibling relations must reference unique flat controls.');
+            }
+            $seen[$pair['control']] = true;
+        }
     }
 
     /**
