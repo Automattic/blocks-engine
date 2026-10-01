@@ -40,8 +40,13 @@ final class AccordionPattern implements PatternRecognizerInterface
             return null;
         }
 
+        $attributes = $presentationAttributes($element);
+        $sourceGroup = $itemElements[0]->parentNode;
+        if ($sourceGroup instanceof DOMElement && 'true' === strtolower(SourceDom::attr($sourceGroup, 'data-dla-exclusive-disclosures'))) {
+            $attributes['autoclose'] = true;
+        }
         return new PatternRecognitionResult(
-            $createBlock('core/accordion', $presentationAttributes($element), $items, $element),
+            $createBlock('core/accordion', $attributes, $items, $element),
             $fallbacks
         );
     }

@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $assert = static function (bool $value, string $message): void { if (!$value) { fwrite(STDERR, "FAIL: {$message}\n"); exit(1); } };
 $item = static fn (string $answer): string => '<div class="card"><button aria-expanded="false" aria-controls="' . $answer . '">Shared question?</button><div role="region" id="' . $answer . '" hidden><p>' . $answer . ' answer</p></div></div>';
-$source = '<html><body><main><div class="scope"><div class="choices"><button class="active">All</button><button class="inactive">Alpha</button></div><input type="search" placeholder="Search locally"><div id="results">' . $item('Alpha') . $item('Beta') . '</div></div></main></body></html>';
+$source = '<html><body><main><div class="scope"><div class="choices"><button class="active">All</button><button class="inactive">Alpha</button></div><input type="search" placeholder="Search locally"><div id="results" data-dla-exclusive-disclosures="true">' . $item('Alpha') . $item('Beta') . '</div></div></main></body></html>';
 $evidence = array(
     'field' => array('selector' => 'body > main > div > input', 'value' => ''),
     'target' => array('selector' => 'body > main > div > div#results', 'html' => ''),
@@ -35,6 +35,9 @@ $assert(str_contains($markup, 'wp:custom/collection-filter ') && str_contains($m
 $assert(!str_contains($markup, 'wp:search') && !str_contains($markup, 'wp:html') && !str_contains($markup, 'wp:tabs'), 'the verified relationship contains no global search, raw HTML or per-category snapshots');
 $assert(1 === substr_count($markup, '>Alpha answer</p>') && 1 === substr_count($markup, '>Beta answer</p>'), 'duplicate labels with distinct answers remain one editable copy each');
 $assert(str_contains($markup, 'wp:accordion ') && str_contains($markup, 'wp:paragraph'), 'disclosure controls and answer paragraphs remain native blocks');
+$assert(str_contains($markup, '"autoclose":true'), 'source-observed exclusive disclosure groups retain native single-open behavior');
+$independent = (new HtmlTransformer())->transform(str_replace(' data-dla-exclusive-disclosures="true"', '', $source))->toArray();
+$assert(!str_contains($independent['serialized_blocks'], '"autoclose":true'), 'unproven disclosure groups retain the native independent-open default');
 $assert(2 === preg_match_all('/<div class="wp-block-accordion-item[^\"]*blocks-engine-collection-item-[a-f0-9]{16}-[0-9]+/', $markup), 'behavior identity markers survive on the actual native item wrappers, not only in collection metadata');
 $assert(strpos($markup, 'collection-filter-choice') < strpos($markup, 'collection-filter-field') && strpos($markup, 'collection-filter-field') < strpos($markup, 'wp:accordion '), 'category, field and collection positions preserve source topology');
 $assert(str_contains($markup, 'No local matches') && str_contains($markup, '::state.hasMatches'), 'the editable source empty state is bound to local results');
