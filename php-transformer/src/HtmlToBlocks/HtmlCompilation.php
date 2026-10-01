@@ -1063,7 +1063,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->session,
                 $this->styleResolver,
                 function (DOMElement $element, array &$fallbacks) use ($convertChildren): array { return $convertChildren($element, $fallbacks, true); },
-                fn (DOMElement $element, array &$fallbacks): ?array => $this->convertElement($element, $fallbacks, true)
+                fn (DOMElement $element, array &$fallbacks): ?array => $this->convertElement($element, $fallbacks, true),
+                $this
             )
         );
         $this->wrapperCoalescer = new WrapperCoalescer(
