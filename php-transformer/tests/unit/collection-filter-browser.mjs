@@ -8,6 +8,7 @@ const view = readFileSync(`${tmpdir()}/collection-filter-view.mjs`, 'utf8');
 const browser = await chromium.launch({headless:true});
 const page = await browser.newPage();
 await page.setContent(result.serialized_blocks);
+assert.equal(await page.locator('input').getAttribute('type'), 'text', 'native field retains the source text input type');
 await page.addScriptTag({content:view.replace(/^import .*;$/m,'').replace('export function refresh','function refresh').replace(/store\('__NAME__'.*/s,'').replace(/store\('custom\/collection-filter',[\s\S]*$/,'') + '\nwindow.refreshCollection=refresh;'});
 const states = await page.evaluate(() => {
     const root = document.querySelector('[data-wp-interactive]'), context=JSON.parse(root.dataset.wpContext);

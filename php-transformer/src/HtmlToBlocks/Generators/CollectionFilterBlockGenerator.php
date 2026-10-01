@@ -17,6 +17,7 @@ final class CollectionFilterBlockGenerator
             'className' => array('type' => 'string', 'default' => ''),
             'label' => array('type' => 'string', 'default' => ''),
             'placeholder' => array('type' => 'string', 'default' => ''),
+            'inputType' => array('type' => 'string', 'default' => 'search'),
             'index' => array('type' => 'number', 'default' => 0),
             'config' => array('type' => 'object', 'default' => array('initialCategory' => 0, 'memberships' => array(), 'categories' => array())),
         );
@@ -26,7 +27,7 @@ final class CollectionFilterBlockGenerator
     function props(a) {
         const p = { className: a.className || undefined };
         if (a.kind === 'root') Object.assign(p, { 'data-wp-interactive': '__NAME__', 'data-wp-context': JSON.stringify(Object.assign({}, a.config, { category: a.config.initialCategory, query: '' })), 'data-wp-init': 'callbacks.init', 'data-wp-on--input': 'actions.search', 'data-wp-on--click': 'actions.choose' });
-        if (a.kind === 'field') Object.assign(p, { type: 'search', placeholder: a.placeholder, 'aria-label': a.label || a.placeholder || 'Filter collection', 'data-collection-field': 'true' });
+        if (a.kind === 'field') Object.assign(p, { type: a.inputType || 'search', placeholder: a.placeholder, 'aria-label': a.label || a.placeholder || 'Filter collection', 'data-collection-field': 'true' });
         if (a.kind === 'category') Object.assign(p, { type: 'button', 'data-collection-category': String(a.index), 'aria-pressed': String(a.index === a.config.initialCategory) });
         if (a.kind === 'empty') Object.assign(p, { 'data-collection-empty': 'true', hidden: true, 'aria-live': 'polite' });
         return p;
@@ -116,7 +117,7 @@ JS;
         $escape = static fn($v) => htmlspecialchars((string) $v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $html = '<' . $a['tag'] . ('' !== $a['className'] ? ' class="' . $escape($a['className']) . '"' : '');
         if ('root' === $a['kind']) $html .= ' data-wp-interactive="' . $escape($name) . '" data-wp-context="' . $escape(json_encode(array_merge($a['config'], array('category' => $a['config']['initialCategory'], 'query' => '')), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) . '" data-wp-init="callbacks.init" data-wp-on--input="actions.search" data-wp-on--click="actions.choose"';
-        if ('field' === $a['kind']) $html .= ' type="search" placeholder="' . $escape($a['placeholder']) . '" aria-label="' . $escape($a['label'] ?: ($a['placeholder'] ?: 'Filter collection')) . '" data-collection-field="true"';
+        if ('field' === $a['kind']) $html .= ' type="' . $escape($a['inputType'] ?? 'search') . '" placeholder="' . $escape($a['placeholder']) . '" aria-label="' . $escape($a['label'] ?: ($a['placeholder'] ?: 'Filter collection')) . '" data-collection-field="true"';
         if ('category' === $a['kind']) $html .= ' type="button" data-collection-category="' . $a['index'] . '" aria-pressed="' . ($a['index'] === $a['config']['initialCategory'] ? 'true' : 'false') . '"';
         if ('empty' === $a['kind']) $html .= ' data-collection-empty="true" hidden aria-live="polite"';
         return $html . ('field' === $a['kind'] ? '/>' : '>');
