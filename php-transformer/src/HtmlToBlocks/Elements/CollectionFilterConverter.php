@@ -40,6 +40,7 @@ final class CollectionFilterConverter implements ElementConverter
         $name = $registry->blockName(CollectionFilterBlockGenerator::LOCAL_NAME);
         $presentation = $this->styleResolver->presentationAttributes($element);
         $attributes = array('kind' => $kind, 'tag' => 'field' === $kind ? 'input' : ('category' === $kind ? 'button' : (in_array($tagName, array('div','section','main'), true) ? $tagName : 'div')), 'className' => trim(($presentation['className'] ?? '') . ' ' . $this->styleResolver->inlineGeometryClassName($element, array())), 'label' => 'field' === $kind ? $element->getAttribute('aria-label') : trim($element->textContent), 'placeholder' => $element->getAttribute('placeholder'), 'index' => (int) $element->getAttribute('data-dla-collection-index'), 'config' => $config);
+        if ('field' === $kind) $attributes['inputType'] = $element->getAttribute('type') ?: 'text';
         if ('target' === $kind) $attributes['className'] = trim($attributes['className'] . ' blocks-engine-collection-target');
         $opening = $generator->opening($attributes, $name);
         if (!in_array($kind, array('category', 'field'), true)) $attributes['label'] = '';
