@@ -62,7 +62,19 @@ final class NavigationPatternContext
         if ( ! $this->styleResolver instanceof StyleResolver || 1 !== preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName) ) {
             return false;
         }
-        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        // Resolve text leaves fully. A composite icon/label surface already has
+        // its box projected onto the navigation item; preserve its established
+        // presentation boundary instead of replaying that box inside the label.
+        $hasElementChildren = false;
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $hasElementChildren = true;
+                break;
+            }
+        }
+        $declarations = $hasElementChildren
+            ? $this->styleResolver->presentationDeclarations($element)
+            : $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
         foreach ( array( 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'text-transform', 'color', 'line-height', 'font-style' ) as $property ) {
             if ( '' !== trim((string) ($declarations[ $property ] ?? '')) ) {
                 return true;

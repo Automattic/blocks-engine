@@ -17,4 +17,10 @@ if (1 !== preg_match('/blocks-engine-source-p-[a-z0-9-]+/', $markup, $marker)
     fwrite(STDERR, "Native navigation labels must carry their projected source type identity and typography box\n");
     exit(1);
 }
-echo "Navigation label tag identity passed\n";
+$fixture = json_decode(file_get_contents(dirname(__DIR__) . '/fixtures/parity/html-nav-toggle-desktop-visible-placement.json'), true, 512, JSON_THROW_ON_ERROR);
+$composite = (new HtmlTransformer())->transform($fixture['input']['content'], $fixture['input']['options'] ?? array())->toArray();
+if (str_contains($composite['serialized_blocks'], 'blocks-engine-label-typography')) {
+    fwrite(STDERR, "Composite navigation surfaces must not duplicate their projected box inside the text label\n");
+    exit(1);
+}
+echo "Navigation label tag identity and composite surface boundary passed\n";
