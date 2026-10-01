@@ -499,6 +499,10 @@ final class GeneratedBlockStyleProjector
                 $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
                 $nonzeroSide = $nonzeroSide || ('' !== $value && CssValueInspector::isNonZero($value));
             }
+            foreach ( array('border', 'border-top', 'border-right', 'border-bottom', 'border-left') as $property ) {
+                $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
+                $nonzeroSide = $nonzeroSide || ('' !== $value && self::borderSideShorthandIsVisible($value));
+            }
             if ( ! $nonzeroSide ) {
                 return false;
             }

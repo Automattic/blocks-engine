@@ -1466,6 +1466,7 @@ final class AuthorStylesheetProjector
             $matches = $nonTableMatches;
 
             $controls = array();
+            $linkOwnedControls = array();
             $semanticLeaves = array();
             $richTextLeaves = array();
             $inlineLayoutCarriers = false;
@@ -1492,6 +1493,9 @@ final class AuthorStylesheetProjector
                     $richTextLeaves[] = $marker;
                 } elseif ( '' !== ($marker = $context->selectorProjections->controlMarker($path)) ) {
                     $controls[] = $marker;
+                    if ( $controlWrapper && LayoutParticipation::BOX_LINK === LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox() ) {
+                        $linkOwnedControls[$marker] = true;
+                    }
                 } elseif ( '' !== ($marker = $context->selectorProjections->imageWrapperMarker($path)) ) {
                     $semanticLeaves[] = $marker;
                 } elseif ( '' !== ($marker = $context->selectorProjections->semanticMarker($path)) ) {
@@ -1526,7 +1530,7 @@ final class AuthorStylesheetProjector
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':not(:where(.' . implode(',.', $projectedMarkers) . '))');
             }
             foreach ( $controls as $marker ) {
-                $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $context, $controlWrapper);
+                $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $context, $controlWrapper && ! isset($linkOwnedControls[$marker]));
             }
             foreach ( $semanticLeaves as $marker ) {
                 $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);

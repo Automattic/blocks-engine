@@ -16,3 +16,9 @@ foreach (array(
     if (!str_contains($css, $needle)) { fwrite(STDERR, "FAIL: $message\n"); exit(1); }
 }
 fwrite(STDOUT, "button reset flex carriers tests: passed\n");
+
+$margin = (new HtmlTransformer())->transform('<style>.row{display:flex}.back{display:flex;margin-left:-4px;padding:4px;background:transparent;border-width:0;border-style:solid}</style><div class="row"><button class="back">Back</button><span>Label</span></div>')->toArray();
+$marginCss = implode('', array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string)($asset['content'] ?? '') : '', $margin['assets'] ?? array()));
+if (!preg_match('/wp-block-button__link[^{}]*\{margin-left:-4px\}/', $marginCss)) {
+    fwrite(STDERR, "FAIL: flattened control margin must address the participating link\n"); exit(1);
+}
