@@ -91,8 +91,11 @@ $assert(
     '1: type=button submit keeps visible copy instead of the type name',
     $serialized
 );
+$buttonDocument = new DOMDocument();
+$buttonDocument->loadHTML($serialized, LIBXML_NOERROR | LIBXML_NOWARNING);
+$buttonControl = (new DOMXPath($buttonDocument))->query('//form/button[@type="button"]')->item(0);
 $assert(
-    str_contains($serialized, '<button type="button">Claim My Spot</button>') && str_contains($serialized, 'authored-button'),
+    $buttonControl instanceof DOMElement && 'Claim My Spot' === trim($buttonControl->textContent) && str_contains($serialized, 'authored-button'),
     '1b: submit copy lives on a native button control',
     $serialized
 );

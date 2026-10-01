@@ -625,7 +625,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->transformationEvidence()->recordFormControlEcho($text);
             },
             $this->runtime,
-            fn (string $id): string => $this->safeAnchor($id)
+            fn (string $id): string => $this->safeAnchor($id),
+            fn (DOMElement $element): ?DOMElement => $this->sourceTagProjectedClone($element)
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
