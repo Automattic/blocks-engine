@@ -111,16 +111,28 @@ $assert(
 );
 
 $iconItem = static fn (string $label): string => '<article><button type="button" aria-expanded="false">'
-    . $label . '<svg class="resting-mark" data-dla-disclosure-open-class="expanded-mark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button><div role="region" hidden><p>Answer</p></div></article>';
+    . $label . '<svg xmlns="http://www.w3.org/2000/svg" class="resting-mark" data-dla-disclosure-open-class="expanded-mark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button><div role="region" hidden><p>Answer</p></div></article>';
 $iconResult = $transform('<style>.resting-mark{color:#345678;rotate:0deg}.expanded-mark{rotate:180deg}</style><main><section>'
     . $iconItem('Neutral one') . $iconItem('Neutral two') . '</section></main>');
 $iconCss = $supportCss($iconResult);
 $assert(str_contains($iconCss, 'background-image:url("data:image/svg+xml,'), 'native icon CSS retains source SVG artwork', $iconCss);
+$assert(1 === substr_count(rawurldecode($iconCss), 'xmlns="http://www.w3.org/2000/svg"'), 'standalone artwork has one namespace declaration and remains decodable', $iconCss);
+$hasAsset = 1 === preg_match('/background-image:url\("data:image\/svg\+xml,([^"\)]+)"\)/', $iconCss, $encodedIcon);
+$svgDocument = new DOMDocument();
+$previousErrors = libxml_use_internal_errors(true);
+$validSvg = $hasAsset && $svgDocument->loadXML(rawurldecode($encodedIcon[1]), LIBXML_NONET);
+libxml_clear_errors(); libxml_use_internal_errors($previousErrors);
+$assert($validSvg, 'emitted source icon asset is a well-formed standalone SVG document');
 $assert(str_contains(rawurldecode($iconCss), 'm6 9 6 6 6-6'), 'retained icon uses observed shape rather than a guessed icon family');
 $assert(str_contains(rawurldecode($iconCss), 'color:#345678'), 'standalone currentColor artwork retains authored source paint', rawurldecode($iconCss));
 $assert(str_contains($iconCss, 'width:18px;height:18px'), 'native icon uses source dimensions');
 $assert(str_contains($iconCss, '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon{transform:none;rotate:180deg}'), 'expanded rotation comes from observed source classes', $iconCss);
 $assert(str_contains((string) $iconResult['serialized_blocks'], '<span class="wp-block-accordion-heading__toggle-icon" aria-hidden="true">+</span>'), 'core icon save markup remains valid and unchanged');
+
+$variableIcon = $transform('<style>.scope{--shift:0px;--angle:0deg}.expanded-mark{--angle:180deg;transform:translateX(var(--shift)) rotate(var(--angle))}</style><main class="scope"><section>'
+    . $iconItem('Scoped one') . $iconItem('Scoped two') . '</section></main>');
+$variableCss = $supportCss($variableIcon);
+$assert(str_contains($variableCss, '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon{transform:translateX(0px) rotate(180deg);rotate:none}'), 'expanded transform resolves state-local and ancestor custom properties before source classes disappear', $variableCss);
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Accordion toggle presentation: {$failures} failed, {$passes} passed\n");

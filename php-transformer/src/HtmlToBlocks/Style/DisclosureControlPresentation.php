@@ -82,6 +82,11 @@ final class DisclosureControlPresentation
         $conditionalPresentation = $this->conditionalPresentation($control);
         $titleCss = str_starts_with($prefix, 'blocks-engine-accordion-toggle-')
             ? $this->styles->cssDeclarationString($this->disclosureSummaryLabelTypography($control)) : '';
+        if ( '' !== $titleCss && in_array($this->styles->resolvedPresentationDeclarations($control)['display'] ?? '', array('flex', 'inline-flex'), true) ) {
+            // The retained source label was a flex item. Core's extra title
+            // span must not turn it into inline text and change its wrapping.
+            $titleCss .= ';display:contents';
+        }
         $icon = str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ? $this->accordionIcon($control) : array();
         if ( '' === $css && array() === $conditionalDisplay && array() === $conditionalPresentation && array() === $icon ) {
             return '';
@@ -135,7 +140,6 @@ final class DisclosureControlPresentation
         }
         $clone = $svg->cloneNode(true);
         if ( ! $clone instanceof DOMElement ) return array();
-        $clone->setAttribute('xmlns', 'http://www.w3.org/2000/svg');
         $inline = $this->styles->cssDeclarations($clone->getAttribute('style'));
         unset($inline['transform'], $inline['rotate']);
         $color = (string) ($declarations['color'] ?? $this->styles->authoredInheritedPropertyWinner($svg, 'color'));
@@ -150,11 +154,12 @@ final class DisclosureControlPresentation
         $base = $this->styles->cssDeclarationString($dimensions)
             . ';display:inline-block;flex-shrink:0;font-size:0;line-height:0;transform:none;rotate:none'
             . ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '");background-repeat:no-repeat;background-position:center;background-size:contain';
-        $stateCss = static fn (array $values): string => implode(';', array_map(
-            static fn (string $property): string => $property . ':' . (string) ($values[$property] ?? 'none'),
-            array('transform', 'rotate')
+        $stateCss = fn (DOMElement $element): string => implode(';', array_map(
+            fn (string $property): string => $property . ':' . $this->styles->resolveCssVariablesInValue(
+                (string) ($this->styles->matchedCascadedDeclarations($element)[$property] ?? 'none'), $element
+            ), array('transform', 'rotate')
         ));
-        $closed = $this->styles->matchedCascadedDeclarations($svg);
+        $closed = $stateCss($svg);
         $expanded = $svg->cloneNode(true);
         if ( ! $expanded instanceof DOMElement ) return array();
         foreach ( array('class', 'style') as $attribute ) {
@@ -162,8 +167,17 @@ final class DisclosureControlPresentation
                 $expanded->setAttribute($attribute, $svg->getAttribute('data-dla-disclosure-open-' . $attribute));
             }
         }
-        $open = $this->styles->matchedCascadedDeclarations($expanded);
-        return array('closed' => $base . ';' . $stateCss($closed), 'open' => $stateCss($open));
+        // Resolve the observed state with its ancestor scope, on a detached
+        // tree so the original DOM and its path-keyed cascade cache stay intact.
+        // Source-only custom properties cannot reach the generated icon span.
+        $scope = $expanded;
+        for ( $ancestor = $svg->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $parent = $ancestor->cloneNode(false);
+            $parent->appendChild($scope);
+            $scope = $parent;
+        }
+        $open = $stateCss($expanded);
+        return array('closed' => $base . ';' . $closed, 'open' => $open);
     }
 
     /**
