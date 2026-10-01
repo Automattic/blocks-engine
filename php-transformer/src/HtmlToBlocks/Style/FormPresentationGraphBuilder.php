@@ -157,6 +157,11 @@ final class FormPresentationGraphBuilder
 
     public static function assertElement(array $presentation): void
     {
+        if (array_diff(array_keys($presentation), array('schema', 'styles', 'provenance', 'variants', 'truncated', 'diagnostics')) || !array_is_list($presentation['variants'] ?? null)) throw new InvalidArgumentException('Form element presentation envelope has unknown keys.');
+        foreach ($presentation['variants'] as $variant) {
+            if (!is_array($variant) || array_diff(array_keys($variant), array('condition', 'styles', 'precedence', 'provenance'))) throw new InvalidArgumentException('Form element presentation variant has unknown keys.');
+            foreach (is_array($variant['precedence'] ?? null) ? $variant['precedence'] : array() as $rank) if (!is_array($rank) || array_diff(array_keys($rank), array('source_order', 'specificity', 'important'))) throw new InvalidArgumentException('Form element presentation precedence has unknown keys.');
+        }
         if ('generic/form-element-presentation/v1' !== ($presentation['schema'] ?? null) || !is_array($presentation['styles'] ?? null) || !is_array($presentation['provenance'] ?? null) || !is_array($presentation['variants'] ?? null) || count($presentation['variants']) > self::MAX_RULES_PER_ROLE || !is_bool($presentation['truncated'] ?? null) || !is_array($presentation['diagnostics'] ?? null) || count($presentation['diagnostics']) > self::MAX_DIAGNOSTICS) throw new InvalidArgumentException('Form element presentation envelope is invalid.');
         self::assertStyles($presentation['styles']);
         self::assertProvenance($presentation['provenance'], $presentation['styles'], null);
@@ -721,6 +726,7 @@ final class FormPresentationGraphBuilder
     {
         if ( count($provenance) > self::MAX_PROVENANCE ) throw new InvalidArgumentException('Form presentation provenance exceeds its limit.');
         foreach ( $provenance as $fact ) {
+            if ( is_array($fact) && array_diff(array_keys($fact), array( 'source_path', 'source_sha256', 'selector', 'condition', 'properties' )) ) throw new InvalidArgumentException('Form presentation provenance has unknown keys.');
             if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || '' === ArtifactPath::safeRelativePath($fact['source_path']) || ArtifactPath::safeRelativePath($fact['source_path']) !== $fact['source_path'] || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, self::PROPERTIES, true) || ! isset($styles[self::key($property)])) || ($condition !== null && ($fact['condition'] ?? null) !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) throw new InvalidArgumentException('Form presentation provenance is invalid.');
         }
     }
