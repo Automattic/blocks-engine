@@ -129,6 +129,11 @@ $assert(str_contains($iconCss, 'width:18px;height:18px'), 'native icon uses sour
 $assert(str_contains($iconCss, '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon{transform:none;rotate:180deg}'), 'expanded rotation comes from observed source classes', $iconCss);
 $assert(str_contains((string) $iconResult['serialized_blocks'], '<span class="wp-block-accordion-heading__toggle-icon" aria-hidden="true">+</span>'), 'core icon save markup remains valid and unchanged');
 
+$variableIcon = $transform('<style>.scope{--shift:0px;--angle:0deg}.expanded-mark{--angle:180deg;transform:translateX(var(--shift)) rotate(var(--angle))}</style><main class="scope"><section>'
+    . $iconItem('Scoped one') . $iconItem('Scoped two') . '</section></main>');
+$variableCss = $supportCss($variableIcon);
+$assert(str_contains($variableCss, '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon{transform:translateX(0px) rotate(180deg);rotate:none}'), 'expanded transform resolves state-local and ancestor custom properties before source classes disappear', $variableCss);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Accordion toggle presentation: {$failures} failed, {$passes} passed\n");
     exit(1);

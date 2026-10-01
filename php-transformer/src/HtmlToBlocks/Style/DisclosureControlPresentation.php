@@ -154,11 +154,12 @@ final class DisclosureControlPresentation
         $base = $this->styles->cssDeclarationString($dimensions)
             . ';display:inline-block;flex-shrink:0;font-size:0;line-height:0;transform:none;rotate:none'
             . ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '");background-repeat:no-repeat;background-position:center;background-size:contain';
-        $stateCss = static fn (array $values): string => implode(';', array_map(
-            static fn (string $property): string => $property . ':' . (string) ($values[$property] ?? 'none'),
-            array('transform', 'rotate')
+        $stateCss = fn (DOMElement $element): string => implode(';', array_map(
+            fn (string $property): string => $property . ':' . $this->styles->resolveCssVariablesInValue(
+                (string) ($this->styles->matchedCascadedDeclarations($element)[$property] ?? 'none'), $element
+            ), array('transform', 'rotate')
         ));
-        $closed = $this->styles->matchedCascadedDeclarations($svg);
+        $closed = $stateCss($svg);
         $expanded = $svg->cloneNode(true);
         if ( ! $expanded instanceof DOMElement ) return array();
         foreach ( array('class', 'style') as $attribute ) {
@@ -166,8 +167,17 @@ final class DisclosureControlPresentation
                 $expanded->setAttribute($attribute, $svg->getAttribute('data-dla-disclosure-open-' . $attribute));
             }
         }
-        $open = $this->styles->matchedCascadedDeclarations($expanded);
-        return array('closed' => $base . ';' . $stateCss($closed), 'open' => $stateCss($open));
+        // Resolve the observed state with its ancestor scope, on a detached
+        // tree so the original DOM and its path-keyed cascade cache stay intact.
+        // Source-only custom properties cannot reach the generated icon span.
+        $scope = $expanded;
+        for ( $ancestor = $svg->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $parent = $ancestor->cloneNode(false);
+            $parent->appendChild($scope);
+            $scope = $parent;
+        }
+        $open = $stateCss($expanded);
+        return array('closed' => $base . ';' . $closed, 'open' => $open);
     }
 
     /**
