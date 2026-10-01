@@ -253,8 +253,16 @@ final class FormLayoutGraphBuilder
         if ( count($graph['nodes']) > self::MAX_NODES ) {
             throw new InvalidArgumentException('Form layout graph exceeds its node limit.');
         }
+        $v3 = ! $v1 && ! $v2;
+        if ( array_diff(array_keys($graph), array( 'schema', 'basis', 'truncated', 'limits', 'nodes', 'variants', 'diagnostics' )) || array_diff(array_keys($graph['limits']), array( 'nodes', 'depth', 'rules_per_node' )) || ! array_is_list($graph['nodes']) || ! array_is_list($graph['variants']) ) {
+            throw new InvalidArgumentException('Form layout graph envelope has unknown keys.');
+        }
         $ids = array();
         foreach ( $graph['nodes'] as $node ) {
+            if ( is_array($node) ) self::assertNodeIdentity($node, $v1 ? 8 : ($v2 ? 16 : 64), $v3);
+            if ( is_array($node) && null !== ($node['parent'] ?? null) && ! isset($ids[$node['parent']]) ) {
+                throw new InvalidArgumentException('Form layout graph parents must precede their children.');
+            }
             if ( ! is_array($node) || ! is_string($node['id'] ?? null) || isset($ids[$node['id']]) || ! in_array($node['kind'] ?? null, array( 'container', 'control' ), true) || ! is_int($node['order'] ?? null) || ! is_array($node['source'] ?? null) || ! is_string($node['source']['tag'] ?? null) || ! is_array($node['source']['classes'] ?? null) || ! is_array($node['layout'] ?? null) || ! is_array($node['provenance'] ?? null) || (isset($node['sizing']) && ! is_array($node['sizing'])) ) {
                 throw new InvalidArgumentException('Form layout graph node is invalid.');
             }
@@ -293,15 +301,36 @@ final class FormLayoutGraphBuilder
             throw new InvalidArgumentException('Form layout graph exceeds its variant limit.');
         }
         foreach ( $graph['variants'] as $variant ) {
-            if ( ! is_array($variant) || ! isset($ids[$variant['node'] ?? '']) || ! is_array($variant['condition'] ?? null) || ! self::validCondition($variant['condition']) || ! is_array($variant['layout_patch'] ?? null) || ! is_array($variant['precedence'] ?? null) || ! is_array($variant['provenance'] ?? null) ) {
+            if ( ! is_array($variant) || array_diff(array_keys($variant), array( 'node', 'condition', 'layout_patch', 'precedence', 'provenance' )) || ! isset($ids[$variant['node'] ?? '']) || ! is_array($variant['condition'] ?? null) || ! self::validCondition($variant['condition']) || ! is_array($variant['layout_patch'] ?? null) || array() === $variant['layout_patch'] || ! is_array($variant['precedence'] ?? null) || ! is_array($variant['provenance'] ?? null) ) {
                 throw new InvalidArgumentException('Form layout graph variant is invalid.');
             }
             foreach ( $variant['precedence'] as $property => $precedence ) {
-                if ( ! is_string($property) || ! in_array($property, $properties, true) || ! isset($variant['layout_patch'][self::layoutKey($property)]) || ! is_array($precedence) || ! is_int($precedence['source_order'] ?? null) || ! is_int($precedence['specificity'] ?? null) || ! is_bool($precedence['important'] ?? null) ) {
+                if ( ! is_string($property) || ! in_array($property, $properties, true) || ! isset($variant['layout_patch'][self::layoutKey($property)]) || ! is_array($precedence) || array_diff(array_keys($precedence), array( 'source_order', 'specificity', 'important' )) || ! is_int($precedence['source_order'] ?? null) || ! is_int($precedence['specificity'] ?? null) || ! is_bool($precedence['important'] ?? null) ) {
                     throw new InvalidArgumentException('Form layout graph variant precedence is invalid.');
                 }
             }
             self::assertFacts($variant['layout_patch'], $variant['provenance'], $variant['condition'], $properties, $layoutKeys);
+        }
+    }
+
+    /**
+     * A node's identity and source element must be safe to project into markup
+     * and selectors: closed keys, canonical ids, and tag, id, class and selector
+     * tokens that cannot break out of an attribute or a rule.
+     *
+     * @param array<string,mixed> $node
+     */
+    private static function assertNodeIdentity(array $node, int $classLimit, bool $v3): void
+    {
+        $nodeKeys = array( 'id', 'kind', 'parent', 'order', 'source', 'layout', 'provenance', 'sizing' );
+        if ( $v3 ) $nodeKeys[] = 'presentation';
+        $id = $node['id'] ?? null;
+        if ( array_diff(array_keys($node), $nodeKeys) || ! is_string($id) || 1 !== preg_match($v3 ? '/^(?:form|wrapper-[0-9]+|control-[0-9]+|context-[0-9]+)$/D' : '/^(?:form|wrapper-[0-9]+|control-[0-9]+)$/D', $id) || (str_starts_with($id, 'context-') && 'container' !== ($node['kind'] ?? null)) || ! is_int($node['order'] ?? null) || $node['order'] < 0 ) {
+            throw new InvalidArgumentException('Form layout graph node identity is invalid.');
+        }
+        $source = $node['source'] ?? null;
+        if ( ! is_array($source) || array_diff(array_keys($source), $v3 ? array( 'tag', 'selector', 'id', 'classes' ) : array( 'tag', 'id', 'classes' )) || ! is_string($source['tag'] ?? null) || 1 !== preg_match('/^[a-z][a-z0-9-]{0,30}$/D', $source['tag']) || (isset($source['id']) && (! is_string($source['id']) || 1 !== preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $source['id']))) || ! is_array($source['classes'] ?? null) || ! array_is_list($source['classes']) || count($source['classes']) > $classLimit || array_filter($source['classes'], static fn (mixed $class): bool => ! is_string($class) || 1 !== preg_match('/^[^\s"\'<>\x00-\x1f]{1,128}$/D', $class)) || ($v3 && (! is_string($source['selector'] ?? null) || 1 === preg_match('/[\x00-\x1f{};]/', $source['selector']))) ) {
+            throw new InvalidArgumentException('Form source element identity is unsafe.');
         }
     }
 
@@ -316,7 +345,7 @@ final class FormLayoutGraphBuilder
             throw new InvalidArgumentException('Form layout graph provenance exceeds its limit.');
         }
         foreach ( $provenance as $fact ) {
-            if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || '' === ArtifactPath::safeRelativePath($fact['source_path']) || ArtifactPath::safeRelativePath($fact['source_path']) !== $fact['source_path'] || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || count($fact['properties']) > count($properties) || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, $properties, true) || ! isset($layout[self::layoutKey($property)])) || ($condition !== null && $fact['condition'] !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) {
+            if ( ! is_array($fact) || array_diff(array_keys($fact), array( 'source_path', 'source_sha256', 'selector', 'condition', 'properties' )) || ! is_string($fact['source_path'] ?? null) || '' === ArtifactPath::safeRelativePath($fact['source_path']) || ArtifactPath::safeRelativePath($fact['source_path']) !== $fact['source_path'] || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || count($fact['properties']) > count($properties) || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, $properties, true) || ! isset($layout[self::layoutKey($property)])) || ($condition !== null && $fact['condition'] !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) {
                 throw new InvalidArgumentException('Form layout graph provenance is invalid.');
             }
         }
