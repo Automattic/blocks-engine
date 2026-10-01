@@ -41,7 +41,12 @@ final class NavigationPatternContext
      */
     public function labelPresentationMarkers(DOMElement $element): array
     {
-        return $this->session?->authorSelectorProjectionState()->semanticMarkersForPath($element->getNodePath() ?? '') ?? array();
+        $projections = $this->session?->authorSelectorProjectionState();
+        if (null === $projections) return array();
+        return array_values(array_filter(array_merge(
+            $projections->semanticMarkersForPath($element->getNodePath() ?? ''),
+            array($projections->tagMarker(strtolower($element->tagName)))
+        )));
     }
 
     /** Marks a block element inside a link label that paints the label text itself. */
@@ -57,7 +62,19 @@ final class NavigationPatternContext
         if ( ! $this->styleResolver instanceof StyleResolver || 1 !== preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName) ) {
             return false;
         }
-        $declarations = $this->styleResolver->presentationDeclarations($element);
+        // Resolve text leaves fully. A composite icon/label surface already has
+        // its box projected onto the navigation item; preserve its established
+        // presentation boundary instead of replaying that box inside the label.
+        $hasElementChildren = false;
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $hasElementChildren = true;
+                break;
+            }
+        }
+        $declarations = $hasElementChildren
+            ? $this->styleResolver->presentationDeclarations($element)
+            : $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
         foreach ( array( 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'text-transform', 'color', 'line-height', 'font-style' ) as $property ) {
             if ( '' !== trim((string) ($declarations[ $property ] ?? '')) ) {
                 return true;
