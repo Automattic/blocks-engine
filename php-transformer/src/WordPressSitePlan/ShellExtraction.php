@@ -951,7 +951,7 @@ final class ShellExtraction
             // 'search' is never an applicable page in its own right (WordPress
             // synthesizes it), so it rides along wherever 'index' is bound: both
             // are the site's generic, non-singular fallback templates.
-            $templateSlugs = count($cluster['indexes']) === count($applicable) ? array('index', 'page', 'front-page', 'single', 'search') : array('index', 'search');
+            $templateSlugs = count($cluster['indexes']) === count($applicable) ? WordPressSitePlan::NATIVE_TEMPLATE_SLUGS : WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
             if (count($cluster['indexes']) !== count($applicable)) foreach ($applicable as $index => $page) {
                 $selected = in_array($index, $cluster['indexes'], true);
                 if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
@@ -1061,9 +1061,9 @@ final class ShellExtraction
                 $excludedTemplateSlugs = array();
                 $overrides = array();
                 if (count($withoutShells) === count($applicable)) {
-                    $templateSlugs = array('index', 'page', 'front-page', 'single', 'search');
+                    $templateSlugs = WordPressSitePlan::NATIVE_TEMPLATE_SLUGS;
                 } else {
-                    $templateSlugs = array('index', 'search');
+                    $templateSlugs = WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
                     foreach ($applicable as $index => $page) {
                         $selected = isset($withoutShells[$index]);
                         if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
@@ -1351,9 +1351,9 @@ final class ShellExtraction
         $excludedTemplateSlugs = array();
         $overrides = array();
         if (count($withoutShells) === count($applicable)) {
-            $templateSlugs = array('index', 'page', 'front-page', 'single', 'search');
+            $templateSlugs = WordPressSitePlan::NATIVE_TEMPLATE_SLUGS;
         } else {
-            $templateSlugs = array('index', 'search');
+            $templateSlugs = WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
             foreach ($applicable as $index => $page) {
                 $selected = isset($withoutShells[$index]);
                 if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
