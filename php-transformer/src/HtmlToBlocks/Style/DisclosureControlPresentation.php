@@ -135,7 +135,6 @@ final class DisclosureControlPresentation
         }
         $clone = $svg->cloneNode(true);
         if ( ! $clone instanceof DOMElement ) return array();
-        $clone->setAttribute('xmlns', 'http://www.w3.org/2000/svg');
         $inline = $this->styles->cssDeclarations($clone->getAttribute('style'));
         unset($inline['transform'], $inline['rotate']);
         $color = (string) ($declarations['color'] ?? $this->styles->authoredInheritedPropertyWinner($svg, 'color'));

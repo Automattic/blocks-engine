@@ -749,7 +749,8 @@ final class SvgMaterializer implements SvgElementMaterializer
         return preg_replace('/<(?:title|desc)\b[^>]*>.*?<\/(?:title|desc)>/is', '', $html) ?? $html;
     }
 
-    private function ensureSvgImageNamespace(string $html): string
+    /** Keep isolated SVG image consumers on the same serialized namespace contract. */
+    public function ensureSvgImageNamespace(string $html): string
     {
         if ( preg_match('/<svg\b[^>]*\sxmlns\s*=/i', $html) ) {
             return $html;
