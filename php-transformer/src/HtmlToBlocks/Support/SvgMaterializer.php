@@ -931,6 +931,12 @@ final class SvgMaterializer implements SvgElementMaterializer
             }
 
             $resolved = trim($resolved);
+            // Paint and color inherit through CSS resets. These keywords are
+            // instructions to the page cascade, not colors an isolated image
+            // can substitute for currentColor.
+            if ( in_array(strtolower($resolved), array('inherit', 'unset'), true) ) {
+                continue;
+            }
             if ( '' === $resolved || preg_match('/var\s*\(|[<>]/i', $resolved) ) {
                 // The declared value could not be fully resolved. Stop rather
                 // than risk baking the wrong ancestor's paint.

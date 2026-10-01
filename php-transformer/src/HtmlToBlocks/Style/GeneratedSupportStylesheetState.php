@@ -274,6 +274,15 @@ final class GeneratedSupportStylesheetState
                 // core/details owns the summary element, so the source toggle's box is
                 // restated on it from here rather than carried as markup.
                 $parts[] = '.wp-block-details.' . $className . '>summary{' . $declarations . '}';
+                // The saved RichText carrier keeps source classes/state paint.
+                // It owns the one visual control box; summary must not add a
+                // second padding, border, fill or shadow around it. Low-specificity
+                // base carry also reaches root-qualified source rules, while
+                // retained author classes keep owning hover/responsive overrides.
+                $carrier = '>span.' . DisclosureControlPresentation::SUMMARY_CONTENT_CARRIER_CLASS;
+                $summary = '.wp-block-details.' . $className . '>summary';
+                $parts[] = ':where(' . $summary . $carrier . '){' . $declarations . '}';
+                $parts[] = $summary . ':has(' . $carrier . '){padding:0!important;border:0!important;background:none!important;box-shadow:none!important}';
             }
         }
         foreach ($this->disclosureControlConditionalDisplay as $className => $rules) {

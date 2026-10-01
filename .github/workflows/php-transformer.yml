@@ -83,6 +83,10 @@ jobs:
       - name: Run visual parity tests
         run: npm test
 
+      - name: Verify native disclosure control presentation
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/details-control-presentation-browser.mjs
+
       - name: Verify native collection search semantics
         working-directory: php-transformer
         run: |

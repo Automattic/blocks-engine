@@ -2076,7 +2076,7 @@ $flexChainButton = ( new HtmlTransformer() )->transform(
 $flexChainButtonMarkup = (string) ($flexChainButton['serialized_blocks'] ?? '');
 $flexChainButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexChainButton['assets'] ?? array()));
 $assert(str_contains($flexChainButtonMarkup, 'wp-block-buttons blocks-engine-control-') && str_contains($flexChainButtonMarkup, 'wp-block-button blocks-engine-control-'), 'direct flex-child anchor carries one generated marker across both synthetic wrappers');
-$assert(str_contains($flexChainButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'direct column flex-child anchor bridges wrapper sizing while only the synthetic inner wrapper has neutral margin');
+$assert(str_contains($flexChainButtonCss, '.wp-block-buttons){width:auto!important}') && str_contains($flexChainButtonCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'direct column flex-child anchor follows parent sizing while only the synthetic inner wrapper has neutral margin');
 $assert('pass' === ($flexChainButton['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex-child wrapper chain remains editor-valid');
 
 // A column flex parent with a keyword `align-items` (not the stretch default)
@@ -2098,7 +2098,7 @@ $assert(
     str_contains($flexChainButtonCenteredCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}')
         && str_contains($flexChainButtonCenteredCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}')
         && str_contains($flexChainButtonCenteredCss, '.wp-block-button__link){box-sizing:border-box}')
-        && ! preg_match('/\.wp-block-button(?:s)?\)\{[^}]*width:100%!important/', $flexChainButtonCenteredCss)
+        && ! preg_match('/\.wp-block-buttons\)\{[^}]*width:100%!important/', $flexChainButtonCenteredCss)
         && ! str_contains($flexChainButtonCenteredCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'),
     'a centered column flex parent does not stretch a content-sized source anchor to fill the row',
     $flexChainButtonCenteredCss
