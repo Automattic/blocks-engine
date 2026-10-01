@@ -37,7 +37,7 @@
             }
         },
         {
-            "path": "blocks.0.innerBlocks.1",
+            "path": "blocks.0.innerBlocks.1.innerBlocks.0",
             "name": "custom/authored-textarea",
             "attrs": {
                 "label": "Project Details *",

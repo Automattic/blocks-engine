@@ -107,7 +107,6 @@ $builder = new ReadableFormBlockBuilder(
     $isRuntimeDomTarget,
     $presentationAttributes,
     $createBlock,
-    static fn (string $localName): string => $authoredRegistry->blockName($localName),
     $layoutShellBlockForElements,
     static fn (): array => array(
         array(
@@ -150,22 +149,21 @@ $combined = $builder->build($formFrom('<form><input aria-label="Email"><button t
 $assert('core/paragraph' === ($combined['innerBlocks'][0]['blockName'] ?? '') && $authoredRegistry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME) === ($combined['innerBlocks'][1]['blockName'] ?? ''), 'submit-buttons-follow-fields');
 
 $inputSubmit = $builder->build($formFrom('<form><input type="submit" value="Send" class="go"></form>'));
-$inputSubmitBlock = $inputSubmit['innerBlocks'][0]['innerBlocks'][0] ?? array();
+$inputSubmitBlock = $inputSubmit['innerBlocks'][0] ?? array();
 $assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($inputSubmitBlock['blockName'] ?? ''), 'input-submit-uses-authored-input');
 $assert('submit' === ($inputSubmitBlock['attrs']['type'] ?? '') && 'Send' === ($inputSubmitBlock['attrs']['value'] ?? ''), 'input-submit-keeps-type-and-value');
 
 $styled = $builder->build($formFrom('<form><label for="email">Email</label><input data-styled id="email" name="email"></form>'));
 $assert('form' === ($styled['attrs']['tagName'] ?? ''), 'degraded-form-keeps-the-form-element');
-$fieldGroup = $styled['innerBlocks'][0] ?? array();
-$assert('core/group' === ($fieldGroup['blockName'] ?? ''), 'authored-input-builds-field-group');
-$styledInput = $fieldGroup['innerBlocks'][0] ?? array();
-$assert(1 === count($fieldGroup['innerBlocks'] ?? array()) && $authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($styledInput['blockName'] ?? ''), 'associated-label-rides-on-the-authored-input');
+$styledInput = $styled['innerBlocks'][0] ?? array();
+$assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($styledInput['blockName'] ?? ''), 'authored-input-remains-the-field-without-a-synthetic-layout-box');
+$assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($styledInput['blockName'] ?? ''), 'associated-label-rides-on-the-authored-input');
 $assert('Email' === ($styledInput['attrs']['label'] ?? ''), 'associated-label-text-survives-as-a-label-element');
 
 // A label the source associates by position alone — no `for`, no `id` — is the
 // dominant authored pattern and must survive the degraded form just as well.
 $positional = $builder->build($formFrom('<form><div><label class="field-label">Full name *</label><input data-styled type="text" required></div><div><label>Details *</label><textarea data-styled rows="5" placeholder="Tell us more" required></textarea></div></form>'));
-$positionalInput = $positional['innerBlocks'][0]['innerBlocks'][0] ?? array();
+$positionalInput = $positional['innerBlocks'][0] ?? array();
 $assert('Full name *' === ($positionalInput['attrs']['label'] ?? ''), 'field-wrapper-label-reaches-the-authored-input');
 $assert('field-label' === ($positionalInput['attrs']['labelClassName'] ?? ''), 'field-wrapper-label-keeps-its-authored-class');
 $positionalTextarea = $positional['innerBlocks'][1] ?? array();
@@ -175,16 +173,16 @@ $assert('Details *' === ($positionalTextarea['attrs']['label'] ?? '') && '5' ===
 $sharedWrapper = $builder->build($formFrom('<form><div><label>Ambiguous</label><input data-styled type="text"><input data-styled type="tel"></div></form>'));
 $sharedShell = $sharedWrapper['innerBlocks'][0] ?? array();
 $assert('custom/layout-shell' === ($sharedShell['blockName'] ?? ''), 'a-wrapper-shared-by-two-controls-stays-a-layout-shell');
-$assert('' === ($sharedShell['innerBlocks'][0]['innerBlocks'][0]['attrs']['label'] ?? ''), 'a-wrapper-shared-by-two-controls-claims-no-label');
+$assert('' === ($sharedShell['innerBlocks'][0]['attrs']['label'] ?? ''), 'a-wrapper-shared-by-two-controls-claims-no-label');
 
 $rowGrouped = $builder->build($formFrom('<form class="stack"><div class="fields-row"><div><label class="field-label">Name *</label><input data-styled type="text" required></div><div><label class="field-label">Phone *</label><input data-styled type="tel" required></div></div><div><label class="field-label">Email *</label><input data-styled type="email" required></div></form>'));
 $rowShell = $rowGrouped['innerBlocks'][0] ?? array();
 $assert('custom/layout-shell' === ($rowShell['blockName'] ?? ''), 'shared-row-wrapper-is-a-layout-shell');
 $assert('fields-row' === ($rowShell['attrs']['wrappers'][0]['attributes']['class'] ?? ''), 'shared-row-wrapper-keeps-its-source-class');
 $assert(2 === count($rowShell['innerBlocks'] ?? array()), 'shared-row-wrapper-keeps-both-row-controls');
-$assert('Name *' === ($rowShell['innerBlocks'][0]['innerBlocks'][0]['attrs']['label'] ?? ''), 'row-name-control-stays-inside-the-shared-wrapper');
-$assert('Phone *' === ($rowShell['innerBlocks'][1]['innerBlocks'][0]['attrs']['label'] ?? ''), 'row-phone-control-stays-inside-the-shared-wrapper');
-$assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($rowGrouped['innerBlocks'][1]['innerBlocks'][0]['blockName'] ?? ''), 'standalone-control-stays-a-direct-form-child');
+$assert('Name *' === ($rowShell['innerBlocks'][0]['attrs']['label'] ?? ''), 'row-name-control-stays-inside-the-shared-wrapper');
+$assert('Phone *' === ($rowShell['innerBlocks'][1]['attrs']['label'] ?? ''), 'row-phone-control-stays-inside-the-shared-wrapper');
+$assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($rowGrouped['innerBlocks'][1]['blockName'] ?? ''), 'standalone-control-stays-a-direct-form-child');
 $rowGraph = $builder->layoutGraph() ?? array();
 $rowNodes = array_column($rowGraph['nodes'] ?? array(), null, 'id');
 $assert('generic/computed-layout-graph/v3' === ($rowGraph['schema'] ?? null), 'degrade-path-consumes-layout-graph');
