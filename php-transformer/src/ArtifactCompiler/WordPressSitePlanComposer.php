@@ -21,7 +21,13 @@ final class WordPressSitePlanComposer
      */
     public function compose(TransformerResult $envelope, array $processMetrics = array(), ?int $startedAt = null): TransformerResult
     {
+        $__prof = getenv('FINALIZE_PROF') === '1';
+        $__t0 = hrtime(true);
+        $__mark = function (string $label) use ($__prof, $__t0): void {
+            if ($__prof) fwrite(STDERR, sprintf("PROF plancomposer.%-30s %10.1f ms\n", $label, (hrtime(true) - $__t0) / 1000000));
+        };
         $data = $envelope->toArray();
+        $__mark('toArray+assertEnvelope');
         $sourceReports = $data['source_reports'];
         $diagnostics = $data['diagnostics'];
         $metrics = $data['metrics'];
@@ -37,8 +43,12 @@ final class WordPressSitePlanComposer
         // all other failures have no materializable source identity or site plan.
         if ( array() === $identityFailures && ( 'failed' !== $status || 'failed' === ($editabilityPolicy['status'] ?? null) ) ) {
             try {
+                $__tsp = hrtime(true);
                 $wordpressSitePlan = ( new WordPressSitePlan() )->fromResult($envelope);
+                if ($__prof) fwrite(STDERR, sprintf("PROF plancomposer.%-30s %10.1f ms\n", 'fromResult', (hrtime(true) - $__tsp) / 1000000));
+                $__tsp = hrtime(true);
                 $editabilityReport = (new EditabilityReport())->withTemplateSurfaceSelection($editabilityReport, $wordpressSitePlan['templates']);
+                if ($__prof) fwrite(STDERR, sprintf("PROF plancomposer.%-30s %10.1f ms\n", 'withTemplateSurfaceSelection', (hrtime(true) - $__tsp) / 1000000));
                 $sourceReports['editability_report'] = $editabilityReport;
             } catch (DocumentIdentityException $exception) {
                 foreach ( $exception->diagnostics() as $identityDiagnostic ) {
@@ -71,6 +81,7 @@ final class WordPressSitePlanComposer
             $reportSourceReports['wordpress_site_plan'] = $wordpressSitePlan;
         }
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $envelope->blocks, $envelope->fallbacks, $reportSourceReports, $envelope->assets, $envelope->provenance, $metrics);
+        $__mark('conversionReport2');
         if ( null !== $wordpressSitePlan ) {
             $sourceReports['wordpress_site_plan'] = $wordpressSitePlan;
         }
@@ -82,7 +93,9 @@ final class WordPressSitePlanComposer
             $metrics[$key] = $value;
         }
 
-        return new TransformerResult(
+        $__mark('diagnostics+metrics-assembly');
+        $__tsp = hrtime(true);
+        $__result = new TransformerResult(
             status: $this->statusFromDiagnostics($diagnostics),
             components: $envelope->components,
             blockTypes: $envelope->blockTypes,
@@ -99,6 +112,8 @@ final class WordPressSitePlanComposer
             metrics: $metrics,
             blockCompilationOutput: $envelope->blockCompilationOutput
         );
+        if ($__prof) fwrite(STDERR, sprintf("PROF plancomposer.%-30s %10.1f ms\n", 'new TransformerResult', (hrtime(true) - $__tsp) / 1000000));
+        return $__result;
     }
 
     /** @return array<string,mixed> */

@@ -239,6 +239,11 @@ final class ArtifactCompiler
     private function finalizeArtifact(array $artifact, array $reduction): TransformerResult
     {
         $startedAt = hrtime(true);
+        $__profEnabled = getenv('FINALIZE_PROF') === '1';
+        $__profMark = function (string $label) use ($__profEnabled, $startedAt): void {
+            if ($__profEnabled) fwrite(STDERR, sprintf("PROF %-42s %10.1f ms\n", $label, (hrtime(true) - $startedAt) / 1000000));
+        };
+        $__profMark('start');
         $normalized = $reduction['normalized'];
         $capturedDialogs = is_array($reduction['captured_dialogs'] ?? null) ? $reduction['captured_dialogs'] : array('diagnostics' => array(), 'projected_count' => 0);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
@@ -254,6 +259,7 @@ final class ArtifactCompiler
         $html = is_array($entry) ? (string) $entry['content'] : '';
         $components = is_array($reduction['components'] ?? null) ? $reduction['components'] : $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
         $blockTypes = is_array($reduction['block_types'] ?? null) ? $reduction['block_types'] : $this->detectBlockTypes($normalized['files'], $diagnostics);
+        $__profMark('documents+diagnostics+components');
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $normalized['files'] = $this->withStylesheetMediaForDocuments($normalized['files']);
         $this->indexFiles($normalized['files']);
@@ -297,6 +303,7 @@ final class ArtifactCompiler
             $allGutenbergGaps = array_merge($allGutenbergGaps, $compiledHtmlDocument['gutenberg_gaps'] ?? array());
             $coreHtmlFallbackEvidence[] = $compiledHtmlDocument['core_html_fallback_evidence'] ?? array();
         }
+        $__profMark('projections-merge');
         $allGutenbergGaps = $this->dedupeRows($allGutenbergGaps);
         $runtimeDeclarationDiagnostics = array();
         $runtimeEntityRecords = array();
@@ -307,6 +314,7 @@ final class ArtifactCompiler
             if (is_array($fallback)) unset($fallback['_collection_binding_declined']);
             return $fallback;
         }, $allFallbacks);
+        $__profMark('runtimeDeclarations');
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
         $normalized['files'] = $this->chunkProjectedStylesheets($normalized['files']);
         foreach ($normalized['files'] as $file) {
@@ -315,15 +323,20 @@ final class ArtifactCompiler
                 break;
             }
         }
+        $__profMark('authorStylesheetProjections+chunk');
         $this->indexFiles($normalized['files']);
         $normalized['files'] = $this->applyRuntimeScriptProjections($normalized['files'], $runtimeScriptProjections);
         $runtimeIslandPackage = $this->applyRuntimeScriptPackageProjections(
             ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath),
             $runtimeScriptProjections
         );
+        $__profMark('runtimeScriptProjections');
         $wordpressCompatAsset = $this->wordpressCompat->asset($normalized['files'], $this->themeStaticCss($normalized['files'], false), $this->allScriptContents($normalized['files']));
+        $__profMark('wordpressCompatAsset');
         $referenceReports = $this->referenceReports($normalized['files'], $entryPath);
+        $__profMark('referenceReports');
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
+        $__profMark('assetManifest');
         $entryOwnership = is_array($entry) ? $this->fileOwnership($entry) : array('scope' => 'page', 'id' => $entryPath);
         $generatedAssets = $this->generatedAssetsForDocuments($entryBlocks['assets'], $entryOwnership, $compiledHtmlDocuments, $normalized['files']);
         $generatedAssetIdentities = array();
@@ -348,12 +361,14 @@ final class ArtifactCompiler
         }
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets);
+        $__profMark('generatedAssets+assets-assembly');
         $diagnostics = array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
         }
         $fallbackEvidence = CoreHtmlFallbackEvidence::merge($coreHtmlFallbackEvidence);
+        $__profMark('fallbackEvidence');
         $sourceReports = array(
             'core_html_fallback_evidence' => $fallbackEvidence,
             'reusable_components' => $this->reusableComponentEvidence($entryPath, $entryBlocks['reusable_components'], $compiledHtmlDocuments, $generatedAssets),
@@ -402,7 +417,9 @@ final class ArtifactCompiler
         if (isset($interactionReport['projected_dialog_count']) || isset($interactionReport['projected_selectable_set_count']) || isset($interactionReport['projected_choice_group_count'])) {
             $sourceReports['captured_interactions'] = $interactionReport;
         }
+        $__profMark('sourceReports-array');
         $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
+        $__profMark('compiledSiteReport');
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;
         $sourceReports['compiled_site'] = $compiledSite;
         $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($compiledSite);
@@ -427,6 +444,7 @@ final class ArtifactCompiler
         }
         $editabilityReport = (new EditabilityReport())->fromDocuments($editabilityDocuments);
         $editabilityPolicy = (new EditabilityPolicy())->evaluate($editabilityReport);
+        $__profMark('editabilityReport+policy');
         $sourceReports['editability_report'] = $editabilityReport;
         $sourceReports['editability_policy'] = $editabilityPolicy;
         foreach ($editabilityPolicy['failures'] as $failure) {
@@ -486,6 +504,7 @@ final class ArtifactCompiler
             $sourceReports['superseded_selectors'] = $entryBlocks['superseded_selectors'];
         }
         $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks);
+        $__profMark('runtimeDependencyParity');
         foreach ($sourceReports['runtime_dependency_parity']['findings'] ?? array() as $finding) {
             if ('runtime_dependency_target_missing' !== ($finding['code'] ?? '') || 'telemetry' === ($finding['script_kind'] ?? '')) {
                 continue;
@@ -526,6 +545,8 @@ final class ArtifactCompiler
         );
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
 
+        $__profMark('conversionReport');
+        $__profMark('pre-siteplan-composer');
         return ( new WordPressSitePlanComposer() )->compose(
             new TransformerResult(
                 status: $this->statusFromDiagnostics($diagnostics),
