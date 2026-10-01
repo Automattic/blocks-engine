@@ -44,9 +44,10 @@ final class CompanionPluginPayload
      * @param array<string, mixed>             $runtimeIslandPackage Generic runtime-island package.
      * @param array<int, array<string, mixed>> $editorScripts Editor-only scripts for existing core blocks.
      * @param array<string, bool>               $themeOwnedRequiredScripts Theme-owned required scripts keyed by source path and selector.
+     * @param array<int, array<string, mixed>> $viewScripts Generated passive frontend presentation scripts.
      * @return array<string, mixed> Empty array when there are no generated blocks or scripts.
      */
-    public function fromBlockTypes(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array(), array $runtimeIslandPackage = array(), array $editorScripts = array(), array $themeOwnedRequiredScripts = array()): array
+    public function fromBlockTypes(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array(), array $runtimeIslandPackage = array(), array $editorScripts = array(), array $themeOwnedRequiredScripts = array(), array $viewScripts = array()): array
     {
         $blocks = array();
         $seenNames = array();
@@ -78,7 +79,7 @@ final class CompanionPluginPayload
             $blocks[] = $block;
         }
 
-        $preservedJs = $this->preservedJs($runtimeIslandPackage, $themeOwnedRequiredScripts);
+        $preservedJs = array_merge($this->preservedJs($runtimeIslandPackage, $themeOwnedRequiredScripts), $viewScripts);
         if ( array() === $blocks && array() === $preservedJs && array() === $editorScripts ) {
             return array();
         }
@@ -92,7 +93,8 @@ final class CompanionPluginPayload
                 $generatedBlocks,
                 $runtimeIslandPackage,
                 $editorScripts,
-                $themeOwnedRequiredScripts
+                $themeOwnedRequiredScripts,
+                $viewScripts
             ),
             'blocks' => $blocks,
             'preserved_js' => $preservedJs,

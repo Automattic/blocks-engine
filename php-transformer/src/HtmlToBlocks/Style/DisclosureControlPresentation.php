@@ -141,7 +141,7 @@ final class DisclosureControlPresentation
         $clone = $svg->cloneNode(true);
         if ( ! $clone instanceof DOMElement ) return array();
         $inline = $this->styles->cssDeclarations($clone->getAttribute('style'));
-        unset($inline['transform'], $inline['rotate']);
+        foreach (array('transform', 'rotate', 'translate', 'scale', 'transform-origin', 'transform-box') as $property) unset($inline[$property]);
         $color = (string) ($declarations['color'] ?? $this->styles->authoredInheritedPropertyWinner($svg, 'color'));
         if ( '' !== $color ) {
             $color = $this->styles->resolveCssVariablesInValue($color, $svg);
@@ -177,7 +177,15 @@ final class DisclosureControlPresentation
             $scope = $parent;
         }
         $open = $stateCss($expanded);
-        return array('closed' => $base . ';' . $closed, 'open' => $open);
+        $vectorState = function (DOMElement $element) use ($stateCss): string {
+            $css = $stateCss($element);
+            $declarations = $this->styles->matchedCascadedDeclarations($element);
+            foreach (array('translate' => 'none', 'scale' => 'none', 'transform-origin' => '50% 50%', 'transform-box' => 'view-box') as $property => $default) {
+                $css .= ';' . $property . ':' . $this->styles->resolveCssVariablesInValue((string) ($declarations[$property] ?? $default), $element);
+            }
+            return $css;
+        };
+        return array('closed' => $base . ';' . $closed, 'open' => $open, 'svg' => $markup, 'vector_closed' => $vectorState($svg), 'vector_open' => $vectorState($expanded));
     }
 
     /**

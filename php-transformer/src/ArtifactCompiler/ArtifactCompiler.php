@@ -480,7 +480,12 @@ final class ArtifactCompiler
             }
         }
         $themeOwnedRequiredScripts = RuntimeIslandPackageBuilder::themeOwnedRequiredScriptOccurrences($runtimeIslandPackage, $compiledSite['pages'] ?? array());
-        $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $allGeneratedBlocks, $runtimeIslandPackage, $editorScripts, $themeOwnedRequiredScripts);
+        $viewScripts = array();
+        foreach ($assets as $asset) {
+            if ('engine-presentation' !== ($asset['source'] ?? '') || 'js' !== ($asset['kind'] ?? '')) continue;
+            $viewScripts[] = array('handle' => 'vector-icon-' . substr($asset['hash'], 0, 16), 'content' => $asset['content'], 'selector' => $asset['selector'], 'source_path' => $asset['source_path']);
+        }
+        $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $allGeneratedBlocks, $runtimeIslandPackage, $editorScripts, $themeOwnedRequiredScripts, $viewScripts);
         if ( array() !== $companionPluginPayload ) {
             $sourceReports['companion_plugin_payload'] = $companionPluginPayload;
         }

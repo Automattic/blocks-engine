@@ -3367,6 +3367,10 @@ final class StyleResolver implements ElementPresentationResolver
             // Passive icon state presentation crosses core-owned markup.
             'transform' => true,
             'rotate' => true,
+            'translate' => true,
+            'scale' => true,
+            'transform-origin' => true,
+            'transform-box' => true,
             // Grid-item placement: resolved for native core grid child
             // layout (Automattic/blocks-engine#2139).
             'grid-area' => true,
