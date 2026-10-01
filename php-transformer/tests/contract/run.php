@@ -1537,6 +1537,15 @@ foreach (array(
 ) as $label => $mutate) {
     try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($mutate($layoutGraph)); $assert(false, 'layout graph validation rejects ' . $label); } catch (\InvalidArgumentException $e) { $assert(true, 'layout graph validation rejects ' . $label); }
 }
+$elementPresentation = array('schema' => 'generic/form-element-presentation/v1', 'styles' => array('padding' => '12px'), 'provenance' => array(array('source_path' => 'site.css', 'source_sha256' => str_repeat('a', 64), 'selector' => '.wrap', 'condition' => null, 'properties' => array('padding'))), 'variants' => array(), 'truncated' => false, 'diagnostics' => array());
+\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder::assertElement($elementPresentation);
+foreach (array(
+    'unknown envelope key' => static function (array $p): array { $p['extra'] = 1; return $p; },
+    'unknown provenance key' => static function (array $p): array { $p['provenance'][0]['extra'] = 1; return $p; },
+    'keyed variants' => static function (array $p): array { $p['variants'] = array('a' => array()); return $p; },
+) as $label => $mutate) {
+    try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder::assertElement($mutate($elementPresentation)); $assert(false, 'element presentation validation rejects ' . $label); } catch (\InvalidArgumentException $e) { $assert(true, 'element presentation validation rejects ' . $label); }
+}
 $v1LayoutGraph = $layoutGraph; $v1LayoutGraph['schema'] = 'generic/computed-layout-graph/v1'; $v1LayoutGraph['limits']['depth'] = 8;
 $v1LayoutKeys = array('display' => true, 'columns' => true, 'rows' => true, 'gap' => true, 'row_gap' => true, 'column_gap' => true, 'column' => true, 'row' => true, 'area' => true, 'direction' => true, 'wrap' => true, 'align_items' => true, 'align_content' => true, 'justify_content' => true, 'align_self' => true, 'justify_self' => true, 'order' => true, 'flex' => true, 'flex_grow' => true, 'flex_shrink' => true, 'flex_basis' => true);
 $v1LayoutProperties = array('display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis');
