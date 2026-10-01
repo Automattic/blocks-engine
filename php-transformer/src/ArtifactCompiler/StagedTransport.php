@@ -216,9 +216,7 @@ trait StagedTransport
         $initialTransformCount = $stageCompiler->htmlDocumentTransformCount;
         if (!$sharedPlanVerified) $this->assertSharedPlan($sharedPlan);
         $this->assertPagePlan($pagePlan, $sharedPlan);
-        $sharedArtifact = isset($sharedPlan['shared_reduction'])
-            ? array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)))
-            : $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
+        $sharedArtifact = array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)));
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
         $pageLayoutGeometryProof = is_array($pagePlan['layout_geometry_proof'] ?? null) ? $pagePlan['layout_geometry_proof'] : array();
         foreach ($pageArtifact['files'] as &$pageFile) {
@@ -276,23 +274,10 @@ trait StagedTransport
         }
         // A receipt owns every page-derived input required by final reduction.
         // Text is hydrated here; binary references deliberately stay portable.
-        $pagePlan['receipt_schema'] = isset($sharedPlan['shared_reduction'])
-            ? ($pagePlan['compiler_options']['compiled_page_schema'] ?? self::COMPACT_RECEIPT_SCHEMA)
-            : self::PAGE_RECEIPT_SCHEMA;
-        if (self::COMPACT_RECEIPT_SCHEMA === $pagePlan['receipt_schema']) $pagePlan['artifact'] = $pageArtifact;
+        $pagePlan['receipt_schema'] = self::COMPACT_RECEIPT_SCHEMA;
+        $pagePlan['artifact'] = $pageArtifact;
         $pagePlan['compiled_documents'] = $compiledDocuments;
         $pagePlan['owned_document_paths'] = array_keys($compiledDocuments);
-        if (!isset($sharedPlan['shared_reduction'])) {
-            $pagePlan['work'] = array(
-                'compiled_document_count' => count($compiledDocuments),
-                'html_document_transform_count' => $stageCompiler->htmlDocumentTransformCount - $initialTransformCount,
-                'normalization_count' => 0,
-                'analysis_count' => 0,
-                'compile_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
-            );
-            $pagePlan['digest'] = $this->planDigest($this->pagePlanDigestInput($pagePlan));
-            return $pagePlan;
-        }
         $pagePlan['shared_reduction_digest'] = $sharedPlan['shared_reduction_digest'];
         $pagePlan['terminal_reduction'] = $stageCompiler->collectPageReduction(
             $pagePlan,
@@ -303,9 +288,7 @@ trait StagedTransport
             $files,
             $entryPath
         );
-        if (self::COMPACT_RECEIPT_SCHEMA === $pagePlan['receipt_schema']) {
-            unset($pagePlan['terminal_reduction']['files'], $pagePlan['terminal_reduction']['entry_blocks']);
-        }
+        unset($pagePlan['terminal_reduction']['files'], $pagePlan['terminal_reduction']['entry_blocks']);
         // Final reduction reads a non-entry document through its serialized
         // markup and precomputed editability report; its parsed block tree is
         // the largest per-page payload and composition never reads it. Only
@@ -415,8 +398,7 @@ trait StagedTransport
             }
             if (!isset($sharedPlan['shared_reduction'])) throw new \InvalidArgumentException('Compiled terminal receipts require the digest-bound shared reduction supplied by their shared plan.');
             $reduction = $pagePlan['terminal_reduction'] ?? null;
-            $isCompactReceipt = self::COMPACT_RECEIPT_SCHEMA === ($pagePlan['receipt_schema'] ?? null);
-            $pageFiles = $isCompactReceipt ? ($pagePlan['artifact']['files'] ?? null) : ($reduction['files'] ?? null);
+            $pageFiles = $pagePlan['artifact']['files'] ?? null;
             if (!is_array($reduction) || !is_array($pageFiles) || !is_array($reduction['source_documents'] ?? null) || !is_array($reduction['component_facts'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
             if (($pagePlan['shared_reduction_digest'] ?? null) !== ($sharedPlan['shared_reduction_digest'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt is bound to another shared reduction.');
             $pageArtifact = array('files' => $pageFiles);
@@ -435,11 +417,8 @@ trait StagedTransport
                 }
                 $compiledDocuments[$path] = $document;
             }
-            if ($isCompactReceipt) {
-                $reduction['files'] = $pageFiles;
-                $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
-                $reduction['entry_blocks'] = $pagePlan['compiled_documents'][$entryPath] ?? null;
-            }
+            $reduction['files'] = $pageFiles;
+            $reduction['entry_blocks'] = $pagePlan['compiled_documents'][(string) ($sharedPlan['analysis']['entry_path'] ?? '')] ?? null;
             $reductions[] = $reduction;
             $this->reportProgress($onProgress, 'compose_pages', count($reductions), $pageTotal);
         }
@@ -918,12 +897,10 @@ trait StagedTransport
         if (!is_array($sharedPlan['artifact'] ?? null) || !is_array($sharedPlan['artifact']['files'] ?? null)) {
             throw new \InvalidArgumentException('A staged shared plan requires its serialized artifact payload.');
         }
-        if (isset($sharedPlan['shared_reduction'])) {
-            $filesSource = $sharedPlan['shared_reduction']['files_source'] ?? null;
-            $hasFiles = is_array($sharedPlan['shared_reduction']['files'] ?? null) || 'artifact' === $filesSource;
-            if (!$hasFiles || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
-                throw new \InvalidArgumentException('A staged shared plan contains an invalid shared reduction digest.');
-            }
+        $filesSource = $sharedPlan['shared_reduction']['files_source'] ?? null;
+        $hasFiles = is_array($sharedPlan['shared_reduction']['files'] ?? null) || 'artifact' === $filesSource;
+        if (!$hasFiles || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
+            throw new \InvalidArgumentException('A staged shared plan requires a valid digest-bound shared reduction.');
         }
         if (!$this->compatibleReceiptOptions($sharedPlan['compiler_options'] ?? null)) {
             throw new \InvalidArgumentException('A staged shared plan was prepared with incompatible compiler options.');
@@ -959,7 +936,7 @@ trait StagedTransport
         if (!$this->compatibleReceiptOptions($pagePlan['compiler_options'] ?? null) || ($pagePlan['output_schema'] ?? null) !== TransformerResult::SCHEMA) {
             throw new \InvalidArgumentException('A staged page plan was prepared with incompatible compiler options or output schema.');
         }
-        if (isset($pagePlan['compiled_documents']) && !in_array(($pagePlan['receipt_schema'] ?? null), array(self::PAGE_RECEIPT_SCHEMA, self::COMPILED_RECEIPT_SCHEMA, self::COMPACT_RECEIPT_SCHEMA), true)) {
+        if (isset($pagePlan['compiled_documents']) && !in_array(($pagePlan['receipt_schema'] ?? null), array(self::COMPACT_RECEIPT_SCHEMA), true)) {
             throw new \InvalidArgumentException('A compiled page plan requires the compiled page receipt schema.');
         }
         $this->assertPlanDigest(
@@ -1011,14 +988,12 @@ trait StagedTransport
     /** @param mixed $options */
     private function compatibleReceiptOptions(mixed $options): bool
     {
-        return $options === $this->receiptCompilerOptions()
-            || $options === array('compiled_page_schema' => self::COMPILED_RECEIPT_SCHEMA, 'output_schema' => TransformerResult::SCHEMA)
-            || $options === array('compiled_page_schema' => self::PAGE_RECEIPT_SCHEMA, 'output_schema' => TransformerResult::SCHEMA);
+        return $options === $this->receiptCompilerOptions();
     }
 
     private function isTerminalReceiptSchema(mixed $schema): bool
     {
-        return in_array($schema, array(self::COMPILED_RECEIPT_SCHEMA, self::COMPACT_RECEIPT_SCHEMA), true);
+        return self::COMPACT_RECEIPT_SCHEMA === $schema;
     }
 
     /** @param array<string,mixed> $normalized @return array<string,mixed> */

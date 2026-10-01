@@ -43,8 +43,6 @@ final class ArtifactCompiler
     // carries terminal reductions while v1 receipts remain composable.
     public const SHARED_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-shared-plan/v1';
     public const PAGE_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-page-plan/v1';
-    public const PAGE_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v1';
-    public const COMPILED_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v2';
     public const COMPACT_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v3';
 
     /**
