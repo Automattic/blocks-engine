@@ -302,7 +302,7 @@ final class GeneratedBlockStyleProjector
                     $declarations[] = $property . ':' . $value . '!important';
                 }
             }
-            if ( 'a' === strtolower($sourceControl->tagName) && '' === trim((string) ($style['border']['radius'] ?? '')) ) {
+            if ( ( 'a' === strtolower($sourceControl->tagName) || '0' === CssValueInspector::comparable((string) ($sourceDeclarations['border-width'] ?? '')) ) && '' === trim((string) ($style['border']['radius'] ?? '')) ) {
                 $hasCornerRadius = $hasLogicalCorners;
                 foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius', 'border-start-start-radius', 'border-start-end-radius', 'border-end-start-radius', 'border-end-end-radius' ) as $property ) {
                     if ( '' !== trim((string) ($sourceStructuralDeclarations[$property] ?? '')) ) {
@@ -420,12 +420,18 @@ final class GeneratedBlockStyleProjector
         $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
         $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
         $link = $button . '>:where(.wp-block-button__link)';
-        $columnGeometry = $stretchesCrossAxis ? ';width:100%!important' : '';
+        // The outer box participates in the authored parent, including its live
+        // responsive cross-axis stretching. Intrinsic widths resolved at the
+        // reference viewport must not pin it when that parent becomes a column.
+        $hasWidth = array() !== ($this->styleResolver->authorDeclaredPropertyValues($control, array('width'))['width'] ?? array());
+        $isFlex = in_array(CssValueInspector::comparable((string) ($parentStyle['display'] ?? '')), array('flex', 'inline-flex'), true);
         $generatedStyles->registerDirectFlexButton(
             $marker,
-            $wrapper . '{display:block!important;gap:0!important;min-width:0' . $columnGeometry . '}'
-                . $button . '{display:block!important;margin:0!important;min-width:0' . $columnGeometry . '}'
+            $wrapper . '{display:block!important;gap:0!important;min-width:0}'
+                . $button . '{display:block!important;margin:0!important;min-width:0' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
                 . $link . '{box-sizing:border-box' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
+                . ($hasWidth || ! $isFlex ? '' : $wrapper . '{width:auto!important}')
+                . ($isFlex ? $button . '{width:100%!important;height:100%}' . $link . '{width:100%!important;height:100%}' : '')
         );
     }
 
@@ -484,6 +490,19 @@ final class GeneratedBlockStyleProjector
      */
     private static function sourceControlHasVisibleBorder(array $sourceDeclarations): bool
     {
+        // A reset can pair border-style:solid with zero width. Style alone
+        // cannot paint a border; only later nonzero side widths can override it.
+        $width = CssValueInspector::comparable((string) ($sourceDeclarations['border-width'] ?? ''));
+        if ( '' !== $width && 1 === preg_match('/^0(?:px)?(?:\s+0(?:px)?){0,3}$/', $width) ) {
+            $nonzeroSide = false;
+            foreach ( array('border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width') as $property ) {
+                $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
+                $nonzeroSide = $nonzeroSide || ('' !== $value && CssValueInspector::isNonZero($value));
+            }
+            if ( ! $nonzeroSide ) {
+                return false;
+            }
+        }
         $shorthand = CssValueInspector::comparable((string) ($sourceDeclarations['border'] ?? ''));
         if ( '' !== $shorthand && ! preg_match('/^(?:0(?:px)?|none)$/', $shorthand) ) {
             return true;
