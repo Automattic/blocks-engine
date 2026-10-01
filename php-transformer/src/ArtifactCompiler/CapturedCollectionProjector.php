@@ -147,6 +147,7 @@ final class CapturedCollectionProjector
         foreach ($items as $index => $node) {
             $marker = 'blocks-engine-collection-item-' . $identity . '-' . $index;
             $node->setAttribute('class', SourceDom::mergeClassNames($node->getAttribute('class'), $marker));
+            $node->setAttribute('data-blocks-engine-collection-item-marker', $marker);
             $members[] = array('marker' => $marker, 'categories' => $evidence['items'][$index]['categories']);
         }
         $root->setAttribute('data-blocks-engine-collection-root', json_encode(array('items' => $members, 'initialCategory' => $evidence['initialCategory']), JSON_THROW_ON_ERROR));

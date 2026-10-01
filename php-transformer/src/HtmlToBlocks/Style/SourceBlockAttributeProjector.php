@@ -103,6 +103,12 @@ final class SourceBlockAttributeProjector
             $context->generatedStyles,
             $facts->preserveGeneratedStyle
         );
+        // This is behavior identity, not an authored styling class. It must
+        // survive the styling resolver's pruning of unused source classes.
+        $collectionMarker = SourceDom::attr($sourceElement, 'data-blocks-engine-collection-item-marker');
+        if (1 === preg_match('/^blocks-engine-collection-item-[a-f0-9]{16}-[0-9]{1,3}$/', $collectionMarker)) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $collectionMarker);
+        }
         if ( 'core/button' === $name
             && $this->buttonLabelHasAuthoredColor($sourceElement, $logicalSourceElement, (string) ($attrs['text'] ?? ''), $sourceElement->getNodePath() ?? '', $logicalSourceElement->getNodePath() ?? '')
         ) {
