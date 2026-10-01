@@ -41,15 +41,15 @@ final class DisclosureIconPresentation
         $paint = array_intersect_key($this->styles->cssDeclarations($icon->getAttribute('style')), array_flip(array('fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'fill-rule', 'clip-rule')));
         $drawing->removeAttribute('style');
         if ($paint) $drawing->setAttribute('style', $this->styles->cssDeclarationString($paint));
-        $markup = ($this->sanitizeSvg)($drawing);
-        if (!SourceDom::isSafeSvgContent($markup)) return array();
         $closed = $this->state($icon, false);
         $open = $this->state($icon, true);
         if (!$closed || !$open || !$this->length($closed['width'] ?? '') || !$this->length($closed['height'] ?? '')) return array();
-        $mask = 'url("data:image/svg+xml;base64,' . base64_encode($markup) . '") center/contain no-repeat';
-        $base = array('display' => 'block', 'flex-shrink' => '0', 'font-size' => '0', 'line-height' => '0', 'mask' => $mask, '-webkit-mask' => $mask);
+        $base = array('display' => 'block', 'flex-shrink' => '0', 'font-size' => '0', 'line-height' => '0', 'background-position' => 'center', 'background-size' => 'contain', 'background-repeat' => 'no-repeat');
         foreach (array('closed' => $closed, 'open' => $open) as $state => $declarations) {
-            $declarations['background-color'] = $declarations['color'] ?? 'currentColor';
+            $drawing->setAttribute('style', $this->styles->cssDeclarationString(array_merge($paint, array('color' => $declarations['color'] ?? 'currentColor'))));
+            $markup = ($this->sanitizeSvg)($drawing);
+            if (!SourceDom::isSafeSvgContent($markup)) return array();
+            $declarations['background-image'] = 'url("data:image/svg+xml;base64,' . base64_encode($markup) . '")';
             $rules[$state] = $this->styles->cssDeclarationString(array_merge($base, $declarations));
         }
         return $rules;
