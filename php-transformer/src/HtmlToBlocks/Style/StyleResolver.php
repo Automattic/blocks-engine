@@ -656,7 +656,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $entries = array();
         foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-            $declared = trim((string) ( $rule['declarations'][ $property ] ?? '' ));
+            $declared = trim((string) ( $rule['declarations'][ $property ] ?? $rule['cascadedDeclarations'][ $property ] ?? '' ));
             if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
                 continue;
             }

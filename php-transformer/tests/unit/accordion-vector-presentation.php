@@ -18,6 +18,9 @@ if (!str_contains($css, 'overflow:visible')) throw new RuntimeException('The nat
 $clipped = (new HtmlTransformer())->transform(str_replace('button{display:flex;padding:20px}', 'button{display:flex;padding:20px;overflow:hidden}', $html))->toArray();
 $clippedCss = implode("\n", array_column(array_filter($clipped['assets'], static fn (array $asset): bool => 'css' === $asset['kind']), 'content'));
 if (!preg_match('/__toggle\{[^}]*overflow:hidden/', $clippedCss)) throw new RuntimeException('Explicit source trigger clipping must be preserved.');
+$conditional = (new HtmlTransformer())->transform(str_replace('</style>', '@media(min-width:401px){button{overflow:hidden}}</style>', $html))->toArray();
+$conditionalCss = implode("\n", array_column(array_filter($conditional['assets'], static fn (array $asset): bool => 'css' === $asset['kind']), 'content'));
+if (!preg_match('/@media\s*\(min-width:401px\)\{[^}]*__toggle\{;?overflow:hidden/', $conditionalCss)) throw new RuntimeException('Source clipping conditions must use the unfiltered presentation stream.');
 $compiled = (new ArtifactCompiler())->compile(array('site_slug' => 'neutral-vector', 'files' => array('index.html' => $html)))->toArray();
 $payload = $compiled['source_reports']['companion_plugin_payload'] ?? array();
 $views = array_values(array_filter($payload['preserved_js'] ?? array(), static fn (array $script): bool => str_starts_with($script['handle'] ?? '', 'vector-icon-')));
