@@ -94,6 +94,14 @@ final class ButtonLinkDispatcher
             return $this->context->convertLinkWrapperGroup($element, $fallbacks);
         }
 
+        // A sized or row-grouped image plus a label element is one navigation
+        // target. Native group/image saves cannot keep that anchor, the label,
+        // and density sources together.
+        $linkedContent = $this->context->linkedResponsiveContentBlockFromAnchor($element);
+        if ( null !== $linkedContent ) {
+            return $linkedContent;
+        }
+
         // Tag-wise inline children can still stack: a linked brand lockup whose
         // spans render as block boxes keeps two authored lines that a paragraph
         // host would merge and de-link. Convert it like a link wrapper.

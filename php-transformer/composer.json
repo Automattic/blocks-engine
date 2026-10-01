@@ -393,6 +393,7 @@
             "php tests/unit/runtime-island-analyzer.php",
             "php tests/unit/commerce-structure-recognizer.php",
             "php tests/unit/button-link-dispatcher.php",
+            "php tests/unit/linked-responsive-content.php",
             "php tests/unit/empty-destination-anchor.php",
              "php tests/unit/button-element-converter.php",
              "php tests/unit/block-content-button-not-richtext.php",
