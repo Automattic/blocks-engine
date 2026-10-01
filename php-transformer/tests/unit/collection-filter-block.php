@@ -22,6 +22,12 @@ $assert(1 === substr_count($markup,'<!-- wp:accordion '), 'all items share one n
 $assert(str_contains($markup,'blocks-engine-collection-target'), 'the native collection is addressable after serialization');
 $assert(str_contains($markup,'wp:paragraph'), 'answers remain native editor paragraphs');
 $assert(str_contains($markup,'data-collection-empty="true"'), 'the external source empty state remains editable and local');
+$assert(str_contains($markup,'<input type="text"') || preg_match('/<input[^>]+type="text"/', $markup), 'an omitted source input type keeps the native HTML text default');
+$searchFiles = $files;
+$searchFiles[0]['content'] = str_replace('<input placeholder=', '<input type="search" placeholder=', $source);
+$searchProjection = (new CapturedCollectionFilterProjector())->project($searchFiles);
+$searchResult = (new HtmlTransformer())->transform($searchProjection[0]['content'])->toArray();
+$assert((bool) preg_match('/<input[^>]+type="search"/', $searchResult['serialized_blocks']), 'an explicit source search input keeps its search type');
 $assert(64 === strlen(RuntimeDeclarations::hash($result['source_reports']['generated_blocks'])), 'companion declarations cross the actual staged runtime transport contract');
 $files[2]['content'] = str_replace('"replay":"verified"','"replay":"unsupported"',$files[2]['content']);
 $rejected = (new CapturedCollectionFilterProjector())->project($files);

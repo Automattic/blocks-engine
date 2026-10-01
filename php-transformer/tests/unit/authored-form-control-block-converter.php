@@ -48,7 +48,8 @@ $converter = new AuthoredFormControlBlockConverter(
         $echoes[] = $text;
     },
     new Runtime(),
-    static fn (string $id): string => 'safe-' . $id
+    static fn (string $id): string => 'safe-' . $id,
+    static fn (DOMElement $element): DOMElement => $element
 );
 
 $plainInput = $elementFrom('<input name="email">', 'input');

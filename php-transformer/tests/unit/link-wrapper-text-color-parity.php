@@ -34,7 +34,7 @@ $card = '<div><ul><li class="item"><a class="wrap" href="/services"><div class="
 // anchor must inherit.
 $painted = $transform('.label{color:rgb(65,65,65)}.wrap{text-decoration:none}', $card);
 $paintedMarkup = (string) ($painted['serialized_blocks'] ?? '');
-if ( ! str_contains($paintedMarkup, '<p class="label ' . $carrier . '"') || ! str_contains($paintedMarkup, '>SERVICES</a>') ) {
+if ( ! str_contains($paintedMarkup, '<p class="label ' . $carrier) || ! str_contains($paintedMarkup, '>SERVICES</a>') ) {
     throw new RuntimeException('A pushed-down link inside painted source text must mark its host block as inheriting the paint.');
 }
 if ( ! str_contains($afterAuthorCss($painted), ':root :where(.' . $carrier . ')>a{color:inherit}') ) {

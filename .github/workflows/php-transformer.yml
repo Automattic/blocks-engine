@@ -87,6 +87,12 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/details-control-presentation-browser.mjs
 
+      - name: Verify native collection search semantics
+        working-directory: php-transformer
+        run: |
+          php tests/unit/collection-filter-block.php
+          PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/collection-filter-browser.mjs
+
   wordpress-site-plan:
     name: WordPress site plan integration (PHP ${{ matrix.php-version }})
     runs-on: ubuntu-24.04

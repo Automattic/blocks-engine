@@ -24,6 +24,7 @@ final class AuthoredFormControlBlockConverter
      * @param Closure(): GeneratedBlockRegistry                                                             $generatedBlocks
      * @param Closure(string): void                                                                         $registerEcho
      * @param Closure(string): string                                                                       $safeAnchor
+     * @param Closure(DOMElement): ?DOMElement                                                               $projectSourceTags
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
@@ -33,7 +34,8 @@ final class AuthoredFormControlBlockConverter
         private readonly Closure $generatedBlocks,
         private readonly Closure $registerEcho,
         private readonly Runtime $runtime,
-        private readonly Closure $safeAnchor
+        private readonly Closure $safeAnchor,
+        private readonly Closure $projectSourceTags
     ) {
     }
 
@@ -288,8 +290,9 @@ final class AuthoredFormControlBlockConverter
             'className' => SourceDom::attr($button, 'class'),
             'style' => SourceDom::attr($button, 'style'),
             'text' => $this->metadataBuilder->submitText($button, 'Submit'),
+            'labelWrappers' => AuthoredButtonBlockGenerator::labelWrappers(($this->projectSourceTags)($button) ?? $button),
             'disabled' => $button->hasAttribute('disabled'),
-        ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $markup = $generator->markup($attrs);
 
         return array(

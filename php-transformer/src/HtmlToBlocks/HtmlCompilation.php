@@ -625,7 +625,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->transformationEvidence()->recordFormControlEcho($text);
             },
             $this->runtime,
-            fn (string $id): string => $this->safeAnchor($id)
+            fn (string $id): string => $this->safeAnchor($id),
+            fn (DOMElement $element): ?DOMElement => $this->sourceTagProjectedClone($element)
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
@@ -680,7 +681,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             $this,
-            fn (string $localName): string => $this->generatedBlocks()->blockName($localName),
             function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
                 return $this->layoutShellBlockForElements($elements, $innerBlocks, $sourceElement);
             },
@@ -10636,6 +10636,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             );
         }
         if ( 'none' === (string) ($linkAttrs['textDecoration'] ?? '') ) {
+            $replacementAttrs['className'] = $this->mergeClassNames(
+                (string) ($replacementAttrs['className'] ?? ''),
+                SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS
+            );
             $style = is_array($replacementAttrs['style'] ?? null) ? $replacementAttrs['style'] : array();
             $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
             $typography['textDecoration'] = 'none';

@@ -525,7 +525,7 @@ final class AuthorStylesheetProjector
                 $markers[] = $marker;
             }
             if ( array() === $markers && ! $hasLabelProjection ) {
-                $rewritten[] = $selector;
+                array_push($rewritten, ...($this->projectSourceAttributePseudoSelector($selector, $context) ?? array($selector)));
                 continue;
             }
             foreach ( array_unique($markers) as $marker ) {
@@ -1378,6 +1378,11 @@ final class AuthorStylesheetProjector
                 array_push($rewritten, ...$runtimeProjection);
                 continue;
             }
+            $pseudoProjection = $this->projectSourceAttributePseudoSelector($selector, $context);
+            if (null !== $pseudoProjection && array() !== $pseudoProjection) {
+                array_push($rewritten, ...$pseudoProjection);
+                continue;
+            }
             $selector = $this->projectSourceAttributeNegationStateSelector($selector, $context);
             $selector = $this->projectSourceBodyStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
@@ -1728,6 +1733,17 @@ final class AuthorStylesheetProjector
             return array_map(static fn (string $marker): string => ':where(.' . $marker . ')' . $shims . $suffix, $markers);
         }
         return null;
+    }
+
+    /** @return list<string>|null */
+    private function projectSourceAttributePseudoSelector(string $selector, AuthorStylesheetProjectionContext $context): ?array
+    {
+        $host = CssSelectorMatcher::pseudoElementHost($selector);
+        if (null === $host) return null;
+        $matches = $this->matchingSourceElements($host['selector'], $host['parsed'], $context);
+        $projected = $this->projectSourceAttributeAncestrySelector($host['selector'], $host['parsed'], $matches, $context)
+            ?? $this->projectSourceAttributeSelector($host['parsed'], $matches, $context);
+        return null === $projected ? null : array_map(static fn (string $target): string => $target . $host['suffix'], $projected);
     }
 
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
