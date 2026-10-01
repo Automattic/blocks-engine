@@ -335,12 +335,13 @@ final class FormPresentationGraphBuilder
                 $provenance = $this->provenance($matched['base'], null);
                 $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
                 $carried = array();
-                if ( 'label' === $role ) {
+                $buttonCaption = 'control' === $role && 'button' === strtolower($control->tagName);
+                if ( 'label' === $role || $buttonCaption ) {
                     // The label's text is painted by its sole text carrier (a `<p>`
                     // or `<span>` inside it). Typography that carrier declares wins
                     // over the label's own for that text, property by property, so a
                     // provider label that renders the text directly keeps it.
-                    $carried = $this->carrierTypography($roles, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $conditional);
+                    $carried = $this->carrierTypography($buttonCaption ? array() : $roles, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $conditional);
                     if ( array() !== $carried ) {
                         $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
                         foreach ( $provenance as $factIndex => $fact ) {
