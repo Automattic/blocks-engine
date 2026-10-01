@@ -14,6 +14,10 @@ if (!str_contains($scripts[0]['content'], '\\u003Csvg') || str_contains($scripts
 if (str_contains($result['serialized_blocks'], '<svg') || str_contains($result['serialized_blocks'], 'data-blocks-engine-vector-icon')) throw new RuntimeException('Vector rendering may not change core stored save markup.');
 $css = implode("\n", array_column(array_filter($result['assets'], static fn (array $asset): bool => 'css' === $asset['kind']), 'content'));
 if (!str_contains($css, 'translateX(12px) rotate(45deg)') || !str_contains($css, 'transform-origin:25% 75%') || !str_contains($css, 'scale:1.6 .7')) throw new RuntimeException('Inline vector states must retain source geometry and scoped custom properties.');
+if (!str_contains($css, 'overflow:visible')) throw new RuntimeException('The native trigger must retain default source-visible overflow.');
+$clipped = (new HtmlTransformer())->transform(str_replace('button{display:flex;padding:20px}', 'button{display:flex;padding:20px;overflow:hidden}', $html))->toArray();
+$clippedCss = implode("\n", array_column(array_filter($clipped['assets'], static fn (array $asset): bool => 'css' === $asset['kind']), 'content'));
+if (!preg_match('/__toggle\{[^}]*overflow:hidden/', $clippedCss)) throw new RuntimeException('Explicit source trigger clipping must be preserved.');
 $compiled = (new ArtifactCompiler())->compile(array('site_slug' => 'neutral-vector', 'files' => array('index.html' => $html)))->toArray();
 $payload = $compiled['source_reports']['companion_plugin_payload'] ?? array();
 $views = array_values(array_filter($payload['preserved_js'] ?? array(), static fn (array $script): bool => str_starts_with($script['handle'] ?? '', 'vector-icon-')));

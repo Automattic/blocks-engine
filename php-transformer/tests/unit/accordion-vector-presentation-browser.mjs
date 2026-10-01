@@ -5,7 +5,7 @@ const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
 const cwd=fileURLToPath(new URL('../..',import.meta.url));
 const browser=await chromium.launch();
 try {
- for(const transform of ['translate(12px, -4px)','rotate(45deg)','scale(1.6, 0.7)','translate(7px, 2px) rotate(37deg) scale(1.3)']) {
+ for(const transform of ['translate(12px, -4px)','translate(44px, -4px)','rotate(45deg)','scale(1.6, 0.7)','translate(7px, 2px) rotate(37deg) scale(1.3)']) {
   const html=`<style>body{margin:0;font:16px Arial}h3{margin:0;font:inherit}.list{width:350px;--offset:12px}button{border:0;width:100%;display:flex;align-items:center;justify-content:space-between;padding:20px;background:white;line-height:24px}.label{flex:1;padding-right:16px}.resting{transform:translateX(0px)}.expanded{transform:${transform};transform-origin:25% 75%}svg{color:#253855}</style><main><section class="list"><article><button type="button" aria-expanded="false"><span class="label">A neutral disclosure question?</span><svg xmlns="http://www.w3.org/2000/svg" class="resting" data-dla-disclosure-open-class="expanded" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3L21 7L6 22Z"/></svg></button><div role="region" hidden><p>An editable answer.</p></div></article></section></main>`;
   const input=html.replace(/(<article>.*<\/article>)/,'$1$1');
   const result=JSON.parse(execFileSync('php',['-r',`require 'vendor/autoload.php';echo json_encode((new \\Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform(json_decode($argv[1]))->toArray(),JSON_THROW_ON_ERROR);`,JSON.stringify(input)],{cwd,encoding:'utf8',maxBuffer:16*1024*1024}));
@@ -17,7 +17,7 @@ try {
   const pages=[];
   for(const native of [false,true]) {
    const page=await browser.newPage({viewport:{width:390,height:200}});
-   await page.setContent(native?`<style>${css}\nbody{margin:0;font:16px Arial}h3{margin:0;font:inherit}.wp-block-accordion-panel{display:none}</style><main style="width:350px">${result.serialized_blocks}</main>`:input);
+   await page.setContent(native?`<style>.wp-block-accordion-heading__toggle{overflow:hidden}${css}\nbody{margin:0;font:16px Arial}h3{margin:0;font:inherit}.wp-block-accordion-panel{display:none}</style><main style="width:350px">${result.serialized_blocks}</main>`:input);
    if(native){await page.addScriptTag({content:scripts[0].content});await page.addScriptTag({content:scripts[0].content});assert.equal(await page.locator('.wp-block-accordion-heading__toggle-icon > svg').count(),2);}
    await page.locator('button').first().evaluate(b=>{b.setAttribute('aria-expanded','true');if(!b.querySelector('.wp-block-accordion-heading__toggle-icon'))b.querySelector('svg').setAttribute('class','expanded');});
    const svg=page.locator('button svg').first();await svg.waitFor();

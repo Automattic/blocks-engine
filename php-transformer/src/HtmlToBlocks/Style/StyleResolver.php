@@ -3371,6 +3371,9 @@ final class StyleResolver implements ElementPresentationResolver
             'scale' => true,
             'transform-origin' => true,
             'transform-box' => true,
+            'overflow' => true,
+            'overflow-x' => true,
+            'overflow-y' => true,
             // Grid-item placement: resolved for native core grid child
             // layout (Automattic/blocks-engine#2139).
             'grid-area' => true,
