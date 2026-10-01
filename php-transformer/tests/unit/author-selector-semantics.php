@@ -795,7 +795,7 @@ $assert(array() === ($logoControl['source_reports']['conversion_report']['gutenb
 $inlineSvgOnlyLogo = $transform('<style>.brand-logo{width:228px;height:35px}</style><a class="site-link" href="/"><div class="brand-logo"><svg viewBox="0 0 228 30" width="100%" height="100%" role="img" aria-label="Brand logo"><path d="M0 0h228v30H0z"/></svg></div></a>');
 $inlineSvgOnlyLogoMarkup = (string) ($inlineSvgOnlyLogo['serialized_blocks'] ?? '');
 $inlineSvgOnlyLogoAssets = array_filter($inlineSvgOnlyLogo['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''));
-$assert(str_contains($inlineSvgOnlyLogoMarkup, 'brand-logo') && str_contains($inlineSvgOnlyLogoMarkup, 'assets/materialized-svg/') && str_contains($css($inlineSvgOnlyLogo), '>a{display:block;width:100%}') && 1 === count($inlineSvgOnlyLogoAssets) && ! str_contains($inlineSvgOnlyLogoMarkup, '<svg'), 'an SVG-only logo materializes as a full-width linked image instead of being omitted for lacking text content');
+$assert(str_contains($inlineSvgOnlyLogoMarkup, 'brand-logo') && str_contains($inlineSvgOnlyLogoMarkup, 'assets/materialized-svg/') && 1 === preg_match('/>a\{(?=[^}]*display:block)(?=[^}]*width:100%)[^}]*\}/', $css($inlineSvgOnlyLogo)) && 1 === count($inlineSvgOnlyLogoAssets) && ! str_contains($inlineSvgOnlyLogoMarkup, '<svg'), 'an SVG-only logo materializes as a full-width linked image instead of being omitted for lacking text content');
 
 $structuredAnchor = $transform('<style>.row{display:flex}</style><div class="row"><a class="card" href="/"><span>Copy</span><div>Structured</div></a></div>');
 $structuredAnchorBlock = $structuredAnchor['blocks'][0] ?? array();
