@@ -58,18 +58,24 @@ final class DisclosureIconPresentation
     /** @return array<string,string> */
     private function state(DOMElement $icon, bool $open): array
     {
+        return $this->styles->withSelectorSnapshot(fn (): array => $this->snapshot($icon, $open));
+    }
+
+    /** @return array<string,string> */
+    private function snapshot(DOMElement $icon, bool $open): array
+    {
         $clone = $icon->cloneNode(true);
         if (!$clone instanceof DOMElement || !$icon->parentNode) return array();
         if ($open) {
             if ($icon->hasAttribute('data-dla-disclosure-open-class')) $clone->setAttribute('class', $icon->getAttribute('data-dla-disclosure-open-class'));
             if ($icon->hasAttribute('data-dla-disclosure-open-style')) $clone->setAttribute('style', $icon->getAttribute('data-dla-disclosure-open-style'));
         }
-        // A fresh node keeps selector caches honest. It occupies the source's
-        // exact slot while resolving, so sibling selectors still mean the same.
+        // The isolated selector revision allows the exact same source slot to
+        // carry another state without reusing immutable path-keyed facts.
         $parent = $icon->parentNode;
         $parent->replaceChild($clone, $icon);
         try {
-            $declarations = $this->styles->resolvedPresentationDeclarations($clone);
+            $declarations = $this->styles->resolvedSourceStateDeclarations($clone);
             foreach (array('fill', 'stroke') as $paint) {
                 if (isset($declarations[$paint]) && !in_array(strtolower(trim($declarations[$paint])), array('none', 'currentcolor', 'inherit'), true)) return array();
             }

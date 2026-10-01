@@ -94,7 +94,7 @@ $icons = $transform('<style>.source-icon{color:#345;transition-property:transfor
 $iconCss = $supportCss($icons);
 $assert(str_contains($iconCss, 'data:image/svg+xml;base64,'), 'a source-proved vector occupies the native icon slot through CSS, not invalid extra markup', $iconCss);
 $assert(str_contains($iconCss, 'width:18px') && str_contains($iconCss, 'height:18px'), 'the source icon box replaces the larger core default', $iconCss);
-$assert(str_contains($iconCss, '[aria-expanded="true"]') && str_contains($iconCss, 'transform:rotate(135deg)'), 'open presentation comes from the observed class state, not a fixed rotation guess', $iconCss);
+$assert(1 === preg_match('/\[aria-expanded="true"\]>\.wp-block-accordion-heading__toggle-icon\{[^}]*transform:rotate\(135deg\)/', $iconCss), 'open presentation comes from the observed class state on the actual native slot, not an unused author rule or rotation guess', $iconCss);
 $assert(!str_contains($icons['serialized_blocks'], '<svg') && str_contains($icons['serialized_blocks'], 'aria-hidden="true">+</span>'), 'core accordion save markup remains canonical', $icons['serialized_blocks']);
 
 $responsive = $transform(
