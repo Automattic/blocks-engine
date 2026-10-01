@@ -11,10 +11,22 @@ declare(strict_types=1);
  * the stage boundaries; no parallel compiler is constructed.
  *
  * Usage: php staged-compose-profile.php <corpus-dir-or-artifact.json>
+ *
+ * Directory input measures static files only, not SSI capture-fact parity.
+ * JSON input preserves the complete caller artifact. Optional environment:
+ * COMPOSE_RECEIPTS_OUT / COMPOSE_RECEIPTS_IN: local trusted receipt cache,
+ * produced only through prepareShared/preparePages/compilePreparedPages.
+ * COMPOSE_SOURCE_ROOT: archived transformer root (same installed dependencies).
+ * COMPOSE_REVISION: immutable source revision label; source tree is also hashed.
+ * COMPOSE_PLAN_OUT / COMPOSE_COMPACT_OUT: private full-content equality evidence.
+ * COMPOSE_SAMPLE=1: at most 300 one-second stack samples, without arguments.
  */
 
 $transformerRoot = getenv('BLOCKS_ENGINE_PHP_TRANSFORMER_ROOT') ?: dirname(__DIR__, 2);
-require $transformerRoot . '/vendor/autoload.php';
+$loader = require $transformerRoot . '/vendor/autoload.php';
+if (getenv('COMPOSE_SOURCE_ROOT')) {
+    $loader->setPsr4('Automattic\\BlocksEngine\\PhpTransformer\\', getenv('COMPOSE_SOURCE_ROOT') . '/src');
+}
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
@@ -60,11 +72,13 @@ function corpusArtifact(string $source): array
 final class PhaseClock
 {
     public array $phases = array();
+    public int $peakMemoryBytes = 0;
     private float $startedAt;
     private int $startedMem;
 
     public function begin(string $phase): void
     {
+        $this->recordPeak();
         $this->startedAt = hrtime(true);
         $this->startedMem = memory_get_usage(true);
     }
@@ -78,6 +92,15 @@ final class PhaseClock
         }
         $this->phases[$phase]['ms'] += $ms;
         $this->phases[$phase]['mem_bytes'] += $delta;
+        $this->phases[$phase]['peak_memory_bytes'] = $this->recordPeak();
+    }
+
+    public function recordPeak(): int
+    {
+        $peak = memory_get_peak_usage(true);
+        $this->peakMemoryBytes = max($this->peakMemoryBytes, $peak);
+        memory_reset_peak_usage();
+        return $peak;
     }
 }
 
@@ -86,30 +109,59 @@ if ( null === $corpus ) {
     fwrite(STDERR, "Usage: php staged-compose-profile.php <corpus-dir-or-artifact.json>\n");
     exit(1);
 }
-$artifact = corpusArtifact($corpus);
 $clock = new PhaseClock();
 $compiler = new ArtifactCompiler();
+$samples = array();
+$sampleCount = 0;
+if (getenv('COMPOSE_SAMPLE') === '1' && function_exists('pcntl_alarm')) {
+    pcntl_async_signals(true);
+    pcntl_signal(SIGALRM, static function () use (&$samples, &$sampleCount): void {
+        $stack = array();
+        foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS) as $frame) {
+            if (isset($frame['class'])) $stack[] = $frame['class'] . '::' . $frame['function'];
+        }
+        $key = implode(' <- ', $stack);
+        $samples[$key] = ($samples[$key] ?? 0) + 1;
+        if (++$sampleCount < 300) pcntl_alarm(1);
+    });
+    pcntl_alarm(1);
+}
 
-$clock->begin('prepare_shared');
-$sharedPlan = $compiler->prepareShared($artifact);
-$clock->end('prepare_shared');
+if (getenv('COMPOSE_RECEIPTS_IN')) {
+    $cache = file_get_contents(getenv('COMPOSE_RECEIPTS_IN'));
+    if (false === $cache) throw new RuntimeException('Could not read receipt cache.');
+    $cached = unserialize($cache, array('allowed_classes' => false));
+    if (!is_array($cached) || count($cached) !== 2 || !is_array($cached[0]) || !is_array($cached[1])) throw new RuntimeException('Invalid receipt cache.');
+    [$sharedPlan, $receipts] = $cached;
+    unset($cache, $cached);
+    foreach (array('prepare_shared', 'prepare_pages', 'compile_prepared_pages') as $phase) $clock->phases[$phase] = array('ms' => 0.0, 'mem_bytes' => 0, 'peak_memory_bytes' => 0);
+} else {
+    $artifact = corpusArtifact($corpus);
+    $clock->begin('prepare_shared');
+    $sharedPlan = $compiler->prepareShared($artifact);
+    $clock->end('prepare_shared');
 
-$clock->begin('prepare_pages');
-$pagePlans = $compiler->preparePages($artifact, $sharedPlan);
-$clock->end('prepare_pages');
-unset($artifact);
+    $clock->begin('prepare_pages');
+    $pagePlans = $compiler->preparePages($artifact, $sharedPlan);
+    $clock->end('prepare_pages');
+    unset($artifact);
 
-$clock->begin('compile_prepared_pages');
-$receipts = $compiler->compilePreparedPages($sharedPlan, $pagePlans);
-$clock->end('compile_prepared_pages');
-unset($pagePlans);
+    $clock->begin('compile_prepared_pages');
+    $receipts = $compiler->compilePreparedPages($sharedPlan, $pagePlans);
+    $clock->end('compile_prepared_pages');
+    unset($pagePlans);
+}
+if (getenv('COMPOSE_RECEIPTS_OUT')) {
+    file_put_contents(getenv('COMPOSE_RECEIPTS_OUT'), serialize(array($sharedPlan, $receipts)));
+}
 
 // The existing compose progress callback reports each owning boundary.
 $composeStageStartedAt = hrtime(true);
 $composeStageStartedMem = memory_get_usage(true);
 $composeStages = array();
 $composeStageMem = array();
-$composeProgress = static function (string $stage, int $completed, int $total) use (&$composeStages, &$composeStageMem, &$composeStageStartedAt, &$composeStageStartedMem): void {
+$composeStagePeak = array();
+$composeProgress = static function (string $stage, int $completed, int $total) use ($clock, &$composeStages, &$composeStageMem, &$composeStagePeak, &$composeStageStartedAt, &$composeStageStartedMem): void {
     $key = $stage;
     if ( ! isset($composeStages[$key]) ) {
         $composeStages[$key] = 0.0;
@@ -117,6 +169,7 @@ $composeProgress = static function (string $stage, int $completed, int $total) u
     }
     $composeStages[$key] += (hrtime(true) - $composeStageStartedAt) / 1000000;
     $composeStageMem[$key] += memory_get_usage(true) - $composeStageStartedMem;
+    $composeStagePeak[$key] = max($composeStagePeak[$key] ?? 0, $clock->recordPeak());
     $composeStageStartedAt = hrtime(true);
     $composeStageStartedMem = memory_get_usage(true);
 };
@@ -149,11 +202,20 @@ $replayedPlan = ( new WordPressSitePlan() )->fromResult($result);
 $clock->end('plan_projection_replay');
 
 $canonicalPlan = $result->sourceReports['wordpress_site_plan'] ?? array();
-$canonicalPlanSha = hash('sha256', json_encode($canonicalPlan, JSON_UNESCAPED_SLASHES));
+$canonicalEncoded = json_encode($canonicalPlan, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+$canonicalPlanSha = hash('sha256', $canonicalEncoded);
+$canonicalIdentity = WordPressSitePlan::canonicalHash($canonicalPlan);
+if (getenv('COMPOSE_PLAN_OUT')) file_put_contents(getenv('COMPOSE_PLAN_OUT'), $canonicalEncoded);
+if (getenv('COMPOSE_COMPACT_OUT')) file_put_contents(getenv('COMPOSE_COMPACT_OUT'), $encoded);
 $replayMatches = $canonicalPlan === $replayedPlan;
-unset($replayedPlan, $canonicalPlan);
+// Terminal process counters are attached to the envelope after the original
+// plan was built. Report actual replay differences rather than hiding them.
+$replayDifferentKeys = array();
+foreach ($canonicalPlan as $key => $value) if ($value !== ($replayedPlan[$key] ?? null)) $replayDifferentKeys[] = $key;
+unset($replayedPlan, $canonicalPlan, $canonicalEncoded);
 
 $serializedBytes = strlen($encoded);
+$compactSha = hash('sha256', $encoded);
 unset($encoded, $compact, $view);
 
 $receiptTotalBytes = array_sum(array_map(
@@ -161,11 +223,22 @@ $receiptTotalBytes = array_sum(array_map(
     $receipts
 ));
 
+$sourceRoot = getenv('COMPOSE_SOURCE_ROOT') ?: $transformerRoot;
+$sourceHashes = array();
+foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($sourceRoot . '/src', FilesystemIterator::SKIP_DOTS)) as $file) {
+    if ($file->isFile()) $sourceHashes[substr($file->getPathname(), strlen($sourceRoot) + 1)] = hash_file('sha256', $file->getPathname());
+}
+ksort($sourceHashes, SORT_STRING);
+$clock->recordPeak();
+
 fwrite(STDOUT, json_encode(array(
+    'compiler' => array('revision' => getenv('COMPOSE_REVISION') ?: null, 'source_tree_sha256' => hash('sha256', json_encode($sourceHashes, JSON_UNESCAPED_SLASHES)), 'php' => PHP_VERSION),
     'fixture' => array(
-        'files' => count($sharedPlan['artifact']['files'] ?? array()) + array_sum(array_map(static fn(array $r): int => count($r['artifact']['files'] ?? array()), $receipts)),
+        'retained_artifact_file_rows' => count($sharedPlan['artifact']['files'] ?? array()) + array_sum(array_map(static fn(array $r): int => count($r['artifact']['files'] ?? array()), $receipts)),
         'pages' => count($receipts),
         'receipt_files_bytes' => $receiptTotalBytes,
+        'receipt_cache_sha256' => getenv('COMPOSE_RECEIPTS_IN') ? hash_file('sha256', getenv('COMPOSE_RECEIPTS_IN')) : null,
+        'input_mode' => getenv('COMPOSE_RECEIPTS_IN') ? 'receipt_replay' : (is_file($corpus) ? 'complete_json_artifact' : 'static_directory_only'),
     ),
     'stages_ms' => array(
         'prepare_shared' => $clock->phases['prepare_shared']['ms'],
@@ -178,6 +251,9 @@ fwrite(STDOUT, json_encode(array(
         'plan_projection_replay' => $clock->phases['plan_projection_replay']['ms'],
     ),
     'compose_stages_ms' => $composeStages,
+    'compose_stages_mem_bytes' => $composeStageMem,
+    'compose_stages_peak_memory_bytes' => $composeStagePeak,
+    'phase_peak_memory_bytes' => array_map(static fn(array $phase): int => $phase['peak_memory_bytes'], $clock->phases),
     'mem_bytes' => array(
         'prepare_shared' => $clock->phases['prepare_shared']['mem_bytes'],
         'prepare_pages' => $clock->phases['prepare_pages']['mem_bytes'],
@@ -190,9 +266,12 @@ fwrite(STDOUT, json_encode(array(
     'output' => array(
         'status' => $result->status,
         'canonical_plan_sha256' => $canonicalPlanSha,
+        'canonical_plan_identity' => $canonicalIdentity,
         'plan_projection_replay_matches' => $replayMatches,
+        'plan_projection_replay_different_keys' => $replayDifferentKeys,
         'compact_view_bytes' => $serializedBytes,
-        'compact_view_sha256' => hash('sha256', (string) $serializedBytes),
+        'compact_view_sha256' => $compactSha,
     ),
-    'peak_memory_bytes' => memory_get_peak_usage(true),
+    'peak_memory_bytes' => $clock->peakMemoryBytes,
+    'samples' => $samples,
 ), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
