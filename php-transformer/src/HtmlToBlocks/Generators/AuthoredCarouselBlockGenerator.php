@@ -41,6 +41,19 @@ final class AuthoredCarouselBlockGenerator
         $blockName = $namespace . '/' . self::LOCAL_NAME;
         $attributes = array(
             'ariaLabel' => array('type' => 'string', 'default' => 'Carousel'),
+            'controlPresentation' => array('type' => 'object', 'default' => array()),
+            'previousControlPresentation' => array('type' => 'object', 'default' => array()),
+            'nextControlPresentation' => array('type' => 'object', 'default' => array()),
+            'sourcePresentationClasses' => array('type' => 'string', 'default' => ''),
+            'sourceControlClasses' => array('type' => 'string', 'default' => ''),
+            'sourceControlAttributes' => array('type' => 'object', 'default' => array()),
+            'sourceControlTopology' => array('type' => 'string', 'default' => ''),
+            'sourceIdentityAttributes' => array('type' => 'object', 'default' => array()),
+            'sourceCustomProperties' => array('type' => 'object', 'default' => array()),
+            'previousControlClasses' => array('type' => 'string', 'default' => ''),
+            'nextControlClasses' => array('type' => 'string', 'default' => ''),
+            'previousControlVisual' => array('type' => 'string', 'default' => ''),
+            'nextControlVisual' => array('type' => 'string', 'default' => ''),
             'itemsPerView' => array('type' => 'number', 'default' => 4),
             'wrap' => array('type' => 'boolean', 'default' => true),
             'presentation' => array('type' => 'string', 'default' => 'track'),
@@ -72,6 +85,7 @@ final class AuthoredCarouselBlockGenerator
     function normalizedPlacement( value ) { return -1 !== [ 'top-left', 'top-right', 'bottom-left', 'bottom-right' ].indexOf( value ) ? value : 'bottom-left'; }
     function normalizedTransition( value ) { return 'slide' === value ? 'slide' : 'fade'; }
     function normalizedAspect( value ) { return 'string' === typeof value && /^[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?$/.test( value ) ? value : ''; }
+    function controlStyle( source ) { var style = {}; Object.keys( source || {} ).forEach( function( name ) { var key = name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); if ( -1 !== [ 'width', 'height', 'padding', 'border', 'borderRadius', 'background', 'backgroundColor', 'color', 'font' ].indexOf( key ) ) { style[ key ] = source[ name ]; } } ); return style; }
     function rootProps( attributes ) {
         var items = normalizedItems( attributes.itemsPerView );
         var thumbnails = normalizedThumbnails( attributes.thumbnails );
@@ -85,7 +99,11 @@ final class AuthoredCarouselBlockGenerator
             var stageWidth = Math.max( 0, Math.round( Number( attributes.stageMaxWidth ) || 0 ) );
             if ( stageWidth > 0 ) { style[ '--blocks-engine-carousel-stage-width' ] = stageWidth + 'px'; }
         }
-        return { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        var props = { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle ) + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        Object.keys( attributes.sourceIdentityAttributes || {} ).forEach( function( name ) { props[ name ] = attributes.sourceIdentityAttributes[ name ]; } );
+        Object.keys( attributes.controlPresentation || {} ).forEach( function( key ) { props.style = props.style || {}; props.style[ '--blocks-engine-carousel-control-' + key ] = attributes.controlPresentation[ key ]; } );
+        Object.keys( attributes.sourceCustomProperties || {} ).forEach( function( name ) { props.style = props.style || {}; props.style[ name ] = attributes.sourceCustomProperties[ name ]; } );
+        return props;
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
@@ -143,10 +161,16 @@ final class AuthoredCarouselBlockGenerator
             var dotCount = props.attributes.showDots ? normalizedCount( props.attributes.slideCount ) : 0;
             var thumbnails = normalizedThumbnails( props.attributes.thumbnails );
             var dots = Array.from( { length: dotCount }, function( _, index ) { return createElement( 'button', { key: index, type: 'button', className: 'blocks-engine-authored-carousel__dot', 'aria-label': 'Show slide ' + ( index + 1 ), 'data-carousel-index': String( index ), 'data-wp-on--click': 'actions.goTo' } ); } );
+            var previous = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__previous ' + ( props.attributes.previousControlClasses || '' ), style: controlStyle( props.attributes.previousControlPresentation ), 'data-carousel-previous': 'true', 'data-wp-on--click': 'actions.previous', 'data-wp-bind--disabled': 'state.atStart', 'aria-label': 'Previous slide', dangerouslySetInnerHTML: { __html: props.attributes.previousControlVisual || 'Previous' } } );
+            var next = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__next ' + ( props.attributes.nextControlClasses || '' ), style: controlStyle( props.attributes.nextControlPresentation ), 'data-carousel-next': 'true', 'data-wp-on--click': 'actions.next', 'data-wp-bind--disabled': 'state.atEnd', 'aria-label': 'Next slide', dangerouslySetInnerHTML: { __html: props.attributes.nextControlVisual || 'Next' } } );
+            var controlIdentityProps = {};
+            Object.keys( props.attributes.sourceControlAttributes || {} ).forEach( function( name ) { controlIdentityProps[ name ] = props.attributes.sourceControlAttributes[ name ]; } );
+            var controls = props.attributes.sourceControlTopology
+                ? createElement( 'div', Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), dangerouslySetInnerHTML: { __html: props.attributes.sourceControlTopology } }, controlIdentityProps ) )
+                : createElement( 'div', { className: 'blocks-engine-authored-carousel__controls' }, previous, next );
             return createElement( 'div', rootProps( props.attributes ),
-                createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__previous', 'data-carousel-previous': 'true', 'data-wp-on--click': 'actions.previous', 'data-wp-bind--disabled': 'state.atStart' }, 'Previous' ),
+                controls,
                 createElement( 'div', { className: 'blocks-engine-authored-carousel__viewport', tabIndex: 0, 'data-wp-on--keydown': 'actions.keydown' }, createElement( 'div', { className: 'blocks-engine-authored-carousel__track' }, createElement( InnerBlocks.Content ) ) ),
-                createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__next', 'data-carousel-next': 'true', 'data-wp-on--click': 'actions.next', 'data-wp-bind--disabled': 'state.atEnd' }, 'Next' ),
                 dotCount > 0 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__dots', role: 'group', 'aria-label': 'Choose slide' }, dots ) : null,
                 props.attributes.showPlayControl ? createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__playback blocks-engine-authored-carousel__playback--' + normalizedPlacement( props.attributes.playControlPosition ), style: { '--blocks-engine-carousel-control-inset': Math.max( 0, Math.min( 64, Math.round( Number( props.attributes.playControlInset ) || 0 ) ) ) + 'px' }, 'data-wp-on--click': 'actions.toggleAutoplay', 'data-wp-bind--aria-pressed': 'state.playing', 'data-wp-text': 'state.playbackLabel' }, 'Play' ) : null,
                 thumbnails.length > 1 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__thumbnails', role: 'group', 'aria-label': 'Choose slide' }, thumbnails.map( function( thumbnail, index ) {
@@ -345,6 +369,8 @@ JS;
         $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0;transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
         $style .= '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__dot{pointer-events:auto}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{visibility:hidden!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{visibility:visible!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){visibility:hidden!important}';
 
+        $style .= '.blocks-engine-authored-carousel__controls{display:contents}.blocks-engine-authored-carousel__control-group{display:flex;align-items:center;justify-content:center;gap:.5rem}';
+
         // A slideshow transition is a source characteristic, not a house style,
         // so the shape is a parameter and each variant is expressed here rather
         // than baked into the stacking rules above.
@@ -440,19 +466,36 @@ JS;
         $showPlayControl = true === ($attributes['showPlayControl'] ?? false);
         $classes = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . ' blocks-engine-authored-carousel--' . $presentation . ' blocks-engine-authored-carousel--transition-' . $transitionStyle . ($fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '')
             . (1 < count($thumbnails) ? ' blocks-engine-authored-carousel--thumbnails blocks-engine-authored-carousel--thumbnails-' . $thumbnailPosition : '');
+        $classes .= '' !== trim((string) ($attributes['sourcePresentationClasses'] ?? ''))
+            ? ' ' . implode(' ', SourceDom::boundedClassTokens((string) $attributes['sourcePresentationClasses']))
+            : '';
         $stageAspect = 0 < $viewportHeight ? '' : $this->normalizedAspectRatio($attributes['stageAspectRatio'] ?? '');
         if ( '' !== $stageAspect ) {
             $classes .= ' blocks-engine-authored-carousel--stage-aspect';
         }
-        $styleAttribute = '';
+        $styleDeclarations = array();
         if ( 0 < $viewportHeight ) {
-            $styleAttribute = ' style="--blocks-engine-carousel-height:' . $viewportHeight . 'px;--blocks-engine-carousel-transition:' . $transitionDuration . 'ms"';
+            $styleDeclarations[] = '--blocks-engine-carousel-height:' . $viewportHeight . 'px';
+            $styleDeclarations[] = '--blocks-engine-carousel-transition:' . $transitionDuration . 'ms';
         } elseif ( '' !== $stageAspect ) {
             $stageMaxWidth = max(0, (int) ($attributes['stageMaxWidth'] ?? 0));
-            $styleAttribute = ' style="--blocks-engine-carousel-stage-aspect:' . $stageAspect
-                . (0 < $stageMaxWidth ? ';--blocks-engine-carousel-stage-width:' . $stageMaxWidth . 'px' : '')
-                . ';--blocks-engine-carousel-transition:' . $transitionDuration . 'ms"';
+            $styleDeclarations[] = '--blocks-engine-carousel-stage-aspect:' . $stageAspect;
+            if ( 0 < $stageMaxWidth ) {
+                $styleDeclarations[] = '--blocks-engine-carousel-stage-width:' . $stageMaxWidth . 'px';
+            }
+            $styleDeclarations[] = '--blocks-engine-carousel-transition:' . $transitionDuration . 'ms';
         }
+        foreach (is_array($attributes['controlPresentation'] ?? null) ? $attributes['controlPresentation'] : array() as $property => $value) {
+            if (is_string($property) && preg_match('/^[a-z-]+$/D', $property) && is_string($value) && ! preg_match('/[;{}<>]/', $value)) {
+                $styleDeclarations[] = '--blocks-engine-carousel-control-' . $property . ':' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            }
+        }
+        foreach (is_array($attributes['sourceCustomProperties'] ?? null) ? $attributes['sourceCustomProperties'] : array() as $name => $value) {
+            if (is_string($name) && preg_match('/^--[-_a-zA-Z0-9]+$/D', $name) && is_string($value) && ! preg_match('/[;{}<>]/', $value)) {
+                $styleDeclarations[] = $name . ':' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            }
+        }
+        $styleAttribute = array() === $styleDeclarations ? '' : ' style="' . implode(';', $styleDeclarations) . '"';
 
         $context = htmlspecialchars(
             (string) json_encode(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false, 'playing' => 0 < $autoplayInterval), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
@@ -489,10 +532,59 @@ JS;
             $rail .= '</div>';
         }
 
+        $identityAttributes = '';
+        foreach (is_array($attributes['sourceIdentityAttributes'] ?? null) ? $attributes['sourceIdentityAttributes'] : array() as $name => $value) {
+            if (is_string($name) && preg_match('/^(?:(?:data|aria)-[a-zA-Z0-9_-]+|id)$/D', $name) && is_string($value)) {
+                $identityAttributes .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+        }
+        $controlIdentityAttributes = '';
+        foreach (is_array($attributes['sourceControlAttributes'] ?? null) ? $attributes['sourceControlAttributes'] : array() as $name => $value) {
+            if (is_string($name) && preg_match('/^(?:data|aria)-[a-zA-Z0-9_-]+$/D', $name) && is_string($value)) {
+                $controlIdentityAttributes .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+        }
+        $previousButton = $this->navigationButtonMarkup(false, (string) ($attributes['previousControlClasses'] ?? ''), (string) ($attributes['previousControlVisual'] ?? ''), is_array($attributes['previousControlPresentation'] ?? null) ? $attributes['previousControlPresentation'] : array());
+        $nextButton = $this->navigationButtonMarkup(true, (string) ($attributes['nextControlClasses'] ?? ''), (string) ($attributes['nextControlVisual'] ?? ''), is_array($attributes['nextControlPresentation'] ?? null) ? $attributes['nextControlPresentation'] : array());
+        $controlTopology = $this->safeControlTopologyMarkup((string) ($attributes['sourceControlTopology'] ?? ''));
+        $controlsMarkup = '' !== $controlTopology
+            ? $controlTopology
+            : $previousButton . $nextButton;
         return array(
-            'opening' => '<div class="' . $classes . '"' . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><button type="button" class="blocks-engine-authored-carousel__previous" data-carousel-previous="true" data-wp-on--click="actions.previous" data-wp-bind--disabled="state.atStart">Previous</button><div class="blocks-engine-authored-carousel__viewport" tabindex="0" data-wp-on--keydown="actions.keydown"><div class="blocks-engine-authored-carousel__track">',
-            'closing' => '</div></div><button type="button" class="blocks-engine-authored-carousel__next" data-carousel-next="true" data-wp-on--click="actions.next" data-wp-bind--disabled="state.atEnd">Next</button>' . $dots . $playback . $rail . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
+            'opening' => '<div class="' . $classes . '"' . $identityAttributes . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><div class="blocks-engine-authored-carousel__controls ' . implode(' ', SourceDom::boundedClassTokens((string) ($attributes['sourceControlClasses'] ?? ''))) . '"' . $controlIdentityAttributes . '>' . $controlsMarkup . '</div><div class="blocks-engine-authored-carousel__viewport" tabindex="0" data-wp-on--keydown="actions.keydown"><div class="blocks-engine-authored-carousel__track">',
+            'closing' => '</div></div>' . $dots . $playback . $rail . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
         );
+    }
+
+    private function navigationButtonMarkup(bool $next, string $classes, string $visual, array $presentation, ?DOMElement $source = null): string
+    {
+        $direction = $next ? 'next' : 'previous';
+        $label = $next ? 'Next' : 'Previous';
+        $boundedClasses = implode(' ', SourceDom::boundedClassTokens($classes));
+        $action = $next ? 'actions.next' : 'actions.previous';
+        $bound = $next ? 'state.atEnd' : 'state.atStart';
+        $style = '';
+        foreach ($presentation as $property => $value) {
+            if (is_string($property) && in_array($property, array('width', 'height', 'padding', 'border', 'border-radius', 'background', 'background-color', 'color', 'font'), true)
+                && is_string($value) && ! preg_match('/[;{}<>]/', $value)
+            ) {
+                $style .= ($style ? ';' : '') . $property . ':' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            }
+        }
+        $sourceAttributes = '';
+        if ($source instanceof DOMElement) {
+            foreach ($source->attributes as $attribute) {
+                $name = strtolower($attribute->name);
+                if ('id' !== $name && !str_starts_with($name, 'data-') && !str_starts_with($name, 'aria-')) {
+                    continue;
+                }
+                if (str_starts_with($name, 'data-wp-') || 'aria-label' === $name) {
+                    continue;
+                }
+                $sourceAttributes .= ' ' . $name . '="' . htmlspecialchars($attribute->value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+        }
+        return '<button type="button" class="blocks-engine-authored-carousel__' . $direction . ' ' . $boundedClasses . '"' . ('' !== $style ? ' style="' . $style . '"' : '') . $sourceAttributes . ' data-carousel-' . $direction . '="true" data-wp-on--click="' . $action . '" data-wp-bind--disabled="' . $bound . '" aria-label="' . $label . ' slide">' . $this->safeControlVisual($visual, $label) . '</button>';
     }
 
     /** @return array<string, mixed>|null */
@@ -677,6 +769,12 @@ JS;
             : $this->thumbnailPagerPosition($this->commonAncestor($pagerItems), $element, $styleResolver);
 
         $playbackPlacement = $this->playbackControlPlacement($element, $styleResolver);
+        $sourceControls = $this->navigationControls($element);
+        $sourceScope = $styleResolver->sourceCustomPropertyScope($element, $this->controlPresentationTargets($element, $this->allNavigationControls($element)), $items);
+        $controlContainer = $sourceControls['previous'] instanceof DOMElement && $sourceControls['next'] instanceof DOMElement
+            ? $this->navigationControlContainer($sourceControls['previous'], $sourceControls['next'])
+            : null;
+        $controlsTopology = $this->sourceControlTopology($element, $styleResolver);
         $stageBox = 'slideshow' === $presentation && 0 === $viewportHeight
             ? $this->stageBoxForItems($items, $styleResolver)
             : array('ratio' => '', 'width' => 0);
@@ -684,6 +782,19 @@ JS;
         $registry->register(self::class, $this->definition($registry->namespace()));
         $attributes = array(
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
+            'sourceControlTopology' => $controlsTopology,
+            'controlPresentation' => array(),
+            'sourcePresentationClasses' => $sourceScope['className'],
+            'sourceControlClasses' => $sourceScope['controlClassName'],
+            'sourceControlAttributes' => $sourceScope['controlAttributes'],
+            'sourceIdentityAttributes' => $sourceScope['attributes'],
+            'sourceCustomProperties' => $sourceScope['customProperties'],
+            'previousControlClasses' => $sourceControls['previous'] instanceof DOMElement ? $styleResolver->presentationClassName(SourceDom::attr($sourceControls['previous'], 'class')) : '',
+            'nextControlClasses' => $sourceControls['next'] instanceof DOMElement ? $styleResolver->presentationClassName(SourceDom::attr($sourceControls['next'], 'class')) : '',
+            'previousControlVisual' => $sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '',
+            'nextControlVisual' => $sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : '',
+            'previousControlPresentation' => $sourceControls['previous'] instanceof DOMElement ? $this->resolvedControlPresentation($sourceControls['previous'], $styleResolver) : array(),
+            'nextControlPresentation' => $sourceControls['next'] instanceof DOMElement ? $this->resolvedControlPresentation($sourceControls['next'], $styleResolver) : array(),
             'itemsPerView' => 'slideshow' === $presentation ? 1 : min(4, count($slides)),
             'wrap' => $hasPrevious && $hasNext,
             'presentation' => $presentation,
@@ -729,6 +840,377 @@ JS;
     private function hasPlaybackToggle(DOMElement $root): bool
     {
         return $this->playbackToggleElement($root) instanceof DOMElement;
+    }
+
+    /** @return array{previous: ?DOMElement, next: ?DOMElement} */
+    private function navigationControls(DOMElement $root): array
+    {
+        $controls = array('previous' => null, 'next' => null);
+        foreach ($root->getElementsByTagName('*') as $candidate) {
+            if (!$candidate instanceof DOMElement || !in_array(strtolower($candidate->tagName), array('a', 'button'), true)) {
+                continue;
+            }
+            $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
+            if (preg_match('/(?:^|[^a-z])(?:previous|prev)(?:[^a-z]|$)/', $identity)) {
+                $controls['previous'] ??= $candidate;
+            } elseif (preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity)) {
+                $controls['next'] ??= $candidate;
+            }
+        }
+        return $controls;
+    }
+
+    /** @return list<DOMElement> */
+    private function allNavigationControls(DOMElement $root): array
+    {
+        $controls = array();
+        foreach ($root->getElementsByTagName('*') as $candidate) {
+            if (!$candidate instanceof DOMElement || !in_array(strtolower($candidate->tagName), array('a', 'button'), true)) {
+                continue;
+            }
+            $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'title'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
+            if (preg_match('/(?:^|[^a-z])(?:previous|prev)(?:[^a-z]|$)/', $identity) || preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity)) {
+                $controls[] = $candidate;
+            }
+        }
+        return $controls;
+    }
+
+    private function sourceControlTopology(DOMElement $root, StyleResolver $styleResolver): string
+    {
+        $previous = array();
+        $next = array();
+        foreach ($root->getElementsByTagName('*') as $candidate) {
+            if (!$candidate instanceof DOMElement || !in_array(strtolower($candidate->tagName), array('a', 'button'), true)) {
+                continue;
+            }
+            $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'title'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
+            if (preg_match('/(?:^|[^a-z])(?:previous|prev)(?:[^a-z]|$)/', $identity)) {
+                $previous[] = $candidate;
+            } elseif (preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity)) {
+                $next[] = $candidate;
+            }
+        }
+        $groups = array();
+        foreach ($previous as $previousControl) {
+            foreach ($next as $nextControl) {
+                $container = $this->navigationControlContainer($previousControl, $nextControl);
+                if (!$container instanceof DOMElement) {
+                    continue;
+                }
+                $key = spl_object_id($container);
+                if (isset($groups[$key])) {
+                    continue;
+                }
+                $mappedControls = array();
+                foreach (array_merge($previous, $next) as $sourceControl) {
+                    if (!$container->contains($sourceControl)) {
+                        continue;
+                    }
+                    $sourceIdentity = strtolower(implode(' ', array(SourceDom::attr($sourceControl, 'aria-label'), SourceDom::attr($sourceControl, 'title'), SourceDom::attr($sourceControl, 'class'), trim((string) $sourceControl->textContent))));
+                    $mappedControls[spl_object_id($sourceControl)] = array('element' => $sourceControl, 'next' => 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $sourceIdentity));
+                }
+                $groups[$key] = array(
+                    'root' => $container,
+                    'controls' => $mappedControls,
+                );
+            }
+        }
+        if (array() === $groups) {
+            return '';
+        }
+        $markup = '';
+        foreach ($groups as $group) {
+            $markup .= $this->serializeControlTopologyNode($group['root'], $group['controls'], $styleResolver);
+        }
+        return $markup;
+    }
+
+    /** @param array<int, array{element: DOMElement, next: bool}> $controls */
+    private function serializeControlTopologyNode(DOMElement $element, array $controls, StyleResolver $styleResolver): string
+    {
+        $key = spl_object_id($element);
+        if (isset($controls[$key])) {
+            $control = $controls[$key]['element'];
+            $class = $this->sourceClassTokens(SourceDom::attr($control, 'class'));
+            $direction = $controls[$key]['next'];
+            return $this->navigationButtonMarkup($direction, implode(' ', $class), $this->sourceControlVisual($control), $this->resolvedControlPresentation($control, $styleResolver), $control);
+        }
+        $tag = strtolower($element->tagName);
+        if (!in_array($tag, array('div', 'span', 'nav', 'ul', 'ol', 'li', 'section'), true)) {
+            return '';
+        }
+        $attributes = '';
+        foreach ($element->attributes as $attribute) {
+            $name = strtolower($attribute->name);
+            if ('class' !== $name && 'id' !== $name && 'role' !== $name && !str_starts_with($name, 'aria-') && !str_starts_with($name, 'data-') && 'style' !== $name) {
+                continue;
+            }
+            if (str_starts_with($name, 'data-wp-')) {
+                continue;
+            }
+            $value = $attribute->value;
+            if ('class' === $name) {
+                $value = implode(' ', $this->sourceClassTokens($value));
+            }
+            if ('style' === $name) {
+                $value = $this->safeInlineStyle($value);
+                if ('' === $value) {
+                    continue;
+                }
+            }
+            $attributes .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        $contents = '';
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $contents .= $this->serializeControlTopologyNode($child, $controls, $styleResolver);
+            }
+        }
+        return '<' . $tag . $attributes . '>' . $contents . '</' . $tag . '>';
+    }
+
+    /** @return list<string> */
+    private function sourceClassTokens(string $classes): array
+    {
+        return array_values(array_filter(SourceDom::boundedClassTokens($classes), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-')));
+    }
+
+    private function safeInlineStyle(string $style): string
+    {
+        $safe = array();
+        foreach (explode(';', $style) as $declaration) {
+            if (1 !== preg_match('/^\s*([a-z-]+)\s*:\s*([^;{}<>]+)\s*$/i', $declaration, $matches)) {
+                continue;
+            }
+            $property = strtolower($matches[1]);
+            $value = trim($matches[2]);
+            if (preg_match('/(?:url\s*\(|expression\s*\(|javascript:|behavior\s*:|-moz-binding)/i', $value)) {
+                continue;
+            }
+            $safe[] = $property . ':' . $value;
+        }
+        return implode(';', $safe);
+    }
+
+    private function safeControlTopologyMarkup(string $markup): string
+    {
+        if ('' === trim($markup)) {
+            return '';
+        }
+        $previous = libxml_use_internal_errors(true);
+        $document = new \DOMDocument('1.0', 'UTF-8');
+        $document->loadHTML('<?xml encoding="utf-8" ?><div>' . $markup . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $container = $document->getElementsByTagName('div')->item(0);
+        $safe = '';
+        if ($container instanceof DOMElement) {
+            foreach ($container->childNodes as $child) {
+                if ($child instanceof DOMElement) {
+                    $safe .= $this->serializeControlTopologyOutputNode($child);
+                }
+            }
+        }
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        return $safe;
+    }
+
+    private function serializeControlTopologyOutputNode(DOMElement $element): string
+    {
+        $tag = strtolower($element->tagName);
+        if (in_array($tag, array('svg', 'path'), true)) {
+            return $this->serializeSafeControlNode($element);
+        }
+        if (!in_array($tag, array('div', 'span', 'nav', 'ul', 'ol', 'li', 'section', 'button'), true)) {
+            return '';
+        }
+        $attributes = '';
+        foreach ($element->attributes as $attribute) {
+            $name = strtolower($attribute->name);
+            $value = $attribute->value;
+            if ('class' === $name) {
+                $value = implode(' ', SourceDom::boundedClassTokens($value));
+            } elseif ('style' === $name) {
+                $value = $this->safeInlineStyle($value);
+                if ('' === $value) {
+                    continue;
+                }
+            } elseif ('button' === $tag && 'type' === $name && 'button' === strtolower($value)) {
+                // The native button type is safe and avoids form submission.
+            } elseif ('button' === $tag && 'data-wp-on--click' === $name && in_array($value, array('actions.previous', 'actions.next'), true)) {
+                // Only the carousel's own navigation actions can be replayed.
+            } elseif ('button' === $tag && 'data-wp-bind--disabled' === $name && in_array($value, array('state.atStart', 'state.atEnd'), true)) {
+                // Disabled state is bound only to the matching navigation edge.
+            } elseif ('button' === $tag && in_array($name, array('data-carousel-previous', 'data-carousel-next'), true) && 'true' === $value) {
+                // Marker consumed by the carousel view module.
+            } elseif ('button' === $tag && 'aria-label' === $name && preg_match('/^(?:Previous|Next) slide$/', $value)) {
+                // The action's accessible name is emitted by the converter.
+            } elseif ('id' !== $name && 'role' !== $name && !str_starts_with($name, 'data-') && !str_starts_with($name, 'aria-') && 'class' !== $name) {
+                continue;
+            } elseif (str_starts_with($name, 'data-wp-')) {
+                continue;
+            }
+            $attributes .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        $contents = '';
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $contents .= $this->serializeControlTopologyOutputNode($child);
+            }
+        }
+        return '<' . $tag . $attributes . '>' . $contents . '</' . $tag . '>';
+    }
+
+    private function navigationControlContainer(DOMElement $previous, DOMElement $next): ?DOMElement
+    {
+        $container = null;
+        for ($candidate = $previous->parentNode instanceof DOMElement ? $previous->parentNode : null; $candidate instanceof DOMElement; $candidate = $candidate->parentNode instanceof DOMElement ? $candidate->parentNode : null) {
+            if (!$candidate->contains($next)) {
+                continue;
+            }
+            $containsOtherContent = false;
+            foreach ($candidate->getElementsByTagName('*') as $descendant) {
+                if (!$descendant instanceof DOMElement || in_array(strtolower($descendant->tagName), array('svg', 'path'), true)) {
+                    continue;
+                }
+                if ($descendant !== $previous && $descendant !== $next && $this->containsNavigationPair($descendant)) {
+                    continue;
+                }
+                if ($descendant === $previous || $descendant === $next || $descendant->contains($previous) || $descendant->contains($next) || $previous->contains($descendant) || $next->contains($descendant)) {
+                    continue;
+                }
+                $containsOtherContent = true;
+                break;
+            }
+            if (!$containsOtherContent) {
+                $container = $candidate;
+                continue;
+            }
+            break;
+        }
+        return $container;
+    }
+
+    private function containsNavigationPair(DOMElement $element): bool
+    {
+        $previous = false;
+        $next = false;
+        foreach ($element->getElementsByTagName('*') as $candidate) {
+            if (!$candidate instanceof DOMElement || !in_array(strtolower($candidate->tagName), array('a', 'button'), true)) {
+                continue;
+            }
+            $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'title'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
+            $previous = $previous || 1 === preg_match('/(?:^|[^a-z])(?:previous|prev)(?:[^a-z]|$)/', $identity);
+            $next = $next || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
+        }
+        return $previous && $next;
+    }
+
+    private function sourceControlVisual(DOMElement $control): string
+    {
+        $parts = array();
+        foreach ($control->childNodes as $child) {
+            if (!$child instanceof DOMElement || !in_array(strtolower($child->tagName), array('div', 'svg'), true)) {
+                continue;
+            }
+            $class = strtolower(SourceDom::attr($child, 'class'));
+            if ('svg' === strtolower($child->tagName) || $child->getElementsByTagName('svg')->length > 0 || str_contains($class, 'background')) {
+                $parts[] = $this->serializeSafeControlNode($child);
+            }
+        }
+        return implode('', $parts);
+    }
+
+    /** @param array<string, ?DOMElement> $controls @return list<DOMElement> */
+    private function controlPresentationTargets(DOMElement $root, array $controls): array
+    {
+        $targets = array();
+        $seen = array();
+        foreach ($controls as $control) {
+            if (!$control instanceof DOMElement) {
+                continue;
+            }
+            for ($current = $control; $current instanceof DOMElement && $current !== $root; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null) {
+                $key = spl_object_id($current);
+                if (!isset($seen[$key])) {
+                    $targets[] = $current;
+                    $seen[$key] = true;
+                }
+            }
+            foreach ($control->getElementsByTagName('*') as $descendant) {
+                if (!$descendant instanceof DOMElement) {
+                    continue;
+                }
+                $key = spl_object_id($descendant);
+                if (!isset($seen[$key])) {
+                    $targets[] = $descendant;
+                    $seen[$key] = true;
+                }
+            }
+        }
+        return $targets;
+    }
+
+    private function serializeSafeControlNode(DOMElement $element): string
+    {
+        $tag = strtolower($element->tagName);
+        if (!in_array($tag, array('div', 'svg', 'path'), true)) {
+            return '';
+        }
+        $attributes = '';
+        foreach ($element->attributes as $attribute) {
+            $name = strtolower($attribute->name);
+            if ('class' !== $name && !in_array($name, array('viewbox', 'xmlns', 'd', 'stroke', 'stroke-width', 'stroke-linecap', 'fill', 'width', 'height'), true)) {
+                continue;
+            }
+            $attributes .= ' ' . $name . '="' . htmlspecialchars($attribute->value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        $contents = '';
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $contents .= $this->serializeSafeControlNode($child);
+            }
+        }
+        return '<' . $tag . $attributes . '>' . $contents . '</' . $tag . '>';
+    }
+
+    private function safeControlVisual(string $markup, string $fallback): string
+    {
+        if ('' === trim($markup)) {
+            return htmlspecialchars($fallback, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+        $previous = libxml_use_internal_errors(true);
+        $document = new \DOMDocument('1.0', 'UTF-8');
+        $document->loadHTML('<?xml encoding="utf-8" ?><div>' . $markup . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $container = $document->getElementsByTagName('div')->item(0);
+        $safe = '';
+        if ($container instanceof DOMElement) {
+            foreach ($container->childNodes as $child) {
+                if ($child instanceof DOMElement) {
+                    $safe .= $this->serializeSafeControlNode($child);
+                }
+            }
+        }
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        return '' !== $safe ? $safe : htmlspecialchars($fallback, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    /** @return array<string, string> */
+    private function resolvedControlPresentation(DOMElement $control, StyleResolver $styleResolver): array
+    {
+        $resolved = $styleResolver->structuralPresentationDeclarations($control);
+        $result = array();
+        foreach (array('width' => 'width', 'height' => 'height', 'padding' => 'padding', 'border' => 'border', 'border-radius' => 'border-radius', 'background' => 'background', 'background-color' => 'background-color', 'color' => 'color', 'font' => 'font') as $property => $key) {
+            if ($styleResolver->hasConditionalStyleFamily($control, $styleResolver->responsivePropertyFamily($property))) {
+                continue;
+            }
+            $value = trim((string) ($resolved[$property] ?? ''));
+            if ('' !== $value) {
+                $result[$key] = $value;
+            }
+        }
+        return $result;
     }
 
     /** The source's own start control, when it ships a start and stop pair. */

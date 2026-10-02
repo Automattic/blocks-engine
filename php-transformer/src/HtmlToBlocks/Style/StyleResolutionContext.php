@@ -40,6 +40,11 @@ final class StyleResolutionContext
         return $this->session->authorStyleAnalysis();
     }
 
+    public function authorSelectorProjectionState(): AuthorSelectorProjectionState
+    {
+        return $this->session->authorSelectorProjectionState();
+    }
+
     public function sourceStyles(): SourceStyleResolutionState
     {
         return $this->session->sourceStyleResolutionState();
