@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+
 use DOMElement;
 
 /**
@@ -172,8 +174,16 @@ final class RichTextElementConverter implements ElementConverter
         if ( '' === trim($this->context->stripAllTags($content)) && ! $this->context->containsNativeSvgImageObject($content) ) {
             // An empty paragraph that scripts address by selector must keep a
             // block at that position, otherwise the runtime target disappears.
-            if ( $this->context->isRuntimeDomTarget($element) ) {
-                return $this->context->createBlock('core/group', $this->context->presentationAttributes($element), array(), $element);
+            $fragmentId = SourceDom::namedFragmentTargetId($element);
+            $fragmentTarget = '' !== $fragmentId
+                && SourceDom::documentReferencesFragmentId($element, $fragmentId)
+                && ! SourceDom::documentHasOtherFragmentTarget($element, $fragmentId);
+            if ( $this->context->isRuntimeDomTarget($element) || $fragmentTarget ) {
+                $attributes = $this->context->presentationAttributes($element);
+                if ( $fragmentTarget ) {
+                    $attributes['anchor'] = $fragmentId;
+                }
+                return $this->context->createBlock('core/group', $attributes, array(), $element);
             }
 
             $textBlocks = $this->context->convertText(trim($element->textContent ?? ''));
