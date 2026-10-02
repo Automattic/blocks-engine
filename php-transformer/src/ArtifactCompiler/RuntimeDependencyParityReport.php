@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -67,6 +69,7 @@ final class RuntimeDependencyParityReport
         $flaggedSelectors = array();
         $bundleCanvasSelectors = $this->bundleCanvasSelectors($files, $sourceTargets);
         $companionTargets = $this->htmlTargets($this->declaredCompanionRenderHtml($generatedBlocks));
+        $rendererTargets = $this->htmlTargets($this->declaredRendererContentHtml($generatedBlocks, $generatedHtml));
 
         foreach ( $files as $file ) {
             if ( ! $this->isScriptFile($file) || ! $this->scriptAppliesToSource($file, $sourcePath) ) {
@@ -83,7 +86,7 @@ final class RuntimeDependencyParityReport
             foreach ( $this->scriptDependencies($script, $bundleCanvasSelectors) as $dependency ) {
                 $selector = (string) $dependency['selector'];
                 $target = $sourceTargets[$selector] ?? array();
-                $exists = $this->targetExists($dependency, $generatedTargets) || $this->targetExists($dependency, $companionTargets);
+                $exists = $this->targetExists($dependency, $generatedTargets) || $this->targetExists($dependency, $companionTargets) || $this->targetExists($dependency, $rendererTargets);
                 $canvasApi = true === $dependency['canvas_api'] && 'canvas' === ($target['tag'] ?? '');
                 $dependencyRow = array_filter(array(
                     'source_path'       => $target['source_path'] ?? $sourcePath,
@@ -98,7 +101,7 @@ final class RuntimeDependencyParityReport
                     'canvas_api'        => $canvasApi,
                     'source_present'    => array() !== $target,
                     'generated_present' => $exists,
-                    'generated_target_evidence' => $this->targetExists($dependency, $companionTargets) ? 'declared_companion_render' : '',
+                    'generated_target_evidence' => $this->generatedTargetEvidence($dependency, $companionTargets, $rendererTargets),
                     'disposition'       => $this->isSupersededSelector($selector, $superseded) ? self::DISPOSITION_SUPERSEDED : '',
                 ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
                 $dependencies[] = $dependencyRow;
@@ -212,6 +215,120 @@ final class RuntimeDependencyParityReport
         }
 
         return implode("\n", $renders);
+    }
+
+    /**
+     * Audited content renderers echo the instance content attribute as frontend
+     * DOM. Count that markup only when the generated block declares the renderer.
+     * Executable tags the renderer strips are not targets.
+     *
+     * @param array<int, array<string, mixed>> $generatedBlocks
+     */
+    private function declaredRendererContentHtml(array $generatedBlocks, string $generatedHtml): string
+    {
+        $names = array();
+        foreach ( $generatedBlocks as $block ) {
+            if ( ! is_array($block) || ! in_array($block['renderer'] ?? null, array( ResponsiveLayoutBlockGenerator::RENDERER, ResponsiveMediaBlockGenerator::RENDERER ), true) ) {
+                continue;
+            }
+            $name = $block['block_json']['name'] ?? null;
+            if ( is_string($name) && 1 === preg_match('/^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/', $name) ) {
+                $names[$name] = true;
+            }
+        }
+        if ( array() === $names ) {
+            return '';
+        }
+
+        $chunks = array();
+        foreach ( array_keys($names) as $name ) {
+            $offset = 0;
+            $needle = '<!-- wp:' . $name . ' ';
+            while ( false !== ($start = strpos($generatedHtml, $needle, $offset)) ) {
+                $jsonStart = $start + strlen($needle);
+                $json = $this->readJsonObject($generatedHtml, $jsonStart);
+                $offset = $jsonStart + (null === $json ? 1 : strlen($json));
+                if ( null === $json ) {
+                    continue;
+                }
+                $attrs = json_decode($json, true);
+                $content = is_array($attrs) ? ($attrs['content'] ?? null) : null;
+                if ( is_string($content) && '' !== $content ) {
+                    $chunks[] = $this->rendererEmittedMarkup($content);
+                }
+            }
+        }
+
+        return implode("\n", $chunks);
+    }
+
+    private function readJsonObject(string $html, int $start): ?string
+    {
+        if ( '{' !== ($html[$start] ?? '') ) {
+            return null;
+        }
+
+        $depth = 0;
+        $inString = false;
+        $escape = false;
+        $length = strlen($html);
+        for ( $i = $start; $i < $length; $i++ ) {
+            $char = $html[$i];
+            if ( $inString ) {
+                if ( $escape ) {
+                    $escape = false;
+                    continue;
+                }
+                if ( '\\' === $char ) {
+                    $escape = true;
+                    continue;
+                }
+                if ( '"' === $char ) {
+                    $inString = false;
+                }
+                continue;
+            }
+            if ( '"' === $char ) {
+                $inString = true;
+                continue;
+            }
+            if ( '{' === $char ) {
+                $depth++;
+                continue;
+            }
+            if ( '}' === $char && 0 === --$depth ) {
+                return substr($html, $start, $i - $start + 1);
+            }
+        }
+
+        return null;
+    }
+
+    private function rendererEmittedMarkup(string $content): string
+    {
+        $content = preg_replace('#<\s*(?:script|style|iframe|object|embed|foreignobject|animate|animatemotion|animatetransform|set)\b[^>]*>.*?</\s*(?:script|style|iframe|object|embed|foreignobject|animate|animatemotion|animatetransform|set)\s*>#is', '', $content) ?? '';
+        $content = preg_replace('#<\s*(?:script|style|iframe|object|embed|foreignobject|animate|animatemotion|animatetransform|set)\b[^>]*/?\s*>#is', '', $content) ?? '';
+        $content = preg_replace('#<\s*(/?)\s*[a-z][a-z0-9]*-[a-z0-9-]+\b#i', '<$1div', $content) ?? '';
+        $content = preg_replace('/\sdata-wp-[a-z0-9_-]*(?:\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+))?/i', '', $content) ?? '';
+
+        return $content;
+    }
+
+    /**
+     * @param array{kind: string, selector: string, events: array<int, string>, canvas_api: bool} $dependency
+     * @param array{ids: array<string, bool>, classes: array<string, bool>, selectors?: array<string, bool>} $companionTargets
+     * @param array{ids: array<string, bool>, classes: array<string, bool>, selectors?: array<string, bool>} $rendererTargets
+     */
+    private function generatedTargetEvidence(array $dependency, array $companionTargets, array $rendererTargets): string
+    {
+        if ( $this->targetExists($dependency, $companionTargets) ) {
+            return 'declared_companion_render';
+        }
+        if ( $this->targetExists($dependency, $rendererTargets) ) {
+            return 'declared_renderer_content';
+        }
+
+        return '';
     }
 
     /**
