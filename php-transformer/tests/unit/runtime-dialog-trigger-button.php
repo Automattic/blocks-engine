@@ -175,6 +175,27 @@ $assert('custom/authored-button' === ($parsed[0]['blockName'] ?? '') && 'Open me
 $unchanged = ( new HtmlTransformer() )->transform('<form><button type="submit" class="send" style="letter-spacing:0.1em">Join</button></form>')->toArray();
 $assert(str_contains((string) ($unchanged['serialized_blocks'] ?? ''), '<button type="submit" class="send" style="letter-spacing:0.1em">Join</button>') && ! str_contains((string) ($unchanged['serialized_blocks'] ?? ''), 'sourceAttributes'), 'existing form submit controls keep their default companion save');
 
+$helper = <<<'JS'
+(function(){function triggers(){return document.querySelectorAll('[data-dla-dialog-trigger]');}function panel(trigger){var id=trigger.getAttribute('aria-controls');return id?document.getElementById(id):null;}function apply(trigger){var target=panel(trigger);if(!target)return;target.hidden=trigger.getAttribute('aria-expanded')!=='true';}function toggle(trigger){var open=trigger.getAttribute('aria-expanded')==='true';trigger.setAttribute('aria-expanded',open?'false':'true');apply(trigger);if(open)trigger.focus();}document.addEventListener('click',function(event){var trigger=event.target.closest&&event.target.closest('[data-dla-dialog-trigger]');if(!trigger||!panel(trigger))return;event.preventDefault();toggle(trigger);});triggers().forEach(apply);})();
+JS;
+$triggerButton = '<button type="button" id="navOpenButton" class="lg:hidden" aria-label="Open menu" data-dla-dialog-trigger="dla-dialog-0" aria-controls="dla-dialog-0" aria-expanded="false" aria-haspopup="menu"><i class="icon-bars"></i></button>';
+$inlinePage = '<!doctype html><html><head><style>.data-liberation-mobile-document{display:none!important}@media(max-width:991px){.data-liberation-desktop-document{display:none!important}.data-liberation-mobile-document{display:contents!important}}</style><script data-dla-disclosure-runtime="true">' . $helper . '</script></head><body>'
+    . '<div class="data-liberation-desktop-document"><header>' . $triggerButton . '<div hidden id="dla-dialog-0" data-dla-dialog-panel="dla-dialog-0"><nav><a href="#intro">Home</a></nav></div></header></div>'
+    . '<div class="data-liberation-mobile-document"><header>' . str_replace('dla-dialog-0', 'dla-dialog-1', $triggerButton) . '<div hidden id="dla-dialog-1" data-dla-dialog-panel="dla-dialog-1"><nav><a href="#contact">Contact</a></nav></div></header></div>'
+    . '</body></html>';
+$derived = ( new ArtifactCompiler() )->runtimeContextForSource($inlinePage, 'website/index.html', array( array( 'path' => 'website/index.html', 'content' => $inlinePage ) ));
+$assert(in_array('[data-dla-dialog-trigger]', $derived['runtime_dom_selectors'] ?? array(), true), 'an inline named query helper is a runtime selector without a separate script file: ' . json_encode($derived['runtime_dom_selectors'] ?? array()));
+$inlineCompiled = ( new ArtifactCompiler() )->compile(array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'site' => array( 'name' => 'Dialog Site', 'slug' => 'dialog-site' ),
+    'entrypoint' => 'website/index.html',
+    'files' => array( 'website/index.html' => $inlinePage ),
+))->toArray();
+$inlineMarkup = (string) ($inlineCompiled['serialized_blocks'] ?? '');
+$inlineContractFailures = array_values(array_filter($inlineCompiled['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? '')));
+$assert(array() === $inlineContractFailures && str_contains($inlineMarkup, 'data-dla-dialog-trigger="dla-dialog-0"') && str_contains($inlineMarkup, '<button'), 'inline helper compilation keeps the accessible trigger and passes the script gate: ' . json_encode($inlineContractFailures) . ' ' . substr($inlineMarkup, 0, 400));
+$assert(is_array($inlineCompiled['source_reports']['wordpress_site_plan'] ?? null), 'inline helper compilation reaches a WordPress site plan');
+
 file_put_contents(sys_get_temp_dir() . '/runtime-dialog-trigger-button.json', json_encode(array(
     'html' => $compiledMarkup,
     'css' => $css,

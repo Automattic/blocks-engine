@@ -2719,12 +2719,12 @@ final class ArtifactCompiler
     {
         $hasDeclaredScriptFiles = false;
         foreach ( $files as $file ) {
-            if ( is_array($file) && 'inline-script' !== ($file['source'] ?? '') && $this->isMaterializedScriptAsset($file) ) {
+            if ( is_array($file) && $this->isMaterializedScriptAsset($file) ) {
                 $hasDeclaredScriptFiles = true;
                 break;
             }
         }
-        if ( ! $hasDeclaredScriptFiles ) {
+        if ( ! $hasDeclaredScriptFiles && array() === $this->documentScriptContents($html, $sourcePath, $files) ) {
             return array();
         }
 
