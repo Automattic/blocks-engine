@@ -8819,7 +8819,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         return array(
             'blockName' => $this->generatedBlocks()->blockName(LinkedResponsiveContentBlockGenerator::LOCAL_NAME),
-            'attrs' => $attrs,
+            'attrs' => $generator->commentAttributes($attrs),
             'innerBlocks' => array(),
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
