@@ -1883,7 +1883,9 @@ final class AuthorStylesheetProjector
         }
         $compounds = $parsed['compounds'] ?? array();
         $rightmost = $compounds[array_key_last($compounds)] ?? array();
-        if ( ! \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::containsDataAttribute($rightmost) ) {
+        if ( ! \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::containsDataAttribute($rightmost)
+            || \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::hasLiveAttributePredicate($rightmost)
+        ) {
             return null;
         }
         $projected = array();
