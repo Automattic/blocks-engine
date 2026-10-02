@@ -1056,6 +1056,8 @@ JS;
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) {
                 $contents .= $this->serializeControlTopologyOutputNode($child);
+            } elseif ($child instanceof \DOMText) {
+                $contents .= htmlspecialchars($child->nodeValue ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
         }
         return '<' . $tag . $attributes . '>' . $contents . '</' . $tag . '>';
@@ -1110,11 +1112,15 @@ JS;
     {
         $parts = array();
         foreach ($control->childNodes as $child) {
-            if (!$child instanceof DOMElement || !in_array(strtolower($child->tagName), array('div', 'svg'), true)) {
+            if ($child instanceof \DOMText) {
+                $parts[] = htmlspecialchars($child->nodeValue ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                continue;
+            }
+            if (!$child instanceof DOMElement || !in_array(strtolower($child->tagName), array('div', 'span', 'svg'), true)) {
                 continue;
             }
             $class = strtolower(SourceDom::attr($child, 'class'));
-            if ('svg' === strtolower($child->tagName) || $child->getElementsByTagName('svg')->length > 0 || str_contains($class, 'background')) {
+            if (in_array(strtolower($child->tagName), array('span', 'svg'), true) || $child->getElementsByTagName('svg')->length > 0 || str_contains($class, 'background')) {
                 $parts[] = $this->serializeSafeControlNode($child);
             }
         }
@@ -1154,7 +1160,7 @@ JS;
     private function serializeSafeControlNode(DOMElement $element): string
     {
         $tag = strtolower($element->tagName);
-        if (!in_array($tag, array('div', 'svg', 'path'), true)) {
+        if (!in_array($tag, array('div', 'span', 'svg', 'path'), true)) {
             return '';
         }
         $attributes = '';
@@ -1169,6 +1175,8 @@ JS;
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) {
                 $contents .= $this->serializeSafeControlNode($child);
+            } elseif ($child instanceof \DOMText) {
+                $contents .= htmlspecialchars($child->nodeValue ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
         }
         return '<' . $tag . $attributes . '>' . $contents . '</' . $tag . '>';

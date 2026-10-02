@@ -65,6 +65,23 @@ $assert(
     'same-page carousel instances receive distinct source-scope bindings'
 );
 
+foreach (array(array('Previous', 'Next'), array('<span class="source-arrow">←</span>', '<span class="source-arrow">→</span>')) as $controlLabels) {
+    $textControls = (new HtmlTransformer())->transform(
+        '<div class="text-carousel slideshow"><ul><li class="slide"><h2>First</h2></li><li class="slide"><h2>Second</h2></li></ul>'
+        . '<div class="source-actions"><button aria-label="Previous slide">' . $controlLabels[0] . '</button>'
+        . '<button aria-label="Next slide">' . $controlLabels[1] . '</button></div></div>'
+    )->toArray();
+    $textDocument = new DOMDocument('1.0', 'UTF-8');
+    @$textDocument->loadHTML('<?xml encoding="utf-8" ?>' . (string) $textControls['serialized_blocks']);
+    $buttons = $textDocument->getElementsByTagName('button');
+    $assert(
+        2 === $buttons->length
+            && strip_tags($controlLabels[0]) === $buttons->item(0)->textContent
+            && strip_tags($controlLabels[1]) === $buttons->item(1)->textContent,
+        'captured source control groups preserve both plain labels and safe inline arrow spans'
+    );
+}
+
 $definition = $result['source_reports']['generated_blocks'][0] ?? array();
 $editor = (string) ($definition['assets']['index.js'] ?? '');
 $view = (string) ($definition['view_js'] ?? '');
