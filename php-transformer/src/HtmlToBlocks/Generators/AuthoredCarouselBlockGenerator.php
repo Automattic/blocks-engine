@@ -60,6 +60,10 @@ final class AuthoredCarouselBlockGenerator
             'slideCount' => array('type' => 'number', 'default' => 0),
             'initialSlide' => array('type' => 'number', 'default' => 0),
             'viewportHeight' => array('type' => 'number', 'default' => 0),
+            'stageMinHeight' => array('type' => 'string', 'default' => ''),
+            'sourceControlArtwork' => array('type' => 'boolean', 'default' => false),
+            'stageWrappers' => array('type' => 'array', 'default' => array()),
+            'sourceRootGeometry' => array('type' => 'object', 'default' => array()),
             'transitionDuration' => array('type' => 'number', 'default' => 300),
             'autoplayInterval' => array('type' => 'number', 'default' => 0),
             'showDots' => array('type' => 'boolean', 'default' => false),
@@ -99,10 +103,13 @@ final class AuthoredCarouselBlockGenerator
             var stageWidth = Math.max( 0, Math.round( Number( attributes.stageMaxWidth ) || 0 ) );
             if ( stageWidth > 0 ) { style[ '--blocks-engine-carousel-stage-width' ] = stageWidth + 'px'; }
         }
+        if ( attributes.stageMinHeight ) { style = style || {}; style[ '--blocks-engine-carousel-stage-min-height' ] = attributes.stageMinHeight; }
         var props = { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle ) + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
         Object.keys( attributes.sourceIdentityAttributes || {} ).forEach( function( name ) { props[ name ] = attributes.sourceIdentityAttributes[ name ]; } );
+        if ( attributes.sourceControlArtwork ) { props.className += ' blocks-engine-authored-carousel--source-control-artwork'; }
         Object.keys( attributes.controlPresentation || {} ).forEach( function( key ) { props.style = props.style || {}; props.style[ '--blocks-engine-carousel-control-' + key ] = attributes.controlPresentation[ key ]; } );
         Object.keys( attributes.sourceCustomProperties || {} ).forEach( function( name ) { props.style = props.style || {}; props.style[ name ] = attributes.sourceCustomProperties[ name ]; } );
+        Object.keys( attributes.sourceRootGeometry || {} ).forEach( function( name ) { var key = name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); props.style = props.style || {}; props.style[ key ] = attributes.sourceRootGeometry[ name ]; } );
         return props;
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
@@ -161,8 +168,8 @@ final class AuthoredCarouselBlockGenerator
             var dotCount = props.attributes.showDots ? normalizedCount( props.attributes.slideCount ) : 0;
             var thumbnails = normalizedThumbnails( props.attributes.thumbnails );
             var dots = Array.from( { length: dotCount }, function( _, index ) { return createElement( 'button', { key: index, type: 'button', className: 'blocks-engine-authored-carousel__dot', 'aria-label': 'Show slide ' + ( index + 1 ), 'data-carousel-index': String( index ), 'data-wp-on--click': 'actions.goTo' } ); } );
-            var previous = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__previous ' + ( props.attributes.previousControlClasses || '' ), style: controlStyle( props.attributes.previousControlPresentation ), 'data-carousel-previous': 'true', 'data-wp-on--click': 'actions.previous', 'data-wp-bind--disabled': 'state.atStart', 'aria-label': 'Previous slide', dangerouslySetInnerHTML: { __html: props.attributes.previousControlVisual || 'Previous' } } );
-            var next = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__next ' + ( props.attributes.nextControlClasses || '' ), style: controlStyle( props.attributes.nextControlPresentation ), 'data-carousel-next': 'true', 'data-wp-on--click': 'actions.next', 'data-wp-bind--disabled': 'state.atEnd', 'aria-label': 'Next slide', dangerouslySetInnerHTML: { __html: props.attributes.nextControlVisual || 'Next' } } );
+            var previous = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__previous ' + ( props.attributes.previousControlClasses || '' ), style: controlStyle( props.attributes.previousControlPresentation ), 'data-carousel-previous': 'true', 'data-wp-on--click': 'actions.previous', 'data-wp-bind--disabled': 'state.atStart', 'aria-label': 'Previous slide', dangerouslySetInnerHTML: { __html: props.attributes.previousControlVisual || ( props.attributes.sourceControlArtwork ? 'Previous' : '' ) } } );
+            var next = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__next ' + ( props.attributes.nextControlClasses || '' ), style: controlStyle( props.attributes.nextControlPresentation ), 'data-carousel-next': 'true', 'data-wp-on--click': 'actions.next', 'data-wp-bind--disabled': 'state.atEnd', 'aria-label': 'Next slide', dangerouslySetInnerHTML: { __html: props.attributes.nextControlVisual || ( props.attributes.sourceControlArtwork ? 'Next' : '' ) } } );
             var controlIdentityProps = {};
             Object.keys( props.attributes.sourceControlAttributes || {} ).forEach( function( name ) { controlIdentityProps[ name ] = props.attributes.sourceControlAttributes[ name ]; } );
             var controls = props.attributes.sourceControlTopology
@@ -170,7 +177,7 @@ final class AuthoredCarouselBlockGenerator
                 : createElement( 'div', { className: 'blocks-engine-authored-carousel__controls' }, previous, next );
             return createElement( 'div', rootProps( props.attributes ),
                 controls,
-                createElement( 'div', { className: 'blocks-engine-authored-carousel__viewport', tabIndex: 0, 'data-wp-on--keydown': 'actions.keydown' }, createElement( 'div', { className: 'blocks-engine-authored-carousel__track' }, createElement( InnerBlocks.Content ) ) ),
+                ( props.attributes.stageWrappers || [] ).reduceRight( function( child, wrapper, index ) { return createElement( 'div', { key: index, className: wrapper.className || undefined }, child ); }, createElement( 'div', { className: 'blocks-engine-authored-carousel__viewport', tabIndex: 0, 'data-wp-on--keydown': 'actions.keydown' }, createElement( 'div', { className: 'blocks-engine-authored-carousel__track' }, createElement( InnerBlocks.Content ) ) ) ),
                 dotCount > 0 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__dots', role: 'group', 'aria-label': 'Choose slide' }, dots ) : null,
                 props.attributes.showPlayControl ? createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__playback blocks-engine-authored-carousel__playback--' + normalizedPlacement( props.attributes.playControlPosition ), style: { '--blocks-engine-carousel-control-inset': Math.max( 0, Math.min( 64, Math.round( Number( props.attributes.playControlInset ) || 0 ) ) ) + 'px' }, 'data-wp-on--click': 'actions.toggleAutoplay', 'data-wp-bind--aria-pressed': 'state.playing', 'data-wp-text': 'state.playbackLabel' }, 'Play' ) : null,
                 thumbnails.length > 1 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__thumbnails', role: 'group', 'aria-label': 'Choose slide' }, thumbnails.map( function( thumbnail, index ) {
@@ -369,6 +376,8 @@ JS;
         $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0;transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
         $style .= '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__dot{pointer-events:auto}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{visibility:hidden!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{visibility:visible!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){visibility:hidden!important}';
 
+        $style .= '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{min-height:var(--blocks-engine-carousel-stage-min-height,0)}';
+        $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next::before{content:none}';
         $style .= '.blocks-engine-authored-carousel__controls{display:contents}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls{display:block;position:absolute;inset:0;z-index:4;pointer-events:none}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-previous],.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-next]{pointer-events:auto}.blocks-engine-authored-carousel__control-group{display:flex;align-items:center;justify-content:center;gap:.5rem}';
 
         // A slideshow transition is a source characteristic, not a house style,
@@ -456,6 +465,7 @@ JS;
         $slideCount = max(0, (int) ($attributes['slideCount'] ?? 0));
         $initialSlide = min(max(0, (int) ($attributes['initialSlide'] ?? 0)), max(0, $slideCount - 1));
         $viewportHeight = max(0, (int) ($attributes['viewportHeight'] ?? 0));
+        $stageMinHeight = $this->safeCssDimension((string) ($attributes['stageMinHeight'] ?? ''));
         $transitionDuration = max(0, (int) ($attributes['transitionDuration'] ?? 300));
         $autoplayInterval = max(0, (int) ($attributes['autoplayInterval'] ?? 0));
         $fullBleed = true === ($attributes['fullBleed'] ?? false);
@@ -464,7 +474,7 @@ JS;
         $thumbnailPosition = 'bottom' === ($attributes['thumbnailPosition'] ?? 'right') ? 'bottom' : 'right';
         $transitionStyle = 'slide' === ($attributes['transitionStyle'] ?? 'fade') ? 'slide' : 'fade';
         $showPlayControl = true === ($attributes['showPlayControl'] ?? false);
-        $classes = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . ' blocks-engine-authored-carousel--' . $presentation . ' blocks-engine-authored-carousel--transition-' . $transitionStyle . ($fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '')
+        $classes = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . ' blocks-engine-authored-carousel--' . $presentation . ' blocks-engine-authored-carousel--transition-' . $transitionStyle . ($fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '') . (!empty($attributes['sourceControlArtwork']) ? ' blocks-engine-authored-carousel--source-control-artwork' : '')
             . (1 < count($thumbnails) ? ' blocks-engine-authored-carousel--thumbnails blocks-engine-authored-carousel--thumbnails-' . $thumbnailPosition : '');
         $classes .= '' !== trim((string) ($attributes['sourcePresentationClasses'] ?? ''))
             ? ' ' . implode(' ', SourceDom::boundedClassTokens((string) $attributes['sourcePresentationClasses']))
@@ -485,6 +495,9 @@ JS;
             }
             $styleDeclarations[] = '--blocks-engine-carousel-transition:' . $transitionDuration . 'ms';
         }
+        if ( '' !== $stageMinHeight ) {
+            $styleDeclarations[] = '--blocks-engine-carousel-stage-min-height:' . htmlspecialchars($stageMinHeight, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
         foreach (is_array($attributes['controlPresentation'] ?? null) ? $attributes['controlPresentation'] : array() as $property => $value) {
             if (is_string($property) && preg_match('/^[a-z-]+$/D', $property) && is_string($value) && ! preg_match('/[;{}<>]/', $value)) {
                 $styleDeclarations[] = '--blocks-engine-carousel-control-' . $property . ':' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -495,6 +508,11 @@ JS;
                 $styleDeclarations[] = $name . ':' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
         }
+        foreach (is_array($attributes['sourceRootGeometry'] ?? null) ? $attributes['sourceRootGeometry'] : array() as $property => $value) {
+            if (in_array($property, array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right'), true) && is_string($value) && '' !== $this->safeCssGeometryValue($value)) {
+                $styleDeclarations[] = $property . ':' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            }
+        }
         $styleAttribute = array() === $styleDeclarations ? '' : ' style="' . implode(';', $styleDeclarations) . '"';
 
         $context = htmlspecialchars(
@@ -502,6 +520,15 @@ JS;
             ENT_QUOTES | ENT_SUBSTITUTE,
             'UTF-8'
         );
+
+        $stageWrappers = is_array($attributes['stageWrappers'] ?? null) ? $attributes['stageWrappers'] : array();
+        $stageWrapperOpen = '';
+        foreach ($stageWrappers as $wrapper) {
+            $className = is_array($wrapper) ? implode(' ', SourceDom::boundedClassTokens((string) ($wrapper['className'] ?? ''))) : '';
+            $stageWrapperOpen .= '<div' . ('' !== $className ? ' class="' . htmlspecialchars($className, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '') . '>';
+        }
+        $stageWrapperOpen .= '<div class="blocks-engine-authored-carousel__viewport" tabindex="0" data-wp-on--keydown="actions.keydown"><div class="blocks-engine-authored-carousel__track">';
+        $stageWrapperClose = '</div></div>' . str_repeat('</div>', count($stageWrappers));
 
         $dots = '';
         if ( $showDots ) {
@@ -551,8 +578,8 @@ JS;
             ? $controlTopology
             : $previousButton . $nextButton;
         return array(
-            'opening' => '<div class="' . $classes . '"' . $identityAttributes . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><div class="blocks-engine-authored-carousel__controls ' . implode(' ', SourceDom::boundedClassTokens((string) ($attributes['sourceControlClasses'] ?? ''))) . '"' . $controlIdentityAttributes . '>' . $controlsMarkup . '</div><div class="blocks-engine-authored-carousel__viewport" tabindex="0" data-wp-on--keydown="actions.keydown"><div class="blocks-engine-authored-carousel__track">',
-            'closing' => '</div></div>' . $dots . $playback . $rail . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
+            'opening' => '<div class="' . $classes . '"' . $identityAttributes . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><div class="blocks-engine-authored-carousel__controls ' . implode(' ', SourceDom::boundedClassTokens((string) ($attributes['sourceControlClasses'] ?? ''))) . '"' . $controlIdentityAttributes . '>' . $controlsMarkup . '</div>' . $stageWrapperOpen,
+            'closing' => $stageWrapperClose . $dots . $playback . $rail . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
         );
     }
 
@@ -584,7 +611,7 @@ JS;
                 $sourceAttributes .= ' ' . $name . '="' . htmlspecialchars($attribute->value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
             }
         }
-        return '<button type="button" class="blocks-engine-authored-carousel__' . $direction . ' ' . $boundedClasses . '"' . ('' !== $style ? ' style="' . $style . '"' : '') . $sourceAttributes . ' data-carousel-' . $direction . '="true" data-wp-on--click="' . $action . '" data-wp-bind--disabled="' . $bound . '" aria-label="' . $label . ' slide">' . $this->safeControlVisual($visual, $label) . '</button>';
+        return '<button type="button" class="blocks-engine-authored-carousel__' . $direction . ' ' . $boundedClasses . '"' . ('' !== $style ? ' style="' . $style . '"' : '') . $sourceAttributes . ' data-carousel-' . $direction . '="true" data-wp-on--click="' . $action . '" data-wp-bind--disabled="' . $bound . '" aria-label="' . $label . ' slide">' . $this->safeControlVisual($visual, '' === $visual ? '' : $label) . '</button>';
     }
 
     /** @return array<string, mixed>|null */
@@ -741,10 +768,12 @@ JS;
         }
 
         $geometryList = $localList instanceof DOMElement ? $localList : $list;
-        $listHeight = (string) ($styleResolver->structuralPresentationDeclarations($geometryList)['height'] ?? '');
+        $geometryDeclarations = $styleResolver->structuralPresentationDeclarations($geometryList);
+        $listHeight = (string) ($geometryDeclarations['height'] ?? '');
         $rootHeight = (string) ($styleResolver->structuralPresentationDeclarations($element)['height'] ?? '');
         $height = 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', trim($listHeight)) ? $listHeight : $rootHeight;
         $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($height), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
+        $stageMinHeight = $this->safeCssDimension((string) ($geometryDeclarations['min-height'] ?? ''));
         $rootDeclarations = $styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
         $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
         $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
@@ -801,6 +830,10 @@ JS;
             'slideCount' => count($slides),
             'initialSlide' => $initialSlide,
             'viewportHeight' => 'slideshow' === $presentation ? $viewportHeight : 0,
+            'stageMinHeight' => 'slideshow' === $presentation ? $stageMinHeight : '',
+            'sourceControlArtwork' => '' !== ($sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '') || '' !== ($sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : ''),
+            'stageWrappers' => $this->stageWrappers($element, $geometryList, $styleResolver),
+            'sourceRootGeometry' => array_intersect_key($styleResolver->structuralPresentationDeclarations($element), array_flip(array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right'))),
             'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
             'autoplayInterval' => 'slideshow' === $presentation ? $autoplayInterval : 0,
             'showDots' => 'slideshow' === $presentation && $showDots && array() === $thumbnails,
@@ -1397,6 +1430,18 @@ JS;
             : '';
     }
 
+    private function safeCssDimension(string $value): string
+    {
+        $value = trim($value);
+        return 1 === preg_match('~^(?:[0-9]+(?:\.[0-9]+)?(?:px|vh|vw|em|rem|%|svh|dvh)|(?:calc|min|max|clamp|var)\([0-9a-zA-Z.%+*/(), _-]+\))$~D', $value) ? $value : '';
+    }
+
+    private function safeCssGeometryValue(string $value): string
+    {
+        $value = trim($value);
+        return '' !== $value && 1 === preg_match('~^[0-9a-zA-Z.%()+*/,_ -]+$~D', $value) ? $value : '';
+    }
+
     /**
      * Controls that carry only an image and no label are thumbnail pagination:
      * the source renders one slide on stage and lets a visitor pick the next
@@ -1461,6 +1506,19 @@ JS;
         }
 
         return null;
+    }
+
+    /** Rebinds authored holder ancestry around the generated viewport box. */
+    private function stageWrappers(DOMElement $root, DOMElement $list, StyleResolver $styleResolver): array
+    {
+        $ancestors = array();
+        for ($ancestor = $list->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode) {
+            $className = $styleResolver->presentationClassName(SourceDom::attr($ancestor, 'class'));
+            if ('' !== $className) {
+                array_unshift($ancestors, array('className' => $className));
+            }
+        }
+        return $ancestors;
     }
 
     /** @return array<int, array{url: string, alt: string}> */
