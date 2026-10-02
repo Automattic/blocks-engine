@@ -628,7 +628,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             },
             $this->runtime,
             fn (string $id): string => $this->safeAnchor($id),
-            fn (DOMElement $element): ?DOMElement => $this->sourceTagProjectedClone($element)
+            fn (DOMElement $element): ?DOMElement => $this->sourceTagProjectedClone($element),
+            fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' ))
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);

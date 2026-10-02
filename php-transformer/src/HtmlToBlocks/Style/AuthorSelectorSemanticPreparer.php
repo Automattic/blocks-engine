@@ -193,6 +193,16 @@ final class AuthorSelectorSemanticPreparer
                 if ( $listItem instanceof DOMElement && ! $structuralListItem && self::richTextSelectorNeedsHook($parsed) ) {
                     $marker = $projections->ensureRichTextMarker($path);
                     $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
+                } elseif ( 'span' === $inlineTag
+                    && $this->ancestorElement($element, 'label') instanceof DOMElement
+                    && self::richTextSelectorNeedsHook($parsed)
+                ) {
+                    // A label's text is emitted by the input block's RichText
+                    // label carrier. Keep selector-addressable inline spans on
+                    // that carrier even when their authored block display made
+                    // them look like independent layout wrappers in source.
+                    $marker = $projections->ensureRichTextMarker($path);
+                    $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
                 } elseif ( $directAuthorLayoutItem
                     || ($structuralListItem && self::richTextSelectorNeedsHook($parsed))
                     || $this->context->requiresIndependentSemanticWrapper($element)
@@ -219,6 +229,7 @@ final class AuthorSelectorSemanticPreparer
                 if ( '' !== $path
                     && $this->context->requiresInlineLayoutCarrier($element)
                     && ! $projections->isControlPath($parentPath)
+                    && ! ('' !== $projections->richTextMarker($path) && $this->ancestorElement($element, 'label') instanceof DOMElement)
                 ) {
                     $projections->markInlineLayoutCarrierPath($path);
                 }
