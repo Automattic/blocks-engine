@@ -179,9 +179,9 @@ $helper = <<<'JS'
 (function(){function triggers(){return document.querySelectorAll('[data-dla-dialog-trigger]');}function panel(trigger){var id=trigger.getAttribute('aria-controls');return id?document.getElementById(id):null;}function apply(trigger){var target=panel(trigger);if(!target)return;target.hidden=trigger.getAttribute('aria-expanded')!=='true';}function toggle(trigger){var open=trigger.getAttribute('aria-expanded')==='true';trigger.setAttribute('aria-expanded',open?'false':'true');apply(trigger);if(open)trigger.focus();}document.addEventListener('click',function(event){var trigger=event.target.closest&&event.target.closest('[data-dla-dialog-trigger]');if(!trigger||!panel(trigger))return;event.preventDefault();toggle(trigger);});triggers().forEach(apply);})();
 JS;
 $triggerButton = '<button type="button" id="navOpenButton" class="lg:hidden" aria-label="Open menu" data-dla-dialog-trigger="dla-dialog-0" aria-controls="dla-dialog-0" aria-expanded="false" aria-haspopup="menu"><i class="icon-bars"></i></button>';
-$inlinePage = '<!doctype html><html><head><style>.data-liberation-mobile-document{display:none!important}@media(max-width:991px){.data-liberation-desktop-document{display:none!important}.data-liberation-mobile-document{display:contents!important}}</style><script data-dla-disclosure-runtime="true">' . $helper . '</script></head><body>'
-    . '<div class="data-liberation-desktop-document"><header>' . $triggerButton . '<div hidden id="dla-dialog-0" data-dla-dialog-panel="dla-dialog-0"><nav><a href="#intro">Home</a></nav></div></header></div>'
-    . '<div class="data-liberation-mobile-document"><header>' . str_replace('dla-dialog-0', 'dla-dialog-1', $triggerButton) . '<div hidden id="dla-dialog-1" data-dla-dialog-panel="dla-dialog-1"><nav><a href="#contact">Contact</a></nav></div></header></div>'
+$inlinePage = '<!doctype html><html><head><style>.data-liberation-mobile-document{display:none!important}@media(max-width:991px){.data-liberation-desktop-document{display:none!important}.data-liberation-mobile-document{display:contents!important}}[data-dla-dialog-panel][hidden],[data-dla-dialog-close][hidden]{display:none!important}[data-dla-dialog-panel]:not(.dla-dropdown):not([hidden]){display:block;position:fixed;inset:0}[data-dla-dialog-panel].dla-dropdown:not([hidden]){display:block;position:absolute;top:100%;left:0;right:0}</style><script data-dla-disclosure-runtime="true">' . $helper . '</script></head><body>'
+    . '<div class="data-liberation-desktop-document"><header>' . $triggerButton . '<div class="dla-dropdown" hidden id="dla-dialog-0" data-dla-dialog-panel="dla-dialog-0"><nav><a href="#intro">Home</a></nav></div></header></div>'
+    . '<div class="data-liberation-mobile-document"><header>' . str_replace('dla-dialog-0', 'dla-dialog-1', $triggerButton) . '<div class="dla-dropdown" hidden id="dla-dialog-1" data-dla-dialog-panel="dla-dialog-1"><nav><a href="#contact">Contact</a></nav></div></header></div>'
     . '</body></html>';
 $derived = ( new ArtifactCompiler() )->runtimeContextForSource($inlinePage, 'website/index.html', array( array( 'path' => 'website/index.html', 'content' => $inlinePage ) ));
 $assert(in_array('[data-dla-dialog-trigger]', $derived['runtime_dom_selectors'] ?? array(), true), 'an inline named query helper is a runtime selector without a separate script file: ' . json_encode($derived['runtime_dom_selectors'] ?? array()));
@@ -195,6 +195,42 @@ $inlineMarkup = (string) ($inlineCompiled['serialized_blocks'] ?? '');
 $inlineContractFailures = array_values(array_filter($inlineCompiled['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? '')));
 $assert(array() === $inlineContractFailures && str_contains($inlineMarkup, 'data-dla-dialog-trigger="dla-dialog-0"') && str_contains($inlineMarkup, '<button'), 'inline helper compilation keeps the accessible trigger and passes the script gate: ' . json_encode($inlineContractFailures) . ' ' . substr($inlineMarkup, 0, 400));
 $assert(is_array($inlineCompiled['source_reports']['wordpress_site_plan'] ?? null), 'inline helper compilation reaches a WordPress site plan');
+$inlinePlan = $inlineCompiled['source_reports']['wordpress_site_plan'] ?? array();
+$inlineThemeScripts = array_merge(...array_map(static fn (array $page): array => $page['document_metadata']['scripts'] ?? array(), $inlinePlan['pages'] ?? array()));
+$inlinePreserved = $inlineCompiled['source_reports']['companion_plugin_payload']['preserved_js'] ?? array();
+$assert(1 === count($inlineThemeScripts) && array() === $inlinePreserved, 'theme-declared dialog runtime is not enqueued again by the companion island');
+$inlineCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($inlineCompiled['assets'] ?? array(), 'is_array')));
+$assert(str_contains($inlineCss, '[data-dla-dialog-panel][hidden]') && str_contains($inlineCss, '[data-dla-dialog-panel].dla-dropdown:not([hidden])'), 'stateful data predicates stay source selectors because the wrapper retains them: ' . $inlineCss);
+$assert(str_contains($inlineMarkup, 'data-dla-dialog-panel="dla-dialog-1"') && str_contains($inlineMarkup, 'hidden=""') && str_contains($inlineMarkup, '/layout-shell'), 'layout-shell save keeps the live hidden and data attributes core/group cannot carry: ' . substr($inlineMarkup, 0, 700));
+$panelShell = null;
+$findShell = static function (array $blocks) use (&$findShell, &$panelShell): void {
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        $wrappers = $block['attrs']['wrappers'] ?? array();
+        foreach ( is_array($wrappers) ? $wrappers : array() as $wrapper ) {
+            if ( true === ($wrapper['attributes']['hidden'] ?? null) && 'dla-dialog-1' === ($wrapper['attributes']['data-dla-dialog-panel'] ?? null) ) {
+                $panelShell = $block;
+            }
+        }
+        $findShell(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array());
+    }
+};
+$findShell($inlineCompiled['blocks'] ?? array());
+$assert(is_array($panelShell) && str_ends_with((string) ($panelShell['blockName'] ?? ''), '/layout-shell'), 'the dialog panel is an editable layout-shell, not a group that drops script state');
+$assert('pass' === (( new BlockValidityValidator() )->validateBlocks($inlineCompiled['blocks'] ?? array())['status'] ?? ''), 'layout-shell dialog markup remains Gutenberg-valid');
+$distinctScripts = ( new ArtifactCompiler() )->compile(array(
+    'files' => array( 'index.html' => '<main><p id="one">One</p><p id="two">Two</p></main><script>document.getElementById("one").dataset.ready="a";</script><script>document.getElementById("two").dataset.ready="b";</script>' ),
+))->toArray();
+$distinctPlan = $distinctScripts['source_reports']['wordpress_site_plan'] ?? array();
+$distinctThemeScripts = array();
+foreach ( $distinctPlan['pages'] ?? array() as $page ) {
+    foreach ( $page['document_metadata']['scripts'] ?? array() as $scriptRow ) {
+        $distinctThemeScripts[] = $scriptRow;
+    }
+}
+$assert(2 === count($distinctThemeScripts) && array() === ($distinctScripts['source_reports']['companion_plugin_payload']['preserved_js'] ?? array()), 'distinct inline script occurrences stay separate theme declarations');
 
 file_put_contents(sys_get_temp_dir() . '/runtime-dialog-trigger-button.json', json_encode(array(
     'html' => $compiledMarkup,
