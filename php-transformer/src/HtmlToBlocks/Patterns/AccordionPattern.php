@@ -41,9 +41,12 @@ final class AccordionPattern implements PatternRecognizerInterface
         }
 
         $attributes = $presentationAttributes($element);
-        $sourceGroup = $itemElements[0]->parentNode;
-        if ($sourceGroup instanceof DOMElement && 'true' === strtolower(SourceDom::attr($sourceGroup, 'data-dla-exclusive-disclosures'))) {
-            $attributes['autoclose'] = true;
+        for ($node = $itemElements[0]->parentNode, $depth = 0; $node instanceof DOMElement && $depth < 8; $node = $node->parentNode, $depth++) {
+            if ('true' === strtolower(SourceDom::attr($node, 'data-dla-exclusive-disclosures'))) {
+                $attributes['autoclose'] = true;
+                break;
+            }
+            if ($node->isSameNode($element)) break;
         }
         return new PatternRecognitionResult(
             $createBlock('core/accordion', $attributes, $items, $element),
@@ -305,6 +308,14 @@ final class AccordionPattern implements PatternRecognizerInterface
     private function panelElement(DOMElement $item, DOMElement $title): ?DOMElement
     {
         $controlledId = $this->trimmedAttribute($title, 'aria-controls');
+        $parent = $title->parentNode;
+        if ( '' !== $controlledId && $parent instanceof DOMElement ) {
+            foreach ( $parent->getElementsByTagName('*') as $candidate ) {
+                if ( $candidate instanceof DOMElement && 'true' === strtolower($candidate->getAttribute('data-dla-local-disclosure')) && $candidate->getAttribute('id') === $controlledId ) {
+                    return $candidate;
+                }
+            }
+        }
         if ( '' !== $controlledId ) {
             foreach ( $item->getElementsByTagName('*') as $candidate ) {
                 if ( $candidate instanceof DOMElement && $candidate->getAttribute('id') === $controlledId ) {

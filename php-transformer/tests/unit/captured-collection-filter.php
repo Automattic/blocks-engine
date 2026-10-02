@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedCollectionProjector;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 
 $assert = static function (bool $value, string $message): void { if (!$value) { fwrite(STDERR, "FAIL: {$message}\n"); exit(1); } };
 $item = static fn (string $answer): string => '<div class="card"><button aria-expanded="false" aria-controls="' . $answer . '">Shared question?</button><div role="region" id="' . $answer . '" hidden><p>' . $answer . ' answer</p></div></div>';
@@ -50,4 +51,152 @@ $invalid = $evidence; $invalid['probes'][1]['keys'] = array('b');
 $assert(0 === (new CapturedCollectionProjector())->project($files($invalid))['projected_count'], 'inconsistent probe results cannot promote a guessed predicate');
 $invalid = $evidence; $invalid['items'][1]['key'] = 'a';
 $assert(0 === (new CapturedCollectionProjector())->project($files($invalid))['projected_count'], 'ambiguous item identity remains visibly unsupported');
+
+$card = static function (string $heading, string $answer, string $id): string {
+    return '<div class="card"><button aria-expanded="false" aria-controls="' . $id . '">' . $heading . '</button><div role="region" id="' . $id . '" data-dla-local-disclosure="true" hidden><p>' . $answer . '</p></div></div>';
+};
+$names = array('apricot', 'blueberry', 'cranberry', 'dewberry', 'elderberry', 'figfruit', 'gooseberry', 'honeydew', 'kiwifruit', 'lemonfruit', 'mangofruit', 'nectarine', 'olivefruit', 'papayafruit', 'quincefruit', 'raspberry', 'strawberry', 'tangerine', 'uglifruit');
+$finiteItems = array();
+$membership = array(0 => array(), 1 => array(), 2 => array(), 3 => array());
+for ($index = 0; $index < 19; $index++) {
+    $heading = 0 === $index % 7 ? 'Shared question?' : 'Question ' . $index . '?';
+    $answer = $names[$index] . ' answer text';
+    $key = (string) $index;
+    $category = $index % 4;
+    $html = $card($heading, $answer, 'answer-' . $index);
+    $finiteItems[] = array('key' => $key, 'text' => $heading . ' ' . $answer, 'html' => $html, 'categories' => array($category));
+    $membership[$category][] = $key;
+}
+$membership[0] = array('16', '12', '8', '4', '0');
+$labels = array('All', 'Alpha', 'Beta', 'Gamma');
+$categories = array();
+foreach ($labels as $index => $label) {
+    $categories[] = array('selector' => 'body > main > div > div > button:nth-of-type(' . ($index + 1) . ')', 'label' => $label, 'index' => $index, 'activeHtml' => '<button class="active">' . $label . '</button>', 'inactiveHtml' => '<button class="inactive">' . $label . '</button>');
+}
+$resting = '';
+foreach ($membership[0] as $key) $resting .= $finiteItems[(int) $key]['html'];
+$finiteSource = '<html><head><script data-dla-local-disclosure-runtime="true"></script><script data-dla-collection-runtime="true"></script></head><body><main><div class="scope"><div class="choices"><button class="active">All</button><button class="inactive">Alpha</button><button class="inactive">Beta</button><button class="inactive">Gamma</button></div><input type="search" placeholder="Looking for something?" aria-label="Looking for something?"><p class="status">19 questions</p><div id="results" data-dla-exclusive-disclosures="true"><div class="wrap">' . $resting . '</div></div></div></main></body></html>';
+$keys = array_column($finiteItems, 'key');
+$global = array(
+    array('query' => 's', 'keys' => $keys),
+    array('query' => 'apricot', 'keys' => array('0')),
+    array('query' => 'APRICOT', 'keys' => array('0')),
+    array('query' => 'dla-no-match-7f39b2', 'keys' => array()),
+);
+$legacy = array();
+$categoryProbes = array();
+foreach ($membership as $index => $categoryKeys) {
+    $legacy[] = array('query' => '', 'category' => $index, 'keys' => $categoryKeys);
+    $categoryProbes[] = array('category' => $index, 'keys' => $categoryKeys);
+}
+$finite = array(
+    'field' => array('selector' => 'body > main > div > input', 'value' => ''),
+    'target' => array('selector' => 'body > main > div > div#results', 'html' => ''),
+    'items' => $finiteItems,
+    'itemDepth' => 1,
+    'categories' => $categories,
+    'initialCategory' => 0,
+    'predicate' => 'normalized-text-includes',
+    'mode' => 'category-or-global-search',
+    'emptyHtml' => '<p>No local matches</p>',
+    'emptyPlacement' => 'after',
+    'probes' => $legacy,
+    'restoration' => 'verified',
+    'replay' => 'verified',
+    'network' => array('dataRequests' => 'observed-response-replay', 'verification' => 'intercepted-observed-responses'),
+    'finiteBootstrap' => array(
+        'schema' => 'data-liberation/finite-bootstrap/v1',
+        'mode' => 'category-or-global-search',
+        'queryIndependent' => true,
+        'completeness' => 'declared-finite',
+        'declaredCount' => 19,
+        'observedItemCount' => 19,
+        'coverage' => 'complete',
+        'verification' => 'intercepted-observed-responses',
+        'replayedResponses' => 1,
+        'blockedFollowUps' => 1,
+        'sourceFollowUpsBlocked' => 0,
+        'unmatchedProbeBlocked' => true,
+        'categoryControlsDuringSearch' => 'hidden',
+        'emptyQueryRestoresCategory' => true,
+        'answers' => 'observed',
+        'answerOnly' => 'verified',
+        'resources' => 'text-only',
+        'order' => array('proof' => 'universal-query', 'query' => 's', 'keys' => $keys, 'categoriesAgree' => false, 'categoryKeys' => array_values($membership)),
+        'probes' => array('global' => $global, 'categories' => $categoryProbes),
+    ),
+);
+$finiteFiles = static function (array $evidence) use ($finiteSource): array {
+    return array(
+        array('path' => 'website/index.html', 'content' => $finiteSource),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
+    );
+};
+$finiteProjected = (new CapturedCollectionProjector())->project($finiteFiles($finite));
+$assert(1 === $finiteProjected['projected_count'], 'finite bootstrap evidence projects one canonical collection: ' . json_encode($finiteProjected['diagnostics']));
+$assert(!str_contains($finiteProjected['files'][0]['content'], 'data-dla-collection-runtime') && !str_contains($finiteProjected['files'][0]['content'], 'data-dla-local-disclosure-runtime'), 'native accordion and collection blocks supersede the portable runtimes');
+$finiteResult = (new HtmlTransformer())->transform($finiteProjected['files'][0]['content'])->toArray();
+$finiteMarkup = $finiteResult['serialized_blocks'];
+$assert('pass' === ($finiteResult['source_reports']['wp_block_validity']['status'] ?? null), 'finite collection serialization is Gutenberg-valid: ' . json_encode($finiteResult['source_reports']['wp_block_validity'] ?? null));
+$assert(str_contains($finiteMarkup, 'wp:custom/collection-filter-choices') && str_contains($finiteMarkup, 'Looking for something?') && !str_contains($finiteMarkup, 'wp:search') && !str_contains($finiteMarkup, 'wp:html') && !str_contains($finiteMarkup, 'wp:tabs'), 'category strip, editable field and native tree replace global search and raw islands');
+$assert(strpos($finiteMarkup, 'collection-filter-choices') < strpos($finiteMarkup, 'collection-filter-field') && strpos($finiteMarkup, '19 questions') > strpos($finiteMarkup, 'collection-filter-field') && strpos($finiteMarkup, '19 questions') < strpos($finiteMarkup, 'wp:accordion '), 'hiding the category strip does not hide the input, status or results');
+$assert(19 === substr_count($finiteMarkup, ' answer text</p>') && 3 === substr_count($finiteMarkup, 'Shared question?'), 'nineteen answers stay one editable copy, including duplicate headings');
+$assert(str_contains($finiteMarkup, '"autoclose":true') && strpos($finiteMarkup, '>apricot answer text</p>') < strpos($finiteMarkup, '>raspberry answer text</p>'), 'exclusive parent-scoped disclosures stay native and the canonical tree uses universal-query order');
+$assert(str_contains($finiteMarkup, '"mode":"category-or-global-search"') && str_contains($finiteMarkup, 'No local matches') && !str_contains($finiteMarkup, 'dla-no-match-7f39b2'), 'empty state stays query-independent while global order is stored for runtime movement');
+$generated = $finiteResult['source_reports']['generated_blocks'] ?? array();
+$rootDefinition = null;
+foreach ($generated as $definition) if ('collection-filter' === ($definition['name'] ?? null)) $rootDefinition = $definition;
+$assert(is_array($rootDefinition) && 'category-and-query' === ($rootDefinition['block_json']['attributes']['mode']['default'] ?? null) && array() === ($rootDefinition['block_json']['attributes']['order']['default'] ?? null), 'runtime payload schema defaults remain canonical');
+$assert('' !== RuntimeDeclarations::canonicalJson($generated), 'finite generated definitions retain the bounded canonical runtime payload contract');
+$assert(str_contains((string) ($rootDefinition['view_js'] ?? ''), 'export function refresh') && str_contains((string) ($rootDefinition['view_js'] ?? ''), 'appendChild') && !str_contains((string) ($rootDefinition['view_js'] ?? ''), 'cloneNode'), 'finite runtime moves existing nodes and reads owner-edited text');
+foreach (array(
+    'completeness' => 'paginated',
+    'resources' => 'localized',
+    'answers' => 'guessed',
+) as $key => $value) {
+    $invalid = $finite;
+    $invalid['finiteBootstrap'][$key] = $value;
+    $refused = (new CapturedCollectionProjector())->project($finiteFiles($invalid));
+    $assert(0 === $refused['projected_count'] && $finiteSource === $refused['files'][0]['content'], $key . ' mismatch leaves the source unmodified');
+}
+foreach (array(
+    array('restoration', 'unverified'),
+    array('replay', 'unsupported'),
+    array('network', array('dataRequests' => 'query-dependent', 'verification' => 'unverified')),
+) as $change) {
+    $invalid = $finite;
+    $invalid[$change[0]] = $change[1];
+    $assert(0 === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['projected_count'], $change[0] . ' failure cannot waive finite admission');
+}
+$invalid = $finite;
+$invalid['finiteBootstrap']['order']['proof'] = 'source-token';
+$assert(0 === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['projected_count'], 'unverifiable order proof is rejected');
+$invalid = $finite;
+$invalid['finiteBootstrap']['order']['query'] = 'token';
+$assert(0 === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['projected_count'], 'order query must be the shared character observed in every item');
+$invalid = $finite;
+$invalid['finiteBootstrap']['order']['keys'] = array_reverse($keys);
+$assert(0 === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['projected_count'], 'items must follow the universal-query key order');
+$invalid = $finite;
+$invalid['finiteBootstrap']['order']['categoriesAgree'] = true;
+$assert(0 === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['projected_count'], 'categoriesAgree is recomputed and cannot be waived');
+$invalid = $finite;
+$invalid['finiteBootstrap']['probes']['global'][1]['keys'] = array('1', '0');
+$assert(0 === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['projected_count'], 'global probes must be the ordered source filter, not a set or category intersection');
+$invalid = $finite;
+$invalid['items'][1]['text'] = $invalid['items'][0]['text'];
+$invalid['items'][1]['html'] = $invalid['items'][0]['html'];
+$assert(0 === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['projected_count'], 'ambiguous finite identities are rejected');
+$invalid = $finite;
+$invalid['itemDepth'] = 4;
+$assert(0 === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['projected_count'] && $finiteSource === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['files'][0]['content'], 'item depth must uniquely match the only-child wrapper chain');
+$invalid = $finite;
+$invalid['items'][0]['html'] = str_replace('<div class="card">', '<div class="card"><img src="photo.jpg" alt="">', $invalid['items'][0]['html']);
+$assert(0 === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['projected_count'], 'resource-bearing finite items are not portable');
+$invalid = $finite;
+unset($invalid['finiteBootstrap']);
+$invalid['network'] = array('dataRequests' => 'blocked');
+$assert(0 === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['projected_count'], 'blocked requests still require the Ward verifier');
+file_put_contents(sys_get_temp_dir() . '/collection-filter-finite.json', json_encode(array('markup' => $finiteMarkup, 'view' => $rootDefinition['view_js'])));
 echo "Captured collection filter contract passed\n";

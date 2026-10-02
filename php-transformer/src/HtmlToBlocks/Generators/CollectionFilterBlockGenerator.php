@@ -11,6 +11,7 @@ final class CollectionFilterBlockGenerator
     public const ROOT = 'collection-filter';
     public const FIELD = 'collection-filter-field';
     public const CHOICE = 'collection-filter-choice';
+    public const CHOICES = 'collection-filter-choices';
     public const EMPTY = 'collection-filter-empty';
 
     public function definition(string $namespace, string $local): array
@@ -22,7 +23,8 @@ final class CollectionFilterBlockGenerator
             'anchor' => array('type' => 'string', 'default' => ''),
             'sourceStyle' => array('type' => 'object'),
         );
-        if (self::ROOT === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'), 'items' => array('type' => 'array', 'default' => array()), 'initialCategory' => array('type' => 'number', 'default' => 0));
+        if (self::ROOT === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'), 'items' => array('type' => 'array', 'default' => array()), 'initialCategory' => array('type' => 'number', 'default' => 0), 'mode' => array('type' => 'string', 'default' => 'category-and-query'), 'order' => array('type' => 'array', 'default' => array()), 'categoryOrders' => array('type' => 'array', 'default' => array()));
+        if (self::CHOICES === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'));
         if (self::FIELD === $local) $attributes += array('inputType' => array('type' => 'string', 'default' => 'search'), 'placeholder' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'value' => array('type' => 'string', 'default' => ''));
         if (self::CHOICE === $local) $attributes += array('label' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'index' => array('type' => 'number', 'default' => 0), 'initial' => array('type' => 'boolean', 'default' => false), 'active' => array('type' => 'object'), 'inactive' => array('type' => 'object'));
         $editor = <<<'JS'
@@ -41,7 +43,7 @@ final class CollectionFilterBlockGenerator
 
     function context( attrs ) {
         return role === 'collection-filter'
-            ? { query: '', category: attrs.initialCategory || 0, items: attrs.items || [], matchCount: ( attrs.items || [] ).length }
+            ? { query: '', category: attrs.initialCategory || 0, items: attrs.items || [], matchCount: ( attrs.items || [] ).length, mode: attrs.mode || 'category-and-query', order: attrs.order || [], categoryOrders: attrs.categoryOrders || [] }
             : { choiceIndex: attrs.index, active: attrs.active, inactive: attrs.inactive };
     }
 
@@ -77,6 +79,9 @@ final class CollectionFilterBlockGenerator
             props[ 'data-wp-bind--aria-pressed' ] = store + '::state.choicePressed';
             props[ 'data-wp-bind--aria-selected' ] = store + '::state.choiceSelected';
             props[ 'data-wp-bind--data-state' ] = store + '::state.choiceDataState';
+        }
+        if ( role === 'collection-filter-choices' ) {
+            props[ 'data-wp-bind--hidden' ] = store + '::state.choicesHidden';
         }
         if ( role === 'collection-filter-empty' ) {
             props.hidden = true;
@@ -136,7 +141,7 @@ final class CollectionFilterBlockGenerator
                     )
                 );
             }
-            var tag = role === 'collection-filter' ? attrs.tagName || 'div' : 'div';
+            var tag = role === 'collection-filter' || role === 'collection-filter-choices' ? attrs.tagName || 'div' : 'div';
             return el( element.Fragment, null, inspector,
                 el( tag, editor.useInnerBlocksProps( editor.useBlockProps( common( attrs ) ) ) )
             );
@@ -147,7 +152,7 @@ final class CollectionFilterBlockGenerator
             if ( role === 'collection-filter-choice' ) {
                 return el( editor.RichText.Content, Object.assign( saveProps( attrs ), { tagName: 'button', value: attrs.label } ) );
             }
-            var tag = role === 'collection-filter' ? attrs.tagName || 'div' : 'div';
+            var tag = role === 'collection-filter' || role === 'collection-filter-choices' ? attrs.tagName || 'div' : 'div';
             return el( tag, editor.useInnerBlocksProps.save( saveProps( attrs ) ) );
         },
     } );
@@ -163,15 +168,51 @@ const choice = () => {
 };
 
 // Read the owner-edited native content, including collapsed answers, while
-// excluding generated decorations such as core's accordion toggle glyph.
+// excluding only zero-font aria-hidden decorations such as core's toggle glyph.
+export function refresh( root, context ) {
+    const query = ( context.query || '' ).toLowerCase();
+    const finite = context.mode === 'category-or-global-search';
+    const globalSearch = finite && query !== '';
+    const strip = root.querySelector( '[data-wp-bind--hidden$="::state.choicesHidden"]' );
+    if ( strip ) strip.hidden = globalSearch;
+    const markers = globalSearch ? ( context.order || [] ) : ( finite ? ( ( context.categoryOrders || [] )[ context.category ] || [] ) : [] );
+    if ( markers.length ) arrange( root, context, markers );
+    let count = 0;
+    for ( const item of context.items || [] ) {
+        for ( const node of root.querySelectorAll( '.' + item.marker ) ) {
+            const show = globalSearch ? text( node ).includes( query ) : item.categories.includes( context.category ) && ( finite || text( node ).includes( query ) );
+            node.hidden = ! show;
+            if ( show ) count++;
+        }
+    }
+    if ( context.matchCount !== count ) context.matchCount = count;
+    const empty = root.querySelector( '[data-wp-bind--hidden$="::state.hasMatches"]' );
+    if ( empty ) empty.hidden = count > 0;
+}
+
 const text = ( node ) => {
     const walker = document.createTreeWalker( node, NodeFilter.SHOW_TEXT );
     const parts = [];
     while ( walker.nextNode() ) {
-        if ( walker.currentNode.parentElement?.closest( '[aria-hidden="true"]' ) ) continue;
+        const parent = walker.currentNode.parentElement;
+        if ( parent?.closest( '[aria-hidden="true"]' ) && parseFloat( getComputedStyle( parent ).fontSize ) === 0 ) continue;
         parts.push( walker.currentNode.textContent );
     }
     return parts.join( ' ' ).replace( /\s+/g, ' ' ).trim().toLowerCase();
+};
+
+const arrange = ( root, context, markers ) => {
+    const parent = root.querySelector( '.' + markers[ 0 ] )?.parentNode;
+    if ( ! parent ) return;
+    for ( const marker of markers ) {
+        const node = root.querySelector( '.' + marker );
+        if ( node && node.parentNode === parent ) parent.appendChild( node );
+    }
+    for ( const item of context.items || [] ) {
+        if ( markers.includes( item.marker ) ) continue;
+        const node = root.querySelector( '.' + item.marker );
+        if ( node && node.parentNode === parent ) parent.appendChild( node );
+    }
 };
 
 const css = ( styles ) => Object.entries( styles || {} ).map( ( [ key, value ] ) => {
@@ -198,6 +239,10 @@ store( namespace, {
         },
         get choiceSelected() { return choice()?.selected ?? null; },
         get choiceDataState() { return choice()?.dataState ?? null; },
+        get choicesHidden() {
+            const context = getContext( namespace );
+            return context.mode === 'category-or-global-search' && ( context.query || '' ) !== '';
+        },
         get hasMatches() { return getContext( namespace ).matchCount > 0; },
     },
     callbacks: {
@@ -206,26 +251,12 @@ store( namespace, {
             const field = root.querySelector( '[data-wp-on--input="' + namespace + '::actions.query"]' );
             if ( field ) getContext( namespace ).query = field.value;
         },
-        refresh() {
-            const context = getContext( namespace );
-            const root = getElement().ref;
-            const query = ( context.query || '' ).toLowerCase();
-            const category = context.category;
-            let count = 0;
-            for ( const item of context.items || [] ) {
-                for ( const node of root.querySelectorAll( '.' + item.marker ) ) {
-                    const show = item.categories.includes( category ) && text( node ).includes( query );
-                    node.hidden = ! show;
-                    if ( show ) count++;
-                }
-            }
-            if ( context.matchCount !== count ) context.matchCount = count;
-        },
+        refresh() { refresh( getElement().ref, getContext( namespace ) ); },
     },
 } );
 JS;
         $replace = array('__NAME__' => json_encode($name), '__STORE__' => json_encode($store), '__ROLE__' => json_encode($local), '__ATTRIBUTES__' => json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
-        $json = array('apiVersion' => 3, 'name' => $name, 'title' => match ($local) { self::ROOT => 'Filtered Collection', self::FIELD => 'Collection Search Field', self::CHOICE => 'Collection Category', default => 'Collection Empty State' }, 'category' => 'widgets', 'editorScript' => 'file:./index.js', 'attributes' => $attributes, 'supports' => array('html' => false, 'customClassName' => false, 'interactivity' => true));
+        $json = array('apiVersion' => 3, 'name' => $name, 'title' => match ($local) { self::ROOT => 'Filtered Collection', self::FIELD => 'Collection Search Field', self::CHOICE => 'Collection Category', self::CHOICES => 'Collection Categories', default => 'Collection Empty State' }, 'category' => 'widgets', 'editorScript' => 'file:./index.js', 'attributes' => $attributes, 'supports' => array('html' => false, 'customClassName' => false, 'interactivity' => true));
         $definition = array('name' => $local, 'block_json' => $json, 'assets' => array('index.js' => strtr($editor, $replace)), 'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element')));
         if (self::ROOT === $local) {
             $definition['block_json']['viewScriptModule'] = 'file:./view.js';
@@ -246,7 +277,7 @@ JS;
             $tag = $attrs['tagName'] ?? 'div';
             $html['class'] = trim($html['class'] . ' blocks-engine-collection-scope');
             $html['data-wp-interactive'] = $store;
-            $html['data-wp-context'] = json_encode(array('query' => '', 'category' => $attrs['initialCategory'] ?? 0, 'items' => $attrs['items'] ?? array(), 'matchCount' => count($attrs['items'] ?? array())), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $html['data-wp-context'] = json_encode(array('query' => '', 'category' => $attrs['initialCategory'] ?? 0, 'items' => $attrs['items'] ?? array(), 'matchCount' => count($attrs['items'] ?? array()), 'mode' => $attrs['mode'] ?? 'category-and-query', 'order' => $attrs['order'] ?? array(), 'categoryOrders' => $attrs['categoryOrders'] ?? array()), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             $html['data-wp-init'] = 'callbacks.init';
             $html['data-wp-watch'] = 'callbacks.refresh';
         } elseif (self::FIELD === $local) {
@@ -259,6 +290,9 @@ JS;
             $html['style'] = $this->style($state['style'] ?? array());
             $html['aria-label'] = $attrs['ariaLabel'] ?? '';
             $html += array('type' => 'button', 'aria-pressed' => !empty($attrs['initial']) ? 'true' : 'false', 'aria-selected' => $state['selected'] ?? '', 'data-state' => $state['dataState'] ?? '', 'data-wp-context' => json_encode(array('choiceIndex' => $attrs['index'], 'active' => $attrs['active'], 'inactive' => $attrs['inactive']), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 'data-wp-on--click' => $store . '::actions.choose', 'data-wp-bind--class' => $store . '::state.choiceClass', 'data-wp-bind--style' => $store . '::state.choiceStyle', 'data-wp-bind--aria-pressed' => $store . '::state.choicePressed', 'data-wp-bind--aria-selected' => $store . '::state.choiceSelected', 'data-wp-bind--data-state' => $store . '::state.choiceDataState');
+        } elseif (self::CHOICES === $local) {
+            $tag = in_array($attrs['tagName'] ?? 'div', array('div', 'nav', 'section'), true) ? $attrs['tagName'] : 'div';
+            $html['data-wp-bind--hidden'] = $store . '::state.choicesHidden';
         } else {
             $html['hidden'] = true;
             $html['data-wp-bind--hidden'] = $store . '::state.hasMatches';

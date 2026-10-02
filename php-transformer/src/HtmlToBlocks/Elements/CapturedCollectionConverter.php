@@ -46,6 +46,7 @@ final class CapturedCollectionConverter implements ElementConverter
         if ($element->hasAttribute('data-blocks-engine-collection-root')) $local = CollectionFilterBlockGenerator::ROOT;
         elseif ($element->hasAttribute('data-blocks-engine-collection-field')) $local = CollectionFilterBlockGenerator::FIELD;
         elseif ($element->hasAttribute('data-blocks-engine-collection-choice')) $local = CollectionFilterBlockGenerator::CHOICE;
+        elseif ($element->hasAttribute('data-blocks-engine-collection-choices')) $local = CollectionFilterBlockGenerator::CHOICES;
         elseif ($element->hasAttribute('data-blocks-engine-collection-empty')) $local = CollectionFilterBlockGenerator::EMPTY;
         if (null === $local) return ConversionOutcome::unhandled();
         $config = null;
@@ -67,6 +68,13 @@ final class CapturedCollectionConverter implements ElementConverter
         $children = array();
         if (CollectionFilterBlockGenerator::ROOT === $local) {
             $attrs += array('tagName' => $tagName, 'items' => $config['items'], 'initialCategory' => $config['initialCategory']);
+            foreach (array('mode' => 'category-and-query', 'order' => array(), 'categoryOrders' => array()) as $key => $default) {
+                $attrs[$key] = $config[$key] ?? $default;
+            }
+            if (!in_array($attrs['mode'], array('category-and-query', 'category-or-global-search'), true) || !is_array($attrs['order']) || !is_array($attrs['categoryOrders'])) return ConversionOutcome::unhandled();
+            $children = ($this->convertChildren)($element, $fallbacks);
+        } elseif (CollectionFilterBlockGenerator::CHOICES === $local) {
+            $attrs['tagName'] = in_array($tagName, array('div', 'nav', 'section'), true) ? $tagName : 'div';
             $children = ($this->convertChildren)($element, $fallbacks);
         } elseif (CollectionFilterBlockGenerator::FIELD === $local) {
             $attrs += array('inputType' => $element->getAttribute('type') ?: 'text', 'placeholder' => $element->getAttribute('placeholder'), 'ariaLabel' => $element->getAttribute('aria-label'), 'value' => $element->getAttribute('value'));
@@ -84,7 +92,8 @@ final class CapturedCollectionConverter implements ElementConverter
             $html = $opening . $attrs['label'] . '</button>';
             $content = array($html);
         } else {
-            $closing = '</' . (CollectionFilterBlockGenerator::ROOT === $local ? $tagName : 'div') . '>';
+            $closingTag = CollectionFilterBlockGenerator::ROOT === $local ? $tagName : ($attrs['tagName'] ?? 'div');
+            $closing = '</' . $closingTag . '>';
             $html = $opening . $closing;
             $content = array_merge(array($opening), array_fill(0, count($children), null), array($closing));
         }

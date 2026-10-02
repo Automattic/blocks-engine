@@ -34,6 +34,18 @@ Category paint comes from separately observed active/inactive attributes; labels
 remain owner-editable. The observed empty-state content stays in its original
 inside/after placement and is shown only when no item matches.
 
+## Finite bootstrap
+
+`finiteBootstrap.schema` must be `data-liberation/finite-bootstrap/v1`. That
+record is admitted only when restoration, replay, observed-response replay,
+intercepted verification, declared count, complete text-only coverage, observed
+answers, universal-query order, and ordered global/category probes all recompute.
+Category mode shows the selected category. A nonempty query searches the whole
+universe and hides the category strip, not the input, status, or results.
+`categoriesAgree: false` moves the same nodes into `order.categoryKeys`; it does
+not clone them. Missing `finiteBootstrap` still requires the blocked
+category-and-query Ward checks, including initial-category membership.
+
 ## Bounds and unsupported mappings
 
 Projection is bounded to 128 report pages, 100 items, 32 categories, and 512 KiB
