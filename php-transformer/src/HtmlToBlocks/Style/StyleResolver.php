@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -29,6 +30,24 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  */
 final class StyleResolver implements ElementPresentationResolver
 {
+    private ?CssSelectorMatchCache $snapshotSelectorMatches = null;
+
+    /** Resolve a transient source state without poisoning immutable-DOM caches. */
+    public function withSelectorSnapshot(\Closure $read): mixed
+    {
+        $previous = $this->snapshotSelectorMatches;
+        $this->snapshotSelectorMatches = new CssSelectorMatchCache();
+        try {
+            return $read();
+        } finally {
+            $this->snapshotSelectorMatches = $previous;
+        }
+    }
+
+    private function selectorMatches(): CssSelectorMatchCache
+    {
+        return $this->snapshotSelectorMatches ?? $this->context->sourceStyles()->selectorMatchCache;
+    }
     public function __construct(
         private readonly StyleResolutionContext $context,
         private readonly HtmlTransformerAnalysisCache $analysisCache
@@ -3364,6 +3383,16 @@ final class StyleResolver implements ElementPresentationResolver
             'stroke-width' => true,
             'animation' => true,
             'animation-name' => true,
+            'opacity' => true,
+            'transform' => true,
+            'transform-origin' => true,
+            'rotate' => true,
+            'scale' => true,
+            'translate' => true,
+            'transition-property' => true,
+            'transition-duration' => true,
+            'transition-timing-function' => true,
+            'transition-delay' => true,
             // Grid-item placement: resolved for native core grid child
             // layout (Automattic/blocks-engine#2139).
             'grid-area' => true,
@@ -3524,13 +3553,13 @@ final class StyleResolver implements ElementPresentationResolver
     public function matchesCssSelector(DOMElement $element, string $selector): bool
     {
         $cache = $this->context->sourceStyles();
-        $match = $cache->selectorMatchCache->matches($element, $selector, $this->context->parsedCssSelector($selector));
+        $match = $this->selectorMatches()->matches($element, $selector, $this->context->parsedCssSelector($selector));
         return $match['supported'] && $match['matches'];
     }
 
     public function recordSourceSelectorMatchWork(): void
     {
-        $selectorCache = $this->context->sourceStyles()->selectorMatchCache;
+        $selectorCache = $this->selectorMatches();
         $this->analysisCache->sourceSelectorMatchExecutions += $selectorCache->matchExecutions;
         $this->analysisCache->sourceSelectorMatchHits += $selectorCache->matchHits;
         $this->analysisCache->sourceSelectorMatchMisses += $selectorCache->matchMisses;
@@ -3576,7 +3605,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $cache = $this->context->sourceStyles();
         $index = $cache->ruleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
-        return $cache->selectorMatchCache->styleRuleCandidates($element, $collection, $index);
+        return $this->selectorMatches()->styleRuleCandidates($element, $collection, $index);
     }
 
     /** @return array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, attributes: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} */
@@ -3731,6 +3760,15 @@ final class StyleResolver implements ElementPresentationResolver
     {
         return $this->cssDeclarations(
             $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($element), $element)
+        );
+    }
+
+    /** SVG/state presentation also needs the unfiltered paint and motion stream. */
+    public function resolvedSourceStateDeclarations(DOMElement $element): array
+    {
+        return array_merge(
+            $this->resolvedPresentationDeclarations($element),
+            $this->cssDeclarations($this->resolveCssVariablesInValue($this->resolvedCascadeStyle($element, 'cascaded-values'), $element))
         );
     }
 

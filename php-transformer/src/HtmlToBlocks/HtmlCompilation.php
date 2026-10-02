@@ -1359,7 +1359,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function disclosureControlPresentation(): DisclosureControlPresentation
     {
-        return new DisclosureControlPresentation($this->styleResolver, $this->generatedSupportStyles());
+        return new DisclosureControlPresentation(
+            $this->styleResolver,
+            $this->generatedSupportStyles(),
+            new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DisclosureIconPresentation(
+                $this->styleResolver,
+                fn (DOMElement $icon): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($icon))
+            )
+        );
     }
 
     /** The width and height core/image can carry for a source image. */
