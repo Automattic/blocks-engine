@@ -5623,6 +5623,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function hasRenderableEmptyBlockBox(DOMElement $element): bool
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( $this->hasAuthoredGridTracks($element) ) {
+            return true;
+        }
         foreach ( array( 'height', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ) as $property ) {
             if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
@@ -5820,7 +5823,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 (string) $attrs['className'],
                 $this->styleResolver->emptyElementBackgroundCarrierClassName($element)
             );
-            $block = $this->createBlock('core/group', $attrs, array(), $element);
+            // Empty, nested layout wrappers can still own measurable grid or
+            // flex tracks (fluid-engine sections commonly put those tracks on
+            // a child below a data-bearing presentation wrapper). Lowering the
+            // outer visual carrier as an empty group used to discard that
+            // child and its selector identity, collapsing its authored tracks.
+            $innerBlocks = array();
+            if ( 0 < $this->childElementCount($element)
+                && '' === $this->renderedTextContent($element)
+                && $this->hasEmptyGridTrackDescendant($element)
+            ) {
+                $ignoredFallbacks = array();
+                $innerBlocks = $this->convertChildren($element, $ignoredFallbacks, true);
+            }
+            $block = $this->createBlock('core/group', $attrs, $innerBlocks, $element);
             $block['_editability_visual_owned'] = true;
             return $block;
         }
@@ -5846,6 +5862,34 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $attrs['width'] = $this->styleResolver->resolveCssVariablesInValue($declarations['width']);
 
         return $this->createBlock('core/spacer', $attrs, array(), $element);
+    }
+
+    private function hasEmptyGridTrackDescendant(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement
+                && '' === $this->renderedTextContent($descendant)
+                && $this->hasAuthoredGridTracks($descendant)
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function hasAuthoredGridTracks(DOMElement $element): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( ! in_array(strtolower(trim((string) ($declarations['display'] ?? ''))), array( 'grid', 'inline-grid' ), true) ) {
+            return false;
+        }
+        foreach ( array( 'grid-template-rows', 'grid-auto-rows' ) as $property ) {
+            $tracks = strtolower(trim((string) ($declarations[$property] ?? '')));
+            if ( '' !== $tracks && ! in_array($tracks, array( 'none', 'initial', 'unset' ), true) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
