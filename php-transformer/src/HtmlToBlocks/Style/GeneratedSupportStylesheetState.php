@@ -74,6 +74,9 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, array{base: string, conditional: array<string, string>}> */
     private array $responsiveTypographyRules = array();
 
+    /** @var array<string, array{marker: string, selector: string, conditions: list<string>, declarations: array<string, string>}> */
+    private array $sourceCustomPropertyRules = array();
+
     public function registerNativeSearchTrigger(string $className, string $rule): void
     {
         $this->nativeSearchTriggerRules[$className] = $rule;
@@ -250,6 +253,22 @@ final class GeneratedSupportStylesheetState
         );
     }
 
+    /** @param list<string> $conditions @param array<string, string> $declarations */
+    public function registerSourceCustomPropertyScope(string $marker, string $selector, array $conditions, array $declarations): void
+    {
+        if (array() === $declarations) {
+            return;
+        }
+        ksort($declarations, SORT_STRING);
+        $key = hash('sha256', $marker . "\n" . $selector . "\n" . serialize($conditions) . "\n" . serialize($declarations));
+        $this->sourceCustomPropertyRules[$key] = array(
+            'marker' => $marker,
+            'selector' => $selector,
+            'conditions' => array_values($conditions),
+            'declarations' => $declarations,
+        );
+    }
+
     public function beforeAuthorCss(): string
     {
         return implode("\n", $this->nativeSearchTriggerRules);
@@ -351,6 +370,28 @@ final class GeneratedSupportStylesheetState
                 $parts[] = $condition . '{:root .' . $className . '{font-size:' . $value . '}'
                     . str_repeat('}', substr_count($condition, '{') + 1);
             }
+        }
+        $sourceCustomPropertyScopes = array_values($this->sourceCustomPropertyRules);
+        usort($sourceCustomPropertyScopes, static function (array $left, array $right): int {
+            $hasViewportCondition = static fn (array $scope): int => (int) (bool) array_filter(
+                $scope['conditions'],
+                static fn (string $condition): bool => 1 === preg_match('/^@(media|container)\b/i', $condition)
+            );
+            return $hasViewportCondition($left) <=> $hasViewportCondition($right);
+        });
+        foreach ($sourceCustomPropertyScopes as $scope) {
+            if (!str_contains($serializedBlocks, $scope['marker'])) {
+                continue;
+            }
+            $declarations = array();
+            foreach ($scope['declarations'] as $property => $value) {
+                $declarations[] = $property . ':' . $value;
+            }
+            $css = $scope['selector'] . '{' . implode(';', $declarations) . '}';
+            foreach (array_reverse($scope['conditions']) as $condition) {
+                $css = $condition . '{' . $css . str_repeat('}', substr_count($condition, '{') + 1);
+            }
+            $parts[] = $css;
         }
         foreach ($this->nativeNavigationToggleRules as $marker => $rule) {
             if (str_contains($serializedBlocks, $marker)) {
