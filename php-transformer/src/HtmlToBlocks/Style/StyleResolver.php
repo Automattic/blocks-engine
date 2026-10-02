@@ -2026,6 +2026,261 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Source identity and variable scope needed when a generated component root
+     * replaces the matched source element. Root hooks remain attached to the
+     * generated stage; presentation hooks used by the source control topology
+     * are routed to the generated control host.
+     *
+     * @return array{className: string, controlClassName: string, attributes: array<string, string>, controlAttributes: array<string, string>, customProperties: array<string, string>}
+     */
+    public function sourceCustomPropertyScope(DOMElement $element, array $presentationTargets = array(), array $replacedSlides = array()): array
+    {
+        $classes = array();
+        $controlClasses = array();
+        $attributes = array();
+        $controlAttributes = array();
+        $properties = array();
+        $customPropertyEntries = array();
+        foreach ($this->matchingStyleRules($element, 'static-conditional') as $rule) {
+            $declarations = array_merge($rule['declarations'] ?? array(), $rule['cascadedDeclarations'] ?? array());
+            $customNames = array_filter(array_keys($declarations), static fn ($name): bool => str_starts_with((string) $name, '--'));
+            if (array() === $customNames) {
+                continue;
+            }
+            $selector = (string) ($rule['selector'] ?? '');
+            foreach (SourceDom::boundedClassTokens(SourceDom::attr($element, 'class')) as $class) {
+                if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                    $classes[$class] = true;
+                }
+            }
+            if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $matches)) {
+                foreach (array_unique($matches[1]) as $name) {
+                    $value = SourceDom::attr($element, $name);
+                    if ('' !== $value) {
+                        $attributes[$name] = $value;
+                    }
+                }
+            }
+            foreach ($customNames as $name) {
+                $properties[(string) $name] = true;
+                $customPropertyEntries[(string) $name][] = array(
+                    'value' => trim((string) ($declarations[$name] ?? '')),
+                    'conditions' => array_values(array_map('trim', $rule['conditions'] ?? array())),
+                );
+            }
+        }
+        // A generated carousel owns the control nodes but their authored
+        // presentation rules can be scoped through the source component's root
+        // classes/attributes. Keep only root identity hooks named by selectors
+        // that actually matched those emitted control/topology source nodes.
+        // This does not restore runtime slide hooks such as `.slider .slide`.
+        $rootClasses = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
+        $runtimeOwnedRootClasses = array();
+        $runtimeProperties = array_fill_keys(array('transform', 'translate', 'rotate', 'scale', 'animation', 'animation-name', 'animation-play-state', 'opacity', 'visibility'), true);
+        $authorRules = $this->context->authorStyles()->styleRules();
+        foreach ($authorRules as $authorRule) {
+            $declarations = is_array($authorRule['declarations'] ?? null) ? $authorRule['declarations'] : array();
+            if (array() === $declarations) {
+                continue;
+            }
+            $customNames = array_filter(array_keys($declarations), static fn ($name): bool => str_starts_with((string) $name, '--'));
+            $conditions = array_values(array_map('trim', is_array($authorRule['conditions'] ?? null) ? $authorRule['conditions'] : array()));
+            foreach (is_array($authorRule['selectors'] ?? null) ? $authorRule['selectors'] : array() as $authorSelector) {
+                $selector = trim((string) ($authorSelector['selector'] ?? ''));
+                if ('' === $selector) {
+                    continue;
+                }
+                if (array() !== $customNames && $this->matchesCssSelector($element, $selector)) {
+                    foreach ($rootClasses as $class) {
+                        if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                            $classes[$class] = true;
+                        }
+                    }
+                    if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $matches)) {
+                        foreach (array_unique($matches[1]) as $name) {
+                            $value = SourceDom::attr($element, $name);
+                            if ('' !== $value) {
+                                $attributes[$name] = $value;
+                            }
+                        }
+                    }
+                    foreach ($customNames as $name) {
+                        $properties[(string) $name] = true;
+                        $customPropertyEntries[(string) $name][] = array(
+                            'value' => trim((string) ($declarations[$name] ?? '')),
+                            'conditions' => $conditions,
+                        );
+                    }
+                }
+                foreach ($presentationTargets as $target) {
+                    if (!$target instanceof DOMElement || !$this->matchesCssSelector($target, $selector)) {
+                        continue;
+                    }
+                    foreach ($rootClasses as $class) {
+                        if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                            $controlClasses[$class] = true;
+                        }
+                    }
+                    if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $matches)) {
+                        foreach (array_unique($matches[1]) as $name) {
+                            $value = SourceDom::attr($element, $name);
+                            if ('' !== $value) {
+                                $controlAttributes[$name] = $value;
+                            }
+                        }
+                    }
+                }
+                foreach ($replacedSlides as $slide) {
+                    if (!$slide instanceof DOMElement || !$this->matchesCssSelector($slide, $selector)
+                        || array() === array_intersect_key($declarations, $runtimeProperties)
+                    ) {
+                        continue;
+                    }
+                    foreach ($rootClasses as $class) {
+                        if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                            $runtimeOwnedRootClasses[$class] = true;
+                        }
+                    }
+                }
+            }
+        }
+        foreach ($presentationTargets as $target) {
+            if (!$target instanceof DOMElement || $target === $element) {
+                continue;
+            }
+            foreach ($this->matchingStyleRules($target, 'static-conditional') as $rule) {
+                $selector = (string) ($rule['selector'] ?? '');
+                foreach ($rootClasses as $class) {
+                    if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                        $controlClasses[$class] = true;
+                    }
+                }
+                if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $matches)) {
+                    foreach (array_unique($matches[1]) as $name) {
+                        $value = SourceDom::attr($element, $name);
+                        if ('' !== $value) {
+                            $controlAttributes[$name] = $value;
+                        }
+                    }
+                }
+            }
+        }
+        $replacementClasses = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
+        foreach ($replacedSlides as $slide) {
+            if (!$slide instanceof DOMElement) {
+                continue;
+            }
+            $slideClasses = SourceDom::boundedClassTokens(SourceDom::attr($slide, 'class'));
+            foreach ($this->matchingStyleRules($slide, 'cascaded-values') as $rule) {
+                $selector = (string) ($rule['selector'] ?? '');
+                $declarations = array_merge($rule['declarations'] ?? array(), $rule['cascadedDeclarations'] ?? array());
+                if (array() === array_intersect_key($declarations, $runtimeProperties)) {
+                    continue;
+                }
+                foreach ($replacementClasses as $class) {
+                    $namesRootClass = 1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector);
+                    $namesSlide = false;
+                    foreach ($slideClasses as $slideClass) {
+                        $namesSlide = $namesSlide || 1 === preg_match('/' . CssIdent::classSelectorRegex($slideClass) . '(?![a-zA-Z0-9_-])/', $selector);
+                    }
+                    if ($namesRootClass && $namesSlide) {
+                        $runtimeOwnedRootClasses[$class] = true;
+                    }
+                }
+            }
+        }
+        $presentationClasses = array_values(array_filter(
+            array_unique(array_merge(array_keys($classes), SourceDom::boundedClassTokens($this->presentationClassName(SourceDom::attr($element, 'class'))))),
+            static fn (string $class): bool => !isset($runtimeOwnedRootClasses[$class]) && isset($classes[$class])
+        ));
+        // The component's presentation classes and source marker also scope
+        // authored control CSS. Rebind them to the generated control host rather
+        // than the slide stage, so source runtime selectors cannot retarget slides.
+        foreach (SourceDom::boundedClassTokens($this->presentationClassName(SourceDom::attr($element, 'class'))) as $class) {
+            $controlClasses[$class] = true;
+        }
+        foreach ($this->context->authorSelectorProjectionState()->attributeStateMarkers($element->getNodePath() ?? '') as $marker) {
+            $controlClasses[$marker] = true;
+        }
+        $controlAttributes += $attributes;
+        // Stylesheet declarations keep their own selector and media-condition
+        // ownership when the emitted root carries the matched class/attribute
+        // identity above. Serializing a cascade winner inline would freeze a
+        // reference-viewport value and defeat source media rules. Only direct
+        // inline custom properties are restated on the replacement root.
+        $available = array_filter(
+            $this->cssDeclarations(SourceDom::attr($element, 'style')),
+            static fn (string $name): bool => str_starts_with($name, '--'),
+            ARRAY_FILTER_USE_KEY
+        );
+        foreach ($customPropertyEntries as $name => $entries) {
+            $unique = array();
+            foreach ($entries as $entry) {
+                $unique[serialize($entry)] = $entry;
+            }
+            $customPropertyEntries[$name] = array_values($unique);
+        }
+        $scopedDeclarations = array();
+        foreach ($customPropertyEntries as $name => $entries) {
+            if (isset($available[$name])) {
+                continue;
+            }
+            foreach ($entries as $entry) {
+                $value = $entry['value'];
+                if ('' === $value || preg_match('/[;{}<>]/', $value)) {
+                    continue;
+                }
+                $conditions = $entry['conditions'];
+                $scopeKey = serialize($conditions);
+                $scopedDeclarations[$scopeKey]['conditions'] = $conditions;
+                // Replaying every source condition preserves viewport ownership;
+                // the last value for a variable under one condition wins in
+                // source order without pinning the base/reference viewport.
+                $scopedDeclarations[$scopeKey]['declarations'][$name] = $value;
+            }
+        }
+        // The replacement root needs a per-instance binding: source class or
+        // data hooks may be shared by otherwise independent components.
+        // Keep source IDs as identity too, since author selectors may depend on
+        // them, but never use a source-specific attribute as the restatement key.
+        $scopeToken = substr(hash('sha256', (string) ($element->getNodePath() ?? '') . "\n" . (string) $element->ownerDocument?->saveHTML($element)), 0, 16);
+        $scopeAttribute = 'data-be-source-scope';
+        $scopeValue = 'scope-' . $scopeToken;
+        $attributes[$scopeAttribute] = $scopeValue;
+        $sourceScopeSelector = '[' . $scopeAttribute . '="' . $scopeValue . '"]';
+        $sourceId = SourceDom::attr($element, 'id');
+        if ('' !== $sourceId) {
+            $attributes['id'] = $sourceId;
+        }
+        $serializationMarker = $scopeValue;
+        foreach ($scopedDeclarations as $scope) {
+            $declarations = $scope['declarations'];
+            ksort($declarations, SORT_STRING);
+            $this->context->generatedSupportStyles()->registerSourceCustomPropertyScope(
+                $serializationMarker,
+                $sourceScopeSelector,
+                $scope['conditions'],
+                $declarations
+            );
+        }
+        $customProperties = array();
+        foreach (array_keys($properties) as $name) {
+            if (isset($available[$name])) {
+                $customProperties[$name] = $available[$name];
+            }
+        }
+        ksort($customProperties, SORT_STRING);
+
+        return array(
+            'className' => implode(' ', $presentationClasses),
+            'controlClassName' => implode(' ', array_keys($controlClasses)),
+            'attributes' => $attributes,
+            'controlAttributes' => $controlAttributes,
+            'customProperties' => $customProperties,
+        );
+    }
+
+    /**
      * Resolve structural context even when the element is not itself a style
      * boundary. Child classification still needs parent flex/grid semantics.
      *
