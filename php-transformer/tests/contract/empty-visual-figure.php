@@ -184,4 +184,14 @@ $assert(str_contains($columnSizelessMarkup, 'placeholder blocks-engine-empty-fle
 $assert(str_contains($columnSizelessCssOut, ':where(.blocks-engine-empty-flex-column-item){flex:0 0 0!important;height:0!important;min-height:0!important;margin-top:0!important;margin-bottom:0!important}'), 'The column-axis compatibility rule zeroes height and vertical margin instead of the row-axis width and horizontal margin.');
 $assert(! str_contains($columnSizelessCssOut, 'blocks-engine-empty-flex-item){'), 'A page with only column-axis empty flex items does not also emit the unused row-axis compatibility rule.');
 
+// Inline opacity is paint owned by an empty painted boundary, rather than a
+// reveal/visibility state to be globally rewritten. Preserve alpha per source
+// element, including intentional zero, without needing source identity hooks.
+$inlineOverlay = ( new HtmlTransformer() )->transform('<main><div style="height:40px;background-color:#000;opacity:.35"></div><div style="height:40px;background-color:#000;opacity:.65"></div><div style="height:40px;background-color:#000;opacity:0"></div></main>')->toArray();
+$inlineOverlayMarkup = (string) ($inlineOverlay['serialized_blocks'] ?? '');
+$inlineOverlayCss = $engineSupportCss($inlineOverlay['assets'] ?? array());
+$inlineOverlayValidity = ( new BlockValidityValidator() )->validateBlocks($inlineOverlay['blocks'] ?? array());
+$assert(3 === substr_count($inlineOverlayMarkup, 'blocks-engine-empty-visual-group') / 2 && 'pass' === ($inlineOverlayValidity['status'] ?? ''), 'Empty inline-painted overlays remain valid native groups.');
+$assert(str_contains($inlineOverlayCss, 'opacity:.35 !important') && str_contains($inlineOverlayCss, 'opacity:.65 !important') && str_contains($inlineOverlayCss, 'opacity:0 !important'), 'Each empty inline-painted overlay retains its authored alpha, including intentional zero.');
+
 fwrite(STDOUT, "Empty visual figure contracts passed.\n");

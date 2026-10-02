@@ -5564,7 +5564,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
-        if ( $this->isInertHiddenEmptyElement($element) ) {
+        $inlineDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inlineOpacity = CssValueInspector::comparable((string) ($inlineDeclarations['opacity'] ?? ''));
+        $hasInlinePaint = array() !== array_intersect_key($inlineDeclarations, array_flip(array( 'background', 'background-color', 'background-image' )));
+        if ( $this->isInertHiddenEmptyElement($element)
+            && ! (is_numeric($inlineOpacity) && 0.0 === (float) $inlineOpacity && $hasInlinePaint)
+        ) {
             return false;
         }
 
