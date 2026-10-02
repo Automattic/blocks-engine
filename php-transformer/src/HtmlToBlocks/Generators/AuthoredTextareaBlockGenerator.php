@@ -35,6 +35,7 @@ final class AuthoredTextareaBlockGenerator
                 'disabled' => array( 'type' => 'boolean', 'default' => false ),
                 'readOnly' => array( 'type' => 'boolean', 'default' => false ),
                 'label' => array( 'type' => 'string', 'default' => '' ),
+                'labelMarkup' => array( 'type' => 'string', 'default' => '' ),
                 'labelClassName' => array( 'type' => 'string', 'default' => '' ),
                 'labelStyle' => array( 'type' => 'string', 'default' => '' ),
             ),
@@ -52,16 +53,18 @@ final class AuthoredTextareaBlockGenerator
     var PanelBody = components.PanelBody;
     var TextControl = components.TextControl;
     var ToggleControl = components.ToggleControl;
+    var RichText = blockEditor.RichText;
     var attributes = __BLOCK_ATTRIBUTES__;
     function escapeAttribute( value ) { return String( value || '' ).replace( /&/g, '&amp;' ).replace( /"/g, '&quot;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ); }
     function styleObject( value ) { if ( ! value ) return undefined; return String( value ).split( ';' ).reduce( function( output, declaration ) { var separator = declaration.indexOf( ':' ); if ( separator < 1 ) return output; var name = declaration.slice( 0, separator ).trim(); var property = name.indexOf( '--' ) === 0 ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); output[ property ] = declaration.slice( separator + 1 ).trim(); return output; }, {} ); }
-    function markup( attrs ) { var output = '<textarea'; [ 'id', 'name', 'placeholder', 'ariaLabel', 'className', 'style', 'rows', 'cols', 'maxLength' ].forEach( function( key ) { if ( attrs[ key ] ) output += ' ' + ( 'className' === key ? 'class' : ( 'ariaLabel' === key ? 'aria-label' : ( 'maxLength' === key ? 'maxlength' : key ) ) ) + '="' + escapeAttribute( attrs[ key ] ) + '"'; } ); [ 'required', 'disabled', 'readOnly' ].forEach( function( key ) { if ( attrs[ key ] ) output += ' ' + ( 'readOnly' === key ? 'readonly' : key ); } ); output += '>' + escapeAttribute( attrs.value ) + '</textarea>'; if ( attrs.label ) output = '<label' + ( attrs.labelClassName ? ' class="' + escapeAttribute( attrs.labelClassName ) + '"' : '' ) + ( attrs.labelStyle ? ' style="' + escapeAttribute( attrs.labelStyle ) + '"' : '' ) + '>' + escapeAttribute( attrs.label ) + output + '</label>'; return output; }
-    function edit( props ) { var attrs = props.attributes; var textarea = createElement( 'textarea', { id: attrs.id || undefined, name: attrs.name || undefined, value: attrs.value || '', placeholder: attrs.placeholder || undefined, 'aria-label': attrs.ariaLabel || undefined, className: attrs.className || undefined, style: styleObject( attrs.style ), rows: attrs.rows || undefined, cols: attrs.cols || undefined, maxLength: attrs.maxLength || undefined, required: attrs.required, disabled: attrs.disabled, readOnly: attrs.readOnly, onChange: function( event ) { props.setAttributes( { value: event.target.value } ); } } ); var field = attrs.label ? createElement( 'label', { className: attrs.labelClassName || undefined, style: styleObject( attrs.labelStyle ) }, attrs.label, textarea ) : textarea; return createElement( element.Fragment, null, createElement( InspectorControls, null, createElement( PanelBody, { title: 'Field settings' }, createElement( TextControl, { label: 'Label', value: attrs.label || '', onChange: function( label ) { props.setAttributes( { label: label } ); } } ), createElement( TextControl, { label: 'Field name', value: attrs.name || '', onChange: function( name ) { props.setAttributes( { name: name } ); } } ), createElement( TextControl, { label: 'Placeholder', value: attrs.placeholder || '', onChange: function( placeholder ) { props.setAttributes( { placeholder: placeholder } ); } } ), createElement( TextControl, { label: 'Rows', value: attrs.rows || '', onChange: function( rows ) { props.setAttributes( { rows: rows } ); } } ), createElement( ToggleControl, { label: 'Required', checked: !!attrs.required, onChange: function( required ) { props.setAttributes( { required: required } ); } } ), createElement( ToggleControl, { label: 'Disabled', checked: !!attrs.disabled, onChange: function( disabled ) { props.setAttributes( { disabled: disabled } ); } } ) ) ), field ); }
+    function markup( attrs ) { var output = '<textarea'; [ 'id', 'name', 'placeholder', 'ariaLabel', 'className', 'style', 'rows', 'cols', 'maxLength' ].forEach( function( key ) { if ( attrs[ key ] ) output += ' ' + ( 'className' === key ? 'class' : ( 'ariaLabel' === key ? 'aria-label' : ( 'maxLength' === key ? 'maxlength' : key ) ) ) + '="' + escapeAttribute( attrs[ key ] ) + '"'; } ); [ 'required', 'disabled', 'readOnly' ].forEach( function( key ) { if ( attrs[ key ] ) output += ' ' + ( 'readOnly' === key ? 'readonly' : key ); } ); output += '>' + escapeAttribute( attrs.value ) + '</textarea>'; if ( attrs.label ) output = '<label' + ( attrs.labelClassName ? ' class="' + escapeAttribute( attrs.labelClassName ) + '"' : '' ) + ( attrs.labelStyle ? ' style="' + escapeAttribute( attrs.labelStyle ) + '"' : '' ) + '>' + ( attrs.labelMarkup || escapeAttribute( attrs.label ) ) + output + '</label>'; return output; }
+    function edit( props ) { var attrs = props.attributes; var textarea = createElement( 'textarea', { id: attrs.id || undefined, name: attrs.name || undefined, value: attrs.value || '', placeholder: attrs.placeholder || undefined, 'aria-label': attrs.ariaLabel || undefined, className: attrs.className || undefined, style: styleObject( attrs.style ), rows: attrs.rows || undefined, cols: attrs.cols || undefined, maxLength: attrs.maxLength || undefined, required: attrs.required, disabled: attrs.disabled, readOnly: attrs.readOnly, onChange: function( event ) { props.setAttributes( { value: event.target.value } ); } } ); var labelContent = attrs.labelMarkup ? createElement( RichText, { tagName: 'span', value: attrs.labelMarkup, allowedFormats: [ 'core/bold', 'core/italic', 'core/strikethrough', 'core/underline' ], onChange: function( labelMarkup ) { props.setAttributes( { labelMarkup: labelMarkup } ); } } ) : attrs.label; var field = attrs.label ? createElement( 'label', { className: attrs.labelClassName || undefined, style: styleObject( attrs.labelStyle ) }, labelContent, textarea ) : textarea; return createElement( element.Fragment, null, createElement( InspectorControls, null, createElement( PanelBody, { title: 'Field settings' }, createElement( TextControl, { label: 'Label', value: attrs.label || '', onChange: function( label ) { props.setAttributes( { label: label } ); } } ), createElement( TextControl, { label: 'Field name', value: attrs.name || '', onChange: function( name ) { props.setAttributes( { name: name } ); } } ), createElement( TextControl, { label: 'Placeholder', value: attrs.placeholder || '', onChange: function( placeholder ) { props.setAttributes( { placeholder: placeholder } ); } } ), createElement( TextControl, { label: 'Rows', value: attrs.rows || '', onChange: function( rows ) { props.setAttributes( { rows: rows } ); } } ), createElement( ToggleControl, { label: 'Required', checked: !!attrs.required, onChange: function( required ) { props.setAttributes( { required: required } ); } } ), createElement( ToggleControl, { label: 'Disabled', checked: !!attrs.disabled, onChange: function( disabled ) { props.setAttributes( { disabled: disabled } ); } } ) ) ), field ); }
     function save( props ) { return createElement( element.RawHTML, null, markup( props.attributes ) ); }
     blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
+        $script = AuthoredFormLabelEditorScript::synchronize($script);
         return array(
             'index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__'), array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)), $script),
         );
@@ -93,7 +96,8 @@ JS;
             if ( '' !== (string) ($attrs['labelStyle'] ?? '') ) {
                 $labelAttributes .= ' style="' . $escape($attrs['labelStyle']) . '"';
             }
-            $markup = '<label' . $labelAttributes . '>' . $escape($attrs['label']) . $markup . '</label>';
+            $labelMarkup = (string) ($attrs['labelMarkup'] ?? '');
+            $markup = '<label' . $labelAttributes . '>' . ( '' !== $labelMarkup ? $labelMarkup : $escape($attrs['label']) ) . $markup . '</label>';
         }
 
         return $markup;
@@ -102,6 +106,6 @@ JS;
     /** @return array<string, mixed> */
     public function definition(string $namespace): array
     {
-        return array( 'name' => self::LOCAL_NAME, 'block_json' => $this->blockJson($namespace), 'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ), 'assets' => $this->assets($namespace) );
+        return array( 'name' => self::LOCAL_NAME, 'block_json' => $this->blockJson($namespace), 'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text' ) ), 'assets' => $this->assets($namespace) );
     }
 }

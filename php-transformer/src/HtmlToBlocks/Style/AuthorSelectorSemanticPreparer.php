@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -193,6 +194,16 @@ final class AuthorSelectorSemanticPreparer
                 if ( $listItem instanceof DOMElement && ! $structuralListItem && self::richTextSelectorNeedsHook($parsed) ) {
                     $marker = $projections->ensureRichTextMarker($path);
                     $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
+                } elseif ( 'span' === $inlineTag
+                    && $this->ancestorElement($element, 'label') instanceof DOMElement
+                    && self::richTextSelectorNeedsHook($parsed)
+                ) {
+                    // A label's text is emitted by the input block's RichText
+                    // label carrier. Keep selector-addressable inline spans on
+                    // that carrier even when their authored block display made
+                    // them look like independent layout wrappers in source.
+                    $marker = $projections->ensureRichTextMarker($path);
+                    $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
                 } elseif ( $directAuthorLayoutItem
                     || ($structuralListItem && self::richTextSelectorNeedsHook($parsed))
                     || $this->context->requiresIndependentSemanticWrapper($element)
@@ -219,6 +230,7 @@ final class AuthorSelectorSemanticPreparer
                 if ( '' !== $path
                     && $this->context->requiresInlineLayoutCarrier($element)
                     && ! $projections->isControlPath($parentPath)
+                    && ! ('' !== $projections->richTextMarker($path) && $this->ancestorElement($element, 'label') instanceof DOMElement)
                 ) {
                     $projections->markInlineLayoutCarrierPath($path);
                 }
@@ -264,8 +276,7 @@ final class AuthorSelectorSemanticPreparer
 
             $compounds = $parsed['compounds'] ?? array();
             $rightmost = $compounds[array_key_last($compounds)] ?? array();
-            $hasDataAttribute = array_filter($rightmost['attributes'] ?? array(), static fn (array $attribute): bool => str_starts_with($attribute['name'] ?? '', 'data-'));
-            if ( array() === $hasDataAttribute ) {
+            if ( ! CssSelectorCompoundInspector::containsDataAttribute($rightmost) ) {
                 continue;
             }
             foreach ( $this->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {

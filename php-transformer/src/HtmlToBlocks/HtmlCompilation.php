@@ -628,7 +628,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             },
             $this->runtime,
             fn (string $id): string => $this->safeAnchor($id),
-            fn (DOMElement $element): ?DOMElement => $this->sourceTagProjectedClone($element)
+            fn (DOMElement $element): ?DOMElement => $this->sourceTagProjectedClone($element),
+            fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' ))
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
@@ -5564,7 +5565,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
-        if ( $this->isInertHiddenEmptyElement($element) ) {
+        $inlineDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $inlineOpacity = CssValueInspector::comparable((string) ($inlineDeclarations['opacity'] ?? ''));
+        $paintDeclarations = array_merge($this->styleResolver->structuralPresentationDeclarations($element), $inlineDeclarations);
+        $hasAuthoredPaint = array() !== array_intersect_key($paintDeclarations, array_flip(array( 'background', 'background-color', 'background-image' )));
+        if ( $this->isInertHiddenEmptyElement($element)
+            && ! (is_numeric($inlineOpacity) && 0.0 === (float) $inlineOpacity && $hasAuthoredPaint)
+        ) {
             return false;
         }
 
