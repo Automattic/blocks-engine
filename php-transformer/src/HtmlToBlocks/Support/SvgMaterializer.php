@@ -216,6 +216,12 @@ final class SvgMaterializer implements SvgElementMaterializer
         $sourceDisplay = strtolower(trim((string) ($presentation['display'] ?? '')));
         $parent = $element->parentNode;
         $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
+        // display:contents is not a percentage containing block. The effective
+        // parent is the nearest ancestor that actually establishes a box.
+        while ( $parent instanceof DOMElement && 'contents' === strtolower(trim((string) ($parentPresentation['display'] ?? ''))) ) {
+            $parent = $parent->parentNode;
+            $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
+        }
         $parentDisplay = strtolower(trim((string) ($parentPresentation['display'] ?? '')));
         $isFlexOrGridItem = in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
         $sourceObjectFit = strtolower(trim((string) ($presentation['object-fit'] ?? '')));
@@ -226,12 +232,21 @@ final class SvgMaterializer implements SvgElementMaterializer
         // or a positioned media wrapper when object-fit makes that intent explicit.
         // Make the generated core/image figure fill that wrapper and drop its
         // default margin instead of collapsing to intrinsic viewBox geometry.
-        $isResponsiveFillSvg = (
+        $sourceWidth = trim((string) ($presentation['width'] ?? SourceDom::attr($element, 'width')));
+        $sourceHeight = trim((string) ($presentation['height'] ?? SourceDom::attr($element, 'height')));
+        $fillsSizedParent = ! $richTextImage
+            && $parent instanceof DOMElement
+            && CssValueInspector::hasDefiniteWidth($this->styleResolver->cssDeclarationString($parentPresentation))
+            && CssValueInspector::hasDefiniteHeight($this->styleResolver->cssDeclarationString($parentPresentation))
+            && '100%' === $sourceWidth && '100%' === $sourceHeight;
+        $isResponsiveFillSvg = $fillsSizedParent || (
+            (
             ($isFlexOrGridItem && $parent instanceof DOMElement && $this->declarationsOwnMediaBox($parentPresentation))
             || ($isPositionedMediaBox && in_array($sourceObjectFit, array( 'contain', 'cover', 'fill', 'none', 'scale-down' ), true))
-        )
+            )
             && null !== $this->svgPercentageWidth(trim(SourceDom::attr($element, 'width')))
-            && null !== $this->svgPercentageWidth(trim(SourceDom::attr($element, 'height')));
+            && null !== $this->svgPercentageWidth(trim(SourceDom::attr($element, 'height')))
+        );
         if ( $isResponsiveFillSvg ) {
             $dimensions = array();
             // This is generated fill geometry, not an authored image support.
@@ -245,7 +260,9 @@ final class SvgMaterializer implements SvgElementMaterializer
             // parent-fill path.
             $imgRule = '>img{width:100%;height:100%;-o-object-fit:' . $objectFit . ';object-fit:' . $objectFit . '}';
             $fillClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule);
-            $this->context->layoutGeometry()->registerRule($fillClass, '.' . $fillClass . $figureRule . '.wp-block-image.' . $fillClass . $imgRule);
+            $linkedImgRule = str_replace('>img', '>a>img', $imgRule);
+            $this->context->layoutGeometry()->registerRule($fillClass, '.' . $fillClass . $figureRule . '.wp-block-image.' . $fillClass . $imgRule
+                . '.wp-block-image.' . $fillClass . $linkedImgRule . '.' . $fillClass . '>a{display:block;width:100%;height:100%}');
             $attrs = array(
                 'url'       => $url,
                 'alt'       => $this->svgImageAlt($element),
@@ -334,13 +351,16 @@ final class SvgMaterializer implements SvgElementMaterializer
             $style = trim($style, ';') . ( '' === trim($style, ';') ? '' : ';' ) . $dimension . ':' . $resolvedSourceDimensions[$dimension];
         }
         if ( $this->cssOwnsMediaBox($element) ) {
-            $resolved = $this->richTextSvgDimensions($element, $this->styleResolver->presentationDeclarations($element));
+            $presentation = $this->styleResolver->presentationDeclarations($element);
+            $resolved = $this->richTextSvgDimensions($element, $presentation);
+            $declarations = $this->styleResolver->cssDeclarations($style);
             foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $dimension ) {
-                if ( ! isset($resolved[$dimension]) || preg_match('/(?:^|;)\s*' . preg_quote($dimension, '/') . '\s*:/i', $style) ) {
+                if ( ! isset($resolved[$dimension]) || (isset($declarations[$dimension]) && ($presentation[$dimension] ?? '') === $resolved[$dimension]) ) {
                     continue;
                 }
-                $style = trim($style, ';') . ( '' === trim($style, ';') ? '' : ';' ) . $dimension . ':' . $resolved[$dimension];
+                $declarations[$dimension] = $resolved[$dimension];
             }
+            $style = $this->styleResolver->cssDeclarationString($declarations);
         }
         foreach ( array( 'width', 'height' ) as $dimension ) {
             if ( empty($attrs[$dimension]) || preg_match('/(?:^|;)\s*' . $dimension . '\s*:/i', $style) ) {
@@ -760,9 +780,24 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     private function resolveMaterializedSvgColors(string $html, DOMElement $element): string
     {
-        $html = $this->resolveCssVariablesInSvgMarkup($html, $element);
-        if ( false !== stripos($html, 'currentColor') ) {
-            $html = preg_replace('/\bcurrentColor\b/i', $this->inheritedSvgColor($element), $html) ?? $html;
+        if ( str_contains($html, 'var(') || false !== stripos($html, 'currentColor') ) {
+            $sources = array_merge(array($element), iterator_to_array($element->getElementsByTagName('*')));
+            $index = 0;
+            $html = preg_replace_callback('/<([a-z][a-z0-9:-]*)\b[^>]*>/i', function (array $match) use ($sources, &$index): string {
+                // Sanitization can remove source tags. Walk surviving tags in
+                // source order so each descendant retains its own paint scope.
+                while ( isset($sources[$index]) && strtolower($sources[$index]->tagName) !== strtolower($match[1]) ) {
+                    ++$index;
+                }
+                $source = $sources[$index++] ?? null;
+                if ( ! $source instanceof DOMElement ) {
+                    return $match[0];
+                }
+                $tag = $this->resolveCssVariablesInSvgMarkup($match[0], $source);
+                return false !== stripos($tag, 'currentColor')
+                    ? (preg_replace('/\bcurrentColor\b/i', $this->inheritedSvgColor($source), $tag) ?? $tag)
+                    : $tag;
+            }, $html) ?? $html;
         }
 
         return $this->bakeCascadedSvgPaint($html, $element);
@@ -922,15 +957,25 @@ final class SvgMaterializer implements SvgElementMaterializer
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
             $resolved = $this->styleResolver->resolvedSvgCascadeValue($current, $property);
             if ( null === $resolved ) {
-                if ( $current === $element && '' !== trim(SourceDom::attr($current, $property)) ) {
+                $attribute = trim(SourceDom::attr($current, $property));
+                if ( 'color' === $property && '' !== $attribute ) {
+                    // color is itself inherited by currentColor artwork. Unlike
+                    // fill/stroke, leaving its attribute in markup does not tell
+                    // the materializer which color to bake into that artwork.
+                    $resolved = $this->styleResolver->resolveCssVariablesInValue($attribute, $current);
+                } elseif ( $current === $element && '' !== $attribute ) {
                     // The element's own presentation attribute already carries
                     // this paint into the materialized markup verbatim.
                     return null;
+                } else {
+                    continue;
                 }
-                continue;
             }
 
             $resolved = trim($resolved);
+            if ( 'color' === $property && in_array(strtolower($resolved), array('inherit', 'unset'), true) ) {
+                continue;
+            }
             if ( '' === $resolved || preg_match('/var\s*\(|[<>]/i', $resolved) ) {
                 // The declared value could not be fully resolved. Stop rather
                 // than risk baking the wrong ancestor's paint.
@@ -1379,7 +1424,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         return false;
     }
 
-    private function isPassiveSvgMarkup(DOMElement $element): bool
+    public static function isPassiveSvgMarkup(DOMElement $element): bool
     {
         // Full set of safe SVG structure/presentation/text/filter elements. These carry
         // only geometry, gradients, filters, and text — no scripting or external embedding
@@ -1402,7 +1447,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         $allowedAttributes = array_flip(array(
             'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'bias',
             'class', 'clip-path', 'clip-rule', 'cliprule', 'color-interpolation', 'color-interpolation-filters',
-            'color-rendering', 'cx', 'cy', 'd',
+            'color', 'color-rendering', 'cx', 'cy', 'd',
             'data-bbox', 'data-color', 'data-testid', 'data-type',
             'diffuseconstant', 'divisor', 'dominant-baseline', 'dx', 'dy', 'edgemode',
             'elevation', 'enable-background', 'exponent', 'fill', 'fill-opacity', 'fill-rule', 'fillrule', 'flood-color',
@@ -1433,19 +1478,19 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( in_array(strtolower($child->tagName), array('style', 'link'), true) ) {
                 continue;
             }
-            if ( ! $child instanceof DOMElement || ! $this->isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {
+            if ( ! $child instanceof DOMElement || ! self::isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {
                 return false;
             }
         }
 
-        return $this->isPassiveSvgElement($element, $allowedTags, $allowedAttributes);
+        return self::isPassiveSvgElement($element, $allowedTags, $allowedAttributes);
     }
 
     /**
      * @param array<string, int> $allowedTags
      * @param array<string, int> $allowedAttributes
      */
-    private function isPassiveSvgElement(DOMElement $element, array $allowedTags, array $allowedAttributes): bool
+    private static function isPassiveSvgElement(DOMElement $element, array $allowedTags, array $allowedAttributes): bool
     {
         if ( ! isset($allowedTags[strtolower($element->tagName)]) ) {
             return false;
@@ -1454,7 +1499,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
             $name = strtolower($name);
             $isInertDataAttribute = str_starts_with($name, 'data-') && 'data-dom-store' !== $name;
-            if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
+            // Icon exporters annotate groups with a variant name. It is not an
+            // SVG behavior or paint property; matched descendant CSS is still
+            // baked and the original metadata travels with the asset.
+            $isInertGroupWeight = 'weight' === $name && 'g' === strtolower($element->tagName) && 1 === preg_match('/^[a-z][a-z-]*$/iD', $value);
+            if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute && ! $isInertGroupWeight) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
                 return false;
             }
             if ( preg_match('/(?:^|:)href$/i', $name) && ! str_starts_with(trim($value), '#') ) {

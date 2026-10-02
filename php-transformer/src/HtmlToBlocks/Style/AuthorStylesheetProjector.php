@@ -115,7 +115,7 @@ final class AuthorStylesheetProjector
         $svgImageRule = '' === $svgImagePrelude
             ? ''
             : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
-        $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body);
+        $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $svgImageRule . $editorDocumentRootRule;
 
@@ -525,7 +525,7 @@ final class AuthorStylesheetProjector
                 $markers[] = $marker;
             }
             if ( array() === $markers && ! $hasLabelProjection ) {
-                $rewritten[] = $selector;
+                array_push($rewritten, ...($this->projectSourceAttributePseudoSelector($selector, $context) ?? array($selector)));
                 continue;
             }
             foreach ( array_unique($markers) as $marker ) {
@@ -1378,6 +1378,11 @@ final class AuthorStylesheetProjector
                 array_push($rewritten, ...$runtimeProjection);
                 continue;
             }
+            $pseudoProjection = $this->projectSourceAttributePseudoSelector($selector, $context);
+            if (null !== $pseudoProjection && array() !== $pseudoProjection) {
+                array_push($rewritten, ...$pseudoProjection);
+                continue;
+            }
             $selector = $this->projectSourceAttributeNegationStateSelector($selector, $context);
             $selector = $this->projectSourceBodyStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
@@ -1406,7 +1411,7 @@ final class AuthorStylesheetProjector
                 array_push($rewritten, ...$attributeAncestryProjection);
                 continue;
             }
-            $attributeProjection = $this->projectSourceAttributeSelector($parsed, $matches, $context);
+            $attributeProjection = $this->projectSourceAttributeSelector($selector, $parsed, $matches, $context);
             if ( null !== $attributeProjection ) {
                 array_push($rewritten, ...$attributeProjection);
                 continue;
@@ -1676,10 +1681,16 @@ final class AuthorStylesheetProjector
         return array_values(array_unique($rewritten));
     }
 
-    private function editorDocumentRootRule(string $prelude, string $body): string
+    private function editorDocumentRootRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors || ! in_array('body', array_map(static fn (string $selector): string => strtolower(trim($selector)), $selectors), true) ) {
+        $matchesRoot = false;
+        $root = $context->authorStyles->sourceBody()->ownerDocument?->documentElement;
+        foreach ($selectors ?? array() as $selector) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ('body' === strtolower(trim($selector)) || ($root instanceof DOMElement && ($parsed['supported'] ?? false) && null === ($parsed['pseudo_state_suffix_span'] ?? null) && CssSelectorMatcher::matches($root, $parsed)['matches'])) $matchesRoot = true;
+        }
+        if (!$matchesRoot) {
             return '';
         }
 
@@ -1726,6 +1737,17 @@ final class AuthorStylesheetProjector
         return null;
     }
 
+    /** @return list<string>|null */
+    private function projectSourceAttributePseudoSelector(string $selector, AuthorStylesheetProjectionContext $context): ?array
+    {
+        $host = CssSelectorMatcher::pseudoElementHost($selector);
+        if (null === $host) return null;
+        $matches = $this->matchingSourceElements($host['selector'], $host['parsed'], $context);
+        $projected = $this->projectSourceAttributeAncestrySelector($host['selector'], $host['parsed'], $matches, $context)
+            ?? $this->projectSourceAttributeSelector($host['selector'], $host['parsed'], $matches, $context);
+        return null === $projected ? null : array_map(static fn (string $target): string => $target . $host['suffix'], $projected);
+    }
+
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
     private function projectSourceAttributeAncestrySelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
     {
@@ -1743,7 +1765,7 @@ final class AuthorStylesheetProjector
             $id = trim($element->getAttribute('id'));
             $parent = $element->parentNode;
             $parentMarker = $parent instanceof DOMElement && preg_match('/>\s*$/', trim($ancestry))
-                ? $context->selectorProjections->attributeMarker($parent->getNodePath() ?? '')
+                ? $context->selectorProjections->attributeMarker($parent->getNodePath() ?? '', $selector)
                 : '';
             if ( '' !== $parentMarker && preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
                 $projected[] = $scope . ':where(.' . $parentMarker . ')>:where(#' . $id . ')' . $this->selectorSpecificityShims($parsed, $context);
@@ -1752,7 +1774,7 @@ final class AuthorStylesheetProjector
             if ( preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
                 $target = '#' . $id;
             } else {
-                $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '');
+                $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '', $selector);
                 if ( '' === $marker ) {
                     return null;
                 }
@@ -1764,20 +1786,19 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
-    private function projectSourceAttributeSelector(array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
+    private function projectSourceAttributeSelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
     {
         if ( null !== $parsed['pseudo_state_suffix_span'] ) {
             return null;
         }
         $compounds = $parsed['compounds'] ?? array();
         $rightmost = $compounds[array_key_last($compounds)] ?? array();
-        $hasDataAttribute = array_filter($rightmost['attributes'] ?? array(), static fn (array $attribute): bool => str_starts_with($attribute['name'] ?? '', 'data-'));
-        if ( array() === $hasDataAttribute ) {
+        if ( ! \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::containsDataAttribute($rightmost) ) {
             return null;
         }
         $projected = array();
         foreach ( $matches as $element ) {
-            $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '');
+            $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '', $selector);
             if ( '' === $marker ) {
                 return null;
             }

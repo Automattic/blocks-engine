@@ -136,6 +136,19 @@ final class AuthorStyleAnalysis
         return $marker;
     }
 
+    public function allocateStableMarker(string $kind, string $identity): string
+    {
+        if ( ! EngineMarker::isDeclaredKind($kind) ) {
+            throw new \InvalidArgumentException("Undeclared engine marker kind: {$kind}.");
+        }
+        $seed = substr(hash('sha256', $identity), 0, 12);
+        $counter = 0;
+        do {
+            $marker = 'blocks-engine-' . $kind . '-' . $seed . '-' . $counter++;
+        } while ( str_contains($this->markerCollisionTexts[0], $marker) || str_contains($this->markerCollisionTexts[1], $marker) );
+        return $marker;
+    }
+
     private function allocateSiteMarker(string $kind): string
     {
         $suffix = 0;

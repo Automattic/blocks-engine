@@ -56,7 +56,9 @@ $deepMarkup = $markupOf($deepResult);
 foreach ( array( 'shallow layout wrapper' => $shallow, 'deep layout wrapper' => $deepMarkup ) as $name => $markup ) {
     $assert(1 <= substr_count($markup, '<!-- wp:navigation '), $name . ' materializes the paragraph-labelled menu as core/navigation', $markup);
     $assert(6 === substr_count($markup, 'wp:navigation-link'), $name . ' emits one navigation-link per menu item', $markup);
-    $assert(str_contains($markup, '"label":"Home"') && str_contains($markup, '"label":"Journal"') && str_contains($markup, '"label":"About"'), $name . ' keeps paragraph-wrapped labels as navigation-link labels', $markup);
+    preg_match_all('/<!-- wp:navigation-link\s+(\{.*?\})\s+\/-->/s', $markup, $labelMatches);
+    $labels = array_map(static fn (string $json): string => trim(strip_tags(json_decode($json, true)['label'] ?? '')), $labelMatches[1]);
+    $assert(in_array('Home', $labels, true) && in_array('Journal', $labels, true) && in_array('About', $labels, true), $name . ' keeps paragraph-wrapped label text in native navigation items', $markup);
     $assert(str_contains($markup, 'id="desktop-menu"'), $name . ' keeps the menu host identity CSS can address', $markup);
     $assert(str_contains($markup, '"justifyContent":"right"'), $name . ' keeps the list text-align packing as navigation justification', $markup);
     $css = 'shallow layout wrapper' === $name ? $cssOf($shallowResult) : $cssOf($deepResult);

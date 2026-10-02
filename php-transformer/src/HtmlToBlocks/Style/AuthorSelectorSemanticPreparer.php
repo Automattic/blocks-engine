@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -193,6 +194,16 @@ final class AuthorSelectorSemanticPreparer
                 if ( $listItem instanceof DOMElement && ! $structuralListItem && self::richTextSelectorNeedsHook($parsed) ) {
                     $marker = $projections->ensureRichTextMarker($path);
                     $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
+                } elseif ( 'span' === $inlineTag
+                    && $this->ancestorElement($element, 'label') instanceof DOMElement
+                    && self::richTextSelectorNeedsHook($parsed)
+                ) {
+                    // A label's text is emitted by the input block's RichText
+                    // label carrier. Keep selector-addressable inline spans on
+                    // that carrier even when their authored block display made
+                    // them look like independent layout wrappers in source.
+                    $marker = $projections->ensureRichTextMarker($path);
+                    $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
                 } elseif ( $directAuthorLayoutItem
                     || ($structuralListItem && self::richTextSelectorNeedsHook($parsed))
                     || $this->context->requiresIndependentSemanticWrapper($element)
@@ -219,6 +230,7 @@ final class AuthorSelectorSemanticPreparer
                 if ( '' !== $path
                     && $this->context->requiresInlineLayoutCarrier($element)
                     && ! $projections->isControlPath($parentPath)
+                    && ! ('' !== $projections->richTextMarker($path) && $this->ancestorElement($element, 'label') instanceof DOMElement)
                 ) {
                     $projections->markInlineLayoutCarrierPath($path);
                 }
@@ -232,19 +244,22 @@ final class AuthorSelectorSemanticPreparer
         foreach ( $authorSelectors as $authorSelector ) {
             $parsed = $authorSelector['parsed'];
             $this->discoverNegatedDataAttributeState($authorSelector['selector'], $authorStyles, $projections);
+            $pseudoHost = CssSelectorMatcher::pseudoElementHost($authorSelector['selector']);
+            $selector = $pseudoHost['selector'] ?? $authorSelector['selector'];
+            $parsed = $pseudoHost['parsed'] ?? $parsed;
             if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
                 continue;
             }
 
             $rightmostSpan = $parsed['rightmost_compound_span'] ?? null;
-            $ancestry = is_array($rightmostSpan) ? substr($authorSelector['selector'], 0, (int) $rightmostSpan['start']) : '';
+            $ancestry = is_array($rightmostSpan) ? substr($selector, 0, (int) $rightmostSpan['start']) : '';
             if ( preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry) ) {
-                foreach ( $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $parsed) as $element ) {
+                foreach ( $this->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
                     $parent = $element->parentNode;
                     if ( preg_match('/>\s*$/', trim($ancestry)) && $parent instanceof DOMElement ) {
                         $parentPath = $parent->getNodePath() ?? '';
                         if ( '' !== $parentPath ) {
-                            $marker = $projections->ensureAttributeMarker($parentPath);
+                            $marker = $projections->ensureAttributeMarker($parentPath, $selector);
                             $parent->setAttribute('class', SourceDom::mergeClassNames($parent->getAttribute('class'), $marker));
                         }
                     }
@@ -253,7 +268,7 @@ final class AuthorSelectorSemanticPreparer
                     }
                     $path = $element->getNodePath() ?? '';
                     if ( '' !== $path ) {
-                        $marker = $projections->ensureAttributeMarker($path);
+                        $marker = $projections->ensureAttributeMarker($path, $selector);
                         $element->setAttribute('class', SourceDom::mergeClassNames($element->getAttribute('class'), $marker));
                     }
                 }
@@ -261,18 +276,17 @@ final class AuthorSelectorSemanticPreparer
 
             $compounds = $parsed['compounds'] ?? array();
             $rightmost = $compounds[array_key_last($compounds)] ?? array();
-            $hasDataAttribute = array_filter($rightmost['attributes'] ?? array(), static fn (array $attribute): bool => str_starts_with($attribute['name'] ?? '', 'data-'));
-            if ( array() === $hasDataAttribute ) {
+            if ( ! CssSelectorCompoundInspector::containsDataAttribute($rightmost) ) {
                 continue;
             }
-            foreach ( $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $parsed) as $element ) {
+            foreach ( $this->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
                 $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
                 $hasBoxGeometry = array() !== array_intersect_key($declarations, array_flip(array(
                     'display', 'position', 'inset', 'top', 'right', 'bottom', 'left',
                     'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
                     'margin', 'padding', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'grid', 'grid-area',
                 )));
-                if ( ! $hasBoxGeometry
+                if ( null === $pseudoHost && ! $hasBoxGeometry
                     && ! $this->selectorRuleDeclaresBoxGeometry($authorSelector['selector'], $authorStyles)
                     && 'img' !== strtolower($element->tagName)
                 ) {
@@ -280,7 +294,7 @@ final class AuthorSelectorSemanticPreparer
                 }
                 $path = $element->getNodePath() ?? '';
                 if ( '' !== $path ) {
-                    $marker = $projections->ensureAttributeMarker($path);
+                    $marker = $projections->ensureAttributeMarker($path, $selector);
                     $element->setAttribute('class', SourceDom::mergeClassNames($element->getAttribute('class'), $marker));
                 }
             }
@@ -312,40 +326,53 @@ final class AuthorSelectorSemanticPreparer
         if ( 1 !== preg_match_all(
             '/:not\(\s*(\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=\s*(?:"[^"]*"|\'[^\']*\'|[^\]\s]+))?\s*\])\s*\)/i',
             $selector,
-            $matches
-        ) || 1 !== count($matches[1] ?? array()) ) {
+            $matches,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        ) ) {
             return;
         }
 
-        $attributeSelectorText = $matches[1][0];
+        $negation = $matches[0][0][0];
+        $attributeSelectorText = $matches[0][1][0];
         $attributeSelector = CssSelectorMatcher::parse($attributeSelectorText);
         if ( ! $attributeSelector['supported'] ) {
             return;
         }
 
-        $settledSelectorText = preg_replace(
+        // State belongs to the element carrying the negated attribute, not
+        // necessarily the rightmost element matched by the full selector. A
+        // selector such as `.media-inner:not([data-ratio="original"])
+        // .list-image` matches the image, but the generated :not(marker) must
+        // inspect the media-inner wrapper. Stop at the negation's closing
+        // parenthesis before resolving the owner element.
+        $negationOffset = $matches[0][0][1];
+        $stateOwnerPrelude = substr($selector, 0, $negationOffset + strlen($negation));
+        $stateOwnerSelectorText = preg_replace(
             '/:not\(\s*' . preg_quote($attributeSelectorText, '/') . '\s*\)/i',
             $attributeSelectorText,
-            $selector,
+            $stateOwnerPrelude,
             1
-        ) ?? $selector;
-        $settledSelector = CssSelectorMatcher::parse($settledSelectorText);
-        $candidateSelector = $settledSelector['supported'] ? $settledSelector : $attributeSelector;
-        $marker = '';
+        ) ?? $stateOwnerPrelude;
+        $stateOwnerSelector = CssSelectorMatcher::parse($stateOwnerSelectorText);
+        $candidateSelector = $stateOwnerSelector['supported'] ? $stateOwnerSelector : $attributeSelector;
+        // Project the positive state even when this source document has no
+        // element in that state. The emitted selector is the negation of this
+        // marker: with zero marked elements it must still match every source
+        // element that did not carry the negated attribute value. Leaving the
+        // original attribute selector behind is incorrect once editable block
+        // serialization drops that presentation-only data attribute.
+        $marker = $authorStyles->allocateStableMarker('attribute-state', $stateOwnerSelectorText);
         foreach ( $authorStyles->selectorCandidates($candidateSelector) as $element ) {
             if ( ! CssSelectorMatcher::matches($element, $candidateSelector, true, $authorStyles->selectorMatchCache())['matches'] ) {
                 continue;
             }
             $path = $element->getNodePath() ?? '';
             if ( '' !== $path ) {
-                $marker = '' === $marker ? $authorStyles->allocateMarker('attribute-state') : $marker;
                 $projections->addAttributeStateMarker($path, $marker);
                 $element->setAttribute('class', SourceDom::mergeClassNames($element->getAttribute('class'), $marker));
             }
         }
-        if ( '' !== $marker ) {
-            $projections->installAttributeNegationMarker($selector, $marker);
-        }
+        $projections->installAttributeNegationMarker($selector, $marker);
     }
 
     /** @param array<string, mixed> $options */

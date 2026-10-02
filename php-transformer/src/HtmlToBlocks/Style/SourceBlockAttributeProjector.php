@@ -322,6 +322,10 @@ final class SourceBlockAttributeProjector
         string $logicalControlPath
     ): bool
     {
+        // A label flattened to plain text no longer owns a separate paint surface.
+        if (1 !== preg_match('/<(?:span|mark|font|em|strong|b|i|small)\b[^>]*\s(?:class|style|color)=/i', $label)) {
+            return false;
+        }
         $paths = array_fill_keys(self::buttonLabelPaths($sourceElement, $logicalControl, $label), true);
         if ( array() === $paths ) {
             return false;
@@ -400,6 +404,15 @@ final class SourceBlockAttributeProjector
         return 'none' === $this->resolvedTextDecorationLine($anchor, true);
     }
 
+    /** @return array<string,string> */
+    public function syntheticInlineParagraphAttributes(DOMElement $container): array
+    {
+        $anchors = $container->getElementsByTagName('a');
+        if (0 === $anchors->length) return array();
+        foreach ($anchors as $anchor) if (!$anchor instanceof DOMElement || !$this->sourceAnchorHasNoTextDecoration($anchor)) return array();
+        return array('className' => self::SYNTHETIC_PARAGRAPH_CLASS . ' ' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
+    }
+
     /**
      * Resolves the computed `text-decoration-line` an element's authored
      * cascade produces, following an explicit `inherit` keyword up the
@@ -428,7 +441,9 @@ final class SourceBlockAttributeProjector
     private function resolvedTextDecorationLine(DOMElement $element, bool $isLeaf): string
     {
         $declared = null;
-        foreach ( $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($element)) as $property => $value ) {
+        // Decoration determines the generated anchor carrier, even for an
+        // otherwise ordinary link that the presentation fast path skips.
+        foreach ( $this->styleResolver->matchedCascadedDeclarations($element) as $property => $value ) {
             if ( 'text-decoration' === $property || 'text-decoration-line' === $property ) {
                 $declared = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue($value));
             }

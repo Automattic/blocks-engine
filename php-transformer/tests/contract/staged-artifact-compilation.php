@@ -388,32 +388,11 @@ $throws(static fn() => $compiler->compose($reductionMismatch, array()), 'Composi
 
 $throws(static fn() => $compiler->compose($shared, array($pages['index.html'], $pages['index.html'])), 'Composition rejects more than one page plan for the same page id.');
 
-$v2Shared = $shared;
-$v2Shared['compiler_options']['compiled_page_schema'] = ArtifactCompiler::COMPILED_RECEIPT_SCHEMA;
-$v2Shared['digest'] = RuntimeDeclarations::hash(array('artifact' => $v2Shared['artifact'], 'analysis' => $v2Shared['analysis'], 'shared_reduction' => $v2Shared['shared_reduction'], 'shared_reduction_digest' => $v2Shared['shared_reduction_digest'], 'compiler_options' => $v2Shared['compiler_options']));
-$v2Receipts = array();
-foreach ($pageIds as $pageId) {
-    $v2Page = $compiler->preparePage($artifact, $v2Shared, $pageId);
-    $v2Page['compiler_options']['compiled_page_schema'] = ArtifactCompiler::COMPILED_RECEIPT_SCHEMA;
-    $v2Page['digest'] = RuntimeDeclarations::hash(array('shared_digest' => $v2Page['shared_digest'], 'page_id' => $v2Page['page_id'], 'artifact' => $v2Page['artifact'], 'layout_geometry_proof' => $v2Page['layout_geometry_proof'], 'compiler_options' => $v2Page['compiler_options'], 'output_schema' => $v2Page['output_schema']));
-    $v2Receipts[] = $compiler->compilePreparedPage($v2Shared, $v2Page);
+foreach (array('blocks-engine/php-transformer/compiled-page-receipt/v1', 'blocks-engine/php-transformer/compiled-page-receipt/v2') as $retiredSchema) {
+    $retiredShared = $shared;
+    $retiredShared['compiler_options']['compiled_page_schema'] = $retiredSchema;
+    $throws(static fn() => $compiler->compilePreparedPages($retiredShared, $pages), 'Compilation rejects retired page receipt schema ' . $retiredSchema . '.');
 }
-$v2Result = $compiler->compose($v2Shared, array_reverse($v2Receipts))->toArray();
-$assert(array_key_exists('files', $v2Receipts[0]['terminal_reduction']) && array_key_exists('entry_blocks', $v2Receipts[0]['terminal_reduction']) && $whole['blocks'] === $v2Result['blocks'] && ($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($v2Result['source_reports']['wordpress_site_plan'] ?? array()), 'Persisted v2 duplicate-payload receipts retain canonical composition compatibility.');
-
-$legacyShared = $shared;
-unset($legacyShared['shared_reduction'], $legacyShared['shared_reduction_digest']);
-$legacyShared['compiler_options']['compiled_page_schema'] = ArtifactCompiler::PAGE_RECEIPT_SCHEMA;
-$legacyShared['digest'] = RuntimeDeclarations::hash(array('artifact' => $legacyShared['artifact'], 'analysis' => $legacyShared['analysis'], 'compiler_options' => $legacyShared['compiler_options']));
-$legacyReceipts = array();
-foreach ($pageIds as $pageId) {
-    $legacyPage = $compiler->preparePage($artifact, $legacyShared, $pageId);
-    $legacyPage['compiler_options']['compiled_page_schema'] = ArtifactCompiler::PAGE_RECEIPT_SCHEMA;
-    $legacyPage['digest'] = RuntimeDeclarations::hash(array('shared_digest' => $legacyPage['shared_digest'], 'page_id' => $legacyPage['page_id'], 'artifact' => $legacyPage['artifact'], 'layout_geometry_proof' => $legacyPage['layout_geometry_proof'], 'compiler_options' => $legacyPage['compiler_options'], 'output_schema' => $legacyPage['output_schema']));
-    $legacyReceipts[] = $compiler->compilePreparedPage($legacyShared, $legacyPage);
-}
-$legacyResult = $compiler->compose($legacyShared, array_reverse($legacyReceipts))->toArray();
-$assert($whole['blocks'] === $legacyResult['blocks'] && ($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($legacyResult['source_reports']['wordpress_site_plan'] ?? array()), 'Serialized v1 shared plans, page plans, and compiled receipts retain legacy envelope composition behavior.');
 
 // A validly digested page plan prepared from a divergent artifact must not
 // silently collide with (and get dedupe-renamed against) the shared files.

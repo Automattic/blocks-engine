@@ -35,6 +35,7 @@ const context = {
         }
     } }
 };
+
 vm.runInNewContext( Buffer.from( process.argv[1], 'base64' ).toString(), context );
 process.stdout.write( String( save( { attributes: JSON.parse( process.argv[2] ) } ) ) );
 JS;
@@ -45,6 +46,40 @@ JS;
     );
 
     return is_string($saved) ? $saved : '';
+};
+
+$invokeLabelEditor = static function (object $generator, array $attrs, string $surface, string $value): string {
+    $script = (string) $generator->definition('custom')['assets']['index.js'];
+    $runner = <<<'JS'
+const vm = require( 'node:vm' );
+let settings;
+const TextControl = function TextControl() {};
+const RichText = function RichText() {};
+const RawHTML = function RawHTML() {};
+const context = { window: { wp: {
+    blocks: { registerBlockType: ( name, value ) => { settings = value; } },
+    richText: { create: ( { html } ) => ( { text: String( html ).replace( /<[^>]*>/g, '' ) } ) },
+    blockEditor: { RichText, InspectorControls: function() {} },
+    components: { PanelBody: function() {}, TextControl, TextareaControl: function() {}, SelectControl: function() {}, ToggleControl: function() {} },
+    element: { createElement: ( type, props, ...children ) => type === RawHTML ? ( children[0] || '' ) : ( { type, props: props || {}, children } ), RawHTML, Fragment: 'Fragment' }
+} } };
+vm.runInNewContext( Buffer.from( process.argv[1], 'base64' ).toString(), context );
+const attrs = JSON.parse( process.argv[2] );
+function walk( node ) { if ( ! node || 'object' !== typeof node ) return null; if ( node.type === ( 'rich' === process.argv[3] ? RichText : TextControl ) && ( 'rich' === process.argv[3] || 'Label' === node.props.label ) ) return node; for ( const child of node.children || [] ) { const found = walk( child ); if ( found ) return found; } return null; }
+const tree = settings.edit( { attributes: attrs, setAttributes: next => Object.assign( attrs, next ) } );
+const target = walk( tree );
+if ( ! target || ! target.props.onChange ) throw new Error( 'Expected rendered label editor callback' );
+target.props.onChange( process.argv[4] );
+const reloadedAttrs = JSON.parse( JSON.stringify( attrs ) );
+process.stdout.write( JSON.stringify( { html: settings.save( { attributes: reloadedAttrs } ), attrs: reloadedAttrs } ) );
+JS;
+    $result = shell_exec(
+        'node -e ' . escapeshellarg($runner) . ' '
+        . escapeshellarg(base64_encode($script)) . ' '
+        . escapeshellarg(json_encode($attrs, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) . ' '
+        . escapeshellarg($surface) . ' ' . escapeshellarg($value)
+    );
+    return is_string($result) ? $result : '';
 };
 
 $generator = new AuthoredSelectBlockGenerator();
@@ -107,5 +142,17 @@ $assert($textarea->markup($textareaAttrs) === $saveMarkup($textarea, $textareaAt
 $buttonAttrs = array( 'type' => 'submit', 'text' => 'Send', 'disabled' => true );
 $button      = new AuthoredButtonBlockGenerator();
 $assert($button->markup($buttonAttrs) === $saveMarkup($button, $buttonAttrs), 'authored-button save() already round-trips disabled');
+
+foreach ( array( $input, $generator, $textarea ) as $fieldGenerator ) {
+    $initial = array( 'label' => 'Old label', 'labelMarkup' => '<span>(required)</span>', 'type' => 'text', 'options' => array( array( 'label' => 'Choice', 'value' => 'choice' ) ) );
+    $editedInspector = json_decode($invokeLabelEditor($fieldGenerator, $initial, 'inspector', 'New inspector label'), true, 512, JSON_THROW_ON_ERROR);
+    $assert(str_contains($editedInspector['html'], 'New inspector label') && ! str_contains($editedInspector['html'], 'Old label'), get_class($fieldGenerator) . ' Inspector Label callback survives save/reload');
+    $assert('New inspector label' === ($editedInspector['attrs']['label'] ?? '') && '' === ($editedInspector['attrs']['labelMarkup'] ?? null), get_class($fieldGenerator) . ' Inspector edit resets stale rich markup');
+
+    $richMarkup = '<strong>Richly edited (required)</strong>';
+    $editedRichText = json_decode($invokeLabelEditor($fieldGenerator, $initial, 'rich', $richMarkup), true, 512, JSON_THROW_ON_ERROR);
+    $assert(str_contains($editedRichText['html'], $richMarkup) && ! str_contains($editedRichText['html'], 'Old label'), get_class($fieldGenerator) . ' RichText callback survives save/reload with authored markup');
+    $assert('Richly edited (required)' === ($editedRichText['attrs']['label'] ?? '') && $richMarkup === ($editedRichText['attrs']['labelMarkup'] ?? ''), get_class($fieldGenerator) . ' RichText edit synchronizes accessible plain label');
+}
 
 fwrite(STDOUT, "Authored select block round-trip tests passed\n");

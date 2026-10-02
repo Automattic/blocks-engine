@@ -93,6 +93,10 @@ final class CssSyntaxScanner
         $offset = $open;
 
         while ( $offset < $length ) {
+            // Skip only inert bytes. Quotes, comment delimiters, escapes and
+            // grouping punctuation still pass through the lexical state machine.
+            $offset += strcspn($value, "\\\"'/*()[]{}", $offset);
+            if ( $offset >= $length ) break;
             if ( self::isTopLevel($state) ) {
                 if ( '{' === $value[ $offset ] ) {
                     ++$depth;

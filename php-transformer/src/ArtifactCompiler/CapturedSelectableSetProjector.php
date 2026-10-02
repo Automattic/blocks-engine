@@ -31,6 +31,7 @@ final class CapturedSelectableSetProjector
      */
     public function project(array $files): array
     {
+        $files = (new CapturedCollectionFilterProjector())->project($files);
         $diagnostics = array();
         $report = $this->jsonFile($files, 'interaction-states.json');
         if (null === $report) {
@@ -260,7 +261,9 @@ final class CapturedSelectableSetProjector
             $hideTabList = ! $this->hasDistinctVisibleTriggerRow($members);
             $applied = false;
             foreach ($targets as $scopeIndex => $region) {
-                if ($region->hasAttribute('data-blocks-engine-collection-target')) continue;
+                if ($region->hasAttribute('data-blocks-engine-collection-target')) {
+                    continue;
+                }
                 $rowIdentity = $identity . '-' . ($scopeIndex + 1);
                 $triggerRow = $hideTabList ? null : $this->triggerRowForRegion($region, $members, $set['selector']);
                 $this->fillRegion($document, $region, $members, $rowIdentity, $hideTabList, $triggerRow);

@@ -24,6 +24,20 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $transformer = new HtmlTransformer();
+$captionResult = $transformer->transform('<style>.caption{color:#ffffff;font-family:Inter;font-size:14px;font-weight:600;line-height:1.2}@media(max-width:700px){button{font-size:12px}.caption{font-size:18px}}</style><form method="post"><input name="email" type="email"><button type="submit"><div><p class="caption">Send quote</p></div></button></form>')->toArray();
+$captionControl = current(array_filter($captionResult['fallbacks'][0]['controls'] ?? array(), static fn(array $control): bool => 'submit' === ($control['type'] ?? '')));
+$captionStyle = $captionControl['presentation']['style'] ?? array();
+$assert(
+    '14px' === ($captionStyle['typography']['fontSize'] ?? null)
+        && 'Inter' === ($captionStyle['typography']['fontFamily'] ?? null)
+        && '#ffffff' === ($captionStyle['color']['text'] ?? null),
+    'provider metadata carries the whole-label text carrier typography independently from its submit box',
+    json_encode($captionStyle)
+);
+$captionGraph = $captionResult['fallbacks'][0]['presentation_graph'] ?? array();
+$captionVariants = array_values(array_filter($captionGraph['variants'] ?? array(), static fn(array $variant): bool => 1 === ($variant['index'] ?? null) && 'control' === ($variant['role'] ?? null)));
+$captionRows = array_column($captionGraph['controls'] ?? array(), null, 'index');
+$assert('14px' === ($captionRows[1]['control']['styles']['font_size'] ?? null) && '18px' === ($captionVariants[0]['style_patch']['font_size'] ?? null), 'provider caption cascade retains label-owned responsive typography instead of the button reset', json_encode($captionGraph));
 $boxResult = $transformer->transform('<form method="post"><input name="name"><button type="submit">Send</button></form>', array('static_css' => 'form{max-width:500px;margin:0 auto;text-align:left}@media (max-width:600px){form{max-width:100%}}'))->toArray();
 $box = $boxResult['fallbacks'][0]['form']['container_presentation'] ?? array();
 $assert('500px' === ($box['styles']['max_width'] ?? null) && '0 auto' === ($box['styles']['margin'] ?? null) && 'left' === ($box['styles']['text_align'] ?? null) && '100%' === ($box['variants'][0]['styles']['max_width'] ?? null), 'form container owns base and responsive presentation independently of controls');
@@ -91,8 +105,11 @@ $assert(
     '1: type=button submit keeps visible copy instead of the type name',
     $serialized
 );
+$buttonDocument = new DOMDocument();
+$buttonDocument->loadHTML($serialized, LIBXML_NOERROR | LIBXML_NOWARNING);
+$buttonControl = (new DOMXPath($buttonDocument))->query('//form/button[@type="button"]')->item(0);
 $assert(
-    str_contains($serialized, '<button type="button">Claim My Spot</button>') && str_contains($serialized, 'authored-button'),
+    $buttonControl instanceof DOMElement && 'Claim My Spot' === trim($buttonControl->textContent) && str_contains($serialized, 'authored-button'),
     '1b: submit copy lives on a native button control',
     $serialized
 );
@@ -106,9 +123,11 @@ $assert(
     '2: associated labels remain visible',
     $serialized
 );
+$fieldDocument = new DOMDocument();
+$fieldDocument->loadHTML($serialized, LIBXML_NOERROR | LIBXML_NOWARNING);
 $assert(
-    str_contains($serialized, 'authored-input') && 3 <= substr_count($serialized, '<!-- wp:group'),
-    '3: authored fields are wrapped so stacked layout survives flattening',
+    str_contains($serialized, 'authored-input') && 3 === (new DOMXPath($fieldDocument))->query('//form/label/input[@style="display:block;width:100%"]')->length,
+    '3: associated authored labels retain each source control and its declared stacked sizing',
     $serialized
 );
 

@@ -26,6 +26,8 @@ final class GeneratedSupportStylesheetState
 
     /** @var array<string, string> */
     private array $accordionTitlePresentation = array();
+    /** @var array<string, array<string, string>> */
+    private array $accordionIconPresentation = array();
 
     /** @var array<string, array<string, string>> */
     private array $disclosureControlConditionalPresentation = array();
@@ -71,6 +73,9 @@ final class GeneratedSupportStylesheetState
 
     /** @var array<string, array{base: string, conditional: array<string, string>}> */
     private array $responsiveTypographyRules = array();
+
+    /** @var array<string, array{marker: string, selector: string, conditions: list<string>, declarations: array<string, string>}> */
+    private array $sourceCustomPropertyRules = array();
 
     public function registerNativeSearchTrigger(string $className, string $rule): void
     {
@@ -177,6 +182,12 @@ final class GeneratedSupportStylesheetState
         $this->accordionTitlePresentation[$className] = $declarations;
     }
 
+    /** @param array<string, string> $states */
+    public function registerAccordionIconPresentation(string $className, array $states): void
+    {
+        $this->accordionIconPresentation[$className] = $states;
+    }
+
     /** @param array<string, string> $rules */
     public function registerDisclosureControlConditionalPresentation(string $className, array $rules): void
     {
@@ -239,6 +250,22 @@ final class GeneratedSupportStylesheetState
         $this->responsiveTypographyRules[$className] = array(
             'base' => $base,
             'conditional' => $conditional,
+        );
+    }
+
+    /** @param list<string> $conditions @param array<string, string> $declarations */
+    public function registerSourceCustomPropertyScope(string $marker, string $selector, array $conditions, array $declarations): void
+    {
+        if (array() === $declarations) {
+            return;
+        }
+        ksort($declarations, SORT_STRING);
+        $key = hash('sha256', $marker . "\n" . $selector . "\n" . serialize($conditions) . "\n" . serialize($declarations));
+        $this->sourceCustomPropertyRules[$key] = array(
+            'marker' => $marker,
+            'selector' => $selector,
+            'conditions' => array_values($conditions),
+            'declarations' => $declarations,
         );
     }
 
@@ -306,6 +333,12 @@ final class GeneratedSupportStylesheetState
                 $parts[] = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle>.wp-block-accordion-heading__toggle-title{' . $declarations . '}';
             }
         }
+        foreach ($this->accordionIconPresentation as $className => $states) {
+            if (!str_contains($serializedBlocks, $className)) continue;
+            $toggle = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle';
+            $parts[] = $toggle . '>.wp-block-accordion-heading__toggle-icon{' . $states['closed'] . '}';
+            $parts[] = $toggle . '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon{' . $states['open'] . '}';
+        }
         foreach ($this->navigationSpacing as $className => $declarations) {
             if (str_contains($serializedBlocks, $className)) {
                 $parts[] = '.wp-block-navigation.' . $className . '{' . $declarations . '}';
@@ -337,6 +370,28 @@ final class GeneratedSupportStylesheetState
                 $parts[] = $condition . '{:root .' . $className . '{font-size:' . $value . '}'
                     . str_repeat('}', substr_count($condition, '{') + 1);
             }
+        }
+        $sourceCustomPropertyScopes = array_values($this->sourceCustomPropertyRules);
+        usort($sourceCustomPropertyScopes, static function (array $left, array $right): int {
+            $hasViewportCondition = static fn (array $scope): int => (int) (bool) array_filter(
+                $scope['conditions'],
+                static fn (string $condition): bool => 1 === preg_match('/^@(media|container)\b/i', $condition)
+            );
+            return $hasViewportCondition($left) <=> $hasViewportCondition($right);
+        });
+        foreach ($sourceCustomPropertyScopes as $scope) {
+            if (!str_contains($serializedBlocks, $scope['marker'])) {
+                continue;
+            }
+            $declarations = array();
+            foreach ($scope['declarations'] as $property => $value) {
+                $declarations[] = $property . ':' . $value;
+            }
+            $css = $scope['selector'] . '{' . implode(';', $declarations) . '}';
+            foreach (array_reverse($scope['conditions']) as $condition) {
+                $css = $condition . '{' . $css . str_repeat('}', substr_count($condition, '{') + 1);
+            }
+            $parts[] = $css;
         }
         foreach ($this->nativeNavigationToggleRules as $marker => $rule) {
             if (str_contains($serializedBlocks, $marker)) {

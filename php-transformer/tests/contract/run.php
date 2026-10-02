@@ -1526,10 +1526,47 @@ $invalidLayoutGraph = $layoutGraph; $invalidLayoutGraph['nodes'][0]['id'] = 'wra
 $unsafeGraph = $layoutGraph; $unsafeGraph['nodes'][0]['provenance'][0]['source_path'] = '../../untrusted.css'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($unsafeGraph); $assert(false, 'layout graph validation rejects unsafe provenance traversal paths'); } catch (\InvalidArgumentException) { $assert(true, 'layout graph validation rejects unsafe provenance traversal paths'); }
 $semanticGraph = $layoutGraph; $semanticGraph['nodes'][0]['layout']['unknown_layout'] = 'value'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($semanticGraph); $assert(false, 'layout graph validation rejects unknown semantic layout keys'); } catch (\InvalidArgumentException) { $assert(true, 'layout graph validation rejects unknown semantic layout keys'); }
 $invalidSizingGraph = $sizingGraph; $invalidSizingGraph['nodes'][1]['sizing']['container'] = 'control-2'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($invalidSizingGraph); $assert(false, 'layout graph validation rejects sizing evidence that does not name a direct container parent'); } catch (\InvalidArgumentException) { $assert(true, 'layout graph validation rejects sizing evidence that does not name a direct container parent'); }
+foreach (array(
+    'unsafe source tag' => static function (array $g): array { $g['nodes'][0]['source']['tag'] = 'div onload'; return $g; },
+    'unsafe source class' => static function (array $g): array { $g['nodes'][0]['source']['classes'] = array('a"x'); return $g; },
+    'unsafe source id' => static function (array $g): array { $g['nodes'][0]['source']['id'] = 'a b'; return $g; },
+    'unsafe source selector' => static function (array $g): array { $g['nodes'][0]['source']['selector'] = 'form{}'; return $g; },
+    'unknown node key' => static function (array $g): array { $g['nodes'][0]['extra'] = 1; return $g; },
+    'unknown envelope key' => static function (array $g): array { $g['extra'] = 1; return $g; },
+    'child before parent' => static function (array $g): array { $g['nodes'] = array_reverse($g['nodes']); return $g; },
+) as $label => $mutate) {
+    try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($mutate($layoutGraph)); $assert(false, 'layout graph validation rejects ' . $label); } catch (\InvalidArgumentException $e) { $assert(true, 'layout graph validation rejects ' . $label); }
+}
+$elementPresentation = array('schema' => 'generic/form-element-presentation/v1', 'styles' => array('padding' => '12px'), 'provenance' => array(array('source_path' => 'site.css', 'source_sha256' => str_repeat('a', 64), 'selector' => '.wrap', 'condition' => null, 'properties' => array('padding'))), 'variants' => array(), 'truncated' => false, 'diagnostics' => array());
+\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder::assertElement($elementPresentation);
+foreach (array(
+    'unknown envelope key' => static function (array $p): array { $p['extra'] = 1; return $p; },
+    'unknown provenance key' => static function (array $p): array { $p['provenance'][0]['extra'] = 1; return $p; },
+    'keyed variants' => static function (array $p): array { $p['variants'] = array('a' => array()); return $p; },
+) as $label => $mutate) {
+    try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder::assertElement($mutate($elementPresentation)); $assert(false, 'element presentation validation rejects ' . $label); } catch (\InvalidArgumentException $e) { $assert(true, 'element presentation validation rejects ' . $label); }
+}
+$topologyDocument = new \DOMDocument(); @$topologyDocument->loadHTML('<form><div class="row"><label for="a">A</label><input id="a"></div><fieldset><legend>Who</legend><p><label>B<input name="b"></label></p></fieldset><label for="c">C</label><input id="c"></form>');
+$topologyForm = $topologyDocument->getElementsByTagName('form')->item(0);
+$topologyBuilder = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder();
+$controlTopology = $topologyBuilder->build($topologyForm);
+$controlCount = count(array_filter($controlTopology['nodes'], static fn (array $node): bool => 'control' === $node['kind']));
+\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder::assertValid($controlTopology, $controlCount);
+\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder::assertSiblingRelations($topologyBuilder->directLabelControlPairs($topologyForm), $controlCount);
+foreach (array(
+    'unknown key' => static function (array $t): array { $t['extra'] = 1; return $t; },
+    'child before parent' => static function (array $t): array { $t['nodes'] = array_reverse($t['nodes']); return $t; },
+    'unsafe wrapper class' => static function (array $t): array { foreach ($t['nodes'] as &$n) if ('wrapper' === $n['kind']) { $n['class'] = 'a"b'; break; } return $t; },
+    'non-group wrapper tag' => static function (array $t): array { foreach ($t['nodes'] as &$n) if ('wrapper' === $n['kind']) { $n['tag'] = 'script'; break; } return $t; },
+    'duplicate control' => static function (array $t): array { $c = array_keys(array_filter($t['nodes'], static fn (array $n): bool => 'control' === $n['kind'])); $t['nodes'][$c[1]]['control'] = $t['nodes'][$c[0]]['control']; return $t; },
+) as $label => $mutate) {
+    try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder::assertValid($mutate($controlTopology), $controlCount); $assert(false, 'control topology validation rejects ' . $label); } catch (\InvalidArgumentException $e) { $assert(true, 'control topology validation rejects ' . $label); }
+}
+try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder::assertSiblingRelations(array('schema' => 'generic/form-sibling-relations/v1', 'max_pairs' => 128, 'truncated' => false, 'pairs' => array(array('control' => 99))), $controlCount); $assert(false, 'sibling relations reject an unknown control'); } catch (\InvalidArgumentException $e) { $assert(true, 'sibling relations reject an unknown control'); }
 $v1LayoutGraph = $layoutGraph; $v1LayoutGraph['schema'] = 'generic/computed-layout-graph/v1'; $v1LayoutGraph['limits']['depth'] = 8;
 $v1LayoutKeys = array('display' => true, 'columns' => true, 'rows' => true, 'gap' => true, 'row_gap' => true, 'column_gap' => true, 'column' => true, 'row' => true, 'area' => true, 'direction' => true, 'wrap' => true, 'align_items' => true, 'align_content' => true, 'justify_content' => true, 'align_self' => true, 'justify_self' => true, 'order' => true, 'flex' => true, 'flex_grow' => true, 'flex_shrink' => true, 'flex_basis' => true);
 $v1LayoutProperties = array('display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis');
-foreach ($v1LayoutGraph['nodes'] as &$v1Node) { unset($v1Node['sizing']); $v1Node['layout'] = array_intersect_key($v1Node['layout'] ?? array(), $v1LayoutKeys); foreach ($v1Node['provenance'] as &$v1Fact) $v1Fact['properties'] = array_values(array_intersect($v1Fact['properties'] ?? array(), $v1LayoutProperties)); unset($v1Fact); $v1Node['provenance'] = array_values(array_filter($v1Node['provenance'], static fn(array $fact): bool => array() !== ($fact['properties'] ?? array()))); } unset($v1Node);
+foreach ($v1LayoutGraph['nodes'] as &$v1Node) { unset($v1Node['sizing'], $v1Node['presentation'], $v1Node['source']['selector']); $v1Node['source']['classes'] = array_slice($v1Node['source']['classes'], 0, 8); $v1Node['layout'] = array_intersect_key($v1Node['layout'] ?? array(), $v1LayoutKeys); foreach ($v1Node['provenance'] as &$v1Fact) $v1Fact['properties'] = array_values(array_intersect($v1Fact['properties'] ?? array(), $v1LayoutProperties)); unset($v1Fact); $v1Node['provenance'] = array_values(array_filter($v1Node['provenance'], static fn(array $fact): bool => array() !== ($fact['properties'] ?? array()))); } unset($v1Node);
 try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v1LayoutGraph); $assert(true, 'layout graph validation accepts persisted v1 depth-8 graphs using the old property vocabulary'); } catch (\InvalidArgumentException) { $assert(false, 'layout graph validation accepts persisted v1 depth-8 graphs using the old property vocabulary'); }
 $v1WidthGraph = $v1LayoutGraph; $v1WidthGraph['nodes'][0]['layout']['width'] = '100%'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v1WidthGraph); $assert(false, 'v1 layout graph validation rejects v2 width facts'); } catch (\InvalidArgumentException) { $assert(true, 'v1 layout graph validation rejects v2 width facts'); }
 $v1Depth16Graph = $v1LayoutGraph; $v1Depth16Graph['limits']['depth'] = 16; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v1Depth16Graph); $assert(false, 'v1 layout graph validation rejects v2 depth limits'); } catch (\InvalidArgumentException) { $assert(true, 'v1 layout graph validation rejects v2 depth limits'); }
@@ -5709,8 +5746,8 @@ $authoredSelectCompanion = $authoredControlBlocks[0] ?? array();
 $authoredInputCompanion = $authoredControlBlocks[1] ?? array();
 $assert('custom/authored-select' === ($authoredSelectCompanion['block_json']['name'] ?? null), 'authored-select companion metadata uses its canonical block name');
 $assert('custom/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
-$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ) === ($authoredSelectCompanion['script_dependencies'] ?? null), 'authored-select companion dependency metadata survives payload compilation');
-$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text' ) ) === ($authoredSelectCompanion['script_dependencies'] ?? null), 'authored-select companion dependency metadata survives payload compilation');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredSelectCompanion['assets']['index.js'] ?? ''), $authoredSelectRegistrations);
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredInputCompanion['assets']['index.js'] ?? ''), $authoredInputRegistrations);
 $assert(array( 'custom/authored-select' ) === ($authoredSelectRegistrations[1] ?? array()), 'authored-select companion editor script registers only its canonical block name');

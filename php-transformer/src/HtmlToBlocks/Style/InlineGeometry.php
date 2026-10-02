@@ -305,14 +305,14 @@ final class InlineGeometry
     }
 
     /**
-     * A carrier restating ONLY an element's inline background paint.
+     * A carrier restating an element's inline background paint and alpha.
      *
      * The standard carrier above declines background properties for childless
      * elements, because a childless painted box is normally lowered to a
      * background image block by the flow-container path. An author-owned layout
      * container keeps a childless painted box as its own visual boundary
      * instead — there the inline paint is the reason the box exists, so it
-     * must ride: restate exactly the background declarations through the same
+     * must ride: restate exactly the background declarations and authored inline alpha through the same
      * generated stylesheet, tiering, and URL rewriting as the standard
      * carrier. Every other inline property is excluded, so class-owned rules
      * and the preserved className keep owning the box's geometry.
@@ -320,8 +320,8 @@ final class InlineGeometry
     public function emptyElementBackgroundCarrierClassName(DOMElement $element): string
     {
         $declarations = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
-        $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
-        if ( ! preg_match('/\burl\s*\(/i', $inlineBackground) ) {
+        $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? $declarations['background-color'] ?? '');
+        if ( '' === trim($inlineBackground) && ! array_key_exists('opacity', $declarations) ) {
             return '';
         }
 
@@ -331,7 +331,16 @@ final class InlineGeometry
             $this->namedFragmentTargetProperties()
         )));
 
-        return $this->className($element, $excludedProperties, $this->backgroundCarrierProperties());
+        $forced = array_merge($this->backgroundCarrierProperties(), array( 'background-color' ));
+        // A source inline opacity belongs to this empty painted boundary. Core
+        // background supports cannot represent alpha on that boundary without
+        // also applying it to content, so keep the authored alpha alongside
+        // its inline background paint in the same carrier.
+        if (array_key_exists('opacity', $declarations)) {
+            $forced[] = 'opacity';
+        }
+
+        return $this->className($element, $excludedProperties, $forced);
     }
 
     /**
@@ -350,6 +359,12 @@ final class InlineGeometry
             ? $this->mediaTextInlineCascadeDeclarations(SourceDom::attr($element, 'style'))
             : ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
         $declarations = ($this->stripFrozenHiddenState)($element, $declarations);
+        if (in_array('opacity', $forcedProperties, true)) {
+            $inlineDeclarations = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
+            if (array_key_exists('opacity', $inlineDeclarations)) {
+                $declarations['opacity'] = $inlineDeclarations['opacity'];
+            }
+        }
         $geometry = array();
         $properties = $this->geometryProperties();
         if ( $this->isNamedFragmentTarget($element) ) {

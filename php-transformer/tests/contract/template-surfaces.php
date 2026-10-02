@@ -25,7 +25,7 @@ $writes = array_column($plan['writes'] ?? array(), null, 'target_path');
 $assert(isset($templates['single'], $templates['archive'], $templates['404'], $writes['templates/single.html'], $writes['templates/archive.html'], $writes['templates/404.html']) && 'single.html' === ($templates['single']['source_path'] ?? null) && 'archive.html' === ($templates['archive']['source_path'] ?? null) && '404' === ($templates['404']['template_surface']['role'] ?? null) && 'single.html' === ($templates['single']['template_surface']['source_provenance']['source_path'] ?? null), 'Typed template-surface declarations emit source-provenanced WordPress template writes.');
 $assert(array('index.html') === array_column($operations, 'source_path') && isset($templates['single']['template_surface']), 'Declared template surfaces are excluded from page operations and represented by canonical template writes.');
 $assert(true === (static function () use ($plan): bool { WordPressSitePlan::assertValid($plan); return true; })(), 'Canonical site-plan validation accepts declared template surfaces.');
-$tamperedPlan = $plan; $tamperedPlan['templates'][3]['template_surface']['slug'] = 'detached';
+$tamperedPlan = $plan; $tamperedPlan['templates'][array_search('single', array_column($plan['templates'], 'slug'), true)]['template_surface']['slug'] = 'detached';
 $throws = static function (callable $callback): bool { try { $callback(); } catch (InvalidArgumentException) { return true; } return false; };
 $assert($throws(static fn() => WordPressSitePlan::assertValid($tamperedPlan)), 'Canonical site-plan validation rejects detached declared template surface metadata.');
 $surfaceTemplateIndex = array_search('single', array_column($plan['templates'], 'slug'), true);
