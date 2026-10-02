@@ -1476,6 +1476,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
         }
 
+        // Body-only parsing must retain the html ancestor that owns inherited
+        // custom properties and participates in authored root selectors.
+        $rootAttributes = \Automattic\BlocksEngine\PhpTransformer\Support\DocumentRootAttributes::fromHtml($html);
+        if (array() !== $rootAttributes) {
+            $root = $document->createElement('html');
+            foreach ($rootAttributes as $name => $value) $root->setAttribute($name, $value);
+            $document->replaceChild($root, $body);
+            $root->appendChild($body);
+        }
+
         // Document metadata (`<link>`, `<meta>`, `<base>`, `<title>`) generates no
         // rendered box and belongs in `<head>`, but browsers tolerate it anywhere
         // in `<body>` and static captures occasionally leak it into content
