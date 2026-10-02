@@ -31,6 +31,9 @@ final class AuthorSelectorProjectionState
     /** @var array<string, string> */
     private array $attributeMarkers = array();
 
+    /** @var array<string, array<string, string>> */
+    private array $stableAttributeMarkers = array();
+
     /** @var array<string, list<string>> */
     private array $runtimeAttributeSelectorMarkers = array();
 
@@ -188,14 +191,28 @@ final class AuthorSelectorProjectionState
         return isset($this->inlineLayoutCarrierPaths[$path]);
     }
 
-    public function ensureAttributeMarker(string $path): string
+    public function ensureAttributeMarker(string $path, ?string $stableIdentity = null): string
     {
+        if ( null !== $stableIdentity ) {
+            return $this->stableAttributeMarkers[$path][$stableIdentity]
+                ??= $this->allocateStableAttributeMarker($stableIdentity);
+        }
         return $this->attributeMarkers[$path] ??= $this->allocateMarker('attribute');
     }
 
-    public function attributeMarker(string $path): string
+    private function allocateStableAttributeMarker(string $identity): string
     {
-        return $this->attributeMarkers[$path] ?? '';
+        return ($this->authorStyles
+            ?? throw new \LogicException('Author styles have not been installed for selector projection.'))
+            ->allocateStableMarker('attribute', $identity);
+    }
+
+    public function attributeMarker(string $path, ?string $stableIdentity = null): string
+    {
+        if ( null !== $stableIdentity ) {
+            return $this->stableAttributeMarkers[$path][$stableIdentity] ?? '';
+        }
+        return $this->attributeMarkers[$path] ?? (array_values($this->stableAttributeMarkers[$path] ?? array())[0] ?? '');
     }
 
     /** @param list<string> $markers */
@@ -212,13 +229,16 @@ final class AuthorSelectorProjectionState
 
     public function isRuntimeAttributePath(string $path): bool
     {
-        $marker = $this->attributeMarkers[$path] ?? '';
-        if ( '' === $marker ) {
+        $pathMarkers = array_values(array_filter(array_merge(
+            array($this->attributeMarkers[$path] ?? ''),
+            array_values($this->stableAttributeMarkers[$path] ?? array())
+        )));
+        if ( array() === $pathMarkers ) {
             return false;
         }
 
-        foreach ( $this->runtimeAttributeSelectorMarkers as $markers ) {
-            if ( in_array($marker, $markers, true) ) {
+        foreach ( $this->runtimeAttributeSelectorMarkers as $runtimeMarkers ) {
+            if ( array() !== array_intersect($pathMarkers, $runtimeMarkers) ) {
                 return true;
             }
         }
@@ -277,7 +297,8 @@ final class AuthorSelectorProjectionState
     public function semanticMarkersForPath(string $path): array
     {
         return array_values(array_filter(array_merge(
-            array($this->semanticMarker($path), $this->attributeMarker($path)),
+            array($this->semanticMarker($path), $this->attributeMarkers[$path] ?? ''),
+            array_values($this->stableAttributeMarkers[$path] ?? array()),
             $this->attributeStateMarkers($path),
             array($this->rootChildMarker($path))
         ), static fn (string $marker): bool => '' !== $marker));

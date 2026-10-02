@@ -65,8 +65,16 @@ $assert(
     && (bool) preg_match('/:where\(\.' . $marker . '\)[^{}]*\{[^}]*display:grid;/s', $authorProjectionCss),
     'the projected stylesheet recomputes the desktop grid on the container marker, not on dead raw selectors'
 );
-$assert((bool) preg_match('/:where\(\.' . $marker . '\)>:where\(#svc-copy\)/', $authorProjectionCss), 'the paired position rule projects through the container marker');
-$assert((bool) preg_match('/:where\(\.' . $marker . '\)>:where\(#svc-strategy\)/', $authorProjectionCss), 'the second positioned child rule projects through the container marker');
+$copyPredicateMarker = '';
+$strategyPredicateMarker = '';
+if ( preg_match('/:where\(\.(blocks-engine-attribute-[a-f0-9-]+)\)>:where\(#svc-copy\)/', $authorProjectionCss, $copyPredicateMarkerMatch) ) {
+    $copyPredicateMarker = $copyPredicateMarkerMatch[1];
+}
+if ( preg_match('/:where\(\.(blocks-engine-attribute-[a-f0-9-]+)\)>:where\(#svc-strategy\)/', $authorProjectionCss, $strategyPredicateMarkerMatch) ) {
+    $strategyPredicateMarker = $strategyPredicateMarkerMatch[1];
+}
+$assert('' !== $copyPredicateMarker && str_contains($serializedBlocks, $copyPredicateMarker), 'the paired position rule is bound to its full source predicate marker');
+$assert('' !== $strategyPredicateMarker && str_contains($serializedBlocks, $strategyPredicateMarker), 'the second positioned child rule has an independently bound source predicate marker');
 $assert(str_contains($authorProjectionCss, 'grid-area:1 / 1 / 2 / 2') && str_contains($authorProjectionCss, 'grid-area:10 / 1 / 11 / 2'), 'positioned children keep their explicit grid-area placement');
 $assert((bool) preg_match('/@media\(max-width:980px\)\{[^{}]*:where\(\.' . $marker . '\)[^{}]*\{grid-template-columns:1fr\}/', $authorProjectionCss), 'the narrow-viewport single-column override projects through the responsive cascade');
 

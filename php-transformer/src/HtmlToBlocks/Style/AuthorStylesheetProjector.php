@@ -1411,7 +1411,7 @@ final class AuthorStylesheetProjector
                 array_push($rewritten, ...$attributeAncestryProjection);
                 continue;
             }
-            $attributeProjection = $this->projectSourceAttributeSelector($parsed, $matches, $context);
+            $attributeProjection = $this->projectSourceAttributeSelector($selector, $parsed, $matches, $context);
             if ( null !== $attributeProjection ) {
                 array_push($rewritten, ...$attributeProjection);
                 continue;
@@ -1738,7 +1738,7 @@ final class AuthorStylesheetProjector
         if (null === $host) return null;
         $matches = $this->matchingSourceElements($host['selector'], $host['parsed'], $context);
         $projected = $this->projectSourceAttributeAncestrySelector($host['selector'], $host['parsed'], $matches, $context)
-            ?? $this->projectSourceAttributeSelector($host['parsed'], $matches, $context);
+            ?? $this->projectSourceAttributeSelector($host['selector'], $host['parsed'], $matches, $context);
         return null === $projected ? null : array_map(static fn (string $target): string => $target . $host['suffix'], $projected);
     }
 
@@ -1759,7 +1759,7 @@ final class AuthorStylesheetProjector
             $id = trim($element->getAttribute('id'));
             $parent = $element->parentNode;
             $parentMarker = $parent instanceof DOMElement && preg_match('/>\s*$/', trim($ancestry))
-                ? $context->selectorProjections->attributeMarker($parent->getNodePath() ?? '')
+                ? $context->selectorProjections->attributeMarker($parent->getNodePath() ?? '', $selector)
                 : '';
             if ( '' !== $parentMarker && preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
                 $projected[] = $scope . ':where(.' . $parentMarker . ')>:where(#' . $id . ')' . $this->selectorSpecificityShims($parsed, $context);
@@ -1768,7 +1768,7 @@ final class AuthorStylesheetProjector
             if ( preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
                 $target = '#' . $id;
             } else {
-                $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '');
+                $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '', $selector);
                 if ( '' === $marker ) {
                     return null;
                 }
@@ -1780,7 +1780,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
-    private function projectSourceAttributeSelector(array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
+    private function projectSourceAttributeSelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
     {
         if ( null !== $parsed['pseudo_state_suffix_span'] ) {
             return null;
@@ -1793,7 +1793,7 @@ final class AuthorStylesheetProjector
         }
         $projected = array();
         foreach ( $matches as $element ) {
-            $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '');
+            $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '', $selector);
             if ( '' === $marker ) {
                 return null;
             }
