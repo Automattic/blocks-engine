@@ -642,7 +642,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->styleResolver,
             $this->sourceBlockAttributeProjector,
             $this->session,
-            fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns)
+            fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element)
         );
         $this->patternContext = $this->createPatternContext();
         $this->commercePattern = new CommerceStructureRecognizer($this->sourceElementClassifier);
@@ -760,7 +761,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             },
             $this->styleResolver,
             $this,
-            fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element)
+            fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            fn (DOMElement $element): ?array => $this->authoredFormControlBlockConverter->runtimeButton($element)
         ));
         $detailsConverter = new DetailsElementConverter(new DetailsElementContext(
             fn (DOMElement $element): ?DOMElement => $this->capturedDisclosureDialog($element),
