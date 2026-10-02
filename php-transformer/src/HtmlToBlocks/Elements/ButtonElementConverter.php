@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use DOMElement;
 
 /** Converts buttons through search, image-carrier, and generic precedence. */
@@ -21,6 +22,13 @@ final class ButtonElementConverter implements ElementConverter
 
         if ( $this->context->isReplacedSearchClusterControl($element) ) {
             return ConversionOutcome::handled(null);
+        }
+
+        if ( $this->context->isRuntimeDomTarget($element) && ( array() !== AuthoredButtonBlockGenerator::sourceSafeAttributes($element) || ! $this->context->isRichTextButtonLabel($element) ) ) {
+            $runtimeButton = $this->context->runtimeButton($element);
+            if ( null !== $runtimeButton ) {
+                return ConversionOutcome::handled($runtimeButton);
+            }
         }
 
         if ( $this->context->isImageCarrierButton($element) || ! $this->context->isRichTextButtonLabel($element) ) {

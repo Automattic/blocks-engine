@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -25,13 +26,18 @@ final class ProjectedNavigationConverter implements ElementConverter
         private readonly StyleResolver $styleResolver,
         private readonly SourceBlockAttributeProjector $sourceBlockAttributeProjector,
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $recognizePatterns
+        private readonly Closure $recognizePatterns,
+        private readonly ?Closure $isRuntimeDomTarget = null
     ) {
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
+        if ( 'button' === $tagName && $this->isRuntimeDomTarget instanceof Closure && ($this->isRuntimeDomTarget)($element) && array() !== AuthoredButtonBlockGenerator::sourceSafeAttributes($element) ) {
+            return ConversionOutcome::unhandled();
+        }
+
         $projectedNavigation = $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element);
         if ( $projectedNavigation instanceof DOMElement ) {
             $block = ($this->recognizePatterns)($projectedNavigation, $fallbacks, array(NavigationPattern::class));
