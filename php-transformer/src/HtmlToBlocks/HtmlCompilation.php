@@ -33,6 +33,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LinkedResponsiveContentBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
@@ -42,6 +43,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextInlinePolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedDialogConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LinkedResponsiveContentProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedChoiceGroupConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedListboxConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CapturedSelectableSetConverter;
@@ -8794,6 +8796,37 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
     }
 
+    /** @return array<string, mixed>|null */
+    public function linkedResponsiveContentBlockFromAnchor(DOMElement $anchor): ?array
+    {
+        $attrs = (new LinkedResponsiveContentProjector(
+            $this->styleResolver,
+            $this->imageSourceUrl(...),
+            $this->resolvedAssetImageUrl(...),
+            fn (string $url): int => (int) ($this->assetMetadataImageAttributes($url)['id'] ?? 0),
+            $this->runtimeIslands->isRuntimeDomTarget(...),
+            fn (DOMElement $element): bool => array() !== $this->eventMetadata($element),
+            fn (DOMElement $element): bool => array() !== $this->interactiveAttributes($element),
+            $this->hasRouteBearingDataAttributes(...),
+        ))->project($anchor);
+        if ( null === $attrs ) {
+            return null;
+        }
+
+        $generator = new LinkedResponsiveContentBlockGenerator();
+        $this->generatedBlocks()->register(LinkedResponsiveContentBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
+        $markup = $generator->markup($attrs);
+
+        return array(
+            'blockName' => $this->generatedBlocks()->blockName(LinkedResponsiveContentBlockGenerator::LOCAL_NAME),
+            'attrs' => $generator->commentAttributes($attrs),
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
+
     private function hasRouteBearingDataAttributes(DOMElement $element): bool
     {
         foreach ( $element->attributes as $attribute ) {
@@ -8886,6 +8919,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             || 0 === $anchor->getElementsByTagName('img')->length
         ) {
             return null;
+        }
+
+        $linkedContent = $this->linkedResponsiveContentBlockFromAnchor($anchor);
+        if ( null !== $linkedContent ) {
+            if ( '' === trim($this->attr($paragraph, 'class')) && '' === trim($this->attr($paragraph, 'id')) && '' === trim($this->attr($paragraph, 'style')) ) {
+                return $linkedContent;
+            }
+
+            return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($paragraph), array( $linkedContent ), $paragraph);
         }
 
         $group = $this->convertLinkWrapperGroup($anchor, $fallbacks);
