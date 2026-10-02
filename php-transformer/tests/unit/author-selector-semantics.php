@@ -276,6 +276,16 @@ $assert(
     'attribute projection markers identify full source predicates so identical local attributes in different ancestor scopes keep distinct cascade bindings'
 );
 
+$emptyFunctionalGrid = $transform('<section style="display:flex;flex-direction:column;min-height:297px;padding-top:242px"><div class="content-wrapper" style="display:flex;flex-direction:column;padding:29.7px 0"><div data-runtime-grid-container="1"><style>.neutral-fluid-grid{display:grid;grid-template-rows:repeat(2,minmax(36px,auto))}</style><div class="neutral-fluid-grid"></div></div></div></section>');
+$emptyFunctionalGridMarkup = (string) ($emptyFunctionalGrid['serialized_blocks'] ?? '');
+$emptyFunctionalGridCss = $css($emptyFunctionalGrid);
+$assert(
+    str_contains($emptyFunctionalGridMarkup, 'neutral-fluid-grid blocks-engine-empty-visual-group')
+        && str_contains($emptyFunctionalGridCss, '.neutral-fluid-grid{display:grid;grid-template-rows:repeat(2,minmax(36px,auto))}')
+        && 'pass' === ($emptyFunctionalGrid['source_reports']['wp_block_validity']['status'] ?? ''),
+    'empty nested grid tracks stay represented beneath a source-owned visual wrapper'
+);
+
 $functionalAttributeState = $transform('<style>@media(prefers-reduced-motion:no-preference){:is(#hero :where(.artwork),[id^="artwork-"]):not([data-motion-enter="done"]){opacity:0;animation:reveal 1s backwards}}</style><main id="hero"><div class="artwork" data-motion-enter="done">Visible</div></main>');
 $functionalAttributeStateMarkup = (string) ($functionalAttributeState['serialized_blocks'] ?? '');
 $functionalAttributeStateCss = $css($functionalAttributeState);
