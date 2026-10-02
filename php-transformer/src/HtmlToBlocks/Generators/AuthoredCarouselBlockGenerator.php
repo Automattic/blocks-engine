@@ -183,7 +183,8 @@ final class AuthoredCarouselBlockGenerator
                 var wrapperProps = { key: index, className: wrapper.className || undefined, style: inlineStyle( wrapper.style ) };
                 Object.keys( wrapper.attributes || {} ).forEach( function( name ) { wrapperProps[ 'tabindex' === name ? 'tabIndex' : name ] = wrapper.attributes[ name ]; } );
                 return createElement( 'div', wrapperProps, child );
-            }, createElement( 'div', { className: 'blocks-engine-authored-carousel__source-stage' }, stageContent ) );
+            }, stageContent );
+            stage = createElement( 'div', { className: 'blocks-engine-authored-carousel__source-stage' }, stage );
             return createElement( 'div', rootProps( props.attributes ),
                 controls,
                 stage,
