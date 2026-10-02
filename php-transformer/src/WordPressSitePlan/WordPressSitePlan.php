@@ -39,7 +39,7 @@ final class WordPressSitePlan
     public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
     public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
-    public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}';
+    public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}';
     /**
      * A generated theme reproduces captured text, so WordPress typographic
      * rewriting stays off while it is active. Static block content survives
@@ -2115,6 +2115,7 @@ final class WordPressSitePlan
     private function materializeListingQueryLoops(array $pages, array $runtimeDeclarations = array()): array
     {
         $postsByParent = array();
+        $excerpts = array();
         $bindingsBySource = array();
         foreach ($runtimeDeclarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) {
             $source = $binding['source_path'] ?? null;
@@ -2135,7 +2136,8 @@ final class WordPressSitePlan
             if (count($posts) < 2 || !is_string($page['canonical_block_markup'] ?? null) || str_contains($page['canonical_block_markup'], '<!-- wp:query')) {
                 continue;
             }
-            $replaced = $this->replaceListingMarkup($page['canonical_block_markup'], $posts);
+            $sourceListingMarkup = $page['canonical_block_markup'];
+            $replaced = $this->replaceListingMarkup($sourceListingMarkup, $posts);
             if (null === $replaced || $replaced === $page['canonical_block_markup']) {
                 continue;
             }
@@ -2145,7 +2147,18 @@ final class WordPressSitePlan
             }
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = self::contentHash($replaced);
+            foreach ($this->listingCardRanges($sourceListingMarkup, $posts) ?? array() as $card) {
+                $description = ListingExcerptProjection::description($card['post']);
+                if (null === $description) continue;
+                $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
+                foreach (self::blockRanges($cardMarkup) as $leaf) {
+                    $slice = substr($cardMarkup, $leaf['offset'], $leaf['length']);
+                    if ('paragraph' === self::listingBlockName($slice) && ListingExcerptProjection::matches($slice, $card['post'])) { $excerpts[$card['post']['source_path']] = $description; break; }
+                }
+            }
         }
+        unset($page);
+        foreach ($pages as &$page) if (isset($excerpts[$page['source_path']])) $page['metadata']['excerpt'] = $excerpts[$page['source_path']];
         unset($page);
         return $pages;
     }
@@ -2231,7 +2244,7 @@ final class WordPressSitePlan
     private function listingCardTemplate(string $markup, array $cards): ?string
     {
         $first = $cards[0];
-        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route']);
+        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route'], ListingExcerptProjection::length($cards));
         if (!$transformed['title'] || '' === $transformed['markup']) {
             return null;
         }
@@ -2253,7 +2266,7 @@ final class WordPressSitePlan
      * @param array<string,mixed> $post
      * @return array{markup:string,title:bool,content:bool}
      */
-    private function listingTransformRange(string $markup, array $range, array $post, string $route): array
+    private function listingTransformRange(string $markup, array $range, array $post, string $route, int $excerptLength = 0): array
     {
         $slice = substr($markup, $range['offset'], $range['length']);
         $className = (string) (self::listingBlockAttributes($slice)['className'] ?? '');
@@ -2265,6 +2278,13 @@ final class WordPressSitePlan
         }
         $children = self::childBlockRanges($markup, $range);
         if (array() === $children) {
+            if ('paragraph' === self::listingBlockName($slice) && ListingExcerptProjection::matches($slice, $post)) {
+                $attrs = self::listingBlockAttributes($slice);
+                unset($attrs['metadata']);
+                $attrs['excerptLength'] = $excerptLength;
+                $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-authored-excerpt');
+                return array('markup' => '<!-- wp:post-excerpt ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->', 'title' => false, 'content' => false);
+            }
             $kind = $this->classifyListingCardBlock($slice, $post, $route);
             if ('title' === $kind) {
                 return array('markup' => self::postTitleMarkup($slice), 'title' => true, 'content' => false);
@@ -2278,13 +2298,19 @@ final class WordPressSitePlan
             if ('skip' === $kind) {
                 return array('markup' => '', 'title' => false, 'content' => false);
             }
+            // Ancillary card links (category badges, for example) are authored
+            // metadata, not the article body. Keep their source-owned surface.
+            $anchors = $this->listingAnchors($slice);
+            if (array() !== $anchors && !array_filter($anchors, static fn(array $anchor): bool => self::hrefMatchesListingRoute($anchor['href'], $route))) {
+                return array('markup' => $slice, 'title' => false, 'content' => false);
+            }
             return array('markup' => '<!-- wp:post-content /-->', 'title' => false, 'content' => true);
         }
         $foundTitle = false;
         $emittedContent = false;
         $replacements = array();
         foreach ($children as $child) {
-            $transformed = $this->listingTransformRange($markup, $child, $post, $route);
+            $transformed = $this->listingTransformRange($markup, $child, $post, $route, $excerptLength);
             $foundTitle = $foundTitle || $transformed['title'];
             if ($transformed['content'] && $emittedContent) {
                 $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
@@ -2328,7 +2354,8 @@ final class WordPressSitePlan
                 continue;
             }
             $attributes = is_array($node['attributes'] ?? null) ? $node['attributes'] : array();
-            if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes)) {
+            $datedTime = null !== $timestamp && 'time' === ($node['name'] ?? '') && is_string($attributes['datetime'] ?? null);
+            if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes) && !$datedTime) {
                 continue;
             }
             $parsed = self::parseVisiblePublicationTimestamp(self::elementInnerText($slice, (string) $node['name'], $node['inner_offset']));
@@ -2550,7 +2577,7 @@ final class WordPressSitePlan
         if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})$/', $value, $match)) {
             return ((int) $match[1] > 12 && (int) $match[2] <= 12) ? 'j-n-Y' : 'n-j-Y';
         }
-        foreach (array('F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/') as $format => $pattern) {
+        foreach (array('M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/') as $format => $pattern) {
             if (1 === preg_match($pattern, $value)) {
                 return $format;
             }
