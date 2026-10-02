@@ -99,7 +99,7 @@ final class LinkedResponsiveContentProjector
             'loading' => $this->token(SourceDom::attr($image, 'loading'), array( 'lazy', 'eager' )),
             'decoding' => $this->token(SourceDom::attr($image, 'decoding'), array( 'async', 'sync', 'auto' )),
             'className' => trim(SourceDom::attr($anchor, 'class')),
-            'style' => $this->style($anchor),
+            'anchorStyle' => $this->style($anchor),
             'imageClassName' => trim(SourceDom::attr($image, 'class')),
             'imageStyle' => $this->style($image),
             'label' => $labelHtml,
@@ -126,7 +126,7 @@ final class LinkedResponsiveContentProjector
             'imageData' => $this->dataAttributes($image),
             'labelData' => $this->dataAttributes($label),
         );
-        if ( in_array(null, array( $attrs['style'], $attrs['imageStyle'], $attrs['labelStyle'], $attrs['anchorData'], $attrs['imageData'], $attrs['labelData'] ), true) ) {
+        if ( in_array(null, array( $attrs['anchorStyle'], $attrs['imageStyle'], $attrs['labelStyle'], $attrs['anchorData'], $attrs['imageData'], $attrs['labelData'] ), true) ) {
             return null;
         }
         $assetId = ($this->assetId)($sourceUrl);

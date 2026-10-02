@@ -19,10 +19,18 @@ final class LinkedResponsiveContentBlockGenerator
     /** @var array<int, string> */
     private const LABEL_TAGS = array( 'span', 'strong', 'em', 'b', 'i', 'small', 'mark' );
 
+    public const LABEL_SELECTOR = 'a > span, a > strong, a > em, a > b, a > i, a > small, a > mark';
+
     /** @return array<string, mixed> */
     public function blockJson(string $namespace): array
     {
-        $string = static fn (): array => array( 'type' => 'string', 'default' => '' );
+        $from = static fn (string $selector, string $attribute): array => array(
+            'type' => 'string',
+            'default' => '',
+            'source' => 'attribute',
+            'selector' => $selector,
+            'attribute' => $attribute,
+        );
         $data = static fn (): array => array( 'type' => 'object', 'default' => array() );
 
         return array(
@@ -33,45 +41,45 @@ final class LinkedResponsiveContentBlockGenerator
             'description' => 'One link containing an editable image and label.',
             'editorScript' => 'file:./index.js',
             'attributes' => array(
-                'href' => $string(),
-                'src' => $string(),
-                'srcset' => $string(),
-                'sizes' => $string(),
-                'alt' => $string(),
-                'width' => $string(),
-                'height' => $string(),
-                'loading' => $string(),
-                'decoding' => $string(),
-                'className' => $string(),
-                'style' => $string(),
-                'imageClassName' => $string(),
-                'imageStyle' => $string(),
-                'label' => $string(),
-                'labelClassName' => $string(),
-                'labelStyle' => $string(),
-                'labelTag' => array( 'type' => 'string', 'default' => 'span' ),
-                'linkTarget' => $string(),
-                'rel' => $string(),
-                'anchorId' => $string(),
-                'anchorTitle' => $string(),
-                'ariaLabel' => $string(),
-                'ariaLabelledBy' => $string(),
-                'ariaDescribedBy' => $string(),
-                'imageId' => $string(),
-                'imageTitle' => $string(),
-                'imageLabelledBy' => $string(),
-                'imageDescribedBy' => $string(),
-                'labelId' => $string(),
-                'labelTitle' => $string(),
-                'labelLabelledBy' => $string(),
-                'labelDescribedBy' => $string(),
+                'href' => $from('a', 'href'),
+                'src' => $from('img', 'src'),
+                'srcset' => $from('img', 'srcset'),
+                'sizes' => $from('img', 'sizes'),
+                'alt' => $from('img', 'alt'),
+                'width' => $from('img', 'width'),
+                'height' => $from('img', 'height'),
+                'loading' => $from('img', 'loading'),
+                'decoding' => $from('img', 'decoding'),
+                'className' => $from('a', 'class'),
+                'anchorStyle' => $from('a', 'style'),
+                'imageClassName' => $from('img', 'class'),
+                'imageStyle' => $from('img', 'style'),
+                'label' => array( 'type' => 'string', 'default' => '', 'source' => 'html', 'selector' => self::LABEL_SELECTOR ),
+                'labelClassName' => $from(self::LABEL_SELECTOR, 'class'),
+                'labelStyle' => $from(self::LABEL_SELECTOR, 'style'),
+                'labelTag' => array( 'type' => 'string', 'default' => 'span', 'source' => 'tag', 'selector' => self::LABEL_SELECTOR ),
+                'linkTarget' => $from('a', 'target'),
+                'rel' => $from('a', 'rel'),
+                'anchorId' => $from('a', 'id'),
+                'anchorTitle' => $from('a', 'title'),
+                'ariaLabel' => $from('a', 'aria-label'),
+                'ariaLabelledBy' => $from('a', 'aria-labelledby'),
+                'ariaDescribedBy' => $from('a', 'aria-describedby'),
+                'imageId' => $from('img', 'id'),
+                'imageTitle' => $from('img', 'title'),
+                'imageLabelledBy' => $from('img', 'aria-labelledby'),
+                'imageDescribedBy' => $from('img', 'aria-describedby'),
+                'labelId' => $from(self::LABEL_SELECTOR, 'id'),
+                'labelTitle' => $from(self::LABEL_SELECTOR, 'title'),
+                'labelLabelledBy' => $from(self::LABEL_SELECTOR, 'aria-labelledby'),
+                'labelDescribedBy' => $from(self::LABEL_SELECTOR, 'aria-describedby'),
                 'contentOrder' => array( 'type' => 'string', 'default' => 'image-first' ),
                 'anchorData' => $data(),
                 'imageData' => $data(),
                 'labelData' => $data(),
                 'mediaId' => array( 'type' => 'number', 'default' => 0 ),
             ),
-            'supports' => array( 'html' => false ),
+            'supports' => array( 'html' => false, 'customClassName' => false ),
         );
     }
 
@@ -116,7 +124,7 @@ final class LinkedResponsiveContentBlockGenerator
         var output = '<a';
         [ [ 'className', 'class' ], [ 'href', 'href' ], [ 'anchorId', 'id' ], [ 'linkTarget', 'target' ], [ 'rel', 'rel' ], [ 'ariaLabel', 'aria-label' ], [ 'ariaLabelledBy', 'aria-labelledby' ], [ 'ariaDescribedBy', 'aria-describedby' ], [ 'anchorTitle', 'title' ] ].forEach( function( item ) { if ( attrs[ item[ 0 ] ] ) output += ' ' + item[ 1 ] + '="' + escapeAttribute( attrs[ item[ 0 ] ] ) + '"'; } );
         output += dataAttributes( attrs.anchorData );
-        if ( attrs.style ) output += ' style="' + escapeAttribute( attrs.style ) + '"';
+        if ( attrs.anchorStyle ) output += ' style="' + escapeAttribute( attrs.anchorStyle ) + '"';
         output += '>';
         var image = imageMarkup( attrs );
         var label = labelMarkup( attrs );
@@ -152,10 +160,10 @@ final class LinkedResponsiveContentBlockGenerator
         var image = createElement( MediaUpload, { onSelect: function( media ) { selectMedia( props, media ); }, allowedTypes: [ 'image' ], value: attrs.mediaId || undefined, render: function( obj ) { return createElement( 'img', { alt: attrs.alt || '', className: attrs.imageClassName || undefined, height: attrs.height || undefined, src: attrs.src || undefined, srcSet: attrs.srcset || undefined, style: styleObject( attrs.imageStyle ), width: attrs.width || undefined, onClick: obj.open } ); } } );
         var label = createElement( RichText, { tagName: labelTag( attrs ), className: attrs.labelClassName || undefined, style: styleObject( attrs.labelStyle ), value: attrs.label || '', allowedFormats: [ 'core/bold', 'core/italic' ], placeholder: 'Label', onChange: function( value ) { props.setAttributes( { label: value } ); } } );
         var children = attrs.contentOrder === 'label-first' ? [ label, image ] : [ image, label ];
-        return createElement( element.Fragment, null, inspector( props ), createElement( 'a', useBlockProps( { className: attrs.className || undefined, href: attrs.href || undefined, id: attrs.anchorId || undefined, style: styleObject( attrs.style ), target: attrs.linkTarget || undefined, rel: attrs.rel || undefined, 'aria-label': attrs.ariaLabel || undefined, onClick: function( event ) { event.preventDefault(); } } ), children[ 0 ], children[ 1 ] ) );
+        return createElement( element.Fragment, null, inspector( props ), createElement( 'a', useBlockProps( { className: attrs.className || undefined, href: attrs.href || undefined, id: attrs.anchorId || undefined, style: styleObject( attrs.anchorStyle ), target: attrs.linkTarget || undefined, rel: attrs.rel || undefined, 'aria-label': attrs.ariaLabel || undefined, onClick: function( event ) { event.preventDefault(); } } ), children[ 0 ], children[ 1 ] ) );
     }
     function save( props ) { return createElement( element.RawHTML, null, markup( props.attributes ) ); }
-    blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
+    blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false, customClassName: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
@@ -195,8 +203,8 @@ JS;
         };
         $markup = $append('<a', $attrs, array( 'className' => 'class', 'href' => 'href', 'anchorId' => 'id', 'linkTarget' => 'target', 'rel' => 'rel', 'ariaLabel' => 'aria-label', 'ariaLabelledBy' => 'aria-labelledby', 'ariaDescribedBy' => 'aria-describedby', 'anchorTitle' => 'title' ));
         $markup .= $data($attrs['anchorData'] ?? array());
-        if ( '' !== (string) ($attrs['style'] ?? '') ) {
-            $markup .= ' style="' . $escape($attrs['style']) . '"';
+        if ( '' !== (string) ($attrs['anchorStyle'] ?? '') ) {
+            $markup .= ' style="' . $escape($attrs['anchorStyle']) . '"';
         }
         $image = $append('<img alt="' . $escape($attrs['alt'] ?? '') . '"', $attrs, array( 'imageClassName' => 'class', 'decoding' => 'decoding', 'height' => 'height', 'imageId' => 'id', 'loading' => 'loading', 'sizes' => 'sizes', 'src' => 'src', 'srcset' => 'srcset', 'imageTitle' => 'title', 'width' => 'width', 'imageLabelledBy' => 'aria-labelledby', 'imageDescribedBy' => 'aria-describedby' ));
         $image .= $data($attrs['imageData'] ?? array());
@@ -214,6 +222,76 @@ JS;
         $body = 'label-first' === ($attrs['contentOrder'] ?? '') ? $label . $image : $image . $label;
 
         return $markup . '>' . $body . '</a>';
+    }
+
+    /**
+     * Comment attributes are only the fields Gutenberg does not extract from
+     * saved markup. Markup-owned fields use source:attribute/html/tag.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    public function commentAttributes(array $attrs): array
+    {
+        $comment = array_diff_key($attrs, array_flip($this->sourcedAttributeNames()));
+        foreach ( $this->blockJson('custom')['attributes'] as $key => $schema ) {
+            if ( isset($schema['source']) || ! array_key_exists($key, $comment) ) {
+                continue;
+            }
+            if ( ($schema['default'] ?? null) === $comment[$key] ) {
+                unset($comment[$key]);
+            }
+        }
+
+        return $comment;
+    }
+
+    /** @return array<int, string> */
+    public function sourcedAttributeNames(): array
+    {
+        $names = array();
+        foreach ( $this->blockJson('custom')['attributes'] as $key => $schema ) {
+            if ( isset($schema['source']) ) {
+                $names[] = $key;
+            }
+        }
+
+        return $names;
+    }
+
+    /**
+     * Extract markup-owned attributes the way Gutenberg's getBlockAttributes does:
+     * querySelector plus attribute, innerHTML, or tag, ignoring stale comment copies.
+     *
+     * @param array<string, mixed> $commentAttributes
+     * @return array<string, mixed>
+     */
+    public function attributesFromMarkup(string $html, array $commentAttributes = array()): array
+    {
+        $document = \Dom\HTMLDocument::createFromString('<body>' . $html . '</body>', LIBXML_NOERROR);
+        $attrs = array();
+        foreach ( $this->blockJson('custom')['attributes'] as $key => $schema ) {
+            $source = $schema['source'] ?? null;
+            if ( ! is_string($source) ) {
+                $attrs[$key] = $commentAttributes[$key] ?? ($schema['default'] ?? '');
+                continue;
+            }
+            $match = $document->querySelector((string) ($schema['selector'] ?? ''));
+            $value = null;
+            if ( $match instanceof \Dom\Element ) {
+                if ( 'attribute' === $source ) {
+                    $attribute = (string) ($schema['attribute'] ?? '');
+                    $value = $match->hasAttribute($attribute) ? $match->getAttribute($attribute) : null;
+                } elseif ( 'html' === $source ) {
+                    $value = $match->innerHTML;
+                } elseif ( 'tag' === $source ) {
+                    $value = strtolower($match->tagName);
+                }
+            }
+            $attrs[$key] = null === $value || '' === $value ? ($schema['default'] ?? '') : $value;
+        }
+
+        return $attrs;
     }
 
     /** @return array<string, mixed> */
