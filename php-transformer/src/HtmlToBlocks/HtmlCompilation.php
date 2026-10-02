@@ -611,7 +611,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): bool => $this->isStructuralListItem($element),
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
             fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element)
-        ), $this->styleResolver, $this->runtime);
+        ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector);
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => $this->elementSelector($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
@@ -6400,7 +6400,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        $paragraph = $this->createBlock('core/paragraph', array( 'content' => $content ));
+        $paragraph = $this->createBlock('core/paragraph', array_merge($this->sourceBlockAttributeProjector->syntheticInlineParagraphAttributes($element), array( 'content' => $content )));
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array( $paragraph ), $element);
     }
 

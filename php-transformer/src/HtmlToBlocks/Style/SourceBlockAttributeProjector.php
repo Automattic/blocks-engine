@@ -398,6 +398,15 @@ final class SourceBlockAttributeProjector
         return 'none' === $this->resolvedTextDecorationLine($anchor, true);
     }
 
+    /** @return array<string,string> */
+    public function syntheticInlineParagraphAttributes(DOMElement $container): array
+    {
+        $anchors = $container->getElementsByTagName('a');
+        if (0 === $anchors->length) return array();
+        foreach ($anchors as $anchor) if (!$anchor instanceof DOMElement || !$this->sourceAnchorHasNoTextDecoration($anchor)) return array();
+        return array('className' => self::SYNTHETIC_PARAGRAPH_CLASS . ' ' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
+    }
+
     /**
      * Resolves the computed `text-decoration-line` an element's authored
      * cascade produces, following an explicit `inherit` keyword up the

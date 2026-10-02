@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) { fwrite(STDERR, "FAIL: {$message}\n"); exit(1); } };
 $first = "Author's summary " . implode(' ', array_fill(0, 70, 'detail')) . '.';
@@ -28,6 +29,8 @@ $assert(str_contains($markup, 'Topic') && str_contains($markup, 'wp:post-date') 
 $assert(str_contains($markup, '"excerptLength":72'), 'native excerpt bound comes from authored words rather than a fixed default');
 $assert(str_contains($markup, 'core/post-meta') && count($pages['first.html']['metadata']['post_meta'] ?? array()) === 1 && str_contains(implode('', $pages['second.html']['metadata']['post_meta'] ?? array()), 'Other label'), 'linked metadata belongs to each post, not the first repeated card');
 $assert(str_contains($markup, 'blocks-engine-synthetic-anchor-undecorated'), 'ordinary metadata links retain source-proved inherited decoration resets');
+$wrapped = (new HtmlTransformer())->transform('<style>@layer base{a{text-decoration:inherit}}.labels{display:flex}</style><span class="labels"><a class="muted" href="/topic">Topic</a></span>')->toArray();
+$assert(str_contains($wrapped['serialized_blocks'], 'blocks-engine-synthetic-anchor-undecorated'), 'lowered inline wrappers keep anchor decoration ownership on their synthetic paragraph');
 $assert(str_contains($markup, 'wp:read-more') && str_contains($markup, 'blocks-engine-listing-overlay') && str_contains($markup, 'active-link'), 'card overlay resolves its own post permalink and title retains source interaction classes');
 $css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === $asset['kind']), 'content'));
 if (!str_contains($css, '.wp-block-post-template)>:where(li)')) fwrite(STDERR, $css . "\n");

@@ -16,7 +16,8 @@ final class InlineContentElementConverter implements ElementConverter
     public function __construct(
         private readonly InlineContentElementContext $context,
         private readonly StyleResolver $styleResolver,
-        private readonly Runtime $runtime
+        private readonly Runtime $runtime,
+        private readonly SourceBlockAttributeProjector $sourceAttributes
     ) {
     }
 
@@ -85,7 +86,7 @@ final class InlineContentElementConverter implements ElementConverter
                     }
                 }
                 return ConversionOutcome::handled($this->group($element, array(
-                    $this->context->createBlock('core/paragraph', array( 'content' => $content )),
+                    $this->context->createBlock('core/paragraph', array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element), array( 'content' => $content ))),
                 )));
             }
         }
@@ -141,7 +142,9 @@ final class InlineContentElementConverter implements ElementConverter
             || ($listItem instanceof DOMElement && $this->context->isStructuralListItem($listItem))
             ? $element
             : null;
-        return ConversionOutcome::handled($this->context->createBlock('core/paragraph', array( 'content' => $content ), array(), $sourceElement));
+        $attrs = array('content' => $content);
+        if (null === $sourceElement) $attrs = array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element), $attrs);
+        return ConversionOutcome::handled($this->context->createBlock('core/paragraph', $attrs, array(), $sourceElement));
     }
 
     /** @param array<int, array<string, mixed>> $children @return array<string, mixed> */
