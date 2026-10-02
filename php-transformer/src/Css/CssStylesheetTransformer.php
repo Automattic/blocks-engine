@@ -503,6 +503,11 @@ final class CssStylesheetTransformer
         return '' !== self::firstSignificantCharacter($prelude) && null !== self::splitSelectorList($prelude);
     }
 
+    public function nestsStyleRules(string $prelude): bool
+    {
+        return $this->isAtRule($prelude) && $this->walksNestedRules($prelude);
+    }
+
     private function walksNestedRules(string $prelude): bool
     {
         return in_array(self::atRuleName($prelude), array( 'container', 'layer', 'media', 'scope', 'starting-style', 'supports' ), true);
