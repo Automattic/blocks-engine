@@ -904,7 +904,7 @@ JS;
                 }
                 $mappedControls = array();
                 foreach (array_merge($previous, $next) as $sourceControl) {
-                    if (!$container->contains($sourceControl)) {
+                    if (!$this->containsNode($container, $sourceControl)) {
                         continue;
                     }
                     $sourceIdentity = strtolower(implode(' ', array(SourceDom::attr($sourceControl, 'aria-label'), SourceDom::attr($sourceControl, 'title'), SourceDom::attr($sourceControl, 'class'), trim((string) $sourceControl->textContent))));
@@ -1067,7 +1067,7 @@ JS;
     {
         $container = null;
         for ($candidate = $previous->parentNode instanceof DOMElement ? $previous->parentNode : null; $candidate instanceof DOMElement; $candidate = $candidate->parentNode instanceof DOMElement ? $candidate->parentNode : null) {
-            if (!$candidate->contains($next)) {
+            if (!$this->containsNode($candidate, $next)) {
                 continue;
             }
             $containsOtherContent = false;
@@ -1078,7 +1078,7 @@ JS;
                 if ($descendant !== $previous && $descendant !== $next && $this->containsNavigationPair($descendant)) {
                     continue;
                 }
-                if ($descendant === $previous || $descendant === $next || $descendant->contains($previous) || $descendant->contains($next) || $previous->contains($descendant) || $next->contains($descendant)) {
+                if ($descendant === $previous || $descendant === $next || $this->containsNode($descendant, $previous) || $this->containsNode($descendant, $next) || $this->containsNode($previous, $descendant) || $this->containsNode($next, $descendant)) {
                     continue;
                 }
                 $containsOtherContent = true;
@@ -1091,6 +1091,16 @@ JS;
             break;
         }
         return $container;
+    }
+
+    private function containsNode(DOMElement $ancestor, DOMElement $node): bool
+    {
+        for ($current = $node; null !== $current; $current = $current->parentNode) {
+            if ($ancestor->isSameNode($current)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function containsNavigationPair(DOMElement $element): bool
