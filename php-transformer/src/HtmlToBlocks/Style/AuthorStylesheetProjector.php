@@ -115,7 +115,7 @@ final class AuthorStylesheetProjector
         $svgImageRule = '' === $svgImagePrelude
             ? ''
             : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
-        $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body);
+        $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $svgImageRule . $editorDocumentRootRule;
 
@@ -1681,10 +1681,16 @@ final class AuthorStylesheetProjector
         return array_values(array_unique($rewritten));
     }
 
-    private function editorDocumentRootRule(string $prelude, string $body): string
+    private function editorDocumentRootRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors || ! in_array('body', array_map(static fn (string $selector): string => strtolower(trim($selector)), $selectors), true) ) {
+        $matchesRoot = false;
+        $root = $context->authorStyles->sourceBody()->ownerDocument?->documentElement;
+        foreach ($selectors ?? array() as $selector) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ('body' === strtolower(trim($selector)) || ($root instanceof DOMElement && ($parsed['supported'] ?? false) && null === ($parsed['pseudo_state_suffix_span'] ?? null) && CssSelectorMatcher::matches($root, $parsed)['matches'])) $matchesRoot = true;
+        }
+        if (!$matchesRoot) {
             return '';
         }
 
