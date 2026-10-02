@@ -37,7 +37,7 @@ final class DocumentRootContext
         $code = <<<'PHP'
 add_filter( 'language_attributes', static function ( string $output ) use ( $blocks_engine_document_roots ): string {
     $attributes = array();
-    $id = get_queried_object_id();
+    $id = is_singular() ? get_queried_object_id() : 0;
     $identity = $id ? get_post_meta( $id, '_blocks_engine_reconciliation_identity', true ) : '';
     foreach ( $blocks_engine_document_roots as $row ) {
         if ( '' !== $identity ? $identity === $row['identity'] : ( ( $row['front_page'] && is_front_page() ) || ( is_page() && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) { $attributes = $row['attributes']; break; }
