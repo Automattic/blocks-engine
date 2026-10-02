@@ -55,7 +55,8 @@ final class CapturedCollectionConverter implements ElementConverter
             if (!is_array($config) || !is_array($config['items'] ?? null) || !is_int($config['initialCategory'] ?? null)) return ConversionOutcome::unhandled();
         } elseif (CollectionFilterBlockGenerator::CHOICE === $local) {
             $config = json_decode($element->getAttribute('data-blocks-engine-collection-choice'), true);
-            if ('button' !== $tagName || !is_array($config) || !is_int($config['index'] ?? null) || !is_array($config['active'] ?? null) || !is_array($config['inactive'] ?? null)) return ConversionOutcome::unhandled();
+            $choiceTag = 'button' === $tagName || in_array(strtolower($element->getAttribute('role')), array('button', 'tab'), true);
+            if (!$choiceTag || !in_array($tagName, array('button', 'div', 'span'), true) || !is_array($config) || !is_int($config['index'] ?? null) || !is_array($config['active'] ?? null) || !is_array($config['inactive'] ?? null)) return ConversionOutcome::unhandled();
         } elseif (CollectionFilterBlockGenerator::FIELD === $local && 'input' !== $tagName) {
             return ConversionOutcome::unhandled();
         }
@@ -80,7 +81,7 @@ final class CapturedCollectionConverter implements ElementConverter
             $attrs += array('inputType' => $element->getAttribute('type') ?: 'text', 'placeholder' => $element->getAttribute('placeholder'), 'ariaLabel' => $element->getAttribute('aria-label'), 'value' => $element->getAttribute('value'));
         } elseif (CollectionFilterBlockGenerator::CHOICE === $local) {
             foreach (array('active', 'inactive') as $state) $config[$state]['style'] = $generator->sourceStyle($config[$state]['style'] ?? '');
-            $attrs += array('label' => htmlspecialchars(trim($element->textContent ?? ''), ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8'), 'ariaLabel' => $element->getAttribute('aria-label')) + $config;
+            $attrs += array('tagName' => $tagName, 'label' => htmlspecialchars(trim($element->textContent ?? ''), ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8'), 'ariaLabel' => $element->getAttribute('aria-label')) + $config;
         } else {
             $children = ($this->convertChildren)($element, $fallbacks);
         }
@@ -89,7 +90,7 @@ final class CapturedCollectionConverter implements ElementConverter
             $html = $opening;
             $content = array($html);
         } elseif (CollectionFilterBlockGenerator::CHOICE === $local) {
-            $html = $opening . $attrs['label'] . '</button>';
+            $html = $opening . $attrs['label'] . '</' . $attrs['tagName'] . '>';
             $content = array($html);
         } else {
             $closingTag = CollectionFilterBlockGenerator::ROOT === $local ? $tagName : ($attrs['tagName'] ?? 'div');

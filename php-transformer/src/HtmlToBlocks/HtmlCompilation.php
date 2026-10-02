@@ -5496,7 +5496,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function shouldDeferNavigationPatternToChildren(DOMElement $element): bool
     {
-        if ( 'nav' === strtolower($element->tagName) || ! $this->shouldPreserveWrapper($element) ) {
+        if ( 'nav' === strtolower($element->tagName) || ! $this->shouldPreserveWrapper($element) || $this->isVerifiedCollectionItemList($element) ) {
             return false;
         }
         if ( $this->isRepeatedLinkItemCluster($element) ) {
@@ -5517,6 +5517,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $hasNavigationDescendant;
+    }
+
+    private function isVerifiedCollectionItemList(DOMElement $element): bool
+    {
+        $children = array();
+        foreach ($element->childNodes as $child) if ($child instanceof DOMElement) $children[] = $child;
+        if (1 === count($children)) {
+            $nested = array();
+            foreach ($children[0]->childNodes as $child) if ($child instanceof DOMElement) $nested[] = $child;
+            if (count($nested) >= 2) $children = $nested;
+        }
+        if (count($children) < 2) return false;
+        foreach ($children as $child) if (!$child->hasAttribute('data-blocks-engine-collection-item-marker')) return false;
+        return true;
     }
 
     private function isRepeatedLinkItemCluster(DOMElement $element): bool

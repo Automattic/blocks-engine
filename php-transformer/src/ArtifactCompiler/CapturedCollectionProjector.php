@@ -49,13 +49,14 @@ final class CapturedCollectionProjector
                 }
                 $document ??= $this->document($files[$index]['content']);
                 $candidate = clone $document;
-                if (!$this->annotate($candidate, $evidence, $files[$index]['path'])) {
+                $added = $this->annotateAvailable($candidate, $evidence, $files[$index]['path']);
+                if ($added < 1) {
                     $diagnostics[] = $this->diagnostic('Verified collection evidence did not match one bounded canonical source tree.');
                     continue;
                 }
                 $document = $candidate;
-                ++$count;
-                ++$pageCount;
+                $count += $added;
+                $pageCount += $added;
             }
             if ($pageCount && $document instanceof DOMDocument) {
                 // These portable shims are superseded only after the owning
@@ -329,18 +330,90 @@ final class CapturedCollectionProjector
             || 1 === preg_match('/url\s*\(\s*[\'"]?(?!data:)/i', $html);
     }
 
-    private function annotate(DOMDocument $document, array $evidence, string $path): bool
+    private function annotateAvailable(DOMDocument $document, array $evidence, string $path): int
     {
-        $field = $this->one($document, $evidence['field']['selector'] ?? '');
-        $target = $this->one($document, $evidence['target']['selector'] ?? '');
+        $copies = $this->portableCopies($document, $evidence);
+        if ($copies) {
+            $added = 0;
+            foreach ($copies as $copy) if ($this->annotate($document, $evidence, $path, $copy)) ++$added;
+            return $added;
+        }
+        return $this->annotate($document, $evidence, $path) ? 1 : 0;
+    }
+
+    private function portableCopies(DOMDocument $document, array $evidence): array
+    {
+        $targets = array();
+        foreach ($document->getElementsByTagName('*') as $node) {
+            if (!$node instanceof DOMElement || !$node->hasAttribute('data-dla-collection')) continue;
+            $id = $node->getAttribute('data-dla-collection');
+            if (1 !== preg_match('/^[0-9]{1,4}$/', $id) || isset($targets[$id])) return array();
+            $targets[$id] = $node;
+        }
+        $copies = array();
+        foreach ($targets as $id => $target) {
+            $id = (string) $id;
+            $field = $this->marked($document, 'data-dla-collection-field', $id);
+            if (!$field || 'input' !== strtolower($field->tagName)) continue;
+            $controls = array();
+            foreach ($evidence['categories'] as $index => $category) {
+                $control = $this->marked($document, 'data-dla-collection-category-control', $id, $index);
+                if (!$control || !$this->isChoiceControl($control)) continue 2;
+                $controls[] = $control;
+            }
+            if (!$this->portableItemsMatch($target, $evidence)) continue;
+            $copies[] = array('id' => $id, 'field' => $field, 'target' => $target, 'controls' => $controls);
+        }
+        return $copies;
+    }
+
+    private function marked(DOMDocument $document, string $attribute, string $id, ?int $index = null): ?DOMElement
+    {
+        $found = null;
+        foreach ($document->getElementsByTagName('*') as $node) {
+            if (!$node instanceof DOMElement || $node->getAttribute($attribute) !== $id) continue;
+            if (null !== $index && (string) $index !== $node->getAttribute('data-dla-collection-index')) continue;
+            if ($found) return null;
+            $found = $node;
+        }
+        return $found;
+    }
+
+    private function portableItemsMatch(DOMElement $target, array $evidence): bool
+    {
+        $found = array();
+        foreach ($target->getElementsByTagName('*') as $node) {
+            if (!$node instanceof DOMElement || !$node->hasAttribute('data-dla-collection-item')) continue;
+            $key = $node->getAttribute('data-dla-collection-item');
+            if (isset($found[$key])) return false;
+            $members = json_decode($node->getAttribute('data-dla-collection-members'), true);
+            $found[$key] = $members;
+        }
+        foreach ($evidence['items'] as $item) {
+            if (!isset($found[$item['key']]) || $found[$item['key']] !== $item['categories']) return false;
+        }
+        return count($found) === count($evidence['items']);
+    }
+
+    private function isChoiceControl(DOMElement $element): bool
+    {
+        $role = strtolower($element->getAttribute('role'));
+        return 'button' === strtolower($element->tagName) || in_array($role, array('button', 'tab'), true);
+    }
+
+    private function annotate(DOMDocument $document, array $evidence, string $path, ?array $resolved = null): bool
+    {
+        $copyId = is_array($resolved) ? (string) ($resolved['id'] ?? '') : '';
+        $field = $resolved['field'] ?? $this->one($document, $evidence['field']['selector'] ?? '');
+        $target = $resolved['target'] ?? $this->one($document, $evidence['target']['selector'] ?? '');
         if (!$field || !$target || 'input' !== strtolower($field->tagName) || str_contains($field->getAttribute('style'), '!important')) return false;
         $controls = array();
         $states = array();
-        foreach ($evidence['categories'] as $category) {
-            $control = $this->one($document, $category['selector']);
-            $active = $this->buttonAttributes($category['activeHtml']);
-            $inactive = $this->buttonAttributes($category['inactiveHtml']);
-            if (!$control || 'button' !== strtolower($control->tagName) || null === $active || null === $inactive) return false;
+        foreach ($evidence['categories'] as $index => $category) {
+            $control = is_array($resolved) ? ($resolved['controls'][$index] ?? null) : $this->one($document, $category['selector']);
+            $active = null === $resolved ? $this->buttonAttributes($category['activeHtml']) : $this->controlAttributes($category['activeHtml']);
+            $inactive = null === $resolved ? $this->buttonAttributes($category['inactiveHtml']) : $this->controlAttributes($category['inactiveHtml']);
+            if (!$control || (null === $resolved && 'button' !== strtolower($control->tagName)) || (null !== $resolved && !$this->isChoiceControl($control)) || null === $active || null === $inactive) return false;
             if (str_contains($active['style'], '!important') || str_contains($inactive['style'], '!important')) return false;
             $controls[] = $control;
             $states[] = array('active' => $active, 'inactive' => $inactive);
@@ -351,9 +424,23 @@ final class CapturedCollectionProjector
             || $root->hasAttribute('data-blocks-engine-collection-root') || str_contains($root->getAttribute('style'), '!important')) return false;
         $finite = is_array($evidence['finiteBootstrap'] ?? null);
         $container = $finite ? $this->itemContainer($target, $evidence['itemDepth'] ?? 0) : $target;
+        if (null !== $resolved) {
+            $container = $target;
+            $marked = array();
+            foreach ($target->getElementsByTagName('*') as $node) {
+                if ($node instanceof DOMElement && $node->hasAttribute('data-dla-collection-item')) $marked[$node->getAttribute('data-dla-collection-item')] = $node;
+            }
+            $items = array();
+            foreach ($evidence['items'] as $item) {
+                if (!isset($marked[$item['key']])) return false;
+                $items[] = $marked[$item['key']];
+            }
+        } else {
+            if (!$container instanceof DOMElement) return false;
+            $items = array_values(array_filter(iterator_to_array($container->childNodes), static fn ($node): bool => $node instanceof DOMElement && !$node->hasAttribute('data-dla-collection-empty')));
+        }
         if (!$container instanceof DOMElement) return false;
-        $items = array_values(array_filter(iterator_to_array($container->childNodes), static fn ($node): bool => $node instanceof DOMElement && !$node->hasAttribute('data-dla-collection-empty')));
-        if ($finite) {
+        if ($finite && null === $resolved) {
             $items = $this->finiteNodes($document, $container, $items, $evidence['items']);
             if (null === $items) return false;
         } elseif (count($items) !== count($evidence['items'])) {
@@ -365,7 +452,7 @@ final class CapturedCollectionProjector
             }
         }
         if ($finite && !$this->collectChoices($document, $root, $controls, $field, $target)) return false;
-        $identity = substr(hash('sha256', $path . "\n" . $evidence['target']['selector']), 0, 16);
+        $identity = substr(hash('sha256', $path . "\n" . $evidence['target']['selector'] . ('' === $copyId ? '' : "\n" . $copyId)), 0, 16);
         $members = array();
         $markerByKey = array();
         foreach ($items as $index => $node) {
@@ -491,8 +578,25 @@ final class CapturedCollectionProjector
         $document = $this->document($html);
         $buttons = $document->getElementsByTagName('button');
         if (1 !== $buttons->length) return null;
-        $button = $buttons->item(0);
-        return array('className' => $button->getAttribute('class'), 'style' => $button->getAttribute('style'), 'selected' => $button->hasAttribute('aria-selected') ? $button->getAttribute('aria-selected') : null, 'dataState' => $button->hasAttribute('data-state') ? $button->getAttribute('data-state') : null);
+        return $this->controlState($buttons->item(0));
+    }
+
+    private function controlAttributes(string $html): ?array
+    {
+        $document = $this->document($html);
+        $body = $document->getElementsByTagName('body')->item(0);
+        $element = null;
+        if ($body) foreach ($body->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            if ($element) return null;
+            $element = $child;
+        }
+        return $element && $this->isChoiceControl($element) ? $this->controlState($element) : null;
+    }
+
+    private function controlState(DOMElement $element): array
+    {
+        return array('className' => $element->getAttribute('class'), 'style' => $element->getAttribute('style'), 'selected' => $element->hasAttribute('aria-selected') ? $element->getAttribute('aria-selected') : null, 'dataState' => $element->hasAttribute('data-state') ? $element->getAttribute('data-state') : null);
     }
 
     private function localDisclosuresAreNative(DOMDocument $document): bool

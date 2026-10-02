@@ -26,7 +26,7 @@ final class CollectionFilterBlockGenerator
         if (self::ROOT === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'), 'items' => array('type' => 'array', 'default' => array()), 'initialCategory' => array('type' => 'number', 'default' => 0), 'mode' => array('type' => 'string', 'default' => 'category-and-query'), 'order' => array('type' => 'array', 'default' => array()), 'categoryOrders' => array('type' => 'array', 'default' => array()));
         if (self::CHOICES === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'));
         if (self::FIELD === $local) $attributes += array('inputType' => array('type' => 'string', 'default' => 'search'), 'placeholder' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'value' => array('type' => 'string', 'default' => ''));
-        if (self::CHOICE === $local) $attributes += array('label' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'index' => array('type' => 'number', 'default' => 0), 'initial' => array('type' => 'boolean', 'default' => false), 'active' => array('type' => 'object'), 'inactive' => array('type' => 'object'));
+        if (self::CHOICE === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'button'), 'label' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'index' => array('type' => 'number', 'default' => 0), 'initial' => array('type' => 'boolean', 'default' => false), 'active' => array('type' => 'object'), 'inactive' => array('type' => 'object'));
         $editor = <<<'JS'
 ( function( blocks, editor, components, element ) {
     var el = element.createElement;
@@ -65,7 +65,7 @@ final class CollectionFilterBlockGenerator
         }
         if ( role === 'collection-filter-choice' ) {
             var state = attrs.initial ? attrs.active : attrs.inactive;
-            props.type = 'button';
+            if ( ( attrs.tagName || 'button' ) === 'button' ) props.type = 'button';
             props.className = ( state && state.className ) || undefined;
             props.style = ( state && state.style ) || undefined;
             props[ 'aria-label' ] = attrs.ariaLabel || undefined;
@@ -119,7 +119,7 @@ final class CollectionFilterBlockGenerator
             }
             if ( role === 'collection-filter-choice' ) {
                 return el( editor.RichText, Object.assign( {}, editor.useBlockProps( common( attrs ) ), {
-                    tagName: 'button', type: 'button', value: attrs.label, allowedFormats: [],
+                    tagName: attrs.tagName || 'button', type: 'button', value: attrs.label, allowedFormats: [],
                     onChange: function( value ) { props.setAttributes( { label: value } ); },
                 } ) );
             }
@@ -150,7 +150,7 @@ final class CollectionFilterBlockGenerator
             var attrs = props.attributes;
             if ( role === 'collection-filter-field' ) return el( 'input', saveProps( attrs ) );
             if ( role === 'collection-filter-choice' ) {
-                return el( editor.RichText.Content, Object.assign( saveProps( attrs ), { tagName: 'button', value: attrs.label } ) );
+                return el( editor.RichText.Content, Object.assign( saveProps( attrs ), { tagName: attrs.tagName || 'button', value: attrs.label } ) );
             }
             var tag = role === 'collection-filter' || role === 'collection-filter-choices' ? attrs.tagName || 'div' : 'div';
             return el( tag, editor.useInnerBlocksProps.save( saveProps( attrs ) ) );
@@ -284,12 +284,13 @@ JS;
             $tag = 'input';
             $html += array('type' => $attrs['inputType'] ?? 'search', 'placeholder' => $attrs['placeholder'] ?? '', 'aria-label' => $attrs['ariaLabel'] ?? '', 'value' => $attrs['value'] ?? '', 'data-wp-on--input' => $store . '::actions.query');
         } elseif (self::CHOICE === $local) {
-            $tag = 'button';
+            $tag = in_array($attrs['tagName'] ?? 'button', array('button', 'div', 'span'), true) ? ($attrs['tagName'] ?? 'button') : 'button';
             $state = !empty($attrs['initial']) ? $attrs['active'] : $attrs['inactive'];
             $html['class'] = $state['className'] ?? '';
             $html['style'] = $this->style($state['style'] ?? array());
             $html['aria-label'] = $attrs['ariaLabel'] ?? '';
-            $html += array('type' => 'button', 'aria-pressed' => !empty($attrs['initial']) ? 'true' : 'false', 'aria-selected' => $state['selected'] ?? '', 'data-state' => $state['dataState'] ?? '', 'data-wp-context' => json_encode(array('choiceIndex' => $attrs['index'], 'active' => $attrs['active'], 'inactive' => $attrs['inactive']), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 'data-wp-on--click' => $store . '::actions.choose', 'data-wp-bind--class' => $store . '::state.choiceClass', 'data-wp-bind--style' => $store . '::state.choiceStyle', 'data-wp-bind--aria-pressed' => $store . '::state.choicePressed', 'data-wp-bind--aria-selected' => $store . '::state.choiceSelected', 'data-wp-bind--data-state' => $store . '::state.choiceDataState');
+            $html += array('aria-pressed' => !empty($attrs['initial']) ? 'true' : 'false', 'aria-selected' => $state['selected'] ?? '', 'data-state' => $state['dataState'] ?? '', 'data-wp-context' => json_encode(array('choiceIndex' => $attrs['index'], 'active' => $attrs['active'], 'inactive' => $attrs['inactive']), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 'data-wp-on--click' => $store . '::actions.choose', 'data-wp-bind--class' => $store . '::state.choiceClass', 'data-wp-bind--style' => $store . '::state.choiceStyle', 'data-wp-bind--aria-pressed' => $store . '::state.choicePressed', 'data-wp-bind--aria-selected' => $store . '::state.choiceSelected', 'data-wp-bind--data-state' => $store . '::state.choiceDataState');
+            if ('button' === $tag) $html['type'] = 'button';
         } elseif (self::CHOICES === $local) {
             $tag = in_array($attrs['tagName'] ?? 'div', array('div', 'nav', 'section'), true) ? $attrs['tagName'] : 'div';
             $html['data-wp-bind--hidden'] = $store . '::state.choicesHidden';
