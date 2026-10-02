@@ -132,6 +132,9 @@ final class LinkedResponsiveContentBlockGenerator
     }
     function selectMedia( props, media ) {
         var next = { src: media && media.url ? media.url : '', srcset: '', mediaId: media && media.id ? media.id : 0 };
+        var classes = String( props.attributes.imageClassName || '' ).split( /\s+/ ).filter( function( name ) { return name && ! /^wp-image-\d+$/.test( name ); } );
+        if ( next.mediaId ) classes.push( 'wp-image-' + next.mediaId );
+        next.imageClassName = classes.join( ' ' );
         if ( media && typeof media.alt === 'string' && media.alt !== '' ) next.alt = media.alt;
         if ( ! props.attributes.width && media && media.width ) next.width = String( media.width );
         if ( ! props.attributes.height && media && media.height ) next.height = String( media.height );

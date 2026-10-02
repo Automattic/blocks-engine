@@ -168,7 +168,7 @@ var saved = {
 };
 var kept = null;
 var seeded = null;
-var authored = { width: '48', height: '48', srcset: 'mark.png 1x, mark-2x.png 2x', src: 'mark.png', alt: 'Site', href: '/' };
+var authored = { width: '48', height: '48', srcset: 'mark.png 1x, mark-2x.png 2x', src: 'mark.png', alt: 'Site', href: '/', imageClassName: 'rounded-full phone-only wp-image-141' };
 settings.edit({ attributes: authored, setAttributes: function(next) { kept = next; } });
 var authoredHandlers = [];
 walk(settings.edit({ attributes: authored, setAttributes: function(next) { kept = next; } }), authoredHandlers);
@@ -187,6 +187,7 @@ $assert($labelFirstInner === ($saved['saved']['labelFirst'] ?? null), 'editor-sa
 $assert($styledInner === ($saved['saved']['styled'] ?? null), 'editor-save-preserves-inline-style', (string) ($saved['saved']['styled'] ?? $savedJson));
 $assert($drifted === ($saved['saved']['drifted'] ?? null), 'editor-save-matches-materialized-library-markup', (string) ($saved['saved']['drifted'] ?? $savedJson));
 $assert('library.png' === ($saved['kept']['src'] ?? null) && '' === ($saved['kept']['srcset'] ?? null) && ! array_key_exists('width', $saved['kept'] ?? array()) && ! array_key_exists('height', $saved['kept'] ?? array()) && 9 === ($saved['kept']['mediaId'] ?? null), 'media-replacement-keeps-authored-box-and-clears-srcset', json_encode($saved['kept'] ?? null));
+$assert('rounded-full phone-only wp-image-9' === ($saved['kept']['imageClassName'] ?? null) && 'wp-image-4' === ($saved['seeded']['imageClassName'] ?? null), 'media-replacement-updates-attachment-identity-without-losing-source-classes', json_encode($saved['kept'] ?? null));
 $assert('1024' === ($saved['seeded']['width'] ?? null) && '768' === ($saved['seeded']['height'] ?? null) && ! array_key_exists('alt', $saved['seeded'] ?? array()), 'media-replacement-initializes-missing-dimensions-only', json_encode($saved['seeded'] ?? null));
 
 fwrite(STDOUT, "OK: linked responsive content passed ({$assertions} assertions)\n");
