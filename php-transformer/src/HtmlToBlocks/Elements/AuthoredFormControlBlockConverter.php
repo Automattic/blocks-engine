@@ -18,6 +18,9 @@ use DOMElement;
 /** Converts native input, select, textarea, and button controls into editable block representations. */
 final class AuthoredFormControlBlockConverter
 {
+    /** @var Closure(DOMElement): string */
+    private readonly Closure $richTextLabelContent;
+
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $structuralPresentationDeclarations
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
@@ -25,6 +28,7 @@ final class AuthoredFormControlBlockConverter
      * @param Closure(string): void                                                                         $registerEcho
      * @param Closure(string): string                                                                       $safeAnchor
      * @param Closure(DOMElement): ?DOMElement                                                               $projectSourceTags
+     * @param Closure(DOMElement): string|null                                                                $richTextLabelContent
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
@@ -35,8 +39,10 @@ final class AuthoredFormControlBlockConverter
         private readonly Closure $registerEcho,
         private readonly Runtime $runtime,
         private readonly Closure $safeAnchor,
-        private readonly Closure $projectSourceTags
+        private readonly Closure $projectSourceTags,
+        ?Closure $richTextLabelContent = null
     ) {
+        $this->richTextLabelContent = $richTextLabelContent ?? static fn (DOMElement $label): string => '';
     }
 
     /** @return array<string, mixed>|null */
@@ -84,6 +90,7 @@ final class AuthoredFormControlBlockConverter
             'options' => $options,
             'selectedSummary' => $this->selectedOptionSummary($options),
             'label' => $labelElement instanceof DOMElement ? $this->metadataBuilder->labelText($labelElement) : '',
+            'labelMarkup' => $labelElement instanceof DOMElement ? ($this->richTextLabelContent)($labelElement) : '',
             'labelClassName' => $labelElement instanceof DOMElement ? SourceDom::attr($labelElement, 'class') : '',
             'labelStyle' => $labelElement instanceof DOMElement ? SourceDom::attr($labelElement, 'style') : '',
             'required' => $select->hasAttribute('required'),
@@ -202,6 +209,7 @@ final class AuthoredFormControlBlockConverter
             'checked' => $input->hasAttribute('checked'),
             'dataAttributes' => $preserveDataAttributes ? $this->dataAttributes($input) : array(),
             'label' => $label instanceof DOMElement ? $this->metadataBuilder->labelText($label) : '',
+            'labelMarkup' => $label instanceof DOMElement ? ($this->richTextLabelContent)($label) : '',
             'labelClassName' => $label instanceof DOMElement ? SourceDom::attr($label, 'class') : '',
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
@@ -247,6 +255,7 @@ final class AuthoredFormControlBlockConverter
             'disabled' => $textarea->hasAttribute('disabled'),
             'readOnly' => $textarea->hasAttribute('readonly'),
             'label' => $label instanceof DOMElement ? $this->metadataBuilder->labelText($label) : '',
+            'labelMarkup' => $label instanceof DOMElement ? ($this->richTextLabelContent)($label) : '',
             'labelClassName' => $label instanceof DOMElement ? SourceDom::attr($label, 'class') : '',
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
         ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);

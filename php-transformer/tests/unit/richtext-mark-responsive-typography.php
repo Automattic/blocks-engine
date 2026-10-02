@@ -145,6 +145,36 @@ $assert(
     $idBlocks
 );
 
+// Form providers commonly replace the source form/field-list wrappers while
+// retaining the required marker as editable inline label content. The marker
+// class alone cannot keep an ancestor-scoped source rule alive; the generated
+// RichText carrier must receive the same base and conditional typography.
+$fieldLabel = ( new HtmlTransformer() )->transform(
+    '<style>.form-shell{display:grid}.field-list{display:grid}input{border:1px solid #888}'
+    . '.form-shell .field-list .description.required{font-size:14px;line-height:1;display:block}'
+    . '@media (min-width:768px){.form-shell .field-list .description.required{font-size:15px;line-height:1.2;display:block}}</style>'
+    . '<form class="form-shell"><div class="field-list"><div><label for="name">First Name'
+    . '<span class="description required">(required)</span></label>'
+    . '<input id="name" name="name" required></div></div><button type="submit">Send</button></form>'
+)->toArray();
+$fieldLabelBlocks = (string) ( $fieldLabel['serialized_blocks'] ?? '' );
+$fieldLabelCss = implode("\n", array_map(
+    static fn (array $asset): string => (string) ( $asset['content'] ?? '' ),
+    array_values(array_filter($fieldLabel['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')))
+));
+preg_match('/<span class="description required" data-blocks-engine-richtext-marker="[^"]+" style="([^"]*)"[^>]*>\(required\)<\/span>/', $fieldLabelBlocks, $fieldMarker);
+$assert(
+    isset($fieldMarker[1])
+        && str_contains($fieldLabelCss, 'span[data-blocks-engine-richtext-marker="blocks-engine-richtext-')
+        && str_contains($fieldLabelCss, 'font-size:14px;line-height:1')
+        && str_contains($fieldLabelCss, 'font-size:15px;line-height:1.2')
+        && ! str_contains($fieldMarker[1], 'font-size:')
+        && ! str_contains($fieldMarker[1], 'line-height:')
+        && 'pass' === ( $fieldLabel['source_reports']['wp_block_validity']['status'] ?? '' ),
+    'an ancestor-scoped responsive form marker rule follows its emitted RichText marker when form topology is lowered',
+    $fieldLabelBlocks . "\n" . $fieldLabelCss
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Rich-text responsive typography carriers: {$failures} failed, {$passes} passed\n");
     exit(1);
