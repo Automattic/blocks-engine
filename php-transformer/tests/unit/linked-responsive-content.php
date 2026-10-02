@@ -54,7 +54,44 @@ $block = $find($result['blocks'] ?? array(), 'custom/linked-responsive-content')
 $comment = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
 $inner = (string) ($block['innerHTML'] ?? '');
 $generator = new LinkedResponsiveContentBlockGenerator();
-$attrs = $generator->attributesFromMarkup($inner, $comment);
+// Model attribute extraction for PHP-side save comparisons. Actual Gutenberg
+// parse/validateBlock and editing are verified separately in the browser.
+$attributesFromMarkup = static function (string $html, array $commentAttributes = array()) use ($generator): array {
+    $document = new DOMDocument();
+    $document->loadHTML('<?xml encoding="UTF-8"><body>' . $html . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+    $xpath = new DOMXPath($document);
+    $selectors = array(
+        'a' => '//a',
+        'img' => '//img',
+        LinkedResponsiveContentBlockGenerator::LABEL_SELECTOR => '//a/*[self::span or self::strong or self::em or self::b or self::i or self::small or self::mark]',
+    );
+    $attrs = array();
+    foreach ( $generator->blockJson('custom')['attributes'] as $key => $schema ) {
+        $source = $schema['source'] ?? null;
+        if ( ! is_string($source) ) {
+            $attrs[$key] = $commentAttributes[$key] ?? ($schema['default'] ?? '');
+            continue;
+        }
+        $match = $xpath->query($selectors[$schema['selector']])->item(0);
+        $value = null;
+        if ( $match instanceof DOMElement ) {
+            if ( 'attribute' === $source ) {
+                $value = $match->hasAttribute($schema['attribute']) ? $match->getAttribute($schema['attribute']) : null;
+            } elseif ( 'html' === $source ) {
+                $value = '';
+                foreach ( $match->childNodes as $child ) {
+                    $value .= $document->saveHTML($child);
+                }
+            } elseif ( 'tag' === $source ) {
+                $value = strtolower($match->tagName);
+            }
+        }
+        $attrs[$key] = null === $value || '' === $value ? ($schema['default'] ?? '') : $value;
+    }
+
+    return $attrs;
+};
+$attrs = $attributesFromMarkup($inner, $comment);
 
 $assert(null !== $block, 'direct-and-page-conversion-emits-linked-content', $serialized);
 $assert(! in_array('core/html', $names($result['blocks'] ?? array()), true), 'page-body-has-no-html-island', $serialized);
@@ -72,7 +109,7 @@ $assert(str_contains($shell, 'srcset="mark.png 1x, mark-2x.png 2x"') && str_cont
 
 $visible = $transform('<main><a class="row-link" href="/studio"><img alt="Studio" width="32" height="32" src="studio.png"><span class="label">Studio</span></a></main>');
 $visibleBlock = $find($visible['blocks'] ?? array(), 'custom/linked-responsive-content');
-$visibleParsed = $generator->attributesFromMarkup((string) ($visibleBlock['innerHTML'] ?? ''), $visibleBlock['attrs'] ?? array());
+$visibleParsed = $attributesFromMarkup((string) ($visibleBlock['innerHTML'] ?? ''), $visibleBlock['attrs'] ?? array());
 $assert(null !== $visibleBlock && 'Studio' === ($visibleParsed['label'] ?? null) && 'label' === ($visibleParsed['labelClassName'] ?? null) && ! str_contains((string) ($visible['serialized_blocks'] ?? ''), 'wp:html'), 'simultaneously-visible-media-and-label-stay-one-link', json_encode($visibleParsed));
 
 $flex = $transform('<style>.row{display:flex;align-items:center;gap:1rem}</style><a class="row" href="/"><img src="mark.png" alt="Site"><span>Site</span></a>');
@@ -94,13 +131,13 @@ $labelFirst = $transform('<a class="row-link" href="/studio"><span id="studio-na
 $labelFirstBlock = $find($labelFirst['blocks'] ?? array(), 'custom/linked-responsive-content');
 $labelFirstInner = (string) ($labelFirstBlock['innerHTML'] ?? '');
 $assert('label-first' === ($labelFirstBlock['attrs']['contentOrder'] ?? null) && str_contains($labelFirstInner, '</span><img') && str_contains($labelFirstInner, 'id="studio-name"') && str_contains($labelFirstInner, 'id="studio-mark"') && str_contains($labelFirstInner, 'title="Studio mark"'), 'label-before-image-order-and-ids-are-preserved', $labelFirstInner);
-$labelFirstParsed = $generator->attributesFromMarkup($labelFirstInner, $labelFirstBlock['attrs'] ?? array());
+$labelFirstParsed = $attributesFromMarkup($labelFirstInner, $labelFirstBlock['attrs'] ?? array());
 $assert($labelFirstInner === $generator->markup($labelFirstParsed), 'label-first-markup-matches-parsed-save');
 
 $styled = $transform('<a class="row-link" href="/" aria-labelledby="home-name" title="Home" style="display:flex;gap:16px"><img alt="Site" width="48" height="48" data-nimg="1" style="color:transparent" src="mark.png"><span id="home-name" style="font-weight:500">Site</span></a>');
 $styledBlock = $find($styled['blocks'] ?? array(), 'custom/linked-responsive-content');
 $styledInner = (string) ($styledBlock['innerHTML'] ?? '');
-$styledParsed = $generator->attributesFromMarkup($styledInner, $styledBlock['attrs'] ?? array());
+$styledParsed = $attributesFromMarkup($styledInner, $styledBlock['attrs'] ?? array());
 $assert('display:flex;gap:16px' === ($styledParsed['anchorStyle'] ?? null) && 'color:transparent' === ($styledParsed['imageStyle'] ?? null) && 'font-weight:500' === ($styledParsed['labelStyle'] ?? null), 'authored-inline-presentation-is-preserved', json_encode($styledParsed));
 $assert('home-name' === ($styledParsed['ariaLabelledBy'] ?? null) && 'Home' === ($styledParsed['anchorTitle'] ?? null) && array( 'data-nimg' => '1' ) === ($styledBlock['attrs']['imageData'] ?? null) && str_contains($styledInner, 'data-nimg="1"') && str_contains($styledInner, 'style="color:transparent"'), 'identity-aria-and-safe-data-attributes-stay-on-their-elements', $styledInner);
 $assert($styledInner === $generator->markup($styledParsed), 'styled-markup-matches-parsed-save');
@@ -116,7 +153,7 @@ $assert(null === $find($nestedClass['blocks'] ?? array(), 'custom/linked-respons
 
 $safeEmphasis = $transform('<a class="row-link" href="/"><img alt="Site" width="48" height="48" src="mark.png"><span>Go <em>now</em></span></a>');
 $emphasisBlock = $find($safeEmphasis['blocks'] ?? array(), 'custom/linked-responsive-content');
-$emphasisParsed = $generator->attributesFromMarkup((string) ($emphasisBlock['innerHTML'] ?? ''), $emphasisBlock['attrs'] ?? array());
+$emphasisParsed = $attributesFromMarkup((string) ($emphasisBlock['innerHTML'] ?? ''), $emphasisBlock['attrs'] ?? array());
 $assert(str_contains((string) ($emphasisParsed['label'] ?? ''), '<em>now</em>'), 'attribute-free-rich-text-stays-editable', json_encode($emphasisParsed));
 
 $drifted = str_replace(
@@ -124,7 +161,7 @@ $drifted = str_replace(
     array( 'class="rounded-full phone-only wp-image-141"', 'src="/wp-content/uploads/2026/10/mark-2x.png"', 'srcset="/wp-content/uploads/2026/10/mark.png 1x, /wp-content/uploads/2026/10/mark-2x.png 2x"' ),
     $inner
 );
-$driftedParsed = $generator->attributesFromMarkup($drifted, $comment);
+$driftedParsed = $attributesFromMarkup($drifted, $comment);
 $assert('rounded-full phone-only wp-image-141' === ($driftedParsed['imageClassName'] ?? null) && str_starts_with((string) ($driftedParsed['src'] ?? ''), '/wp-content/uploads/') && str_contains((string) ($driftedParsed['srcset'] ?? ''), '/wp-content/uploads/2026/10/mark.png 1x'), 'materialized-markup-extraction-sees-library-class-and-urls', json_encode($driftedParsed));
 $assert($drifted === $generator->markup($driftedParsed), 'parsed-materialized-markup-saves-without-comment-drift', $generator->markup($driftedParsed));
 

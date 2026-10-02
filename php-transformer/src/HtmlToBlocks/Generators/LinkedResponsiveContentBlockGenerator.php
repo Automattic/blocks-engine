@@ -262,41 +262,6 @@ JS;
         return $names;
     }
 
-    /**
-     * Extract markup-owned attributes the way Gutenberg's getBlockAttributes does:
-     * querySelector plus attribute, innerHTML, or tag, ignoring stale comment copies.
-     *
-     * @param array<string, mixed> $commentAttributes
-     * @return array<string, mixed>
-     */
-    public function attributesFromMarkup(string $html, array $commentAttributes = array()): array
-    {
-        $document = \Dom\HTMLDocument::createFromString('<body>' . $html . '</body>', LIBXML_NOERROR);
-        $attrs = array();
-        foreach ( $this->blockJson('custom')['attributes'] as $key => $schema ) {
-            $source = $schema['source'] ?? null;
-            if ( ! is_string($source) ) {
-                $attrs[$key] = $commentAttributes[$key] ?? ($schema['default'] ?? '');
-                continue;
-            }
-            $match = $document->querySelector((string) ($schema['selector'] ?? ''));
-            $value = null;
-            if ( $match instanceof \Dom\Element ) {
-                if ( 'attribute' === $source ) {
-                    $attribute = (string) ($schema['attribute'] ?? '');
-                    $value = $match->hasAttribute($attribute) ? $match->getAttribute($attribute) : null;
-                } elseif ( 'html' === $source ) {
-                    $value = $match->innerHTML;
-                } elseif ( 'tag' === $source ) {
-                    $value = strtolower($match->tagName);
-                }
-            }
-            $attrs[$key] = null === $value || '' === $value ? ($schema['default'] ?? '') : $value;
-        }
-
-        return $attrs;
-    }
-
     /** @return array<string, mixed> */
     public function definition(string $namespace): array
     {
