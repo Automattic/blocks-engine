@@ -128,7 +128,15 @@ final class RuntimeScriptEvidenceAnalyzer
     private function assignedSelectors(string $script, string $use, bool $events = false): array
     {
         $found = array();
-        if (!preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector(?:All)?\s*\(\s*(["\'])(' . $this->selectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER)) return $found;
+        if (preg_match_all('/function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(\s*\)\s*\{[^{}]{0,200}?return\s+document\s*\.\s*querySelectorAll\s*\(\s*(["\'])(' . $this->selectorPattern() . ')\2\s*\)/', $script, $helpers, PREG_SET_ORDER)) {
+            foreach ($helpers as $helper) {
+                $selector = $this->canonicalSelector($helper[3]);
+                $call = preg_quote($helper[1], '/') . '\s*\(\s*\)';
+                if ($events || !preg_match('/\b' . $call . '\s*(?:' . $use . '|\.\s*forEach\b)/', $script)) continue;
+                $found[$selector] = true;
+            }
+        }
+        if (!preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector(?:All)?\s*\(\s*(["\'])(' . $this->selectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER)) return $events ? $found : array_keys($found);
         foreach ($assignments as $assignment) {
             $selector = '' !== ($assignment[3] ?? '') ? '#' . $assignment[3] : $this->canonicalSelector($assignment[5]);
             if (!preg_match_all('/\b' . preg_quote($assignment[1], '/') . '\s*' . $use . '/', $script, $matches)) continue;
