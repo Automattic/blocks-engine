@@ -278,6 +278,57 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Some source selectors mix static box presentation with a runtime-owned
+     * transform/visibility declaration on the same source class. A replaced
+     * component cannot keep that class around its rebuilt slides; transfer only
+     * missing, unconditional core-supported geometry to the native block attrs.
+     * Conditional families are left to the source stylesheet cascade.
+     *
+     * @param array<string, string> $base
+     * @return array<string, string>
+     */
+    private function mergeUnownedStaticGeometryDeclarations(DOMElement $element, array $base): array
+    {
+        $properties = array_fill_keys(array(
+            'display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-content',
+            'gap', 'row-gap', 'column-gap', 'grid-template-columns', 'grid-template-rows',
+            'grid-auto-flow', 'grid-auto-columns', 'grid-auto-rows',
+            'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
+            'position', 'overflow', 'overflow-x', 'overflow-y', 'box-sizing',
+            'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+            'margin-block', 'margin-block-start', 'margin-block-end', 'margin-inline', 'margin-inline-start', 'margin-inline-end',
+            'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+            'padding-block', 'padding-block-start', 'padding-block-end', 'padding-inline', 'padding-inline-start', 'padding-inline-end',
+        ), true);
+        $missing = array_fill_keys(array_diff_key($properties, $base), true);
+        if (array() === $missing) {
+            return $base;
+        }
+        $owned = array();
+        foreach ($this->context->authorStyles()->styleRules() as $rule) {
+            if (!empty($rule['conditions'])) {
+                continue;
+            }
+            $matched = false;
+            foreach (is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $selectorRecord) {
+                $selector = trim((string) ($selectorRecord['selector'] ?? ''));
+                if ('' !== $selector && $this->matchesCssSelector($element, $selector)) {
+                    $matched = true;
+                    break;
+                }
+            }
+            if (!$matched) {
+                continue;
+            }
+            $geometry = array_intersect_key(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(), $missing);
+            if (array() !== $geometry) {
+                $owned = $this->mergeCssDeclarationMaps($owned, $geometry);
+            }
+        }
+        return $this->mergeCssDeclarationMaps($base, $owned);
+    }
+
+    /**
      * Native core 7.1 grid child placement for this element, when the parent
      * element is emitted as a core grid layout container (issue #2139 step
      * 1).
@@ -2211,7 +2262,7 @@ final class StyleResolver implements ElementPresentationResolver
         foreach (SourceDom::boundedClassTokens($this->presentationClassName(SourceDom::attr($element, 'class'))) as $class) {
             $controlClasses[$class] = true;
         }
-        foreach ($this->context->authorSelectorProjectionState()->attributeStateMarkers($element->getNodePath() ?? '') as $marker) {
+        foreach ($this->sourceAttributeSelectorMarkers($element) as $marker) {
             $controlClasses[$marker] = true;
         }
         $controlAttributes += $attributes;
@@ -2315,6 +2366,18 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $cache->structuralDeclarations[$cacheKey] = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations(SourceDom::attr($element, 'style')));
+    }
+
+    /**
+     * Source-owned static box geometry for replacement wrappers, with matched
+     * unconditional author declarations included even when a parent runtime
+     * class cannot remain on the generated stage.
+     *
+     * @return array<string, string>
+     */
+    public function sourceGeometryPresentationDeclarations(DOMElement $element): array
+    {
+        return $this->mergeUnownedStaticGeometryDeclarations($element, $this->structuralPresentationDeclarations($element));
     }
 
     /**
@@ -3932,7 +3995,9 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function safeStageClassName(DOMElement $sourceElement, array $replacedSlides): string
     {
-        $classes = SourceDom::boundedClassTokens($this->presentationClassName(SourceDom::attr($sourceElement, 'class')));
+        $classes = array_values(array_unique(array_merge(
+            array_values(array_filter(SourceDom::boundedClassTokens(SourceDom::attr($sourceElement, 'class')), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-')))
+        )));
         $runtimeProperties = array_fill_keys(array('transform', 'translate', 'rotate', 'scale', 'animation', 'animation-name', 'animation-play-state', 'opacity', 'visibility'), true);
         $unsafe = array();
         foreach ($this->context->authorStyles()->styleRules() as $rule) {
@@ -3969,6 +4034,12 @@ final class StyleResolver implements ElementPresentationResolver
     public function safeTrackClassName(DOMElement $sourceList, array $replacedSlides): string
     {
         return $this->safeStageClassName($sourceList, $replacedSlides);
+    }
+
+    /** @return list<string> Attribute identities needed by projected source selectors. */
+    public function sourceAttributeSelectorMarkers(DOMElement $element): array
+    {
+        return $this->context->authorSelectorProjectionState()->sourceAttributeSelectorMarkers($element->getNodePath() ?? '');
     }
 
     /** @param array<string, string> $declarations @param array<string, true> $runtimeProperties */

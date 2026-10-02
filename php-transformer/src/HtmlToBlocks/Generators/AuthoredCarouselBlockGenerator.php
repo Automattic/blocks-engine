@@ -99,9 +99,10 @@ final class AuthoredCarouselBlockGenerator
         var presentation = 'slideshow' === attributes.presentation ? 'slideshow' : 'track';
         var initial = Math.min( Math.max( 0, Math.round( Number( attributes.initialSlide ) || 0 ) ), Math.max( 0, normalizedCount( attributes.slideCount ) - 1 ) );
         var aspect = attributes.viewportHeight > 0 ? '' : normalizedAspect( attributes.stageAspectRatio );
-        var style = attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( attributes.viewportHeight ) + 'px', '--blocks-engine-carousel-transition': Math.max( 0, Math.round( Number( attributes.transitionDuration ) || 0 ) ) + 'ms' } : undefined;
+        var style = { position: 'relative' };
+        if ( attributes.viewportHeight > 0 ) { style[ '--blocks-engine-carousel-height' ] = Math.round( attributes.viewportHeight ) + 'px'; style[ '--blocks-engine-carousel-transition' ] = Math.max( 0, Math.round( Number( attributes.transitionDuration ) || 0 ) ) + 'ms'; }
         if ( aspect ) {
-            style = { '--blocks-engine-carousel-stage-aspect': aspect, '--blocks-engine-carousel-transition': Math.max( 0, Math.round( Number( attributes.transitionDuration ) || 0 ) ) + 'ms' };
+            style = { position: 'relative', '--blocks-engine-carousel-stage-aspect': aspect, '--blocks-engine-carousel-transition': Math.max( 0, Math.round( Number( attributes.transitionDuration ) || 0 ) ) + 'ms' };
             var stageWidth = Math.max( 0, Math.round( Number( attributes.stageMaxWidth ) || 0 ) );
             if ( stageWidth > 0 ) { style[ '--blocks-engine-carousel-stage-width' ] = stageWidth + 'px'; }
         }
@@ -176,7 +177,7 @@ final class AuthoredCarouselBlockGenerator
             var controlIdentityProps = {};
             Object.keys( props.attributes.sourceControlAttributes || {} ).forEach( function( name ) { controlIdentityProps[ name ] = props.attributes.sourceControlAttributes[ name ]; } );
             var controls = props.attributes.sourceControlTopology
-                ? createElement( 'div', Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), dangerouslySetInnerHTML: { __html: props.attributes.sourceControlTopology } }, controlIdentityProps ) )
+                ? createElement( 'div', Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), style: 'slideshow' === props.attributes.presentation ? { position: 'absolute', inset: 0, zIndex: 4, pointerEvents: 'none', boxSizing: 'border-box', width: 'auto', height: 'auto', margin: 0, padding: 0 } : undefined, dangerouslySetInnerHTML: { __html: props.attributes.sourceControlTopology } }, controlIdentityProps ) )
                 : createElement( 'div', { className: 'blocks-engine-authored-carousel__controls' }, previous, next );
             var stageContent = createElement( 'div', { className: 'blocks-engine-authored-carousel__viewport', tabIndex: 0, 'data-wp-on--keydown': 'actions.keydown' }, createElement( 'div', { className: 'blocks-engine-authored-carousel__track ' + ( props.attributes.stageTrackClassName || '' ) }, createElement( InnerBlocks.Content ) ) );
             var stage = ( props.attributes.stageWrappers || [] ).reduceRight( function( child, wrapper, index ) {
@@ -389,7 +390,7 @@ JS;
         $style .= '.blocks-engine-authored-carousel--slideshow{margin-block-start:0;margin-block-end:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{min-height:var(--blocks-engine-carousel-stage-min-height,0)}.blocks-engine-authored-carousel__track>.wp-block-group{min-height:var(--blocks-engine-carousel-stage-min-height,auto);margin-block-start:0;margin-block-end:0}';
         $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next::before{content:none}';
         $style .= '.blocks-engine-authored-carousel--source-control-topology .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--source-control-topology .blocks-engine-authored-carousel__next{position:static;inset:auto;width:auto;height:auto;padding:0;border:0;border-radius:0;background:transparent;color:inherit;transform:none}';
-        $style .= '.blocks-engine-authored-carousel__controls{display:contents}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls{display:block;position:absolute;inset:0;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;margin:0!important;padding:0!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-previous],.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-next]{pointer-events:auto}.blocks-engine-authored-carousel__control-group{display:flex;align-items:center;justify-content:center;gap:.5rem}';
+        $style .= '.blocks-engine-authored-carousel__controls{display:contents}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls{display:block;position:absolute!important;inset:0!important;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;margin:0!important;padding:0!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-previous],.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-next]{pointer-events:auto}.blocks-engine-authored-carousel__control-group{display:flex;align-items:center;justify-content:center;gap:.5rem}';
 
         // A slideshow transition is a source characteristic, not a house style,
         // so the shape is a parameter and each variant is expressed here rather
@@ -494,7 +495,7 @@ JS;
         if ( '' !== $stageAspect ) {
             $classes .= ' blocks-engine-authored-carousel--stage-aspect';
         }
-        $styleDeclarations = array();
+        $styleDeclarations = array('position:relative');
         if ( 0 < $viewportHeight ) {
             $styleDeclarations[] = '--blocks-engine-carousel-height:' . $viewportHeight . 'px';
             $styleDeclarations[] = '--blocks-engine-carousel-transition:' . $transitionDuration . 'ms';
@@ -596,8 +597,11 @@ JS;
         $controlsMarkup = '' !== $controlTopology
             ? $controlTopology
             : $previousButton . $nextButton;
+        $controlsPositionStyle = 'slideshow' === $presentation
+            ? ' style="position:absolute;inset:0;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;margin:0;padding:0"'
+            : '';
         return array(
-            'opening' => '<div class="' . $classes . '"' . $identityAttributes . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><div class="blocks-engine-authored-carousel__controls ' . implode(' ', SourceDom::boundedClassTokens((string) ($attributes['sourceControlClasses'] ?? ''))) . '"' . $controlIdentityAttributes . '>' . $controlsMarkup . '</div>' . $stageWrapperOpen,
+            'opening' => '<div class="' . $classes . '"' . $identityAttributes . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><div class="blocks-engine-authored-carousel__controls ' . implode(' ', SourceDom::boundedClassTokens((string) ($attributes['sourceControlClasses'] ?? ''))) . '"' . $controlsPositionStyle . $controlIdentityAttributes . '>' . $controlsMarkup . '</div>' . $stageWrapperOpen,
             'closing' => $stageWrapperClose . $dots . $playback . $rail . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
         );
     }
@@ -714,16 +718,22 @@ JS;
                     $slide = $blockFactory->create('core/image', $slide['attrs'], array());
                 }
             } else {
-                $slideFallbacks = array();
-                $children = $convertChildren($item, $slideFallbacks);
-                if ( array() === $children || array() !== $slideFallbacks ) {
-                    if ( $temporary ) {
-                        $item->parentNode?->removeChild($item);
+                $geometryStyles = $this->carrySourceGeometryIntoBlockTree($item, $styleResolver);
+                try {
+                    $slideFallbacks = array();
+                    $children = $convertChildren($item, $slideFallbacks);
+                    if ( array() === $children || array() !== $slideFallbacks ) {
+                        if ( $temporary ) {
+                            $item->parentNode?->removeChild($item);
+                        }
+                        return null;
                     }
-                    return null;
+                    $slide = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($item), $children, $item);
+                } finally {
+                    $this->restoreInlineStyles($geometryStyles);
                 }
-                $slide = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($item), $children, $item);
             }
+            $slide = $this->carrySourceSlideLayout($slide, $item, $styleResolver);
             $slides[] = $slide;
             if ( $temporary ) {
                 $item->parentNode?->removeChild($item);
@@ -860,7 +870,7 @@ JS;
             'sourceControlArtwork' => '' !== ($sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '') || '' !== ($sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : ''),
             'stageWrappers' => $this->stageWrappers($element, $geometryList, $styleResolver, $items),
             'stageTrackClassName' => $styleResolver->safeTrackClassName($geometryList, $items),
-            'sourceRootGeometry' => array_intersect_key($styleResolver->structuralPresentationDeclarations($element), array_flip(array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right'))),
+            'sourceRootGeometry' => array_intersect_key($styleResolver->sourceGeometryPresentationDeclarations($element), array_flip(array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right'))),
             'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
             'autoplayInterval' => 'slideshow' === $presentation ? $autoplayInterval : 0,
             'showDots' => 'slideshow' === $presentation && $showDots && array() === $thumbnails,
@@ -992,7 +1002,7 @@ JS;
         $key = spl_object_id($element);
         if (isset($controls[$key])) {
             $control = $controls[$key]['element'];
-            $class = $this->sourceClassTokens(SourceDom::attr($control, 'class'));
+            $class = $this->sourceClassTokens(SourceDom::attr($control, 'class'), $control, $styleResolver);
             $direction = $controls[$key]['next'];
             return $this->navigationButtonMarkup($direction, implode(' ', $class), $this->sourceControlVisual($control), $this->resolvedControlPresentation($control, $styleResolver), $control);
         }
@@ -1011,7 +1021,7 @@ JS;
             }
             $value = $attribute->value;
             if ('class' === $name) {
-                $value = implode(' ', $this->sourceClassTokens($value));
+                $value = implode(' ', $this->sourceClassTokens($value, $element, $styleResolver));
             }
             if ('style' === $name) {
                 $value = $this->safeInlineStyle($value);
@@ -1031,9 +1041,12 @@ JS;
     }
 
     /** @return list<string> */
-    private function sourceClassTokens(string $classes): array
+    private function sourceClassTokens(string $classes, DOMElement $element, StyleResolver $styleResolver): array
     {
-        return array_values(array_filter(SourceDom::boundedClassTokens($classes), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-')));
+        return array_values(array_unique(array_merge(
+            array_values(array_filter(SourceDom::boundedClassTokens($classes), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-'))),
+            $styleResolver->sourceAttributeSelectorMarkers($element)
+        )));
     }
 
     private function safeInlineStyle(string $style): string
@@ -1553,7 +1566,8 @@ JS;
                     $attributes[$name] = $value;
                 }
             }
-            $inlineStyle = $this->safeInlineStyle(SourceDom::attr($ancestor, 'style'));
+            $sourceGeometry = $styleResolver->sourceGeometryPresentationDeclarations($ancestor);
+            $inlineStyle = $this->safeInlineStyle($styleResolver->cssDeclarationString($sourceGeometry) . ';' . SourceDom::attr($ancestor, 'style'));
             if ('' !== $className || array() !== $attributes || '' !== $inlineStyle) {
                 array_unshift($ancestors, array('className' => $className, 'attributes' => $attributes, 'style' => $inlineStyle));
             }
@@ -1569,6 +1583,105 @@ JS;
             $targets[] = $ancestor;
         }
         return $targets;
+    }
+
+    /**
+     * A source `li` can own static flex/grid box layout in a selector that also
+     * contains runtime slide transforms. Once `li` is replaced with core/group,
+     * keep its static layout in the native Group API without carrying those
+     * runtime declarations or restoring an unsafe root class around every slide.
+     *
+     * @param array<string, mixed> $block
+     * @return array<string, mixed>
+     */
+    private function carrySourceSlideLayout(array $block, DOMElement $sourceItem, StyleResolver $styleResolver): array
+    {
+        if ('core/group' !== ($block['blockName'] ?? null)) {
+            return $block;
+        }
+        $declarations = $styleResolver->sourceGeometryPresentationDeclarations($sourceItem);
+        $display = strtolower(trim((string) ($declarations['display'] ?? '')));
+        if (!in_array($display, array('flex', 'inline-flex'), true)) {
+            return $block;
+        }
+        $attributes = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        $layout = is_array($attributes['layout'] ?? null) ? $attributes['layout'] : array();
+        $layout['type'] = 'flex';
+        if (preg_match('/^column(?:-reverse)?$/i', trim((string) ($declarations['flex-direction'] ?? '')))) {
+            $layout['orientation'] = 'vertical';
+        }
+        $justify = strtolower(trim((string) ($declarations['justify-content'] ?? '')));
+        $layout['justifyContent'] = array(
+            'flex-start' => 'left', 'start' => 'left', 'left' => 'left',
+            'center' => 'center', 'flex-end' => 'right', 'end' => 'right', 'right' => 'right',
+            'space-between' => 'space-between',
+        )[$justify] ?? ($layout['justifyContent'] ?? null);
+        if (null === $layout['justifyContent']) {
+            unset($layout['justifyContent']);
+        }
+        $flexWrap = strtolower(trim((string) ($declarations['flex-wrap'] ?? '')));
+        if (in_array($flexWrap, array('wrap', 'nowrap'), true)) {
+            $layout['flexWrap'] = $flexWrap;
+        }
+        $attributes['layout'] = $layout;
+        $block['attrs'] = $attributes;
+        return $block;
+    }
+
+    /**
+     * When a source root class also owns slide runtime transforms, that class
+     * cannot safely surround converted RichText descendants. Restate only
+     * unconditional core-mappable geometry on the converted source tree before
+     * block attributes are resolved; all other declarations remain under the
+     * author stylesheet's conditional/runtime ownership.
+     *
+     * @return array<int, array{element: DOMElement, style: ?string}>
+     */
+    private function carrySourceGeometryIntoBlockTree(DOMElement $sourceRoot, StyleResolver $styleResolver): array
+    {
+        $snapshot = array();
+        $elements = array($sourceRoot);
+        foreach ($sourceRoot->getElementsByTagName('*') as $descendant) {
+            if ($descendant instanceof DOMElement) {
+                $elements[] = $descendant;
+            }
+        }
+        $allowed = array_fill_keys(array(
+            'display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-content',
+            'gap', 'row-gap', 'column-gap', 'grid-template-columns', 'grid-template-rows',
+            'grid-auto-flow', 'grid-auto-columns', 'grid-auto-rows', 'text-align',
+            'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
+            'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+            'margin-block', 'margin-block-start', 'margin-block-end', 'margin-inline', 'margin-inline-start', 'margin-inline-end',
+            'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+            'padding-block', 'padding-block-start', 'padding-block-end', 'padding-inline', 'padding-inline-start', 'padding-inline-end',
+        ), true);
+        foreach ($elements as $element) {
+            $oldStyle = $element->hasAttribute('style') ? $element->getAttribute('style') : null;
+            $snapshot[] = array('element' => $element, 'style' => $oldStyle);
+            $inline = $styleResolver->cssDeclarations($oldStyle ?? '');
+            $missing = array_fill_keys(array_diff_key($allowed, $inline), true);
+            if (array() === $missing) {
+                continue;
+            }
+            $declarations = array_intersect_key($styleResolver->sourceGeometryPresentationDeclarations($element), $missing);
+            if (array() !== $declarations) {
+                $element->setAttribute('style', $styleResolver->cssDeclarationString($declarations) . ';' . (string) $oldStyle);
+            }
+        }
+        return $snapshot;
+    }
+
+    /** @param array<int, array{element: DOMElement, style: ?string}> $snapshot */
+    private function restoreInlineStyles(array $snapshot): void
+    {
+        foreach ($snapshot as $entry) {
+            if (null === $entry['style']) {
+                $entry['element']->removeAttribute('style');
+            } else {
+                $entry['element']->setAttribute('style', $entry['style']);
+            }
+        }
     }
 
     /** @return array<int, array{url: string, alt: string}> */
