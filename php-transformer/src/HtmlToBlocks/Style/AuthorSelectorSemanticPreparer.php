@@ -247,7 +247,7 @@ final class AuthorSelectorSemanticPreparer
                     if ( preg_match('/>\s*$/', trim($ancestry)) && $parent instanceof DOMElement ) {
                         $parentPath = $parent->getNodePath() ?? '';
                         if ( '' !== $parentPath ) {
-                            $marker = $projections->ensureAttributeMarker($parentPath);
+                            $marker = $projections->ensureAttributeMarker($parentPath, $selector);
                             $parent->setAttribute('class', SourceDom::mergeClassNames($parent->getAttribute('class'), $marker));
                         }
                     }
@@ -256,7 +256,7 @@ final class AuthorSelectorSemanticPreparer
                     }
                     $path = $element->getNodePath() ?? '';
                     if ( '' !== $path ) {
-                        $marker = $projections->ensureAttributeMarker($path);
+                        $marker = $projections->ensureAttributeMarker($path, $selector);
                         $element->setAttribute('class', SourceDom::mergeClassNames($element->getAttribute('class'), $marker));
                     }
                 }
@@ -283,7 +283,7 @@ final class AuthorSelectorSemanticPreparer
                 }
                 $path = $element->getNodePath() ?? '';
                 if ( '' !== $path ) {
-                    $marker = $projections->ensureAttributeMarker($path);
+                    $marker = $projections->ensureAttributeMarker($path, $selector);
                     $element->setAttribute('class', SourceDom::mergeClassNames($element->getAttribute('class'), $marker));
                 }
             }
@@ -315,40 +315,53 @@ final class AuthorSelectorSemanticPreparer
         if ( 1 !== preg_match_all(
             '/:not\(\s*(\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=\s*(?:"[^"]*"|\'[^\']*\'|[^\]\s]+))?\s*\])\s*\)/i',
             $selector,
-            $matches
-        ) || 1 !== count($matches[1] ?? array()) ) {
+            $matches,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        ) ) {
             return;
         }
 
-        $attributeSelectorText = $matches[1][0];
+        $negation = $matches[0][0][0];
+        $attributeSelectorText = $matches[0][1][0];
         $attributeSelector = CssSelectorMatcher::parse($attributeSelectorText);
         if ( ! $attributeSelector['supported'] ) {
             return;
         }
 
-        $settledSelectorText = preg_replace(
+        // State belongs to the element carrying the negated attribute, not
+        // necessarily the rightmost element matched by the full selector. A
+        // selector such as `.media-inner:not([data-ratio="original"])
+        // .list-image` matches the image, but the generated :not(marker) must
+        // inspect the media-inner wrapper. Stop at the negation's closing
+        // parenthesis before resolving the owner element.
+        $negationOffset = $matches[0][0][1];
+        $stateOwnerPrelude = substr($selector, 0, $negationOffset + strlen($negation));
+        $stateOwnerSelectorText = preg_replace(
             '/:not\(\s*' . preg_quote($attributeSelectorText, '/') . '\s*\)/i',
             $attributeSelectorText,
-            $selector,
+            $stateOwnerPrelude,
             1
-        ) ?? $selector;
-        $settledSelector = CssSelectorMatcher::parse($settledSelectorText);
-        $candidateSelector = $settledSelector['supported'] ? $settledSelector : $attributeSelector;
-        $marker = '';
+        ) ?? $stateOwnerPrelude;
+        $stateOwnerSelector = CssSelectorMatcher::parse($stateOwnerSelectorText);
+        $candidateSelector = $stateOwnerSelector['supported'] ? $stateOwnerSelector : $attributeSelector;
+        // Project the positive state even when this source document has no
+        // element in that state. The emitted selector is the negation of this
+        // marker: with zero marked elements it must still match every source
+        // element that did not carry the negated attribute value. Leaving the
+        // original attribute selector behind is incorrect once editable block
+        // serialization drops that presentation-only data attribute.
+        $marker = $authorStyles->allocateStableMarker('attribute-state', $stateOwnerSelectorText);
         foreach ( $authorStyles->selectorCandidates($candidateSelector) as $element ) {
             if ( ! CssSelectorMatcher::matches($element, $candidateSelector, true, $authorStyles->selectorMatchCache())['matches'] ) {
                 continue;
             }
             $path = $element->getNodePath() ?? '';
             if ( '' !== $path ) {
-                $marker = '' === $marker ? $authorStyles->allocateMarker('attribute-state') : $marker;
                 $projections->addAttributeStateMarker($path, $marker);
                 $element->setAttribute('class', SourceDom::mergeClassNames($element->getAttribute('class'), $marker));
             }
         }
-        if ( '' !== $marker ) {
-            $projections->installAttributeNegationMarker($selector, $marker);
-        }
+        $projections->installAttributeNegationMarker($selector, $marker);
     }
 
     /** @param array<string, mixed> $options */
