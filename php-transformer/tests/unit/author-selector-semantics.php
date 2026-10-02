@@ -276,6 +276,22 @@ $assert(
     'attribute projection markers identify full source predicates so identical local attributes in different ancestor scopes keep distinct cascade bindings'
 );
 
+$functionalAttributeProjection = $transform('<style>@media (min-width:700px){:is(#neutral-specificity,[data-runtime-clearance="1"]){display:grid;padding-top:242px!important}}@media (max-width:699px){:is(#neutral-specificity,[data-runtime-clearance="1"]){padding-top:36px!important}}</style><section data-runtime-clearance="1"><p>Clearance owner</p></section><section><p>Unaffected sibling</p></section>');
+$functionalAttributeMarkup = (string) ($functionalAttributeProjection['serialized_blocks'] ?? '');
+$functionalAttributeCss = $css($functionalAttributeProjection);
+preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $functionalAttributeMarkup, $functionalAttributeMarkers);
+$functionalAttributeMarkers = array_values(array_unique($functionalAttributeMarkers[0] ?? array()));
+$assert(
+    1 === count($functionalAttributeMarkers)
+        && ! str_contains($functionalAttributeMarkup, 'data-runtime-clearance=')
+        && str_contains($functionalAttributeCss, ':where(.' . $functionalAttributeMarkers[0] . ')')
+        && str_contains($functionalAttributeCss, 'padding-top:242px!important')
+        && str_contains($functionalAttributeCss, 'padding-top:36px!important')
+        && str_contains($functionalAttributeCss, 'blocks-engine-specificity-id-site-')
+        && 'pass' === ($functionalAttributeProjection['source_reports']['wp_block_validity']['status'] ?? ''),
+    'functional :is() data-attribute predicates project onto only the matching block with preserved specificity and responsive declarations'
+);
+
 $functionalAttributeState = $transform('<style>@media(prefers-reduced-motion:no-preference){:is(#hero :where(.artwork),[id^="artwork-"]):not([data-motion-enter="done"]){opacity:0;animation:reveal 1s backwards}}</style><main id="hero"><div class="artwork" data-motion-enter="done">Visible</div></main>');
 $functionalAttributeStateMarkup = (string) ($functionalAttributeState['serialized_blocks'] ?? '');
 $functionalAttributeStateCss = $css($functionalAttributeState);
