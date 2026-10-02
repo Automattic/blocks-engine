@@ -231,6 +231,14 @@ foreach ( $distinctPlan['pages'] ?? array() as $page ) {
     }
 }
 $assert(2 === count($distinctThemeScripts) && array() === ($distinctScripts['source_reports']['companion_plugin_payload']['preserved_js'] ?? array()), 'distinct inline script occurrences stay separate theme declarations');
+$feedback = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        'index.html' => '<main><div class="form-success js-form-success" role="status" aria-live="polite"></div></main>',
+        'website/nav.js' => 'document.querySelector(".form-success"); document.querySelector(".form-error");',
+    ),
+))->toArray();
+$feedbackMarkup = (string) ($feedback['serialized_blocks'] ?? '');
+$assert(str_contains($feedbackMarkup, 'form-success') && str_contains($feedbackMarkup, 'role="status"') && str_contains($feedbackMarkup, 'aria-live="polite"') && ! str_contains($feedbackMarkup, 'js-form-success'), 'a queried status wrapper keeps role and live semantics without an untargeted behavior-hook class: ' . substr($feedbackMarkup, 0, 500));
 
 file_put_contents(sys_get_temp_dir() . '/runtime-dialog-trigger-button.json', json_encode(array(
     'html' => $compiledMarkup,
