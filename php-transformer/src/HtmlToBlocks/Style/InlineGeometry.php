@@ -321,7 +321,7 @@ final class InlineGeometry
     {
         $declarations = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? $declarations['background-color'] ?? '');
-        if ( '' === trim($inlineBackground) ) {
+        if ( '' === trim($inlineBackground) && ! array_key_exists('opacity', $declarations) ) {
             return '';
         }
 

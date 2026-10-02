@@ -194,4 +194,8 @@ $inlineOverlayValidity = ( new BlockValidityValidator() )->validateBlocks($inlin
 $assert(3 === substr_count($inlineOverlayMarkup, 'blocks-engine-empty-visual-group') / 2 && 'pass' === ($inlineOverlayValidity['status'] ?? ''), 'Empty inline-painted overlays remain valid native groups.');
 $assert(str_contains($inlineOverlayCss, 'opacity:.35 !important') && str_contains($inlineOverlayCss, 'opacity:.65 !important') && str_contains($inlineOverlayCss, 'opacity:0 !important'), 'Each empty inline-painted overlay retains its authored alpha, including intentional zero.');
 
+$classPaintOverlay = ( new HtmlTransformer() )->transform('<style>.neutral-overlay{position:absolute;inset:0;background:#000}</style><main style="position:relative;height:40px"><div class="neutral-overlay" style="opacity:.6"></div></main>')->toArray();
+$classPaintOverlayCss = $engineSupportCss($classPaintOverlay['assets'] ?? array());
+$assert(str_contains($classPaintOverlayCss, 'opacity:.6 !important'), 'An empty boundary retains inline alpha when its background paint is owned by an authored class.');
+
 fwrite(STDOUT, "Empty visual figure contracts passed.\n");
