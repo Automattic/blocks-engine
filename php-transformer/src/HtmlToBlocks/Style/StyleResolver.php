@@ -2031,7 +2031,7 @@ final class StyleResolver implements ElementPresentationResolver
      * generated stage; presentation hooks used by the source control topology
      * are routed to the generated control host.
      *
-     * @return array{className: string, controlClassName: string, attributes: array<string, string>, controlAttributes: array<string, string>, customProperties: array<string, string>}
+     * @return array{className: string, stageClassName: string, controlClassName: string, attributes: array<string, string>, controlAttributes: array<string, string>, customProperties: array<string, string>}
      */
     public function sourceCustomPropertyScope(DOMElement $element, array $presentationTargets = array(), array $replacedSlides = array()): array
     {
@@ -2090,6 +2090,16 @@ final class StyleResolver implements ElementPresentationResolver
                 if ('' === $selector) {
                     continue;
                 }
+                if ($this->matchesCssSelector($element, $selector)) {
+                    if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $identityMatches)) {
+                        foreach (array_unique($identityMatches[1]) as $name) {
+                            $value = SourceDom::attr($element, $name);
+                            if ('' !== $value && strlen($value) <= 512 && ! preg_match('/(?:controller|current-context|current-styles|animation-state|controllers-bound)/i', $name)) {
+                                $attributes[$name] = $value;
+                            }
+                        }
+                    }
+                }
                 if (array() !== $customNames && $this->matchesCssSelector($element, $selector)) {
                     foreach ($rootClasses as $class) {
                         if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
@@ -2099,7 +2109,7 @@ final class StyleResolver implements ElementPresentationResolver
                     if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $matches)) {
                         foreach (array_unique($matches[1]) as $name) {
                             $value = SourceDom::attr($element, $name);
-                            if ('' !== $value) {
+                            if ('' !== $value && strlen($value) <= 512 && ! preg_match('/(?:controller|current-context|current-styles|animation-state|controllers-bound)/i', $name)) {
                                 $attributes[$name] = $value;
                             }
                         }
@@ -2124,15 +2134,16 @@ final class StyleResolver implements ElementPresentationResolver
                     if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $matches)) {
                         foreach (array_unique($matches[1]) as $name) {
                             $value = SourceDom::attr($element, $name);
-                            if ('' !== $value) {
+                            if ('' !== $value && strlen($value) <= 512 && ! preg_match('/(?:controller|current-context|current-styles|animation-state|controllers-bound)/i', $name)) {
                                 $controlAttributes[$name] = $value;
+                                $attributes[$name] = $value;
                             }
                         }
                     }
                 }
                 foreach ($replacedSlides as $slide) {
                     if (!$slide instanceof DOMElement || !$this->matchesCssSelector($slide, $selector)
-                        || array() === array_intersect_key($declarations, $runtimeProperties)
+                        || ! $this->hasSourceSlideRuntimeState($declarations, $runtimeProperties)
                     ) {
                         continue;
                     }
@@ -2158,8 +2169,9 @@ final class StyleResolver implements ElementPresentationResolver
                 if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $matches)) {
                     foreach (array_unique($matches[1]) as $name) {
                         $value = SourceDom::attr($element, $name);
-                        if ('' !== $value) {
+                        if ('' !== $value && strlen($value) <= 512 && ! preg_match('/(?:controller|current-context|current-styles|animation-state|controllers-bound)/i', $name)) {
                             $controlAttributes[$name] = $value;
+                            $attributes[$name] = $value;
                         }
                     }
                 }
@@ -2174,7 +2186,7 @@ final class StyleResolver implements ElementPresentationResolver
             foreach ($this->matchingStyleRules($slide, 'cascaded-values') as $rule) {
                 $selector = (string) ($rule['selector'] ?? '');
                 $declarations = array_merge($rule['declarations'] ?? array(), $rule['cascadedDeclarations'] ?? array());
-                if (array() === array_intersect_key($declarations, $runtimeProperties)) {
+                if (! $this->hasSourceSlideRuntimeState($declarations, $runtimeProperties)) {
                     continue;
                 }
                 foreach ($replacementClasses as $class) {
@@ -2273,6 +2285,7 @@ final class StyleResolver implements ElementPresentationResolver
 
         return array(
             'className' => implode(' ', $presentationClasses),
+            'stageClassName' => $this->safeStageClassName($element, $replacedSlides),
             'controlClassName' => implode(' ', array_keys($controlClasses)),
             'attributes' => $attributes,
             'controlAttributes' => $controlAttributes,
@@ -3909,6 +3922,60 @@ final class StyleResolver implements ElementPresentationResolver
             && ! self::isTransformerMarkerClassName($class));
 
         return implode(' ', array_values(array_unique($classes)));
+    }
+
+    /**
+     * Source classes may style a replacement stage, except for hooks whose
+     * matching source rules position, hide, or animate the replaced slides.
+     *
+     * @param array<int, DOMElement> $replacedSlides
+     */
+    public function safeStageClassName(DOMElement $sourceElement, array $replacedSlides): string
+    {
+        $classes = SourceDom::boundedClassTokens($this->presentationClassName(SourceDom::attr($sourceElement, 'class')));
+        $runtimeProperties = array_fill_keys(array('transform', 'translate', 'rotate', 'scale', 'animation', 'animation-name', 'animation-play-state', 'opacity', 'visibility'), true);
+        $unsafe = array();
+        foreach ($this->context->authorStyles()->styleRules() as $rule) {
+            $declarations = is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array();
+            if (! $this->hasSourceSlideRuntimeState($declarations, $runtimeProperties)) {
+                continue;
+            }
+            foreach (is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $selectorRecord) {
+                $selector = trim((string) ($selectorRecord['selector'] ?? ''));
+                if ('' === $selector) {
+                    continue;
+                }
+                $targetsSlide = false;
+                foreach ($replacedSlides as $slide) {
+                    if ($slide instanceof DOMElement && $this->matchesCssSelector($slide, $selector)) {
+                        $targetsSlide = true;
+                        break;
+                    }
+                }
+                if (!$targetsSlide) {
+                    continue;
+                }
+                foreach ($classes as $class) {
+                    if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                        $unsafe[$class] = true;
+                    }
+                }
+            }
+        }
+        return implode(' ', array_values(array_filter($classes, static fn (string $class): bool => ! isset($unsafe[$class]))));
+    }
+
+    /** Source list classes for the generated track, excluding slide runtime hooks. */
+    public function safeTrackClassName(DOMElement $sourceList, array $replacedSlides): string
+    {
+        return $this->safeStageClassName($sourceList, $replacedSlides);
+    }
+
+    /** @param array<string, string> $declarations @param array<string, true> $runtimeProperties */
+    private function hasSourceSlideRuntimeState(array $declarations, array $runtimeProperties): bool
+    {
+        return array() !== array_intersect_key($declarations, $runtimeProperties)
+            || 'none' === strtolower(trim((string) ($declarations['display'] ?? '')));
     }
 
     private function hasAuthorClassSelector(string $className): bool

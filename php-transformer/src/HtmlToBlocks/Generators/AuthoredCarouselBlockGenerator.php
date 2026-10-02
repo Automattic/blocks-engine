@@ -63,6 +63,7 @@ final class AuthoredCarouselBlockGenerator
             'stageMinHeight' => array('type' => 'string', 'default' => ''),
             'sourceControlArtwork' => array('type' => 'boolean', 'default' => false),
             'stageWrappers' => array('type' => 'array', 'default' => array()),
+            'stageTrackClassName' => array('type' => 'string', 'default' => ''),
             'sourceRootGeometry' => array('type' => 'object', 'default' => array()),
             'transitionDuration' => array('type' => 'number', 'default' => 300),
             'autoplayInterval' => array('type' => 'number', 'default' => 0),
@@ -89,6 +90,7 @@ final class AuthoredCarouselBlockGenerator
     function normalizedPlacement( value ) { return -1 !== [ 'top-left', 'top-right', 'bottom-left', 'bottom-right' ].indexOf( value ) ? value : 'bottom-left'; }
     function normalizedTransition( value ) { return 'slide' === value ? 'slide' : 'fade'; }
     function normalizedAspect( value ) { return 'string' === typeof value && /^[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?$/.test( value ) ? value : ''; }
+    function inlineStyle( source ) { var style = {}; ( source || '' ).split( ';' ).forEach( function( declaration ) { var separator = declaration.indexOf( ':' ); if ( separator < 1 ) return; var name = declaration.slice( 0, separator ).trim(); var value = declaration.slice( separator + 1 ).trim(); var key = name.startsWith( '--' ) ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); if ( name && value ) style[ key ] = value; } ); return style; }
     function controlStyle( source ) { var style = {}; Object.keys( source || {} ).forEach( function( name ) { var key = name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); if ( -1 !== [ 'width', 'height', 'padding', 'border', 'borderRadius', 'background', 'backgroundColor', 'color', 'font' ].indexOf( key ) ) { style[ key ] = source[ name ]; } } ); return style; }
     function rootProps( attributes ) {
         var items = normalizedItems( attributes.itemsPerView );
@@ -107,6 +109,7 @@ final class AuthoredCarouselBlockGenerator
         var props = { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle ) + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
         Object.keys( attributes.sourceIdentityAttributes || {} ).forEach( function( name ) { props[ name ] = attributes.sourceIdentityAttributes[ name ]; } );
         if ( attributes.sourceControlArtwork ) { props.className += ' blocks-engine-authored-carousel--source-control-artwork'; }
+        if ( attributes.sourceControlTopology ) { props.className += ' blocks-engine-authored-carousel--source-control-topology'; }
         Object.keys( attributes.controlPresentation || {} ).forEach( function( key ) { props.style = props.style || {}; props.style[ '--blocks-engine-carousel-control-' + key ] = attributes.controlPresentation[ key ]; } );
         Object.keys( attributes.sourceCustomProperties || {} ).forEach( function( name ) { props.style = props.style || {}; props.style[ name ] = attributes.sourceCustomProperties[ name ]; } );
         Object.keys( attributes.sourceRootGeometry || {} ).forEach( function( name ) { var key = name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); props.style = props.style || {}; props.style[ key ] = attributes.sourceRootGeometry[ name ]; } );
@@ -175,9 +178,15 @@ final class AuthoredCarouselBlockGenerator
             var controls = props.attributes.sourceControlTopology
                 ? createElement( 'div', Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), dangerouslySetInnerHTML: { __html: props.attributes.sourceControlTopology } }, controlIdentityProps ) )
                 : createElement( 'div', { className: 'blocks-engine-authored-carousel__controls' }, previous, next );
+            var stageContent = createElement( 'div', { className: 'blocks-engine-authored-carousel__viewport', tabIndex: 0, 'data-wp-on--keydown': 'actions.keydown' }, createElement( 'div', { className: 'blocks-engine-authored-carousel__track ' + ( props.attributes.stageTrackClassName || '' ) }, createElement( InnerBlocks.Content ) ) );
+            var stage = ( props.attributes.stageWrappers || [] ).reduceRight( function( child, wrapper, index ) {
+                var wrapperProps = { key: index, className: wrapper.className || undefined, style: inlineStyle( wrapper.style ) };
+                Object.keys( wrapper.attributes || {} ).forEach( function( name ) { wrapperProps[ 'tabindex' === name ? 'tabIndex' : name ] = wrapper.attributes[ name ]; } );
+                return createElement( 'div', wrapperProps, child );
+            }, createElement( 'div', { className: 'blocks-engine-authored-carousel__source-stage' }, stageContent ) );
             return createElement( 'div', rootProps( props.attributes ),
                 controls,
-                ( props.attributes.stageWrappers || [] ).reduceRight( function( child, wrapper, index ) { return createElement( 'div', { key: index, className: wrapper.className || undefined }, child ); }, createElement( 'div', { className: 'blocks-engine-authored-carousel__viewport', tabIndex: 0, 'data-wp-on--keydown': 'actions.keydown' }, createElement( 'div', { className: 'blocks-engine-authored-carousel__track' }, createElement( InnerBlocks.Content ) ) ) ),
+                stage,
                 dotCount > 0 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__dots', role: 'group', 'aria-label': 'Choose slide' }, dots ) : null,
                 props.attributes.showPlayControl ? createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__playback blocks-engine-authored-carousel__playback--' + normalizedPlacement( props.attributes.playControlPosition ), style: { '--blocks-engine-carousel-control-inset': Math.max( 0, Math.min( 64, Math.round( Number( props.attributes.playControlInset ) || 0 ) ) ) + 'px' }, 'data-wp-on--click': 'actions.toggleAutoplay', 'data-wp-bind--aria-pressed': 'state.playing', 'data-wp-text': 'state.playbackLabel' }, 'Play' ) : null,
                 thumbnails.length > 1 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__thumbnails', role: 'group', 'aria-label': 'Choose slide' }, thumbnails.map( function( thumbnail, index ) {
@@ -373,12 +382,13 @@ JS;
         // absolutely positioned background layer the source container puts
         // before it covers the slides completely.
         $style = '.blocks-engine-authored-carousel{--blocks-engine-carousel-gap:1rem;position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--blocks-engine-carousel-gap);align-items:center;max-width:100%;min-width:0}.blocks-engine-authored-carousel__viewport{min-width:0;overflow:hidden;scroll-behavior:smooth}.blocks-engine-authored-carousel__track{display:grid;grid-auto-flow:column;grid-auto-columns:calc((100% - 3rem)/4);gap:var(--blocks-engine-carousel-gap)}.blocks-engine-authored-carousel--items-1 .blocks-engine-authored-carousel__track{grid-auto-columns:100%}.blocks-engine-authored-carousel--items-2 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 1rem)/2)}.blocks-engine-authored-carousel--items-3 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 2rem)/3)}.blocks-engine-authored-carousel--items-5 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 4rem)/5)}.blocks-engine-authored-carousel--items-6 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 5rem)/6)}.blocks-engine-authored-carousel__track>*{box-sizing:border-box;min-width:0;margin:0}.blocks-engine-authored-carousel__track>.wp-block-image img{display:block;width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:inherit}.blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel__next{cursor:pointer}.blocks-engine-authored-carousel__previous:disabled,.blocks-engine-authored-carousel__next:disabled{cursor:default;opacity:.45}.blocks-engine-authored-carousel__status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(max-width:900px){.blocks-engine-authored-carousel .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 1rem)/2)}}@media(max-width:600px){.blocks-engine-authored-carousel .blocks-engine-authored-carousel__track{grid-auto-columns:100%}}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel__viewport{scroll-behavior:auto}}';
-        $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0;transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
+        $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0;transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
         $style .= '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__dot{pointer-events:auto}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{visibility:hidden!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{visibility:visible!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){visibility:hidden!important}';
 
-        $style .= '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{min-height:var(--blocks-engine-carousel-stage-min-height,0)}';
+        $style .= '.blocks-engine-authored-carousel--slideshow{margin-block-start:0;margin-block-end:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{min-height:var(--blocks-engine-carousel-stage-min-height,0)}.blocks-engine-authored-carousel__track>.wp-block-group{min-height:var(--blocks-engine-carousel-stage-min-height,auto);margin-block-start:0;margin-block-end:0}';
         $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next::before{content:none}';
-        $style .= '.blocks-engine-authored-carousel__controls{display:contents}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls{display:block;position:absolute;inset:0;z-index:4;pointer-events:none}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-previous],.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-next]{pointer-events:auto}.blocks-engine-authored-carousel__control-group{display:flex;align-items:center;justify-content:center;gap:.5rem}';
+        $style .= '.blocks-engine-authored-carousel--source-control-topology .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--source-control-topology .blocks-engine-authored-carousel__next{position:static;inset:auto;width:auto;height:auto;padding:0;border:0;border-radius:0;background:transparent;color:inherit;transform:none}';
+        $style .= '.blocks-engine-authored-carousel__controls{display:contents}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls{display:block;position:absolute;inset:0;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;margin:0!important;padding:0!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-previous],.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-next]{pointer-events:auto}.blocks-engine-authored-carousel__control-group{display:flex;align-items:center;justify-content:center;gap:.5rem}';
 
         // A slideshow transition is a source characteristic, not a house style,
         // so the shape is a parameter and each variant is expressed here rather
@@ -474,7 +484,7 @@ JS;
         $thumbnailPosition = 'bottom' === ($attributes['thumbnailPosition'] ?? 'right') ? 'bottom' : 'right';
         $transitionStyle = 'slide' === ($attributes['transitionStyle'] ?? 'fade') ? 'slide' : 'fade';
         $showPlayControl = true === ($attributes['showPlayControl'] ?? false);
-        $classes = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . ' blocks-engine-authored-carousel--' . $presentation . ' blocks-engine-authored-carousel--transition-' . $transitionStyle . ($fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '') . (!empty($attributes['sourceControlArtwork']) ? ' blocks-engine-authored-carousel--source-control-artwork' : '')
+        $classes = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . ' blocks-engine-authored-carousel--' . $presentation . ' blocks-engine-authored-carousel--transition-' . $transitionStyle . ($fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '') . (!empty($attributes['sourceControlArtwork']) ? ' blocks-engine-authored-carousel--source-control-artwork' : '') . ('' !== trim((string) ($attributes['sourceControlTopology'] ?? '')) ? ' blocks-engine-authored-carousel--source-control-topology' : '')
             . (1 < count($thumbnails) ? ' blocks-engine-authored-carousel--thumbnails blocks-engine-authored-carousel--thumbnails-' . $thumbnailPosition : '');
         $classes .= '' !== trim((string) ($attributes['sourcePresentationClasses'] ?? ''))
             ? ' ' . implode(' ', SourceDom::boundedClassTokens((string) $attributes['sourcePresentationClasses']))
@@ -522,13 +532,21 @@ JS;
         );
 
         $stageWrappers = is_array($attributes['stageWrappers'] ?? null) ? $attributes['stageWrappers'] : array();
-        $stageWrapperOpen = '';
+        $stageWrapperOpen = '<div class="blocks-engine-authored-carousel__source-stage">';
         foreach ($stageWrappers as $wrapper) {
             $className = is_array($wrapper) ? implode(' ', SourceDom::boundedClassTokens((string) ($wrapper['className'] ?? ''))) : '';
-            $stageWrapperOpen .= '<div' . ('' !== $className ? ' class="' . htmlspecialchars($className, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '') . '>';
+            $wrapperStyle = is_array($wrapper) ? $this->safeInlineStyle((string) ($wrapper['style'] ?? '')) : '';
+            $wrapperAttributes = '';
+            foreach (is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array() as $name => $value) {
+                if (is_string($name) && is_string($value) && preg_match('/^(?:id|tabindex|role|(?:data|aria)-[a-zA-Z0-9_-]+)$/D', $name) && !str_starts_with($name, 'data-wp-')) {
+                    $wrapperAttributes .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                }
+            }
+            $stageWrapperOpen .= '<div' . ('' !== $className ? ' class="' . htmlspecialchars($className, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '') . $wrapperAttributes . ('' !== $wrapperStyle ? ' style="' . htmlspecialchars($wrapperStyle, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '') . '>';
         }
-        $stageWrapperOpen .= '<div class="blocks-engine-authored-carousel__viewport" tabindex="0" data-wp-on--keydown="actions.keydown"><div class="blocks-engine-authored-carousel__track">';
-        $stageWrapperClose = '</div></div>' . str_repeat('</div>', count($stageWrappers));
+        $trackClasses = implode(' ', array_merge(array('blocks-engine-authored-carousel__track'), SourceDom::boundedClassTokens((string) ($attributes['stageTrackClassName'] ?? ''))));
+        $stageWrapperOpen .= '<div class="blocks-engine-authored-carousel__viewport" tabindex="0" data-wp-on--keydown="actions.keydown"><div class="' . htmlspecialchars($trackClasses, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">';
+        $stageWrapperClose = '</div></div>' . str_repeat('</div>', count($stageWrappers) + 1);
 
         $dots = '';
         if ( $showDots ) {
@@ -799,7 +817,11 @@ JS;
 
         $playbackPlacement = $this->playbackControlPlacement($element, $styleResolver);
         $sourceControls = $this->navigationControls($element);
-        $sourceScope = $styleResolver->sourceCustomPropertyScope($element, $this->controlPresentationTargets($element, $this->allNavigationControls($element)), $items);
+        $presentationTargets = array_merge(
+            $this->controlPresentationTargets($element, $this->allNavigationControls($element)),
+            $this->stageGeometryTargets($element, $geometryList)
+        );
+        $sourceScope = $styleResolver->sourceCustomPropertyScope($element, $presentationTargets, $items);
         $controlContainer = $sourceControls['previous'] instanceof DOMElement && $sourceControls['next'] instanceof DOMElement
             ? $this->navigationControlContainer($sourceControls['previous'], $sourceControls['next'])
             : null;
@@ -813,7 +835,10 @@ JS;
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
             'sourceControlTopology' => $controlsTopology,
             'controlPresentation' => array(),
-            'sourcePresentationClasses' => $sourceScope['className'],
+            'sourcePresentationClasses' => implode(' ', array_unique(array_merge(
+                SourceDom::boundedClassTokens((string) $sourceScope['className']),
+                SourceDom::boundedClassTokens((string) $sourceScope['stageClassName'])
+            ))),
             'sourceControlClasses' => $sourceScope['controlClassName'],
             'sourceControlAttributes' => $sourceScope['controlAttributes'],
             'sourceIdentityAttributes' => $sourceScope['attributes'],
@@ -832,7 +857,8 @@ JS;
             'viewportHeight' => 'slideshow' === $presentation ? $viewportHeight : 0,
             'stageMinHeight' => 'slideshow' === $presentation ? $stageMinHeight : '',
             'sourceControlArtwork' => '' !== ($sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '') || '' !== ($sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : ''),
-            'stageWrappers' => $this->stageWrappers($element, $geometryList, $styleResolver),
+            'stageWrappers' => $this->stageWrappers($element, $geometryList, $styleResolver, $items),
+            'stageTrackClassName' => $styleResolver->safeTrackClassName($geometryList, $items),
             'sourceRootGeometry' => array_intersect_key($styleResolver->structuralPresentationDeclarations($element), array_flip(array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right'))),
             'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
             'autoplayInterval' => 'slideshow' === $presentation ? $autoplayInterval : 0,
@@ -1509,16 +1535,39 @@ JS;
     }
 
     /** Rebinds authored holder ancestry around the generated viewport box. */
-    private function stageWrappers(DOMElement $root, DOMElement $list, StyleResolver $styleResolver): array
+    private function stageWrappers(DOMElement $root, DOMElement $list, StyleResolver $styleResolver, array $slides): array
     {
         $ancestors = array();
         for ($ancestor = $list->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode) {
-            $className = $styleResolver->presentationClassName(SourceDom::attr($ancestor, 'class'));
-            if ('' !== $className) {
-                array_unshift($ancestors, array('className' => $className));
+            $className = $styleResolver->safeStageClassName($ancestor, $slides);
+            $attributes = array();
+            foreach ($ancestor->attributes as $attribute) {
+                $name = strtolower($attribute->name);
+                $value = $attribute->value;
+                if (preg_match('/^(?:id|tabindex|role|(?:data|aria)-[a-zA-Z0-9_-]+)$/D', $name)
+                    && !str_starts_with($name, 'data-wp-')
+                    && !preg_match('/(?:controller|current-context|current-styles|animation-state|controllers-bound)/i', $name)
+                    && strlen($value) <= 512
+                ) {
+                    $attributes[$name] = $value;
+                }
+            }
+            $inlineStyle = $this->safeInlineStyle(SourceDom::attr($ancestor, 'style'));
+            if ('' !== $className || array() !== $attributes || '' !== $inlineStyle) {
+                array_unshift($ancestors, array('className' => $className, 'attributes' => $attributes, 'style' => $inlineStyle));
             }
         }
         return $ancestors;
+    }
+
+    /** @return list<DOMElement> */
+    private function stageGeometryTargets(DOMElement $root, DOMElement $list): array
+    {
+        $targets = array($list);
+        for ($ancestor = $list->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode) {
+            $targets[] = $ancestor;
+        }
+        return $targets;
     }
 
     /** @return array<int, array{url: string, alt: string}> */
