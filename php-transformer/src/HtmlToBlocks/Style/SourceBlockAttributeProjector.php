@@ -426,7 +426,9 @@ final class SourceBlockAttributeProjector
     private function resolvedTextDecorationLine(DOMElement $element, bool $isLeaf): string
     {
         $declared = null;
-        foreach ( $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($element)) as $property => $value ) {
+        // Decoration determines the generated anchor carrier, even for an
+        // otherwise ordinary link that the presentation fast path skips.
+        foreach ( $this->styleResolver->matchedCascadedDeclarations($element) as $property => $value ) {
             if ( 'text-decoration' === $property || 'text-decoration-line' === $property ) {
                 $declared = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue($value));
             }

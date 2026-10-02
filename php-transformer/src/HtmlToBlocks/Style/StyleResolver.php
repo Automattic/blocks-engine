@@ -3357,6 +3357,10 @@ final class StyleResolver implements ElementPresentationResolver
     {
         static $cascadeProperties = array(
             'color' => true,
+            // Anchor carriers must resolve authored decoration even when the
+            // general presentation demand filter skips an ordinary text link.
+            'text-decoration' => true,
+            'text-decoration-line' => true,
             'fill' => true,
             'fill-opacity' => true,
             'stroke' => true,
