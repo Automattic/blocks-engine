@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 const playwright = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const { chromium } = playwright.chromium ? playwright : playwright.default;
-const fixture = JSON.parse(readFileSync(`${tmpdir()}/collection-choice-role.json`, 'utf8'));
+const artifactDir = process.env.COLLECTION_FILTER_ARTIFACT_DIR || tmpdir();
+const fixture = JSON.parse(readFileSync(join(artifactDir, 'collection-choice-role.json'), 'utf8'));
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
 await page.setContent(fixture.markup);

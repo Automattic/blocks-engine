@@ -200,7 +200,8 @@ $invalid = $finite;
 unset($invalid['finiteBootstrap']);
 $invalid['network'] = array('dataRequests' => 'blocked');
 $assert(0 === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['projected_count'], 'blocked requests still require the Ward verifier');
-file_put_contents(sys_get_temp_dir() . '/collection-filter-finite.json', json_encode(array('markup' => $finiteMarkup, 'view' => $rootDefinition['view_js'])));
+require_once __DIR__ . '/collection-filter-finite-fixture.php';
+file_put_contents(collection_filter_artifact_path('collection-filter-finite.json'), json_encode(array('markup' => $finiteMarkup, 'view' => $rootDefinition['view_js'])));
 $markedItem = static fn (string $key, string $members, string $answer): string => '<div data-dla-collection-item="' . $key . '" data-dla-collection-members="' . htmlspecialchars($members, ENT_QUOTES) . '"><button aria-expanded="false" aria-controls="m-' . $key . '">Shared question?</button><div id="m-' . $key . '" role="region" hidden><p>' . $answer . '</p></div></div>';
 $markedCopy = static function (string $id) use ($markedItem): string {
     return '<section class="copy"><div role="tab" data-dla-collection-category-control="' . $id . '" data-dla-collection-index="0">All</div><div role="tab" data-dla-collection-category-control="' . $id . '" data-dla-collection-index="1">Alpha</div><input data-dla-collection-field="' . $id . '" placeholder="Search locally"><div data-dla-collection="' . $id . '"><div>' . $markedItem('a', '[0,1]', 'Alpha answer') . $markedItem('b', '[0]', 'Beta answer') . '</div></div></section>';

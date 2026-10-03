@@ -1,10 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+import { join } from 'node:path';
+const playwright = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = playwright.chromium ? playwright : playwright.default;
 import assert from 'node:assert/strict';
 
-const result = JSON.parse(readFileSync(`${tmpdir()}/collection-filter-result.json`));
-const view = readFileSync(`${tmpdir()}/collection-filter-view.mjs`, 'utf8');
+const artifactDir = process.env.COLLECTION_FILTER_ARTIFACT_DIR || tmpdir();
+const artifact = (name) => join(artifactDir, name);
+const result = JSON.parse(readFileSync(artifact('collection-filter-result.json')));
+const view = readFileSync(artifact('collection-filter-view.mjs'), 'utf8');
 const runtime = view.replace(/^import .*;$/m, '').replace('export function refresh', 'function refresh').replace(/store\([\s\S]*$/, '') + '\nwindow.refreshCollection=refresh;';
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
@@ -48,7 +52,7 @@ assert.deepEqual(semanticStates, [[], [0], [1], [1], [0], [1]], 'only zero-font 
 await browser.close();
 const cardBrowser = await chromium.launch({ headless: true });
 const cardPage = await cardBrowser.newPage();
-await cardPage.setContent(JSON.parse(readFileSync(`${tmpdir()}/collection-filter-cards.json`)).serialized_blocks);
+await cardPage.setContent(JSON.parse(readFileSync(artifact('collection-filter-cards.json'))).serialized_blocks);
 await cardPage.addScriptTag({ content: runtime });
 const cards = await cardPage.evaluate(() => {
     const root = document.querySelector('[data-wp-interactive]');
@@ -58,7 +62,7 @@ const cards = await cardPage.evaluate(() => {
 });
 assert.deepEqual(cards, ['SamecardAnswerviolet.']);
 await cardBrowser.close();
-const finite = JSON.parse(readFileSync(`${tmpdir()}/collection-filter-finite.json`));
+const finite = JSON.parse(readFileSync(artifact('collection-filter-finite.json')));
 const finiteBrowser = await chromium.launch({ headless: true });
 const finitePage = await finiteBrowser.newPage();
 await finitePage.setContent(finite.markup);
