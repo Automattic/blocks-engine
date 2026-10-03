@@ -74,6 +74,7 @@ final class RuntimeIslandAnalyzer
 
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
+        if ('' !== trim(SourceDom::attr($element, 'data-dla-dialog-close'))) return true;
         $id = trim(SourceDom::attr($element, 'id'));
         if ( '' !== $id && $this->context->runtimeSelectors()->hasDom('#' . $id) && ! $this->isPresentationalRuntimeSelector('#' . $id) ) {
             return true;
