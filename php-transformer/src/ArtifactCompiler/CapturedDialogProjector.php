@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
@@ -246,7 +247,7 @@ final class CapturedDialogProjector
             if ('' === $key || !preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key)) continue;
             foreach (iterator_to_array($document->getElementsByTagName('button')) as $button) {
                 if (!$button instanceof DOMElement || $button->getAttribute('data-dla-dialog-close') !== $key || !$button->hasAttribute('hidden')) continue;
-                if ($dialog->contains($button)) continue;
+                if (SourceDom::elementContains($dialog, $button)) continue;
                 if ('close' !== strtolower(trim($button->textContent ?? ''))) continue;
                 $button->parentNode?->removeChild($button);
             }

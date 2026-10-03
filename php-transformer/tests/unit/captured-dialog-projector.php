@@ -144,6 +144,12 @@ $siblingHtml = str_replace('</body>', '<button type="button" hidden data-dla-dia
 $sibling = $project($files(array('https://example.test/' => $siblingHtml), array('https://example.test/' => array($state($closeTrigger)))));
 $siblingMarkup = (string) ($sibling['files'][0]['content'] ?? '');
 $assert(!str_contains($siblingMarkup, 'data-dla-dialog-close="dla-dialog-0"') && str_contains($siblingMarkup, 'data-dla-dialog-close="dla-dialog-9"') && str_contains($siblingMarkup, 'data-dla-disclosure-runtime'), 'an unmatched close helper stays with its runtime');
+$panelDialog = '<div><button type="button" hidden data-dla-dialog-close="dla-dialog-0">Close</button><p>Panel</p></div>';
+$panelState = array('status' => 'captured', 'trigger' => $closeTrigger, 'dialog' => array('html' => $panelDialog, 'htmlBytes' => strlen($panelDialog), 'htmlTruncated' => false));
+$panel = $project($files(array('https://example.test/' => $closeHtml), array('https://example.test/' => array($panelState))));
+$panelMarkup = (string) ($panel['files'][0]['content'] ?? '');
+$assert(1 === substr_count($panelMarkup, 'data-dla-dialog-close="dla-dialog-0"') && str_contains($panelMarkup, '<dialog') && str_contains($panelMarkup, 'data-dla-disclosure-runtime'), 'a matching close helper inside the projected dialog stays with its runtime');
+$assert(!str_contains($panelMarkup, 'data-blocks-engine-add-close'), 'an in-panel close is not duplicated by a generated close control');
 
 if (0 !== $failures) {
     fwrite(STDERR, "captured-dialog-projector failed: {$failures} failure(s), {$passes} pass(es)\n");
