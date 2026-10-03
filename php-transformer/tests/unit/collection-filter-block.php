@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedCollectionProjector;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) { fwrite(STDERR, "FAIL: $message\n"); exit(1); } };
 $item = static fn (string $answer, string $id): string => '<div class="card"><button aria-expanded="false" aria-controls="' . $id . '">Same question?</button><div id="' . $id . '" role="region" hidden><p>Answer ' . $answer . '.</p></div></div>';
@@ -54,4 +55,35 @@ $cardEvidence['items'][1]['text'] = 'Same card Answer violet.';
 $cardResult = (new HtmlTransformer())->transform((new CapturedCollectionProjector())->project($files($cards, $cardEvidence))['files'][0]['content'])->toArray();
 $assert(str_contains($cardResult['serialized_blocks'], 'blocks-engine-collection-item-') && !str_contains($cardResult['serialized_blocks'], 'wp:accordion'), 'ordinary native card collections use the same verified filter primitive');
 file_put_contents(sys_get_temp_dir() . '/collection-filter-cards.json', json_encode($cardResult));
+$tabEvidence = $evidence;
+$tabEvidence['replay'] = 'verified';
+$tabEvidence['field']['selector'] = 'input.missing';
+$tabEvidence['target']['selector'] = 'div.missing';
+$tabEvidence['categories'][0]['selector'] = '#cat-all';
+$tabEvidence['categories'][0]['activeHtml'] = '<div id="cat-all" class="active" role="tab" tabindex="0" aria-selected="true">All</div>';
+$tabEvidence['categories'][0]['inactiveHtml'] = '<div id="cat-all" class="inactive" role="tab" tabindex="-1" aria-selected="false">All</div>';
+$tabEvidence['categories'][1]['selector'] = '#cat-first';
+$tabEvidence['categories'][1]['activeHtml'] = '<div id="cat-first" class="active" role="tab" tabindex="0" aria-selected="true">First</div>';
+$tabEvidence['categories'][1]['inactiveHtml'] = '<div id="cat-first" class="inactive" role="tab" tabindex="-1" aria-selected="false">First</div>';
+$tabSource = '<html><body><main><div class="scope"><div role="tab" tabindex="0" aria-selected="true" class="active" id="cat-all" data-dla-collection-category-control="0" data-dla-collection-index="0">All</div><div role="tab" tabindex="-1" aria-selected="false" class="inactive" id="cat-first" data-dla-collection-category-control="0" data-dla-collection-index="1">First</div><input data-dla-collection-field="0" placeholder="Search"><div data-dla-collection="0"><div data-dla-collection-item="0" data-dla-collection-members="[0,1]"><p>Same question? Answer orchid.</p></div><div data-dla-collection-item="1" data-dla-collection-members="[0]"><p>Same question? Answer violet.</p></div></div></div></main></body></html>';
+$tabResult = (new HtmlTransformer())->transform((new CapturedCollectionProjector())->project($files($tabSource, $tabEvidence))['files'][0]['content'])->toArray();
+$tabMarkup = $tabResult['serialized_blocks'];
+$assert(str_contains($tabMarkup, 'role="tab"') && str_contains($tabMarkup, 'tabindex="0"') && str_contains($tabMarkup, 'tabindex="-1"') && str_contains($tabMarkup, 'data-wp-on--keydown='), 'a source div role=tab keeps its role, tabindex, and non-button keyboard hook');
+$assert(!str_contains($tabMarkup, 'ArrowRight') && !str_contains($tabResult['source_reports']['generated_blocks'][0]['view_js'] ?? '', 'ArrowRight'), 'category choices do not invent tablist arrow behavior');
+$assert(!str_contains($markup, 'data-wp-on--keydown'), 'native button choices keep click-only activation');
+$choice = null;
+$walk = static function (array $blocks) use (&$walk, &$choice): void {
+    foreach ($blocks as $block) {
+        if (!is_array($block)) continue;
+        if (str_ends_with((string) ($block['blockName'] ?? ''), '/collection-filter-choice') && 'tab' === ($block['attrs']['role'] ?? null)) $choice = $block;
+        $walk($block['innerBlocks'] ?? array());
+    }
+};
+$walk($tabResult['blocks'] ?? array());
+$assert(is_array($choice) && is_string($choice['attrs']['role']) && in_array($choice['attrs']['tabIndex'], array(0, -1), true), 'choice role is a stored string scalar and tabindex stays a number');
+$choiceDefinition = null;
+foreach ($tabResult['source_reports']['generated_blocks'] ?? array() as $definition) if ('collection-filter-choice' === ($definition['name'] ?? null)) $choiceDefinition = $definition;
+$assert(is_array($choiceDefinition) && 'string' === ($choiceDefinition['block_json']['attributes']['role']['type'] ?? null) && false === ($choiceDefinition['block_json']['supports']['html'] ?? null), 'choice role is a declared string attribute on an html:false block');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($tabResult['blocks'] ?? array())['status'] ?? ''), 'div role=tab collection choices remain Gutenberg-valid');
+file_put_contents(sys_get_temp_dir() . '/collection-choice-role.json', json_encode(array('markup' => $tabMarkup, 'editor' => $choiceDefinition['assets']['index.js'] ?? '', 'view' => $tabResult['source_reports']['generated_blocks'][0]['view_js'] ?? '', 'attrs' => $choice['attrs'] ?? array()), JSON_UNESCAPED_SLASHES));
 fwrite(STDOUT, "PASS: verified canonical collection projection and native answer authoring\n");

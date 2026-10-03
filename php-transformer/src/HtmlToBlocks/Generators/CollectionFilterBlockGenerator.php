@@ -26,7 +26,7 @@ final class CollectionFilterBlockGenerator
         if (self::ROOT === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'), 'items' => array('type' => 'array', 'default' => array()), 'initialCategory' => array('type' => 'number', 'default' => 0), 'mode' => array('type' => 'string', 'default' => 'category-and-query'), 'order' => array('type' => 'array', 'default' => array()), 'categoryOrders' => array('type' => 'array', 'default' => array()));
         if (self::CHOICES === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'));
         if (self::FIELD === $local) $attributes += array('inputType' => array('type' => 'string', 'default' => 'search'), 'placeholder' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'value' => array('type' => 'string', 'default' => ''));
-        if (self::CHOICE === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'button'), 'label' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'index' => array('type' => 'number', 'default' => 0), 'initial' => array('type' => 'boolean', 'default' => false), 'active' => array('type' => 'object'), 'inactive' => array('type' => 'object'));
+        if (self::CHOICE === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'button'), 'label' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'role' => array('type' => 'string', 'default' => ''), 'tabIndex' => array('type' => 'number'), 'index' => array('type' => 'number', 'default' => 0), 'initial' => array('type' => 'boolean', 'default' => false), 'active' => array('type' => 'object'), 'inactive' => array('type' => 'object'));
         $editor = <<<'JS'
 ( function( blocks, editor, components, element ) {
     var el = element.createElement;
@@ -69,11 +69,15 @@ final class CollectionFilterBlockGenerator
             props.className = ( state && state.className ) || undefined;
             props.style = ( state && state.style ) || undefined;
             props[ 'aria-label' ] = attrs.ariaLabel || undefined;
+            if ( attrs.role ) props.role = attrs.role;
+            if ( Number.isInteger( attrs.tabIndex ) ) props.tabIndex = attrs.tabIndex;
             props[ 'aria-pressed' ] = String( !! attrs.initial );
             props[ 'aria-selected' ] = state && state.selected || undefined;
             props[ 'data-state' ] = state && state.dataState || undefined;
             props[ 'data-wp-context' ] = JSON.stringify( context( attrs ) );
             props[ 'data-wp-on--click' ] = store + '::actions.choose';
+            if ( ( attrs.tagName || 'button' ) !== 'button' ) props[ 'data-wp-on--keydown' ] = store + '::actions.chooseKey';
+            if ( Number.isInteger( attrs.active && attrs.active.tabIndex ) || Number.isInteger( attrs.inactive && attrs.inactive.tabIndex ) ) props[ 'data-wp-bind--tabindex' ] = store + '::state.choiceTabIndex';
             props[ 'data-wp-bind--class' ] = store + '::state.choiceClass';
             props[ 'data-wp-bind--style' ] = store + '::state.choiceStyle';
             props[ 'data-wp-bind--aria-pressed' ] = store + '::state.choicePressed';
@@ -119,7 +123,7 @@ final class CollectionFilterBlockGenerator
             }
             if ( role === 'collection-filter-choice' ) {
                 return el( editor.RichText, Object.assign( {}, editor.useBlockProps( common( attrs ) ), {
-                    tagName: attrs.tagName || 'button', type: 'button', value: attrs.label, allowedFormats: [],
+                    tagName: attrs.tagName || 'button', type: ( attrs.tagName || 'button' ) === 'button' ? 'button' : undefined, role: attrs.role || undefined, tabIndex: Number.isInteger( attrs.tabIndex ) ? attrs.tabIndex : undefined, value: attrs.label, allowedFormats: [],
                     onChange: function( value ) { props.setAttributes( { label: value } ); },
                 } ) );
             }
@@ -229,6 +233,14 @@ store( namespace, {
             const context = getContext( namespace );
             context.category = context.choiceIndex;
         },
+        chooseKey( event ) {
+            if ( event.key !== 'Enter' && event.key !== ' ' ) return;
+            const tag = ( event.currentTarget && event.currentTarget.tagName || '' ).toLowerCase();
+            if ( tag === 'button' ) return;
+            event.preventDefault();
+            const context = getContext( namespace );
+            context.category = context.choiceIndex;
+        },
     },
     state: {
         get choiceClass() { return choice()?.className || null; },
@@ -239,6 +251,10 @@ store( namespace, {
         },
         get choiceSelected() { return choice()?.selected ?? null; },
         get choiceDataState() { return choice()?.dataState ?? null; },
+        get choiceTabIndex() {
+            const value = choice()?.tabIndex;
+            return Number.isInteger( value ) ? String( value ) : null;
+        },
         get choicesHidden() {
             const context = getContext( namespace );
             return context.mode === 'category-or-global-search' && ( context.query || '' ) !== '';
@@ -289,7 +305,12 @@ JS;
             $html['class'] = $state['className'] ?? '';
             $html['style'] = $this->style($state['style'] ?? array());
             $html['aria-label'] = $attrs['ariaLabel'] ?? '';
-            $html += array('aria-pressed' => !empty($attrs['initial']) ? 'true' : 'false', 'aria-selected' => $state['selected'] ?? '', 'data-state' => $state['dataState'] ?? '', 'data-wp-context' => json_encode(array('choiceIndex' => $attrs['index'], 'active' => $attrs['active'], 'inactive' => $attrs['inactive']), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 'data-wp-on--click' => $store . '::actions.choose', 'data-wp-bind--class' => $store . '::state.choiceClass', 'data-wp-bind--style' => $store . '::state.choiceStyle', 'data-wp-bind--aria-pressed' => $store . '::state.choicePressed', 'data-wp-bind--aria-selected' => $store . '::state.choiceSelected', 'data-wp-bind--data-state' => $store . '::state.choiceDataState');
+            if (in_array($attrs['role'] ?? '', array('tab', 'button'), true)) $html['role'] = $attrs['role'];
+            if (is_int($attrs['tabIndex'] ?? null)) $html['tabindex'] = (string) $attrs['tabIndex'];
+            $html += array('aria-pressed' => !empty($attrs['initial']) ? 'true' : 'false', 'aria-selected' => $state['selected'] ?? '', 'data-state' => $state['dataState'] ?? '', 'data-wp-context' => json_encode(array('choiceIndex' => $attrs['index'], 'active' => $attrs['active'], 'inactive' => $attrs['inactive']), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 'data-wp-on--click' => $store . '::actions.choose');
+            if ('button' !== $tag) $html['data-wp-on--keydown'] = $store . '::actions.chooseKey';
+            $html += array('data-wp-bind--class' => $store . '::state.choiceClass', 'data-wp-bind--style' => $store . '::state.choiceStyle', 'data-wp-bind--aria-pressed' => $store . '::state.choicePressed', 'data-wp-bind--aria-selected' => $store . '::state.choiceSelected', 'data-wp-bind--data-state' => $store . '::state.choiceDataState');
+            if (is_int($attrs['active']['tabIndex'] ?? null) || is_int($attrs['inactive']['tabIndex'] ?? null)) $html['data-wp-bind--tabindex'] = $store . '::state.choiceTabIndex';
             if ('button' === $tag) $html['type'] = 'button';
         } elseif (self::CHOICES === $local) {
             $tag = in_array($attrs['tagName'] ?? 'div', array('div', 'nav', 'section'), true) ? $attrs['tagName'] : 'div';

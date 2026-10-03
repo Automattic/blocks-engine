@@ -82,6 +82,11 @@ final class CapturedCollectionConverter implements ElementConverter
         } elseif (CollectionFilterBlockGenerator::CHOICE === $local) {
             foreach (array('active', 'inactive') as $state) $config[$state]['style'] = $generator->sourceStyle($config[$state]['style'] ?? '');
             $attrs += array('tagName' => $tagName, 'label' => htmlspecialchars(trim($element->textContent ?? ''), ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8'), 'ariaLabel' => $element->getAttribute('aria-label')) + $config;
+            $activeRole = is_string($config['active']['role'] ?? null) ? $config['active']['role'] : '';
+            $inactiveRole = is_string($config['inactive']['role'] ?? null) ? $config['inactive']['role'] : '';
+            $role = $activeRole === $inactiveRole && in_array($activeRole, array('tab', 'button'), true) ? $activeRole : strtolower(trim($element->getAttribute('role')));
+            if (in_array($role, array('tab', 'button'), true)) $attrs['role'] = $role;
+            if (preg_match('/^-?[0-9]{1,4}$/', trim($element->getAttribute('tabindex')))) $attrs['tabIndex'] = (int) $element->getAttribute('tabindex');
         } else {
             $children = ($this->convertChildren)($element, $fallbacks);
         }
