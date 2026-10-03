@@ -658,7 +658,39 @@ final class CapturedCollectionProjector
         }
         $empty->setAttribute('data-blocks-engine-collection-empty', 'true');
         $empty->removeAttribute('hidden');
+        $this->bindZeroCountStatus($empty, $evidence);
         return $this->projectStatus($document, $root, $target, $evidence, $copyId);
+    }
+
+    private function bindZeroCountStatus(DOMElement $empty, array $evidence): void
+    {
+        $nodes = $evidence['finiteBootstrap']['status']['nodes'] ?? null;
+        if (!is_array($nodes)) return;
+        $countNode = null;
+        foreach ($nodes as $node) {
+            if (!is_array($node) || !in_array('count', $node['binds'] ?? array(), true) || true !== ($node['hidesAtZero'] ?? null)) continue;
+            $countNode = $node;
+            break;
+        }
+        if (!is_array($countNode) || !is_string($countNode['template'] ?? null) || str_contains($countNode['template'], '{query}')) return;
+        $zero = str_replace('{count}', '0', $countNode['template']);
+        $source = $this->importStatusNode($this->document('<div></div>'), (string) ($countNode['html'] ?? ''));
+        foreach ($empty->childNodes as $child) {
+            if (!$child instanceof DOMElement || $this->text($child) !== $zero || !$this->sameStatusIdentity($child, $source)) continue;
+            $child->setAttribute('data-blocks-engine-collection-status', 'true');
+            $child->setAttribute('data-dla-status-template', $countNode['template']);
+            $child->setAttribute('data-blocks-engine-status-bound', 'empty');
+            return;
+        }
+    }
+
+    private function sameStatusIdentity(DOMElement $candidate, ?DOMElement $source): bool
+    {
+        if (!$source instanceof DOMElement) return false;
+        foreach (array('role', 'aria-live', 'aria-atomic', 'class') as $name) {
+            if ($candidate->getAttribute($name) !== $source->getAttribute($name)) return false;
+        }
+        return strtolower($candidate->tagName) === strtolower($source->tagName);
     }
 
     private function projectStatus(DOMDocument $document, DOMElement $root, DOMElement $target, array $evidence, string $copyId): bool

@@ -151,7 +151,7 @@ function collection_filter_status_case(): array
         'initialCategory' => 0,
         'predicate' => 'normalized-text-includes',
         'mode' => 'category-or-global-search',
-        'emptyHtml' => '<p>0 matching results found</p><p>Try another word.</p>',
+        'emptyHtml' => '<div role="status" aria-live="polite" aria-atomic="true" class="saTKtkk">0 matching results found</div><p>Try another word.</p>',
         'emptyPlacement' => 'after',
         'probes' => array(
             array('query' => '', 'category' => 0, 'keys' => array('0', '1', '2')),

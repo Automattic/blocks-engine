@@ -30,7 +30,7 @@ final class CollectionFilterBlockGenerator
         if (self::CHOICES === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'));
         if (self::FIELD === $local) $attributes += array('inputType' => array('type' => 'string', 'default' => 'search'), 'placeholder' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'value' => array('type' => 'string', 'default' => ''));
         if (self::CHOICE === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'button'), 'label' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'role' => array('type' => 'string', 'default' => ''), 'tabIndex' => array('type' => 'number'), 'index' => array('type' => 'number', 'default' => 0), 'initial' => array('type' => 'boolean', 'default' => false), 'active' => array('type' => 'object'), 'inactive' => array('type' => 'object'));
-        if (self::STATUS === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'), 'template' => array('type' => 'string', 'default' => ''), 'hidesAtZero' => array('type' => 'boolean', 'default' => true), 'shell' => array('type' => 'object'), 'role' => array('type' => 'string', 'default' => ''), 'ariaLive' => array('type' => 'string', 'default' => ''), 'ariaAtomic' => array('type' => 'string', 'default' => ''));
+        if (self::STATUS === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'), 'template' => array('type' => 'string', 'default' => ''), 'hidesAtZero' => array('type' => 'boolean', 'default' => true), 'visibility' => array('type' => 'string', 'default' => ''), 'shell' => array('type' => 'object'), 'role' => array('type' => 'string', 'default' => ''), 'ariaLive' => array('type' => 'string', 'default' => ''), 'ariaAtomic' => array('type' => 'string', 'default' => ''));
         $editor = <<<'JS'
 ( function( blocks, editor, components, element ) {
     var el = element.createElement;
@@ -96,9 +96,13 @@ final class CollectionFilterBlockGenerator
             props[ 'data-wp-bind--hidden' ] = store + '::state.hasMatches';
         }
         if ( role === 'collection-filter-status' ) {
-            props.hidden = true;
-            props[ 'data-blocks-engine-status-hide-zero' ] = 'true';
-            props[ 'data-wp-bind--hidden' ] = store + '::state.statusHidden';
+            if ( attrs.visibility !== 'empty' ) {
+                props.hidden = true;
+                props[ 'data-blocks-engine-status-hide-zero' ] = 'true';
+                props[ 'data-wp-bind--hidden' ] = store + '::state.statusHidden';
+            } else {
+                props[ 'data-blocks-engine-status-bound' ] = 'empty';
+            }
             if ( attrs.role ) props.role = attrs.role;
             if ( attrs.ariaLive ) props[ 'aria-live' ] = attrs.ariaLive;
             if ( attrs.ariaAtomic ) props[ 'aria-atomic' ] = attrs.ariaAtomic;
@@ -127,7 +131,8 @@ final class CollectionFilterBlockGenerator
             if ( spec.style && Object.keys( spec.style ).length ) props.style = spec.style;
             if ( root ) Object.assign( props, saveProps( attrs ) );
             if ( spec.bind ) props[ 'data-dla-status-template' ] = template;
-            var children = spec.bind ? [ template ] : ( spec.text ? [ spec.text ] : [] ).concat( ( spec.children || [] ).map( function( child ) { return node( child, false ); } ) );
+            var shown = attrs.visibility === 'empty' ? template.split( '{count}' ).join( '0' ) : template;
+            var children = spec.bind ? [ shown ] : ( spec.text ? [ spec.text ] : [] ).concat( ( spec.children || [] ).map( function( child ) { return node( child, false ); } ) );
             return el.apply( null, [ spec.tag || 'div', props ].concat( children ) );
         }
         return node( shell, true );
@@ -452,7 +457,9 @@ JS;
         };
         $walk($shell);
         if (1 !== $binds || !is_string($template) || '' === $template) return null;
-        $attrs = array('tagName' => $shell['tag'], 'template' => $template, 'hidesAtZero' => true, 'shell' => $this->publicShell($shell), 'role' => $shell['role'], 'ariaLive' => $shell['ariaLive'], 'ariaAtomic' => $shell['ariaAtomic']);
+        $boundEmpty = 'empty' === $element->getAttribute('data-blocks-engine-status-bound');
+        $attrs = array('tagName' => $shell['tag'], 'template' => $template, 'hidesAtZero' => !$boundEmpty, 'shell' => $this->publicShell($shell), 'role' => $shell['role'], 'ariaLive' => $shell['ariaLive'], 'ariaAtomic' => $shell['ariaAtomic']);
+        if ($boundEmpty) $attrs['visibility'] = 'empty';
         if ('' !== $shell['className']) $attrs['className'] = $shell['className'];
         if ('' !== $shell['id']) $attrs['anchor'] = $shell['id'];
         if ($shell['style']) $attrs['sourceStyle'] = $shell['style'];
@@ -463,7 +470,7 @@ JS;
     {
         $shell = $attrs['shell'] ?? null;
         if (!is_array($shell) || !is_string($attrs['template'] ?? null)) return '';
-        return $this->renderStatus($shell, (string) $attrs['template'], true, true !== ($attrs['hidesAtZero'] ?? null) ? false : true, $namespace . '/' . self::ROOT);
+        return $this->renderStatus($shell, (string) $attrs['template'], true, true === ($attrs['hidesAtZero'] ?? null), 'empty' === ($attrs['visibility'] ?? ''), $namespace . '/' . self::ROOT);
     }
 
     private function statusShell(DOMElement $element, int $depth = 0): ?array
@@ -484,7 +491,9 @@ JS;
         }
         $own = trim(preg_replace('/\s+/u', ' ', $own) ?? '');
         $bind = $element->hasAttribute('data-dla-status-template');
-        if ($bind && $own !== $element->getAttribute('data-dla-status-template')) return null;
+        $templateAttr = $bind ? $element->getAttribute('data-dla-status-template') : '';
+        $zero = 'empty' === $element->getAttribute('data-blocks-engine-status-bound') ? str_replace('{count}', '0', $templateAttr) : '';
+        if ($bind && $own !== $templateAttr && $own !== $zero) return null;
         if ($bind && $children) return null;
         $hidden = $element->getAttribute('aria-hidden');
         return array('tag' => $tag, 'className' => $element->getAttribute('class'), 'id' => $element->getAttribute('id'), 'role' => $element->getAttribute('role'), 'ariaLive' => $element->getAttribute('aria-live'), 'ariaAtomic' => $element->getAttribute('aria-atomic'), 'ariaHidden' => in_array($hidden, array('true', 'false'), true) ? $hidden : '', 'hook' => $element->getAttribute('data-hook'), 'style' => $this->sourceStyle($element->getAttribute('style')), 'bind' => $bind, 'template' => $bind ? $element->getAttribute('data-dla-status-template') : '', 'text' => $bind ? '' : $own, 'children' => $children);
@@ -498,7 +507,7 @@ JS;
         return $public;
     }
 
-    private function renderStatus(array $node, string $template, bool $root, bool $hideZero, string $store): string
+    private function renderStatus(array $node, string $template, bool $root, bool $hideZero, bool $boundEmpty, string $store): string
     {
         $tag = in_array($node['tag'] ?? '', array('div', 'span', 'p', 'output'), true) ? $node['tag'] : 'div';
         $attrs = array();
@@ -511,7 +520,8 @@ JS;
         if ('' !== ($node['ariaAtomic'] ?? '')) $attrs['aria-atomic'] = $node['ariaAtomic'];
         if (in_array($node['ariaHidden'] ?? '', array('true', 'false'), true)) $attrs['aria-hidden'] = $node['ariaHidden'];
         if ('' !== ($node['hook'] ?? '')) $attrs['data-hook'] = $node['hook'];
-        if ($root) {
+        if ($root && $boundEmpty) $attrs['data-blocks-engine-status-bound'] = 'empty';
+        elseif ($root) {
             $attrs['hidden'] = true;
             if ($hideZero) $attrs['data-blocks-engine-status-hide-zero'] = 'true';
             $attrs['data-wp-bind--hidden'] = $store . '::state.statusHidden';
@@ -523,10 +533,10 @@ JS;
             else $html .= ' ' . $key . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
         }
         $html .= '>';
-        if (!empty($node['bind'])) $html .= htmlspecialchars($template, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        if (!empty($node['bind'])) $html .= htmlspecialchars($boundEmpty ? str_replace('{count}', '0', $template) : $template, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         else {
             if ('' !== ($node['text'] ?? '')) $html .= htmlspecialchars((string) $node['text'], ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            foreach ($node['children'] ?? array() as $child) if (is_array($child)) $html .= $this->renderStatus($child, $template, false, false, $store);
+            foreach ($node['children'] ?? array() as $child) if (is_array($child)) $html .= $this->renderStatus($child, $template, false, false, false, $store);
         }
         return $html . '</' . $tag . '>';
     }
