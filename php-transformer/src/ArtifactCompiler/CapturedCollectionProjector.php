@@ -51,7 +51,7 @@ final class CapturedCollectionProjector
                     continue;
                 }
                 if ($this->presentStatusInvalid($evidence)) {
-                    $diagnostics[] = $this->diagnostic('Present collection status is not portable; native filtering is not claimed.');
+                    $diagnostics[] = $this->diagnostic('Present collection status is not portable; native filtering is not claimed. Observed unsupported status ' . $this->statusUnsupportedAttribute($evidence) . '.');
                     continue;
                 }
                 if (!$this->verified($evidence)) {
@@ -271,6 +271,37 @@ final class CapturedCollectionProjector
     {
         $bootstrap = $evidence['finiteBootstrap'] ?? null;
         return is_array($bootstrap) && array_key_exists('status', $bootstrap) && !$this->verifiedStatus($evidence);
+    }
+
+    private function statusUnsupportedAttribute(array $evidence): string
+    {
+        $nodes = $evidence['finiteBootstrap']['status']['nodes'] ?? null;
+        if (!is_array($nodes)) return 'schema';
+        foreach ($nodes as $node) {
+            if (!is_array($node) || !is_string($node['html'] ?? null)) return 'schema';
+            $imported = $this->importStatusNode($this->document('<div></div>'), $node['html']);
+            if (!$imported) return 'html';
+            $attribute = $this->firstUnsafeStatusAttribute($imported);
+            if (null !== $attribute) return $attribute;
+        }
+        return 'schema';
+    }
+
+    private function firstUnsafeStatusAttribute(DOMElement $element): ?string
+    {
+        foreach ($element->attributes ?? array() as $attribute) {
+            $name = strtolower($attribute->name);
+            if (str_starts_with($name, 'on')) return $name;
+            if ('aria-hidden' === $name && !in_array($attribute->value, array('true', 'false'), true)) return $name;
+            if (!in_array($name, array('class', 'id', 'style', 'role', 'aria-live', 'aria-atomic', 'aria-hidden', 'data-hook', 'data-dla-status-template', 'data-dla-collection-status', 'data-dla-status-hide-zero', 'data-blocks-engine-collection-status', 'data-blocks-engine-status-hide-zero', 'hidden'), true)) return $name;
+        }
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $found = $this->firstUnsafeStatusAttribute($child);
+                if (null !== $found) return $found;
+            }
+        }
+        return null;
     }
 
     private function verifiedStatus(array $evidence): bool
@@ -716,7 +747,8 @@ final class CapturedCollectionProjector
             foreach ($node->attributes ?? array() as $attribute) {
                 $name = strtolower($attribute->name);
                 if (str_starts_with($name, 'on') || str_contains(strtolower($attribute->value), 'javascript:')) return true;
-                if (!in_array($name, array('class', 'id', 'style', 'role', 'aria-live', 'aria-atomic', 'data-hook', 'data-dla-status-template', 'data-dla-collection-status', 'data-dla-status-hide-zero', 'data-blocks-engine-collection-status', 'data-blocks-engine-status-hide-zero', 'hidden'), true)) return true;
+                if (!in_array($name, array('class', 'id', 'style', 'role', 'aria-live', 'aria-atomic', 'aria-hidden', 'data-hook', 'data-dla-status-template', 'data-dla-collection-status', 'data-dla-status-hide-zero', 'data-blocks-engine-collection-status', 'data-blocks-engine-status-hide-zero', 'hidden'), true)) return true;
+                if ('aria-hidden' === $name && !in_array($attribute->value, array('true', 'false'), true)) return true;
                 if ('data-hook' === $name && 1 !== preg_match('/^[A-Za-z0-9_-]{1,80}$/', $attribute->value)) return true;
                 if ('style' === $name && (str_contains($attribute->value, '!important') || $this->hasResource($attribute->value))) return true;
                 if (str_contains($attribute->value, '<')) return true;

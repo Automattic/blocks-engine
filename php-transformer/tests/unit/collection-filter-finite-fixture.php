@@ -194,14 +194,14 @@ function collection_filter_status_case(): array
             'status' => array(
                 'schema' => 'data-liberation/collection-status/v1',
                 'nodes' => array(
-                    array('html' => '<div role="status" class="aTKtkk" aria-live="polite" aria-atomic="true">{count} matching results found</div>', 'template' => '{count} matching results found', 'binds' => array('count'), 'placement' => 'before-items', 'hidesAtZero' => true),
-                    array('html' => '<div class="styp7eL oY1h81f--resultFound"><div class="sC8z_ff"><span class="sf4zzLJ runningText" data-hook="text">Showing results for: {query}</span></div></div>', 'template' => 'Showing results for: {query}', 'binds' => array('query'), 'placement' => 'before-items', 'hidesAtZero' => true),
+                    array('html' => '<div role="status" class="saTKtkk" aria-live="polite" aria-atomic="true">{count} matching results found</div>', 'template' => '{count} matching results found', 'binds' => array('count'), 'placement' => 'before-items', 'hidesAtZero' => true),
+                    array('html' => '<div class="styp7eL oY1h81f--resultFound" data-hook="questions-results-found"><div class="sC8z_ff"><span class="sf4zzLJ o__22sN2C---typography-11-runningText o__22sN2C---priority-7-primary" aria-hidden="false" data-hook="text-search-results-found">Showing results for: {query}</span></div></div>', 'template' => 'Showing results for: {query}', 'binds' => array('query'), 'placement' => 'before-items', 'hidesAtZero' => true),
                 ),
             ),
         ),
     );
     $status = static function (string $id): string {
-        return '<div data-dla-collection-status="' . $id . '" hidden data-dla-status-hide-zero="true" role="status" class="aTKtkk" aria-live="polite" aria-atomic="true" data-dla-status-template="{count} matching results found">{count} matching results found</div><div data-dla-collection-status="' . $id . '" hidden data-dla-status-hide-zero="true" class="styp7eL oY1h81f--resultFound"><div class="sC8z_ff"><span class="sf4zzLJ runningText" data-hook="text" data-dla-status-template="Showing results for: {query}">Showing results for: {query}</span></div></div>';
+        return '<div data-dla-collection-status="' . $id . '" hidden data-dla-status-hide-zero="true" role="status" class="saTKtkk" aria-live="polite" aria-atomic="true" data-dla-status-template="{count} matching results found">{count} matching results found</div><div data-dla-collection-status="' . $id . '" hidden data-dla-status-hide-zero="true" class="styp7eL oY1h81f--resultFound" data-hook="questions-results-found"><div class="sC8z_ff"><span class="sf4zzLJ o__22sN2C---typography-11-runningText o__22sN2C---priority-7-primary" aria-hidden="false" data-hook="text-search-results-found" data-dla-status-template="Showing results for: {query}">Showing results for: {query}</span></div></div>';
     };
     $copy = static function (string $id) use ($rows, $status): string {
         $items = '';

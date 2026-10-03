@@ -122,6 +122,7 @@ final class CollectionFilterBlockGenerator
             if ( spec.role ) props.role = spec.role;
             if ( spec.ariaLive ) props[ 'aria-live' ] = spec.ariaLive;
             if ( spec.ariaAtomic ) props[ 'aria-atomic' ] = spec.ariaAtomic;
+            if ( spec.ariaHidden === 'true' || spec.ariaHidden === 'false' ) props[ 'aria-hidden' ] = spec.ariaHidden;
             if ( spec.hook ) props[ 'data-hook' ] = spec.hook;
             if ( spec.style && Object.keys( spec.style ).length ) props.style = spec.style;
             if ( root ) Object.assign( props, saveProps( attrs ) );
@@ -485,7 +486,8 @@ JS;
         $bind = $element->hasAttribute('data-dla-status-template');
         if ($bind && $own !== $element->getAttribute('data-dla-status-template')) return null;
         if ($bind && $children) return null;
-        return array('tag' => $tag, 'className' => $element->getAttribute('class'), 'id' => $element->getAttribute('id'), 'role' => $element->getAttribute('role'), 'ariaLive' => $element->getAttribute('aria-live'), 'ariaAtomic' => $element->getAttribute('aria-atomic'), 'hook' => $element->getAttribute('data-hook'), 'style' => $this->sourceStyle($element->getAttribute('style')), 'bind' => $bind, 'template' => $bind ? $element->getAttribute('data-dla-status-template') : '', 'text' => $bind ? '' : $own, 'children' => $children);
+        $hidden = $element->getAttribute('aria-hidden');
+        return array('tag' => $tag, 'className' => $element->getAttribute('class'), 'id' => $element->getAttribute('id'), 'role' => $element->getAttribute('role'), 'ariaLive' => $element->getAttribute('aria-live'), 'ariaAtomic' => $element->getAttribute('aria-atomic'), 'ariaHidden' => in_array($hidden, array('true', 'false'), true) ? $hidden : '', 'hook' => $element->getAttribute('data-hook'), 'style' => $this->sourceStyle($element->getAttribute('style')), 'bind' => $bind, 'template' => $bind ? $element->getAttribute('data-dla-status-template') : '', 'text' => $bind ? '' : $own, 'children' => $children);
     }
 
     private function publicShell(array $shell): array
@@ -507,6 +509,7 @@ JS;
         if ('' !== ($node['role'] ?? '')) $attrs['role'] = $node['role'];
         if ('' !== ($node['ariaLive'] ?? '')) $attrs['aria-live'] = $node['ariaLive'];
         if ('' !== ($node['ariaAtomic'] ?? '')) $attrs['aria-atomic'] = $node['ariaAtomic'];
+        if (in_array($node['ariaHidden'] ?? '', array('true', 'false'), true)) $attrs['aria-hidden'] = $node['ariaHidden'];
         if ('' !== ($node['hook'] ?? '')) $attrs['data-hook'] = $node['hook'];
         if ($root) {
             $attrs['hidden'] = true;
