@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedCollectionProjector;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
@@ -220,4 +221,43 @@ $markedEvidence['items'][0]['categories'] = array(0);
 $markedFiles = $files($markedEvidence);
 $markedFiles[0]['content'] = $markedSource;
 $assert(0 === (new CapturedCollectionProjector())->project($markedFiles)['projected_count'], 'portable item membership that disagrees with evidence is not projected');
+
+$collectionRuntime = 'document.querySelectorAll("[data-dla-collection-category-control]");document.querySelector("[data-dla-collection-empty]");';
+$disclosureRuntime = 'document.querySelectorAll("[data-dla-local-disclosure]");document.querySelector("[data-dla-exclusive-disclosures]");';
+$keptRuntime = 'document.getElementById("keep-me").dataset.ready="1";';
+$openItem = '<div data-dla-collection-item="a" data-dla-collection-members="[0,1]"><button aria-expanded="true" aria-controls="m-a">Shared question?</button><div id="m-a" role="region" data-dla-local-disclosure="true"><p>Alpha answer</p></div></div>';
+$closedItem = '<div data-dla-collection-item="b" data-dla-collection-members="[0]"><button aria-expanded="false" aria-controls="m-b">Shared question?</button><div id="m-b" role="region" data-dla-local-disclosure="true" hidden><p>Beta answer</p></div></div>';
+$extractedCopy = '<section class="copy"><div role="tab" data-dla-collection-category-control="0" data-dla-collection-index="0">All</div><div role="tab" data-dla-collection-category-control="0" data-dla-collection-index="1">Alpha</div><input data-dla-collection-field="0" placeholder="Search locally"><div data-dla-collection="0" data-dla-exclusive-disclosures="true"><div>' . $openItem . $closedItem . '</div></div></section>';
+$extractedHtml = static fn (string $sibling): string => '<html><head><script>' . $keptRuntime . '</script><script data-dla-collection-runtime="true">' . $collectionRuntime . '</script><script data-dla-local-disclosure-runtime="true">' . $disclosureRuntime . '</script></head><body><main><p id="keep-me">Keep</p>' . $extractedCopy . $sibling . '</main></body></html>';
+$runtimeEvidence = $evidence;
+$runtimeEvidence['field']['selector'] = 'input.missing';
+$runtimeEvidence['target']['selector'] = 'div.missing';
+foreach ($runtimeEvidence['categories'] as &$runtimeCategory) $runtimeCategory['selector'] = 'button.missing';
+unset($runtimeCategory);
+$extractedArtifact = static function (string $html) use ($files, $runtimeEvidence): array {
+    $rows = $files($runtimeEvidence);
+    $mapped = array();
+    foreach ($rows as $row) $mapped[$row['path']] = 'website/index.html' === $row['path'] ? $html : $row['content'];
+    return array('entrypoint' => 'website/index.html', 'files' => $mapped);
+};
+$scriptBodies = static function (array $compiled): string {
+    $bodies = array();
+    foreach ($compiled['files'] ?? array() as $file) if (is_array($file) && is_string($file['content'] ?? null)) $bodies[] = $file['content'];
+    foreach ($compiled['assets'] ?? array() as $file) if (is_array($file) && is_string($file['content'] ?? null)) $bodies[] = $file['content'];
+    foreach ($compiled['source_reports']['wordpress_site_plan']['pages'] ?? array() as $page) foreach ($page['document_metadata']['scripts'] ?? array() as $script) if (is_string($script['content'] ?? null)) $bodies[] = $script['content'];
+    return implode("\n", $bodies);
+};
+$complete = (new ArtifactCompiler())->compile($extractedArtifact($extractedHtml('')))->toArray();
+$completeBodies = $scriptBodies($complete);
+$completeContracts = array_values(array_filter($complete['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? '')));
+$assert(array() === $completeContracts, 'extracted capture runtimes are omitted after every binding is native: ' . json_encode($completeContracts));
+$assert(!str_contains($completeBodies, 'data-dla-collection-category-control') && !str_contains($completeBodies, 'data-dla-local-disclosure') && str_contains($completeBodies, 'keep-me'), 'only the proven collection and disclosure script files are omitted');
+$replacements = $complete['source_reports']['native_runtime_replacements'] ?? array();
+$assert(2 === count($replacements) && array('website/index.inline-2.js', 'website/index.inline-3.js') === array_column($replacements, 'asset_source_path'), 'script policy names the extracted files superseded before projection: ' . json_encode(array_column($replacements, 'asset_source_path')));
+$completeMarkup = (string) ($complete['serialized_blocks'] ?? '');
+$assert(1 === substr_count($completeMarkup, '>Alpha answer</p>') && 1 === substr_count($completeMarkup, '>Beta answer</p>') && str_contains($completeMarkup, '"openByDefault":true'), 'native items stay one tree and the source-open disclosure stays open');
+$partial = (new ArtifactCompiler())->compile($extractedArtifact($extractedHtml('<div data-dla-local-disclosure="true" id="untouched-sibling"><p>Sibling region</p></div>')))->toArray();
+$partialBodies = $scriptBodies($partial);
+$partialPaths = array_column($partial['source_reports']['native_runtime_replacements'] ?? array(), 'asset_source_path');
+$assert(array('website/index.inline-2.js') === $partialPaths && str_contains($partialBodies, 'data-dla-local-disclosure') && !str_contains($partialBodies, 'data-dla-collection-category-control'), 'an unconverted sibling keeps its disclosure runtime while the completed collection runtime is still omitted: ' . json_encode($partialPaths));
 echo "Captured collection filter contract passed\n";

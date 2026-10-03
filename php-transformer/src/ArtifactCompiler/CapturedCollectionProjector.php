@@ -33,6 +33,7 @@ final class CapturedCollectionProjector
         }
         $count = 0;
         $diagnostics = array();
+        $retired = array();
         foreach (array_slice($report['pages'] ?? array(), 0, 128) as $page) {
             if (!is_array($page) || !is_string($page['sourceUrl'] ?? null) || !is_array($page['states'] ?? null)) continue;
             $index = $indices[$routes[rtrim($page['sourceUrl'] ?? '', '/')] ?? ''] ?? null;
@@ -70,7 +71,17 @@ final class CapturedCollectionProjector
                 foreach ($shims as $tag => $attribute) {
                     $tag = str_starts_with($tag, 'script') ? 'script' : $tag;
                     foreach (iterator_to_array($document->getElementsByTagName($tag)) as $node) {
-                        if ($node instanceof DOMElement && $node->hasAttribute($attribute)) $node->parentNode?->removeChild($node);
+                        if (!$node instanceof DOMElement || !$node->hasAttribute($attribute)) continue;
+                        $body = trim($node->textContent ?? '');
+                        if ('' !== $body) {
+                            $retired[$files[$index]['path']][] = array(
+                                'kind' => 'script' === $tag ? 'inline-script' : 'inline-style',
+                                'body' => $body,
+                                'attribute' => $attribute,
+                                'reason' => str_contains($attribute, 'disclosure') ? 'native_disclosure_replaces_capture_runtime' : 'native_collection_replaces_capture_runtime',
+                            );
+                        }
+                        $node->parentNode?->removeChild($node);
                     }
                 }
                 $html = preg_replace('/^<\?xml encoding="UTF-8">/i', '', $document->saveHTML() ?: '');
@@ -78,7 +89,51 @@ final class CapturedCollectionProjector
                 $files[$index]['bytes'] = strlen($html);
             }
         }
-        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $count);
+        $superseded = $this->omitRetiredRuntimeFiles($files, $retired);
+        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $count, 'superseded_runtime_scripts' => $superseded);
+    }
+
+    /**
+     * Drop only the extracted inline copies of runtime tags this page proved
+     * native. A sibling region that still needs the capture script keeps it.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @param array<string,array<int,array{kind:string,body:string,attribute:string,reason:string}>> $retired
+     * @return array<int,array<string,mixed>>
+     */
+    private function omitRetiredRuntimeFiles(array &$files, array $retired): array
+    {
+        $proofs = array();
+        $kept = array();
+        foreach ($files as $file) {
+            $sourcePath = ArtifactNormalizer::inlineExpansionSourcePath($file);
+            $body = trim((string) ($file['content'] ?? ''));
+            $matched = null;
+            if ('' !== $sourcePath && '' !== $body) {
+                foreach ($retired[$sourcePath] ?? array() as $row) {
+                    if ($row['kind'] === ($file['source'] ?? null) && $row['body'] === $body) {
+                        $matched = $row;
+                        break;
+                    }
+                }
+            }
+            if (null === $matched) {
+                $kept[] = $file;
+                continue;
+            }
+            $proofs[] = array(
+                'schema' => 'blocks-engine/native-runtime-replacement/v1',
+                'source_path' => $sourcePath,
+                'selector' => (string) ($file['selector'] ?? ''),
+                'asset_source_path' => (string) ($file['path'] ?? ''),
+                'body_hash' => hash('sha256', $body),
+                'attribute' => $matched['attribute'],
+                'reason' => $matched['reason'],
+            );
+        }
+        $files = $kept;
+        usort($proofs, static fn (array $left, array $right): int => strcmp($left['asset_source_path'] . $left['body_hash'], $right['asset_source_path'] . $right['body_hash']));
+        return $proofs;
     }
 
     private function verified(mixed $evidence): bool

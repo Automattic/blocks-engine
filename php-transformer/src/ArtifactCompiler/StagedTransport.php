@@ -581,6 +581,9 @@ trait StagedTransport
         if (0 < $choiceGroupsProjection['projected_count']) {
             $capturedDialogs['projected_choice_group_count'] = $choiceGroupsProjection['projected_count'];
         }
+        if (array() !== ($collectionsProjection['superseded_runtime_scripts'] ?? array())) {
+            $capturedDialogs['superseded_runtime_scripts'] = $collectionsProjection['superseded_runtime_scripts'];
+        }
         $rawFiles = $scrollStatesProjection['files'];
         // A later partition-envelope normalization must not lose the implicit
         // page ownership of already-expanded inline assets.
@@ -632,10 +635,11 @@ trait StagedTransport
             'canonical_provenance_hashes' => $canonicalProvenanceHashes,
             'canonical_diagnostics' => array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics']),
             'canonical_rejected_count' => $normalized['rejected_count'],
-            'captured_dialogs' => array(
+            'captured_dialogs' => array_filter(array(
                 'diagnostics' => $capturedDialogs['diagnostics'],
                 'projected_count' => $capturedDialogs['projected_count'],
-            ),
+                'superseded_runtime_scripts' => $capturedDialogs['superseded_runtime_scripts'] ?? array(),
+            ), static fn (mixed $value, string $key): bool => 'superseded_runtime_scripts' !== $key || array() !== $value, ARRAY_FILTER_USE_BOTH),
         );
     }
 
