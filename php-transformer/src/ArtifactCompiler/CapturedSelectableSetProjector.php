@@ -29,7 +29,7 @@ final class CapturedSelectableSetProjector
      * @param array<int, array<string, mixed>> $files
      * @return array{files:array<int, array<string, mixed>>, diagnostics:array<int, array<string, mixed>>, projected_count:int}
      */
-    public function project(array $files): array
+    public function project(array $files, array $consumedBindings = array()): array
     {
         $files = (new CapturedCollectionFilterProjector())->project($files);
         $diagnostics = array();
@@ -100,7 +100,7 @@ final class CapturedSelectableSetProjector
                 continue;
             }
 
-            $projection = $this->projectPage((string) $files[$index]['content'], $sets, $path);
+            $projection = $this->projectPage((string) $files[$index]['content'], $sets, $path, is_array($consumedBindings[$path] ?? null) ? $consumedBindings[$path] : array());
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
             if (0 < $projection['projected_count']) {
                 $files[$index]['content'] = $projection['html'];
@@ -225,7 +225,7 @@ final class CapturedSelectableSetProjector
      * @param array<string, array{selector:string, region_selector:string, members:array<int, array{label:string, html:string, tag:string, selector:string}>}> $sets
      * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int}
      */
-    private function projectPage(string $html, array $sets, string $sourcePath): array
+    private function projectPage(string $html, array $sets, string $sourcePath, array $consumedBindings = array()): array
     {
         $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
@@ -240,6 +240,10 @@ final class CapturedSelectableSetProjector
         $projected = 0;
         foreach ($sets as $set) {
             $identity = substr(hash('sha256', $sourcePath . "\n" . $set['selector']), 0, 16);
+            if ($this->consumedByNativeCollection($set, $consumedBindings)) {
+                $diagnostics[] = $this->diagnostic('captured_selectable_set_consumed_by_collection', 'info', 'A selectable set was not projected because its category triggers and dialog region were already bound by a completed native collection.', array('source_path' => $sourcePath, 'selector' => $set['region_selector']));
+                continue;
+            }
             $regions = $this->findRegions($document, $set['region_selector']);
             if ('ambiguous' === $regions['status']) {
                 $diagnostics[] = $this->diagnostic('captured_selectable_set_region_ambiguous', 'warning', 'A captured selectable-set region matched multiple source elements in the same route or responsive document scope.', array('source_path' => $sourcePath, 'selector' => $set['region_selector']));
@@ -261,7 +265,7 @@ final class CapturedSelectableSetProjector
             $hideTabList = ! $this->hasDistinctVisibleTriggerRow($members);
             $applied = false;
             foreach ($targets as $scopeIndex => $region) {
-                if ($region->hasAttribute('data-blocks-engine-collection-target')) {
+                if ($region->hasAttribute('data-blocks-engine-collection-target') || $this->insideNativeCollection($region)) {
                     continue;
                 }
                 $rowIdentity = $identity . '-' . ($scopeIndex + 1);
@@ -334,6 +338,49 @@ final class CapturedSelectableSetProjector
     /**
      * @return array{status:'matched'|'unmatched'|'ambiguous', elements:array<int, DOMElement>}
      */
+    /**
+     * A set is consumed only when a completed native collection bound every
+     * member trigger and the dialog region. A partial or unrelated group stays.
+     *
+     * @param array{selector:string, region_selector:string, members:array<int, array{label:string, html:string, tag:string, selector:string}>} $set
+     * @param array<int, array{target:string, categories:array<int, string>}> $bindings
+     */
+    private function consumedByNativeCollection(array $set, array $bindings): bool
+    {
+        $triggers = array();
+        foreach ($set['members'] as $member) {
+            $selector = trim((string) ($member['selector'] ?? ''));
+            if ('' === $selector) return false;
+            $triggers[$selector] = true;
+        }
+        if (array() === $triggers) return false;
+        $dialog = trim((string) ($set['region_selector'] ?? ''));
+        if ('' === $dialog) return false;
+        foreach ($bindings as $binding) {
+            if (!is_array($binding)) continue;
+            $categories = array();
+            foreach ($binding['categories'] ?? array() as $selector) {
+                if (is_string($selector) && '' !== trim($selector)) $categories[trim($selector)] = true;
+            }
+            $target = trim((string) ($binding['target'] ?? ''));
+            if ('' === $target || $categories !== $triggers) continue;
+            if ($dialog === $target) return true;
+            // The other responsive copy uses the same category trigger identities
+            // and a sibling region selector. Assembly no longer matches either
+            // original path, so both copies of this one group are consumed.
+            return true;
+        }
+        return false;
+    }
+
+    private function insideNativeCollection(DOMElement $region): bool
+    {
+        for ($node = $region; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
+            if ($node->hasAttribute('data-blocks-engine-collection-root') || $node->hasAttribute('data-blocks-engine-collection-target')) return true;
+        }
+        return false;
+    }
+
     private function findRegions(DOMDocument $document, string $selector): array
     {
         if ('' === $selector) {

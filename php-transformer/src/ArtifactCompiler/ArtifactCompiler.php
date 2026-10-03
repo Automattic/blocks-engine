@@ -209,7 +209,7 @@ final class ArtifactCompiler
         $this->layoutGeometryProof = is_array($normalized['layout_geometry_proof'] ?? null) ? $normalized['layout_geometry_proof'] : array();
         $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
         $collections = (new CapturedCollectionProjector())->project($capturedDialogs['files']);
-        $selectableSets = (new CapturedSelectableSetProjector())->project($collections['files']);
+        $selectableSets = (new CapturedSelectableSetProjector())->project($collections['files'], $collections['consumed_selectable_bindings'] ?? array());
         $choiceGroups = (new CapturedChoiceGroupProjector())->project($selectableSets['files']);
         $scrollStates = (new ScrollStateProjector())->project($choiceGroups['files']);
         $normalized['files'] = $scrollStates['files'];

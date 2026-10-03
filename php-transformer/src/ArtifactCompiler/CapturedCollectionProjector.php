@@ -34,6 +34,7 @@ final class CapturedCollectionProjector
         $count = 0;
         $diagnostics = array();
         $retired = array();
+        $consumed = array();
         foreach (array_slice($report['pages'] ?? array(), 0, 128) as $page) {
             if (!is_array($page) || !is_string($page['sourceUrl'] ?? null) || !is_array($page['states'] ?? null)) continue;
             $index = $indices[$routes[rtrim($page['sourceUrl'] ?? '', '/')] ?? ''] ?? null;
@@ -58,6 +59,7 @@ final class CapturedCollectionProjector
                 $document = $candidate;
                 $count += $added;
                 $pageCount += $added;
+                $this->rememberConsumedBindings($consumed, (string) $files[$index]['path'], $evidence);
             }
             if ($pageCount && $document instanceof DOMDocument) {
                 // These portable shims are superseded only after the owning
@@ -90,7 +92,7 @@ final class CapturedCollectionProjector
             }
         }
         $superseded = $this->omitRetiredRuntimeFiles($files, $retired);
-        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $count, 'superseded_runtime_scripts' => $superseded);
+        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $count, 'superseded_runtime_scripts' => $superseded, 'consumed_selectable_bindings' => $consumed);
     }
 
     /**
@@ -134,6 +136,22 @@ final class CapturedCollectionProjector
         $files = $kept;
         usort($proofs, static fn (array $left, array $right): int => strcmp($left['asset_source_path'] . $left['body_hash'], $right['asset_source_path'] . $right['body_hash']));
         return $proofs;
+    }
+
+    /** @param array<string, array<int, array{target:string, categories:array<int, string>}>> $consumed */
+    private function rememberConsumedBindings(array &$consumed, string $path, array $evidence): void
+    {
+        $target = trim((string) ($evidence['target']['selector'] ?? ''));
+        $categories = array();
+        foreach ($evidence['categories'] ?? array() as $category) {
+            $selector = is_array($category) ? trim((string) ($category['selector'] ?? '')) : '';
+            if ('' === $selector) return;
+            $categories[$selector] = $selector;
+        }
+        if ('' === $target || array() === $categories) return;
+        $row = array('target' => $target, 'categories' => array_values($categories));
+        foreach ($consumed[$path] ?? array() as $existing) if ($existing === $row) return;
+        $consumed[$path][] = $row;
     }
 
     private function verified(mixed $evidence): bool

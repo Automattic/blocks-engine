@@ -4,6 +4,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedCollectionProjector;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedSelectableSetProjector;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
@@ -260,4 +261,53 @@ $partial = (new ArtifactCompiler())->compile($extractedArtifact($extractedHtml('
 $partialBodies = $scriptBodies($partial);
 $partialPaths = array_column($partial['source_reports']['native_runtime_replacements'] ?? array(), 'asset_source_path');
 $assert(array('website/index.inline-2.js') === $partialPaths && str_contains($partialBodies, 'data-dla-local-disclosure') && !str_contains($partialBodies, 'data-dla-collection-category-control'), 'an unconverted sibling keeps its disclosure runtime while the completed collection runtime is still omitted: ' . json_encode($partialPaths));
+$snapshotEvidence = $evidence;
+$snapshotEvidence['field']['selector'] = 'input.missing';
+$snapshotEvidence['target']['selector'] = 'div.snapshot-region';
+$snapshotEvidence['categories'][0]['selector'] = '#cat-all';
+$snapshotEvidence['categories'][1]['selector'] = '#cat-alpha';
+$snapshotFiles = $files($snapshotEvidence);
+$snapshotFiles[0]['content'] = $markedSource;
+$snapshotProjected = (new CapturedCollectionProjector())->project($snapshotFiles);
+$snapshotBindings = $snapshotProjected['consumed_selectable_bindings']['website/index.html'] ?? array();
+$assert(1 === count($snapshotBindings) && array('#cat-all', '#cat-alpha') === $snapshotBindings[0]['categories'] && 'div.snapshot-region' === $snapshotBindings[0]['target'], 'a completed native collection records the category trigger and dialog identities it bound');
+$selectableState = static function (string $trigger, string $dialog, string $html, int $index, string $set = 'div.category-set'): array {
+    return array(
+        'status' => 'captured',
+        'kind' => 'selectable-set',
+        'trigger' => array('selector' => $trigger, 'tag' => 'button', 'label' => 'Category', 'ariaHaspopup' => '', 'dataBindings' => array()),
+        'dialog' => array('selector' => $dialog, 'tag' => 'div', 'html' => $html, 'htmlBytes' => strlen($html), 'htmlTruncated' => false),
+        'set' => array('selector' => $set, 'size' => 2, 'index' => $index),
+    );
+};
+$snapshotHtml = '<div><p>Alpha answer snapshot</p></div>';
+$siblingHtml = '<div><p>Sibling answer</p></div>';
+$withSelectable = static function (array $projectedFiles, array $states): array {
+    $rows = $projectedFiles;
+    foreach ($rows as &$row) {
+        if ('interaction-states.json' !== ($row['path'] ?? '')) continue;
+        $report = json_decode((string) $row['content'], true);
+        $report['pages'][0]['states'] = array_merge($report['pages'][0]['states'], $states);
+        $row['content'] = json_encode($report);
+    }
+    unset($row);
+    return $rows;
+};
+$consumedSelectable = (new CapturedSelectableSetProjector())->project($withSelectable($snapshotProjected['files'], array(
+    $selectableState('#cat-all', 'div.snapshot-region', $snapshotHtml, 0),
+    $selectableState('#cat-alpha', 'div.snapshot-region', $snapshotHtml, 1),
+    $selectableState('#cat-all', 'div.mobile-snapshot-region', $snapshotHtml, 0, 'div.mobile-category-set'),
+    $selectableState('#cat-alpha', 'div.mobile-snapshot-region', $snapshotHtml, 1, 'div.mobile-category-set'),
+)), array('website/index.html' => $snapshotBindings));
+$consumedMarkup = (string) ($consumedSelectable['files'][0]['content'] ?? '');
+$assert(!str_contains($consumedMarkup, 'Alpha answer snapshot') && !str_contains($consumedMarkup, 'data-tabs') && !in_array('captured_selectable_set_region_appended', array_column($consumedSelectable['diagnostics'], 'code'), true), 'completed collection bindings do not append a category snapshot: ' . json_encode(array_column($consumedSelectable['diagnostics'], 'code')));
+$assert(2 === substr_count($consumedMarkup, '>Alpha answer</p>') && 2 === substr_count($consumedMarkup, '>Beta answer</p>'), 'each responsive copy keeps one source answer');
+$partialSelectable = (new CapturedSelectableSetProjector())->project($withSelectable($snapshotProjected['files'], array(
+    $selectableState('#cat-all', 'div.snapshot-region', $snapshotHtml, 0),
+    $selectableState('#cat-alpha', 'div.snapshot-region', $snapshotHtml, 1),
+    $selectableState('#other-trigger', 'div.sibling-region', $siblingHtml, 0, 'div.sibling-set'),
+    $selectableState('#another-trigger', 'div.sibling-region', $siblingHtml, 1, 'div.sibling-set'),
+)), array('website/index.html' => $snapshotBindings));
+$partialMarkup = (string) ($partialSelectable['files'][0]['content'] ?? '');
+$assert(str_contains($partialMarkup, 'Sibling answer') && !str_contains($partialMarkup, 'Alpha answer snapshot'), 'an unrelated sibling selectable group is retained while the consumed collection group is not');
 echo "Captured collection filter contract passed\n";

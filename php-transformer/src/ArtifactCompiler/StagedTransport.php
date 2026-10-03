@@ -568,7 +568,7 @@ trait StagedTransport
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $capturedDialogsProjection = (new CapturedDialogProjector())->project($normalized['files']);
         $collectionsProjection = (new CapturedCollectionProjector())->project($capturedDialogsProjection['files']);
-        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($collectionsProjection['files']);
+        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($collectionsProjection['files'], $collectionsProjection['consumed_selectable_bindings'] ?? array());
         $choiceGroupsProjection = (new CapturedChoiceGroupProjector())->project($selectableSetsProjection['files']);
         $scrollStatesProjection = (new ScrollStateProjector())->project($choiceGroupsProjection['files']);
         $capturedDialogs = array(
