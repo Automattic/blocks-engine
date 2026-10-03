@@ -42,6 +42,15 @@ intercepted verification, declared count, complete text-only coverage, observed
 answers, universal-query order, and ordered global/category probes all recompute.
 Category mode shows the selected category. A nonempty query searches the whole
 universe and hides the category strip, not the input, status, or results.
+Optional `finiteBootstrap.status` uses `data-liberation/collection-status/v1`.
+Absent status is valid and adds no label. A present record is projected only
+when every node has source HTML, `{count}` or `{query}` tokens, matching binds,
+`before-items` or `after-items`, and `hidesAtZero: true`. The runtime writes
+`textContent` from the editable `data-dla-status-template` attribute. An empty
+query hides those labels. At zero they stay hidden and the source empty state
+owns the zero copy. Invalid present status is not claimed, and the capture
+helper stays while those labels are not projected. This does not measure visual
+parity.
 `categoriesAgree: false` moves the same nodes into `order.categoryKeys`; it does
 not clone them. Missing `finiteBootstrap` still requires the blocked
 category-and-query Ward checks, including initial-category membership.

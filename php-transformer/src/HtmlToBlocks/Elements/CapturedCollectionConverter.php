@@ -48,6 +48,7 @@ final class CapturedCollectionConverter implements ElementConverter
         elseif ($element->hasAttribute('data-blocks-engine-collection-choice')) $local = CollectionFilterBlockGenerator::CHOICE;
         elseif ($element->hasAttribute('data-blocks-engine-collection-choices')) $local = CollectionFilterBlockGenerator::CHOICES;
         elseif ($element->hasAttribute('data-blocks-engine-collection-empty')) $local = CollectionFilterBlockGenerator::EMPTY;
+        elseif ($element->hasAttribute('data-blocks-engine-collection-status')) $local = CollectionFilterBlockGenerator::STATUS;
         if (null === $local) return ConversionOutcome::unhandled();
         $config = null;
         if (CollectionFilterBlockGenerator::ROOT === $local) {
@@ -87,6 +88,13 @@ final class CapturedCollectionConverter implements ElementConverter
             $role = $activeRole === $inactiveRole && in_array($activeRole, array('tab', 'button'), true) ? $activeRole : strtolower(trim($element->getAttribute('role')));
             if (in_array($role, array('tab', 'button'), true)) $attrs['role'] = $role;
             if (preg_match('/^-?[0-9]{1,4}$/', trim($element->getAttribute('tabindex')))) $attrs['tabIndex'] = (int) $element->getAttribute('tabindex');
+        } elseif (CollectionFilterBlockGenerator::STATUS === $local) {
+            $status = $generator->statusAttributes($element);
+            if (null === $status) return ConversionOutcome::unhandled();
+            $attrs = array_merge($attrs, $status);
+            $html = $generator->statusMarkup($attrs, $registry->namespace());
+            if ('' === $html) return ConversionOutcome::unhandled();
+            return ConversionOutcome::handled(array('blockName' => $registry->blockName($local), 'attrs' => $attrs, 'innerBlocks' => array(), 'innerHTML' => $html, 'innerContent' => array($html)));
         } else {
             $children = ($this->convertChildren)($element, $fallbacks);
         }

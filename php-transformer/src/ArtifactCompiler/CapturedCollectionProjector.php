@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
+use DOMText;
 
 /** Projects corroborated local predicates without replacing the editable tree. */
 final class CapturedCollectionProjector
@@ -45,7 +46,15 @@ final class CapturedCollectionProjector
                 if (!is_array($state)) continue;
                 if ('typed-search' !== ($state['kind'] ?? null)) continue;
                 $evidence = $state['collectionFilter'] ?? null;
-                if ('captured' !== ($state['status'] ?? null) || !$this->verified($evidence)) {
+                if ('captured' !== ($state['status'] ?? null) || !is_array($evidence)) {
+                    $diagnostics[] = $this->diagnostic('Captured collection evidence is incomplete; native local filtering remains unproven.');
+                    continue;
+                }
+                if ($this->presentStatusInvalid($evidence)) {
+                    $diagnostics[] = $this->diagnostic('Present collection status is not portable; native filtering is not claimed.');
+                    continue;
+                }
+                if (!$this->verified($evidence)) {
                     $diagnostics[] = $this->diagnostic('Captured collection evidence is incomplete; native local filtering remains unproven.');
                     continue;
                 }
@@ -255,7 +264,57 @@ final class CapturedCollectionProjector
         $answers = $this->answersState($evidence['items']);
         if ($bootstrap['answers'] !== $answers || $bootstrap['answerOnly'] !== $this->answerOnlyState($evidence['items'], $answers)) return false;
         foreach ($evidence['items'] as $item) if ($this->hasResource((string) $item['html'])) return false;
+        return $this->verifiedStatus($evidence);
+    }
+
+    private function presentStatusInvalid(array $evidence): bool
+    {
+        $bootstrap = $evidence['finiteBootstrap'] ?? null;
+        return is_array($bootstrap) && array_key_exists('status', $bootstrap) && !$this->verifiedStatus($evidence);
+    }
+
+    private function verifiedStatus(array $evidence): bool
+    {
+        $bootstrap = $evidence['finiteBootstrap'] ?? null;
+        if (!is_array($bootstrap) || !array_key_exists('status', $bootstrap)) return true;
+        $status = $bootstrap['status'];
+        if (!is_array($status) || array('nodes', 'schema') !== $this->sortedKeys($status)
+            || 'data-liberation/collection-status/v1' !== ($status['schema'] ?? null)
+            || !is_array($status['nodes'] ?? null) || array() === $status['nodes'] || count($status['nodes']) > 4
+            || !array_is_list($status['nodes'])) return false;
+        foreach ($status['nodes'] as $node) if (!$this->verifiedStatusNode($node)) return false;
         return true;
+    }
+
+    private function verifiedStatusNode(mixed $node): bool
+    {
+        if (!is_array($node) || array('binds', 'hidesAtZero', 'html', 'placement', 'template') !== $this->sortedKeys($node)) return false;
+        if (!is_string($node['html']) || strlen($node['html']) > 4096 || !is_string($node['template']) || strlen($node['template']) > 240
+            || !in_array($node['placement'], array('before-items', 'after-items'), true) || true !== $node['hidesAtZero']) return false;
+        $tokens = $this->statusTokens($node['template']);
+        if (null === $tokens || $tokens !== $node['binds']) return false;
+        if (str_contains($node['template'], 'dla-no-match') || str_contains($node['template'], 'dla-finite-probe')) return false;
+        $imported = $this->importStatusNode($this->document('<div></div>'), $node['html']);
+        if (!$imported || $this->text($imported) !== $node['template'] || 1 !== $this->markStatusTemplates($imported)) return false;
+        return $this->statusTemplateValue($imported) === $node['template'] && !$this->unsafeStatus($imported);
+    }
+
+    /** @return array<int, string>|null */
+    private function statusTokens(string $template): ?array
+    {
+        if (1 === preg_match('/\{(?!count\}|query\})/', $template) || substr_count($template, '{count}') > 1 || substr_count($template, '{query}') > 1) return null;
+        $tokens = array();
+        if (str_contains($template, '{count}')) $tokens[] = 'count';
+        if (str_contains($template, '{query}')) $tokens[] = 'query';
+        return $tokens ?: null;
+    }
+
+    /** @return array<int, string> */
+    private function sortedKeys(array $value): array
+    {
+        $keys = array_keys($value);
+        sort($keys);
+        return $keys;
     }
 
     private function finiteItems(array $evidence): bool
@@ -568,7 +627,134 @@ final class CapturedCollectionProjector
         }
         $empty->setAttribute('data-blocks-engine-collection-empty', 'true');
         $empty->removeAttribute('hidden');
+        return $this->projectStatus($document, $root, $target, $evidence, $copyId);
+    }
+
+    private function projectStatus(DOMDocument $document, DOMElement $root, DOMElement $target, array $evidence, string $copyId): bool
+    {
+        $status = $evidence['finiteBootstrap']['status'] ?? null;
+        if (!is_array($status)) return true;
+        $existing = $this->existingStatus($document, $root, $copyId);
+        if ($existing) {
+            if (count($existing) !== count($status['nodes'])) return false;
+            foreach ($existing as $index => $element) if (!$this->markNativeStatus($element, $status['nodes'][$index])) return false;
+            return true;
+        }
+        $after = array();
+        foreach ($status['nodes'] as $node) {
+            $imported = $this->importStatusNode($document, $node['html']);
+            if (!$imported || !$this->markNativeStatus($imported, $node)) return false;
+            if ('before-items' === $node['placement']) {
+                if (!$target->parentNode) return false;
+                $target->parentNode->insertBefore($imported, $target);
+            } else {
+                $after[] = $imported;
+            }
+        }
+        $cursor = $target->nextSibling;
+        foreach ($after as $imported) {
+            if (!$target->parentNode) return false;
+            $target->parentNode->insertBefore($imported, $cursor);
+            $cursor = $imported->nextSibling;
+        }
+        return $this->containsAll($root, $this->nativeStatusNodes($root));
+    }
+
+    /** @return array<int, DOMElement> */
+    private function existingStatus(DOMDocument $document, DOMElement $root, string $copyId): array
+    {
+        if (!preg_match('/^[0-9]{1,4}$/', $copyId)) return array();
+        $found = array();
+        foreach ($document->getElementsByTagName('*') as $node) {
+            if (!$node instanceof DOMElement || $node->getAttribute('data-dla-collection-status') !== $copyId || !$this->containsAll($root, array($node))) continue;
+            $found[] = $node;
+        }
+        return $found;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function markNativeStatus(DOMElement $element, array $node): bool
+    {
+        if ($this->text($element) !== $node['template'] || $this->unsafeStatus($element) || 1 !== $this->markStatusTemplates($element)) return false;
+        if ($this->statusTemplateValue($element) !== $node['template']) return false;
+        $element->setAttribute('data-blocks-engine-collection-status', 'true');
+        $element->setAttribute('hidden', 'hidden');
+        $element->setAttribute('data-blocks-engine-status-hide-zero', 'true');
         return true;
+    }
+
+    private function markStatusTemplates(DOMElement $element): int
+    {
+        $count = 0;
+        $own = '';
+        foreach ($element->childNodes as $child) if (XML_TEXT_NODE === $child->nodeType) $own .= $child->textContent;
+        $own = $this->normalize($own);
+        if (str_contains($own, '{count}') || str_contains($own, '{query}')) {
+            $element->setAttribute('data-dla-status-template', $own);
+            $count++;
+        }
+        foreach ($element->childNodes as $child) if ($child instanceof DOMElement) $count += $this->markStatusTemplates($child);
+        return $count;
+    }
+
+    private function statusTemplateValue(DOMElement $element): ?string
+    {
+        $found = null;
+        $walk = static function (DOMElement $node) use (&$walk, &$found): void {
+            if ($node->hasAttribute('data-dla-status-template')) $found = $node->getAttribute('data-dla-status-template');
+            foreach ($node->childNodes as $child) if ($child instanceof DOMElement) $walk($child);
+        };
+        $walk($element);
+        return is_string($found) ? $found : null;
+    }
+
+    private function unsafeStatus(DOMElement $element): bool
+    {
+        $walk = function (DOMElement $node) use (&$walk): bool {
+            if (!in_array(strtolower($node->tagName), array('div', 'span', 'p', 'output'), true)) return true;
+            if ($this->hasResource($node->ownerDocument?->saveHTML($node) ?: '')) return true;
+            foreach ($node->attributes ?? array() as $attribute) {
+                $name = strtolower($attribute->name);
+                if (str_starts_with($name, 'on') || str_contains(strtolower($attribute->value), 'javascript:')) return true;
+                if (!in_array($name, array('class', 'id', 'style', 'role', 'aria-live', 'aria-atomic', 'data-hook', 'data-dla-status-template', 'data-dla-collection-status', 'data-dla-status-hide-zero', 'data-blocks-engine-collection-status', 'data-blocks-engine-status-hide-zero', 'hidden'), true)) return true;
+                if ('data-hook' === $name && 1 !== preg_match('/^[A-Za-z0-9_-]{1,80}$/', $attribute->value)) return true;
+                if ('style' === $name && (str_contains($attribute->value, '!important') || $this->hasResource($attribute->value))) return true;
+                if (str_contains($attribute->value, '<')) return true;
+            }
+            foreach ($node->childNodes as $child) {
+                if ($child instanceof DOMElement && $walk($child)) return true;
+                if (!$child instanceof DOMElement && !$child instanceof DOMText) return true;
+            }
+            return false;
+        };
+        return $walk($element);
+    }
+
+    private function importStatusNode(DOMDocument $document, string $html): ?DOMElement
+    {
+        $fragment = $this->document('<div>' . $html . '</div>');
+        $body = $fragment->getElementsByTagName('body')->item(0);
+        $holder = $body?->firstChild;
+        if (!$holder instanceof DOMElement) return null;
+        $elements = array();
+        foreach ($holder->childNodes as $node) {
+            if ($node instanceof DOMText && '' === trim($node->textContent ?? '')) continue;
+            if (!$node instanceof DOMElement) return null;
+            $elements[] = $node;
+        }
+        if (1 !== count($elements)) return null;
+        $imported = $document->importNode($elements[0], true);
+        return $imported instanceof DOMElement ? $imported : null;
+    }
+
+    /** @return array<int, DOMElement> */
+    private function nativeStatusNodes(DOMElement $root): array
+    {
+        $found = array();
+        foreach ($root->getElementsByTagName('*') as $node) {
+            if ($node instanceof DOMElement && 'true' === $node->getAttribute('data-blocks-engine-collection-status')) $found[] = $node;
+        }
+        return $found;
     }
 
     private function itemContainer(DOMElement $target, int $depth): ?DOMElement

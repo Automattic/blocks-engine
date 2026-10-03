@@ -202,6 +202,25 @@ $invalid['network'] = array('dataRequests' => 'blocked');
 $assert(0 === (new CapturedCollectionProjector())->project($finiteFiles($invalid))['projected_count'], 'blocked requests still require the Ward verifier');
 require_once __DIR__ . '/collection-filter-finite-fixture.php';
 file_put_contents(collection_filter_artifact_path('collection-filter-finite.json'), json_encode(array('markup' => $finiteMarkup, 'view' => $rootDefinition['view_js'])));
+$statusCase = collection_filter_status_case();
+$statusFiles = static function (string $html, array $evidence): array {
+    return array(
+        array('path' => 'website/index.html', 'content' => $html),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
+    );
+};
+$legacy = $statusCase['evidence'];
+unset($legacy['finiteBootstrap']['status']);
+$legacyProjected = (new CapturedCollectionProjector())->project($statusFiles($statusCase['source'], $legacy));
+$assert(1 === $legacyProjected['projected_count'] && !str_contains($legacyProjected['files'][0]['content'], 'data-blocks-engine-collection-status'), 'missing status remains a valid collection and invents no label');
+$invalidStatus = $statusCase['evidence'];
+$invalidStatus['finiteBootstrap']['status']['schema'] = 'data-liberation/collection-status/v2';
+$invalidProjected = (new CapturedCollectionProjector())->project($statusFiles($statusCase['source'], $invalidStatus));
+$assert(0 === $invalidProjected['projected_count'] && str_contains($invalidProjected['files'][0]['content'], 'data-dla-collection-runtime'), 'invalid present status is not claimed and does not retire the capture helper');
+$assert(str_contains(json_encode($invalidProjected['diagnostics']), 'not portable'), 'invalid status has an explicit diagnostic');
+$copied = (new CapturedCollectionProjector())->project($statusFiles($statusCase['copies'], $statusCase['evidence']));
+$assert(2 === $copied['projected_count'] && 4 === substr_count($copied['files'][0]['content'], 'data-blocks-engine-collection-status'), 'each responsive copy gets the source status once');
 $markedItem = static fn (string $key, string $members, string $answer): string => '<div data-dla-collection-item="' . $key . '" data-dla-collection-members="' . htmlspecialchars($members, ENT_QUOTES) . '"><button aria-expanded="false" aria-controls="m-' . $key . '">Shared question?</button><div id="m-' . $key . '" role="region" hidden><p>' . $answer . '</p></div></div>';
 $markedCopy = static function (string $id) use ($markedItem): string {
     return '<section class="copy"><div role="tab" data-dla-collection-category-control="' . $id . '" data-dla-collection-index="0">All</div><div role="tab" data-dla-collection-category-control="' . $id . '" data-dla-collection-index="1">Alpha</div><input data-dla-collection-field="' . $id . '" placeholder="Search locally"><div data-dla-collection="' . $id . '"><div>' . $markedItem('a', '[0,1]', 'Alpha answer') . $markedItem('b', '[0]', 'Beta answer') . '</div></div></section>';
