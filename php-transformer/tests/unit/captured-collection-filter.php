@@ -224,7 +224,9 @@ $onclick['finiteBootstrap']['status']['nodes'][1]['html'] = str_replace('<span '
 $onclickProjected = (new CapturedCollectionProjector())->project($statusFiles($statusCase['source'], $onclick));
 $assert(0 === $onclickProjected['projected_count'] && str_contains(json_encode($onclickProjected['diagnostics']), 'Observed unsupported status onclick'), 'an event handler on a source status body is named and not projected');
 $copied = (new CapturedCollectionProjector())->project($statusFiles($statusCase['copies'], $statusCase['evidence']));
-$assert(2 === $copied['projected_count'] && 4 === substr_count($copied['files'][0]['content'], 'data-blocks-engine-collection-status'), 'each responsive copy gets the source status once');
+$copiedMarkup = (string) ($copied['files'][0]['content'] ?? '');
+$assert(2 === $copied['projected_count'] && 4 === substr_count($copiedMarkup, 'data-dla-collection-status=') && 4 === substr_count($copiedMarkup, 'data-blocks-engine-status-hide-zero'), 'each responsive copy gets the source session status once');
+$assert(2 === substr_count($copiedMarkup, 'data-blocks-engine-status-bound="empty"'), 'the zero count is the empty announcer, not another session label');
 $statusRuntime = 'document.querySelector("[data-dla-collection-empty]");';
 $statusHtml = str_replace('</head>', '<script data-dla-collection-runtime="true">' . $statusRuntime . '</script></head>', $statusCase['copies']);
 $statusCompiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array('website/index.html' => $statusHtml, 'capture-receipt.json' => $statusFiles($statusHtml, $statusCase['evidence'])[1]['content'], 'interaction-states.json' => $statusFiles($statusHtml, $statusCase['evidence'])[2]['content'])))->toArray();
@@ -232,7 +234,9 @@ $statusContracts = array_values(array_filter($statusCompiled['diagnostics'] ?? a
 $statusBodies = '';
 foreach (array($statusCompiled['files'] ?? array(), $statusCompiled['assets'] ?? array()) as $group) foreach ($group as $file) if (is_array($file) && is_string($file['content'] ?? null)) $statusBodies .= $file['content'];
 $assert(array() === $statusContracts && !str_contains($statusBodies, 'data-dla-collection-empty'), 'both assembled status copies retire the extracted collection script: ' . json_encode($statusContracts));
-$assert(2 === substr_count((string) ($statusCompiled['serialized_blocks'] ?? ''), 'aria-hidden="false"') && 2 === substr_count((string) ($statusCompiled['serialized_blocks'] ?? ''), 'data-hook="questions-results-found"') && 2 === substr_count((string) ($statusCompiled['serialized_blocks'] ?? ''), 'role="status"'), 'compiled status keeps both source count and query wrappers');
+$compiledMarkup = (string) ($statusCompiled['serialized_blocks'] ?? '');
+$assert(2 === substr_count($compiledMarkup, 'aria-hidden="false"') && 2 === substr_count($compiledMarkup, 'data-hook="questions-results-found"') && 4 === substr_count($compiledMarkup, 'data-blocks-engine-status-hide-zero'), 'compiled status keeps both source count and query wrappers');
+$assert(4 === substr_count($compiledMarkup, 'role="status"') && 4 === substr_count($compiledMarkup, 'aria-live="polite"') && 2 === substr_count($compiledMarkup, 'data-blocks-engine-status-bound="empty"') && 2 === substr_count($compiledMarkup, '>0 matching results found<'), 'the zero live region keeps its source role inside the empty state only');
 $partialCopies = str_replace('data-dla-collection-item="3"', 'data-dla-collection-item="missing"', $statusHtml);
 $partialStatus = (new CapturedCollectionProjector())->project($statusFiles($partialCopies, $statusCase['evidence']));
 $assert(0 === $partialStatus['projected_count'] && str_contains($partialStatus['files'][0]['content'], 'data-dla-collection-runtime'), 'an unmatched portable copy keeps the collection script instead of retiring a partial page');

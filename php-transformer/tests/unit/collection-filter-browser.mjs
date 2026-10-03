@@ -103,7 +103,7 @@ const statusStates = await statusPage.evaluate(() => {
     const context = JSON.parse(root.dataset.wpContext);
     const labels = () => Array.from(root.querySelectorAll('[data-wp-bind--hidden$="::state.statusHidden"]')).filter((node) => !node.hidden).map((node) => node.textContent.replace(/\s+/g, ' ').trim());
     const run = (query) => { context.query = query; window.refreshCollection(root, context); return { labels: labels(), empty: root.querySelector('[data-wp-bind--hidden$="::state.hasMatches"]')?.hidden === false }; };
-    const visibleStatus = () => Array.from(root.querySelectorAll('[role="status"]')).filter((node) => !node.hidden && !node.closest('[hidden]')).map((node) => node.textContent.replace(/\s+/g, ' ').trim());
+    const visibleStatus = () => Array.from(root.querySelectorAll('[role="status"]')).filter((node) => !node.hidden && !node.closest('[hidden]')).map((node) => ({ text: node.textContent.replace(/\s+/g, ' ').trim(), live: node.getAttribute('aria-live'), empty: node.closest('[data-wp-bind--hidden$="::state.hasMatches"]') !== null }));
     const positive = run('berry');
     const positiveStatus = visibleStatus();
     const cleared = run('');
@@ -120,11 +120,11 @@ const statusStates = await statusPage.evaluate(() => {
     return { positive, cleared, zero, raw, images, edited, positiveStatus, clearedStatus, zeroStatus, polite: root.querySelector('[role="status"]')?.getAttribute('aria-live'), zeros: root.textContent.split('0 matching results found').length - 1 };
 });
 assert.deepEqual(statusStates.positive.labels, ['3 matching results found', 'Showing results for: berry']);
-assert.deepEqual(statusStates.positiveStatus, ['3 matching results found']);
+assert.deepEqual(statusStates.positiveStatus, [{ text: '3 matching results found', live: 'polite', empty: false }]);
 assert.deepEqual(statusStates.cleared.labels, []);
 assert.deepEqual(statusStates.clearedStatus, []);
 assert.deepEqual(statusStates.zero.labels, []);
-assert.deepEqual(statusStates.zeroStatus, ['0 matching results found']);
+assert.deepEqual(statusStates.zeroStatus, [{ text: '0 matching results found', live: 'polite', empty: true }]);
 assert.equal(statusStates.zero.empty, true);
 assert.equal(statusStates.zeros, 1);
 assert.equal(statusStates.images, 0);
