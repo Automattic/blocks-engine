@@ -35,7 +35,8 @@ $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
 $assert('blocks-engine/php-transformer/staged-shared-plan/v1' === $shared['schema'] && 2 === $shared['summary']['file_count'] && preg_match('/^[a-f0-9]{64}$/', $shared['digest']), 'Shared preparation preserves the published v1 plan envelope and digest.');
 $assert('artifact' === ($shared['shared_reduction']['files_source'] ?? null) && !array_key_exists('files', $shared['shared_reduction']), 'Inline shared reductions reference their digest-bound artifact files instead of serializing a duplicate payload.');
-$assert(array('diagnostics', 'projected_count') === array_keys($shared['analysis']['captured_dialogs']), 'Shared preparation persists bounded captured-dialog evidence without duplicating projected artifact files.');
+$capturedDialogs = $shared['analysis']['captured_dialogs'];
+$assert(array('diagnostics', 'projected_count', 'native_runtime_replacements') === array_keys($capturedDialogs) && array() === $capturedDialogs['native_runtime_replacements'] && !array_key_exists('files', $capturedDialogs), 'Shared preparation persists bounded captured-dialog evidence and an empty replacement list without duplicating projected artifact files.');
 // Inline assets expanded out of an unannotated page follow that page, not the
 // immutable shared plan: parking page-varying content in the shared plan would
 // invalidate every page plan on a page edit.
