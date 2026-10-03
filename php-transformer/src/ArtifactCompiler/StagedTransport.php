@@ -573,6 +573,7 @@ trait StagedTransport
         $capturedDialogs = array(
             'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
             'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
+            'native_runtime_replacements' => $capturedDialogsProjection['native_runtime_replacements'] ?? array(),
         );
         if (0 < $selectableSetsProjection['projected_count']) {
             $capturedDialogs['projected_selectable_set_count'] = $selectableSetsProjection['projected_count'];
@@ -634,6 +635,7 @@ trait StagedTransport
             'captured_dialogs' => array(
                 'diagnostics' => $capturedDialogs['diagnostics'],
                 'projected_count' => $capturedDialogs['projected_count'],
+                'native_runtime_replacements' => $capturedDialogs['native_runtime_replacements'] ?? array(),
             ),
         );
     }

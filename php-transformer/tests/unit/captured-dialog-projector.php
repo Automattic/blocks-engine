@@ -129,6 +129,22 @@ $selectorTrigger = array('selector' => 'body > div > div > div:nth-of-type(2) > 
 $selector = $project($files(array('https://example.test/selector' => $selectorHtml), array('https://example.test/selector' => array($state($selectorTrigger)))));
 $assert(1 === ($selector['projected_count'] ?? 0), 'wrapper-normalized positional selectors match inside a responsive document');
 
+$closeRuntime = 'document.querySelector("[data-dla-dialog-close]");';
+$closeTrigger = array('selector' => 'body > header > button', 'tag' => 'button', 'ariaHaspopup' => 'dialog', 'label' => 'Menu', 'dataBindings' => array());
+$closeHtml = '<html><head><script data-dla-disclosure-runtime="true">' . $closeRuntime . '</script></head><body><header><button type="button" data-dla-dialog-trigger="dla-dialog-0" aria-haspopup="dialog" aria-label="Menu">Menu</button></header><button type="button" hidden data-dla-dialog-close="dla-dialog-0" aria-label="Close Menu">Close</button></body></html>';
+$closeRows = $files(array('https://example.test/' => $closeHtml), array('https://example.test/' => array($state($closeTrigger))));
+$closeRows[] = array('path' => 'website/index.inline-4.js', 'content' => $closeRuntime, 'source' => 'inline-script', 'source_path' => 'website/index.html');
+$close = $project($closeRows);
+$closeMarkup = (string) ($close['files'][0]['content'] ?? '');
+$assert(1 === ($close['projected_count'] ?? 0) && str_contains($closeMarkup, 'data-blocks-engine-add-close="true"'), 'a dialog without an in-panel close still gets the native close control');
+$assert(!str_contains($closeMarkup, 'data-dla-dialog-close') && !str_contains($closeMarkup, 'data-dla-disclosure-runtime'), 'a matched capture close helper and its runtime are removed');
+$assert(array() === array_values(array_filter($close['files'], static fn (array $file): bool => 'website/index.inline-4.js' === ($file['path'] ?? ''))), 'the extracted disclosure script is omitted');
+$assert('native_dialog_close_replaces_capture_close_helper' === ($close['native_runtime_replacements'][0]['reason'] ?? ''), 'replacement proof names the native dialog close');
+$siblingHtml = str_replace('</body>', '<button type="button" hidden data-dla-dialog-close="dla-dialog-9" aria-label="Close leftover">Close</button></body>', $closeHtml);
+$sibling = $project($files(array('https://example.test/' => $siblingHtml), array('https://example.test/' => array($state($closeTrigger)))));
+$siblingMarkup = (string) ($sibling['files'][0]['content'] ?? '');
+$assert(!str_contains($siblingMarkup, 'data-dla-dialog-close="dla-dialog-0"') && str_contains($siblingMarkup, 'data-dla-dialog-close="dla-dialog-9"') && str_contains($siblingMarkup, 'data-dla-disclosure-runtime'), 'an unmatched close helper stays with its runtime');
+
 if (0 !== $failures) {
     fwrite(STDERR, "captured-dialog-projector failed: {$failures} failure(s), {$passes} pass(es)\n");
     exit(1);
