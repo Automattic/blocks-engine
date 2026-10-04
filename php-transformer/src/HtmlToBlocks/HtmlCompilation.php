@@ -10184,8 +10184,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 break;
             }
         }
-        $content = (string) ($items[0]['content'] ?? '');
-        if ( '' === $content && ! $hasPresentation ) {
+        $content = '';
+        foreach ( $items as $item ) {
+            if ( '' !== $item['content'] ) {
+                $content = $item['content'];
+                break;
+            }
+        }
+        if ( '' === $content ) {
             return null;
         }
 

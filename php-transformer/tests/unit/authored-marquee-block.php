@@ -136,6 +136,11 @@ $assert('custom/authored-marquee' === ($mismatched['blocks'][0]['blockName'] ?? 
 $control = ( new HtmlTransformer() )->transform('<button data-testid="heading-tag">Filter</button><p data-testid="other">Copy</p>', array( 'runtime_dom_selectors' => array( '[data-testid="heading-tag"]' ) ))->toArray();
 $controlNames = array_column($control['blocks'], 'blockName');
 $assert(in_array('core/html', $controlNames, true) && !in_array('custom/authored-marquee', $controlNames, true), 'a non-marquee control matched by equality stays protected and is not waived');
+$emptyMarked = ( new HtmlTransformer() )->transform('<p class="source-phrase" data-testid="heading-tag"><span class="track" data-marquee-animation="left"><span class="phrase" data-testid="marquee-unit"><span></span></span><span class="phrase" data-testid="marquee-item-text" data-text="" aria-hidden="true"></span></span></p>', array( 'runtime_dom_selectors' => array( '[data-testid="heading-tag"]' ) ))->toArray();
+$emptyNames = array_column($emptyMarked['blocks'], 'blockName');
+$assert(!in_array('custom/authored-marquee', $emptyNames, true) && in_array('core/html', $emptyNames, true), 'an empty marked marquee stays reported as raw HTML instead of an empty companion');
+$paintedAttribute = ( new HtmlTransformer() )->transform('<p data-testid="heading-tag"><span data-marquee-animation="left"><span class="phrase" data-text="Painted phrase"></span></span></p>')->toArray();
+$assert('custom/authored-marquee' === ($paintedAttribute['blocks'][0]['blockName'] ?? null) && 'Painted phrase' === ($paintedAttribute['blocks'][0]['attrs']['content'] ?? null), 'a non-empty data-text carrier is painted source content');
 $unrelated = ( new HtmlTransformer() )->transform('<div data-testid="other">Copy</div>', array( 'runtime_dom_selectors' => array( '[data-testid="heading-tag"]' ) ))->toArray();
 $assert('core/html' !== ($unrelated['blocks'][0]['blockName'] ?? null), 'a missing equality target is not preserved as a runtime HTML island');
 
