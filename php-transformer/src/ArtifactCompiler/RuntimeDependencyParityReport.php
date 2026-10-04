@@ -801,12 +801,6 @@ final class RuntimeDependencyParityReport
                         $selector = '[' . strtolower((string) $dataMatch[1]) . ']';
                         $targets['selectors'][$selector] = true;
                         $targets['selectors'][$tag . $selector] = true;
-                        $value = html_entity_decode((string) ($dataMatch[3] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-                        if ( '' !== $value ) {
-                            $equality = RuntimeSelectorVocabulary::canonicalScriptSelector('[' . strtolower((string) $dataMatch[1]) . '="' . str_replace(array( '\\', '"' ), array( '\\\\', '\\"' ), $value) . '"]');
-                            $targets['selectors'][$equality] = true;
-                            $targets['selectors'][$tag . $equality] = true;
-                        }
                     }
                 }
                 if ( in_array($tag, array_merge(array('canvas', 'svg'), RuntimeSelectorVocabulary::RUNTIME_TAG_SELECTORS), true) ) {
@@ -859,11 +853,8 @@ final class RuntimeDependencyParityReport
 
                 $attributeSelector = '[' . $attributeName . ']';
                 $targets['selectors'][$attributeSelector] = true;
-                $equalitySelector = RuntimeSelectorVocabulary::canonicalScriptSelector('[' . $attributeName . '="' . str_replace(array( '\\', '"' ), array( '\\\\', '\\"' ), (string) $value) . '"]');
-                $targets['selectors'][$equalitySelector] = true;
                 if ( '' !== $tag ) {
                     $targets['selectors'][$tag . $attributeSelector] = true;
-                    $targets['selectors'][$tag . $equalitySelector] = true;
                 }
             }
         }
@@ -881,7 +872,6 @@ final class RuntimeDependencyParityReport
             $name = strtolower($attribute->nodeName ?? '');
             if ( str_starts_with($name, 'data-') && preg_match('/^data-[a-z][a-z0-9_-]*$/', $name) ) {
                 $selectors['[' . $name . ']'] = $name;
-                $selectors[RuntimeSelectorVocabulary::canonicalScriptSelector('[' . $name . '="' . str_replace(array( '\\', '"' ), array( '\\\\', '\\"' ), (string) ($attribute->nodeValue ?? '')) . '"]')] = $name;
             }
         }
 

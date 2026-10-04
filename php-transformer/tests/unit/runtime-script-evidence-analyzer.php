@@ -16,7 +16,7 @@ $analyzer = new RuntimeScriptEvidenceAnalyzer();
 $script = 'const button=document.querySelector("#menu");button.addEventListener("click",openMenu);const canvas=document.getElementById("chart");canvas.getContext("2d");document.querySelectorAll("[data-action=save]").forEach((item)=>item.addEventListener("click", save));document.querySelector(".fade-in").classList.add("on");';
 $evidence = $analyzer->analyze($script, 'index.html', 'assets/site.js');
 $selectors = array_fill_keys($evidence['selectors'], true);
-    $assert(isset($selectors['#menu']) && isset($selectors['#chart']) && isset($selectors['[data-action="save"]']) && !isset($selectors['[data-action]']) && isset($selectors['.fade-in']), 'The analyzer preserves id, attribute equality, and presentational selectors.');
+$assert(isset($selectors['#menu']) && isset($selectors['#chart']) && isset($selectors['[data-action]']) && isset($selectors['.fade-in']), 'The analyzer preserves id, attribute, and presentational selectors.');
 $dependencies = array_column($evidence['dependencies'], null, 'selector');
 $assert(true === $dependencies['#chart']['canvas_api'], 'Canvas API evidence is retained.');
 $assert(in_array('click', $dependencies['#menu']['events'], true), 'Assigned event listener evidence is retained.');

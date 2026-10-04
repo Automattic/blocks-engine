@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
-use DOMElement;
-
 /**
  * Shared vocabulary for reasoning about runtime CSS selectors.
  *
@@ -97,111 +95,5 @@ final class RuntimeSelectorVocabulary
         }
 
         return array_keys($selectors);
-    }
-
-    /**
-     * Whether a bounded runtime selector matches this element.
-     *
-     * Attribute equality is part of the selector. A missing attribute, a
-     * different value, a different tag, or an unrecognized shape does not
-     * match. Callers that cannot prove a match must fail closed.
-     *
-     * @param array<int, string> $bareTags
-     */
-    public static function matchesElement(DOMElement $element, string $selector, array $bareTags): bool
-    {
-        $tag = strtolower($element->tagName);
-        if ( $selector === $tag && in_array($tag, $bareTags, true) ) {
-            return true;
-        }
-        if ( preg_match('/^([a-z][a-z0-9-]*)\.([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            return $tag === strtolower((string) $match[1]) && in_array((string) $match[2], preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), true);
-        }
-        $parsed = self::parseAttributeSelector($selector);
-        if ( null === $parsed ) {
-            return false;
-        }
-        if ( '' !== $parsed['tag'] && $tag !== $parsed['tag'] ) {
-            return false;
-        }
-        if ( ! $element->hasAttribute($parsed['attribute']) ) {
-            return false;
-        }
-        if ( null === $parsed['value'] ) {
-            return true;
-        }
-
-        return $element->getAttribute($parsed['attribute']) === $parsed['value'];
-    }
-
-    /**
-     * Canonical script selector. Quoted and unquoted equality values are kept.
-     */
-    public static function canonicalScriptSelector(string $selector): string
-    {
-        $parsed = self::parseAttributeSelector(trim($selector));
-        if ( null === $parsed ) {
-            return trim($selector);
-        }
-        $canonical = $parsed['tag'] . '[' . $parsed['attribute'];
-        if ( null === $parsed['value'] ) {
-            return $canonical . ']';
-        }
-
-        return $canonical . '="' . str_replace(array( '\\', '"' ), array( '\\\\', '\\"' ), $parsed['value']) . '"]';
-    }
-
-    /**
-     * @return array{tag: string, attribute: string, value: ?string}|null
-     */
-    public static function parseAttributeSelector(string $selector): ?array
-    {
-        $pattern = '/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\s*=\s*(?:"((?:\\\\.|[^"\\\\])*)"|\'((?:\\\\.|[^\'\\\\])*)\'|([^\s"\'\]]{1,80})))?\]$/i';
-        if ( 1 !== preg_match($pattern, $selector, $match) ) {
-            return null;
-        }
-        $value = null;
-        if ( str_contains($selector, '=') ) {
-            $raw = '';
-            if ( isset($match[3]) && '' !== $match[3] ) {
-                $raw = $match[3];
-            } elseif ( isset($match[4]) && '' !== $match[4] ) {
-                $raw = $match[4];
-            } elseif ( isset($match[5]) && '' !== $match[5] ) {
-                $raw = $match[5];
-            }
-            $value = self::unescapeCssString($raw);
-        }
-
-        return array(
-            'tag' => strtolower((string) ($match[1] ?? '')),
-            'attribute' => strtolower((string) $match[2]),
-            'value' => $value,
-        );
-    }
-
-    private static function unescapeCssString(string $value): string
-    {
-        $unescaped = preg_replace_callback(
-            '/\\\\(?:([0-9a-fA-F]{1,6})\s?|(.))/',
-            static function (array $match): string {
-                if ( isset($match[1]) && '' !== $match[1] ) {
-                    $code = hexdec($match[1]);
-                    if ( $code < 0x80 ) {
-                        return chr($code);
-                    }
-                    if ( function_exists('mb_chr') && $code <= 0x10FFFF ) {
-                        return (string) mb_chr($code, 'UTF-8');
-                    }
-
-                    return '';
-                }
-
-                return (string) ($match[2] ?? '');
-            },
-            $value
-        );
-
-        return is_string($unescaped) ? $unescaped : $value;
     }
 }

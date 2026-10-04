@@ -160,10 +160,10 @@ final class RuntimeScriptEvidenceAnalyzer
         return true;
     }
     private function selectorPattern(): string { return RuntimeSelectorVocabulary::scriptSelectorPattern(); }
-    private function canonicalSelector(string $selector): string { return RuntimeSelectorVocabulary::canonicalScriptSelector($selector); }
+    private function canonicalSelector(string $selector): string { $selector = trim($selector); return preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ? strtolower($match[1] ?? '') . '[' . strtolower($match[2]) . ']' : $selector; }
     private function selectorKind(string $selector): string { return str_starts_with($selector, '#') ? 'id' : (str_starts_with($selector, '.') ? 'class' : (str_contains($selector, '[') ? 'attribute' : 'element')); }
     /** @return array<int, string> */
-    private function dataSelectors(string $selector): array { $out = array(); if (preg_match_all('/(?:^|[\s>+~,])((?:[a-z][a-z0-9-]*)?\[data-[A-Za-z][A-Za-z0-9_-]*(?:\s*=\s*(?:"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|[^\s"\'\]]{1,80}))?\])/i', $selector, $matches)) foreach ($matches[1] as $candidate) { $canonical = RuntimeSelectorVocabulary::canonicalScriptSelector($candidate); if (str_contains($canonical, '[')) $out[] = $canonical; } return array_values(array_unique($out)); }
+    private function dataSelectors(string $selector): array { $out = array(); if (preg_match_all('/(?:^|[\s>+~,])([a-z][a-z0-9-]*)?\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $matches, PREG_SET_ORDER)) foreach ($matches as $match) $out[] = strtolower($match[1] ?? '') . '[' . strtolower($match[2]) . ']'; return array_values(array_unique($out)); }
     /** @return array<int, string> */
     private function scopedElementSelectors(string $script, string $tag, string $use = ''): array { $out = array(); if (preg_match('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\./', $script, $roots)) if (preg_match('/\b' . preg_quote($roots[1], '/') . '\s*\.\s*querySelector\s*\(\s*(["\'])' . $tag . '\1\s*\)(?:\s*' . $use . ')?/', $script)) $out[] = $tag; return $out; }
     /** @return array<int, string> */

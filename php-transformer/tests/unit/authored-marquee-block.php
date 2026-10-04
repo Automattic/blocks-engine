@@ -120,22 +120,6 @@ $assert(CompanionPluginPayload::SCHEMA === ($payload['schema'] ?? null) && array
 $assert(array_reduce(array_keys($assets), static fn (bool $safe, string $path): bool => $safe && $isSafeCompanionAsset($path, $assets[$path]), true), 'every generated marquee asset passes SSI static path and content constraints');
 $assert(!isset($payloadBlock['render'], $payloadBlock['renderer'], $payloadBlock['block_json']['render']) && !array_filter(array_keys($assets), static fn (string $path): bool => 'php' === strtolower((string) pathinfo($path, PATHINFO_EXTENSION))), 'the generated marquee payload emits no executable PHP asset or renderer');
 
-$marked = '<p class="source-phrase" data-testid="heading-tag"><span class="track" data-marquee-animation="left"><span class="phrase" data-testid="marquee-unit">Scrolling phrase</span><span class="phrase" data-testid="marquee-unit" aria-hidden="true">Scrolling phrase</span></span></p>';
-$markedCss = '.track[data-marquee-animation=left]{animation-duration:var(--marquee-duration,17s);animation-timing-function:linear;animation-iteration-count:infinite;animation-name:slide}.phrase{font-size:28px;color:#0b0b0b}';
-$markedOptions = array( 'static_css' => $markedCss, 'runtime_dom_selectors' => array( '[data-testid="heading-tag"]' ) );
-$markedResult = ( new HtmlTransformer() )->transform($marked, $markedOptions)->toArray();
-$markedBlock = $markedResult['blocks'][0] ?? array();
-$assert('custom/authored-marquee' === ($markedBlock['blockName'] ?? null), 'a marked marquee admitted before the runtime preserver stays on the existing companion');
-$markedMarker = (string) ($markedBlock['attrs']['items'][0]['marker'] ?? '');
-$assert('Scrolling phrase' === ($markedBlock['attrs']['content'] ?? null) && 'phrase' === ($markedBlock['attrs']['items'][0]['className'] ?? null) && str_starts_with($markedMarker, 'blocks-engine-richtext-'), 'source text, class, and rich-text marker survive the existing generator');
-$assert('left' === ($markedBlock['attrs']['direction'] ?? null) && 17.0 === ($markedBlock['attrs']['duration'] ?? null), 'source CSS duration fallback is used instead of an unstated default');
-$assert(str_contains((string) ($markedBlock['innerHTML'] ?? ''), 'source-phrase') && 2 === substr_count((string) ($markedBlock['innerHTML'] ?? ''), 'Scrolling phrase') && 2 === substr_count((string) ($markedBlock['innerHTML'] ?? ''), $markedMarker), 'source class and both continuous copies survive save markup');
-$assert('pass' === ($markedResult['source_reports']['wp_block_validity']['status'] ?? null), 'marked marquee save remains valid');
-$mismatched = ( new HtmlTransformer() )->transform($marked, array( 'static_css' => $markedCss, 'runtime_dom_selectors' => array( '[data-testid="marquee-unit"]' ) ))->toArray();
-$assert('custom/authored-marquee' === ($mismatched['blocks'][0]['blockName'] ?? null), 'an equality selector for a nested value does not preserve the paragraph as raw HTML');
-$control = ( new HtmlTransformer() )->transform('<button data-testid="heading-tag">Filter</button><p data-testid="other">Copy</p>', array( 'runtime_dom_selectors' => array( '[data-testid="heading-tag"]' ) ))->toArray();
-$controlNames = array_column($control['blocks'], 'blockName');
-$assert(in_array('core/html', $controlNames, true) && !in_array('custom/authored-marquee', $controlNames, true), 'a non-marquee control matched by equality stays protected and is not waived');
 $emptyLayoutCss = '.clip{display:flex;overflow-x:clip}.track{display:flex;gap:100px;height:calc(1em * 1.2);font:32px/1.3em serif}.unit{display:flex}';
 $emptyLayout = ( new HtmlTransformer() )->transform('<p class="source-phrase"><span class="clip"><span class="track" data-marquee-animation="left"><span class="unit"></span><span class="unit"></span></span><span class="track" data-marquee-animation="left"><span class="unit"></span><span class="unit"></span></span></span></p>', array( 'static_css' => $emptyLayoutCss ))->toArray();
 $emptyLayoutNames = array_column($emptyLayout['blocks'], 'blockName');
@@ -153,12 +137,11 @@ $media = ( new HtmlTransformer() )->transform('<p class="clip"><img src="dot.png
 $assert(!str_contains((string) ($media['serialized_blocks'] ?? ''), 'layout-shell'), 'a paragraph with media is not an empty layout shell');
 $interactive = ( new HtmlTransformer() )->transform('<p><button>Filter</button></p>')->toArray();
 $assert(!str_contains((string) ($interactive['serialized_blocks'] ?? ''), 'layout-shell'), 'a control without a source layout box is not claimed as empty geometry');
-$emptyMarked = ( new HtmlTransformer() )->transform('<p class="source-phrase" data-testid="heading-tag"><span class="track" data-marquee-animation="left"><span class="phrase" data-testid="marquee-unit"><span></span></span><span class="phrase" data-testid="marquee-item-text" data-text="" aria-hidden="true"></span></span></p>', array( 'runtime_dom_selectors' => array( '[data-testid="heading-tag"]' ) ))->toArray();
-$emptyNames = array_column($emptyMarked['blocks'], 'blockName');
-$assert(!in_array('custom/authored-marquee', $emptyNames, true) && in_array('core/html', $emptyNames, true), 'an empty marked marquee stays reported as raw HTML instead of an empty companion');
-$paintedAttribute = ( new HtmlTransformer() )->transform('<p data-testid="heading-tag"><span data-marquee-animation="left"><span class="phrase" data-text="Painted phrase"></span></span></p>')->toArray();
-$assert('custom/authored-marquee' === ($paintedAttribute['blocks'][0]['blockName'] ?? null) && 'Painted phrase' === ($paintedAttribute['blocks'][0]['attrs']['content'] ?? null), 'a non-empty data-text carrier is painted source content');
-$unrelated = ( new HtmlTransformer() )->transform('<div data-testid="other">Copy</div>', array( 'runtime_dom_selectors' => array( '[data-testid="heading-tag"]' ) ))->toArray();
-$assert('core/html' !== ($unrelated['blocks'][0]['blockName'] ?? null), 'a missing equality target is not preserved as a runtime HTML island');
+$sourceParagraph = '<p class="uTPIHe" data-testid="heading-tag" data-dla-responsive-source="comp-m5b146s3:p:1"><span class="dblW_r teOS5h"><span class="Qbdehy teOS5h" data-marquee-animation="left"><span class="DmcnOs teOS5h" data-testid="marquee-unit"><span class="WhVia0" data-testid="marquee-item-text"><span></span></span></span><span class="DmcnOs teOS5h" data-testid="marquee-unit"><span class="WhVia0" data-testid="marquee-item-text" data-text="" aria-hidden="true"></span></span></span><span class="Qbdehy teOS5h" data-marquee-animation="left"><span class="DmcnOs teOS5h" data-testid="marquee-unit"><span class="WhVia0" data-testid="marquee-item-text" data-text="" aria-hidden="true"></span></span></span></span><button class="SjVcmi kgbJ1s" aria-label="Play Marquee" aria-pressed="true"><svg viewBox="0 0 18 18" width="18" height="18"><path d="M7.5,5"></path></svg></button></p>';
+$sourceCss = '.teOS5h{gap:var(--spaceBetweenItems,10px);display:flex}.dblW_r{overflow-x:clip}.Qbdehy{font:var(--font);padding-right:var(--spaceBetweenItems,10px)}.Qbdehy[data-marquee-animation=left]{animation-duration:var(--marquee-duration,40s)}.kgbJ1s:not(:focus):not(:active){opacity:0;width:1px}';
+$sourceCopies = ( new HtmlTransformer() )->transform($sourceParagraph . $sourceParagraph, array( 'static_css' => $sourceCss, 'runtime_dom_selectors' => array() ))->toArray();
+$sourceMarkup = (string) ($sourceCopies['serialized_blocks'] ?? '');
+$assert(array( 'custom/layout-shell', 'custom/layout-shell' ) === array_column($sourceCopies['blocks'], 'blockName') && !str_contains($sourceMarkup, 'authored-marquee') && 2 === substr_count($sourceMarkup, 'aria-label="Play Marquee"') && 2 === substr_count($sourceMarkup, 'kgbJ1s') && str_contains($sourceMarkup, 'data-testid="marquee-unit"'), 'both source blank paragraphs lower to layout shells and keep the play glyph');
+$assert(2 === substr_count($sourceMarkup, '<!-- wp:html ') && str_contains($sourceMarkup, '<button'), 'each copy keeps the play button as preserved markup inside the shell');
 
 fwrite(STDOUT, "Authored marquee companion tests passed\n");

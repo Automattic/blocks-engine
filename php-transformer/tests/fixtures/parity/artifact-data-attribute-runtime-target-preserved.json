@@ -32,7 +32,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
-    { "path": "source_reports.runtime_dependency_parity.dependencies.0.selector", "assert": "equals", "value": "[data-attr-val=\"card\"]" },
+    { "path": "source_reports.runtime_dependency_parity.dependencies.0.selector", "assert": "equals", "value": "[data-attr-val]" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html" },
     { "path": "serialized_blocks", "assert": "contains", "value": "data-attr-val=\"card\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "data-cfg-name=\"hero\"" },

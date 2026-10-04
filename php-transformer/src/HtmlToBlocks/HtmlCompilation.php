@@ -1067,8 +1067,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->session,
                 function (DOMElement $element, array &$fallbacks) use ($convertChildren): array { return $convertChildren($element, $fallbacks, true); },
                 fn (DOMElement $element, array &$fallbacks): ?array => $this->convertElement($element, $fallbacks, true)
-            ),
-            authoredMarqueeBlock: fn (DOMElement $element): ?array => $this->authoredMarqueeBlock($element)
+            )
         );
         $this->wrapperCoalescer = new WrapperCoalescer(
             $this->sourceElementClassifier,
@@ -10382,21 +10381,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        $items = $this->authoredMarqueeMarkedItems($track);
-        if ( null === $items ) {
-            return null;
-        }
-        $hasPresentation = false;
-        foreach ( $items as $item ) {
-            if ( '' !== $item['className'] || '' !== $item['marker'] ) {
-                $hasPresentation = true;
-                break;
-            }
-        }
         $content = '';
-        foreach ( $items as $item ) {
-            if ( '' !== $item['content'] ) {
-                $content = $item['content'];
+        foreach ( $track->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || 'true' === $this->attr($candidate, 'aria-hidden') || 0 !== $candidate->childElementCount ) {
+                continue;
+            }
+            $text = trim($candidate->textContent ?? '');
+            if ( '' !== $text ) {
+                $content = $this->runtime->escapeHtml($text);
                 break;
             }
         }
@@ -10406,19 +10398,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $this->generatedBlocks()->register(AuthoredMarqueeBlockGenerator::class, ( new AuthoredMarqueeBlockGenerator() )->definition($this->generatedBlocks()->namespace()));
 
-        $duration = $this->authoredMarqueeDeclaredDuration($element, $track);
+        $duration = 40.0;
+        $durationCandidates = array( $this->styleResolver->cssDeclarations($this->attr($track, 'style'))['--marquee-duration'] ?? '' );
+        for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode instanceof DOMElement ? $carrier->parentNode : null ) {
+            $durationCandidates[] = $this->styleResolver->cssDeclarations($this->attr($carrier, 'style'))['--marquee-duration'] ?? '';
+        }
+        foreach ( $durationCandidates as $value ) {
+            if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)s$/', trim((string) $value), $matches) ) {
+                $duration = (float) $matches[1];
+                break;
+            }
+        }
+
         $attributes = array(
             'content' => $content,
             'direction' => $this->attr($track, 'data-marquee-animation'),
-            'duration' => $duration,
+            'duration' => min(600, max(1, $duration)),
         );
-        if ( $hasPresentation || count($items) > 1 ) {
-            $attributes['items'] = $items;
-        }
-        $sourceClass = trim($this->attr($element, 'class'));
-        if ( '' !== $sourceClass ) {
-            $attributes['className'] = $sourceClass;
-        }
         $markup = ( new AuthoredMarqueeBlockGenerator() )->markup($attributes);
 
         return array(
@@ -10428,146 +10424,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
-    }
-
-    /**
-     * @return list<array{content: string, className: string, marker: string}>|null
-     */
-    private function authoredMarqueeMarkedItems(DOMElement $track): ?array
-    {
-        $units = array();
-        foreach ( $track->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ! $this->authoredMarqueeUnitIsClone($child) ) {
-                $units[] = $child;
-            }
-        }
-        if ( array() === $units ) {
-            $units = array( $track );
-        }
-        $items = array();
-        foreach ( $units as $unit ) {
-            $carrier = $this->authoredMarqueeTextCarrier($unit) ?? $unit;
-            $className = '';
-            $marker = '';
-            for ( $node = $carrier; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement && $node !== $unit ? $node->parentNode : null ) {
-                if ( '' === $className ) {
-                    $className = trim($this->attr($node, 'class'));
-                }
-                if ( '' === $marker ) {
-                    $marker = trim($this->attr($node, 'data-blocks-engine-richtext-marker'));
-                }
-                if ( $node === $unit ) {
-                    break;
-                }
-            }
-            $items[] = array(
-                'content' => $this->authoredMarqueeMarkedContent($unit),
-                'className' => $className,
-                'marker' => $marker,
-            );
-        }
-
-        return array() === $items ? null : $items;
-    }
-
-    private function authoredMarqueeUnitIsClone(DOMElement $unit): bool
-    {
-        if ( 'true' === strtolower($this->attr($unit, 'aria-hidden')) ) {
-            return true;
-        }
-        if ( 0 === $unit->childElementCount ) {
-            return false;
-        }
-        foreach ( $unit->getElementsByTagName('*') as $candidate ) {
-            if ( $candidate instanceof DOMElement && 'true' !== strtolower($this->attr($candidate, 'aria-hidden')) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function authoredMarqueeTextCarrier(DOMElement $unit): ?DOMElement
-    {
-        $carrier = null;
-        foreach ( $unit->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || 'true' === strtolower($this->attr($candidate, 'aria-hidden')) ) {
-                continue;
-            }
-            if ( '' !== trim($this->attr($candidate, 'data-text')) || 0 === $candidate->childElementCount ) {
-                $carrier = $candidate;
-                if ( '' !== trim($candidate->textContent ?? '') || '' !== trim($this->attr($candidate, 'data-text')) ) {
-                    return $candidate;
-                }
-            }
-        }
-
-        if ( $carrier instanceof DOMElement && '' === trim($this->attr($carrier, 'class')) && '' === trim($this->attr($carrier, 'data-blocks-engine-richtext-marker')) ) {
-            for ( $parent = $carrier->parentNode; $parent instanceof DOMElement && $parent !== $unit; $parent = $parent->parentNode instanceof DOMElement ? $parent->parentNode : null ) {
-                if ( '' !== trim($this->attr($parent, 'class')) || '' !== trim($this->attr($parent, 'data-blocks-engine-richtext-marker')) ) {
-                    return $parent;
-                }
-            }
-        }
-
-        return $carrier;
-    }
-
-    private function authoredMarqueeMarkedContent(DOMElement $unit): string
-    {
-        foreach ( $unit->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || 'true' === strtolower($this->attr($candidate, 'aria-hidden')) ) {
-                continue;
-            }
-            $dataText = trim($this->attr($candidate, 'data-text'));
-            if ( '' !== $dataText ) {
-                return $this->runtime->escapeHtml($dataText);
-            }
-            if ( 0 === $candidate->childElementCount ) {
-                $text = trim($candidate->textContent ?? '');
-                if ( '' !== $text ) {
-                    return $this->runtime->escapeHtml($text);
-                }
-            }
-        }
-        $own = trim($unit->textContent ?? '');
-        if ( '' !== $own ) {
-            return $this->runtime->escapeHtml($own);
-        }
-        $dataText = trim($this->attr($unit, 'data-text'));
-
-        return '' === $dataText ? '' : $this->runtime->escapeHtml($dataText);
-    }
-
-    private function authoredMarqueeDeclaredDuration(DOMElement $element, DOMElement $track): float
-    {
-        $durationCandidates = array( $this->styleResolver->cssDeclarations($this->attr($track, 'style'))['--marquee-duration'] ?? '' );
-        for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode instanceof DOMElement ? $carrier->parentNode : null ) {
-            $durationCandidates[] = $this->styleResolver->cssDeclarations($this->attr($carrier, 'style'))['--marquee-duration'] ?? '';
-        }
-        foreach ( $durationCandidates as $value ) {
-            $resolved = $this->authoredMarqueeDurationSeconds((string) $value);
-            if ( null !== $resolved ) {
-                return $resolved;
-            }
-        }
-        $declarations = $this->cascadedAnimationDeclarations($track);
-        $resolved = $this->authoredMarqueeDurationSeconds($this->styleResolver->resolveCssVariablesInValue((string) ($declarations['animation-duration'] ?? ''), $track));
-        if ( null !== $resolved ) {
-            return $resolved;
-        }
-
-        return 40.0;
-    }
-
-    private function authoredMarqueeDurationSeconds(string $value): ?float
-    {
-        if ( 1 !== preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)$/', strtolower(trim($value)), $matches) ) {
-            return null;
-        }
-        $seconds = (float) $matches[1] * ('ms' === $matches[2] ? 0.001 : 1);
-
-        return min(600, max(1, $seconds));
     }
 
     /** @return array<string, string> */
