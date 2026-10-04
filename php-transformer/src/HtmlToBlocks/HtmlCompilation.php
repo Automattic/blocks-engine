@@ -10174,7 +10174,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( 'button' !== strtolower($element->tagName) ) {
             return null;
         }
-        foreach ( array( 'aria-controls', 'aria-expanded', 'command', 'commandfor', 'data-action', 'formaction', 'jsaction', 'onclick', 'onchange', 'onsubmit', 'popovertarget' ) as $name ) {
+        if ( array() !== SourceDom::eventMetadata($element) ) {
+            return null;
+        }
+        foreach ( array( 'aria-controls', 'aria-expanded', 'command', 'commandfor', 'formaction', 'popovertarget', 'popovertargetaction' ) as $name ) {
             if ( $element->hasAttribute($name) ) {
                 return null;
             }
