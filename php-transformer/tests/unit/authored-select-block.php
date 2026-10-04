@@ -142,6 +142,8 @@ $assert($textarea->markup($textareaAttrs) === $saveMarkup($textarea, $textareaAt
 $buttonAttrs = array( 'type' => 'submit', 'text' => 'Send', 'disabled' => true );
 $button      = new AuthoredButtonBlockGenerator();
 $assert($button->markup($buttonAttrs) === $saveMarkup($button, $buttonAttrs), 'authored-button save() already round-trips disabled');
+$stateAttrs = array( 'type' => 'submit', 'ariaLabel' => 'Play Marquee', 'ariaPressed' => 'true', 'className' => 'kgbJ1s', 'iconSvg' => '<svg viewBox="0 0 18 18" width="18" height="18"><path d="M1,1"></path></svg>', 'sourceAttributes' => array( array( 'name' => 'data-dla-responsive-source', 'value' => 'comp-m5b146s3:button:1' ) ) );
+$assert($button->markup($stateAttrs) === $saveMarkup($button, $stateAttrs) && str_contains($button->markup($stateAttrs), 'aria-pressed="true"') && !str_contains($button->markup($stateAttrs), 'onclick'), 'authored-button save() round-trips a static svg state button Gutenberg validates');
 
 foreach ( array( $input, $generator, $textarea ) as $fieldGenerator ) {
     $initial = array( 'label' => 'Old label', 'labelMarkup' => '<span>(required)</span>', 'type' => 'text', 'options' => array( array( 'label' => 'Choice', 'value' => 'choice' ) ) );

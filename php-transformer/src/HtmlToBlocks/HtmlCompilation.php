@@ -29,6 +29,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DeadProjecte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceMediaRetentionReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
@@ -10161,6 +10162,81 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return false;
     }
 
+    /** @return array<string, mixed> */
+    private function preservedSourceControlBlock(DOMElement $element): array
+    {
+        return $this->authoredStateButtonBlock($element) ?? $this->htmlPreservationBlock($element);
+    }
+
+    /** @return array<string, mixed>|null */
+    private function authoredStateButtonBlock(DOMElement $element): ?array
+    {
+        if ( 'button' !== strtolower($element->tagName) ) {
+            return null;
+        }
+        foreach ( array( 'aria-controls', 'aria-expanded', 'command', 'commandfor', 'data-action', 'formaction', 'jsaction', 'onclick', 'onchange', 'onsubmit', 'popovertarget' ) as $name ) {
+            if ( $element->hasAttribute($name) ) {
+                return null;
+            }
+        }
+        $svg = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof \DOMText && '' !== trim($child->textContent) ) {
+                return null;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'svg' !== strtolower($child->tagName) || $svg instanceof DOMElement ) {
+                return null;
+            }
+            $svg = $child;
+        }
+        if ( ! $svg instanceof DOMElement ) {
+            return null;
+        }
+        $icon = $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($svg));
+        if ( '' === $icon || ! SourceDom::isSafeSvgContent($icon) || ! SourceDom::isSafeInlineSvgMarkup($icon) ) {
+            return null;
+        }
+        $pressed = strtolower(trim($this->attr($element, 'aria-pressed')));
+        if ( '' !== $pressed && ! in_array($pressed, array( 'true', 'false', 'mixed' ), true) ) {
+            return null;
+        }
+        $sourceAttributes = array();
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->nodeName);
+            if ( 1 === preg_match('/^data-(?!wp-)[a-z0-9_.:-]+$/', $name) ) {
+                $sourceAttributes[] = array( 'name' => $name, 'value' => $attribute->nodeValue ?? '' );
+            }
+        }
+        $generator = new AuthoredButtonBlockGenerator();
+        $registry = $this->generatedBlocks();
+        $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
+        $type = FormControlClassifier::controlType($element);
+        $attrs = array_filter(array(
+            'type' => in_array($type, array( 'button', 'reset', 'submit' ), true) ? $type : 'submit',
+            'id' => $this->attr($element, 'id'),
+            'name' => $this->attr($element, 'name'),
+            'ariaLabel' => $this->attr($element, 'aria-label'),
+            'ariaPressed' => $pressed,
+            'className' => $this->attr($element, 'class'),
+            'style' => $this->attr($element, 'style'),
+            'iconSvg' => $icon,
+            'sourceAttributes' => $sourceAttributes,
+            'disabled' => $element->hasAttribute('disabled'),
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
+        $markup = $generator->markup($attrs);
+
+        return array(
+            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
     /**
      * An empty inline tree whose source CSS still generates a line box or flex
      * track is layout, not text and not a raw HTML island. core/group cannot
@@ -10178,7 +10254,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $layout = false;
         foreach ( $this->elementElementChildren($element) as $child ) {
             if ( FormControlClassifier::isControlElement($child) ) {
-                $inner[] = $this->htmlPreservationBlock($child);
+                $inner[] = $this->preservedSourceControlBlock($child);
                 continue;
             }
             if ( ! $this->isEmptyInlineGeometryNode($child) || $this->containsExcludedMedia($child) ) {
