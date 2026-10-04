@@ -34,7 +34,7 @@ final class ProjectedNavigationConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
-        if ( 'button' === $tagName && $this->isRuntimeDomTarget instanceof Closure && ($this->isRuntimeDomTarget)($element) && array() !== AuthoredButtonBlockGenerator::sourceSafeAttributes($element) ) {
+        if ( 'button' === $tagName && $this->isRuntimeDomTarget instanceof Closure && ($this->isRuntimeDomTarget)($element) && $this->retainsRuntimeButtonBinding($element) ) {
             return ConversionOutcome::unhandled();
         }
 
@@ -75,6 +75,25 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return ConversionOutcome::unhandled();
+    }
+
+    private function retainsRuntimeButtonBinding(DOMElement $element): bool
+    {
+        $attributes = AuthoredButtonBlockGenerator::sourceSafeAttributes($element);
+        if ( array() === $attributes ) {
+            return false;
+        }
+        if ( ! $this->navigationToggleSuppressor->isRedundantMenuToggleControl($element) ) {
+            return true;
+        }
+
+        foreach ( array_keys($attributes) as $name ) {
+            if ( str_starts_with($name, 'data-') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function responsiveNavigationToggleMarker(DOMElement $navigation): string

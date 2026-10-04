@@ -2718,21 +2718,25 @@ final class ArtifactCompiler
     {
         $hasDeclaredScriptFiles = false;
         foreach ( $files as $file ) {
-            if ( is_array($file) && $this->isMaterializedScriptAsset($file) ) {
+            if ( is_array($file) && 'inline-script' !== ($file['source'] ?? '') && $this->isMaterializedScriptAsset($file) ) {
                 $hasDeclaredScriptFiles = true;
                 break;
             }
         }
-        if ( ! $hasDeclaredScriptFiles && array() === $this->documentScriptContents($html, $sourcePath, $files) ) {
+        $documentScripts = $this->documentScriptContents($html, $sourcePath, $files);
+        if ( ! $hasDeclaredScriptFiles && array() === $documentScripts ) {
             return array();
         }
 
         $selectors = array();
         $controlSelectors = $this->formControlSelectors($html);
         $statusFeedbackSelectors = $this->formStatusFeedbackSelectors($html);
-        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
+        foreach ( $documentScripts as $script ) {
             foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
                 $selector = (string) $dependency['selector'];
+                if ( ! $hasDeclaredScriptFiles && ! str_contains($selector, '[data-') ) {
+                    continue;
+                }
                 if ( true === $dependency['presentation_only'] ) {
                     continue;
                 }
