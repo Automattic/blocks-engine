@@ -208,7 +208,8 @@ final class ArtifactCompiler
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $this->layoutGeometryProof = is_array($normalized['layout_geometry_proof'] ?? null) ? $normalized['layout_geometry_proof'] : array();
         $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
-        $selectableSets = (new CapturedSelectableSetProjector())->project($capturedDialogs['files']);
+        $collections = (new CapturedCollectionProjector())->project($capturedDialogs['files']);
+        $selectableSets = (new CapturedSelectableSetProjector())->project($collections['files'], $collections['consumed_selectable_bindings'] ?? array());
         $choiceGroups = (new CapturedChoiceGroupProjector())->project($selectableSets['files']);
         $scrollStates = (new ScrollStateProjector())->project($choiceGroups['files']);
         $normalized['files'] = $scrollStates['files'];
@@ -220,10 +221,14 @@ final class ArtifactCompiler
             // reporting bucket. Selectable-set counts stay separate so
             // projected_dialog_count is not inflated.
             'captured_dialogs' => array(
-                'diagnostics' => array_merge($capturedDialogs['diagnostics'], $selectableSets['diagnostics'], $choiceGroups['diagnostics'], $scrollStates['diagnostics']),
+                'diagnostics' => array_merge($capturedDialogs['diagnostics'], $collections['diagnostics'], $selectableSets['diagnostics'], $choiceGroups['diagnostics'], $scrollStates['diagnostics']),
                 'projected_count' => $capturedDialogs['projected_count'] + $scrollStates['projected_count'],
                 'projected_selectable_set_count' => $selectableSets['projected_count'],
                 'projected_choice_group_count' => $choiceGroups['projected_count'],
+                'native_runtime_replacements' => array_merge(
+                    $capturedDialogs['native_runtime_replacements'] ?? array(),
+                    $collections['superseded_runtime_scripts'] ?? array()
+                ),
             ),
         ));
     }
@@ -401,6 +406,9 @@ final class ArtifactCompiler
         }
         if (isset($interactionReport['projected_dialog_count']) || isset($interactionReport['projected_selectable_set_count']) || isset($interactionReport['projected_choice_group_count'])) {
             $sourceReports['captured_interactions'] = $interactionReport;
+        }
+        if (array() !== ($capturedDialogs['native_runtime_replacements'] ?? array())) {
+            $sourceReports['native_runtime_replacements'] = $capturedDialogs['native_runtime_replacements'];
         }
         $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;

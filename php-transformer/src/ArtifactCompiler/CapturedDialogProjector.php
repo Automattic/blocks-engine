@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
@@ -57,6 +58,7 @@ final class CapturedDialogProjector
         }
 
         $projected = 0;
+        $retired = array();
         foreach ($report['pages'] as $page) {
             if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['states'] ?? null)) {
                 $diagnostics[] = $this->diagnostic('captured_interaction_page_invalid', 'warning', 'A captured interaction page was ignored because its source URL or states are invalid.');
@@ -83,10 +85,14 @@ final class CapturedDialogProjector
                 $files[$index]['content'] = $projection['html'];
                 $files[$index]['bytes'] = strlen($projection['html']);
                 $projected += $projection['projected_count'];
+                foreach ($projection['retired_scripts'] as $body) {
+                    $retired[$path][] = $body;
+                }
             }
         }
+        $proofs = $this->omitRetiredDisclosureScripts($files, $retired);
 
-        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
+        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'native_runtime_replacements' => $proofs);
     }
 
     /** @param array<int, mixed> $pages */
@@ -130,7 +136,7 @@ final class CapturedDialogProjector
 
     /**
      * @param array<int, mixed> $states
-     * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int}
+     * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int, retired_scripts:array<int, string>}
      */
     private function projectPage(string $html, array $states, string $sourcePath): array
     {
@@ -140,7 +146,7 @@ final class CapturedDialogProjector
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
         if (! $loaded) {
-            return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_interaction_source_invalid', 'warning', 'Captured dialogs were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0);
+            return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_interaction_source_invalid', 'warning', 'Captured dialogs were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0, 'retired_scripts' => array());
         }
 
         $diagnostics = array();
@@ -215,12 +221,92 @@ final class CapturedDialogProjector
                 $dialogElement->appendChild($document->importNode($node, true));
             }
             ($document->getElementsByTagName('body')->item(0) ?? $document->documentElement)?->appendChild($dialogElement);
+            $this->consumeMatchedCloseHelper($document, $triggers, $dialogElement);
             ++$projected;
+        }
+        $retired = array();
+        if ($projected > 0 && !$this->hasDialogCloseHelper($document) && $this->everyDialogTriggerIsBound($document)) {
+            foreach (iterator_to_array($document->getElementsByTagName('script')) as $script) {
+                if (!$script instanceof DOMElement || !$script->hasAttribute('data-dla-disclosure-runtime')) continue;
+                $body = trim($script->textContent ?? '');
+                if ('' !== $body) $retired[] = $body;
+                $script->parentNode?->removeChild($script);
+            }
         }
 
         $output = $document->saveHTML();
         $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
-        return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
+        return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired);
+    }
+
+    /** @param array<int, DOMElement> $triggers */
+    private function consumeMatchedCloseHelper(DOMDocument $document, array $triggers, DOMElement $dialog): void
+    {
+        foreach ($triggers as $trigger) {
+            $key = trim($trigger->getAttribute('data-dla-dialog-trigger'));
+            if ('' === $key || !preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key)) continue;
+            foreach (iterator_to_array($document->getElementsByTagName('button')) as $button) {
+                if (!$button instanceof DOMElement || $button->getAttribute('data-dla-dialog-close') !== $key || !$button->hasAttribute('hidden')) continue;
+                if (SourceDom::elementContains($dialog, $button)) continue;
+                if ('close' !== strtolower(trim($button->textContent ?? ''))) continue;
+                $button->parentNode?->removeChild($button);
+            }
+        }
+    }
+
+    private function hasDialogCloseHelper(DOMDocument $document): bool
+    {
+        foreach ($document->getElementsByTagName('button') as $button) {
+            if ($button instanceof DOMElement && '' !== trim($button->getAttribute('data-dla-dialog-close'))) return true;
+        }
+        return false;
+    }
+
+    private function everyDialogTriggerIsBound(DOMDocument $document): bool
+    {
+        $bound = array();
+        foreach ($document->getElementsByTagName('dialog') as $dialog) {
+            if (!$dialog instanceof DOMElement) continue;
+            foreach (preg_split('/\s+/', trim($dialog->getAttribute('data-blocks-engine-triggers'))) ?: array() as $id) {
+                if ('' !== $id) $bound[$id] = true;
+            }
+        }
+        foreach ($document->getElementsByTagName('*') as $node) {
+            if (!$node instanceof DOMElement || '' === trim($node->getAttribute('data-dla-dialog-trigger'))) continue;
+            $id = trim($node->getAttribute('id'));
+            if ('' === $id || !isset($bound[$id])) return false;
+        }
+        return true;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @param array<string, array<int, string>> $retired
+     * @return array<int, array<string, string>>
+     */
+    private function omitRetiredDisclosureScripts(array &$files, array $retired): array
+    {
+        $proofs = array();
+        $kept = array();
+        foreach ($files as $file) {
+            $sourcePath = ArtifactNormalizer::inlineExpansionSourcePath($file);
+            $body = trim((string) ($file['content'] ?? ''));
+            $matched = '' !== $sourcePath && 'inline-script' === ($file['source'] ?? null) && in_array($body, $retired[$sourcePath] ?? array(), true);
+            if (!$matched) {
+                $kept[] = $file;
+                continue;
+            }
+            $proofs[] = array(
+                'schema' => 'blocks-engine/native-runtime-replacement/v1',
+                'source_path' => $sourcePath,
+                'asset_source_path' => (string) ($file['path'] ?? ''),
+                'body_hash' => hash('sha256', $body),
+                'attribute' => 'data-dla-disclosure-runtime',
+                'reason' => 'native_dialog_close_replaces_capture_close_helper',
+            );
+        }
+        $files = $kept;
+        return $proofs;
     }
 
     /**
