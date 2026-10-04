@@ -706,7 +706,7 @@ final class StyleResolver implements ElementPresentationResolver
     public function declaredPresentation(DOMElement $element, string $property): DeclaredPresentation
     {
         $entries = array();
-        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
+        foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $rule ) {
             $declared = trim((string) ( $rule['declarations'][ $property ] ?? '' ));
             if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
                 continue;
@@ -807,15 +807,36 @@ final class StyleResolver implements ElementPresentationResolver
             return '';
         }
 
-        $base = $this->carriedDeclarationValue($declared->base());
-        $conditional = array();
-        foreach ($declared->conditional() as $condition => $value) {
-            $value = $this->carriedDeclarationValue($value);
-            if ('' !== $value) {
-                $conditional[$condition] = $value;
+        $sequence = $this->fontSizeSequence($element);
+        $fact = static fn (array $entry): array => array(
+            'important' => $entry['important'],
+            'inline' => false,
+            'layer' => $entry['layerRank'],
+            'specificity' => $entry['specificity'],
+            'order' => $entry['order'],
+        );
+        $baseEntry = null;
+        foreach ($sequence as $entry) {
+            if (array() !== $entry['queries']) {
+                continue;
+            }
+            if (null === $baseEntry || CssCascade::wins($fact($entry), $fact($baseEntry))) {
+                $baseEntry = $entry;
             }
         }
-        if ('' === $base && array() === $conditional) {
+        $conditional = array();
+        foreach ($sequence as $entry) {
+            if (array() === $entry['queries'] || (null !== $baseEntry && !CssCascade::wins($fact($entry), $fact($baseEntry)))) {
+                continue;
+            }
+            $value = $this->carriedFontSizeValue($entry);
+            if ('' !== $value) {
+                $conditional[implode('{', $entry['queries'])] = $value;
+            }
+        }
+        $base = null === $baseEntry ? '' : $this->carriedFontSizeValue($baseEntry);
+        $restatesImportant = null !== $baseEntry && $baseEntry['important'];
+        if (('' === $base && array() === $conditional) || (array() === $conditional && !$restatesImportant && (null === $baseEntry || null === $baseEntry['layer']))) {
             return '';
         }
 
@@ -826,6 +847,63 @@ final class StyleResolver implements ElementPresentationResolver
         $this->context->generatedSupportStyles()->registerResponsiveTypography($className, $base, $conditional);
 
         return $className;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rules
+     * @return list<array<string, mixed>>
+     */
+    private function rulesInCascadeOrder(array $rules): array
+    {
+        $indexed = array();
+        foreach ($rules as $index => $rule) {
+            $indexed[] = array('index' => $index, 'rule' => $rule);
+        }
+        usort($indexed, static function (array $left, array $right): int {
+            $order = ($left['rule']['cascadeOrder'] ?? $left['index']) <=> ($right['rule']['cascadeOrder'] ?? $right['index']);
+
+            return 0 !== $order ? $order : $left['index'] <=> $right['index'];
+        });
+
+        return array_column($indexed, 'rule');
+    }
+
+    /**
+     * @return list<array{value: string, queries: list<string>, layer: string|null, layerRank: int|null, important: bool, order: int, specificity: array<int, int>}>
+     */
+    private function fontSizeSequence(DOMElement $element): array
+    {
+        $entries = array();
+        foreach ($this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $index => $rule) {
+            $declared = trim((string) ($rule['declarations']['font-size'] ?? ''));
+            $selector = (string) ($rule['selector'] ?? '');
+            if ('' === $declared || !$this->matchesCssSelector($element, $selector)) {
+                continue;
+            }
+            $conditions = array_map('trim', $rule['conditions'] ?? array());
+            $entries[] = array(
+                'value' => $declared,
+                'queries' => array_values(array_filter(
+                    $conditions,
+                    static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', $condition)
+                )),
+                'layer' => $rule['layer'] ?? null,
+                'layerRank' => $rule['layerRank'] ?? null,
+                'important' => CssValueInspector::isImportant($declared),
+                'order' => (int) ($rule['cascadeOrder'] ?? $index),
+                'specificity' => $this->mediaTextSelectorSpecificity($selector),
+            );
+        }
+
+        return $entries;
+    }
+
+    /** @param array{value: string, important: bool} $entry */
+    private function carriedFontSizeValue(array $entry): string
+    {
+        $value = $this->carriedDeclarationValue($entry['value']);
+
+        return '' === $value || !$entry['important'] ? $value : $value . ' !important';
     }
 
     /**
@@ -846,7 +924,7 @@ final class StyleResolver implements ElementPresentationResolver
         // a conditioned declaration that wins, not merely a winner alongside
         // some unrelated breakpoint.
         $applyingConditional = $unlayered->conditionalOnly()->resolvedValue();
-        if ( '' !== $applyingConditional ) {
+        if ( '' !== $applyingConditional && $applyingConditional === $unlayered->resolvedValue() ) {
             return $applyingConditional;
         }
 
@@ -3340,149 +3418,206 @@ final class StyleResolver implements ElementPresentationResolver
             'cascaded_values' => array(),
         );
         $imageOrder = 0;
+        $cascadeOrder = 0;
         $layers = array();
         if (preg_match_all('/@layer\s+([a-z0-9_-]+(?:\.[a-z0-9_-]+)?(?:\s*,\s*[a-z0-9_-]+(?:\.[a-z0-9_-]+)?)*)\s*;/i', $css, $layerStatements)) {
             foreach ($layerStatements[1] as $statement) foreach (explode(',', $statement) as $name) $layers[strtolower(trim($name))] ??= count($layers);
         }
         (new CssStylesheetTransformer())->visitStyleRules(
             $css,
-            function (string $prelude, string $body, array $conditions) use (&$analysis, &$imageOrder, &$layers): void {
-                $rawDeclarations = $this->cssDeclarations($body);
-                $declarations = $this->safeVisualDeclarations($rawDeclarations);
-                // A materialized SVG asset is an isolated document: it cannot
-                // inherit `fill`/`stroke`/`color` (or the custom properties they
-                // reference) from the host stylesheet the way the inline source
-                // could. This unfiltered stream — kept separate from the finite
-                // `safeVisualDeclarations()` allow-list used for classification —
-                // lets paint materialization resolve the same cascade a browser
-                // would, including id/class-scoped custom-property indirection.
-                $cascadedValueDeclarations = $this->cascadeRelevantDeclarations($rawDeclarations);
-                // Which custom properties this rule READS, taken from the same
-                // unfiltered stream. Consumption is not confined to the
-                // classification allow-list — `opacity`, `transform`, `filter`
-                // and `transition` all read `var()` — and an inline definition
-                // an ancestor declares is only carried when the engine can see
-                // a reader for it. Names only: this rides every rule record.
-                $customPropertyReferences = array_keys($this->customPropertiesReferencedByValues($rawDeclarations));
-                $readingCustomProperties = static fn (array $rule): array => array() === $customPropertyReferences
-                    ? $rule
-                    : $rule + array( 'customPropertyReferences' => $customPropertyReferences );
-                $mediaTextDeclarations = array() === $conditions
-                    ? array_values(array_filter(
-                        $this->mediaTextInlineDeclarationEntries($body),
-                        static fn (array $entry): bool => in_array($entry['property'], array(
-                            'align-items',
-                            'direction',
-                            'display',
-                            'flex-basis',
-                            'flex-direction',
-                            'flex-flow',
-                            'float',
-                            'grid-template-columns',
-                            'order',
-                            'width',
-                        ), true)
-                    ))
-                    : array();
-                $imageEntries = $this->imageShapeDeclarationEntries($body);
-                $layer = null;
-                foreach ($conditions as $condition) if (preg_match('/^@layer\s+([a-z0-9_-]+(?:\.[a-z0-9_-]+)*)\b/i', trim($condition), $match)) {
-                    $name = strtolower($match[1]);
-                    $layers[$name] ??= count($layers);
-                    $layer = $name;
-                }
-                // A rule is static when every condition wrapping it resolves the
-                // same way for every reader. `@layer` always does. So does an
-                // `@supports` condition the engine knows to be true: the browser
-                // rendering the output will take that branch unconditionally, so
-                // the resting cascade has to see it too.
-                //
-                // Tailwind v4 writes each opacity-modified colour as an opaque
-                // fallback plus the real translucent value behind
-                // `@supports (color: color-mix(...))`. Leaving that branch out of
-                // the resting rules resolved every such colour to the fallback
-                // the framework only emits for browsers without the feature.
-                //
-                // `@media` stays conditional: it depends on the viewport, which
-                // is exactly what the conditional stream exists to model.
-                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? explode(',', $prelude) as $selector) {
-                    $selector = trim($selector);
-                    if ('' === $selector || str_starts_with($selector, '@')) {
-                        continue;
-                    }
-                    $lifted = ColorSchemeVariant::liftSelector($selector);
-                    $selector = trim($lifted['prelude']);
-                    $selectorConditions = $conditions;
-                    if (null !== $lifted['scheme']) {
-                        $selectorConditions[] = '@media (prefers-color-scheme: ' . $lifted['scheme'] . ')';
-                    }
-                    $selectorIsStaticLayerRule = array() !== $selectorConditions
-                        && array_reduce($selectorConditions, fn (bool $static, string $condition): bool => $static && $this->conditionResolvesStatically($condition), true);
-                    $supportedRestingSelector = ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector);
-                    if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations || array() !== $customPropertyReferences)) {
-                        $analysis['static'][] = $readingCustomProperties(array(
-                            'selector' => $selector,
-                            'declarations' => $declarations,
-                            'mediaTextDeclarations' => $mediaTextDeclarations,
-                            'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
-                            'layer' => $layer,
-                        ));
-                    }
-                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $selectorConditions && ! $selectorIsStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations || array() !== $customPropertyReferences)) {
-                        $analysis['conditional'][] = $readingCustomProperties(array(
-                            'selector' => $selector,
-                            'declarations' => $declarations,
-                            'cascadedDeclarations' => $cascadedValueDeclarations,
-                            'conditions' => $selectorConditions,
-                            'layer' => $layer,
-                        ));
-                    }
-                    if ($supportedRestingSelector) {
-                        foreach ($imageEntries as $entry) {
-                            $analysis['image_shape'][] = array(
-                                'selector' => $selector,
-                                'property' => $entry['property'],
-                                'value' => $entry['value'],
-                                'conditions' => $selectorConditions,
-                                'order' => $imageOrder++,
-                                'layer' => $layer,
-                            );
-                        }
-                    }
-                    if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && array() !== $cascadedValueDeclarations) {
-                        $analysis['cascaded_values'][] = array('selector' => $selector, 'declarations' => $cascadedValueDeclarations);
-                    }
-                    // A `content`-only pseudo-element rule draws generated
-                    // content while declaring no classified property, so it is
-                    // collected before the empty-declaration guard below.
-                    if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {
-                        $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
-                        if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && (array() !== $declarations || isset($rawDeclarations['content']))) {
-                            $pseudoDeclarations = $declarations;
-                            if (isset($rawDeclarations['content'])) {
-                                $pseudoDeclarations['content'] = $rawDeclarations['content'];
-                            }
-                            $analysis['pseudo'][] = $readingCustomProperties(array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions));
-                        }
-                    }
-                    if (array() === $declarations) {
-                        continue;
-                    }
-                    if (array() === $selectorConditions && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
-                        $state = strtolower((string) $stateMatches[1][0][0]);
-                        $offset = (int) $stateMatches[0][0][1];
-                        $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
-                        if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
-                            $analysis['navigation_state'][] = array('selector' => $selector, 'base_selector' => $baseSelector, 'state' => $state, 'declarations' => $declarations);
-                            $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'state' => $state, 'state_subject_selector' => trim(substr($selector, 0, $offset)), 'declarations' => $rawDeclarations);
-                        }
-                    }
-                }
+            function (string $prelude, string $body, array $conditions) use (&$analysis, &$imageOrder, &$cascadeOrder, &$layers): void {
+                $this->analyzeStyleRule($prelude, $body, $conditions, $analysis, $imageOrder, $cascadeOrder, $layers);
             }
         );
 
         $analysis['layer_names'] = array_keys($layers);
         return $analysis;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $analysis
+     * @param list<string> $conditions
+     * @param array<string, int> $layers
+     */
+    private function analyzeStyleRule(string $prelude, string $body, array $conditions, array &$analysis, int &$imageOrder, int &$cascadeOrder, array &$layers): void
+    {
+        $transformer = new CssStylesheetTransformer();
+        $parts = str_contains($body, '{') ? $transformer->splitStyleRuleBody($body) : array();
+        $nests = false;
+        foreach ($parts as $part) {
+            if (isset($part['prelude']) && $transformer->nestsStyleRules((string) $part['prelude'])) {
+                $nests = true;
+                break;
+            }
+        }
+        if (!$nests) {
+            $this->recordStyleRuleDeclarations($prelude, $body, $conditions, $analysis, $imageOrder, $cascadeOrder, $layers);
+            return;
+        }
+        foreach ($parts as $part) {
+            if (isset($part['declarations'])) {
+                if ('' !== trim($part['declarations'])) {
+                    $this->recordStyleRuleDeclarations($prelude, $part['declarations'], $conditions, $analysis, $imageOrder, $cascadeOrder, $layers);
+                }
+                continue;
+            }
+            if (!$transformer->nestsStyleRules((string) $part['prelude'])) {
+                continue;
+            }
+            $nested = $conditions;
+            $nested[] = trim((string) $part['prelude']);
+            $this->analyzeStyleRule($prelude, (string) $part['body'], $nested, $analysis, $imageOrder, $cascadeOrder, $layers);
+        }
+    }
+
+    /**
+     * Record one (possibly condition-scoped) style rule into the analysis
+     * streams. Extracted verbatim from the former `stylesheetAnalysis()`
+     * visitor closure.
+     *
+     * @param array<int, array<string, mixed>> $analysis
+     * @param list<string> $conditions
+     * @param array<string, int> $layers
+     */
+    private function recordStyleRuleDeclarations(string $prelude, string $body, array $conditions, array &$analysis, int &$imageOrder, int &$cascadeOrder, array &$layers): void
+    {
+        $rawDeclarations = $this->cssDeclarations($body);
+        $declarations = $this->safeVisualDeclarations($rawDeclarations);
+        // A materialized SVG asset is an isolated document: it cannot
+        // inherit `fill`/`stroke`/`color` (or the custom properties they
+        // reference) from the host stylesheet the way the inline source
+        // could. This unfiltered stream — kept separate from the finite
+        // `safeVisualDeclarations()` allow-list used for classification —
+        // lets paint materialization resolve the same cascade a browser
+        // would, including id/class-scoped custom-property indirection.
+        $cascadedValueDeclarations = $this->cascadeRelevantDeclarations($rawDeclarations);
+        // Which custom properties this rule READS, taken from the same
+        // unfiltered stream. Consumption is not confined to the
+        // classification allow-list — `opacity`, `transform`, `filter`
+        // and `transition` all read `var()` — and an inline definition
+        // an ancestor declares is only carried when the engine can see
+        // a reader for it. Names only: this rides every rule record.
+        $customPropertyReferences = array_keys($this->customPropertiesReferencedByValues($rawDeclarations));
+        $readingCustomProperties = static fn (array $rule): array => array() === $customPropertyReferences
+            ? $rule
+            : $rule + array( 'customPropertyReferences' => $customPropertyReferences );
+        $mediaTextDeclarations = array() === $conditions
+            ? array_values(array_filter(
+                $this->mediaTextInlineDeclarationEntries($body),
+                static fn (array $entry): bool => in_array($entry['property'], array(
+                    'align-items',
+                    'direction',
+                    'display',
+                    'flex-basis',
+                    'flex-direction',
+                    'flex-flow',
+                    'float',
+                    'grid-template-columns',
+                    'order',
+                    'width',
+                ), true)
+            ))
+            : array();
+        $imageEntries = $this->imageShapeDeclarationEntries($body);
+        $layer = null;
+        foreach ($conditions as $condition) if (preg_match('/^@layer\s+([a-z0-9_-]+(?:\.[a-z0-9_-]+)*)\b/i', trim($condition), $match)) {
+            $name = strtolower($match[1]);
+            $layers[$name] ??= count($layers);
+            $layer = $name;
+        }
+        // A rule is static when every condition wrapping it resolves the
+        // same way for every reader. `@layer` always does. So does an
+        // `@supports` condition the engine knows to be true: the browser
+        // rendering the output will take that branch unconditionally, so
+        // the resting cascade has to see it too.
+        //
+        // Tailwind v4 writes each opacity-modified colour as an opaque
+        // fallback plus the real translucent value behind
+        // `@supports (color: color-mix(...))`. Leaving that branch out of
+        // the resting rules resolved every such colour to the fallback
+        // the framework only emits for browsers without the feature.
+        //
+        // `@media` stays conditional: it depends on the viewport, which
+        // is exactly what the conditional stream exists to model.
+        foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? explode(',', $prelude) as $selector) {
+            $selector = trim($selector);
+            if ('' === $selector || str_starts_with($selector, '@')) {
+                continue;
+            }
+            $lifted = ColorSchemeVariant::liftSelector($selector);
+            $selector = trim($lifted['prelude']);
+            $selectorConditions = $conditions;
+            if (null !== $lifted['scheme']) {
+                $selectorConditions[] = '@media (prefers-color-scheme: ' . $lifted['scheme'] . ')';
+            }
+            $selectorIsStaticLayerRule = array() !== $selectorConditions
+                && array_reduce($selectorConditions, fn (bool $static, string $condition): bool => $static && $this->conditionResolvesStatically($condition), true);
+            $supportedRestingSelector = ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector);
+            if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations || array() !== $customPropertyReferences)) {
+                $staticRule = $readingCustomProperties(array(
+                    'selector' => $selector,
+                    'declarations' => $declarations,
+                    'mediaTextDeclarations' => $mediaTextDeclarations,
+                    'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
+                    'layer' => $layer,
+                    'layerRank' => null === $layer ? null : ($layers[$layer] ?? null),
+                ));
+                $staticRule['cascadeOrder'] = $cascadeOrder++;
+                $analysis['static'][] = $staticRule;
+            }
+            if (! $this->selectorCarriesPseudoState($selector) && array() !== $selectorConditions && ! $selectorIsStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations || array() !== $customPropertyReferences)) {
+                $conditionalRule = $readingCustomProperties(array(
+                    'selector' => $selector,
+                    'declarations' => $declarations,
+                    'cascadedDeclarations' => $cascadedValueDeclarations,
+                    'conditions' => $selectorConditions,
+                    'layer' => $layer,
+                    'layerRank' => null === $layer ? null : ($layers[$layer] ?? null),
+                ));
+                $conditionalRule['cascadeOrder'] = $cascadeOrder++;
+                $analysis['conditional'][] = $conditionalRule;
+            }
+            if ($supportedRestingSelector) {
+                foreach ($imageEntries as $entry) {
+                    $analysis['image_shape'][] = array(
+                        'selector' => $selector,
+                        'property' => $entry['property'],
+                        'value' => $entry['value'],
+                        'conditions' => $selectorConditions,
+                        'order' => $imageOrder++,
+                        'layer' => $layer,
+                    );
+                }
+            }
+            if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && array() !== $cascadedValueDeclarations) {
+                $analysis['cascaded_values'][] = array('selector' => $selector, 'declarations' => $cascadedValueDeclarations);
+            }
+            // A `content`-only pseudo-element rule draws generated
+            // content while declaring no classified property, so it is
+            // collected before the empty-declaration guard below.
+            if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {
+                $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
+                if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && (array() !== $declarations || isset($rawDeclarations['content']))) {
+                    $pseudoDeclarations = $declarations;
+                    if (isset($rawDeclarations['content'])) {
+                        $pseudoDeclarations['content'] = $rawDeclarations['content'];
+                    }
+                    $analysis['pseudo'][] = $readingCustomProperties(array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions));
+                }
+            }
+            if (array() === $declarations) {
+                continue;
+            }
+            if (array() === $selectorConditions && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
+                $state = strtolower((string) $stateMatches[1][0][0]);
+                $offset = (int) $stateMatches[0][0][1];
+                $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
+                if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
+                    $analysis['navigation_state'][] = array('selector' => $selector, 'base_selector' => $baseSelector, 'state' => $state, 'declarations' => $declarations);
+                    $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'state' => $state, 'state_subject_selector' => trim(substr($selector, 0, $offset)), 'declarations' => $rawDeclarations);
+                }
+            }
+        }
     }
 
     /** @return list<array{property: string, value: string}> */
