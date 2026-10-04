@@ -273,6 +273,16 @@ final class AuthorSelectorProjectionState
         return $this->attributeStateMarkers[$path] ?? array();
     }
 
+    /** @return list<string> Attribute-identity and attribute-state classes owned by selector projection. */
+    public function sourceAttributeSelectorMarkers(string $path): array
+    {
+        return array_values(array_unique(array_filter(array_merge(
+            array($this->attributeMarkers[$path] ?? ''),
+            array_values($this->stableAttributeMarkers[$path] ?? array()),
+            $this->attributeStateMarkers($path)
+        ))));
+    }
+
     public function ensureRootChildMarker(string $path): string
     {
         return $this->rootChildMarkers[$path] ??= $this->allocateMarker('root-child');

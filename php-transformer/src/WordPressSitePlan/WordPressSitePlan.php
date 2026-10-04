@@ -39,7 +39,7 @@ final class WordPressSitePlan
     public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
     public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
-    public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}';
+    public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}';
     /**
      * A generated theme reproduces captured text, so WordPress typographic
      * rewriting stays off while it is active. Static block content survives
@@ -64,6 +64,8 @@ final class WordPressSitePlan
     private array $routeTargets = array();
     /** @var array<string,string|false> */
     private array $routeReferenceCache = array();
+    /** @var list<string> */
+    private array $listingQueryContainers = array();
     private readonly ShellExtraction $shellExtraction;
     private MissingMediaRecovery $missingMedia;
 
@@ -183,6 +185,7 @@ final class WordPressSitePlan
     public function fromCompilerInput(array $data, WordPressSitePlanInput $input): array
     {
         $this->sourceUrl = $this->sourceUrlFromProvenance($data['provenance'] ?? array());
+        $this->listingQueryContainers = array();
         $this->sourceOrigin = $this->urlOrigin($this->sourceUrl);
         $this->unresolvedNavigationDiagnostics = array();
         $this->omittedUnresolvedNavigationDiagnostics = 0;
@@ -293,7 +296,8 @@ final class WordPressSitePlan
          $menus = $navigation['menus'];
         $articleChrome = $this->extractPostArticleChrome($pages, $parts);
          $pages = $articleChrome['pages'];
-         $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations);
+          $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations);
+          $assets = ListingQueryPresentation::project($assets, $this->listingQueryContainers);
          // Query Loop projection can shorten page markup after shell extraction.
          // Rebase retained runtime anchors on the final page before validation.
          $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
@@ -2115,6 +2119,8 @@ final class WordPressSitePlan
     private function materializeListingQueryLoops(array $pages, array $runtimeDeclarations = array()): array
     {
         $postsByParent = array();
+        $excerpts = array();
+        $postMeta = array();
         $bindingsBySource = array();
         foreach ($runtimeDeclarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) {
             $source = $binding['source_path'] ?? null;
@@ -2135,7 +2141,9 @@ final class WordPressSitePlan
             if (count($posts) < 2 || !is_string($page['canonical_block_markup'] ?? null) || str_contains($page['canonical_block_markup'], '<!-- wp:query')) {
                 continue;
             }
-            $replaced = $this->replaceListingMarkup($page['canonical_block_markup'], $posts);
+            $sourceListingMarkup = $page['canonical_block_markup'];
+            $fields = array();
+            $replaced = $this->replaceListingMarkup($sourceListingMarkup, $posts, $fields);
             if (null === $replaced || $replaced === $page['canonical_block_markup']) {
                 continue;
             }
@@ -2145,18 +2153,35 @@ final class WordPressSitePlan
             }
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = self::contentHash($replaced);
+            $firstCard = ($this->listingCardRanges($sourceListingMarkup, $posts) ?? array())[0] ?? null;
+            $parent = is_array($firstCard) ? self::parentBlockRange($sourceListingMarkup, $firstCard) : null;
+            if (is_array($parent)) $this->listingQueryContainers[] = substr($sourceListingMarkup, $parent['offset'], $parent['length']);
+            foreach ($fields as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
+            foreach ($this->listingCardRanges($sourceListingMarkup, $posts) ?? array() as $card) {
+                $description = ListingExcerptProjection::description($card['post']);
+                if (null === $description) continue;
+                $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
+                foreach (self::blockRanges($cardMarkup) as $leaf) {
+                    $slice = substr($cardMarkup, $leaf['offset'], $leaf['length']);
+                    if ('paragraph' === self::listingBlockName($slice) && ListingExcerptProjection::matches($slice, $card['post'])) { $excerpts[$card['post']['source_path']] = $description; break; }
+                }
+            }
         }
+        unset($page);
+        foreach ($pages as &$page) if (isset($excerpts[$page['source_path']])) $page['metadata']['excerpt'] = $excerpts[$page['source_path']];
+        unset($page);
+        foreach ($pages as &$page) if (isset($postMeta[$page['source_path']])) $page['metadata']['post_meta'] = ($page['metadata']['post_meta'] ?? array()) + $postMeta[$page['source_path']];
         unset($page);
         return $pages;
     }
     /** @param array<int,array<string,mixed>> $posts */
-    private function replaceListingMarkup(string $markup, array $posts): ?string
+    private function replaceListingMarkup(string $markup, array $posts, array &$fields = array()): ?string
     {
         $cards = $this->listingCardRanges($markup, $posts);
         if (null === $cards) {
             return $this->replaceListingArchives($markup, $posts);
         }
-        $template = $this->listingCardTemplate($markup, $cards);
+        $template = $this->listingCardTemplate($markup, $cards, $fields);
         if (null === $template) {
             return $this->replaceListingArchives($markup, $posts);
         }
@@ -2228,10 +2253,28 @@ final class WordPressSitePlan
     /**
      * @param array<int,array{offset:int,length:int,route:string,post:array<string,mixed>}> $cards
      */
-    private function listingCardTemplate(string $markup, array $cards): ?string
+    private function listingCardTemplate(string $markup, array $cards, array &$fields): ?string
     {
         $first = $cards[0];
-        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route']);
+        $groups = $this->listingLinkedMetadataGroups($markup, $first);
+        $boundGroups = array();
+        foreach ($groups as $index => $group) {
+            $key = 'blocks_engine_listing_labels_' . substr(hash('sha256', $group['markup']), 0, 12);
+            $content = ListingFieldProjection::content($group['paragraphs']);
+            $paragraph = ListingFieldProjection::paragraph($group['paragraphs'][0], self::listingBlockAttributes($group['paragraphs'][0]), $key, $content);
+            $bound = $group['markup'];
+            foreach (array_reverse($group['ranges'], true) as $childIndex => $child) {
+                $relative = $child['offset'] - $group['offset'];
+                $bound = substr($bound, 0, $relative) . (0 === $childIndex ? $paragraph : '') . substr($bound, $relative + $child['length']);
+            }
+            $boundGroups[$group['offset']] = $bound;
+            foreach ($cards as $card) {
+                $row = $this->listingLinkedMetadataGroups($markup, $card)[$index] ?? null;
+                $fields[$card['post']['source_path']][$key] = null === $row ? '' : ListingFieldProjection::content($row['paragraphs']);
+            }
+        }
+        $compact = !array_filter($cards, fn(array $card): bool => !$this->isExcerptListingCard($markup, $card));
+        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route'], $compact ? ListingExcerptProjection::length($cards) : 0, $boundGroups);
         if (!$transformed['title'] || '' === $transformed['markup']) {
             return null;
         }
@@ -2248,14 +2291,51 @@ final class WordPressSitePlan
         }
         return $template;
     }
+
+    /** @param array<string,mixed> $card @return list<array{offset:int,markup:string,paragraphs:list<string>}> */
+    private function listingLinkedMetadataGroups(string $markup, array $card): array
+    {
+        $groups = array();
+        foreach (self::blockRanges($markup) as $range) {
+            if ($range['offset'] <= $card['offset'] || $range['offset'] + $range['length'] >= $card['offset'] + $card['length']) continue;
+            $slice = substr($markup, $range['offset'], $range['length']);
+            if ('group' !== self::listingBlockName($slice)) continue;
+            $children = self::childBlockRanges($markup, $range);
+            if (array() === $children) continue;
+            $paragraphs = array();
+            foreach ($children as $child) {
+                $paragraph = substr($markup, $child['offset'], $child['length']);
+                $anchors = $this->listingAnchors($paragraph);
+                if ('paragraph' !== self::listingBlockName($paragraph) || !ListingFieldProjection::isLinkedMetadata($paragraph) || array() === $anchors || ListingExcerptProjection::matches($paragraph, $card['post']) || array_filter($anchors, static fn(array $anchor): bool => self::hrefMatchesListingRoute($anchor['href'], $card['route']))) continue 2;
+                $paragraphs[] = $paragraph;
+            }
+            $groups[] = array('offset' => $range['offset'], 'markup' => $slice, 'paragraphs' => $paragraphs, 'ranges' => $children);
+        }
+        return $groups;
+    }
+
+    /** @param array<string,mixed> $card */
+    private function isExcerptListingCard(string $markup, array $card): bool
+    {
+        $description = false;
+        $slice = substr($markup, $card['offset'], $card['length']);
+        foreach (self::blockRanges($slice) as $range) {
+            $paragraph = substr($slice, $range['offset'], $range['length']);
+            if ('paragraph' !== self::listingBlockName($paragraph)) continue;
+            if (ListingExcerptProjection::matches($paragraph, $card['post'])) { $description = true; continue; }
+            if ('body' === $this->classifyListingCardBlock($paragraph, $card['post'], $card['route']) && !ListingFieldProjection::isLinkedMetadata($paragraph)) return false;
+        }
+        return $description;
+    }
     /**
      * @param array{offset:int,length:int} $range
      * @param array<string,mixed> $post
      * @return array{markup:string,title:bool,content:bool}
      */
-    private function listingTransformRange(string $markup, array $range, array $post, string $route): array
+    private function listingTransformRange(string $markup, array $range, array $post, string $route, int $excerptLength = 0, array $boundGroups = array()): array
     {
         $slice = substr($markup, $range['offset'], $range['length']);
+        if (isset($boundGroups[$range['offset']])) return array('markup' => $boundGroups[$range['offset']], 'title' => false, 'content' => false);
         $className = (string) (self::listingBlockAttributes($slice)['className'] ?? '');
         if (preg_match('/\b(?:social|share-button|twitter-share)\b/', $className)) {
             return array('markup' => '', 'title' => false, 'content' => false);
@@ -2265,6 +2345,22 @@ final class WordPressSitePlan
         }
         $children = self::childBlockRanges($markup, $range);
         if (array() === $children) {
+            if ('paragraph' === self::listingBlockName($slice) && '' === ListingExcerptProjection::text($slice)) {
+                foreach (self::htmlMarkupNodes($slice) as $node) {
+                    $identity = $node['attributes'] ?? array();
+                    if ('a' === ($node['name'] ?? '') && self::hrefMatchesListingRoute((string) ($identity['href'] ?? ''), $route) && 'true' === ($identity['aria-hidden'] ?? '') && '-1' === ($identity['tabindex'] ?? '')) {
+                        $attrs = array('className' => trim((string) ($identity['class'] ?? '') . ' blocks-engine-listing-overlay'), 'content' => '<span aria-hidden="true"></span>');
+                        return array('markup' => '<!-- wp:read-more ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->', 'title' => false, 'content' => false);
+                    }
+                }
+            }
+            if ($excerptLength > 0 && 'paragraph' === self::listingBlockName($slice) && ListingExcerptProjection::matches($slice, $post)) {
+                $attrs = self::listingBlockAttributes($slice);
+                unset($attrs['metadata']);
+                $attrs['excerptLength'] = $excerptLength;
+                $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-authored-excerpt');
+                return array('markup' => '<!-- wp:post-excerpt ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->', 'title' => false, 'content' => false);
+            }
             $kind = $this->classifyListingCardBlock($slice, $post, $route);
             if ('title' === $kind) {
                 return array('markup' => self::postTitleMarkup($slice), 'title' => true, 'content' => false);
@@ -2284,7 +2380,7 @@ final class WordPressSitePlan
         $emittedContent = false;
         $replacements = array();
         foreach ($children as $child) {
-            $transformed = $this->listingTransformRange($markup, $child, $post, $route);
+            $transformed = $this->listingTransformRange($markup, $child, $post, $route, $excerptLength, $boundGroups);
             $foundTitle = $foundTitle || $transformed['title'];
             if ($transformed['content'] && $emittedContent) {
                 $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
@@ -2328,7 +2424,8 @@ final class WordPressSitePlan
                 continue;
             }
             $attributes = is_array($node['attributes'] ?? null) ? $node['attributes'] : array();
-            if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes)) {
+            $datedTime = null !== $timestamp && 'time' === ($node['name'] ?? '') && is_string($attributes['datetime'] ?? null);
+            if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes) && !$datedTime) {
                 continue;
             }
             $parsed = self::parseVisiblePublicationTimestamp(self::elementInnerText($slice, (string) $node['name'], $node['inner_offset']));
@@ -2374,6 +2471,7 @@ final class WordPressSitePlan
     {
         $attrs = array('isLink' => true);
         $blockAttrs = self::listingBlockAttributes($slice);
+        if (is_array($blockAttrs['style'] ?? null)) $attrs['style'] = $blockAttrs['style'];
         $level = is_int($blockAttrs['level'] ?? null) ? $blockAttrs['level'] : self::listingHeadingLevel($slice);
         if (2 !== $level) {
             $attrs['level'] = $level;
@@ -2382,11 +2480,14 @@ final class WordPressSitePlan
         if (null !== $className) {
             $attrs['className'] = $className;
         }
+        foreach (self::htmlMarkupNodes($slice) as $node) if ('a' === ($node['name'] ?? '') && is_string($node['attributes']['class'] ?? null)) $attrs['metadata']['blocksEngineLinkClass'] = $node['attributes']['class'];
         return '<!-- wp:post-title ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->';
     }
     private static function postDateMarkup(string $slice): string
     {
         $attrs = array();
+        $blockAttrs = self::listingBlockAttributes($slice);
+        if (is_array($blockAttrs['style'] ?? null)) $attrs['style'] = $blockAttrs['style'];
         $format = self::visibleDateFormat(trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? ''));
         if (null !== $format) {
             $attrs['format'] = $format;
@@ -2550,7 +2651,7 @@ final class WordPressSitePlan
         if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})$/', $value, $match)) {
             return ((int) $match[1] > 12 && (int) $match[2] <= 12) ? 'j-n-Y' : 'n-j-Y';
         }
-        foreach (array('F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/') as $format => $pattern) {
+        foreach (array('M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/') as $format => $pattern) {
             if (1 === preg_match($pattern, $value)) {
                 return $format;
             }
@@ -2802,6 +2903,14 @@ final class WordPressSitePlan
         $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY);
         $rootContext = DocumentRootContext::bootstrap($pages);
         if ('' !== $rootContext) $lines[] = $rootContext;
+        $fields = ListingFieldProjection::bootstrap($pages);
+        if ('' !== $fields) $lines[] = $fields;
+        if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineLinkClass'))) {
+            $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { \$classes = \$block['attrs']['metadata']['blocksEngineLinkClass'] ?? ''; if ( ! is_string( \$classes ) || '' === \$classes ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) foreach ( preg_split( '/\\s+/', \$classes ) ?: array() as \$class ) \$tag->add_class( \$class ); return \$tag->get_updated_html(); }, 10, 2 );";
+        }
+        if (array_filter($pages, static fn(array $page): bool => str_contains($page['canonical_block_markup'], 'blocks-engine-listing-overlay'))) {
+            $lines[] = "add_filter( 'render_block_core/read-more', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-listing-overlay', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) { \$tag->set_attribute( 'aria-hidden', 'true' ); \$tag->set_attribute( 'tabindex', '-1' ); } return \$tag->get_updated_html(); }, 10, 2 );";
+        }
         $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void {";
         $importLoaded = self::importLoadedStylesheets($assets);
         foreach ($assets as $asset) {

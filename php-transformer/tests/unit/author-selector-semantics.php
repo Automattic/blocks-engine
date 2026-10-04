@@ -276,6 +276,16 @@ $assert(
     'attribute projection markers identify full source predicates so identical local attributes in different ancestor scopes keep distinct cascade bindings'
 );
 
+$emptyFunctionalGrid = $transform('<section style="display:flex;flex-direction:column;min-height:297px;padding-top:242px"><div class="content-wrapper" style="display:flex;flex-direction:column;padding:29.7px 0"><div data-runtime-grid-container="1"><style>.neutral-fluid-grid{display:grid;grid-template-rows:repeat(2,minmax(36px,auto))}</style><div class="neutral-fluid-grid"></div></div></div></section>');
+$emptyFunctionalGridMarkup = (string) ($emptyFunctionalGrid['serialized_blocks'] ?? '');
+$emptyFunctionalGridCss = $css($emptyFunctionalGrid);
+$assert(
+    str_contains($emptyFunctionalGridMarkup, 'neutral-fluid-grid blocks-engine-empty-visual-group')
+        && str_contains($emptyFunctionalGridCss, '.neutral-fluid-grid{display:grid;grid-template-rows:repeat(2,minmax(36px,auto))}')
+        && 'pass' === ($emptyFunctionalGrid['source_reports']['wp_block_validity']['status'] ?? ''),
+    'empty nested grid tracks stay represented beneath a source-owned visual wrapper'
+);
+
 $functionalAttributeProjection = $transform('<style>@media (min-width:700px){:is(#neutral-specificity,[data-runtime-clearance="1"]){display:grid;padding-top:242px!important}}@media (max-width:699px){:is(#neutral-specificity,[data-runtime-clearance="1"]){padding-top:36px!important}}</style><section data-runtime-clearance="1"><p>Clearance owner</p></section><section><p>Unaffected sibling</p></section>');
 $functionalAttributeMarkup = (string) ($functionalAttributeProjection['serialized_blocks'] ?? '');
 $functionalAttributeCss = $css($functionalAttributeProjection);
