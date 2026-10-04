@@ -239,6 +239,26 @@ $feedback = ( new ArtifactCompiler() )->compile(array(
 ))->toArray();
 $feedbackMarkup = (string) ($feedback['serialized_blocks'] ?? '');
 $assert(str_contains($feedbackMarkup, 'form-success') && str_contains($feedbackMarkup, 'role="status"') && str_contains($feedbackMarkup, 'aria-live="polite"') && ! str_contains($feedbackMarkup, 'js-form-success'), 'a queried status wrapper keeps role and live semantics without an untargeted behavior-hook class: ' . substr($feedbackMarkup, 0, 500));
+$bound = ( new HtmlTransformer() )->transform(
+    '<main><button type="button" class="tile" data-lightbox="Foggy cliff portrait"><span>Foggy cliff portrait</span></button><div class="product-grid" data-shop-grid></div><script src="js/app.js"></script></main>',
+    array( 'runtime_dom_selectors' => array( '[data-lightbox]', '[data-shop-grid]', '.tile' ) )
+)->toArray();
+$boundMarkup = (string) ($bound['serialized_blocks'] ?? '');
+$boundIslands = $bound['source_reports']['runtime_islands'] ?? array();
+$boundProvenance = array_values(array_filter($bound['source_reports']['html']['source_provenance'] ?? array(), static fn (mixed $entry): bool => is_array($entry) && str_ends_with((string) ($entry['block_name'] ?? ''), '/authored-button')));
+$assert(str_contains($boundMarkup, 'wp:custom/authored-button') && str_contains($boundMarkup, 'data-lightbox="Foggy cliff portrait"') && ! preg_match('/<!-- wp:html[^>]*-->\s*<button[^>]*data-lightbox=/', $boundMarkup), 'functional binding is canonical authored-button metadata: ' . substr($boundMarkup, 0, 700));
+$assert('control' === ($boundIslands[0]['kind'] ?? '') && 'runtime_js' === ($boundIslands[0]['runtime_island_type'] ?? '') && '.tile' === ($boundIslands[0]['selector'] ?? '') && 'button' === ($boundIslands[0]['control']['tag'] ?? '') && 'button' === ($boundIslands[0]['control']['type'] ?? '') && array() !== ($boundIslands[0]['required_scripts'] ?? array()), 'runtime button records typed control semantics: ' . json_encode($boundIslands[0] ?? null));
+$assert('dom' === ($boundIslands[1]['kind'] ?? '') && '.product-grid' === ($boundIslands[1]['selector'] ?? ''), 'commerce placeholder remains a separate DOM island: ' . json_encode(array_column($boundIslands, 'kind')));
+$assert(array() !== $boundProvenance && 'button' === ($boundProvenance[0]['tag'] ?? ''), 'authored runtime button keeps source provenance: ' . json_encode($boundProvenance));
+$assert('pass' === (( new BlockValidityValidator() )->validateBlocks($bound['blocks'] ?? array())['status'] ?? ''), 'authored runtime button remains Gutenberg-valid');
+$handler = ( new HtmlTransformer() )->transform(
+    '<main><button type="button" class="act" onclick="doThing()">Act</button><button class="icon-act" onclick="doThing()"><i class="icon"></i></button><button jsaction="click:providerToggle">Search</button></main>',
+    array( 'runtime_dom_selectors' => array( '.act', '.icon-act' ) )
+)->toArray();
+$handlerMarkup = (string) ($handler['serialized_blocks'] ?? '');
+$handlerIslands = $handler['source_reports']['runtime_islands'] ?? array();
+$assert(! str_contains($handlerMarkup, 'authored-button') && ! str_contains($handlerMarkup, '<!-- wp:button') && str_contains($handlerMarkup, 'jsaction="click:providerToggle"'), 'unsafe inline-handler buttons stay source markup instead of a dead native button: ' . $handlerMarkup);
+$assert(2 === count($handlerIslands) && array( 'onclick', 'onclick' ) === array_map(static fn (array $island): string => (string) ($island['events'][0]['attribute'] ?? ''), $handlerIslands) && array( 'control', 'control' ) === array_map(static fn (array $island): string => (string) ($island['kind'] ?? ''), $handlerIslands), 'unsafe inline-handler buttons still record control evidence: ' . json_encode($handlerIslands));
 
 file_put_contents(sys_get_temp_dir() . '/runtime-dialog-trigger-button.json', json_encode(array(
     'html' => $compiledMarkup,

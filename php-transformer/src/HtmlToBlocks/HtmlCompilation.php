@@ -763,7 +763,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this,
             fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
-            fn (DOMElement $element): ?array => $this->authoredFormControlBlockConverter->runtimeButton($element)
+            fn (DOMElement $element): ?array => $this->runtimeAuthoredButton($element)
         ));
         $detailsConverter = new DetailsElementConverter(new DetailsElementContext(
             fn (DOMElement $element): ?DOMElement => $this->capturedDisclosureDialog($element),
@@ -3677,6 +3677,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $dialog;
+    }
+
+    /** @return array<string, mixed> */
+    private function runtimeAuthoredButton(DOMElement $element): array
+    {
+        $this->formRuntimeIslandRecorder->recordControl($element);
+        $generated = $this->authoredFormControlBlockConverter->runtimeButton($element);
+        $materialized = $this->createBlock(
+            (string) ($generated['blockName'] ?? ''),
+            is_array($generated['attrs'] ?? null) ? $generated['attrs'] : array(),
+            array(),
+            $element
+        );
+        if ( isset($materialized['_source_provenance_id']) ) {
+            $generated['_source_provenance_id'] = $materialized['_source_provenance_id'];
+        }
+
+        return $generated;
     }
 
     /**

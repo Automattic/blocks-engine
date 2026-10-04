@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** Converts buttons through search, image-carrier, and generic precedence. */
@@ -22,6 +23,10 @@ final class ButtonElementConverter implements ElementConverter
 
         if ( $this->context->isReplacedSearchClusterControl($element) ) {
             return ConversionOutcome::handled(null);
+        }
+
+        if ( $this->context->isRuntimeDomTarget($element) && $this->preservesUnsafeInlineHandler($element) ) {
+            return ConversionOutcome::handled($this->context->convertButton($element));
         }
 
         if ( $this->context->isRuntimeDomTarget($element) && ( array() !== AuthoredButtonBlockGenerator::sourceSafeAttributes($element) || ! $this->context->isRichTextButtonLabel($element) ) ) {
@@ -48,5 +53,24 @@ final class ButtonElementConverter implements ElementConverter
         }
 
         return ConversionOutcome::handled($this->context->convertButton($element));
+    }
+
+    private function preservesUnsafeInlineHandler(DOMElement $element): bool
+    {
+        if ( array() !== AuthoredButtonBlockGenerator::sourceSafeAttributes($element) ) {
+            return false;
+        }
+
+        if ( array() !== SourceDom::eventMetadata($element) ) {
+            return true;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && array() !== SourceDom::eventMetadata($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
