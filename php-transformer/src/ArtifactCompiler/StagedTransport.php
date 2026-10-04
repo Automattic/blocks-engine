@@ -574,15 +574,16 @@ trait StagedTransport
         $capturedDialogs = array(
             'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $collectionsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
             'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
+            'native_runtime_replacements' => array_merge(
+                $capturedDialogsProjection['native_runtime_replacements'] ?? array(),
+                $collectionsProjection['superseded_runtime_scripts'] ?? array()
+            ),
         );
         if (0 < $selectableSetsProjection['projected_count']) {
             $capturedDialogs['projected_selectable_set_count'] = $selectableSetsProjection['projected_count'];
         }
         if (0 < $choiceGroupsProjection['projected_count']) {
             $capturedDialogs['projected_choice_group_count'] = $choiceGroupsProjection['projected_count'];
-        }
-        if (array() !== ($collectionsProjection['superseded_runtime_scripts'] ?? array())) {
-            $capturedDialogs['superseded_runtime_scripts'] = $collectionsProjection['superseded_runtime_scripts'];
         }
         $rawFiles = $scrollStatesProjection['files'];
         // A later partition-envelope normalization must not lose the implicit
@@ -635,11 +636,11 @@ trait StagedTransport
             'canonical_provenance_hashes' => $canonicalProvenanceHashes,
             'canonical_diagnostics' => array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics']),
             'canonical_rejected_count' => $normalized['rejected_count'],
-            'captured_dialogs' => array_filter(array(
+            'captured_dialogs' => array(
                 'diagnostics' => $capturedDialogs['diagnostics'],
                 'projected_count' => $capturedDialogs['projected_count'],
-                'superseded_runtime_scripts' => $capturedDialogs['superseded_runtime_scripts'] ?? array(),
-            ), static fn (mixed $value, string $key): bool => 'superseded_runtime_scripts' !== $key || array() !== $value, ARRAY_FILTER_USE_BOTH),
+                'native_runtime_replacements' => $capturedDialogs['native_runtime_replacements'] ?? array(),
+            ),
         );
     }
 
