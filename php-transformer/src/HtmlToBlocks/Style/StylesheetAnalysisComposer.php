@@ -138,6 +138,7 @@ final class StylesheetAnalysisComposer
     {
         $composed = array('static' => array(), 'conditional' => array(), 'navigation_state' => array(), 'reveal_state' => array(), 'image_shape' => array(), 'pseudo' => array(), 'cascaded_values' => array(), 'custom_properties' => array('root' => array(), 'fallback' => array()), 'layer_names' => array());
         $layers = array();
+        $nextCascadeOrder = 0;
         foreach ( $payloads as $payload ) {
             $key = hash('sha256', $payload);
             $analysis = $this->analysisCache->style($key);
@@ -161,8 +162,18 @@ final class StylesheetAnalysisComposer
             } else {
                 ++$this->analysisCache->styleHits;
             }
-            foreach ( array('static', 'conditional', 'navigation_state', 'reveal_state', 'pseudo', 'cascaded_values') as $part ) {
+            foreach ( array('navigation_state', 'reveal_state', 'pseudo', 'cascaded_values') as $part ) {
                 $composed[$part] = array_merge($composed[$part], $analysis[$part]);
+            }
+            $batch = array_merge($analysis['static'], $analysis['conditional']);
+            usort($batch, static fn (array $left, array $right): int => ($left['cascadeOrder'] ?? 0) <=> ($right['cascadeOrder'] ?? 0));
+            foreach ($batch as $rule) {
+                $rule['cascadeOrder'] = $nextCascadeOrder++;
+                if (isset($rule['conditions'])) {
+                    $composed['conditional'][] = $rule;
+                } else {
+                    $composed['static'][] = $rule;
+                }
             }
             foreach ($analysis['layer_names'] ?? array() as $layer) {
                 $layers[$layer] ??= count($layers);
