@@ -224,6 +224,7 @@ final class ArtifactCompiler
                 'projected_count' => $capturedDialogs['projected_count'] + $scrollStates['projected_count'],
                 'projected_selectable_set_count' => $selectableSets['projected_count'],
                 'projected_choice_group_count' => $choiceGroups['projected_count'],
+                'native_runtime_replacements' => $capturedDialogs['native_runtime_replacements'] ?? array(),
             ),
         ));
     }
@@ -401,6 +402,9 @@ final class ArtifactCompiler
         }
         if (isset($interactionReport['projected_dialog_count']) || isset($interactionReport['projected_selectable_set_count']) || isset($interactionReport['projected_choice_group_count'])) {
             $sourceReports['captured_interactions'] = $interactionReport;
+        }
+        if (array() !== ($capturedDialogs['native_runtime_replacements'] ?? array())) {
+            $sourceReports['native_runtime_replacements'] = $capturedDialogs['native_runtime_replacements'];
         }
         $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;
