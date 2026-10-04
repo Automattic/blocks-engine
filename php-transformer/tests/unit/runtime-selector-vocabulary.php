@@ -16,6 +16,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
+use DOMDocument as VocabularyDomDocument;
 
 $failures = 0;
 $passes   = 0;
@@ -116,6 +117,31 @@ $assert(
     $first === RuntimeSelectorVocabulary::isPresentationalAnimation('.fade-in'),
     'answers do not drift across calls'
 );
+
+$elementFrom = static function (string $html): DOMElement {
+    $document = new VocabularyDomDocument();
+    $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>');
+    $element = $document->getElementsByTagName('body')->item(0)?->firstElementChild;
+    if ( ! $element instanceof DOMElement ) {
+        throw new RuntimeException('fixture did not parse');
+    }
+
+    return $element;
+};
+$matches = static fn (string $html, string $selector): bool => RuntimeSelectorVocabulary::matchesElement($elementFrom($html), $selector, array( 'button', 'canvas', 'svg' ));
+$heading = '<p data-testid="heading-tag"><span data-testid="marquee-unit">Phrase</span></p>';
+$assert($matches($heading, '[data-testid]'), 'attribute presence matches');
+$assert($matches($heading, '[data-testid="heading-tag"]'), 'attribute equality matches the declared value');
+$assert($matches($heading, "p[data-testid='heading-tag']"), 'tag and quoted equality both have to match');
+$assert(! $matches($heading, '[data-testid="marquee-unit"]'), 'a different attribute value does not match');
+$assert(! $matches($heading, 'span[data-testid="heading-tag"]'), 'a different tag does not match');
+$assert(! $matches($heading, '[data-missing]'), 'a missing attribute does not match');
+$assert(! $matches($heading, 'div > [data-testid]'), 'an unrecognized selector fails closed');
+$assert($matches('<p data-testid="a,b"></p>', '[data-testid="a\\2c b"]'), 'CSS hex escapes compare as the decoded value');
+$assert('say"hi' === (RuntimeSelectorVocabulary::parseAttributeSelector('[data-testid="say\\"hi"]')['value'] ?? null), 'escaped quotes decode instead of matching a different value');
+$assert('[data-action="save"]' === RuntimeSelectorVocabulary::canonicalScriptSelector('[data-action=save]'), 'unquoted script equality is retained');
+$assert('[data-testid="heading-tag"]' === RuntimeSelectorVocabulary::canonicalScriptSelector('[data-testid="heading-tag"]'), 'quoted script equality is retained');
+$assert(! $matches('<button data-testid="other"></button>', '[data-testid="heading-tag"]'), 'a control with a different value is not a match');
 
 echo 'Runtime selector vocabulary tests: ' . $passes . ' passed' . PHP_EOL;
 

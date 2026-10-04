@@ -62,7 +62,8 @@ final class ElementConversionPrelude
         private readonly Closure $requiresStandaloneInlineLayoutLeaf,
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $layoutGeometryProofFor,
-        private readonly ?CapturedCollectionConverter $capturedCollection = null
+        private readonly ?CapturedCollectionConverter $capturedCollection = null,
+        private readonly ?Closure $authoredMarqueeBlock = null
     ) {
     }
 
@@ -162,6 +163,18 @@ final class ElementConversionPrelude
 
         if ( 'form' === $tagName ) {
             return ConversionOutcome::handled($this->formDispatcher->convert($element, $fallbacks));
+        }
+
+        if ( in_array($tagName, array( 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true) && null !== $this->authoredMarqueeBlock ) {
+            $marquee = ($this->authoredMarqueeBlock)($element);
+            if ( is_array($marquee) ) {
+                $blockName = (string) ($marquee['blockName'] ?? '');
+                if ( '' !== $blockName ) {
+                    $this->runtimeIslands->recordNativeRuntimeReplacement($element, $blockName);
+                }
+
+                return ConversionOutcome::handled($marquee);
+            }
         }
 
         if ( ! $this->containsCapturedProviderForm($element) && $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element) ) {

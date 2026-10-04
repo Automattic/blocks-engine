@@ -24,6 +24,7 @@ final class AuthoredMarqueeBlockGenerator
                 'direction' => array( 'type' => 'string', 'default' => 'left' ),
                 'duration' => array( 'type' => 'number', 'default' => 40 ),
                 'decorative' => array( 'type' => 'boolean', 'default' => false ),
+                'className' => array( 'type' => 'string', 'default' => '' ),
             ),
             'supports' => array( 'html' => false ),
             'style' => 'file:./style.css',
@@ -38,6 +39,7 @@ final class AuthoredMarqueeBlockGenerator
     var createElement = element.createElement;
     var RichText = blockEditor.RichText;
     function duration( value ) { value = Number( value ); return Math.min( 600, Math.max( 1, Number.isFinite( value ) ? value : 40 ) ); }
+    function rootClass( attributes ) { return 'blocks-engine-authored-marquee' + ( attributes.className ? ' ' + attributes.className : '' ); }
     function items( attributes ) { return Array.isArray( attributes.items ) && attributes.items.length ? attributes.items : [ { content: attributes.content || '', className: '', marker: '' } ]; }
     function itemProps( item, key ) { var props = { key: key, tagName: 'span', className: item.className || undefined, value: item.content || '' }; if ( item.marker ) { props[ 'data-blocks-engine-richtext-marker' ] = item.marker; } return props; }
     function edit( props ) {
@@ -47,7 +49,7 @@ final class AuthoredMarqueeBlockGenerator
         } ) );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
-        attributes: { content: { type: 'string', default: '' }, items: { type: 'array', default: [] }, direction: { type: 'string', default: 'left' }, duration: { type: 'number', default: 40 }, decorative: { type: 'boolean', default: false } },
+        attributes: { content: { type: 'string', default: '' }, items: { type: 'array', default: [] }, direction: { type: 'string', default: 'left' }, duration: { type: 'number', default: 40 }, decorative: { type: 'boolean', default: false }, className: { type: 'string', default: '' } },
         supports: { html: false },
         edit: edit,
         save: function( props ) {
@@ -55,7 +57,7 @@ final class AuthoredMarqueeBlockGenerator
             var direction = 'right' === attributes.direction ? 'right' : 'left';
             var authoredItems = items( attributes );
             var sequence = function( hidden ) { return createElement( 'span', { className: 'blocks-engine-authored-marquee__content' + ( attributes.items && attributes.items.length ? ' blocks-engine-authored-marquee__content--items' : '' ), 'aria-hidden': hidden ? true : undefined, inert: hidden ? '' : undefined }, authoredItems.map( function( item, index ) { return createElement( RichText.Content, itemProps( item, index ) ); } ) ); };
-            return createElement( 'div', { className: 'blocks-engine-authored-marquee', style: { '--blocks-engine-marquee-duration': duration( attributes.duration ) + 's' }, 'data-direction': direction, 'aria-hidden': attributes.decorative ? true : undefined }, createElement( 'div', { className: 'blocks-engine-authored-marquee__viewport' }, createElement( 'div', { className: 'blocks-engine-authored-marquee__track' }, sequence( false ), sequence( true ) ) ) );
+            return createElement( 'div', { className: rootClass( attributes ), style: { '--blocks-engine-marquee-duration': duration( attributes.duration ) + 's' }, 'data-direction': direction, 'aria-hidden': attributes.decorative ? true : undefined }, createElement( 'div', { className: 'blocks-engine-authored-marquee__viewport' }, createElement( 'div', { className: 'blocks-engine-authored-marquee__track' }, sequence( false ), sequence( true ) ) ) );
         }
     } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
@@ -75,6 +77,11 @@ JS;
         $direction = 'right' === ($attributes['direction'] ?? '') ? 'right' : 'left';
         $duration = min(600, max(1, (float) ($attributes['duration'] ?? 40)));
         $decorative = true === ($attributes['decorative'] ?? false) ? ' aria-hidden="true"' : '';
+        $rootClass = 'blocks-engine-authored-marquee';
+        $sourceClass = $this->safeTokenList((string) ($attributes['className'] ?? ''));
+        if ( '' !== $sourceClass ) {
+            $rootClass .= ' ' . $sourceClass;
+        }
         $contentClass = 'blocks-engine-authored-marquee__content' . (is_array($attributes['items'] ?? null) && array() !== $attributes['items'] ? ' blocks-engine-authored-marquee__content--items' : '');
         $content = '';
         foreach ( $items as $item ) {
@@ -89,7 +96,7 @@ JS;
                 . '>' . (string) ($item['content'] ?? '') . '</span>';
         }
 
-        return '<div class="blocks-engine-authored-marquee" style="--blocks-engine-marquee-duration:' . $duration . 's" data-direction="' . $direction . '"' . $decorative . '><div class="blocks-engine-authored-marquee__viewport"><div class="blocks-engine-authored-marquee__track"><span class="' . $contentClass . '">' . $content . '</span><span class="' . $contentClass . '" aria-hidden="true" inert="">' . $content . '</span></div></div></div>';
+        return '<div class="' . $rootClass . '" style="--blocks-engine-marquee-duration:' . $duration . 's" data-direction="' . $direction . '"' . $decorative . '><div class="blocks-engine-authored-marquee__viewport"><div class="blocks-engine-authored-marquee__track"><span class="' . $contentClass . '">' . $content . '</span><span class="' . $contentClass . '" aria-hidden="true" inert="">' . $content . '</span></div></div></div>';
     }
 
     private function safeTokenList(string $value): string
