@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 use DOMText;
 
@@ -140,7 +141,7 @@ JS;
             $markup .= ' disabled';
         }
 
-        $label = $this->safeIconSvg((string) ($attrs['iconSvg'] ?? '')) . $escape($attrs['text'] ?? '');
+        $label = $escape($attrs['text'] ?? '');
         foreach (array_reverse(array_slice(is_array($attrs['labelWrappers'] ?? null) ? $attrs['labelWrappers'] : array(), 0, 16)) as $wrapper) {
             $tag = strtolower((string) ($wrapper['tagName'] ?? ''));
             if (!in_array($tag, self::LABEL_TAGS, true)) continue;
@@ -152,7 +153,7 @@ JS;
             }
             $label = $opening . '>' . $label . '</' . $tag . '>';
         }
-        return $markup . '>' . $label . '</button>';
+        return $markup . '>' . $this->safeIconSvg((string) ($attrs['iconSvg'] ?? '')) . $label . '</button>';
     }
 
     /** @param array<string, mixed> $attrs @return list<array{name: string, value: string}> */
@@ -177,12 +178,7 @@ JS;
 
     private function safeIconSvg(string $value): string
     {
-        $value = trim($value);
-        if ( 1 !== preg_match('/^<svg[\s>]/i', $value) || 1 === preg_match('/(?:<\/?(?:script|style|foreignobject|iframe|object|embed|link)\b|\son[a-z]+\s*=|javascript\s*:)/i', $value) ) {
-            return '';
-        }
-
-        return $value;
+        return SourceDom::isSafeInlineSvgMarkup($value) ? $value : '';
     }
 
     /** @return array<string, mixed> */
