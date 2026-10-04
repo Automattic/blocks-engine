@@ -136,6 +136,16 @@ $assert('custom/authored-marquee' === ($mismatched['blocks'][0]['blockName'] ?? 
 $control = ( new HtmlTransformer() )->transform('<button data-testid="heading-tag">Filter</button><p data-testid="other">Copy</p>', array( 'runtime_dom_selectors' => array( '[data-testid="heading-tag"]' ) ))->toArray();
 $controlNames = array_column($control['blocks'], 'blockName');
 $assert(in_array('core/html', $controlNames, true) && !in_array('custom/authored-marquee', $controlNames, true), 'a non-marquee control matched by equality stays protected and is not waived');
+$emptyLayoutCss = '.clip{display:flex;overflow-x:clip}.track{display:flex;gap:100px;height:calc(1em * 1.2);font:32px/1.3em serif}.unit{display:flex}';
+$emptyLayout = ( new HtmlTransformer() )->transform('<p class="source-phrase"><span class="clip"><span class="track" data-marquee-animation="left"><span class="unit"></span><span class="unit"></span></span><span class="track" data-marquee-animation="left"><span class="unit"></span><span class="unit"></span></span></span></p>', array( 'static_css' => $emptyLayoutCss ))->toArray();
+$emptyLayoutNames = array_column($emptyLayout['blocks'], 'blockName');
+$emptyLayoutMarkup = (string) ($emptyLayout['serialized_blocks'] ?? '');
+$assert(!in_array('custom/authored-marquee', $emptyLayoutNames, true) && !str_contains($emptyLayoutMarkup, 'wp:html') && str_contains($emptyLayoutMarkup, 'layout-shell') && 4 === substr_count($emptyLayoutMarkup, 'class="unit"') && 2 === substr_count($emptyLayoutMarkup, 'data-marquee-animation="left"'), 'an empty flex line box keeps both tracks through layout shell instead of a marquee or raw HTML');
+$assert('pass' === ($emptyLayout['source_reports']['wp_block_validity']['status'] ?? null), 'empty layout shell save remains valid');
+$pseudo = ( new HtmlTransformer() )->transform('<p class="painted"><span class="word"></span></p>', array( 'static_css' => '.painted{display:flex;height:2rem}.word::before{content:"Hello"}' ))->toArray();
+$assert(!str_contains((string) ($pseudo['serialized_blocks'] ?? ''), 'layout-shell'), 'painted pseudo content is not lowered as an empty layout shell');
+$interactive = ( new HtmlTransformer() )->transform('<p><button>Filter</button></p>')->toArray();
+$assert(!str_contains((string) ($interactive['serialized_blocks'] ?? ''), 'layout-shell'), 'a control without a source layout box is not claimed as empty geometry');
 $emptyMarked = ( new HtmlTransformer() )->transform('<p class="source-phrase" data-testid="heading-tag"><span class="track" data-marquee-animation="left"><span class="phrase" data-testid="marquee-unit"><span></span></span><span class="phrase" data-testid="marquee-item-text" data-text="" aria-hidden="true"></span></span></p>', array( 'runtime_dom_selectors' => array( '[data-testid="heading-tag"]' ) ))->toArray();
 $emptyNames = array_column($emptyMarked['blocks'], 'blockName');
 $assert(!in_array('custom/authored-marquee', $emptyNames, true) && in_array('core/html', $emptyNames, true), 'an empty marked marquee stays reported as raw HTML instead of an empty companion');

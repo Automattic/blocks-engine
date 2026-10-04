@@ -1243,6 +1243,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->runtime,
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            },
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->emptyInlineGeometryBlock($element, $fallbacks);
             }
         );
     }
@@ -10156,6 +10159,185 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return true;
             }
         }
+        return false;
+    }
+
+    /**
+     * An empty inline tree whose source CSS still generates a line box or flex
+     * track is layout, not text and not a raw HTML island. core/group cannot
+     * keep the source phrasing tags, so the existing layout shell does.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function emptyInlineGeometryBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        if ( $this->hasPaintedSourceText($element) || $this->hasPaintedPseudoContent($element) || ! $this->declaresEmptyInlineLayoutBox($element) ) {
+            return null;
+        }
+        $inner = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( in_array(strtolower($child->tagName), array( 'button', 'input', 'select', 'textarea' ), true) ) {
+                $converted = $this->convertElement($child, $fallbacks, true);
+                if ( null !== $converted ) {
+                    $inner[] = $converted;
+                }
+                continue;
+            }
+            if ( ! $this->isEmptyInlineGeometryNode($child) ) {
+                return null;
+            }
+            $inner[] = $this->emptyInlineGeometryShell($child);
+        }
+        if ( array() === $inner ) {
+            return null;
+        }
+
+        return $this->layoutShellBlockForElements(array( $element ), $inner, $element);
+    }
+
+    private function emptyInlineGeometryShell(DOMElement $element): array
+    {
+        $wrappers = array( $element );
+        $branch = $element;
+        while ( true ) {
+            $children = $this->elementElementChildren($branch);
+            if ( 1 !== count($children) || ! $this->isEmptyInlineGeometryNode($children[0]) ) {
+                break;
+            }
+            $child = $children[0];
+            $wrappers[] = $child;
+            $branch = $child;
+            if ( count($this->elementElementChildren($child)) > 1 ) {
+                break;
+            }
+        }
+        $inner = array();
+        foreach ( $this->elementElementChildren($branch) as $child ) {
+            if ( $child === ($wrappers[array_key_last($wrappers)] ?? null) || ! $this->isEmptyInlineGeometryNode($child) ) {
+                continue;
+            }
+            $inner[] = count($this->elementElementChildren($child)) > 1
+                ? $this->emptyInlineGeometryShell($child)
+                : $this->layoutShellBlockForElements($this->emptyInlineWrapperChain($child), array(), $child);
+        }
+
+        return $this->layoutShellBlockForElements($wrappers, $inner, $element);
+    }
+
+    /**
+     * @return list<DOMElement>
+     */
+    private function emptyInlineWrapperChain(DOMElement $element): array
+    {
+        $chain = array( $element );
+        $cursor = $element;
+        while ( true ) {
+            $children = $this->elementElementChildren($cursor);
+            if ( 1 !== count($children) || ! $this->isEmptyInlineGeometryNode($children[0]) ) {
+                break;
+            }
+            $child = $children[0];
+            if ( '' === trim($this->attr($child, 'class')) && '' === trim($this->attr($child, 'style')) && 0 === $child->childElementCount ) {
+                break;
+            }
+            $chain[] = $child;
+            $cursor = $child;
+        }
+
+        return $chain;
+    }
+
+    /**
+     * @return list<DOMElement>
+     */
+    private function elementElementChildren(DOMElement $element): array
+    {
+        return array_values(array_filter(
+            iterator_to_array($element->childNodes),
+            static fn (mixed $child): bool => $child instanceof DOMElement
+        ));
+    }
+
+    private function isEmptyInlineGeometryNode(DOMElement $element): bool
+    {
+        return $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
+            && ! $this->hasPaintedSourceText($element)
+            && ! $this->hasPaintedPseudoContent($element);
+    }
+
+    private function hasPaintedSourceText(DOMElement $element): bool
+    {
+        if ( '' !== trim($element->textContent ?? '') ) {
+            return true;
+        }
+        foreach ( $element->getElementsByTagName('*') as $node ) {
+            if ( $node instanceof DOMElement && '' !== trim($this->attr($node, 'data-text')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasPaintedPseudoContent(DOMElement $element): bool
+    {
+        $nodes = array( $element );
+        foreach ( $element->getElementsByTagName('*') as $node ) {
+            if ( $node instanceof DOMElement ) {
+                $nodes[] = $node;
+            }
+        }
+        foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
+            $content = (string) ($rule['declarations']['content'] ?? '');
+            $normalized = strtolower(trim($content, " \t\"'"));
+            if ( in_array($normalized, array( '', 'none', 'normal', 'open-quote', 'close-quote', 'no-open-quote', 'no-close-quote' ), true) || 1 === preg_match('/^attr\(\s*data-text\s*\)$/', $normalized) ) {
+                continue;
+            }
+            foreach ( $nodes as $node ) {
+                if ( $this->styleResolver->matchesCssSelector($node, (string) ($rule['selector'] ?? '')) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function declaresEmptyInlineLayoutBox(DOMElement $element): bool
+    {
+        $nodes = array( $element );
+        foreach ( $element->getElementsByTagName('*') as $node ) {
+            if ( $node instanceof DOMElement ) {
+                $nodes[] = $node;
+            }
+        }
+        foreach ( $nodes as $node ) {
+            $declared = $this->styleResolver->authorDeclaredValuesAtAnyViewport($node, array( 'display', 'gap', 'column-gap', 'row-gap', 'height', 'min-height', 'overflow', 'overflow-x', 'overflow-y' ));
+            foreach ( $declared['display'] ?? array() as $value ) {
+                if ( in_array(strtolower(trim($value)), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+                    return true;
+                }
+            }
+            foreach ( array( 'gap', 'column-gap', 'row-gap', 'height', 'min-height' ) as $property ) {
+                foreach ( $declared[$property] ?? array() as $value ) {
+                    if ( CssValueInspector::isNonZero($value) || str_contains($value, 'calc(') ) {
+                        return true;
+                    }
+                }
+            }
+            foreach ( array( 'overflow', 'overflow-x', 'overflow-y' ) as $property ) {
+                foreach ( $declared[$property] ?? array() as $value ) {
+                    if ( in_array(strtolower(trim($value)), array( 'clip', 'hidden', 'auto', 'scroll' ), true) ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
         return false;
     }
 
