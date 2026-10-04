@@ -76,7 +76,11 @@ final class FormControlClassifier
         return $controls;
     }
 
-    /** Hidden honeypots and aria-hidden traps are not authored fields. */
+    /**
+     * Hidden honeypots, template scaffolding, and accessibility-hidden traps
+     * are not authored fields. aria-hidden outside a native form is closed
+     * overlay render state, not non-authorship.
+     */
     public static function isNonAuthoredControl(DOMElement $control): bool
     {
         if ( 'hidden' === self::controlType($control) ) {
@@ -88,11 +92,18 @@ final class FormControlClassifier
         if ( 'new-password' === strtolower(trim($control->getAttribute('autocomplete'))) ) {
             return true;
         }
+        $insideNativeForm = false;
         for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( in_array(strtolower($parent->tagName), array( 'template', 'script', 'style', 'noscript' ), true) ) {
+                return true;
+            }
             if ( null !== self::sourceSelectAfterCapturedPanel($parent) ) {
                 return true;
             }
-            if ( 'true' === strtolower($parent->getAttribute('aria-hidden')) ) {
+            if ( 'form' === strtolower($parent->tagName) ) {
+                $insideNativeForm = true;
+            }
+            if ( ! $insideNativeForm && 'true' === strtolower(trim($parent->getAttribute('aria-hidden'))) ) {
                 return true;
             }
         }
