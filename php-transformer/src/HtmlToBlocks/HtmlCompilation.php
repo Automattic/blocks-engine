@@ -29,6 +29,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DeadProjecte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceMediaRetentionReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
@@ -1242,6 +1243,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->runtime,
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            },
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->emptyInlineGeometryBlock($element, $fallbacks);
             }
         );
     }
@@ -10025,29 +10029,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @return array{direction: string, duration: float}|null */
     private function authoredMarqueeMotion(DOMElement $element): ?array
     {
-        $cascade = array();
-        $sequence = 0;
-        foreach ( $this->authorStyles()->styleRules() as $rule ) {
-            foreach ( $rule['selectors'] ?? array() as $selector ) {
-                $value = (string) ($selector['selector'] ?? '');
-                if ( '' !== $value && $this->styleResolver->matchesCssSelector($element, $value) ) {
-                    $this->applyAuthoredAnimationCascade(
-                        $cascade,
-                        $rule['declarations'] ?? array(),
-                        CssSelectorMatcher::specificity($selector['parsed'] ?? array()),
-                        $sequence
-                    );
-                    break;
-                }
-            }
-        }
-        $this->applyAuthoredAnimationCascade(
-            $cascade,
-            $this->styleResolver->cssDeclarations($this->attr($element, 'style')),
-            PHP_INT_MAX,
-            $sequence
-        );
-        $declarations = array_map(static fn (array $fact): string => (string) $fact['value'], $cascade);
+        $declarations = $this->cascadedAnimationDeclarations($element);
         $name = trim((string) ($declarations['animation-name'] ?? ''));
         $duration = trim((string) ($declarations['animation-duration'] ?? ''));
         $direction = strtolower(trim((string) ($declarations['animation-direction'] ?? 'normal')));
@@ -10180,6 +10162,285 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return false;
     }
 
+    /** @return array<string, mixed> */
+    private function preservedSourceControlBlock(DOMElement $element): array
+    {
+        return $this->authoredStateButtonBlock($element) ?? $this->htmlPreservationBlock($element);
+    }
+
+    /** @return array<string, mixed>|null */
+    private function authoredStateButtonBlock(DOMElement $element): ?array
+    {
+        if ( 'button' !== strtolower($element->tagName) ) {
+            return null;
+        }
+        if ( array() !== SourceDom::eventMetadata($element) ) {
+            return null;
+        }
+        foreach ( array( 'aria-controls', 'aria-expanded', 'command', 'commandfor', 'formaction', 'popovertarget', 'popovertargetaction' ) as $name ) {
+            if ( $element->hasAttribute($name) ) {
+                return null;
+            }
+        }
+        $svg = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof \DOMText && '' !== trim($child->textContent) ) {
+                return null;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'svg' !== strtolower($child->tagName) || $svg instanceof DOMElement ) {
+                return null;
+            }
+            $svg = $child;
+        }
+        if ( ! $svg instanceof DOMElement ) {
+            return null;
+        }
+        $icon = $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($svg));
+        if ( '' === $icon || ! SourceDom::isSafeSvgContent($icon) || ! SourceDom::isSafeInlineSvgMarkup($icon) ) {
+            return null;
+        }
+        $pressed = strtolower(trim($this->attr($element, 'aria-pressed')));
+        if ( '' !== $pressed && ! in_array($pressed, array( 'true', 'false', 'mixed' ), true) ) {
+            return null;
+        }
+        $sourceAttributes = array();
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->nodeName);
+            if ( 1 === preg_match('/^data-(?!wp-)[a-z0-9_.:-]+$/', $name) ) {
+                $sourceAttributes[] = array( 'name' => $name, 'value' => $attribute->nodeValue ?? '' );
+            }
+        }
+        $generator = new AuthoredButtonBlockGenerator();
+        $registry = $this->generatedBlocks();
+        $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
+        $type = FormControlClassifier::controlType($element);
+        $attrs = array_filter(array(
+            'type' => in_array($type, array( 'button', 'reset', 'submit' ), true) ? $type : 'submit',
+            'id' => $this->attr($element, 'id'),
+            'name' => $this->attr($element, 'name'),
+            'ariaLabel' => $this->attr($element, 'aria-label'),
+            'ariaPressed' => $pressed,
+            'className' => $this->attr($element, 'class'),
+            'style' => $this->attr($element, 'style'),
+            'iconSvg' => $icon,
+            'sourceAttributes' => $sourceAttributes,
+            'disabled' => $element->hasAttribute('disabled'),
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
+        $markup = $generator->markup($attrs);
+
+        return array(
+            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
+    /**
+     * An empty inline tree whose source CSS still generates a line box or flex
+     * track is layout, not text and not a raw HTML island. core/group cannot
+     * keep the source phrasing tags, so the existing layout shell does.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function emptyInlineGeometryBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        if ( $this->hasPaintedSourceText($element) || $this->subtreeHasPaintedPseudo($element) || $this->runtimeIslands->isRuntimeDomTarget($element) ) {
+            return null;
+        }
+        $inner = array();
+        $layout = false;
+        foreach ( $this->elementElementChildren($element) as $child ) {
+            if ( FormControlClassifier::isControlElement($child) ) {
+                $inner[] = $this->preservedSourceControlBlock($child);
+                continue;
+            }
+            if ( ! $this->isEmptyInlineGeometryNode($child) || $this->containsExcludedMedia($child) ) {
+                return null;
+            }
+            $layout = $layout || $this->declaresEmptyInlineLayoutBox($child);
+            $inner[] = $this->emptyInlineGeometryShell($child);
+        }
+        if ( ! $layout || array() === $inner ) {
+            return null;
+        }
+
+        return $this->layoutShellBlockForElements(array( $element ), $inner, $element);
+    }
+
+    private function emptyInlineGeometryShell(DOMElement $element): array
+    {
+        $wrappers = array( $element );
+        $branch = $element;
+        while ( true ) {
+            $children = $this->elementElementChildren($branch);
+            if ( 1 !== count($children) || ! $this->isEmptyInlineGeometryNode($children[0]) ) {
+                break;
+            }
+            $child = $children[0];
+            $wrappers[] = $child;
+            $branch = $child;
+            if ( count($this->elementElementChildren($child)) > 1 ) {
+                break;
+            }
+        }
+        $inner = array();
+        foreach ( $this->elementElementChildren($branch) as $child ) {
+            if ( $child === ($wrappers[array_key_last($wrappers)] ?? null) || ! $this->isEmptyInlineGeometryNode($child) ) {
+                continue;
+            }
+            $inner[] = count($this->elementElementChildren($child)) > 1
+                ? $this->emptyInlineGeometryShell($child)
+                : $this->layoutShellBlockForElements($this->emptyInlineWrapperChain($child), array(), $child);
+        }
+
+        return $this->layoutShellBlockForElements($wrappers, $inner, $element);
+    }
+
+    /**
+     * @return list<DOMElement>
+     */
+    private function emptyInlineWrapperChain(DOMElement $element): array
+    {
+        $chain = array( $element );
+        $cursor = $element;
+        while ( true ) {
+            $children = $this->elementElementChildren($cursor);
+            if ( 1 !== count($children) || ! $this->isEmptyInlineGeometryNode($children[0]) ) {
+                break;
+            }
+            $child = $children[0];
+            if ( '' === trim($this->attr($child, 'class')) && '' === trim($this->attr($child, 'style')) && 0 === $child->childElementCount ) {
+                break;
+            }
+            $chain[] = $child;
+            $cursor = $child;
+        }
+
+        return $chain;
+    }
+
+    /**
+     * @return list<DOMElement>
+     */
+    private function elementElementChildren(DOMElement $element): array
+    {
+        return array_values(array_filter(
+            iterator_to_array($element->childNodes),
+            static fn (mixed $child): bool => $child instanceof DOMElement
+        ));
+    }
+
+    private function isEmptyInlineGeometryNode(DOMElement $element): bool
+    {
+        return $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
+            && ! $this->hasPaintedSourceText($element)
+            && ! $this->containsExcludedMedia($element)
+            && ! $this->runtimeIslands->isRuntimeDomTarget($element);
+    }
+
+    private function hasPaintedSourceText(DOMElement $element): bool
+    {
+        if ( '' !== trim($element->textContent ?? '') ) {
+            return true;
+        }
+        foreach ( $element->getElementsByTagName('*') as $node ) {
+            if ( $node instanceof DOMElement && '' !== trim($this->attr($node, 'data-text')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function subtreeHasPaintedPseudo(DOMElement $element): bool
+    {
+        $nodes = array_merge(array( $element ), $this->descendantElements($element));
+        $classes = array();
+        foreach ( $nodes as $node ) {
+            foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $class ) {
+                if ( '' !== $class ) {
+                    $classes[$class] = true;
+                }
+            }
+        }
+        foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
+            $normalized = strtolower(trim((string) ($rule['declarations']['content'] ?? ''), " \t\"'"));
+            if ( in_array($normalized, array( '', 'none', 'normal', 'open-quote', 'close-quote', 'no-open-quote', 'no-close-quote' ), true) || 1 === preg_match('/^attr\(\s*data-text\s*\)$/', $normalized) ) {
+                continue;
+            }
+            $selector = (string) ($rule['selector'] ?? '');
+            $relevant = false;
+            foreach ( $classes as $class => $_ ) {
+                if ( str_contains($selector, $class) ) {
+                    $relevant = true;
+                    break;
+                }
+            }
+            if ( ! $relevant ) {
+                continue;
+            }
+            foreach ( $nodes as $node ) {
+                if ( $this->styleResolver->matchesCssSelector($node, $selector) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function containsExcludedMedia(DOMElement $element): bool
+    {
+        foreach ( array_merge(array( $element ), $this->descendantElements($element)) as $node ) {
+            $tag = strtolower($node->tagName);
+            if ( in_array($tag, array( 'audio', 'canvas', 'iframe', 'img', 'object', 'picture', 'svg', 'video' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function declaresEmptyInlineLayoutBox(DOMElement $element): bool
+    {
+        $nodes = array( $element );
+        foreach ( $element->getElementsByTagName('*') as $node ) {
+            if ( $node instanceof DOMElement ) {
+                $nodes[] = $node;
+            }
+        }
+        foreach ( $nodes as $node ) {
+            $declared = $this->styleResolver->authorDeclaredValuesAtAnyViewport($node, array( 'display', 'gap', 'column-gap', 'row-gap', 'height', 'min-height', 'overflow', 'overflow-x', 'overflow-y' ));
+            foreach ( $declared['display'] ?? array() as $value ) {
+                if ( in_array(strtolower(trim($value)), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+                    return true;
+                }
+            }
+            foreach ( array( 'gap', 'column-gap', 'row-gap', 'height', 'min-height' ) as $property ) {
+                foreach ( $declared[$property] ?? array() as $value ) {
+                    if ( CssValueInspector::isNonZero($value) || str_contains($value, 'calc(') ) {
+                        return true;
+                    }
+                }
+            }
+            foreach ( array( 'overflow', 'overflow-x', 'overflow-y' ) as $property ) {
+                foreach ( $declared[$property] ?? array() as $value ) {
+                    if ( in_array(strtolower(trim($value)), array( 'clip', 'hidden', 'auto', 'scroll' ), true) ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     /** @return array<string, mixed>|null */
     private function authoredMarqueeBlock(DOMElement $element): ?array
     {
@@ -10192,6 +10453,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         if ( ! $track instanceof DOMElement ) {
             return null;
+        }
+        foreach ( $this->descendantElements($element) as $node ) {
+            if ( FormControlClassifier::isControlElement($node) ) {
+                return null;
+            }
         }
 
         $content = '';
@@ -10237,6 +10503,35 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
+    }
+
+    /** @return array<string, string> */
+    private function cascadedAnimationDeclarations(DOMElement $element): array
+    {
+        $cascade = array();
+        $sequence = 0;
+        foreach ( $this->authorStyles()->styleRules() as $rule ) {
+            foreach ( $rule['selectors'] ?? array() as $selector ) {
+                $value = (string) ($selector['selector'] ?? '');
+                if ( '' !== $value && $this->styleResolver->matchesCssSelector($element, $value) ) {
+                    $this->applyAuthoredAnimationCascade(
+                        $cascade,
+                        $rule['declarations'] ?? array(),
+                        CssSelectorMatcher::specificity($selector['parsed'] ?? array()),
+                        $sequence
+                    );
+                    break;
+                }
+            }
+        }
+        $this->applyAuthoredAnimationCascade(
+            $cascade,
+            $this->styleResolver->cssDeclarations($this->attr($element, 'style')),
+            PHP_INT_MAX,
+            $sequence
+        );
+
+        return array_map(static fn (array $fact): string => (string) $fact['value'], $cascade);
     }
 
     /**

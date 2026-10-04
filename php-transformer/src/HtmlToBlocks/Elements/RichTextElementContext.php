@@ -31,6 +31,7 @@ final class RichTextElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $mixedMediaLinkGroupFromParagraph
      * @param Closure(string): array<int, array<string, mixed>>                                              $convertText
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>>   $convertChildren
+     * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $emptyInlineGeometryBlock
      */
     public function __construct(
         private readonly ElementPresentationResolver $presentationResolver,
@@ -45,7 +46,8 @@ final class RichTextElementContext
         private readonly Closure $mixedMediaLinkGroupFromParagraph,
         private readonly Closure $convertText,
         private readonly Runtime $runtime,
-        private readonly Closure $convertChildren
+        private readonly Closure $convertChildren,
+        private readonly ?Closure $emptyInlineGeometryBlock = null
     ) {
     }
 
@@ -178,5 +180,14 @@ final class RichTextElementContext
     public function convertChildren(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): array
     {
         return ($this->convertChildren)($element, $fallbacks, $captureUnsupported);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    public function emptyInlineGeometryBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        return null === $this->emptyInlineGeometryBlock ? null : ($this->emptyInlineGeometryBlock)($element, $fallbacks);
     }
 }

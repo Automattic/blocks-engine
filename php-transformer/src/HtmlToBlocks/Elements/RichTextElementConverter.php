@@ -148,6 +148,11 @@ final class RichTextElementConverter implements ElementConverter
             $content = $withInlineSvg;
         }
 
+        $emptyLayout = $this->context->emptyInlineGeometryBlock($element, $fallbacks);
+        if ( null !== $emptyLayout ) {
+            return $emptyLayout;
+        }
+
         if ( $this->context->requiresHtmlFallback($content) ) {
             // A paragraph wrapping one anchor that mixes an image with text is
             // not RichText, but the container path already converts that anchor

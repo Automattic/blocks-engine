@@ -142,6 +142,14 @@ $assert($textarea->markup($textareaAttrs) === $saveMarkup($textarea, $textareaAt
 $buttonAttrs = array( 'type' => 'submit', 'text' => 'Send', 'disabled' => true );
 $button      = new AuthoredButtonBlockGenerator();
 $assert($button->markup($buttonAttrs) === $saveMarkup($button, $buttonAttrs), 'authored-button save() already round-trips disabled');
+$stateAttrs = array( 'type' => 'submit', 'ariaLabel' => 'Play Marquee', 'ariaPressed' => 'true', 'className' => 'kgbJ1s', 'iconSvg' => '<svg viewBox="0 0 18 18" width="18" height="18"><path d="M1,1"></path></svg>', 'sourceAttributes' => array( array( 'name' => 'data-dla-responsive-source', 'value' => 'comp-m5b146s3:button:1' ) ) );
+$assert($button->markup($stateAttrs) === $saveMarkup($button, $stateAttrs) && str_contains($button->markup($stateAttrs), 'aria-pressed="true"') && !str_contains($button->markup($stateAttrs), 'onclick'), 'authored-button save() round-trips a static svg state button Gutenberg validates');
+$wrappedIcon = array( 'type' => 'button', 'text' => 'Send', 'iconSvg' => '<svg viewBox="0 0 18 18"><path d="M1,1"></path></svg>', 'labelWrappers' => array( array( 'tagName' => 'span', 'attributes' => array( 'class' => 'label' ) ) ) );
+$wrappedMarkup = $button->markup($wrappedIcon);
+$assert($wrappedMarkup === $saveMarkup($button, $wrappedIcon) && str_contains($wrappedMarkup, '<button type="button"><svg viewBox="0 0 18 18"><path d="M1,1"></path></svg><span class="label">Send</span></button>'), 'an icon stays outside label wrappers in both PHP and editor save');
+$wrappedText = array( 'type' => 'submit', 'text' => 'Send', 'labelWrappers' => array( array( 'tagName' => 'span', 'attributes' => array( 'class' => 'label' ) ) ) );
+$assert('<button type="submit"><span class="label">Send</span></button>' === $button->markup($wrappedText) && $button->markup($wrappedText) === $saveMarkup($button, $wrappedText), 'empty icon leaves the existing label wrapper save unchanged');
+$assert('' === $button->markup(array( 'type' => 'button', 'iconSvg' => '<svg><script>alert(1)</script></svg>' )) || !str_contains($button->markup(array( 'type' => 'button', 'iconSvg' => '<svg><script>alert(1)</script></svg>' )), '<script'), 'unsafe icon markup is rejected by the existing SVG policy');
 
 foreach ( array( $input, $generator, $textarea ) as $fieldGenerator ) {
     $initial = array( 'label' => 'Old label', 'labelMarkup' => '<span>(required)</span>', 'type' => 'text', 'options' => array( array( 'label' => 'Choice', 'value' => 'choice' ) ) );
