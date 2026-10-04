@@ -10172,27 +10172,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function emptyInlineGeometryBlock(DOMElement $element, array &$fallbacks): ?array
     {
-        if ( $this->hasPaintedSourceText($element) || $this->hasPaintedPseudoContent($element) || ! $this->declaresEmptyInlineLayoutBox($element) ) {
+        if ( $this->hasPaintedSourceText($element) || $this->subtreeHasPaintedPseudo($element) || $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             return null;
         }
         $inner = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
+        $layout = false;
+        foreach ( $this->elementElementChildren($element) as $child ) {
+            if ( FormControlClassifier::isControlElement($child) ) {
+                $inner[] = $this->htmlPreservationBlock($child);
                 continue;
             }
-            if ( in_array(strtolower($child->tagName), array( 'button', 'input', 'select', 'textarea' ), true) ) {
-                $converted = $this->convertElement($child, $fallbacks, true);
-                if ( null !== $converted ) {
-                    $inner[] = $converted;
-                }
-                continue;
-            }
-            if ( ! $this->isEmptyInlineGeometryNode($child) ) {
+            if ( ! $this->isEmptyInlineGeometryNode($child) || $this->containsExcludedMedia($child) ) {
                 return null;
             }
+            $layout = $layout || $this->declaresEmptyInlineLayoutBox($child);
             $inner[] = $this->emptyInlineGeometryShell($child);
         }
-        if ( array() === $inner ) {
+        if ( ! $layout || array() === $inner ) {
             return null;
         }
 
@@ -10266,7 +10262,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         return $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
             && ! $this->hasPaintedSourceText($element)
-            && ! $this->hasPaintedPseudoContent($element);
+            && ! $this->containsExcludedMedia($element)
+            && ! $this->runtimeIslands->isRuntimeDomTarget($element);
     }
 
     private function hasPaintedSourceText(DOMElement $element): bool
@@ -10283,24 +10280,49 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return false;
     }
 
-    private function hasPaintedPseudoContent(DOMElement $element): bool
+    private function subtreeHasPaintedPseudo(DOMElement $element): bool
     {
-        $nodes = array( $element );
-        foreach ( $element->getElementsByTagName('*') as $node ) {
-            if ( $node instanceof DOMElement ) {
-                $nodes[] = $node;
+        $nodes = array_merge(array( $element ), $this->descendantElements($element));
+        $classes = array();
+        foreach ( $nodes as $node ) {
+            foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $class ) {
+                if ( '' !== $class ) {
+                    $classes[$class] = true;
+                }
             }
         }
         foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
-            $content = (string) ($rule['declarations']['content'] ?? '');
-            $normalized = strtolower(trim($content, " \t\"'"));
+            $normalized = strtolower(trim((string) ($rule['declarations']['content'] ?? ''), " \t\"'"));
             if ( in_array($normalized, array( '', 'none', 'normal', 'open-quote', 'close-quote', 'no-open-quote', 'no-close-quote' ), true) || 1 === preg_match('/^attr\(\s*data-text\s*\)$/', $normalized) ) {
                 continue;
             }
+            $selector = (string) ($rule['selector'] ?? '');
+            $relevant = false;
+            foreach ( $classes as $class => $_ ) {
+                if ( str_contains($selector, $class) ) {
+                    $relevant = true;
+                    break;
+                }
+            }
+            if ( ! $relevant ) {
+                continue;
+            }
             foreach ( $nodes as $node ) {
-                if ( $this->styleResolver->matchesCssSelector($node, (string) ($rule['selector'] ?? '')) ) {
+                if ( $this->styleResolver->matchesCssSelector($node, $selector) ) {
                     return true;
                 }
+            }
+        }
+
+        return false;
+    }
+
+    private function containsExcludedMedia(DOMElement $element): bool
+    {
+        foreach ( array_merge(array( $element ), $this->descendantElements($element)) as $node ) {
+            $tag = strtolower($node->tagName);
+            if ( in_array($tag, array( 'audio', 'canvas', 'iframe', 'img', 'object', 'picture', 'svg', 'video' ), true) ) {
+                return true;
             }
         }
 
@@ -10353,6 +10375,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         if ( ! $track instanceof DOMElement ) {
             return null;
+        }
+        foreach ( $this->descendantElements($element) as $node ) {
+            if ( FormControlClassifier::isControlElement($node) ) {
+                return null;
+            }
         }
 
         $items = $this->authoredMarqueeMarkedItems($track);

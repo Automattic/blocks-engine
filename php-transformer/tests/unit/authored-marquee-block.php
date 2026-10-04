@@ -120,7 +120,7 @@ $assert(CompanionPluginPayload::SCHEMA === ($payload['schema'] ?? null) && array
 $assert(array_reduce(array_keys($assets), static fn (bool $safe, string $path): bool => $safe && $isSafeCompanionAsset($path, $assets[$path]), true), 'every generated marquee asset passes SSI static path and content constraints');
 $assert(!isset($payloadBlock['render'], $payloadBlock['renderer'], $payloadBlock['block_json']['render']) && !array_filter(array_keys($assets), static fn (string $path): bool => 'php' === strtolower((string) pathinfo($path, PATHINFO_EXTENSION))), 'the generated marquee payload emits no executable PHP asset or renderer');
 
-$marked = '<p class="source-phrase" data-testid="heading-tag"><span class="track" data-marquee-animation="left"><span class="phrase" data-testid="marquee-unit">Scrolling phrase</span><span class="phrase" data-testid="marquee-unit" aria-hidden="true">Scrolling phrase</span></span><button aria-label="Play Marquee"></button></p>';
+$marked = '<p class="source-phrase" data-testid="heading-tag"><span class="track" data-marquee-animation="left"><span class="phrase" data-testid="marquee-unit">Scrolling phrase</span><span class="phrase" data-testid="marquee-unit" aria-hidden="true">Scrolling phrase</span></span></p>';
 $markedCss = '.track[data-marquee-animation=left]{animation-duration:var(--marquee-duration,17s);animation-timing-function:linear;animation-iteration-count:infinite;animation-name:slide}.phrase{font-size:28px;color:#0b0b0b}';
 $markedOptions = array( 'static_css' => $markedCss, 'runtime_dom_selectors' => array( '[data-testid="heading-tag"]' ) );
 $markedResult = ( new HtmlTransformer() )->transform($marked, $markedOptions)->toArray();
@@ -144,6 +144,13 @@ $assert(!in_array('custom/authored-marquee', $emptyLayoutNames, true) && !str_co
 $assert('pass' === ($emptyLayout['source_reports']['wp_block_validity']['status'] ?? null), 'empty layout shell save remains valid');
 $pseudo = ( new HtmlTransformer() )->transform('<p class="painted"><span class="word"></span></p>', array( 'static_css' => '.painted{display:flex;height:2rem}.word::before{content:"Hello"}' ))->toArray();
 $assert(!str_contains((string) ($pseudo['serialized_blocks'] ?? ''), 'layout-shell'), 'painted pseudo content is not lowered as an empty layout shell');
+$filledWithControl = ( new HtmlTransformer() )->transform('<p data-testid="heading-tag"><span data-marquee-animation="left"><span>Scrolling phrase</span></span><button data-testid="marquee-play" aria-label="Play Marquee"></button></p>', array( 'runtime_dom_selectors' => array( '[data-testid="marquee-play"]' ) ))->toArray();
+$filledControlMarkup = (string) ($filledWithControl['serialized_blocks'] ?? '');
+$assert(!str_contains($filledControlMarkup, 'authored-marquee') && str_contains($filledControlMarkup, 'Scrolling phrase') && !str_contains($filledControlMarkup, 'layout-shell'), 'a filled marquee with a control is not admitted as a complete native replacement');
+$paintedSvg = ( new HtmlTransformer() )->transform('<p class="clip"><svg viewBox="0 0 10 10"><text>Hi</text></svg></p>', array( 'static_css' => '.clip{display:flex;height:2rem}' ))->toArray();
+$assert(!str_contains((string) ($paintedSvg['serialized_blocks'] ?? ''), 'layout-shell'), 'a paragraph with painted SVG text is not an empty layout shell');
+$media = ( new HtmlTransformer() )->transform('<p class="clip"><img src="dot.png" alt=""></p>', array( 'static_css' => '.clip{display:flex;height:2rem}' ))->toArray();
+$assert(!str_contains((string) ($media['serialized_blocks'] ?? ''), 'layout-shell'), 'a paragraph with media is not an empty layout shell');
 $interactive = ( new HtmlTransformer() )->transform('<p><button>Filter</button></p>')->toArray();
 $assert(!str_contains((string) ($interactive['serialized_blocks'] ?? ''), 'layout-shell'), 'a control without a source layout box is not claimed as empty geometry');
 $emptyMarked = ( new HtmlTransformer() )->transform('<p class="source-phrase" data-testid="heading-tag"><span class="track" data-marquee-animation="left"><span class="phrase" data-testid="marquee-unit"><span></span></span><span class="phrase" data-testid="marquee-item-text" data-text="" aria-hidden="true"></span></span></p>', array( 'runtime_dom_selectors' => array( '[data-testid="heading-tag"]' ) ))->toArray();
