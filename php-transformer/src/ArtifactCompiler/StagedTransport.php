@@ -567,13 +567,17 @@ trait StagedTransport
         // meaning as inline compilation before ownership partitions are made.
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $capturedDialogsProjection = (new CapturedDialogProjector())->project($normalized['files']);
-        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($capturedDialogsProjection['files']);
+        $collectionsProjection = (new CapturedCollectionProjector())->project($capturedDialogsProjection['files']);
+        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($collectionsProjection['files'], $collectionsProjection['consumed_selectable_bindings'] ?? array());
         $choiceGroupsProjection = (new CapturedChoiceGroupProjector())->project($selectableSetsProjection['files']);
         $scrollStatesProjection = (new ScrollStateProjector())->project($choiceGroupsProjection['files']);
         $capturedDialogs = array(
-            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
+            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $collectionsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
             'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
-            'native_runtime_replacements' => $capturedDialogsProjection['native_runtime_replacements'] ?? array(),
+            'native_runtime_replacements' => array_merge(
+                $capturedDialogsProjection['native_runtime_replacements'] ?? array(),
+                $collectionsProjection['superseded_runtime_scripts'] ?? array()
+            ),
         );
         if (0 < $selectableSetsProjection['projected_count']) {
             $capturedDialogs['projected_selectable_set_count'] = $selectableSetsProjection['projected_count'];

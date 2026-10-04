@@ -114,6 +114,15 @@ final class FallbackEmitter
      * Reset the per-transform custom-block dedup registry. Called once per
      * transform so generated-block names/dedup never leak across documents.
      */
+    private function containsProjectedCollectionControl(DOMElement $element): bool
+    {
+        if ($element->hasAttribute('data-blocks-engine-collection-choice') || $element->hasAttribute('data-blocks-engine-collection-choices')) return true;
+        foreach ($element->getElementsByTagName('*') as $node) {
+            if ($node instanceof DOMElement && ($node->hasAttribute('data-blocks-engine-collection-choice') || $node->hasAttribute('data-blocks-engine-collection-choices'))) return true;
+        }
+        return false;
+    }
+
     public function resetGeneratedBlocks(): void
     {
         $this->generatedBlockNames = array();
@@ -137,6 +146,7 @@ final class FallbackEmitter
      */
     public function maybeGenerateCustomBlock(DOMElement $element, GeneratedBlockRegistry $registry, bool $preserveRoot = false, bool $confirmedComponent = false): ?array
     {
+        if ($this->containsProjectedCollectionControl($element)) return null;
         $result = $this->classifier->classify($element, $this->classificationContext($element));
         if ( ! $confirmedComponent && ! $result->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK) ) {
             return null;

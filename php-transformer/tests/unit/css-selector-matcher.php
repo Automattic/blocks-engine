@@ -23,6 +23,9 @@ $dom->loadHTML('<!doctype html><div id="root"><section class="outer"><p id="one"
 libxml_clear_errors();
 $byId = static fn (string $id): DOMElement => $dom->getElementById($id);
 $match = static fn (string $selector, DOMElement $element, bool $suffix = false): array => CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector), $suffix);
+$assert($match('section > p:nth-of-type(2)', $byId('two'))['matches'], 'structural source selectors count only same-tag siblings');
+$assert($match('section > span:nth-of-type(1)', $byId('target'))['matches'], 'mixed tags and comments do not shift the type index');
+$assert(!$match('section > span:nth-of-type(4)', $byId('target'))['matches'], 'nth-of-type differs from absolute child position');
 
 foreach ( array( 'p.item#one', '*#one' ) as $selector ) {
     $result = $match($selector, $byId('one'));
