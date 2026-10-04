@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
 
 const root = new URL('../../..', import.meta.url).pathname;
-const evidencePath = process.env.BE_2431_EVIDENCE || '/var/folders/lr/c_cmmt7s0592m4njz99v5yb40000gn/T/opencode/be-2431-browser.json';
+const evidencePath = process.env.BE_2431_EVIDENCE || join(tmpdir(), 'be-2431-nested-responsive-font-size.json');
 const widths = [390, 768, 1440];
 const css = [
   '@layer theme, base, components, utilities;',
