@@ -62,7 +62,7 @@ final class ElementConversionPrelude
         private readonly Closure $requiresStandaloneInlineLayoutLeaf,
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $layoutGeometryProofFor,
-        private readonly ?CollectionFilterConverter $collectionFilter = null
+        private readonly ?CapturedCollectionConverter $capturedCollection = null
     ) {
     }
 
@@ -71,10 +71,8 @@ final class ElementConversionPrelude
      */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported): ConversionOutcome
     {
-        if (null !== $this->collectionFilter) {
-            $collection = $this->collectionFilter->convert($element, $tagName, $fallbacks);
-            if ($collection->handled) return $collection;
-        }
+        $collection = $this->capturedCollection?->convert($element, $tagName, $fallbacks);
+        if ($collection?->handled) return $collection;
         $listbox = $this->capturedListbox->convert($element, $tagName, $fallbacks);
         if ( $listbox->handled ) {
             return $listbox;

@@ -19,6 +19,24 @@ array(
 
 `meta`, `links`, and `scripts` are ordered source rows. Their zero-based `order` equals their array index. `placement` is `head` or `body`; `title_declaration` always has `order: 0` and `placement: head`. `source_context` identifies the compiler document that supplied the declarations.
 
+### Native post field handoff
+
+A post's `metadata.excerpt`, when declared, is the complete authored excerpt
+string. Consumers persist it as `post_excerpt`, independently of
+`canonical_block_markup` / `post_content`, including an explicitly empty value.
+They apply normal WordPress slashing at insertion and preserve the entire value.
+Compact listing slots use native `core/post-excerpt` only when their description
+is proven against that post's source declaration; full-content listings retain
+`core/post-content`. The block's length is derived from the complete source
+descriptions, rather than applying the default crop to authored excerpts.
+
+`metadata.post_meta` is an optional map of nonempty string keys to string values.
+Consumers pass the map through native `meta_input` with the same WordPress
+slashing contract. Linked listing metadata uses these post-owned fields through
+native `core/post-meta` block bindings. The generated theme bootstrap registers
+the string fields with REST visibility, so the frontend and Gutenberg read the
+same post-owned value instead of repeating the first card's metadata.
+
 ## Page Routes
 
 Each page has `route.path`, `route.parent_path`, and `route.slug`. The route is derived

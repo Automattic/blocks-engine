@@ -5017,6 +5017,31 @@ $undeclaredCompanionRenderReport = (new \Automattic\BlocksEngine\PhpTransformer\
 );
 $assert('warning' === ($undeclaredCompanionRenderReport['status'] ?? '') && 'runtime_dependency_target_missing' === ($undeclaredCompanionRenderReport['findings'][0]['code'] ?? ''), 'undeclared companion render strings cannot suppress missing-target failures');
 
+$rendererContentMarkup = '<!-- wp:custom/responsive-layout ' . strtr(json_encode(array( 'content' => '<button type="button" data-dla-dialog-close="menu" style="color:red}">Close</button><script data-stripped="1"></script>' ), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), array( '\\\\' => '\\u005c', '--' => '\\u002d\\u002d', '<' => '\\u003c', '>' => '\\u003e', '&' => '\\u0026', '\\"' => '\\u0022' )) . ' /-->';
+$rendererContentScript = 'document.querySelector("[data-dla-dialog-close]").addEventListener("click", function () {}); document.querySelector("[data-stripped]");';
+$rendererContentSource = '<main><button data-dla-dialog-close="menu">Close</button><script data-stripped="1"></script></main>';
+$undeclaredRendererContentReport = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDependencyParityReport())->fromArtifact(
+    array(array('path' => 'js/app.js', 'kind' => 'js', 'content' => $rendererContentScript)),
+    $rendererContentSource,
+    $rendererContentMarkup,
+    'index.html'
+);
+$assert('warning' === ($undeclaredRendererContentReport['status'] ?? '') && in_array('[data-dla-dialog-close]', array_column($undeclaredRendererContentReport['findings'] ?? array(), 'selector'), true), 'renderer content cannot supply a runtime target without a declared content renderer');
+$declaredRendererContentReport = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDependencyParityReport())->fromArtifact(
+    array(array('path' => 'js/app.js', 'kind' => 'js', 'content' => $rendererContentScript)),
+    $rendererContentSource,
+    $rendererContentMarkup,
+    'index.html',
+    array(),
+    array(),
+    array(),
+    array(),
+    array(array('renderer' => 'blocks-engine/responsive-layout/v1', 'block_json' => array('name' => 'custom/responsive-layout')))
+);
+$declaredRendererClose = array_values(array_filter($declaredRendererContentReport['dependencies'] ?? array(), static fn (array $dependency): bool => '[data-dla-dialog-close]' === ($dependency['selector'] ?? '')))[0] ?? array();
+$declaredRendererStripped = array_values(array_filter($declaredRendererContentReport['findings'] ?? array(), static fn (array $finding): bool => '[data-stripped]' === ($finding['selector'] ?? '')));
+$assert(true === ($declaredRendererClose['generated_present'] ?? null) && 'declared_renderer_content' === ($declaredRendererClose['generated_target_evidence'] ?? '') && array() !== $declaredRendererStripped, 'declared responsive-layout content is a live target, and markup the renderer strips is not');
+
 $hamburgerOverlaySite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',

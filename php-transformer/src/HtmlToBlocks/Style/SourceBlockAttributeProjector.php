@@ -103,6 +103,12 @@ final class SourceBlockAttributeProjector
             $context->generatedStyles,
             $facts->preserveGeneratedStyle
         );
+        // This is behavior identity, not an authored styling class. It must
+        // survive the styling resolver's pruning of unused source classes.
+        $collectionMarker = SourceDom::attr($sourceElement, 'data-blocks-engine-collection-item-marker');
+        if (1 === preg_match('/^blocks-engine-collection-item-[a-f0-9]{16}-[0-9]{1,3}$/', $collectionMarker)) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $collectionMarker);
+        }
         if ( 'core/button' === $name
             && $this->buttonLabelHasAuthoredColor($sourceElement, $logicalSourceElement, (string) ($attrs['text'] ?? ''), $sourceElement->getNodePath() ?? '', $logicalSourceElement->getNodePath() ?? '')
         ) {
@@ -398,6 +404,15 @@ final class SourceBlockAttributeProjector
         return 'none' === $this->resolvedTextDecorationLine($anchor, true);
     }
 
+    /** @return array<string,string> */
+    public function syntheticInlineParagraphAttributes(DOMElement $container): array
+    {
+        $anchors = $container->getElementsByTagName('a');
+        if (0 === $anchors->length) return array();
+        foreach ($anchors as $anchor) if (!$anchor instanceof DOMElement || !$this->sourceAnchorHasNoTextDecoration($anchor)) return array();
+        return array('className' => self::SYNTHETIC_PARAGRAPH_CLASS . ' ' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
+    }
+
     /**
      * Resolves the computed `text-decoration-line` an element's authored
      * cascade produces, following an explicit `inherit` keyword up the
@@ -426,7 +441,9 @@ final class SourceBlockAttributeProjector
     private function resolvedTextDecorationLine(DOMElement $element, bool $isLeaf): string
     {
         $declared = null;
-        foreach ( $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($element)) as $property => $value ) {
+        // Decoration determines the generated anchor carrier, even for an
+        // otherwise ordinary link that the presentation fast path skips.
+        foreach ( $this->styleResolver->matchedCascadedDeclarations($element) as $property => $value ) {
             if ( 'text-decoration' === $property || 'text-decoration-line' === $property ) {
                 $declared = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue($value));
             }

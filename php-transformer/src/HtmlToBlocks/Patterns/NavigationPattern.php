@@ -524,7 +524,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             ) {
                 // Chrome that scripts drive at runtime is not decoration: a
                 // carrier group would drop it, so keep the source shape.
-                if ( $navigationContext?->isRuntimeDomTarget($child) ) {
+                if ( $navigationContext?->isRuntimeDomTarget($child) || $this->containsDialogCloseTarget($child) ) {
                     return null;
                 }
                 continue;
@@ -1569,6 +1569,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             if ( $child instanceof DOMElement && $this->isNavigationChromeElement($child) ) {
+                if ( $this->containsDialogCloseTarget($child) ) {
+                    $blocks[] = $createBlock('core/html', array('content' => SourceDom::outerHtml($child)), array(), $child);
+                    continue;
+                }
                 if ( $navigationContext?->isRuntimeDomTarget($child)
                     && ! $this->isInertOverlayNavigationChrome($child)
                     && ! $hasListBackedMenu ) {
@@ -2597,6 +2601,15 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
+        return false;
+    }
+
+    private function containsDialogCloseTarget(DOMElement $element): bool
+    {
+        if ($element->hasAttribute('data-dla-dialog-close')) return true;
+        foreach ($element->getElementsByTagName('*') as $node) {
+            if ($node instanceof DOMElement && $node->hasAttribute('data-dla-dialog-close')) return true;
+        }
         return false;
     }
 
