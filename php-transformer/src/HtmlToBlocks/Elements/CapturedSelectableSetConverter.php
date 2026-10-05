@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedSelectableSetProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -14,16 +15,20 @@ final class CapturedSelectableSetConverter implements ElementConverter
 {
     public const VISUALLY_HIDDEN_TABLIST_CLASS = 'blocks-engine-tablist-visually-hidden';
     public const TABLIST_ROW_ATTRIBUTE = 'data-blocks-engine-tablist-row';
+    public const FLOW_CLASS = 'blocks-engine-tabs-flow';
+    public const FLOW_LIST_LAST_CLASS = 'blocks-engine-tabs-flow-list-last';
 
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
      * @param Closure(): string $visuallyHiddenClassName
+     * @param Closure(bool): string $flowClassName Registers and returns the class that lets the tab-list and tab-panels lay out as the source's trigger row and region did.
      */
     public function __construct(
         private readonly SourceBlockCreator $createBlock,
         private readonly ElementPresentationResolver $presentation,
         private readonly Closure $convertChildren,
-        private readonly Closure $visuallyHiddenClassName
+        private readonly Closure $visuallyHiddenClassName,
+        private readonly Closure $flowClassName
     ) {
     }
 
@@ -31,6 +36,21 @@ final class CapturedSelectableSetConverter implements ElementConverter
     {
         return '.' . $className . '{border:0;clip:rect(0,0,0,0);clip-path:inset(50%);height:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;white-space:nowrap;width:1px}'
             . '.editor-styles-wrapper .' . $className . ',.block-editor-iframe__body .' . $className . '{clip:auto;clip-path:none;height:auto;margin:0;overflow:visible;position:static;white-space:normal;width:auto}';
+    }
+
+    /**
+     * Neither wrapper box existed in the source: the tabs block stands in for
+     * a region that was a sibling of the trigger row, so its two children
+     * must stay direct layout children of the shared parent.
+     */
+    public static function flowCss(string $className = self::FLOW_CLASS): string
+    {
+        return '.' . $className . '{display:contents}';
+    }
+
+    public static function flowListLastCss(string $className = self::FLOW_LIST_LAST_CLASS): string
+    {
+        return '.' . self::FLOW_CLASS . '.' . $className . '>.wp-block-tab-list{order:1}';
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
@@ -139,7 +159,17 @@ final class CapturedSelectableSetConverter implements ElementConverter
             }
         }
 
-        return $this->createBlock->createBlock('core/tabs', array(), array(
+        $tabsAttributes = array();
+        $active = (int) SourceDom::attr($element, CapturedSelectableSetProjector::ACTIVE_TAB_ATTRIBUTE);
+        if ($active > 0 && $active < count($panelBlocks)) {
+            $tabsAttributes['activeTabIndex'] = $active;
+        }
+        $flow = SourceDom::attr($element, CapturedSelectableSetProjector::FLOW_ATTRIBUTE);
+        if (in_array($flow, array(CapturedSelectableSetProjector::FLOW_INLINE, CapturedSelectableSetProjector::FLOW_LIST_LAST), true) && ! $hidden) {
+            $tabsAttributes['className'] = trim(($this->flowClassName)(CapturedSelectableSetProjector::FLOW_LIST_LAST === $flow));
+        }
+
+        return $this->createBlock->createBlock('core/tabs', $tabsAttributes, array(
             $this->createBlock->createBlock('core/tab-list', $tabListAttributes, array(), $tabListSource),
             $this->createBlock->createBlock('core/tab-panels', array(), $panelBlocks),
         ));

@@ -5972,6 +5972,48 @@ $assert(! str_contains($triggerRowMarkup, '<!-- wp:button'), 'the source trigger
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($triggerRowSelectableSet['blocks'] ?? array()), 'trigger-row selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($triggerRowSelectableSet['blocks'] ?? array())['status'] ?? ''), 'trigger-row selectable-set tabs remain Gutenberg-valid');
 
+$sideBySideActive = '<div class="panel"><h2>Gamma</h2><p>Gamma specification details</p></div>';
+$sideBySideTrigger = static fn(int $index, string $label, string $html, int $size): array => array(
+    'status' => 'captured',
+    'kind' => 'selectable-set',
+    'trigger' => array('selector' => 'body > main > div > ul > li:nth-of-type(' . ($index + 1) . ') > button', 'tag' => 'button', 'label' => $label, 'ariaHaspopup' => '', 'dataBindings' => array()),
+    'dialog' => array('selector' => 'body > main > div > div:nth-of-type(1)', 'tag' => 'div', 'html' => $html, 'htmlBytes' => strlen($html), 'htmlTruncated' => false),
+    'set' => array('selector' => 'body > main > div > ul', 'size' => $size, 'index' => $index),
+);
+// The source lays a detail region and a trigger list side by side in one grid; the
+// last member is the one active at load, so capture never clicked it.
+$sideBySideSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Side By Side Selectable Set Site', 'slug' => 'captured-side-by-side-selectable-set-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><div class="split" style="display:grid;grid-template-columns:1fr 1fr"><div>' . $sideBySideActive . '</div><ul><li><button type="button"><span>0<!---->1</span><span>Alpha</span></button></li><li><button type="button"><span>0<!---->2</span><span>Beta</span></button></li><li><button type="button"><span>0<!---->3</span><span>Gamma</span></button></li></ul></div></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(
+                    $sideBySideTrigger(0, '01Alpha', $selectableAlpha, 3),
+                    $sideBySideTrigger(1, '02Beta', $selectableBeta, 3),
+                ),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$sideBySideMarkup = (string) ($sideBySideSelectableSet['serialized_blocks'] ?? '');
+$assert(1 === preg_match('/"label":"03 Gamma"/', $sideBySideMarkup) && str_contains($sideBySideMarkup, 'Gamma specification details'), 'the member active at load keeps its content as an editable tab even though capture never clicked it');
+$assert(str_contains($sideBySideMarkup, '"label":"01 Alpha"') && ! str_contains($sideBySideMarkup, '0 1'), 'a label split by hydration comment nodes reads as one word');
+$assert(1 === preg_match('/<!-- wp:tabs \{[^}]*"activeTabIndex":2/', $sideBySideMarkup), 'the tabs block opens on the member that was active in the source');
+$assert(1 === preg_match('/<!-- wp:tabs \{[^}]*"className":"blocks-engine-tabs-flow blocks-engine-tabs-flow-list-last"/', $sideBySideMarkup), 'tabs that replaced a sibling region and trigger row add no layout box of their own');
+$sideBySideCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $sideBySideSelectableSet['assets'] ?? array()));
+$assert(str_contains($sideBySideCss, '.blocks-engine-tabs-flow{display:contents}'), 'the flow class dissolves the tabs wrapper box');
+$assert(str_contains($sideBySideCss, '.blocks-engine-tabs-flow.blocks-engine-tabs-flow-list-last>.wp-block-tab-list{order:1}'), 'a list that followed its region in the source keeps that order');
+$assert(array() === (new CanonicalSaveShapeValidator())->findings($sideBySideSelectableSet['blocks'] ?? array()), 'side-by-side selectable-set tabs retain a canonical save shape');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($sideBySideSelectableSet['blocks'] ?? array())['status'] ?? ''), 'side-by-side selectable-set tabs remain Gutenberg-valid');
+
 $regionLayoutSelectableSet = $compiler->compile(array(
     'site' => array('name' => 'Captured Region Layout Selectable Set Site', 'slug' => 'captured-region-layout-selectable-set-site'),
     'entrypoint' => 'website/index.html',

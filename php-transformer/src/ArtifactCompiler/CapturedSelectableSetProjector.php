@@ -15,6 +15,10 @@ final class CapturedSelectableSetProjector
     private const REPORT_SCHEMA = 'data-liberation/captured-interactions/v1';
     private const RECEIPT_SCHEMA = 'data-liberation/capture-receipt/v1';
     private const KIND = 'selectable-set';
+    public const ACTIVE_TAB_ATTRIBUTE = 'data-blocks-engine-active-tab';
+    public const FLOW_ATTRIBUTE = 'data-blocks-engine-tabs-flow';
+    public const FLOW_INLINE = 'inline';
+    public const FLOW_LIST_LAST = 'list-last';
     private const MAX_PAGES = 128;
     private const MAX_SETS_PER_PAGE = 8;
     private const MAX_MEMBERS_PER_SET = 32;
@@ -122,9 +126,16 @@ final class CapturedSelectableSetProjector
         $sets = array();
         $statusCounts = array('captured' => 0, 'click-failed' => 0, 'no-dialog' => 0);
         $recorded = 0;
+        // Per set: every member index capture reported on (any status) and the declared size.
+        $probed = array();
         foreach ($states as $state) {
             if (! is_array($state) || self::KIND !== ($state['kind'] ?? null)) {
                 continue;
+            }
+            if (is_array($state['set'] ?? null) && is_string($state['set']['selector'] ?? null) && is_int($state['set']['index'] ?? null)) {
+                $probedSelector = trim($state['set']['selector']);
+                $probed[$probedSelector]['size'] = is_int($state['set']['size'] ?? null) ? $state['set']['size'] : 0;
+                $probed[$probedSelector]['indexes'][$state['set']['index']] = true;
             }
             $status = is_string($state['status'] ?? null) ? $state['status'] : '';
             ++$recorded;
@@ -165,6 +176,7 @@ final class CapturedSelectableSetProjector
                 continue;
             }
             $sets[$setSelector]['members'][$index] = array(
+                'index' => $index,
                 'label' => $this->memberLabel($state, $index),
                 'html' => $sanitized,
                 'tag' => is_string($state['trigger']['tag'] ?? null) ? strtolower($state['trigger']['tag']) : '',
@@ -215,6 +227,8 @@ final class CapturedSelectableSetProjector
                 continue;
             }
             $set['members'] = $members;
+            $set['size'] = (int) ($probed[$key]['size'] ?? 0);
+            $set['probed'] = array_keys($probed[$key]['indexes'] ?? array());
             $bounded[$key] = $set;
         }
 
@@ -270,7 +284,8 @@ final class CapturedSelectableSetProjector
                 }
                 $rowIdentity = $identity . '-' . ($scopeIndex + 1);
                 $triggerRow = $hideTabList ? null : $this->triggerRowForRegion($region, $members, $set['selector']);
-                $this->fillRegion($document, $region, $members, $rowIdentity, $hideTabList, $triggerRow);
+                $regionMembers = $this->withInitialMember($document, $region, $set, $members);
+                $this->fillRegion($document, $region, $regionMembers['members'], $rowIdentity, $hideTabList, $triggerRow, $regionMembers['active']);
                 $applied = true;
             }
             if ($applied) ++$projected;
@@ -284,7 +299,7 @@ final class CapturedSelectableSetProjector
     /**
      * @param array<int, array{label:string, html:string, tag:string, selector:string}> $members
      */
-    private function fillRegion(DOMDocument $document, DOMElement $region, array $members, string $identity, bool $hideTabList, ?DOMElement $triggerRow): void
+    private function fillRegion(DOMDocument $document, DOMElement $region, array $members, string $identity, bool $hideTabList, ?DOMElement $triggerRow, int $active = 0): void
     {
         $rowClass = $triggerRow instanceof DOMElement ? trim($triggerRow->getAttribute('class')) : '';
         $rowStyle = $triggerRow instanceof DOMElement ? trim($triggerRow->getAttribute('style')) : '';
@@ -293,6 +308,13 @@ final class CapturedSelectableSetProjector
         }
         $region->setAttribute('data-blocks-engine-captured-selectable-set', 'true');
         $region->setAttribute('data-tabs', '');
+        if ($active > 0) {
+            $region->setAttribute(self::ACTIVE_TAB_ATTRIBUTE, (string) $active);
+        }
+        $flow = $triggerRow instanceof DOMElement ? $this->flowWithTriggerRow($region, $triggerRow) : '';
+        if ('' !== $flow) {
+            $region->setAttribute(self::FLOW_ATTRIBUTE, $flow);
+        }
         $tabList = $document->createElement('div');
         $tabList->setAttribute('role', 'tablist');
         $tabList->setAttribute('aria-label', 'Items');
@@ -318,7 +340,7 @@ final class CapturedSelectableSetProjector
             $button->setAttribute('role', 'tab');
             $button->setAttribute('id', $tabId);
             $button->setAttribute('aria-controls', $panelId);
-            $button->setAttribute('aria-selected', 0 === $index ? 'true' : 'false');
+            $button->setAttribute('aria-selected', $active === $index ? 'true' : 'false');
             $button->appendChild($document->createTextNode($member['label']));
             $tabList->appendChild($button);
         }
@@ -371,6 +393,96 @@ final class CapturedSelectableSetProjector
             return true;
         }
         return false;
+    }
+
+    /**
+     * The tabs wrapper stands in for the shared region, and the tab-list stands
+     * in for the trigger row. When the two were siblings, the wrapper must not
+     * add a box between them and their parent, or the parent's grid/flex layout
+     * would see one child where the source had two.
+     */
+    private function flowWithTriggerRow(DOMElement $region, DOMElement $triggerRow): string
+    {
+        $parent = $region->parentNode;
+        if (! $parent instanceof DOMElement || ! $triggerRow->parentNode instanceof DOMElement || ! $parent->isSameNode($triggerRow->parentNode)) {
+            return '';
+        }
+        $children = array();
+        foreach ($parent->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $children[] = $child;
+            }
+        }
+        if (2 !== count($children)) {
+            return self::FLOW_INLINE;
+        }
+
+        return $children[0]->isSameNode($region) ? self::FLOW_LIST_LAST : self::FLOW_INLINE;
+    }
+
+    /**
+     * Capture does not click the member that is already active, so its state
+     * is the region's own initial content. When exactly one member of a set
+     * was never probed, that member is the initially active one: keep it as
+     * a tab rather than losing the default content.
+     *
+     * @param array{selector:string, size?:int, probed?:array<int, int>} $set
+     * @param array<int, array{index?:int, label:string, html:string, tag:string, selector:string}> $members
+     * @return array{members:array<int, array{index?:int, label:string, html:string, tag:string, selector:string}>, active:int}
+     */
+    private function withInitialMember(DOMDocument $document, DOMElement $region, array $set, array $members): array
+    {
+        $unchanged = array('members' => $members, 'active' => 0);
+        $size = (int) ($set['size'] ?? 0);
+        if ($size < 2 || $size > self::MAX_MEMBERS_PER_SET) {
+            return $unchanged;
+        }
+        $missing = array_values(array_diff(range(0, $size - 1), (array) ($set['probed'] ?? array())));
+        if (1 !== count($missing)) {
+            return $unchanged;
+        }
+        $label = $this->setMemberLabel($document, $region, $set['selector'], $missing[0]);
+        $html = $document->saveHTML($region);
+        $html = is_string($html) ? $this->safeRegionHtml($html) : null;
+        if ('' === $label || null === $html || '' === trim($html) || strlen($html) > self::MAX_REGION_BYTES) {
+            return $unchanged;
+        }
+        $members[] = array('index' => $missing[0], 'label' => $label, 'html' => $html, 'tag' => '', 'selector' => '');
+        usort($members, static fn(array $a, array $b): int => ($a['index'] ?? 0) <=> ($b['index'] ?? 0));
+        foreach ($members as $position => $member) {
+            if ($missing[0] === ($member['index'] ?? null)) {
+                return array('members' => $members, 'active' => $position);
+            }
+        }
+
+        return $unchanged;
+    }
+
+    private function setMemberLabel(DOMDocument $document, DOMElement $region, string $setSelector, int $index): string
+    {
+        $matched = $this->selectorMatches($this->scopeRoot($region), $setSelector);
+        if (1 !== count($matched)) {
+            return '';
+        }
+        $position = 0;
+        foreach ($matched[0]->childNodes as $child) {
+            if (! $child instanceof DOMElement) {
+                continue;
+            }
+            if ($position++ !== $index) {
+                continue;
+            }
+            foreach (array('button', 'a') as $tag) {
+                $trigger = $child->getElementsByTagName($tag)->item(0);
+                if ($trigger instanceof DOMElement) {
+                    return $this->labelFromTriggerElement($trigger);
+                }
+            }
+
+            return $this->labelFromTriggerElement($child);
+        }
+
+        return '';
     }
 
     private function insideNativeCollection(DOMElement $region): bool
@@ -556,8 +668,19 @@ final class CapturedSelectableSetProjector
     private function labelParts(DOMElement $element): array
     {
         $parts = array();
+        // Text split by comment nodes (framework hydration markers) is one run,
+        // not separate words.
+        $run = '';
+        $flush = static function () use (&$parts, &$run): void {
+            $text = trim(preg_replace('/\s+/', ' ', $run) ?? '');
+            if ('' !== $text) {
+                $parts[] = $text;
+            }
+            $run = '';
+        };
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) {
+                $flush();
                 if (in_array(strtolower($child->tagName), array('script', 'style', 'desc'), true)) {
                     continue;
                 }
@@ -565,12 +688,10 @@ final class CapturedSelectableSetProjector
                 continue;
             }
             if (XML_TEXT_NODE === $child->nodeType) {
-                $text = trim(preg_replace('/\s+/', ' ', $child->textContent ?? '') ?? '');
-                if ('' !== $text) {
-                    $parts[] = $text;
-                }
+                $run .= $child->textContent ?? '';
             }
         }
+        $flush();
 
         return $parts;
     }
