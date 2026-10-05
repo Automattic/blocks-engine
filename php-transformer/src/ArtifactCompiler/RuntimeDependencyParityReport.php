@@ -535,7 +535,9 @@ final class RuntimeDependencyParityReport
     private function normalizedTargetSelector(string $target): string
     {
         $target = trim($target);
-        if ( 1 === preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*$/', $target) ) {
+        // `[data-attr]` presence selectors are included: capture-owned runtimes
+        // address absorbed panels by attribute.
+        if ( 1 === preg_match('/^(?:[#.][A-Za-z][A-Za-z0-9_-]*|\[data-[a-z0-9_-]+\])$/', $target) ) {
             return $target;
         }
 

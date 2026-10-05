@@ -69,7 +69,7 @@ final class NavigationToggleSuppressor
         }
 
         foreach ( $root->getElementsByTagName('*') as $control ) {
-            if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) || $this->isInsideNativeDisclosurePanel($control) ) {
+            if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) || $this->isBoundCapturedDialogTrigger($control) || $this->isInsideNativeDisclosurePanel($control) ) {
                 continue;
             }
             if ( ! $this->isHamburgerMenuToggleControl($control) && ! $this->isProjectableHashAnchorMenuToggle($control) ) {
@@ -439,7 +439,7 @@ final class NavigationToggleSuppressor
      */
     public function isRedundantMenuToggleControl(DOMElement $element): bool
     {
-        if ( $this->isCapturedDialogControl($element) ) {
+        if ( $this->isCapturedDialogControl($element) || $this->isBoundCapturedDialogTrigger($element) ) {
             return false;
         }
 
@@ -546,6 +546,16 @@ final class NavigationToggleSuppressor
         }
 
         return false;
+    }
+
+    /**
+     * A control bound to a projected native dialog (`data-blocks-engine-triggers`
+     * names its id) owns that dialog; it is the dialog's opener, not redundant
+     * hamburger chrome a rebuilt navigation overlay supersedes.
+     */
+    private function isBoundCapturedDialogTrigger(DOMElement $element): bool
+    {
+        return SourceDom::isBoundCapturedDialogTrigger($element);
     }
 
     /** A native disclosure with a captured dialog has its own preservation path. */
@@ -1161,6 +1171,7 @@ final class NavigationToggleSuppressor
         foreach ( $document->getElementsByTagName('*') as $toggle ) {
             if ( ! $toggle instanceof DOMElement
                 || $this->isCapturedDialogControl($toggle)
+                || $this->isBoundCapturedDialogTrigger($toggle)
                 || ( ! $this->isHamburgerMenuToggleControl($toggle) && ! $this->isProjectableHashAnchorMenuToggle($toggle) )
             ) {
                 continue;
