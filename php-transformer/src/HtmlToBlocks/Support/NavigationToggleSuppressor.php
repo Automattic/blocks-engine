@@ -786,6 +786,16 @@ final class NavigationToggleSuppressor
             return true;
         }
 
+        // Icon-bars shape drawn as a character: the control's only visible
+        // content is the hamburger glyph itself (☰, or its ≡ stand-in). Sites
+        // without an icon font or SVG set type the three bars as text, so
+        // the control reads as "labelled" although nothing on screen is a
+        // word. It is the same icon the empty-span stack paints, with the
+        // same JS-only behavior the importer cannot carry.
+        if ( $this->isHamburgerGlyphControl($element) ) {
+            return true;
+        }
+
         // Named-icon shape: a labelless control whose accessible name — its
         // aria-label/title, or the text it hides visually (an off-screen
         // "Menu" behind a CSS-drawn glyph) — names a menu.
@@ -1031,9 +1041,36 @@ final class NavigationToggleSuppressor
     }
 
     /**
+     * Whether the control's only visible content is the hamburger glyph: the
+     * three bars typed as a character instead of drawn with spans or SVG.
+     * An image beside it, a word beside it, or a different symbol (a kebab
+     * "more" control, an ellipsis, a plus) is never matched.
+     */
+    private function isHamburgerGlyphControl(DOMElement $element): bool
+    {
+        return 0 === $element->getElementsByTagName('img')->length
+            && $this->isMenuGlyph($this->visibleMenuToggleTextContent($element));
+    }
+
+    /**
+     * Whether a text run is nothing but one pictographic menu glyph:
+     * U+2630 TRIGRAM FOR HEAVEN (☰), the hamburger as a character, or
+     * U+2261 IDENTICAL TO (≡), the stand-in used where ☰ lacked font
+     * coverage. An optional variation selector and surrounding whitespace
+     * (including no-break spaces) are allowed. Other symbols are not menu
+     * glyphs: ⋮ and … open "more"/overflow actions, and a repeated or
+     * mixed run is a label, not an icon.
+     */
+    private function isMenuGlyph(string $text): bool
+    {
+        return 1 === preg_match('/^[\s\p{Z}]*[\x{2630}\x{2261}][\x{FE0E}\x{FE0F}]?[\s\p{Z}]*$/u', $text);
+    }
+
+    /**
      * Visible text label of a control with decorative chrome (icons, empty
-     * hamburger bars) and source-hidden descendants stripped. Empty means the
-     * control shows no text label; accessible names remain separate semantics.
+     * hamburger bars, the hamburger glyph) and source-hidden descendants
+     * stripped. Empty means the control shows no text label; accessible
+     * names remain separate semantics.
      */
     private function visibleMenuToggleLabel(DOMElement $element): string
     {
@@ -1041,12 +1078,20 @@ final class NavigationToggleSuppressor
             return '';
         }
 
-        $label = '';
+        $label = $this->visibleMenuToggleTextContent($element);
+
+        return $this->isMenuGlyph($label) ? '' : $label;
+    }
+
+    /** The control's visible text, before deciding whether it is a label or an icon. */
+    private function visibleMenuToggleTextContent(DOMElement $element): string
+    {
+        $text = '';
         foreach ( $element->childNodes as $child ) {
-            $label .= $this->visibleMenuToggleText($child);
+            $text .= $this->visibleMenuToggleText($child);
         }
 
-        return trim($label);
+        return trim($text);
     }
 
     private function visibleMenuToggleText(DOMNode $node): string
