@@ -26,7 +26,7 @@ $header = '<header class="top"><nav class="bar"><a href="#top" class="logo"><spa
 
 $markup = (string) ( ( new HtmlTransformer() )->transform($header)->toArray()['serialized_blocks'] ?? '' );
 $assert(1 === substr_count($markup, '<!-- wp:navigation '), 'the header menu is one core/navigation', $markup);
-$assert(1 === preg_match('/<!-- wp:navigation-submenu \{"label":"Shop","kind":"custom"\}/', $markup), 'a button with a dropdown panel becomes a submenu with no url', $markup);
+$assert(1 === preg_match('/<!-- wp:navigation-submenu \{[^}]*"label":"Shop","kind":"custom"\}/', $markup), 'a button with a dropdown panel becomes a submenu with no url', $markup);
 $assert(2 === preg_match_all('/<!-- wp:navigation-link \{[^}]*"label":"(?:New in|Sale)","url":"#(?:new|sale)"/', $markup), 'the panel links become navigation links inside the submenu', $markup);
 $assert(! str_contains($markup, 'wp:details') && ! str_contains($markup, 'data-dla-dialog-panel'), 'the panel is not kept as a disclosure or a leftover wired panel', $markup);
 
@@ -36,7 +36,7 @@ $mixed = '<style>.row{display:flex;gap:28px}.end{display:flex}</style><header><n
     . $item('shop', 'Shop', '<a href="#new">New in</a><a href="#sale">Sale</a>')
     . '</div><div class="end"><a href="#join">Join</a><div class="icons"><a href="https://example.test/x" aria-label="X"></a></div></div></nav></header>';
 $mixedMarkup = (string) ( ( new HtmlTransformer() )->transform($mixed)->toArray()['serialized_blocks'] ?? '' );
-$assert(1 === preg_match('/<!-- wp:navigation-submenu \{"label":"Shop","kind":"custom"\}/', $mixedMarkup) && ! str_contains($mixedMarkup, 'wp:details'), 'the menu row converts even beside a call to action and icon links', $mixedMarkup);
+$assert(1 === preg_match('/<!-- wp:navigation-submenu \{[^}]*"label":"Shop","kind":"custom"\}/', $mixedMarkup) && ! str_contains($mixedMarkup, 'wp:details'), 'the menu row converts even beside a call to action and icon links', $mixedMarkup);
 
 // A button that opens a dialog (not a menu of links) is not a submenu.
 $dialogItem = '<div class="item"><button type="button" aria-haspopup="dialog" aria-controls="p-d" aria-expanded="false" data-dla-dialog-trigger="p-d">Contact</button>'

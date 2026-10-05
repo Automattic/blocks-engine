@@ -1790,7 +1790,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( array() !== $children ) {
                 // A button has no destination of its own, so the submenu has no url
                 // and core opens it on activation.
-                return $createBlock('core/navigation-submenu', array( 'label' => $buttonMenu['label'], 'kind' => 'custom' ), $children, $element);
+                $attrs = $this->navigationItemAttributes($element, $buttonMenu['button'], $buttonMenu['cluster'], array( 'label' => $buttonMenu['label'], 'kind' => 'custom' ), $presentationAttributes, $navigationContext);
+                return $createBlock('core/navigation-submenu', $attrs, $children, $element);
             }
         }
 
@@ -2666,7 +2667,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * and `data-dla-dialog-panel`). The panel may wrap its links in single
      * plain wrappers; the links themselves must be the whole content.
      *
-     * @return array{label:string, cluster:DOMElement}|null
+     * @return array{label:string, cluster:DOMElement, button:DOMElement}|null
      */
     public static function buttonDropdownItemParts(DOMElement $element): ?array
     {
@@ -2718,7 +2719,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                         return null;
                     }
                 }
-                return array( 'label' => $label, 'cluster' => $cluster );
+                return array( 'label' => $label, 'cluster' => $cluster, 'button' => $button );
             }
             if ( 1 !== count($elements) || ! in_array(strtolower($elements[0]->tagName), array( 'div', 'span' ), true) ) {
                 return null;
@@ -2740,7 +2741,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         return false;
     }
 
-    /** @return array{label:string, cluster:DOMElement}|null */
+    /** @return array{label:string, cluster:DOMElement, button:DOMElement}|null */
     private function buttonDropdownItem(DOMElement $element): ?array
     {
         return self::buttonDropdownItemParts($element);
