@@ -1475,11 +1475,18 @@ final class AuthorStylesheetProjector
             $richTextLeaves = array();
             $inlineLayoutCarriers = false;
             $addressableInlineCarriers = false;
+            $navigationItemAnchors = false;
+            $structuralSubject = $this->hasStructuralSubject($parsed);
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
                 if ( $this->isPreservedCodeSyntaxElement($element) ) {
                     $hasNonProjected = true;
+                } elseif ( $structuralSubject && $context->selectorProjections->isNavigationItemAnchorPath($path) ) {
+                    // core/navigation re-parents this anchor into a list item
+                    // of its own, so the subject's sibling position is the
+                    // item's now, not the anchor's.
+                    $navigationItemAnchors = true;
                 } elseif ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
                     // Structured card lowering unwraps the fragment and hoists
                     // its styling hook onto the paragraph it emits, so the class
@@ -1508,8 +1515,13 @@ final class AuthorStylesheetProjector
             $controls = array_values(array_unique($controls));
             $semanticLeaves = array_values(array_unique($semanticLeaves));
             $richTextLeaves = array_values(array_unique($richTextLeaves));
+            if ( $navigationItemAnchors ) {
+                $rewritten[] = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context);
+            }
             if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves && ! $inlineLayoutCarriers ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+                if ( $hasNonProjected || ! $navigationItemAnchors ) {
+                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+                }
                 continue;
             }
             $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
@@ -2049,10 +2061,14 @@ final class AuthorStylesheetProjector
         return implode(';', $bridge);
     }
 
-    /** @param array<string, mixed> $parsed */
-    private function rewriteSourceTagTypes(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, string $rightmostInsertion = ''): string
+    /**
+     * @param array<string, mixed> $parsed
+     * @param array<int, array{end: int, value: string}> $replacements Further
+     *        span replacements, keyed by start offset, that must not overlap a
+     *        rewritten type span.
+     */
+    private function rewriteSourceTagTypes(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, string $rightmostInsertion = '', array $replacements = array()): string
     {
-        $replacements = array();
         foreach ( $parsed['type_spans'] as $typeSpan ) {
             $marker = $context->selectorProjections->tagMarker((string) $typeSpan['name']);
             if ( '' !== $marker ) {
@@ -2291,6 +2307,130 @@ final class AuthorStylesheetProjector
                 . str_repeat(':not(#' . $context->authorStyles->idSpecificityShim() . ')', $listSpecificity['ids']);
         }
         return $shims;
+    }
+
+    /**
+     * core/navigation renders a direct source anchor inside a list item of its
+     * own, so every rendered anchor is the only child of its item. A structural
+     * pseudo-class authored on that anchor (`nav a:last-child`) then describes
+     * the item's position among its siblings, not the anchor's, and would reach
+     * every link. Move it onto a zero-specificity item wrapper, and address the
+     * anchor through the class core hard-codes on it (with the type specificity
+     * shim, as for every other projected type), so the projected rule selects
+     * the same links with the authored specificity. The `>` it introduces is a
+     * relationship inside one block, which the editor shell variants skip for a
+     * `:where(.wp-block-…)` child.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function projectNavigationItemAnchorSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): string
+    {
+        $span = $parsed['rightmost_compound_span'] ?? null;
+        if ( ! is_array($span) ) {
+            return $this->rewriteSourceTagTypes($selector, $parsed, $context);
+        }
+        $start = (int) $span['start'];
+        $end = (int) $span['end'];
+        $type = null;
+        foreach ( $parsed['type_spans'] as $typeSpan ) {
+            if ( (int) $typeSpan['start'] >= $start ) {
+                $type = strtolower((string) $typeSpan['name']);
+            }
+        }
+        if ( null !== $type && 'a' !== $type ) {
+            return $this->rewriteSourceTagTypes($selector, $parsed, $context);
+        }
+        $split = $this->splitStructuralPseudoClasses(substr($selector, $start, $end - $start));
+        if ( '' === $split['structural'] ) {
+            return $this->rewriteSourceTagTypes($selector, $parsed, $context);
+        }
+        // A type or universal selector leads its compound; the rendered anchor's
+        // own class takes that place.
+        $subject = ':where(.wp-block-navigation-item__content)';
+        $rest = $split['rest'];
+        if ( null !== $type ) {
+            $subject .= $this->typeSpecificityShim($context) . substr($rest, 1);
+        } elseif ( str_starts_with($rest, '*') ) {
+            $subject .= substr($rest, 1);
+        } else {
+            $subject .= $rest;
+        }
+        return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
+            $start => array( 'end' => $end, 'value' => ':where(.wp-block-navigation-item)' . $split['structural'] . '>' . $subject ),
+        ));
+    }
+
+    /**
+     * Separate a compound selector's top-level structural pseudo-classes from
+     * its remaining simple selectors. Only the forms the selector matcher
+     * models move: `:first-child`, `:last-child`, `:nth-child(n)`,
+     * `:nth-of-type(n)`, and a `:not()` made of those alone.
+     *
+     * @return array{structural: string, rest: string}
+     */
+    private function splitStructuralPseudoClasses(string $compound): array
+    {
+        $positional = ':(?:first-child|last-child|nth-child\(\s*\d+\s*\)|nth-of-type\(\s*\d+\s*\))';
+        $pattern = '/\G(?:' . $positional . '|:not\((?:\s*' . $positional . ')+\s*\))(?![A-Za-z0-9_-])/i';
+        $structural = '';
+        $rest = '';
+        $state = CssSyntaxScanner::state();
+        $length = strlen($compound);
+        for ( $offset = 0; $offset < $length; ) {
+            if ( CssSyntaxScanner::isTopLevel($state) && ':' === $compound[$offset] && preg_match($pattern, $compound, $match, 0, $offset) ) {
+                $structural .= $match[0];
+                $offset += strlen($match[0]);
+                continue;
+            }
+            $next = CssSyntaxScanner::consume($compound, $offset, $state) ?? ( $offset + 1 );
+            $rest .= substr($compound, $offset, $next - $offset);
+            $offset = $next;
+        }
+
+        return array( 'structural' => $structural, 'rest' => $rest );
+    }
+
+    /**
+     * Whether the selector's subject is positioned among its siblings, either
+     * directly or through a negation made of structural pseudo-classes alone.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function hasStructuralSubject(array $parsed): bool
+    {
+        $rightmost = $parsed['compounds'][array_key_last($parsed['compounds'])] ?? array();
+        if ( $this->isStructurallyPositioned($rightmost) ) {
+            return true;
+        }
+        foreach ( $rightmost['not'] ?? array() as $negated ) {
+            $compounds = $negated['compounds'] ?? array();
+            if ( 1 === count($compounds) && $this->isStructurallyPositioned($compounds[0]) && $this->isStructuralOnlyCompound($compounds[0]) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string, mixed> $compound */
+    private function isStructurallyPositioned(array $compound): bool
+    {
+        return ( $compound['first_child'] ?? false )
+            || ( $compound['last_child'] ?? false )
+            || null !== ( $compound['nth_child'] ?? null )
+            || null !== ( $compound['nth_type'] ?? null );
+    }
+
+    /** @param array<string, mixed> $compound */
+    private function isStructuralOnlyCompound(array $compound): bool
+    {
+        return null === ( $compound['type'] ?? null )
+            && ! ( $compound['universal'] ?? false )
+            && ! ( $compound['root'] ?? false )
+            && array() === ( $compound['classes'] ?? array() )
+            && array() === ( $compound['ids'] ?? array() )
+            && array() === ( $compound['attributes'] ?? array() )
+            && array() === ( $compound['not'] ?? array() )
+            && array() === ( $compound['any'] ?? array() );
     }
 
     /** @param array<string, mixed> $parsed */

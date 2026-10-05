@@ -1538,6 +1538,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $reusableComponentRecognition = $this->reusableComponents()->report($this->materializedAssets()->assets());
         $sourceProvenance = $this->transformationProvenance()->resolveBlockPaths($blocks);
         $responsiveCounterpartContracts = (new ResponsiveCorrespondence())->declare($blocks, $sourceProvenance);
+        $this->retainRenderedNavigationItemAnchors($sourceProvenance);
         $authorStylesheetProjections = $this->authorStylesheetProjections();
         $runtimeScriptProjections = $this->runtimeScriptProjections();
         $this->materializeAuthorStylesheet(
@@ -2353,6 +2354,28 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $projections;
+    }
+
+    /**
+     * NavigationPattern records a direct anchor as a navigation item when it
+     * builds the link block, but it can still give the whole container up
+     * afterwards, and a probe can build links that are never emitted. Only an
+     * anchor whose navigation-link block made it into the block tree is one
+     * core really re-parents, so trust the emitted provenance.
+     *
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     */
+    private function retainRenderedNavigationItemAnchors(array $sourceProvenance): void
+    {
+        $rendered = array();
+        foreach ( $sourceProvenance as $entry ) {
+            if ( 'core/navigation-link' === ($entry['block_name'] ?? '') && 'a' === ($entry['tag'] ?? '') ) {
+                $rendered[(string) ($entry['selector'] ?? '')] = true;
+            }
+        }
+        $this->authorSelectorProjections()->retainNavigationItemAnchors(
+            fn (DOMElement $anchor): bool => isset($rendered[$this->elementSelector($anchor)])
+        );
     }
 
     private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true): string

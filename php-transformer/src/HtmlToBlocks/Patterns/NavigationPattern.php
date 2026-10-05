@@ -351,6 +351,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $blocks = array($converter->element($heading, $discardedFallbacks, true));
         $links = array();
         foreach ( $anchors as $anchor ) {
+            $context->navigationContext()?->recordDirectNavigationLinkAnchor($anchor);
             $links[] = $context->createBlock('core/navigation-link', array_filter(array(
                 'label' => SourceDom::innerHtmlWithProjectedMarkers(
                     $anchor,
@@ -1801,6 +1802,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         // described. Carry an opaque marker so the recovered source icon can be
         // projected onto the rendered item without leaving native navigation.
         $linkAttrs = $this->withClassName($linkAttrs, $navigationContext?->linkIconMarker($anchor) ?? '');
+        // Without a source item, core wraps the anchor in a list item of its
+        // own; the anchor's position among its siblings now belongs to that item.
+        if ( null === $item || $item->isSameNode($anchor) ) {
+            $navigationContext?->recordDirectNavigationLinkAnchor($anchor);
+        }
 
         return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
     }
