@@ -666,9 +666,9 @@ final class StyleResolver implements ElementPresentationResolver
      * it. This walks the same candidate rules but keeps every unconditional
      * declaration plus the media/feature conditions that hold at
      * {@see self::MOBILE_REFERENCE_WIDTH}, with a source inline declaration
-     * last. An `!important` declaration is not displaced by a later ordinary
-     * one. The returned map is keyed by property and ordered by last
-     * declaration, so a caller resolving a shorthand against its longhand
+     * last. Shared cascade priority resolves importance, layers and specificity.
+     * The returned map is keyed by property and ordered by winning priority,
+     * so a caller resolving a shorthand against its longhand
      * (`background` after `background-color`) takes the final key.
      *
      * @param list<string> $properties
@@ -682,6 +682,7 @@ final class StyleResolver implements ElementPresentationResolver
                     'selectors' => array( (string) ( $rule['selector'] ?? '' ) ),
                     'declarations' => is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(),
                     'conditions' => is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array(),
+                    'layer' => $rule['layerRank'] ?? null,
                 );
             }
         } )();
@@ -698,8 +699,8 @@ final class StyleResolver implements ElementPresentationResolver
      * of the resting cascade) and the logical inset and margin properties. An
      * element's placement needs those, and the author analysis keeps every
      * declaration together with its condition stack. The cascade rules are
-     * the same: source order, an `!important` declaration not displaced by a
-     * later ordinary one, the inline style last, conditions evaluated at
+     * the same: author importance, layer and specificity priority, authored
+     * declaration order, inline style last, conditions evaluated at
      * {@see self::MOBILE_REFERENCE_WIDTH}.
      *
      * @param list<string> $properties
@@ -737,6 +738,7 @@ final class StyleResolver implements ElementPresentationResolver
                     'selectors' => $selectors,
                     'declarations' => is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(),
                     'conditions' => $conditions,
+                    'layer' => $rule['layer'] ?? null,
                 );
             }
         } )();
@@ -756,58 +758,48 @@ final class StyleResolver implements ElementPresentationResolver
      * viewport records its declarations in order, the inline style last.
      *
      * @param list<string> $properties
-     * @param iterable<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>}> $rules
+     * @param iterable<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>, layer?:int|null}> $rules
      * @param callable(string): bool $matches Whether one selector matches the element.
      * @return array<string, string>
      */
     private function collapsedViewportDeclarationsFromRules(DOMElement $element, array $properties, iterable $rules, callable $matches): array
     {
-        $declared = array();
-        $important = array();
-        $record = static function (string $property, string $value) use (&$declared, &$important): void {
-            if ( isset($important[$property]) && ! CssValueInspector::isImportant($value) ) {
-                return;
-            }
-            unset($declared[$property]);
-            $declared[$property] = $value;
-            if ( CssValueInspector::isImportant($value) ) {
-                $important[$property] = true;
-            }
-        };
+        $facts = array();
+        $requested = array_flip($properties);
+        $order = 0;
         foreach ( $rules as $rule ) {
-            $matched = null;
-            foreach ( $properties as $property ) {
-                $value = trim((string) ( $rule['declarations'][ $property ] ?? '' ));
-                if ( '' === $value ) {
-                    continue;
+            if ( array() !== $rule['conditions'] && ! $this->conditionsApplyAtViewport($rule['conditions'], self::MOBILE_REFERENCE_WIDTH) ) continue;
+            $specificity = null;
+            foreach ( $rule['selectors'] as $selector ) {
+                if ( $matches($selector) ) {
+                    $candidate = $this->mediaTextSelectorSpecificity($selector);
+                    if ( null === $specificity || $candidate > $specificity ) $specificity = $candidate;
                 }
-                if ( null === $matched ) {
-                    $matched = false;
-                    foreach ( $rule['selectors'] as $selector ) {
-                        if ( $matches($selector) ) {
-                            $matched = true;
-                            break;
-                        }
-                    }
-                }
-                if ( ! $matched ) {
-                    break;
-                }
-                if ( array() !== $rule['conditions'] && ! $this->conditionsApplyAtViewport($rule['conditions'], self::MOBILE_REFERENCE_WIDTH) ) {
-                    break;
-                }
-                $record($property, $value);
+            }
+            if ( null === $specificity ) continue;
+            // Declaration order, not requested-property order, determines
+            // which shorthand or longhand must be restated last.
+            foreach ( $rule['declarations'] as $property => $value ) {
+                $value = trim((string) $value);
+                if ( ! isset($requested[$property]) || '' === $value ) continue;
+                CssCascade::apply($facts, $property, array(
+                    'value' => $value, 'important' => CssValueInspector::isImportant($value),
+                    'specificity' => $specificity, 'layer' => $rule['layer'] ?? null,
+                    'order' => $order++, 'inline' => false,
+                ));
             }
         }
         $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
-        foreach ( $properties as $property ) {
-            $value = trim((string) ( $inline[ $property ] ?? '' ));
-            if ( '' !== $value ) {
-                $record($property, $value);
-            }
+        foreach ( $inline as $property => $value ) {
+            if ( ! isset($requested[$property]) || '' === trim($value) ) continue;
+            CssCascade::apply($facts, $property, array(
+                'value' => trim($value), 'important' => CssValueInspector::isImportant($value),
+                'specificity' => array(0, 0, 0), 'layer' => null,
+                'order' => $order++, 'inline' => true,
+            ));
         }
-
-        return $declared;
+        uasort($facts, static fn(array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
+        return array_map(static fn(array $fact): string => $fact['value'], $facts);
     }
 
     /**
