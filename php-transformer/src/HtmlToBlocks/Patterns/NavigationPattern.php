@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapp
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
+use DOMNode;
 
 final class NavigationPattern implements PatternRecognizerInterface
 {
@@ -406,7 +407,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function overlayMenu(DOMElement $element, ?NavigationPatternContext $context): string
     {
-        if ( $this->isInsideCapturedDisclosurePanel($element) ) {
+        if ( $this->isInsideCapturedDisclosurePanel($element) || $this->isMenuPanelContent($element) ) {
             return 'never';
         }
 
@@ -2490,6 +2491,12 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
+            // A cluster of child links that follows the item's own anchor is its
+            // submenu, not a second anchor carrier.
+            if ( array() !== $anchors && $this->isAnchorOnlyCluster($child) ) {
+                continue;
+            }
+
             if ( in_array(strtolower($child->tagName), array( 'span', 'div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true) ) {
                 $anchor = $this->primaryNavigationAnchor($child);
                 if ( $anchor instanceof DOMElement ) {
@@ -2510,6 +2517,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( $this->isNavigationChromeElement($child)
                 || in_array(strtolower($child->tagName), array( 'nav', 'ul', 'ol' ), true)
                 || $this->hasSubmenuSignal($child)
+                || $this->isAnchorOnlyCluster($child)
                 || ( $this->isNavigationWrapperElement($child)
                     && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length ) ) ) {
                 continue;
@@ -2554,12 +2562,47 @@ final class NavigationPattern implements PatternRecognizerInterface
             $tagName = strtolower($child->tagName);
             if ( in_array($tagName, array( 'nav', 'ul', 'ol' ), true)
                 || $this->hasSubmenuSignal($child)
+                || ( $this->isAnchorOnlyCluster($child) && 0 !== ( $primaryAnchor->compareDocumentPosition($child) & DOMNode::DOCUMENT_POSITION_FOLLOWING ) )
                 || ( $this->isNavigationWrapperElement($child)
                     && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length ) )
             ) {
                 $containers[] = $child;
             }
         }
+    }
+
+    /**
+     * A plain wrapper that holds nothing but labelled destination anchors, set
+     * beside an item's own anchor. Builders that render a nested menu without
+     * list semantics or a `dropdown`-style name still express it this way:
+     * `<div><a>Parent</a><div><a>Child</a><a>Child</a></div></div>`. Structure
+     * alone carries the parent/child relationship, so no class vocabulary is
+     * needed to read the wrapper as the item's submenu.
+     */
+    private function isAnchorOnlyCluster(DOMElement $element): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) ) {
+            return false;
+        }
+
+        $anchors = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement
+                || 'a' !== strtolower($child->tagName)
+                || '' === trim($child->textContent ?? '')
+                || '' === trim($this->attr($child, 'href'))
+                || $child->hasAttribute('aria-controls')
+                || $child->hasAttribute('aria-expanded')
+            ) {
+                return false;
+            }
+            ++$anchors;
+        }
+
+        return 0 < $anchors;
     }
 
     private function hasSubmenuSignal(DOMElement $element): bool
@@ -2957,7 +3000,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        if ( $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) ) {
+        if ( $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->isMenuPanelContent($element) ) {
             return true;
         }
 
@@ -2967,6 +3010,31 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         if ( MenuVocabulary::containsLinksToken($attributes) && ! $this->isContactLinkCluster($element) ) {
             return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * The sole content wrapper of a captured dialog panel that a control
+     * declaring `aria-haspopup="menu"` opens. The control's own declaration
+     * names the panel a menu, so no class vocabulary is needed.
+     */
+    private function isMenuPanelContent(DOMElement $element): bool
+    {
+        $panel = $element->parentNode;
+        if ( ! $panel instanceof DOMElement || ! $panel->hasAttribute('data-dla-dialog-panel') ) {
+            return false;
+        }
+
+        $key = $panel->getAttribute('data-dla-dialog-panel');
+        foreach ( $element->ownerDocument?->getElementsByTagName('button') ?? array() as $button ) {
+            if ( $button instanceof DOMElement
+                && $button->getAttribute('data-dla-dialog-trigger') === $key
+                && 'menu' === strtolower(trim($button->getAttribute('aria-haspopup')))
+            ) {
+                return true;
+            }
         }
 
         return false;
