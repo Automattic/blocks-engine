@@ -3608,7 +3608,15 @@ final class StyleResolver implements ElementPresentationResolver
             if (array() === $declarations) {
                 continue;
             }
-            if (array() === $selectorConditions && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
+            $navigationStateConditions = array_filter(
+                $selectorConditions,
+                static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', trim($condition))
+            );
+            $navigationStateConditionsSupported = array() === array_filter(
+                $navigationStateConditions,
+                static fn (string $condition): bool => 1 !== preg_match('/^@media\b/i', trim($condition))
+            );
+            if (($selectorConditions === array() || $selectorIsStaticLayerRule || $navigationStateConditionsSupported) && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
                 $state = strtolower((string) $stateMatches[1][0][0]);
                 $offset = (int) $stateMatches[0][0][1];
                 $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));

@@ -182,7 +182,7 @@ final class NavigationStyleProjector
             // both have to be overridden for that to hold: without them the
             // negative delay lands on an animation that never advances, and the
             // element stays on whatever keyframe its fill mode paints.
-            $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important;transition:none!important}';
+            $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important}';
         }
         if ( $this->context->runtimeBehavior()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
@@ -753,6 +753,35 @@ final class NavigationStyleProjector
                     $mappedRule = $condition . '{' . $mappedRule . '}';
                 }
                 $rules[] = $mappedRule;
+
+                // The site editor renders a referenced wp_navigation entity
+                // without the frontend list-navigation root marker.
+                if ( ! $scopedAnchorClassRule && str_contains($class, ':') ) {
+                    $editorItemSelector = '.wp-block-navigation:not(.blocks-engine-list-navigation) .wp-block-navigation-item'
+                        . $itemCompound . '.' . CssIdent::escape($class);
+                    $editorSelector = $editorItemSelector . '>.wp-block-navigation-item__content' . $pseudo;
+                    $editorRule = $editorSelector . '{' . implode(';', $declarations) . '}';
+                    foreach ( array_reverse(array_values(array_filter(
+                        $conditions,
+                        static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', trim($condition))
+                    ))) as $condition ) {
+                        $editorRule = $condition . '{' . $editorRule . '}';
+                    }
+                    $rules[] = $editorRule;
+                }
+                $carriesTransition = array_filter(
+                    $declarations,
+                    static fn (string $declaration): bool => 1 === preg_match('/^transition(?:-|\s*:)/i', $declaration)
+                );
+                if ( ! $scopedAnchorClassRule && array() !== $carriesTransition ) {
+                    $editorSelector = '.wp-block-navigation:not(.blocks-engine-list-navigation) .wp-block-navigation-item'
+                        . $itemCompound . '.' . CssIdent::escape($class) . '>.wp-block-navigation-item__content' . $pseudo;
+                    $editorRule = $editorSelector . '{' . implode(';', $declarations) . '}';
+                    foreach ( array_reverse($conditions) as $condition ) {
+                        $editorRule = $condition . '{' . $editorRule . '}';
+                    }
+                    $rules[] = $editorRule;
+                }
             }
 
             if ( array() !== $itemNeutralizers ) {
@@ -799,7 +828,8 @@ final class NavigationStyleProjector
         $authoredRules = $this->navigationAuthorStyleRules();
         $rules = array();
         foreach ( $authoredRules as $rule ) {
-            if ( array() !== ($rule['conditions'] ?? array()) ) {
+            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            if ( array() !== $conditions && ! $this->navigationConditionsAreProjectable($conditions) ) {
                 continue;
             }
             $selector = trim((string) ($rule['selector'] ?? ''));
@@ -880,10 +910,27 @@ final class NavigationStyleProjector
                     . ',' . $hostSelector
                     . ' .wp-block-navigation-item__content[aria-current]' . $pseudo;
             } else {
-                $selectorText = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
-                    . CssIdent::escape($class) . '>.wp-block-navigation-item__content' . $pseudo;
+                $itemSelector = '.wp-block-navigation-item.' . CssIdent::escape($class) . '>.wp-block-navigation-item__content' . $pseudo;
+                $selectorText = '.wp-block-navigation.blocks-engine-list-navigation ' . $itemSelector;
             }
-            $rules[$selectorText] = $selectorText . '{' . implode(';', $declarations) . '}';
+            $project = function (string $selector) use ($conditions, $declarations): string {
+                $projectedRule = $selector . '{' . implode(';', $declarations) . '}';
+                foreach ( array_reverse(array_values(array_filter(
+                    $conditions,
+                    static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', trim($condition))
+                ))) as $condition ) {
+                    $projectedRule = $condition . '{' . $projectedRule . '}';
+                }
+                return $projectedRule;
+            };
+            $rules[$selectorText] = $project($selectorText);
+            if ( ! $isCurrentClass && str_contains($class, ':') ) {
+                // A referenced menu in the site editor has the core navigation
+                // root but not the importer's frontend-only list marker.
+                $editorSelector = '.wp-block-navigation:not(.blocks-engine-list-navigation) '
+                    . '.wp-block-navigation-item.' . CssIdent::escape($class) . '>.wp-block-navigation-item__content' . $pseudo;
+                $rules[$editorSelector] = $project($editorSelector);
+            }
         }
 
         return array_map(
@@ -1104,7 +1151,10 @@ final class NavigationStyleProjector
     private function navigationRuleHasConditionalPropertyCompetitorOnAnchors(array $candidate, string $property, array $authoredRules, array $anchors): bool
     {
         foreach ( $authoredRules as $rule ) {
-            if ( array() === ($rule['conditions'] ?? array())
+            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            if ( array() === $conditions
+                || $this->navigationConditionsAreStaticLayers($conditions)
+                || ($candidate['id'] ?? null) === ($rule['id'] ?? null)
                 || ($candidate['pseudo'] ?? '') !== ($rule['pseudo'] ?? '')
                 || ! array_key_exists($property, is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array())
             ) {
@@ -1118,6 +1168,25 @@ final class NavigationStyleProjector
             }
         }
         return false;
+    }
+
+    /** @param list<string> $conditions */
+    private function navigationConditionsAreStaticLayers(array $conditions): bool
+    {
+        return array() !== $conditions && array() === array_filter(
+            $conditions,
+            static fn (string $condition): bool => 1 !== preg_match('/^@layer\s+[a-z0-9_.-]+\s*$/i', trim($condition))
+        );
+    }
+
+    /** @param list<string> $conditions */
+    private function navigationConditionsAreProjectable(array $conditions): bool
+    {
+        return array() === array_filter(
+            $conditions,
+            static fn (string $condition): bool => 1 !== preg_match('/^@layer\s+[a-z0-9_.-]+\s*$/i', trim($condition))
+                && 1 !== preg_match('/^@media\b[^)]*\b(?:hover|pointer)\s*:/i', trim($condition))
+        );
     }
 
     /**
@@ -1376,7 +1445,9 @@ final class NavigationStyleProjector
     {
         $matched = array();
         foreach ( $this->context->sourceStyles()->navigationStateRules() as $rule ) {
-            if ( ! isset($rule['declarations']['color'])
+            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            if ( (array() !== $conditions && ! $this->navigationConditionsAreProjectable($conditions))
+                || ! isset($rule['declarations']['color'])
                 || ! $this->styleResolver->matchesCssSelector($element, $rule['base_selector'])
             ) {
                 continue;
