@@ -129,6 +129,7 @@
       "php tests/unit/scroll-state-projector.php",
       "php tests/unit/editability-report.php",
       "php tests/unit/visually-hidden-menu-toggle-label.php",
+      "php tests/unit/glyph-menu-toggle.php",
       "php tests/unit/visually-hidden-authored-clip.php",
       "php tests/unit/collapsed-navigation-css-toggle.php",
       "php tests/unit/navigation-overlay-source-breakpoint.php",
@@ -423,7 +424,11 @@
             "php tests/unit/link-bearing-element-lowering.php",
             "php tests/unit/link-wrapper-text-color-parity.php",
             "php tests/unit/propagated-link-decoration.php",
-            "php tests/unit/navigation-item-structural-pseudo.php"
+            "php tests/unit/navigation-item-structural-pseudo.php",
+            "php tests/unit/navigation-dropped-toggle-author-type-rules.php",
+            "php tests/unit/navigation-overlay-source-colors.php",
+            "php tests/unit/navigation-open-button-source-placement.php",
+            "php tests/unit/navigation-collapsed-cascade.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
