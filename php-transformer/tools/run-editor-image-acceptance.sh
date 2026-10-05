@@ -15,8 +15,12 @@ project="be_editor_image_${RANDOM}_$$"
 port="${BE_EDITOR_PORT:-$(( 18000 + RANDOM % 1000 ))}"
 network="${project}_network"
 volume="${project}_wordpress"
-wordpress_image="${BE_EDITOR_WORDPRESS_IMAGE:-wordpress:7.0.4-php8.2-apache}"
-cli_image="${BE_EDITOR_CLI_IMAGE:-wordpress:cli-php8.2}"
+wordpress_image="${BE_EDITOR_WORDPRESS_IMAGE:-wordpress:beta-php8.3-apache}"
+cli_image="${BE_EDITOR_CLI_IMAGE:-wordpress:cli-php8.3}"
+wordpress_core_archive="${BE_EDITOR_WORDPRESS_CORE_ARCHIVE:?Set the verified WordPress 7.1 core-only archive.}"
+wordpress_core_sha="a874a9c66927ba4e21f30dd88b31c1df12f5a25049e81efb4ceab856da43c27b"
+actual_core_sha="$(sha256sum "$wordpress_core_archive" | cut -d ' ' -f 1)"
+test "$actual_core_sha" = "$wordpress_core_sha" || { printf 'WordPress core archive checksum mismatch: %s\n' "$actual_core_sha" >&2; exit 2; }
 browser_image="${BE_EDITOR_BROWSER_IMAGE:-mcr.microsoft.com/playwright:v1.61.1-noble}"
 db_host=mysql db_name=wordpress db_user=wordpress db_password=wordpress
 cleanup() { docker logs "${project}_wordpress" > "$evidence/wordpress.log" 2>&1 || true; docker logs "${project}_db" > "$evidence/mysql.log" 2>&1 || true; docker rm --force "${project}_wordpress" "${project}_db" >/dev/null 2>&1 || true; docker network rm "$network" >/dev/null 2>&1 || true; docker volume rm "$volume" >/dev/null 2>&1 || true; rm -rf "$work"; }
@@ -28,23 +32,29 @@ run docker network create "$network" >/dev/null
 run docker volume create "$volume" >/dev/null
 run docker run --detach --name "${project}_db" --network "$network" --network-alias "$db_host" -e MYSQL_DATABASE="$db_name" -e MYSQL_USER="$db_user" -e MYSQL_PASSWORD="$db_password" -e MYSQL_RANDOM_ROOT_PASSWORD=yes mysql:8.4 >/dev/null
 wait_for 'MySQL' "run docker exec ${project}_db mysqladmin ping -u${db_user} -p${db_password}"
-run docker run --detach --name "${project}_wordpress" --network "$network" --publish "127.0.0.1:${port}:80" -e WORDPRESS_DB_HOST="$db_host" -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -v "${volume}:/var/www/html" -v "${root}:/var/www/html/wp-content/plugins/blocks-engine-php-transformer:ro" "$wordpress_image" >/dev/null
-wp=(run docker run --rm --network "$network" --user 33:33 -e WORDPRESS_DB_HOST="$db_host" -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -v "${volume}:/var/www/html" -v "${root}:/var/www/html/wp-content/plugins/blocks-engine-php-transformer:ro" -v "${work}:/work" "$cli_image" wp --allow-root)
-wait_for 'WordPress files' "curl --silent --fail http://127.0.0.1:${port}/wp-login.php >/dev/null"
+run docker run --detach --name "${project}_wordpress" --network "$network" --publish "127.0.0.1:${port}:80" -e WORDPRESS_DB_HOST="$db_host" -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -v "${volume}:/var/www/html" -v "${root}:/var/www/html/wp-content/plugins/blocks-engine-php-transformer:ro" -v "${wordpress_core_archive}:/tmp/wordpress71-core.tar.gz:ro" "$wordpress_image" >/dev/null
+wp=(run docker run --rm --network "$network" --user 33:33 -e WORDPRESS_DB_HOST="$db_host" -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -v "${volume}:/var/www/html" -v "${root}:/var/www/html/wp-content/plugins/blocks-engine-php-transformer:ro" -v "${work}:/work" -v "${wordpress_core_archive}:/tmp/wordpress71-core.tar.gz:ro" "$cli_image" wp --allow-root)
+wait_for 'WordPress base files' "docker exec ${project}_wordpress test -f /var/www/html/wp-includes/version.php"
+# Keep the disposable image's PHP/Apache and config/content volume, but run the
+# operator-provided, checksum-pinned 7.1 core source rather than faking WP_VERSION.
+run docker exec "${project}_wordpress" sh -c 'tar --overwrite -xzf /tmp/wordpress71-core.tar.gz -C /var/www/html 2>/dev/null && chown -R www-data:www-data /var/www/html/wp-admin /var/www/html/wp-includes'
+run docker exec "${project}_wordpress" php -r 'require "/var/www/html/wp-includes/version.php"; require "/var/www/html/wp-includes/icons.php"; printf("core=%s default_icon_callback=%s icons_sha256=%s wp_settings_sha256=%s\\n", $wp_version, function_exists("_wp_register_default_icon_collections") ? "loaded" : "missing", hash_file("sha256", "/var/www/html/wp-includes/icons.php"), hash_file("sha256", "/var/www/html/wp-settings.php"));' | tee "$evidence/core-overlay-preflight.txt"
+"${wp[@]}" core version | tee "$evidence/wordpress-version.txt"
+wait_for 'WordPress 7.1 login' "curl --silent --fail http://127.0.0.1:${port}/wp-login.php >/dev/null"
 "${wp[@]}" core install --url="http://127.0.0.1:${port}" --title='Blocks Engine editor acceptance' --admin_user=admin --admin_password=password --admin_email=admin@example.test --skip-email
 "${wp[@]}" plugin activate blocks-engine-php-transformer
-"${wp[@]}" core version | tee "$evidence/wordpress-version.txt"
 
 # WordPress crop support needs a raster editor. Create two visibly distinct local PNGs through its GD extension.
 "${wp[@]}" eval 'if (!function_exists("imagecreatetruecolor")) { throw new RuntimeException("WordPress image editor prerequisite missing: GD is unavailable."); } foreach ([["first", 210, 70, 70], ["second", 35, 100, 210]] as $spec) { [$name, $r, $g, $b] = $spec; $image=imagecreatetruecolor(960,720); imagefill($image,0,0,imagecolorallocate($image,$r,$g,$b)); imagefilledrectangle($image,160,120,800,600,imagecolorallocate($image,255-$r,255-$g,255-$b)); $file=wp_upload_dir()["path"]."/be-editor-".$name.".png"; imagepng($image,$file); imagedestroy($image); $id=wp_insert_attachment(["post_mime_type"=>"image/png","post_title"=>"BE editor ".$name,"post_status"=>"inherit"],$file); require_once ABSPATH."wp-admin/includes/image.php"; wp_update_attachment_metadata($id,wp_generate_attachment_metadata($id,$file)); echo $id."\n"; }' > "$work/attachment-ids.txt"
 first_id="$(php -r '$a=preg_split("/\\s+/",trim(file_get_contents($argv[1]))); if(2!==count($a)||preg_match("/\\D/",implode("",$a))) exit(1); echo $a[0];' "$work/attachment-ids.txt")"
 second_id="$(php -r '$a=preg_split("/\\s+/",trim(file_get_contents($argv[1]))); if(2!==count($a)||preg_match("/\\D/",implode("",$a))) exit(1); echo $a[1];' "$work/attachment-ids.txt")"
 "${wp[@]}" eval-file wp-content/plugins/blocks-engine-php-transformer/tools/editor-image-acceptance-build-page.php "$first_id" "$second_id" | tee "$evidence/source-and-page.json"
-post_id="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); if(!is_array($x)||!is_int($x["post_id"]??null)||$x["post_id"]<1) exit(1); echo $x["post_id"];' "$evidence/source-and-page.json")"
+post_id="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); if(!is_array($x)||!is_int($x["image"]["post_id"]??null)||$x["image"]["post_id"]<1) exit(1); echo $x["image"]["post_id"];' "$evidence/source-and-page.json")"
+listing_post_id="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); if(!is_array($x)||!is_int($x["listing"]["neutral_post_id"]??null)||$x["listing"]["neutral_post_id"]<1) exit(1); echo $x["listing"]["neutral_post_id"];' "$evidence/source-and-page.json")"
 if command -v node >/dev/null; then
-	BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_POST_ID="$post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR="$evidence" run node "$root/tests/editor-image-acceptance.mjs" | tee "$evidence/browser.json"
+	BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_POST_ID="$post_id" BE_EDITOR_LISTING_POST_ID="$listing_post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR="$evidence" run node "$root/tests/editor-image-acceptance.mjs" | tee "$evidence/browser.json"
 else
 	# A browser container keeps the runner usable on Docker-only Linux hosts.
-	BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_POST_ID="$post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR=/evidence run docker run --rm --network host -v "${root}:/repo:ro" -v "${evidence}:/evidence" -e BE_EDITOR_WP_URL -e BE_EDITOR_POST_ID -e BE_EDITOR_USER -e BE_EDITOR_PASSWORD -e BE_EDITOR_EVIDENCE_DIR "$browser_image" node /repo/tests/editor-image-acceptance.mjs | tee "$evidence/browser.json"
+	BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_POST_ID="$post_id" BE_EDITOR_LISTING_POST_ID="$listing_post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR=/evidence run docker run --rm --network host -v "${root}:/repo:ro" -v "${evidence}:/evidence" -e BE_EDITOR_WP_URL -e BE_EDITOR_POST_ID -e BE_EDITOR_LISTING_POST_ID -e BE_EDITOR_USER -e BE_EDITOR_PASSWORD -e BE_EDITOR_EVIDENCE_DIR "$browser_image" node /repo/tests/editor-image-acceptance.mjs | tee "$evidence/browser.json"
 fi
 printf 'Evidence retained at %s\n' "$evidence"
