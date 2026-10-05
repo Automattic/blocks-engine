@@ -30,6 +30,7 @@ $assertions = array(
     'editable image block' => in_array('core/image', $names, true),
     'editable text block' => in_array('core/paragraph', $names, true),
     'number and link retained' => str_contains($markup, 'href="/projects"') && str_contains($markup, '>247</a>'),
+    'text uses an editable paragraph box' => !str_contains($markup, 'blocks-engine-synthetic-paragraph') && str_contains($markup, '"top":"0","bottom":"0"'),
     'layout classes retained' => str_contains($markup, ' row flex items-center gap-1.5"'),
     'source spacing and hover selectors retained' => str_contains($css, 'gap:6px') && str_contains($css, '.row:hover{color:#123456}'),
     'source icon dimensions retained' => str_contains($css, '.row-icon{width:18px;height:18px}'),

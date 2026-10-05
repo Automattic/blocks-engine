@@ -9121,7 +9121,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         $link .= '>' . $text . '</a>';
-        $textBlock = $this->createBlock('core/paragraph', array( 'content' => $link ), array(), $span);
+        $textBlock = $this->createBlock('core/paragraph', array(
+            'content' => $link,
+            'style' => array( 'spacing' => array( 'margin' => array( 'top' => '0', 'bottom' => '0' ) ) ),
+        ));
 
         $children = array( $image, $textBlock );
         $linkAttrs = $this->linkPropagationAttributes($anchor);

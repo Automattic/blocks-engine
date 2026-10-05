@@ -9,6 +9,11 @@ const baseUrl = process.env.BE_EDITOR_WP_URL.replace( /\/$/, '' );
 const postId = process.env.BE_EDITOR_COMPACT_POST_ID;
 const evidence = process.env.BE_EDITOR_EVIDENCE_DIR;
 const source = JSON.parse( await readFile( `${ evidence }/source-and-page.json`, 'utf8' ) );
+const saveRequest = ( request ) => {
+	const url = new URL( request.url() );
+	const route = `/wp/v2/pages/${ postId }`;
+	return ( url.pathname.endsWith( route ) || url.searchParams.get( 'rest_route' ) === route ) && [ 'POST', 'PUT', 'PATCH' ].includes( request.method() );
+};
 const browser = await chromium.launch( { headless: true } );
 const page = await browser.newPage( { viewport: { width: 1440, height: 1000 } } );
 const saveResponses = [];
@@ -42,6 +47,7 @@ try {
 	const paragraph = initial.find( ( block ) => block.name === 'core/paragraph' );
 	assert.equal( image.attributes.id, source.first_attachment.id, 'the compact row exposes a replaceable real media block' );
 	assert.equal( image.attributes.alt, '', 'the decorative source icon remains hidden from assistive technology' );
+	assert.equal( image.attributes.href, '/projects', 'the source link is attached to the replaceable icon' );
 	assert.equal( paragraph.attributes.content.toString(), '<a href="/projects">247</a>', 'the compact row exposes linked RichText separately' );
 	await canvas.locator( '[data-type="core/image"]' ).click();
 	await page.getByRole( 'button', { name: 'Replace' } ).click();
@@ -56,13 +62,30 @@ try {
 		const visit = ( children ) => children.flatMap( ( block ) => [ block, ...visit( block.innerBlocks || [] ) ] );
 		return visit( window.wp.data.select( 'core/block-editor' ).getBlocks() ).some( ( block ) => block.name === 'core/image' && block.attributes.id === id );
 	}, source.second_attachment.id );
-	await page.evaluate( ( { id, href } ) => {
-		window.wp.data.dispatch( 'core/block-editor' ).updateBlockAttributes( id, { href, linkDestination: 'custom', link: '' } );
-	}, { id: image.clientId, href: '/projects-updated' } );
-	await page.evaluate( ( id ) => {
-		window.wp.data.dispatch( 'core/block-editor' ).updateBlockAttributes( id, { content: '<a href="/projects-updated">248</a>' } );
-	}, paragraph.clientId );
-	await page.waitForFunction( ( clientId ) => window.wp.data.select( 'core/block-editor' ).getBlock( clientId )?.attributes.content?.toString() === '<a href="/projects-updated">248</a>', paragraph.clientId );
+	await canvas.locator( '[data-type="core/image"]' ).click();
+	await page.getByRole( 'button', { name: 'Link', exact: true } ).last().click();
+	const iconLinkInput = page.locator( '#url-input-control-0' );
+	await iconLinkInput.fill( '/projects-updated' );
+	await iconLinkInput.press( 'Enter' );
+	await page.waitForFunction( ( clientId ) => window.wp.data.select( 'core/block-editor' ).getBlock( clientId )?.attributes.href === '/projects-updated', image.clientId );
+	await page.keyboard.press( 'Escape' );
+	const paragraphEditor = canvas.locator( '[data-type="core/paragraph"][contenteditable="true"]' );
+	await paragraphEditor.click();
+	await paragraphEditor.press( 'Control+A' );
+	await paragraphEditor.pressSequentially( '248' );
+	await page.waitForFunction( ( clientId ) => window.wp.data.select( 'core/block-editor' ).getBlock( clientId )?.attributes.content?.toString().includes( '248' ), paragraph.clientId );
+	await paragraphEditor.getByText( '248', { exact: true } ).click();
+	await paragraphEditor.press( 'Control+A' );
+	await page.getByRole( 'button', { name: 'Link', exact: true } ).last().click();
+	const editLink = page.getByRole( 'button', { name: 'Edit link', exact: true } );
+	if ( await editLink.count() ) await editLink.click();
+	const linkInput = page.locator( 'input[id^="url-input-control"], input[placeholder*="URL"], input[aria-label*="URL"], [role="textbox"][aria-label*="URL"]' ).last();
+	await linkInput.fill( '/projects-updated' );
+	await linkInput.press( 'Enter' );
+	await page.waitForTimeout( 500 );
+	const paragraphAfterTyping = ( await blocks() ).find( ( block ) => block.name === 'core/paragraph' );
+	await writeFile( `${ evidence }/compact-row-paragraph-after-edit.json`, JSON.stringify( paragraphAfterTyping.attributes, null, 2 ) + '\n' );
+	assert.equal( paragraphAfterTyping.attributes.content.toString(), '<a href="/projects-updated">248</a>' );
 	const edited = await blocks();
 	const editedImage = edited.find( ( block ) => block.name === 'core/image' );
 	const editedParagraph = edited.find( ( block ) => block.name === 'core/paragraph' );
@@ -72,8 +95,8 @@ try {
 	const preSaveState = await page.evaluate( () => ( { dirty: window.wp.data.select( 'core/editor' ).isEditedPostDirty(), buttons: Array.from( document.querySelectorAll( 'button' ) ).map( ( button ) => ( { label: button.getAttribute( 'aria-label' ), text: button.textContent, classes: button.className } ) ).filter( ( button ) => /save|update/i.test( `${ button.label || '' } ${ button.text || '' }` ) ) } ) );
 	await writeFile( `${ evidence }/compact-row-pre-save.json`, JSON.stringify( preSaveState, null, 2 ) + '\n' );
 	assert.ok( preSaveState.dirty, 'Gutenberg recognizes row edits as unsaved changes' );
-	const save = page.waitForResponse( ( response ) => response.ok() && [ 'POST', 'PUT', 'PATCH' ].includes( response.request().method() ) );
-	await page.evaluate( () => window.wp.data.dispatch( 'core/editor' ).savePost() );
+	const save = page.waitForResponse( ( response ) => saveRequest( response.request() ) && response.ok() );
+	await page.getByRole( 'button', { name: /^Save$/ } ).click();
 	await save;
 	await page.waitForFunction( () => !window.wp.data.select( 'core/editor' ).isSavingPost() && !window.wp.data.select( 'core/editor' ).isEditedPostDirty() );
 	assert.ok( saveResponses.some( ( response ) => response.status >= 200 && response.status < 300 ), 'Gutenberg saves the edited post through its REST endpoint' );
