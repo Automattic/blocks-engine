@@ -436,7 +436,6 @@ final class NavigationPatternContext
     public function recordInheritedPresentation(DOMElement $element, array $authorClasses): void
     {
         $this->recordInheritedNavigationPresentation($element, $authorClasses);
-        $this->recordNavigationContainerPaintReset($element, $authorClasses);
     }
 
     /** Record unsupported source residue on the native element replacing it. */
@@ -589,24 +588,47 @@ final class NavigationPatternContext
     }
 
     /**
-     * Keep a painted or framed menu stated once.
+     * Keep a painted, framed, or placed menu stated once.
      *
-     * WordPress copies a navigation block's classes onto both the `nav` and its
-     * responsive container, so a source rule that styles the menu through one
-     * of those classes matches twice. Paint renders stacked on itself; a frame
-     * — the menu's own margin, padding, and rules — is charged twice and
-     * doubles the menu's height. Where the source states either, neutralise it
-     * on the inner container so the `nav` keeps the single source declaration.
+     * WordPress builds the inner `wp-block-navigation__container` list with the
+     * block's own wrapper attributes, so every class the emitted block carries —
+     * the source's classes and this engine's source markers alike — is copied
+     * onto the list, and a source rule that styles the menu through any of them
+     * matches twice. Paint renders stacked on itself; a frame — the menu's own
+     * margin, padding, and rules — is charged twice and doubles the menu's
+     * height; a placement (position, offsets, transform) turns the `nav` into a
+     * zero-size positioned box with the list placed once more inside it, where
+     * it shrinks to its longest word and wraps every item onto its own line.
+     * Where the source states any of these, neutralise it on the inner container
+     * so the `nav` keeps the single source declaration.
      *
-     * @param array<int, string> $authorClasses
+     * A list the source places itself — a panel dropping below its nav — keeps
+     * the placement families it states: the nav's position is then the list's
+     * containing block, not a declaration the list must shed. Families only the
+     * nav states are still reset, so a nav transform does not move the list
+     * twice.
+     *
+     * @param DOMElement         $navigation The source element whose classes core/navigation carries.
+     * @param array<int, string> $classes    Classes the emitted block carries, so copied onto the container: the source's own, or the engine's markers for a class-less source.
+     * @param DOMElement|null    $list       The source list the container stands in for, when it is a distinct element.
      */
-    private function recordNavigationContainerPaintReset(DOMElement $navigation, array $authorClasses): void
+    public function recordNavigationContainerReset(DOMElement $navigation, array $classes, ?DOMElement $list = null): void
     {
-        if ( array() === $authorClasses || ! $this->sourceTargetProjection instanceof SourceTargetProjectionState ) {
+        if ( array() === $classes || ! $this->sourceTargetProjection instanceof SourceTargetProjectionState ) {
             return;
         }
 
         $resets = array();
+        // Reset each placement family the navigation states, except one the
+        // source list states for itself (a panel dropping below its nav keeps
+        // its own position; the nav's transform must still not reach it twice).
+        $navigationPlacement = $this->placementFamilies($navigation);
+        $listPlacement = $list instanceof DOMElement && ! $list->isSameNode($navigation) ? $this->placementFamilies($list) : array();
+        foreach ( self::PLACEMENT_FAMILY_RESETS as $family => $declarations ) {
+            if ( isset($navigationPlacement[ $family ]) && ! isset($listPlacement[ $family ]) ) {
+                array_push($resets, ...$declarations);
+            }
+        }
         if ( $this->navigationDeclaresAny($navigation, array( 'background-color', 'background-image', 'background', 'border-top-left-radius', 'border-radius', 'box-shadow' )) ) {
             $resets[] = 'background:none!important';
             $resets[] = 'border-radius:0!important';
@@ -628,8 +650,72 @@ final class NavigationPatternContext
 
         // Descendant, not child: core nests the container inside its responsive
         // wrapper, so a child combinator never reaches it.
-        $selector = '.wp-block-navigation' . CssIdent::compoundClassSelector($authorClasses) . ' .wp-block-navigation__container';
+        $selector = '.wp-block-navigation' . CssIdent::compoundClassSelector($classes) . ' .wp-block-navigation__container';
         $this->sourceTargetProjection->record(SourceDom::elementSelector($navigation), $selector, implode(';', $resets));
+    }
+
+    /**
+     * Placement properties by family, and what neutralises each family on the
+     * container: position and offsets, the transform (with its prefixed
+     * form), the individual `translate`, `rotate` and `scale`, and a motion
+     * path.
+     */
+    private const PLACEMENT_FAMILY_PROPERTIES = array(
+        'position' => array( 'position', 'top', 'right', 'bottom', 'left', 'inset', 'inset-inline', 'inset-block', 'inset-inline-start', 'inset-inline-end', 'inset-block-start', 'inset-block-end' ),
+        'transform' => array( 'transform', '-webkit-transform' ),
+        'translate' => array( 'translate' ),
+        'rotate' => array( 'rotate' ),
+        'scale' => array( 'scale' ),
+        'offset' => array( 'offset', 'offset-path' ),
+    );
+
+    private const PLACEMENT_FAMILY_RESETS = array(
+        'position' => array( 'position:static!important', 'inset:auto!important' ),
+        'transform' => array( 'transform:none!important', '-webkit-transform:none!important' ),
+        'translate' => array( 'translate:none!important' ),
+        'rotate' => array( 'rotate:none!important' ),
+        'scale' => array( 'scale:none!important' ),
+        'offset' => array( 'offset-path:none!important' ),
+    );
+
+    /**
+     * Which placement families the source states for this element at any
+     * viewport, ignoring values that place nothing (`static`, `none`, `auto`
+     * and the CSS-wide keywords).
+     *
+     * Read from the author analysis rather than the resting cascade: transforms
+     * are runtime-animatable and therefore kept out of the static presentation
+     * collection, and a menu placed only behind a width query is still placed.
+     *
+     * @return array<string, true>
+     */
+    private function placementFamilies(DOMElement $element): array
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) {
+            return array();
+        }
+
+        $familyOf = array();
+        foreach ( self::PLACEMENT_FAMILY_PROPERTIES as $family => $properties ) {
+            foreach ( $properties as $property ) {
+                $familyOf[ $property ] = $family;
+            }
+        }
+        $declared = $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array_keys($familyOf));
+        $families = array();
+        foreach ( $declared as $property => $values ) {
+            foreach ( $values as $value ) {
+                $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
+                if ( '' !== $value
+                    && ! in_array($value, array( 'auto', 'none', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)
+                    && ! ( 'position' === $property && 'static' === $value )
+                ) {
+                    $families[ $familyOf[ $property ] ] = true;
+                }
+            }
+        }
+
+        return $families;
     }
 
     /**
