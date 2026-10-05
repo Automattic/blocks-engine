@@ -115,6 +115,23 @@ $translated = $compile(
 );
 $assert(1 === count($placementResets($translated)), 'a transformed in-flow menu records a placement reset');
 
+// Every other property the engine treats as placement compounds the same way
+// when the list repeats it: the individual transforms, the prefixed transform,
+// and a motion path.
+foreach ( array(
+    'scale:.9' => 'scale:none!important',
+    'rotate:2deg' => 'rotate:none!important',
+    '-webkit-transform:translateY(-4px)' => '-webkit-transform:none!important',
+    'offset-path:ray(45deg)' => 'offset-path:none!important',
+) as $declaration => $reset ) {
+    $placed = $compile(
+        $document('<nav class="placed-menu">' . $links . '</nav>'),
+        $barCss . '.placed-menu{display:flex;gap:1rem;' . $declaration . '}.placed-menu a{text-decoration:none}'
+    );
+    $placedResets = $placementResets($placed);
+    $assert(1 === count($placedResets) && str_contains($placedResets[0], $reset), 'a menu placed by `' . $declaration . '` records a container reset with `' . $reset . '`: ' . json_encode($placedResets));
+}
+
 // A source that places its own list inside the nav (a panel dropping below the
 // bar) keeps that list placement: the nav's `position:relative` is the
 // containing block, not a placement the list must shed.

@@ -623,7 +623,11 @@ final class NavigationPatternContext
             $resets[] = 'position:static!important';
             $resets[] = 'inset:auto!important';
             $resets[] = 'transform:none!important';
+            $resets[] = '-webkit-transform:none!important';
             $resets[] = 'translate:none!important';
+            $resets[] = 'rotate:none!important';
+            $resets[] = 'scale:none!important';
+            $resets[] = 'offset-path:none!important';
         }
         if ( $this->navigationDeclaresAny($navigation, array( 'background-color', 'background-image', 'background', 'border-top-left-radius', 'border-radius', 'box-shadow' )) ) {
             $resets[] = 'background:none!important';
@@ -652,7 +656,8 @@ final class NavigationPatternContext
 
     /**
      * Does the source ever place this element: a non-static position, an
-     * offset, or a transform, at any viewport?
+     * offset, a transform (including the individual `translate`, `rotate` and
+     * `scale`, and the prefixed form), or a motion path, at any viewport?
      *
      * Read from the author analysis rather than the resting cascade: transforms
      * are runtime-animatable and therefore kept out of the static presentation
@@ -667,12 +672,17 @@ final class NavigationPatternContext
         $declared = $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array(
             'position', 'top', 'right', 'bottom', 'left',
             'inset', 'inset-inline', 'inset-block', 'inset-inline-start', 'inset-inline-end', 'inset-block-start', 'inset-block-end',
-            'transform', 'translate',
+            'transform', '-webkit-transform', 'translate', 'rotate', 'scale', 'offset', 'offset-path',
         ));
         $inert = array(
             'position' => array( 'static' ),
             'transform' => array( 'none' ),
+            '-webkit-transform' => array( 'none' ),
             'translate' => array( 'none' ),
+            'rotate' => array( 'none' ),
+            'scale' => array( 'none' ),
+            'offset' => array( 'none' ),
+            'offset-path' => array( 'none' ),
         );
         foreach ( $declared as $property => $values ) {
             foreach ( $values as $value ) {
