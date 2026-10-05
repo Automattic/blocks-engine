@@ -419,7 +419,8 @@
             "php tests/unit/link-bearing-element-lowering.php",
             "php tests/unit/link-wrapper-text-color-parity.php",
             "php tests/unit/propagated-link-decoration.php",
-            "php tests/unit/navigation-item-structural-pseudo.php"
+            "php tests/unit/navigation-item-structural-pseudo.php",
+            "php tests/unit/repeated-heading-card-not-navigation.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
