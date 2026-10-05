@@ -3848,9 +3848,6 @@ final class StyleResolver implements ElementPresentationResolver
     /** @param list<string> $conditions */
     private function conditionsApplyAtReferenceViewport(array $conditions): bool
     {
-    /** @param list<string> $conditions */
-    private function conditionsApplyAtReferenceViewport(array $conditions): bool
-    {
         return $this->conditionsApplyAtViewport($conditions, self::DESKTOP_REFERENCE_WIDTH);
     }
 
