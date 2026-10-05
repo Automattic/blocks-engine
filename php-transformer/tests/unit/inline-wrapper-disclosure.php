@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $failures = 0;
@@ -61,6 +62,18 @@ $hydrated = $transform('<footer><div class="row"><p>&copy; <!---->2026<!----> Te
 $hydratedBlocks = (string) ( $hydrated['serialized_blocks'] ?? '' );
 $assert(! str_contains($hydratedBlocks, '<!-- wp:html'), 'hydrated paragraph run: no core/html island', $hydratedBlocks);
 $assert(str_contains($hydratedBlocks, '<!-- wp:details') && str_contains($hydratedBlocks, '2026'), 'hydrated paragraph run: text kept and widget is core/details', $hydratedBlocks);
+
+// A capture-owned local-disclosure runtime addresses the panel by attribute.
+// Once the widget is a native details block, that selector is superseded and
+// the runtime dependency contract must not report a missing DOM target.
+$runtimeScript = 'document.addEventListener("click",function(e){var t=e.target.closest("[aria-controls]");var p=t&&t.parentElement.querySelector("[data-dla-local-disclosure]");if(p)p.hidden=!p.hidden;});';
+$artifact = ( new ArtifactCompiler() )->compile(array('files' => array(
+    array('path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><script data-dla-local-disclosure-runtime="true">' . $runtimeScript . '</script></head><body><footer><p>Copyright <span class="anchor"><button type="button" aria-expanded="false" aria-controls="pn">Note</button><span id="pn" hidden role="region" data-dla-local-disclosure="true">Panel text</span></span></p></footer></body></html>'),
+)))->toArray();
+$parity = $artifact['source_reports']['runtime_dependency_parity'] ?? array();
+$missing = array_values(array_filter($parity['findings'] ?? array(), static fn (array $finding): bool => 'runtime_dependency_target_missing' === ($finding['code'] ?? '') && ! isset($finding['disposition'])));
+$assert(str_contains((string) ($artifact['serialized_blocks'] ?? ''), '<!-- wp:details'), 'artifact: the widget is a native details block', (string) ($artifact['serialized_blocks'] ?? ''));
+$assert(array() === $missing, 'artifact: the capture runtime selector is superseded, not a missing target', (string) json_encode($missing));
 
 if ( $failures > 0 ) {
     exit(1);

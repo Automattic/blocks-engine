@@ -614,7 +614,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): bool => $this->isStructuralListItem($element),
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
             fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element),
-            function (DOMElement $element): void { $this->runtimeBehavior()->rememberNativeDisclosureRoot($element->getNodePath() ?? ''); }
+            function (DOMElement $element): void { $this->rememberNativeDisclosure($element); }
         ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector);
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => $this->elementSelector($element),
@@ -941,7 +941,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             shouldDeferNavigationPatternToChildren: fn (DOMElement $element): bool => $this->shouldDeferNavigationPatternToChildren($element),
             rememberAccordionDisclosureRoot: fn (array $block, DOMElement $element): array => $this->rememberAccordionDisclosureRoot($block, $element),
             metadataGridBlock: fn (DOMElement $element): ?array => $this->metadataGridBlockFromElement($element),
-            rememberNativeDisclosureRoot: function (DOMElement $element): void { $this->runtimeBehavior()->rememberNativeDisclosureRoot($element->getNodePath() ?? ''); },
+            rememberNativeDisclosureRoot: function (DOMElement $element): void { $this->rememberNativeDisclosure($element); },
             rememberNativeTabControls: function (DOMElement $element): void {
                 foreach ( $element->childNodes as $child ) {
                     if ( ! $child instanceof DOMElement || 'tablist' !== strtolower(trim($this->attr($child, 'role'))) ) {
@@ -1224,6 +1224,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
+     * Records a disclosure folded into a native `core/details`. Capture-owned
+     * local-disclosure panels it absorbed no longer exist as DOM targets, so the
+     * capture runtime selectors that addressed them are superseded by the block.
+     */
+    private function rememberNativeDisclosure(DOMElement $root): void
+    {
+        $this->runtimeBehavior()->rememberNativeDisclosureRoot($root->getNodePath() ?? '');
+        foreach ( array_merge(array( $root ), iterator_to_array($root->getElementsByTagName('*'), false)) as $node ) {
+            if ( $node instanceof DOMElement && 'true' === strtolower($node->getAttribute('data-dla-local-disclosure')) ) {
+                $this->runtimeSelectors()->supersede('[data-dla-local-disclosure]');
+                if ( '' !== $node->getAttribute('id') ) {
+                    $this->runtimeSelectors()->supersede('#' . $node->getAttribute('id'));
+                }
+            }
+        }
+    }
+
+    /**
      * Collaborator surface for {@see RichTextElementConverter}.
      */
     private function createRichTextElementContext(): RichTextElementContext
@@ -1252,7 +1270,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (DOMElement $element, array &$fallbacks): ?array {
                 $block = $this->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
                 if ( null !== $block ) {
-                    $this->runtimeBehavior()->rememberNativeDisclosureRoot($element->getNodePath() ?? '');
+                    $this->rememberNativeDisclosure($element);
                 }
                 return $block;
             }
