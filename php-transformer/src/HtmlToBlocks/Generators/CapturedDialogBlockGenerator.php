@@ -50,6 +50,11 @@ JS;
 } )();
 JS;
 
+        // A closed native dialog is out of layout. Author display utilities
+        // (`.grid`, `.flex`) on the dialog would otherwise override the user
+        // agent's `dialog:not([open]){display:none}` and render it permanently.
+        $style = 'dialog[data-blocks-engine-triggers]:not([open]){display:none!important}';
+
         return array(
             'name' => self::LOCAL_NAME,
             'block_json' => array(
@@ -60,10 +65,12 @@ JS;
                 'description' => 'Editable dialog content opened by a page control.',
                 'editorScript' => 'file:./index.js',
                 'viewScript' => 'file:./view.js',
+                'style' => 'file:./style.css',
                 'attributes' => $attributes,
                 'supports' => array('html' => false, 'customClassName' => false),
             ),
             'assets' => array(
+                'style.css' => $style,
                 'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)), $editor),
             ),
             'view_js' => $view,
