@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
@@ -172,6 +173,11 @@ final class CapturedDialogProjector
                 $diagnostics[] = $this->diagnostic('captured_dialog_trigger_unmatched', 'warning', 'A captured dialog trigger did not match a bounded source element set.', array('source_path' => $sourcePath, 'selector' => (string) ($state['trigger']['selector'] ?? '')));
                 continue;
             }
+            // A navigation button with its dropdown panel of links stays in place:
+            // it becomes a navigation submenu, not a dialog opened from a button.
+            if (array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isNavigationDropdownTrigger($trigger))) {
+                continue;
+            }
             $fragment = $this->safeDialogFragment($dialogHtml);
             if (null === $fragment) {
                 $diagnostics[] = $this->diagnostic('captured_dialog_markup_invalid', 'warning', 'A captured dialog was ignored because its markup could not be sanitized.', array('source_path' => $sourcePath));
@@ -237,6 +243,13 @@ final class CapturedDialogProjector
         $output = $document->saveHTML();
         $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired);
+    }
+
+    private function isNavigationDropdownTrigger(DOMElement $trigger): bool
+    {
+        $item = $trigger->parentNode;
+
+        return $item instanceof DOMElement && null !== NavigationPattern::buttonDropdownItemParts($item);
     }
 
     /** @param array<int, DOMElement> $triggers */
