@@ -151,15 +151,23 @@ foreach ( $rendered->getElementsByTagName('a') as $renderedAnchor ) {
         $renderedAnchors[] = $renderedAnchor;
     }
 }
-/** @return list<string> hrefs of rendered anchors the declaration reaches */
-$reached = static function (array $rules, string $declaration) use ($renderedAnchors): array {
+/**
+ * @param list<DOMElement> $anchors
+ * @return list<string> hrefs of the given rendered anchors the declaration reaches
+ */
+$reachedAnchors = static function (array $anchors, array $rules, string $declaration): array {
     $hrefs = array();
     foreach ( $rules as $rule ) {
         if ( ! str_contains($rule['body'], $declaration) || array() !== $rule['conditions'] ) {
             continue;
         }
         $parsed = CssSelectorMatcher::parse($rule['selector']);
-        foreach ( $renderedAnchors as $anchor ) {
+        if ( ! $parsed['supported'] ) {
+            // An unparseable projected selector must surface, not silently match nothing.
+            $hrefs['UNSUPPORTED:' . $rule['selector']] = true;
+            continue;
+        }
+        foreach ( $anchors as $anchor ) {
             $match = CssSelectorMatcher::matches($anchor, $parsed, true);
             if ( $match['supported'] && $match['matches'] ) {
                 $hrefs[$anchor->getAttribute('href')] = true;
@@ -168,6 +176,7 @@ $reached = static function (array $rules, string $declaration) use ($renderedAnc
     }
     return array_keys($hrefs);
 };
+$reached = static fn (array $rules, string $declaration): array => $reachedAnchors($renderedAnchors, $rules, $declaration);
 $assert(4 === count($renderedAnchors), 'the rendered fixture carries four navigation anchors');
 $assert(array( 'other.html' ) === $reached($directRules, 'border-radius:999px'), 'only the last rendered link receives the authored pill border');
 $assert(array( '#alpha' ) === $reached($directRules, 'font-weight:700'), 'only the first rendered link receives the authored weight');
@@ -226,7 +235,11 @@ $assert(
 // --- Mixed match set: the rule also reaches anchors outside the menu. ---------
 
 $mixed = $transform(
-    '<style>.site a:last-child{border:1px solid #999}</style>'
+    '<style>'
+    . '.site a:last-child{border:1px solid #999}'
+    . '.site a:last-child:hover{color:#000}'
+    . '@media (max-width:720px){.site a:last-child{padding:4px 8px}}'
+    . '</style>'
     . '<div class="site"><nav><a href="#alpha">Alpha</a><a href="#beta">Beta</a></nav><footer><a href="#one">One</a><a href="#two">Two</a></footer></div>'
 );
 $mixedRules = $rules($css($mixed));
@@ -235,9 +248,53 @@ $assert(
     in_array('.site :where(.wp-block-navigation-item):last-child' . $anchor, $mixedBorder, true),
     'a rule reaching both menu and non-menu anchors still projects the item-positioned selector: ' . json_encode($mixedBorder)
 );
+// The authored selector stays for the non-menu anchors, but every rendered
+// menu anchor is the only child of its item, so it has to stop reaching them.
+// The exclusion is zero-specificity and sits before any dynamic state.
+$mixedExclusion = ':not(:where(.wp-block-navigation-item__content))';
 $assert(
-    in_array('.site a:last-child', $mixedBorder, true),
-    'a rule reaching both menu and non-menu anchors keeps the authored selector for the non-menu anchors: ' . json_encode($mixedBorder)
+    in_array('.site a:last-child' . $mixedExclusion, $mixedBorder, true),
+    'the kept authored selector excludes rendered menu anchors without changing specificity: ' . json_encode($mixedBorder)
+);
+$assert(
+    in_array('.site a:last-child' . $mixedExclusion . ':hover', $selectorsDeclaring($mixedRules, 'color:#000'), true),
+    'the exclusion sits before the authored dynamic state'
+);
+$assert(
+    in_array('.site a:last-child' . $mixedExclusion, $selectorsDeclaring($mixedRules, 'padding:4px 8px', array( '@media (max-width:720px)' )), true),
+    'the exclusion is applied inside a conditional copy of the rule'
+);
+$assert(
+    ! preg_match('/\.site a:last-child\s*[,{]/', $css($mixed)),
+    'no copy of the authored selector is left reaching every rendered menu anchor'
+);
+
+// Evaluate against markup carrying both the rendered menu and the plain footer.
+$mixedRendered = new DOMDocument();
+libxml_use_internal_errors(true);
+$mixedRendered->loadHTML(
+    '<!DOCTYPE html><html><body><div class="wp-block-group site">'
+    . '<nav class="wp-block-navigation is-layout-flex"><ul class="wp-block-navigation__container">'
+    . '<li class="wp-block-navigation-item wp-block-navigation-link"><a class="wp-block-navigation-item__content" href="#alpha"><span class="wp-block-navigation-item__label">Alpha</span></a></li>'
+    . '<li class="wp-block-navigation-item wp-block-navigation-link"><a class="wp-block-navigation-item__content" href="#beta"><span class="wp-block-navigation-item__label">Beta</span></a></li>'
+    . '</ul></nav>'
+    . '<footer class="wp-block-group"><p><a href="#one">One</a></p><p><a href="#one-b">One B</a><a href="#two">Two</a></p></footer>'
+    . '</div></body></html>'
+);
+libxml_clear_errors();
+libxml_use_internal_errors(false);
+$mixedAnchors = array();
+foreach ( $mixedRendered->getElementsByTagName('a') as $mixedAnchor ) {
+    if ( $mixedAnchor instanceof DOMElement ) {
+        $mixedAnchors[] = $mixedAnchor;
+    }
+}
+$assert(5 === count($mixedAnchors), 'the mixed rendered fixture carries two menu anchors and three footer anchors');
+$mixedReached = $reachedAnchors($mixedAnchors, $mixedRules, 'border:1px solid #999');
+sort($mixedReached);
+$assert(
+    array( '#beta', '#one', '#two' ) === $mixedReached,
+    'only the last menu link and the footer anchors that are last children receive the border: ' . json_encode($mixedReached)
 );
 
 if ( $failures > 0 ) {

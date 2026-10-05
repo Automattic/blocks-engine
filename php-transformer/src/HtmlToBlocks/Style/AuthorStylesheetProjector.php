@@ -1515,12 +1515,18 @@ final class AuthorStylesheetProjector
             $controls = array_values(array_unique($controls));
             $semanticLeaves = array_values(array_unique($semanticLeaves));
             $richTextLeaves = array_values(array_unique($richTextLeaves));
+            // In a mixed set the authored selector stays for the other matches,
+            // but every rendered menu anchor is the only child of its item, so
+            // the kept selector has to stop reaching them. Exclude them through
+            // the class core hard-codes on them; `:not(:where(…))` adds no
+            // specificity.
+            $navigationExclusions = $navigationItemAnchors ? array( 'wp-block-navigation-item__content' ) : array();
             if ( $navigationItemAnchors ) {
                 $rewritten[] = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context);
             }
             if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves && ! $inlineLayoutCarriers ) {
                 if ( $hasNonProjected || ! $navigationItemAnchors ) {
-                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, $this->classExclusion($navigationExclusions));
                 }
                 continue;
             }
@@ -1540,7 +1546,7 @@ final class AuthorStylesheetProjector
                 $hasNonProjected = true;
             }
             if ( $hasNonProjected ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':not(:where(.' . implode(',.', $projectedMarkers) . '))');
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':not(:where(.' . implode(',.', array_merge($projectedMarkers, $navigationExclusions)) . '))');
             }
             foreach ( $controls as $marker ) {
                 $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $context, $controlWrapper);
@@ -2275,6 +2281,18 @@ final class AuthorStylesheetProjector
     private function typeSpecificityShim(AuthorStylesheetProjectionContext $context): string
     {
         return '' === $context->authorStyles->specificityShim() ? '' : ':not(' . $context->authorStyles->specificityShim() . ')';
+    }
+
+    /**
+     * A zero-specificity exclusion of the given classes, appended to a kept
+     * authored selector so it no longer reaches elements another projected
+     * selector now owns.
+     *
+     * @param list<string> $classes
+     */
+    private function classExclusion(array $classes): string
+    {
+        return array() === $classes ? '' : ':not(:where(.' . implode(',.', $classes) . '))';
     }
 
     /** @param array<string, mixed> $parsed */
