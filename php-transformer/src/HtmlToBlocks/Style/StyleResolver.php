@@ -3682,13 +3682,29 @@ final class StyleResolver implements ElementPresentationResolver
     /** @param list<string> $conditions */
     private function conditionsApplyAtReferenceViewport(array $conditions): bool
     {
+        return $this->conditionsApplyAtViewport($conditions, 1440.0);
+    }
+
+    /**
+     * Whether a declaration's at-rule conditions all hold at one viewport width.
+     *
+     * `@layer` only orders the cascade and never conditions. `@supports` holds
+     * when the allowlist knows the feature to be true. `@media` is evaluated
+     * at the given width, with `em`/`rem` read against the 16px media-query
+     * base. Any other at-rule, and any media feature the evaluator does not
+     * know, does not hold.
+     *
+     * @param list<string> $conditions
+     */
+    public function conditionsApplyAtViewport(array $conditions, float $viewportWidth): bool
+    {
         foreach ($conditions as $condition) {
             $condition = trim($condition);
             if (preg_match('/^@layer\b/i', $condition)) continue;
             if (preg_match('/^@supports\b/i', $condition)) {
                 if (!CssCascade::supportsConditionApplies((string) preg_replace('/^@supports\s*/i', '', $condition))) return false;
             } elseif (preg_match('/^@media\b/i', $condition)) {
-                if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), 1440.0)) return false;
+                if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), $viewportWidth)) return false;
             } else return false;
         }
         return true;

@@ -152,7 +152,12 @@ final class ProjectedNavigationConverter implements ElementConverter
             }
         }
 
-        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra), 0, 12);
+        // Core switches its overlay at 600px. When the source collapses this
+        // menu at a wider boundary, the generated rules follow the source
+        // boundary instead; the boundary joins the marker hash so two menus
+        // that differ only in where they collapse keep separate rules.
+        $collapseBoundary = $always ? '' : $this->sourceCollapseBoundary($navigation, $toggle);
+        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary )), 0, 12);
         $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.' . $marker;
         $hostRule = $host . '{' . implode(';', $this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations)) . '}';
         $openRule = $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $openDeclarations) . '}';
@@ -168,11 +173,59 @@ final class ProjectedNavigationConverter implements ElementConverter
             $extraRules .= $this->nativeNavigationToggleDropdownCss($host, $navigation);
             $extraRules .= $this->nativeNavigationToggleOpenControlCss($host);
         }
-        $rule = $always
-            ? $hostRule . $openRule . $extraRules
-            : '@media(max-width:599px){' . $hostRule . $openRule . '}';
+        if ( $always ) {
+            $rule = $hostRule . $openRule . $extraRules;
+        } elseif ( '' === $collapseBoundary ) {
+            $rule = '@media(max-width:' . ( self::CORE_OVERLAY_BREAKPOINT - 1 ) . 'px){' . $hostRule . $openRule . '}';
+        } else {
+            $rule = '@media(max-width:' . $collapseBoundary . '){' . $hostRule . $openRule . '}'
+                . $this->sourceBoundaryOverlayCss($host, $collapseBoundary);
+        }
         $this->session->generatedSupportStylesheetState()->registerNativeNavigationToggle($marker, $rule);
         return $marker;
+    }
+
+    /** The viewport width (px) at and below which core/navigation shows its native overlay control. */
+    private const CORE_OVERLAY_BREAKPOINT = 600;
+
+    /**
+     * The source's collapse boundary as a CSS length (`1300px`), or '' when
+     * it is unknown or not wider than core's own 600px switch.
+     *
+     * At or below core's breakpoint the native behavior already matches the
+     * source, so nothing is restated and the output is unchanged.
+     */
+    private function sourceCollapseBoundary(DOMElement $navigation, DOMElement $toggle): string
+    {
+        $boundary = $this->navigationToggleSuppressor->sourceCollapseBreakpoint($navigation, $toggle);
+        if ( null === $boundary || $boundary <= self::CORE_OVERLAY_BREAKPOINT ) {
+            return '';
+        }
+
+        return rtrim(rtrim(number_format($boundary, 3, '.', ''), '0'), '.') . 'px';
+    }
+
+    /**
+     * Between core's 600px switch and the source boundary, restate the state
+     * core renders below 600px on this host: keep the host visible (the
+     * author's `display:none` for the collapsed menu now lands on the block
+     * that holds core's open button), show the open button core hides from
+     * 600px up, and hide the closed menu container that core and the generic
+     * list-navigation repair would otherwise lay out inline. The open overlay
+     * (`is-menu-open`) is left to core, which styles it the same at every
+     * width, and above the source boundary the generic rules apply as before.
+     *
+     * The closed-container rule carries one class more than the generic
+     * `display:contents` repair it overrides, so it wins on specificity
+     * whatever order the layers are emitted in.
+     */
+    private function sourceBoundaryOverlayCss(string $host, string $collapseBoundary): string
+    {
+        return '@media(min-width:' . self::CORE_OVERLAY_BREAKPOINT . 'px) and (max-width:' . $collapseBoundary . '){'
+            . $host . '{display:flex!important}'
+            . $host . '>.wp-block-navigation__responsive-container-open{display:flex!important}'
+            . $host . ' .wp-block-navigation__responsive-container:not(.is-menu-open){display:none!important}'
+            . '}';
     }
 
     private function nativeNavigationToggleDropdownCss(string $host, DOMElement $navigation): string
