@@ -534,7 +534,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             ) {
                 // Chrome that scripts drive at runtime is not decoration: a
                 // carrier group would drop it, so keep the source shape.
-                if ( $navigationContext?->isRuntimeDomTarget($child) || $this->containsDialogCloseTarget($child) ) {
+                if ( $navigationContext?->isRuntimeDomTarget($child) || $this->containsDialogCloseTarget($child) || SourceDom::isBoundCapturedDialogTrigger($child) ) {
                     return null;
                 }
                 continue;
