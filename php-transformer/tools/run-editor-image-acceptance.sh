@@ -42,9 +42,17 @@ second_id="$(php -r '$a=preg_split("/\\s+/",trim(file_get_contents($argv[1]))); 
 "${wp[@]}" eval-file wp-content/plugins/blocks-engine-php-transformer/tools/editor-image-acceptance-build-page.php "$first_id" "$second_id" | tee "$evidence/source-and-page.json"
 post_id="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); if(!is_array($x)||!is_int($x["post_id"]??null)||$x["post_id"]<1) exit(1); echo $x["post_id"];' "$evidence/source-and-page.json")"
 if command -v node >/dev/null; then
-	BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_POST_ID="$post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR="$evidence" run node "$root/tests/editor-image-acceptance.mjs" | tee "$evidence/browser.json"
+	compact_post_id="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); if(!is_array($x)||!is_int($x["compact_row_post_id"]??null)||$x["compact_row_post_id"]<1) exit(1); echo $x["compact_row_post_id"];' "$evidence/source-and-page.json")"
+	BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_COMPACT_POST_ID="$compact_post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR="$evidence" run node "$root/tests/compact-row-editor-acceptance.mjs" | tee "$evidence/compact-row-browser.json"
+	if [[ "${BE_EDITOR_SKIP_IMAGE:-0}" != 1 ]]; then
+		BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_POST_ID="$post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR="$evidence" run node "$root/tests/editor-image-acceptance.mjs" | tee "$evidence/browser.json"
+	fi
 else
+	compact_post_id="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); if(!is_array($x)||!is_int($x["compact_row_post_id"]??null)||$x["compact_row_post_id"]<1) exit(1); echo $x["compact_row_post_id"];' "$evidence/source-and-page.json")"
+	BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_COMPACT_POST_ID="$compact_post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR=/evidence run docker run --rm --network host -v "${root}:/repo:ro" -v "${evidence}:/evidence" -e BE_EDITOR_WP_URL -e BE_EDITOR_COMPACT_POST_ID -e BE_EDITOR_USER -e BE_EDITOR_PASSWORD -e BE_EDITOR_EVIDENCE_DIR "$browser_image" node /repo/tests/compact-row-editor-acceptance.mjs | tee "$evidence/compact-row-browser.json"
 	# A browser container keeps the runner usable on Docker-only Linux hosts.
-	BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_POST_ID="$post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR=/evidence run docker run --rm --network host -v "${root}:/repo:ro" -v "${evidence}:/evidence" -e BE_EDITOR_WP_URL -e BE_EDITOR_POST_ID -e BE_EDITOR_USER -e BE_EDITOR_PASSWORD -e BE_EDITOR_EVIDENCE_DIR "$browser_image" node /repo/tests/editor-image-acceptance.mjs | tee "$evidence/browser.json"
+	if [[ "${BE_EDITOR_SKIP_IMAGE:-0}" != 1 ]]; then
+		BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_POST_ID="$post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR=/evidence run docker run --rm --network host -v "${root}:/repo:ro" -v "${evidence}:/evidence" -e BE_EDITOR_WP_URL -e BE_EDITOR_POST_ID -e BE_EDITOR_USER -e BE_EDITOR_PASSWORD -e BE_EDITOR_EVIDENCE_DIR "$browser_image" node /repo/tests/editor-image-acceptance.mjs | tee "$evidence/browser.json"
+	fi
 fi
 printf 'Evidence retained at %s\n' "$evidence"
