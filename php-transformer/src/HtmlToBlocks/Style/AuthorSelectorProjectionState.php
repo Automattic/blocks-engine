@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Closure;
+use DOMElement;
 
 /** Per-transform source identities projected from author CSS selectors. */
 final class AuthorSelectorProjectionState
@@ -69,6 +70,9 @@ final class AuthorSelectorProjectionState
 
     /** @var array<string, true> */
     private array $inlineLayoutCarrierPaths = array();
+
+    /** @var array<string, true> */
+    private array $navigationItemAnchorPaths = array();
 
     public function installAuthorStyles(AuthorStyleAnalysis $authorStyles): void
     {
@@ -189,6 +193,24 @@ final class AuthorSelectorProjectionState
     public function isInlineLayoutCarrierPath(string $path): bool
     {
         return isset($this->inlineLayoutCarrierPaths[$path]);
+    }
+
+    /**
+     * Record a source anchor that core/navigation renders inside a list item
+     * of its own, so the anchor's position among its source siblings now
+     * belongs to that item.
+     */
+    public function markNavigationItemAnchor(DOMElement $anchor): void
+    {
+        $path = $anchor->getNodePath() ?? '';
+        if ( '' !== $path ) {
+            $this->navigationItemAnchorPaths[$path] = true;
+        }
+    }
+
+    public function isNavigationItemAnchorPath(string $path): bool
+    {
+        return isset($this->navigationItemAnchorPaths[$path]);
     }
 
     public function ensureAttributeMarker(string $path, ?string $stableIdentity = null): string

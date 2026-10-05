@@ -177,11 +177,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $navigationContext);
+        $directAnchors = array();
+        $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, false, false, $directAnchors);
 
         if ( array() === $links ) {
             return null;
         }
+        $this->recordOneToOneDirectAnchors($links, $directAnchors, $navigationContext);
 
         $label = $this->directSectionLabel($element);
         $listSource = $this->navigationListSource($element);
@@ -599,10 +601,12 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $links = array();
+        $directAnchors = array();
         if ( $cluster->isSameNode($element) ) {
             foreach ( $element->childNodes as $child ) {
                 if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== $this->anchorLabel($child, $innerHtml) ) {
                     $links[] = $this->navigationLinkBlock($child, $presentationAttributes, $innerHtml, $createBlock, $child, $navigationContext);
+                    $directAnchors[] = $child;
                 }
             }
         } else {
@@ -611,6 +615,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( 2 > count($links) ) {
             return null;
         }
+        $this->recordOneToOneDirectAnchors($links, $directAnchors, $navigationContext);
 
         // An anchor that only converts to an HTML fallback would trade a menu
         // item for raw markup; keep today's shape rather than lose the block.
@@ -1546,9 +1551,11 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
+     * @param list<DOMElement>|null $directAnchors Collects, for the caller's
+     *        one-to-one check, each direct anchor that became an item of its own.
      * @return array<int, array<string, mixed>>
      */
-    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null, bool $allowsDescriptiveChrome = false, bool $itemsAreVouched = false): array
+    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null, bool $allowsDescriptiveChrome = false, bool $itemsAreVouched = false, ?array &$directAnchors = null): array
     {
         $blocks = array();
         $hasListBackedMenu = false;
@@ -1602,6 +1609,9 @@ final class NavigationPattern implements PatternRecognizerInterface
                     return array();
                 }
                 $blocks[] = $this->navigationLinkBlock($child, $presentationAttributes, $innerHtml, $createBlock, $child, $navigationContext);
+                if ( null !== $directAnchors ) {
+                    $directAnchors[] = $child;
+                }
                 continue;
             }
 
@@ -1819,6 +1829,48 @@ final class NavigationPattern implements PatternRecognizerInterface
         $linkAttrs = $this->withClassName($linkAttrs, $navigationContext?->linkIconMarker($anchor) ?? '');
 
         return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
+    }
+
+    /**
+     * Record the direct anchors whose source positions map one-to-one onto the
+     * emitted items: every item came from a direct anchor child of the element
+     * that becomes the navigation block, and every element child of that
+     * element is one of them. Core then wraps each in a list item of its own
+     * at the same position, so a structural pseudo-class authored on the
+     * anchor can move onto that item. A heading, a toggle, a separator, a
+     * hoisted brand anchor, a wrapper around the anchors, or a list beside
+     * them breaks that mapping, and the projector then leaves the authored
+     * selector as it is.
+     *
+     * @param array<int, array<string, mixed>> $links
+     * @param list<DOMElement> $directAnchors
+     */
+    private function recordOneToOneDirectAnchors(array $links, array $directAnchors, ?NavigationPatternContext $navigationContext): void
+    {
+        if ( null === $navigationContext || array() === $directAnchors || count($links) !== count($directAnchors) ) {
+            return;
+        }
+        $parent = $directAnchors[0]->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return;
+        }
+        foreach ( $directAnchors as $anchor ) {
+            if ( ! $anchor->parentNode instanceof DOMElement || ! $parent->isSameNode($anchor->parentNode) ) {
+                return;
+            }
+        }
+        $elementChildren = 0;
+        foreach ( $parent->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                ++$elementChildren;
+            }
+        }
+        if ( $elementChildren !== count($directAnchors) ) {
+            return;
+        }
+        foreach ( $directAnchors as $anchor ) {
+            $navigationContext->recordDirectNavigationLinkAnchor($anchor);
+        }
     }
 
     private function anchorLabel(DOMElement $anchor, callable $innerHtml, ?NavigationPatternContext $navigationContext = null): string

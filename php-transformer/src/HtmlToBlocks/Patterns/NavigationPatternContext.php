@@ -49,6 +49,17 @@ final class NavigationPatternContext
         )));
     }
 
+    /**
+     * core/navigation-link renders a direct source anchor inside a list item
+     * of its own, so the anchor's position among its source siblings moves
+     * onto that item. Author selector projection needs to know which anchors
+     * that happened to.
+     */
+    public function recordDirectNavigationLinkAnchor(DOMElement $anchor): void
+    {
+        $this->session?->authorSelectorProjectionState()->markNavigationItemAnchor($anchor);
+    }
+
     /** Marks a block element inside a link label that paints the label text itself. */
     public const LABEL_TYPOGRAPHY_BOX_CLASS = 'blocks-engine-label-typography';
 
