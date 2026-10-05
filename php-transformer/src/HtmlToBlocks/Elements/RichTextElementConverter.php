@@ -131,6 +131,13 @@ final class RichTextElementConverter implements ElementConverter
     {
         $children = array();
         $found = false;
+        $text = '';
+        $flush = function () use (&$children, &$text): void {
+            if ( '' !== trim($text) ) {
+                $children = array_merge($children, $this->context->convertText(trim($text)));
+            }
+            $text = '';
+        };
         foreach ( $element->childNodes as $node ) {
             if ( $node instanceof DOMElement && 'span' === strtolower($node->tagName) ) {
                 $local = array();
@@ -138,17 +145,19 @@ final class RichTextElementConverter implements ElementConverter
                 if ( null === $details ) {
                     return null;
                 }
+                $flush();
                 $fallbacks = array_merge($fallbacks, $local);
                 $children[] = $details;
                 $found = true;
+            } elseif ( $node instanceof \DOMComment ) {
+                continue;
             } elseif ( $node instanceof \DOMText ) {
-                if ( '' !== trim($node->textContent) ) {
-                    $children = array_merge($children, $this->context->convertText(trim($node->textContent)));
-                }
+                $text .= $node->textContent;
             } else {
                 return null;
             }
         }
+        $flush();
 
         return $found ? $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element) : null;
     }

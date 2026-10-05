@@ -55,6 +55,13 @@ $assert(str_contains($runBlocks, '<!-- wp:details') && str_contains($runBlocks, 
 $assert(str_contains($runBlocks, 'Copyright text'), 'paragraph run: the leading text is kept as a paragraph', $runBlocks);
 $assert(! str_contains($runBlocks, '<button'), 'paragraph run: no dead toggle button', $runBlocks);
 
+// Framework-hydrated text runs carry comment-node separators between text
+// fragments; they must not defeat the lowering.
+$hydrated = $transform('<footer><div class="row"><p>&copy; <!---->2026<!----> Text here. <span class="anchor"><button type="button" aria-label="Note" aria-expanded="false" aria-controls="pn">Note</button><span id="pn" class="pop" hidden role="region">Panel text.<span class="block">Signed</span></span></span></p><div><a href="/t">Terms</a></div></div></footer>');
+$hydratedBlocks = (string) ( $hydrated['serialized_blocks'] ?? '' );
+$assert(! str_contains($hydratedBlocks, '<!-- wp:html'), 'hydrated paragraph run: no core/html island', $hydratedBlocks);
+$assert(str_contains($hydratedBlocks, '<!-- wp:details') && str_contains($hydratedBlocks, '2026'), 'hydrated paragraph run: text kept and widget is core/details', $hydratedBlocks);
+
 if ( $failures > 0 ) {
     exit(1);
 }
