@@ -80,6 +80,26 @@ materializer applies its configured post permalink policy. This preserves the
 source route for deterministic references without claiming it is a post
 permalink.
 
+## Taxonomy Archives
+
+The additive `taxonomy_entities` list contains only proven native term/archive
+relationships. The producer recognizes a captured category document only when
+its canonical route has category-archive form, its visible heading names a
+bounded slug on that route, it links to multiple canonical source documents
+classified as posts, and those article documents link back to that exact route
+with the same visible term name. Thus the route is one evidence source, not a
+guessing rule. Uncorroborated collection candidates remain ordinary documents
+and produce `wordpress_site_plan_taxonomy_archive_unproven` when they list posts.
+
+Each emitted `taxonomy_term` records its bounded canonical post source paths,
+the archive source identity and route, captured presentation markup, and native
+query scope (`post_type`, taxonomy, and term). A consumer materializes the term
+and memberships and uses the archive document as presentation evidence, not as
+a frozen page owner. The generated theme scaffold retains an exact rewrite and
+term-link mapping for the source route without changing the destination's
+global category/tag base. Term pagination and future posts belong to
+WordPress's native archive query.
+
 An HTML detail document with exactly one valid schema.org `Event` JSON-LD claim
 can add a provider-neutral `entity_collection:events` declaration with
 `generic/events/v1` entities. Each entity retains `source_path`, its canonical

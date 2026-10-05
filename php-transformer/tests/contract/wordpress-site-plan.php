@@ -42,6 +42,24 @@ $assert('/media/event-image.avif' === $eventEntities['events/portable.html']['im
 $eventRoutes = array_column($eventPlan['routes'], 'source_path');
 $assert(!isset($eventEntities['events/plain.html'], $eventEntities['events/broken.html'], $eventEntities['events/ambiguous.html']) && count($eventRoutes) === count(array_unique($eventRoutes)) && in_array('events/plain.html', $eventRoutes, true) && in_array('events/broken.html', $eventRoutes, true), 'Malformed, ambiguous and non-event documents remain pages without inventing event entities or duplicate route owners.');
 $assert(array() === array_filter($eventPlan['runtime_declarations'], static fn(array $row): bool => 'tickets' === ($row['type'] ?? null)), 'Event facts do not invent ticket entities.');
+$taxonomyArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/corroborated-category.php';
+$taxonomyPlan = (new ArtifactCompiler())->compile($taxonomyArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$fieldNotes = $taxonomyPlan['taxonomy_entities'][0] ?? array();
+$assert(1 === count($taxonomyPlan['taxonomy_entities']) && 'category' === ($fieldNotes['taxonomy'] ?? null) && 'Field Notes' === ($fieldNotes['name'] ?? null), 'A captured category collection is recognized from article source metadata and reciprocal category links.');
+$archivePresentation = (string) ($fieldNotes['archive']['presentation_markup'] ?? '');
+$assert(array('stories/first.html', 'stories/second.html') === ($fieldNotes['membership_source_paths'] ?? null) && '/journal/category/field-notes' === ($fieldNotes['archive']['source_route'] ?? null) && str_contains($archivePresentation, '<!-- wp:query ') && str_contains($archivePresentation, '"inherit":true') && str_contains($archivePresentation, '<!-- wp:query-pagination ') && str_contains($archivePresentation, '<!-- wp:query-no-results -->'), 'Membership retains source route identity and turns captured cards into an inherited query loop with pagination and empty state.');
+$taxonomyBootstrap = (string) ((array_values(array_filter($taxonomyPlan['writes'], static fn(array $write): bool => 'functions.php' === ($write['target_path'] ?? null)))[0]['payload']['data'] ?? ''));
+$assert(str_contains($taxonomyBootstrap, "index.php?category_name=field-notes") && str_contains($taxonomyBootstrap, "home_url( \$route )"), 'Generated theme retains the exact native category rewrite and source term-link mapping without changing global taxonomy bases.');
+$categoryTemplate = array_values(array_filter($taxonomyPlan['templates'], static fn(array $template): bool => 'category-field-notes' === ($template['slug'] ?? null)))[0] ?? array();
+$sharedMarkup = implode("\n", array_column($taxonomyPlan['template_parts'], 'canonical_block_markup'));
+$assert(str_contains((string) ($categoryTemplate['canonical_block_markup'] ?? ''), 'Field Notes') && str_contains((string) ($categoryTemplate['canonical_block_markup'] ?? ''), 'wp:query') && str_contains((string) ($categoryTemplate['canonical_block_markup'] ?? ''), '"slug":"footer"') && str_contains($sharedMarkup, '"slug":"footer-content"') && str_contains($sharedMarkup, 'Shared footer'), 'Category-specific template retains the shared footer shell and its captured content without duplicating that inline part.');
+$ambiguousTaxonomyArtifact = $taxonomyArtifact;
+foreach ($ambiguousTaxonomyArtifact['files'] as &$taxonomyFile) {
+    if (is_array($taxonomyFile) && in_array($taxonomyFile['path'] ?? '', array('stories/first.html', 'stories/second.html'), true)) $taxonomyFile['content'] = '<article><h1>' . ('stories/first.html' === $taxonomyFile['path'] ? 'First story' : 'Second story') . '</h1><p>Story body.</p></article>';
+}
+unset($taxonomyFile);
+$ambiguousTaxonomyPlan = (new ArtifactCompiler())->compile($ambiguousTaxonomyArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === $ambiguousTaxonomyPlan['taxonomy_entities'] && 1 === count(array_filter($ambiguousTaxonomyPlan['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_taxonomy_archive_unproven' === ($row['code'] ?? null))), 'An archive whose articles do not link back remains explicitly unproven.');
 $throws = static function (callable $callback, string $message) use ($assert): void { try { $callback(); } catch (InvalidArgumentException) { return; } $assert(false, $message); };
 $validationFailure = static function (callable $callback) use ($assert): ValidationException { try { $callback(); } catch (ValidationException $exception) { return $exception; } $assert(false, 'Expected a contextual WordPress site plan validation failure.'); };
 $writeMap = static function (array $writes): array { $map = array(); foreach ($writes as $write) $map[$write['target_path']] = $write; return $map; };
