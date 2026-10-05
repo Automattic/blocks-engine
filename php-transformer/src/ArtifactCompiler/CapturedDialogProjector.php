@@ -150,8 +150,9 @@ final class CapturedDialogProjector
         }
 
         $diagnostics = array();
-        $adopted = $this->adoptWiredPanels($document, $sourcePath);
-        $projected = count($adopted);
+        $adoption = $this->adoptWiredPanels($document, $sourcePath);
+        $adopted = $adoption['triggers'];
+        $projected = $adoption['count'];
         foreach ($states as $state) {
             if (! is_array($state) || 'captured' !== ($state['status'] ?? null) || ! is_array($state['trigger'] ?? null) || ! is_array($state['dialog'] ?? null)) {
                 continue;
@@ -263,41 +264,65 @@ final class CapturedDialogProjector
      * its trigger, so the wiring runtime is retired like any other projected
      * dialog instead of leaving an unbound trigger target behind.
      *
-     * @return array<int, DOMElement> the adopted triggers
+     * @return array{triggers:array<int, DOMElement>, count:int}
      */
     private function adoptWiredPanels(DOMDocument $document, string $sourcePath): array
     {
         $xpath = new DOMXPath($document);
         $adopted = array();
-        foreach (iterator_to_array($xpath->query('//*[@data-dla-dialog-trigger]') ?: array()) as $trigger) {
-            if (! $trigger instanceof DOMElement || $this->insideProjectedDialog($trigger)) continue;
-            $key = trim($trigger->getAttribute('data-dla-dialog-trigger'));
-            if (1 !== preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key) || $key !== trim($trigger->getAttribute('aria-controls'))) continue;
-            $panels = $xpath->query('//*[@data-dla-dialog-panel=' . $this->xpathLiteral($key) . ']');
-            $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
-            if (! $panel instanceof DOMElement || SourceDom::elementContains($panel, $trigger)) continue;
-            $inner = '';
-            foreach ($panel->childNodes as $child) $inner .= (string) $document->saveHTML($child);
-            if ('' === trim($inner) || strlen($inner) > self::MAX_DIALOG_BYTES) continue;
-            $fragment = $this->safeDialogFragment($inner);
-            if (null === $fragment) continue;
-            $triggerId = trim($trigger->getAttribute('id'));
-            if ('' === $triggerId) {
-                $triggerId = 'blocks-engine-dialog-trigger-' . substr(hash('sha256', $sourcePath . "\n" . $key), 0, 16);
-                $trigger->setAttribute('id', $triggerId);
-            }
-            $identity = substr(hash('sha256', $sourcePath . "\n" . $key . "\n" . $inner), 0, 16);
-            $dialog = $this->appendProjectedDialog($document, $fragment, array($triggerId), $identity);
-            $panel->parentNode?->removeChild($panel);
-            foreach (iterator_to_array($document->getElementsByTagName('button')) as $button) {
-                if ($button instanceof DOMElement && $button->getAttribute('data-dla-dialog-close') === $key && $button->hasAttribute('hidden') && ! SourceDom::elementContains($dialog, $button)) {
-                    $button->parentNode?->removeChild($button);
+        $count = 0;
+        $scopes = $this->documentScopes($document);
+        if (count($scopes) > self::MAX_STATES_PER_PAGE) {
+            return array('triggers' => array(), 'count' => 0);
+        }
+        foreach ($scopes as $scopeIndex => $scope) {
+            $groups = array();
+            foreach ($xpath->query('.//*[@data-dla-dialog-trigger]', $scope) ?: array() as $trigger) {
+                if (! $trigger instanceof DOMElement || $this->insideProjectedDialog($trigger)) continue;
+                $key = trim($trigger->getAttribute('data-dla-dialog-trigger'));
+                if (1 === preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key) && $key === trim($trigger->getAttribute('aria-controls'))) {
+                    $groups[$key][] = $trigger;
                 }
             }
-            $adopted[] = $trigger;
+            if (count($groups) > self::MAX_STATES_PER_PAGE) continue;
+            foreach ($groups as $key => $triggers) {
+                if (count($triggers) > self::MAX_STATES_PER_PAGE) continue;
+                $panels = $xpath->query('.//*[@data-dla-dialog-panel=' . $this->xpathLiteral((string) $key) . ']', $scope);
+                $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
+                if (! $panel instanceof DOMElement || array() !== array_filter($triggers, static fn(DOMElement $trigger): bool => SourceDom::elementContains($panel, $trigger))) continue;
+                // Sanitize the panel envelope, retaining its content wrapper:
+                // that wrapper can own a menu's hierarchy and presentation.
+                $html = (string) $document->saveHTML($panel);
+                if (strlen($html) > self::MAX_DIALOG_BYTES) continue;
+                $fragment = $this->safeDialogFragment($html);
+                if (null === $fragment) continue;
+                $identity = substr(hash('sha256', $sourcePath . "\n" . $key . "\n" . $scopeIndex . "\n" . $html), 0, 16);
+                $triggerIds = array();
+                $menu = false;
+                foreach ($triggers as $triggerIndex => $trigger) {
+                    $triggerId = trim($trigger->getAttribute('id'));
+                    $matches = '' !== $triggerId ? $xpath->query('//*[@id=' . $this->xpathLiteral($triggerId) . ']') : null;
+                    if ('' === $triggerId || ! $matches || 1 !== $matches->length) {
+                        $triggerId = 'blocks-engine-dialog-trigger-' . $identity . '-' . ($triggerIndex + 1);
+                        $trigger->setAttribute('id', $triggerId);
+                    }
+                    $triggerIds[] = $triggerId;
+                    $menu = $menu || 'menu' === strtolower(trim($trigger->getAttribute('aria-haspopup')));
+                }
+                $dialog = $this->appendProjectedDialog($document, $fragment, $triggerIds, $identity);
+                if ($menu) $dialog->setAttribute('data-blocks-engine-captured-menu', 'true');
+                $panel->parentNode?->removeChild($panel);
+                foreach (iterator_to_array($scope->getElementsByTagName('button')) as $button) {
+                    if ($button instanceof DOMElement && $button->getAttribute('data-dla-dialog-close') === (string) $key && $button->hasAttribute('hidden') && ! SourceDom::elementContains($dialog, $button)) {
+                        $button->parentNode?->removeChild($button);
+                    }
+                }
+                array_push($adopted, ...$triggers);
+                ++$count;
+            }
         }
 
-        return $adopted;
+        return array('triggers' => $adopted, 'count' => $count);
     }
 
     /** @param array<int, DOMElement> $adopted */

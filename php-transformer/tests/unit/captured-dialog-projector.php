@@ -178,6 +178,28 @@ $assert(!str_contains($wiredMarkup, 'data-dla-disclosure-runtime'), 'the wiring 
 $assert(array() === $codes($wired), 'no unmatched-trigger diagnostics are raised for wired triggers', implode(',', $codes($wired)));
 $assert(array() === array_values(array_filter($wired['files'], static fn (array $file): bool => 'website/index.inline-5.js' === ($file['path'] ?? ''))), 'the extracted wiring script is omitted');
 
+$sharedTrigger = static fn(string $label): string => '<button type="button" aria-label="' . $label . '" data-dla-disclosure-label="' . $label . '" data-dla-dialog-trigger="shared" aria-controls="shared" aria-haspopup="dialog">' . $label . '</button>';
+$sharedBody = $sharedTrigger('First') . $sharedTrigger('Second') . $wiredPanel('shared', '<div><p>Shared content</p></div>');
+$sharedStates = array($state(array('selector' => 'body > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'First', 'ariaHaspopup' => 'dialog', 'dataBindings' => array())));
+$shared = $project($files(array('https://example.test/' => '<html><body>' . $sharedBody . '</body></html>'), array('https://example.test/' => $sharedStates)));
+$sharedMarkup = (string) $shared['files'][0]['content'];
+preg_match('/data-blocks-engine-triggers="([^"]+)"/', $sharedMarkup, $sharedIds);
+$assert(1 === substr_count($sharedMarkup, '<dialog') && 2 === count(explode(' ', $sharedIds[1] ?? '')), 'all controls sharing one wired panel bind to one native dialog');
+
+$scopeHtml = '<html><body><div class="data-liberation-desktop-document">' . $sharedBody . '</div><div class="data-liberation-mobile-document">' . $sharedBody . '</div></body></html>';
+$scoped = $project($files(array('https://example.test/' => $scopeHtml), array('https://example.test/' => $sharedStates)));
+$scopedMarkup = (string) $scoped['files'][0]['content'];
+preg_match_all('/data-blocks-engine-triggers="([^"]+)"/', $scopedMarkup, $scopedIds);
+$boundIds = explode(' ', implode(' ', $scopedIds[1] ?? array()));
+$assert(2 === substr_count($scopedMarkup, '<dialog') && 4 === count($boundIds) && 4 === count(array_unique($boundIds)), 'responsive panels bind every scoped trigger with globally unique ids');
+$assert(!str_contains($scopedMarkup, 'data-dla-dialog-panel'), 'responsive panels are consumed in their own scopes');
+
+$menuBody = '<div><div><a href="/parent">Parent</a><div><a href="/first">First child</a><a href="/second">Second child</a></div></div><div><a href="/other">Other</a></div></div>';
+$menuHtml = '<html><body><header><button type="button" aria-haspopup="menu" aria-controls="menu" data-dla-dialog-trigger="menu" data-dla-disclosure-label="Menu">Menu</button>' . $wiredPanel('menu', $menuBody) . '</header><main><h1>Page</h1></main></body></html>';
+$menuFiles = $files(array('https://example.test/' => $menuHtml), array('https://example.test/' => array($state(array('selector' => 'body > header > button', 'tag' => 'button', 'label' => 'Menu', 'ariaHaspopup' => 'menu', 'dataBindings' => array())))));
+$compiledMenu = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $menuFiles))->toArray();
+$assert(str_contains((string) ($compiledMenu['serialized_blocks'] ?? ''), '<!-- wp:navigation-submenu'), 'wired menu adoption retains native nested submenu semantics through compilation');
+
 if (0 !== $failures) {
     fwrite(STDERR, "captured-dialog-projector failed: {$failures} failure(s), {$passes} pass(es)\n");
     exit(1);
