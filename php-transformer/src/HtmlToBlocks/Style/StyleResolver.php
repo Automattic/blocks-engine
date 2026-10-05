@@ -3848,11 +3848,24 @@ final class StyleResolver implements ElementPresentationResolver
     /** @param list<string> $conditions */
     private function conditionsApplyAtReferenceViewport(array $conditions): bool
     {
+    /** @param list<string> $conditions */
+    private function conditionsApplyAtReferenceViewport(array $conditions): bool
+    {
         return $this->conditionsApplyAtViewport($conditions, self::DESKTOP_REFERENCE_WIDTH);
     }
 
-    /** @param array<int, string> $conditions */
-    private function conditionsApplyAtViewport(array $conditions, float $viewportWidth): bool
+    /**
+     * Whether a declaration's at-rule conditions all hold at one viewport width.
+     *
+     * `@layer` only orders the cascade and never conditions. `@supports` holds
+     * when the allowlist knows the feature to be true. `@media` is evaluated
+     * at the given width, with `em`/`rem` read against the 16px media-query
+     * base. Any other at-rule, and any media feature the evaluator does not
+     * know, does not hold.
+     *
+     * @param list<string> $conditions
+     */
+    public function conditionsApplyAtViewport(array $conditions, float $viewportWidth): bool
     {
         foreach ($conditions as $condition) {
             $condition = trim($condition);
