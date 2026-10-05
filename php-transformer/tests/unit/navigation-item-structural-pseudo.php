@@ -297,6 +297,110 @@ $assert(
     'only the last menu link and the footer anchors that are last children receive the border: ' . json_encode($mixedReached)
 );
 
+// --- Item-owned hooks: core renders the anchor's class and id on the <li>. ----
+
+$hooks = $transform(
+    '<style>'
+    . '.menu nav a{color:#333}'
+    . '.menu nav a.lang:last-child{border:1px solid #999}'
+    . '.menu nav a.lang:last-child:hover{color:#000}'
+    . '.menu nav a#other:last-child{letter-spacing:.1em}'
+    . '.menu nav a:not(.lang):not(:last-child){margin-right:12px}'
+    . '</style>'
+    . '<header><div class="menu"><nav><a href="#alpha">Alpha</a><a href="#beta">Beta</a><a href="#gamma" id="other" class="lang">Gamma</a></nav></div></header>'
+);
+$hooksMarkup = (string) ($hooks['serialized_blocks'] ?? '');
+$gammaAttrs = array();
+preg_match_all('/<!-- wp:navigation-link (\{.*?\}) \/-->/', $hooksMarkup, $hookLinks);
+foreach ( $hookLinks[1] as $json ) {
+    $attrs = json_decode($json, true);
+    if ( is_array($attrs) && 'Gamma' === ($attrs['label'] ?? '') ) {
+        $gammaAttrs = $attrs;
+    }
+}
+$assert(
+    in_array('lang', preg_split('/\s+/', (string) ($gammaAttrs['className'] ?? '')) ?: array(), true) && 'other' === ($gammaAttrs['anchor'] ?? null),
+    'the source anchor class and id travel on the navigation-link block, which core renders on the <li>'
+);
+preg_match('/<!-- wp:navigation (\{.*?\}) -->/s', $hooksMarkup, $hooksOpener);
+preg_match('/blocks-engine-source-nav-[A-Za-z0-9-]+/', $hooksOpener[1] ?? '', $hooksMarkerMatch);
+$hooksScope = '.menu :where(.' . ($hooksMarkerMatch[0] ?? '') . '):not(blocks-engine-specificity-site-0) ';
+$hooksRules = $rules($css($hooks));
+$assert(
+    array( $hooksScope . $item . '.lang:last-child' . $anchor ) === $selectorsDeclaring($hooksRules, 'border:1px solid #999'),
+    'an anchor class moves onto the item compound with the structural pseudo-class: ' . json_encode($selectorsDeclaring($hooksRules, 'border:1px solid #999'))
+);
+$assert(
+    array( $hooksScope . $item . '.lang:last-child' . $anchor . ':hover' ) === $selectorsDeclaring($hooksRules, 'color:#000'),
+    'the dynamic state stays on the content anchor while the class moves to the item'
+);
+$assert(
+    array( $hooksScope . $item . '#other:last-child' . $anchor ) === $selectorsDeclaring($hooksRules, 'letter-spacing:.1em'),
+    'an anchor id moves onto the item compound: ' . json_encode($selectorsDeclaring($hooksRules, 'letter-spacing:.1em'))
+);
+$hooksGap = $selectorsDeclaring($hooksRules, 'margin-right:12px');
+$assert(
+    1 === count($hooksGap) && str_starts_with($hooksGap[0], $hooksScope . $item . ':not(.lang):not(:last-child)' . $anchor),
+    'a class negation moves onto the item compound next to the structural negation: ' . json_encode($hooksGap)
+);
+$hooksRendered = new DOMDocument();
+libxml_use_internal_errors(true);
+$hooksRendered->loadHTML(
+    '<!DOCTYPE html><html><body><header class="wp-block-group"><div class="wp-block-group menu">'
+    . '<nav class="wp-block-navigation ' . ($hooksMarkerMatch[0] ?? '') . ' is-layout-flex"><ul class="wp-block-navigation__container">'
+    . '<li class="wp-block-navigation-item wp-block-navigation-link"><a class="wp-block-navigation-item__content" href="#alpha"><span class="wp-block-navigation-item__label">Alpha</span></a></li>'
+    . '<li class="wp-block-navigation-item wp-block-navigation-link"><a class="wp-block-navigation-item__content" href="#beta"><span class="wp-block-navigation-item__label">Beta</span></a></li>'
+    . '<li class="wp-block-navigation-item lang wp-block-navigation-link" id="other"><a class="wp-block-navigation-item__content" href="#gamma"><span class="wp-block-navigation-item__label">Gamma</span></a></li>'
+    . '</ul></nav></div></header></body></html>'
+);
+libxml_clear_errors();
+libxml_use_internal_errors(false);
+$hooksAnchors = array();
+foreach ( $hooksRendered->getElementsByTagName('a') as $hooksAnchor ) {
+    if ( $hooksAnchor instanceof DOMElement ) {
+        $hooksAnchors[] = $hooksAnchor;
+    }
+}
+$assert(array( '#gamma' ) === $reachedAnchors($hooksAnchors, $hooksRules, 'border:1px solid #999'), 'only the rendered link whose item carries the moved class receives the border');
+$assert(array( '#gamma' ) === $reachedAnchors($hooksAnchors, $hooksRules, 'letter-spacing:.1em'), 'only the rendered link whose item carries the moved id receives the tracking');
+$assert(array( '#alpha', '#beta' ) === $reachedAnchors($hooksAnchors, $hooksRules, 'margin-right:12px'), 'the class negation keeps reaching the other rendered links');
+
+// --- Positions that are not one-to-one with the rendered items. -------------
+// A heading inside the menu, or a direct anchor before a wrapper of further
+// anchors, shifts source sibling positions away from item positions. The
+// structural pseudo-class then has to stay as authored rather than point at
+// the wrong item.
+
+$positional = array(
+    'labeled section' => array(
+        '.menu a:nth-child(2){border:1px solid #999}',
+        '<div class="menu"><h3>Sections</h3><a href="#a">A</a><a href="#b">B</a><a href="#c">C</a></div>',
+        ' a:nth-child(2)',
+    ),
+    'wrapper after a direct anchor' => array(
+        '.links a:first-child{border:1px solid #999}',
+        '<header><nav><a href="#home">Home</a><div class="links"><a href="#a">A</a><a href="#b">B</a></div></nav></header>',
+        ' a:first-child',
+    ),
+);
+foreach ( $positional as $name => [$positionalRule, $positionalMarkup, $suffix] ) {
+    $positionalResult = $transform('<style>' . $positionalRule . '</style>' . $positionalMarkup);
+    $positionalSelectors = $selectorsDeclaring($rules($css($positionalResult)), 'border:1px solid #999');
+    $assert(str_contains((string) ($positionalResult['serialized_blocks'] ?? ''), '<!-- wp:navigation '), $name . ': the fixture becomes a core/navigation');
+    $assert(
+        1 === count($positionalSelectors) && str_ends_with($positionalSelectors[0], $suffix) && ! str_contains($positionalSelectors[0], '.wp-block-navigation-item'),
+        $name . ': source positions do not map one-to-one onto items, so the structural pseudo-class stays as authored: ' . json_encode($positionalSelectors)
+    );
+}
+
+// A wrapper that is the menu's only source of items maps one-to-one.
+$soleWrapper = $transform('<style>nav a:last-child{border:1px solid #999}</style><header><nav><div class="links"><a href="#a">A</a><a href="#b">B</a><a href="#c">C</a></div></nav></header>');
+$soleWrapperBorder = $selectorsDeclaring($rules($css($soleWrapper)), 'border:1px solid #999');
+$assert(
+    1 === count($soleWrapperBorder) && str_ends_with($soleWrapperBorder[0], ' ' . $item . ':last-child' . $anchor),
+    'anchors of a wrapper that is the only source of items are still rewritten: ' . json_encode($soleWrapperBorder)
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "navigation-item-structural-pseudo: {$failures} failure(s), {$passes} pass(es)" . PHP_EOL);
     exit(1);

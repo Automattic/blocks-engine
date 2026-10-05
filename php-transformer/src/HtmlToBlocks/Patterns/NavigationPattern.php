@@ -177,11 +177,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $navigationContext);
+        $directAnchors = array();
+        $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, false, false, $directAnchors);
 
         if ( array() === $links ) {
             return null;
         }
+        $this->recordOneToOneDirectAnchors($links, $directAnchors, $navigationContext);
 
         $label = $this->directSectionLabel($element);
         $listSource = $this->navigationListSource($element);
@@ -351,7 +353,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         $blocks = array($converter->element($heading, $discardedFallbacks, true));
         $links = array();
         foreach ( $anchors as $anchor ) {
-            $context->navigationContext()?->recordDirectNavigationLinkAnchor($anchor);
             $links[] = $context->createBlock('core/navigation-link', array_filter(array(
                 'label' => SourceDom::innerHtmlWithProjectedMarkers(
                     $anchor,
@@ -592,18 +593,21 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $links = array();
+        $directAnchors = array();
         if ( $cluster->isSameNode($element) ) {
             foreach ( $element->childNodes as $child ) {
                 if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== $this->anchorLabel($child, $innerHtml) ) {
                     $links[] = $this->navigationLinkBlock($child, $presentationAttributes, $innerHtml, $createBlock, $child, $navigationContext);
+                    $directAnchors[] = $child;
                 }
             }
         } else {
-            $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, false, true);
+            $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, false, true, $directAnchors);
         }
         if ( 2 > count($links) ) {
             return null;
         }
+        $this->recordOneToOneDirectAnchors($links, $directAnchors, $navigationContext);
 
         // An anchor that only converts to an HTML fallback would trade a menu
         // item for raw markup; keep today's shape rather than lose the block.
@@ -1531,9 +1535,11 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
+     * @param list<DOMElement>|null $directAnchors Collects, for the caller's
+     *        one-to-one check, each direct anchor that became an item of its own.
      * @return array<int, array<string, mixed>>
      */
-    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null, bool $allowsDescriptiveChrome = false, bool $itemsAreVouched = false): array
+    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null, bool $allowsDescriptiveChrome = false, bool $itemsAreVouched = false, ?array &$directAnchors = null): array
     {
         $blocks = array();
         $hasListBackedMenu = false;
@@ -1587,6 +1593,9 @@ final class NavigationPattern implements PatternRecognizerInterface
                     return array();
                 }
                 $blocks[] = $this->navigationLinkBlock($child, $presentationAttributes, $innerHtml, $createBlock, $child, $navigationContext);
+                if ( null !== $directAnchors ) {
+                    $directAnchors[] = $child;
+                }
                 continue;
             }
 
@@ -1619,7 +1628,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 }
 
                 if ( $this->isNavigationWrapperElement($child) ) {
-                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $allowsDescriptiveChrome);
+                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $allowsDescriptiveChrome, false, $directAnchors);
                     if ( array() !== $wrappedBlocks ) {
                         $blocks = array_merge($blocks, $wrappedBlocks);
                         continue;
@@ -1802,13 +1811,49 @@ final class NavigationPattern implements PatternRecognizerInterface
         // described. Carry an opaque marker so the recovered source icon can be
         // projected onto the rendered item without leaving native navigation.
         $linkAttrs = $this->withClassName($linkAttrs, $navigationContext?->linkIconMarker($anchor) ?? '');
-        // Without a source item, core wraps the anchor in a list item of its
-        // own; the anchor's position among its siblings now belongs to that item.
-        if ( null === $item || $item->isSameNode($anchor) ) {
-            $navigationContext?->recordDirectNavigationLinkAnchor($anchor);
-        }
 
         return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
+    }
+
+    /**
+     * Record the direct anchors whose source positions map one-to-one onto the
+     * emitted items: every item came from a direct anchor, and every element
+     * child of the anchors' shared parent is one of them. Core then wraps each
+     * in a list item of its own at the same position, so a structural
+     * pseudo-class authored on the anchor can move onto that item. A heading,
+     * a toggle, a separator, a hoisted brand anchor, or an item wrapper beside
+     * the anchors breaks that mapping, and the projector then leaves the
+     * pseudo-class as authored rather than pointing it at the wrong item.
+     *
+     * @param array<int, array<string, mixed>> $links
+     * @param list<DOMElement> $directAnchors
+     */
+    private function recordOneToOneDirectAnchors(array $links, array $directAnchors, ?NavigationPatternContext $navigationContext): void
+    {
+        if ( null === $navigationContext || array() === $directAnchors || count($links) !== count($directAnchors) ) {
+            return;
+        }
+        $parent = $directAnchors[0]->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return;
+        }
+        foreach ( $directAnchors as $anchor ) {
+            if ( ! $anchor->parentNode instanceof DOMElement || ! $parent->isSameNode($anchor->parentNode) ) {
+                return;
+            }
+        }
+        $elementChildren = 0;
+        foreach ( $parent->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                ++$elementChildren;
+            }
+        }
+        if ( $elementChildren !== count($directAnchors) ) {
+            return;
+        }
+        foreach ( $directAnchors as $anchor ) {
+            $navigationContext->recordDirectNavigationLinkAnchor($anchor);
+        }
     }
 
     private function anchorLabel(DOMElement $anchor, callable $innerHtml, ?NavigationPatternContext $navigationContext = null): string

@@ -2358,7 +2358,7 @@ final class AuthorStylesheetProjector
         if ( null !== $type && 'a' !== $type ) {
             return $this->rewriteSourceTagTypes($selector, $parsed, $context);
         }
-        $split = $this->splitStructuralPseudoClasses(substr($selector, $start, $end - $start));
+        $split = $this->splitNavigationItemCompound(substr($selector, $start, $end - $start));
         if ( '' === $split['structural'] ) {
             return $this->rewriteSourceTagTypes($selector, $parsed, $context);
         }
@@ -2374,29 +2374,46 @@ final class AuthorStylesheetProjector
             $subject .= $rest;
         }
         return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
-            $start => array( 'end' => $end, 'value' => ':where(.wp-block-navigation-item)' . $split['structural'] . '>' . $subject ),
+            $start => array( 'end' => $end, 'value' => ':where(.wp-block-navigation-item)' . $split['item'] . $split['structural'] . '>' . $subject ),
         ));
     }
 
     /**
-     * Separate a compound selector's top-level structural pseudo-classes from
-     * its remaining simple selectors. Only the forms the selector matcher
-     * models move: `:first-child`, `:last-child`, `:nth-child(n)`,
-     * `:nth-of-type(n)`, and a `:not()` made of those alone.
+     * Separate a compound selector's top-level simple selectors into what moves
+     * onto the rendered navigation item and what stays on its content anchor.
      *
-     * @return array{structural: string, rest: string}
+     * Structural: `:first-child`, `:last-child`, `:nth-child(n)`,
+     * `:nth-of-type(n)`, and a `:not()` made of those alone — the forms the
+     * selector matcher models. Item-owned: the anchor's classes and id, which
+     * core/navigation-link renders on the `<li>` (`className`, `anchor`), and a
+     * `:not()` made of those alone. The anchor keeps its type, attributes, and
+     * dynamic-state pseudo-classes.
+     *
+     * @return array{structural: string, item: string, rest: string}
      */
-    private function splitStructuralPseudoClasses(string $compound): array
+    private function splitNavigationItemCompound(string $compound): array
     {
         $positional = ':(?:first-child|last-child|nth-child\(\s*\d+\s*\)|nth-of-type\(\s*\d+\s*\))';
-        $pattern = '/\G(?:' . $positional . '|:not\((?:\s*' . $positional . ')+\s*\))(?![A-Za-z0-9_-])/i';
+        $hook = '[.#](?:\\\\.|[A-Za-z0-9_-]|[^\x00-\x7f])+';
+        $pattern = '/\G(?:'
+            . '(?<structural>' . $positional . '|:not\(\s*(?:' . $positional . ')+\s*\))'
+            . '|(?<item>' . $hook . '|:not\(\s*(?:' . $hook . ')+\s*\))'
+            . ')(?![A-Za-z0-9_-])/i';
         $structural = '';
+        $item = '';
         $rest = '';
         $state = CssSyntaxScanner::state();
         $length = strlen($compound);
         for ( $offset = 0; $offset < $length; ) {
-            if ( CssSyntaxScanner::isTopLevel($state) && ':' === $compound[$offset] && preg_match($pattern, $compound, $match, 0, $offset) ) {
-                $structural .= $match[0];
+            if ( CssSyntaxScanner::isTopLevel($state)
+                && in_array($compound[$offset], array( ':', '.', '#' ), true)
+                && preg_match($pattern, $compound, $match, 0, $offset)
+            ) {
+                if ( '' !== ($match['structural'] ?? '') ) {
+                    $structural .= $match[0];
+                } else {
+                    $item .= $match[0];
+                }
                 $offset += strlen($match[0]);
                 continue;
             }
@@ -2405,7 +2422,7 @@ final class AuthorStylesheetProjector
             $offset = $next;
         }
 
-        return array( 'structural' => $structural, 'rest' => $rest );
+        return array( 'structural' => $structural, 'item' => $item, 'rest' => $rest );
     }
 
     /**
