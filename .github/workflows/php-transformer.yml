@@ -89,6 +89,10 @@ jobs:
           php tests/unit/collection-filter-block.php
           PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/collection-filter-browser.mjs
 
+      - name: Verify native button default background neutralization
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/native-button-default-background-browser.mjs
+
   wordpress-site-plan:
     name: WordPress site plan integration (PHP ${{ matrix.php-version }})
     runs-on: ubuntu-24.04

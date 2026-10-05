@@ -263,9 +263,18 @@ final class GeneratedBlockStyleProjector
                 $declarations[] = 'max-width:100%';
             }
             $background = CssValueInspector::comparable((string) ($sourceDeclarations['background'] ?? ''));
-            if ( '' === trim((string) ($style['color']['background'] ?? '')) && preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $background) && ! $this->sourceControlSurfaceIsFilled($sourceControl) ) {
+            $backgroundColor = CssValueInspector::comparable((string) ($sourceDeclarations['background-color'] ?? ''));
+            $sourceHasNoFill = '' === $background && '' === $backgroundColor;
+            $sourceHasTransparentFill = preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $background)
+                || preg_match('/^(?:0(?:px)?|transparent)$/', $backgroundColor);
+            if ( '' === trim((string) ($style['color']['background'] ?? ''))
+                && ( $sourceHasNoFill || $sourceHasTransparentFill )
+                && ! $this->sourceControlSurfaceIsFilled($sourceControl)
+            ) {
                 // Only while the block has no fill of its own: an owner-set
-                // background (inline) then takes over.
+                // background (inline) then takes over. An absent source fill is
+                // transparent too, but the native core/button theme style is
+                // opaque; neutralize it just as we do an authored transparent reset.
                 $guardedDeclarations[':not([style*="background"])'][] = 'background-color:transparent!important';
             }
             if ( ! self::sourceControlHasVisibleBorder($sourceDeclarations) ) {
