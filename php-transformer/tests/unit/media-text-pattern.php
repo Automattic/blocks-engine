@@ -235,6 +235,21 @@ $assertSame('core/paragraph', $iconLabelResult['blocks'][0]['innerBlocks'][1]['b
 $largeHeadingResult = $transformHtml('<section style="display:flex"><img src="feature.jpg" width="640" height="360" alt=""><h2>Feature</h2></section>');
 $assertSame('core/media-text', $largeHeadingResult['blocks'][0]['blockName'] ?? null, 'Legitimate large image plus heading remains media-text.');
 
+// Small authored portrait media is a flex item, not a media-text pane. Keep
+// it as an editable image in the source row so its geometry and crop survive.
+$portraitResult = $transformHtml('<div class="author-row" style="display:flex;align-items:center;gap:12px"><img class="portrait" src="portrait.jpg" style="width:48px;height:48px;flex-shrink:0;object-fit:cover;border-radius:9999px" alt="Author"><div><p>Neutral author attribution</p></div></div>');
+$portraitBlock = $portraitResult['blocks'][0] ?? array();
+$assertSame('core/group', $portraitBlock['blockName'] ?? null, 'Compact portrait row lowers to a group rather than media-text.');
+$assertSame('core/image', $portraitBlock['innerBlocks'][0]['blockName'] ?? null, 'Compact portrait remains a native image child.');
+$portraitMarkup = (string) ($portraitBlock['innerBlocks'][0]['innerHTML'] ?? '');
+$assertContains('width:48px', $portraitMarkup, 'Portrait keeps authored width.');
+$assertContains('height:48px', $portraitMarkup, 'Portrait keeps authored height.');
+$assertContains('object-fit:cover', $portraitMarkup, 'Portrait keeps authored crop.');
+$portraitStyles = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $portraitResult['assets'] ?? array()));
+$assertContains('border-radius:9999px', $portraitStyles, 'Portrait keeps authored shape.');
+$assertContains('flex-shrink:0', $portraitStyles, 'Portrait keeps authored flex participation.');
+$assertSame('pass', $portraitResult['source_reports']['wp_block_validity']['status'] ?? null, 'Group and image portrait lowering has a canonical Gutenberg-valid save shape.');
+
 $quoteResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><blockquote><p>Quoted</p></blockquote></section>');
 $assertSame('core/quote', $quoteResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null, 'Blockquote text side keeps core/quote identity.');
 

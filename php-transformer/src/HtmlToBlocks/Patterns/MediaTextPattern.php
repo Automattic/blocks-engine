@@ -190,7 +190,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
                     return null;
                 }
             }
-            $mediaStyle = $mergedPresentationStyle($resolution['media']);
+            $mediaStyle = $fullPresentationStyle($resolution['media']);
         } catch ( \Throwable ) {
             return null;
         }
@@ -592,10 +592,12 @@ final class MediaTextPattern implements PatternRecognizerInterface
 
     private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle): bool
     {
-        if ( ! preg_match('/^(?:h[1-6]|p|span)$/', strtolower($text->tagName)) ) {
+        $simpleText = preg_match('/^(?:h[1-6]|p|span)$/', strtolower($text->tagName));
+        if ( ! $simpleText && ! $this->hasCompactPortraitPresentation($mediaStyle) ) {
             return false;
         }
 
+        $declarations = $this->styleDeclarations($mediaStyle);
         $width = $this->compactHtmlDimension($this->attr($media, 'width'));
         $height = $this->compactHtmlDimension($this->attr($media, 'height'));
         if ( null !== $width
@@ -605,14 +607,22 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return true;
         }
 
-        $declarations = $this->styleDeclarations($mediaStyle);
         $width = $this->compactPixelDimension($this->normalizedCssValue((string) ($declarations['width'] ?? '')));
         $heightValue = strtolower($this->normalizedCssValue((string) ($declarations['height'] ?? 'auto')));
         $height = $this->compactPixelDimension($heightValue);
 
-        return null !== $width
+        $compact = null !== $width
             && 64 >= $width
             && ( 'auto' === $heightValue || ( null !== $height && 64 >= $height ) );
+        return $compact && ( $simpleText || ( null !== $height && 64 >= $height ) );
+    }
+
+    private function hasCompactPortraitPresentation(string $mediaStyle): bool
+    {
+        $declarations = $this->styleDeclarations($mediaStyle);
+        $objectFit = strtolower($this->normalizedCssValue((string) ($declarations['object-fit'] ?? '')));
+        $borderRadius = strtolower($this->normalizedCssValue((string) ($declarations['border-radius'] ?? '')));
+        return 'cover' === $objectFit || '' !== $borderRadius;
     }
 
     private function compactPixelDimension(string $value): ?float
