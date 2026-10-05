@@ -589,6 +589,30 @@ final class NavigationToggleSuppressor
         foreach ( $root->getElementsByTagName('*') as $element ) {
             if ( $element instanceof DOMElement && $this->isRedundantMenuToggleControl($element) ) {
                 $this->recordSupersededNavToggleSelectors($element);
+                $this->recordSupersededControlPaths($element);
+            }
+        }
+    }
+
+    /**
+     * Record the dropped toggle, and everything inside it, as source paths no
+     * author selector can address in the output. The author stylesheet
+     * projection keeps a type selector (`.nav button`, `.nav button svg`)
+     * whose matched source element has no projected counterpart, so once the
+     * toggle is gone the only `button`s such a rule can reach inside the
+     * converted header are the open and close buttons Core renders in its
+     * place — and the toggle's placement or desktop `display:none` would land
+     * on them. Marking the paths lets the projection bind those rules to a
+     * marker nothing carries, and exclude Core's chrome from rules the toggle
+     * shared with elements that do survive.
+     */
+    private function recordSupersededControlPaths(DOMElement $toggle): void
+    {
+        $projections = $this->context->selectorProjections();
+        $projections->markSupersededControlPath($toggle->getNodePath() ?? '');
+        foreach ( $toggle->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement ) {
+                $projections->markSupersededControlPath($descendant->getNodePath() ?? '');
             }
         }
     }

@@ -25,6 +25,16 @@ final class AuthorSelectorProjectionState
     /** @var array<string, true> */
     private array $controlPaths = array();
 
+    /**
+     * Node paths of menu toggles the transformer drops in favour of Core's
+     * native overlay control, and of everything inside them. These never reach
+     * the output, so a type selector whose only subjects sit here has nothing
+     * to address but the chrome Core renders in their place.
+     *
+     * @var array<string, true>
+     */
+    private array $supersededControlPaths = array();
+
     /** @var array<string, string> */
     private array $semanticMarkers = array();
 
@@ -100,6 +110,18 @@ final class AuthorSelectorProjectionState
     public function isControlPath(string $path): bool
     {
         return isset($this->controlPaths[$path]);
+    }
+
+    public function markSupersededControlPath(string $path): void
+    {
+        if ( '' !== $path ) {
+            $this->supersededControlPaths[$path] = true;
+        }
+    }
+
+    public function isSupersededControlPath(string $path): bool
+    {
+        return isset($this->supersededControlPaths[$path]);
     }
 
     public function ensureControlMarker(string $path): string
