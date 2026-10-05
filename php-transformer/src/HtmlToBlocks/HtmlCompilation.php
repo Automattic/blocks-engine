@@ -612,7 +612,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element, string $tagName): ?DOMElement => $this->ancestorElement($element, $tagName),
             fn (DOMElement $element): bool => $this->isStructuralListItem($element),
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
-            fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element)
+            fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element),
+            function (DOMElement $element): void { $this->runtimeBehavior()->rememberNativeDisclosureRoot($element->getNodePath() ?? ''); }
         ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector);
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => $this->elementSelector($element),

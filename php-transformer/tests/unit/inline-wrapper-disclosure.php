@@ -1,0 +1,52 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * A single toggle plus the collapsed region it controls stays one native
+ * `core/details` disclosure when the wrapper around them is an inline `<span>`.
+ *
+ * A positioned trigger/popover wrapper is commonly a `<span>` (for example a
+ * relative inline-block holding a button and an absolutely positioned hidden
+ * panel). The wrapper was lowered as a positioned inline carrier instead, so the
+ * toggle became a dead button and the collapsed panel — its `hidden` state
+ * dropped — rendered as an always-visible overlay.
+ */
+
+require dirname(__DIR__, 2) . '/vendor/autoload.php';
+
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+
+$failures = 0;
+$assert = static function (bool $condition, string $message, string $detail = '') use (&$failures): void {
+    if ( ! $condition ) {
+        ++$failures;
+        fwrite(STDERR, 'FAIL: ' . $message . ('' !== $detail ? ' - ' . $detail : '') . PHP_EOL);
+    }
+};
+
+$transform = static fn (string $html): array => ( new HtmlTransformer() )->transform($html, array())->toArray();
+
+$css = '<style>.anchor{position:relative;display:inline-block}.pop{position:absolute;bottom:100%;left:0;width:15rem;z-index:50}.row{display:flex;gap:1rem}</style>';
+$widget = static fn (string $wrapperClass): string => '<section class="row"><p>Intro</p>'
+    . '<span class="' . $wrapperClass . '"><button type="button" aria-expanded="false" aria-controls="note-1">Note</button>'
+    . '<span id="note-1" class="pop" hidden role="region">Collapsed note text.<span>Signature</span></span></span></section>';
+
+foreach ( array( 'plain wrapper' => '<section><p>Intro</p><span class="anchor"><button type="button" aria-expanded="false" aria-controls="note-1">Note</button><span id="note-1" class="pop" hidden role="region">Collapsed note text.<span>Signature</span></span></span></section>', 'css-owned wrapper' => $css . $widget('anchor') ) as $label => $html ) {
+    $result = $transform($html);
+    $blocks = (string) ( $result['serialized_blocks'] ?? '' );
+
+    $assert(str_contains($blocks, '<!-- wp:details'), $label . ': the span wrapper becomes a native core/details', $blocks);
+    $assert(1 === preg_match('/<summary>Note<\/summary>/', $blocks), $label . ': the toggle label becomes the summary', $blocks);
+    $assert(! preg_match('/<details[^>]*\sopen[\s>]/', $blocks), $label . ': the disclosure stays closed', $blocks);
+    $detailsEnd = strpos($blocks, '</details>');
+    $text = strpos($blocks, 'Collapsed note text.');
+    $assert(false !== $text && false !== $detailsEnd && $text < $detailsEnd, $label . ': the panel content stays inside the details', $blocks);
+    $assert(! str_contains($blocks, 'aria-controls') && ! str_contains($blocks, '<button'), $label . ': no dead toggle button is left behind', $blocks);
+    $assert(! str_contains($blocks, 'wp:buttons'), $label . ': the toggle is not lowered to a button block', $blocks);
+    $assert(array() === ( $result['fallbacks'] ?? array() ), $label . ': no behavior-loss fallback is recorded', (string) json_encode($result['fallbacks'] ?? array()));
+}
+
+if ( $failures > 0 ) {
+    exit(1);
+}
+echo "inline-wrapper-disclosure: ok\n";
