@@ -46,6 +46,15 @@ foreach ( array( 'plain wrapper' => '<section><p>Intro</p><span class="anchor"><
     $assert(array() === ( $result['fallbacks'] ?? array() ), $label . ': no behavior-loss fallback is recorded', (string) json_encode($result['fallbacks'] ?? array()));
 }
 
+// A text run ending in the same widget stays text plus a native disclosure,
+// never an opaque core/html island.
+$run = $transform('<footer><p>Copyright text <span class="anchor"><button type="button" aria-expanded="false" aria-controls="pn">Note</button><span id="pn" hidden role="region">Panel text</span></span></p></footer>');
+$runBlocks = (string) ( $run['serialized_blocks'] ?? '' );
+$assert(! str_contains($runBlocks, '<!-- wp:html'), 'paragraph run: no core/html island', $runBlocks);
+$assert(str_contains($runBlocks, '<!-- wp:details') && str_contains($runBlocks, '<summary>Note</summary>'), 'paragraph run: the widget becomes core/details', $runBlocks);
+$assert(str_contains($runBlocks, 'Copyright text'), 'paragraph run: the leading text is kept as a paragraph', $runBlocks);
+$assert(! str_contains($runBlocks, '<button'), 'paragraph run: no dead toggle button', $runBlocks);
+
 if ( $failures > 0 ) {
     exit(1);
 }

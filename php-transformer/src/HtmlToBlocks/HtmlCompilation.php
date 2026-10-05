@@ -122,6 +122,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SemanticPari
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
@@ -1247,6 +1248,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             },
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->emptyInlineGeometryBlock($element, $fallbacks);
+            },
+            function (DOMElement $element, array &$fallbacks): ?array {
+                $block = $this->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
+                if ( null !== $block ) {
+                    $this->runtimeBehavior()->rememberNativeDisclosureRoot($element->getNodePath() ?? '');
+                }
+                return $block;
             }
         );
     }
