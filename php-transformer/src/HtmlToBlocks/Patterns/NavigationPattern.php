@@ -186,12 +186,13 @@ final class NavigationPattern implements PatternRecognizerInterface
         $label = $this->directSectionLabel($element);
         $listSource = $this->navigationListSource($element);
         $splitLandmarkOwnership = $this->shouldSplitLandmarkOwnership($element, $listSource, $navigationContext);
+        // Under split landmark ownership core/navigation stands in for the list
+        // and a core/group keeps the `nav`; the list is then the element whose
+        // classes and declarations the navigation block carries.
+        $navigationSource = $splitLandmarkOwnership && $listSource instanceof DOMElement ? $listSource : $element;
         $navigationAttrs = $label instanceof DOMElement
             ? $this->nestedLabeledNavigationAttributes($element, $presentationAttributes)
-            : $this->navigationContainerAttributes(
-                $splitLandmarkOwnership && $listSource instanceof DOMElement ? $listSource : $element,
-                $presentationAttributes
-            );
+            : $this->navigationContainerAttributes($navigationSource, $presentationAttributes);
         $navigationAttrs = $this->withResolvedNonFlexNavigationLayout($navigationAttrs, $element, $navigationContext);
         $navigationAttrs = $this->withResolvedVerticalNavigationOrientation($navigationAttrs, $element, $navigationContext);
         $navigationAttrs = $this->withCollapsedItemBand($navigationAttrs, $element, $navigationContext);
@@ -256,10 +257,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         // Presentation the source inherits is recorded for CSS delivery rather
         // than written onto the block, so documents that share this shell keep
         // identical markup and continue to collapse into one template part.
-        $navigationContext?->recordInheritedPresentation(
-            $element,
-            $this->authorClassNames((string) ($navigationAttrs['className'] ?? ''))
-        );
+        $authorClasses = $this->authorClassNames((string) ($navigationAttrs['className'] ?? ''));
+        $navigationContext?->recordInheritedPresentation($element, $authorClasses);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $defaultTextColorClass = $this->defaultNavigationTextColorClass($links);
             if ( '' !== $defaultTextColorClass ) {
@@ -273,6 +272,15 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $element, $navigationContext);
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $element);
+        // WordPress copies the emitted block's classes onto its inner list. Key
+        // the container reset on the source's own classes; a class-less source
+        // is reached only through the engine's markers, which join the className
+        // as the block is created, so fall back to the created block's classes.
+        $navigationContext?->recordNavigationContainerReset(
+            $navigationSource,
+            array() !== $authorClasses ? $authorClasses : $this->carriedClassNames((string) ($navigation['attrs']['className'] ?? '')),
+            $listSource
+        );
 
         if ( ! $label instanceof DOMElement ) {
             if ( $splitLandmarkOwnership ) {
@@ -714,6 +722,14 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $cluster, $navigationContext);
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $cluster);
+        // The cluster's classes travel onto this block and, through WordPress,
+        // onto its inner list; keep what the cluster states placed once.
+        $clusterClasses = $this->authorClassNames((string) ($navigationAttrs['className'] ?? ''));
+        $navigationContext?->recordNavigationContainerReset(
+            $cluster,
+            array() !== $clusterClasses ? $clusterClasses : $this->carriedClassNames((string) ($navigation['attrs']['className'] ?? '')),
+            $listSource
+        );
 
         // The carrier is the authored `<nav>`, so it keeps that tag (see above).
         // The authored `aria-label` does not come with it: core/group registers no
@@ -2189,13 +2205,23 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function authorClassNames(string $className): array
     {
+        return array_values(array_filter(
+            $this->carriedClassNames($className),
+            static fn (string $candidate): bool => ! str_starts_with($candidate, 'blocks-engine-')
+        ));
+    }
+
+    /**
+     * Every bounded class the block carries, engine markers included: the set
+     * WordPress copies onto core/navigation's inner container list.
+     *
+     * @return array<int, string>
+     */
+    private function carriedClassNames(string $className): array
+    {
         $classes = preg_split('/\s+/', trim($className)) ?: array();
 
-        return array_values(array_filter(
-            $classes,
-            static fn (string $candidate): bool => SourceDom::isBoundedClassToken($candidate)
-                && ! str_starts_with($candidate, 'blocks-engine-')
-        ));
+        return array_values(array_filter($classes, SourceDom::isBoundedClassToken(...)));
     }
 
     private function navigationTextColorFromStyle(string $style): string
