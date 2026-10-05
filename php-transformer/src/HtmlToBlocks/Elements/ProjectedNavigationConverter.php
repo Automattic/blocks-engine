@@ -175,6 +175,120 @@ final class ProjectedNavigationConverter implements ElementConverter
         return $marker;
     }
 
+    /**
+     * Marker carrying the source menu's collapsed-state paint onto Core's open
+     * overlay.
+     *
+     * Core paints the open responsive container white with black text unless
+     * the block declares its own colours. A source menu states its collapsed
+     * panel's paint in its stylesheet, typically under the breakpoint that
+     * shows the toggle (`@media(max-width:…){.nav nav{background:var(--navy)}}`).
+     * That rule is projected onto the nav HOST, which at phone width is the
+     * toggle-sized box, while the fixed overlay the links actually open inside
+     * keeps Core's defaults — and the author's link colour, so the menu was
+     * white on white.
+     *
+     * Read the background and text colour the source resolves for the menu at
+     * the mobile reference viewport — on the nav and the wrapper chain down to
+     * its list, since either may be the painted panel, with variables resolved
+     * — and restate them on the open overlay. Only a colour that can travel
+     * is carried: a `url()` image is bound to the source stylesheet's location
+     * and a transparent or inherited value says nothing about the panel. A
+     * menu whose source paints nothing in that state is left alone.
+     */
+    public function responsiveNavigationOverlayMarker(DOMElement $navigation): string
+    {
+        $background = '';
+        $color = '';
+        foreach ( $this->collapsedPanelChain($navigation) as $panel ) {
+            $paint = $this->styleResolver->collapsedViewportDeclarations($panel, array( 'background-color', 'background', 'color' ));
+            $panelColor = $this->portableCollapsedPaint($panel, (string) ( $paint['color'] ?? '' ));
+            unset($paint['color']);
+            // The later of the shorthand and the longhand wins, as in the
+            // cascade — unless only the earlier one is `!important`.
+            $winner = '';
+            foreach ( $paint as $value ) {
+                if ( '' === $winner || CssValueInspector::isImportant($value) || ! CssValueInspector::isImportant($winner) ) {
+                    $winner = $value;
+                }
+            }
+            $panelBackground = $this->portableCollapsedPaint($panel, $winner);
+            if ( '' !== $panelBackground ) {
+                $background = $panelBackground;
+            }
+            if ( '' !== $panelColor ) {
+                $color = $panelColor;
+            }
+        }
+        if ( '' === $background && '' === $color ) {
+            return '';
+        }
+
+        $declarations = array();
+        if ( '' !== $background ) {
+            $declarations[] = 'background:' . $background . '!important';
+        }
+        if ( '' !== $color ) {
+            $declarations[] = 'color:' . $color . '!important';
+        }
+        $marker = 'blocks-engine-navigation-overlay-' . substr(hash('sha256', implode(';', $declarations)), 0, 12);
+        // A custom overlay template part styles itself; Core marks that
+        // container `disable-default-overlay`, and this must not reach it.
+        $rule = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker
+            . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay){' . implode(';', $declarations) . '}';
+        $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker, $rule);
+
+        return $marker;
+    }
+
+    /**
+     * The elements that can paint the collapsed panel: the navigation itself
+     * and the single-wrapper chain beneath it down to its list, outer first.
+     * Siblings such as the toggle control or a brand anchor do not break the
+     * chain; two candidate wrappers at one level make the panel ambiguous.
+     *
+     * @return list<DOMElement>
+     */
+    private function collapsedPanelChain(DOMElement $navigation): array
+    {
+        $chain = array( $navigation );
+        $node = $navigation;
+        for ( $depth = 0; $depth < 4 && ! in_array(strtolower($node->tagName), array( 'ul', 'ol' ), true); ++$depth ) {
+            $wrapper = null;
+            foreach ( $node->childNodes as $child ) {
+                if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'div', 'ul', 'ol' ), true) ) {
+                    continue;
+                }
+                if ( null !== $wrapper ) {
+                    return $chain;
+                }
+                $wrapper = $child;
+            }
+            if ( ! $wrapper instanceof DOMElement ) {
+                break;
+            }
+            $chain[] = $wrapper;
+            $node = $wrapper;
+        }
+
+        return $chain;
+    }
+
+    /** A collapsed-state colour value that can be restated away from the source stylesheet, or ''. */
+    private function portableCollapsedPaint(DOMElement $panel, string $value): string
+    {
+        $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $panel);
+        if ( '' === $value
+            || preg_match('/[{}<>;]|var\(|url\(/i', $value)
+            || in_array(strtolower($value), array( 'none', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'currentcolor' ), true)
+            || CssValueInspector::isTransparentColor($value)
+        ) {
+            return '';
+        }
+
+        return $value;
+    }
+
     private function nativeNavigationToggleDropdownCss(string $host, DOMElement $navigation): string
     {
         $panel = $navigation->parentNode instanceof DOMElement ? $navigation->parentNode : $navigation;
