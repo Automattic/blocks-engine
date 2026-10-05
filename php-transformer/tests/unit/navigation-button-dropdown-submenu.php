@@ -32,7 +32,7 @@ $assert(! str_contains($markup, 'wp:details') && ! str_contains($markup, 'data-d
 
 // The menu row is still one navigation when the surrounding bar also holds
 // controls that cannot become menu items (a call to action and icon-only links).
-$mixed = '<header><nav class="bar"><a href="#top"><span>Acme</span></a><div class="row"><a href="#one">One</a>'
+$mixed = '<style>.row{display:flex;gap:28px}.end{display:flex}</style><header><nav class="bar"><a href="#top"><span>Acme</span></a><div class="row"><a href="#one">One</a>'
     . $item('shop', 'Shop', '<a href="#new">New in</a><a href="#sale">Sale</a>')
     . '</div><div class="end"><a href="#join">Join</a><div class="icons"><a href="https://example.test/x" aria-label="X"></a></div></div></nav></header>';
 $mixedMarkup = (string) ( ( new HtmlTransformer() )->transform($mixed)->toArray()['serialized_blocks'] ?? '' );

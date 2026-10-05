@@ -50,7 +50,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        return $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element);
+        return $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->hasButtonDropdownChild($element);
     }
 
     /**
