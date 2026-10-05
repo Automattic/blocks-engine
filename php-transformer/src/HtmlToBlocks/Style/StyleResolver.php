@@ -29,6 +29,18 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  */
 final class StyleResolver implements ElementPresentationResolver
 {
+    /** Viewport the desktop cascade is evaluated at: the capture's desktop reference. */
+    private const DESKTOP_REFERENCE_WIDTH = 1440.0;
+
+    /**
+     * Viewport the collapsed (phone) cascade is evaluated at: the capture's
+     * mobile reference. Core's responsive overlay is the menu below 600px, and
+     * this width sits inside that range below every common menu breakpoint,
+     * so the values it resolves are what the source paints while its own menu
+     * is collapsed.
+     */
+    public const MOBILE_REFERENCE_WIDTH = 390.0;
+
     public function __construct(
         private readonly StyleResolutionContext $context,
         private readonly HtmlTransformerAnalysisCache $analysisCache
@@ -642,6 +654,67 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $conditionalFamilies;
+    }
+
+    /**
+     * What the cascade declares for a family of properties at the mobile
+     * reference viewport, in the order the cascade last stated them.
+     *
+     * The desktop-anchored resolvers read the element as the capture rendered
+     * it at {@see self::DESKTOP_REFERENCE_WIDTH}; a menu's collapsed panel is
+     * painted only below the source breakpoint, so those resolvers never see
+     * it. This walks the same candidate rules but keeps every unconditional
+     * declaration plus the media/feature conditions that hold at
+     * {@see self::MOBILE_REFERENCE_WIDTH}, with a source inline declaration
+     * last. An `!important` declaration is not displaced by a later ordinary
+     * one. The returned map is keyed by property and ordered by last
+     * declaration, so a caller resolving a shorthand against its longhand
+     * (`background` after `background-color`) takes the final key.
+     *
+     * @param list<string> $properties
+     * @return array<string, string>
+     */
+    public function collapsedViewportDeclarations(DOMElement $element, array $properties): array
+    {
+        $declared = array();
+        $important = array();
+        $record = static function (string $property, string $value) use (&$declared, &$important): void {
+            if ( isset($important[$property]) && ! CssValueInspector::isImportant($value) ) {
+                return;
+            }
+            unset($declared[$property]);
+            $declared[$property] = $value;
+            if ( CssValueInspector::isImportant($value) ) {
+                $important[$property] = true;
+            }
+        };
+        foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $rule ) {
+            $matched = null;
+            foreach ( $properties as $property ) {
+                $value = trim((string) ( $rule['declarations'][ $property ] ?? '' ));
+                if ( '' === $value ) {
+                    continue;
+                }
+                $matched ??= $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' ));
+                if ( ! $matched ) {
+                    break;
+                }
+                $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+                if ( array() !== $conditions && ! $this->conditionsApplyAtViewport($conditions, self::MOBILE_REFERENCE_WIDTH) ) {
+                    break;
+                }
+                $record($property, $value);
+            }
+        }
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        foreach ( $properties as $property ) {
+            $value = trim((string) ( $inline[ $property ] ?? '' ));
+            if ( '' !== $value ) {
+                $record($property, $value);
+            }
+        }
+
+        return $declared;
     }
 
     /**
@@ -3682,13 +3755,19 @@ final class StyleResolver implements ElementPresentationResolver
     /** @param list<string> $conditions */
     private function conditionsApplyAtReferenceViewport(array $conditions): bool
     {
+        return $this->conditionsApplyAtViewport($conditions, self::DESKTOP_REFERENCE_WIDTH);
+    }
+
+    /** @param array<int, string> $conditions */
+    private function conditionsApplyAtViewport(array $conditions, float $viewportWidth): bool
+    {
         foreach ($conditions as $condition) {
             $condition = trim($condition);
             if (preg_match('/^@layer\b/i', $condition)) continue;
             if (preg_match('/^@supports\b/i', $condition)) {
                 if (!CssCascade::supportsConditionApplies((string) preg_replace('/^@supports\s*/i', '', $condition))) return false;
             } elseif (preg_match('/^@media\b/i', $condition)) {
-                if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), 1440.0)) return false;
+                if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), $viewportWidth)) return false;
             } else return false;
         }
         return true;
