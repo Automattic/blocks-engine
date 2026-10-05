@@ -71,8 +71,8 @@ final class FormPresentationGraphBuilder
     /** Memoized rule sets for {@see typographyStyles()}, analyzed once per transform. */
     private ?array $typographyAnalysis = null;
 
-    /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker */
-    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null)
+    /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker @param list<DOMElement> $scopeElements */
+    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null, private readonly array $scopeElements = array())
     {
     }
 
@@ -80,7 +80,7 @@ final class FormPresentationGraphBuilder
     public function buildContainer(DOMElement $form, array $stylesheets, string $inlineCss = ''): array
     {
         $this->truncated = false;
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, self::cascadeFilter(array($form)), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         if ($analysis['truncated']) return array();
         $matched = $this->matched($form, $analysis['rules']);
         $styles = $this->styles($matched['base'], $form, null, array());
@@ -276,8 +276,9 @@ final class FormPresentationGraphBuilder
     /** @param list<array<string, mixed>> $stylesheets @return array{truncated: bool, rules: list<array<string, mixed>>, customProperties: list<array<string, mixed>>} */
     private function typographyAnalysis(array $stylesheets, string $inlineCss): array
     {
-        $properties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
-        $customProperties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array('--*'), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
+        $filter = array() === $this->scopeElements ? null : self::cascadeFilter($this->scopeElements);
+        $properties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        $customProperties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array('--*'), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         return array(
             'truncated' => $properties['truncated'] || $customProperties['truncated'],
             'rules' => $properties['rules'],
@@ -285,13 +286,27 @@ final class FormPresentationGraphBuilder
         );
     }
 
+    /** @param list<DOMElement> $elements */
+    private static function cascadeFilter(array $elements): Closure
+    {
+        return static function (array $selector) use ($elements): bool {
+            foreach ($elements as $element) {
+                for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null) {
+                    $match = CssSelectorMatcher::matches($ancestor, $selector);
+                    if (!$match['supported'] || $match['matches']) return true;
+                }
+            }
+            return false;
+        };
+    }
+
     /** @param list<array<string, mixed>> $stylesheets @return array<string, mixed> */
     public function build(DOMElement $form, array $stylesheets, string $inlineCss = ''): array
     {
         $this->diagnostics = array();
         $this->truncated = false;
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
         $controlsForCustomProperties = $this->presentationElements($form);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, self::cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
@@ -747,6 +762,7 @@ final class FormPresentationGraphBuilder
     {
         $elements = $this->controls($form);
         foreach ( $this->controls($form) as $control ) {
+            if (($carrier = self::soleTextCarrier($control)) instanceof DOMElement) $elements[] = $carrier;
             $label = $this->label($control);
             if ( $label instanceof DOMElement ) $elements[] = $label;
             $excluded = array( $control );
@@ -755,6 +771,14 @@ final class FormPresentationGraphBuilder
                 $excluded[] = $marker;
             }
             if ( $label instanceof DOMElement && ($carrier = self::soleTextCarrier($label, $excluded)) instanceof DOMElement ) $elements[] = $carrier;
+            if (null !== $this->sanitizeInlineSvgMarkup) {
+                $visualCount = 0;
+                foreach ($control->getElementsByTagName('svg') as $svg) {
+                    if (!$svg instanceof DOMElement || !SourceDom::svgHasDrawableContent($svg)) continue;
+                    $elements[] = $svg;
+                    if (++$visualCount >= self::MAX_VISUAL_PARTS) break;
+                }
+            }
         }
         return $elements;
     }

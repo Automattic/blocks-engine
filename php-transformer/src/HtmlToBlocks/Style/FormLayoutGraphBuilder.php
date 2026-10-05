@@ -21,8 +21,6 @@ final class FormLayoutGraphBuilder
     private const MAX_RULES_PER_NODE = 16;
     private const MAX_RULES = 512;
     private const MAX_SELECTORS = 1024;
-    // Parsing work and retained cascade candidates have independent bounds.
-    private const MAX_SCANNED_SELECTORS = 4096;
     private const MAX_CONDITION_DEPTH = 8;
     private const MAX_VARIANTS = 256;
     private const MAX_PROVENANCE = 16;
@@ -100,7 +98,7 @@ final class FormLayoutGraphBuilder
                 }
                 return false;
             },
-            self::MAX_SCANNED_SELECTORS
+            CssAnalysisLimits::MAX_SCANNED_SELECTORS
         );
         $this->diagnostics = array_merge($this->diagnostics, $analysis['diagnostics']);
         $this->truncated = $this->truncated || $analysis['truncated'];
@@ -122,12 +120,12 @@ final class FormLayoutGraphBuilder
                 }
                 return false;
             },
-            self::MAX_SCANNED_SELECTORS
+            CssAnalysisLimits::MAX_SCANNED_SELECTORS
         );
         $this->diagnostics = array_merge($this->diagnostics, $customPropertyAnalysis['diagnostics']);
         $this->truncated = $this->truncated || $customPropertyAnalysis['truncated'];
         $nodes = array();
-        $presentationBuilder = new FormPresentationGraphBuilder();
+        $presentationBuilder = new FormPresentationGraphBuilder(scopeElements: array_column($entries, 'element'));
         $variants = array();
         $resolved = array();
         $hidden = array();
