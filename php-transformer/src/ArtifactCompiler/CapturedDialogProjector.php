@@ -286,6 +286,8 @@ final class CapturedDialogProjector
         }
         foreach ($document->getElementsByTagName('*') as $node) {
             if (!$node instanceof DOMElement || '' === trim($node->getAttribute('data-dla-dialog-trigger'))) continue;
+            // A navigation dropdown trigger becomes a submenu, so it needs no dialog binding.
+            if ($this->isNavigationDropdownTrigger($node)) continue;
             $id = trim($node->getAttribute('id'));
             if ('' === $id || !isset($bound[$id])) return false;
         }
