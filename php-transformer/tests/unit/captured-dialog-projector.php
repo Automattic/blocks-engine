@@ -151,6 +151,33 @@ $panelMarkup = (string) ($panel['files'][0]['content'] ?? '');
 $assert(1 === substr_count($panelMarkup, 'data-dla-dialog-close="dla-dialog-0"') && str_contains($panelMarkup, '<dialog') && str_contains($panelMarkup, 'data-dla-disclosure-runtime'), 'a matching close helper inside the projected dialog stays with its runtime');
 $assert(!str_contains($panelMarkup, 'data-blocks-engine-add-close'), 'an in-panel close is not duplicated by a generated close control');
 
+// A capture that already wired its dialogs in the exported document: each
+// trigger sits beside an in-place hidden panel with a hidden close helper. Both
+// the matched trigger and one whose positional selector no longer matches must
+// bind natively so the wiring runtime is retired.
+$wiredRuntime = 'document.querySelectorAll("[data-dla-dialog-trigger]");';
+$wiredPanel = static fn (string $key, string $body): string => '<div class="dla-dialog" role="dialog" aria-modal="true" hidden id="' . $key . '" data-dla-dialog-panel="' . $key . '">' . $body . '</div>';
+$wiredHtml = '<html><head><script data-dla-disclosure-runtime="true">' . $wiredRuntime . '</script></head><body><main>'
+    . '<header><button type="button" aria-label="Menu" data-dla-disclosure-label="Menu" data-dla-dialog-trigger="dla-dialog-1" aria-controls="dla-dialog-1" aria-expanded="false" aria-haspopup="menu">Menu</button>'
+    . $wiredPanel('dla-dialog-1', '<nav><a href="/a">Alpha</a></nav>') . '</header>'
+    . '<section><div><button type="button" data-dla-disclosure-label="Card title Open the record" data-dla-dialog-trigger="dla-dialog-0" aria-controls="dla-dialog-0" aria-expanded="false" aria-haspopup="dialog">Card title</button>'
+    . '<button type="button" hidden data-dla-dialog-close="dla-dialog-0" aria-label="Close Card title">Close</button>'
+    . $wiredPanel('dla-dialog-0', '<div><h2>Record details</h2></div>') . '</div></section></main></body></html>';
+$wiredStates = array(
+    $state(array('selector' => 'body > main > header > button', 'tag' => 'button', 'ariaHaspopup' => 'menu', 'label' => 'Menu', 'dataBindings' => array())),
+    array('status' => 'captured', 'trigger' => array('selector' => 'body > main > section > div:nth-of-type(3) > button', 'tag' => 'button', 'ariaHaspopup' => 'dialog', 'label' => 'Card title Open the record', 'dataBindings' => array()), 'dialog' => array('html' => '<div><h2>Record details</h2></div>', 'htmlBytes' => strlen('<div><h2>Record details</h2></div>'), 'htmlTruncated' => false)),
+);
+$wiredRows = $files(array('https://example.test/' => $wiredHtml), array('https://example.test/' => $wiredStates));
+$wiredRows[] = array('path' => 'website/index.inline-5.js', 'content' => $wiredRuntime, 'source' => 'inline-script', 'source_path' => 'website/index.html');
+$wired = $project($wiredRows);
+$wiredMarkup = (string) ($wired['files'][0]['content'] ?? '');
+$assert(2 === substr_count($wiredMarkup, '<dialog'), 'wired panels become exactly one native dialog each', $wiredMarkup);
+$assert(!str_contains($wiredMarkup, 'data-dla-dialog-panel') && !str_contains($wiredMarkup, 'data-dla-dialog-close'), 'the in-place panels and close helpers are consumed');
+$assert(str_contains($wiredMarkup, 'Record details') && str_contains($wiredMarkup, 'Alpha'), 'the panel content is preserved');
+$assert(!str_contains($wiredMarkup, 'data-dla-disclosure-runtime'), 'the wiring runtime is retired once every trigger is bound');
+$assert(array() === $codes($wired), 'no unmatched-trigger diagnostics are raised for wired triggers', implode(',', $codes($wired)));
+$assert(array() === array_values(array_filter($wired['files'], static fn (array $file): bool => 'website/index.inline-5.js' === ($file['path'] ?? ''))), 'the extracted wiring script is omitted');
+
 if (0 !== $failures) {
     fwrite(STDERR, "captured-dialog-projector failed: {$failures} failure(s), {$passes} pass(es)\n");
     exit(1);
