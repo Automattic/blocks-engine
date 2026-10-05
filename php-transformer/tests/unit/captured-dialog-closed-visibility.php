@@ -28,6 +28,10 @@ $assert(str_contains($css, 'dialog[data-blocks-engine-triggers]:not([open])'), '
 $assert(1 === preg_match('/display:none!important/', $css), 'the guard beats author display utilities', $css);
 $assert(! str_contains($css, '[open]{') && ! str_contains($css, ':not([open]){display:block'), 'open dialogs keep their author layout', $css);
 
+$view = (string) ( $definition['view_js'] ?? '' );
+$assert(str_contains($view, 'function closeControl') && str_contains($view, "indexOf( 'close' )"), 'a converted source close button closes the dialog by its accessible name', $view);
+$assert(str_contains($view, "hasAttribute( 'data-blocks-engine-dialog-close' )"), 'the explicit close marker still closes the dialog');
+
 if ( $failures > 0 ) {
     exit(1);
 }

@@ -37,13 +37,23 @@ final class CapturedDialogBlockGenerator
 JS;
         $view = <<<'JS'
 ( function() {
+    // A source close control is a native button once converted, so it is
+    // recognized by its accessible name as well as the explicit marker.
+    function closeControl( target ) {
+        var control = target.closest && target.closest( '[data-blocks-engine-dialog-close],button,a,[role="button"]' );
+        if ( ! control ) return null;
+        if ( control.hasAttribute( 'data-blocks-engine-dialog-close' ) ) return control;
+        var label = ( ( control.getAttribute( 'aria-label' ) || '' ) + ' ' + ( control.getAttribute( 'title' ) || '' ) ).toLowerCase();
+        var text = ( control.textContent || '' ).trim().toLowerCase();
+        return label.indexOf( 'close' ) > -1 || [ 'close', 'x', '\u00d7' ].indexOf( text ) > -1 ? control : null;
+    }
     function mount( dialog ) {
         if ( dialog.dataset.blocksEngineMounted ) return;
         var triggers = ( dialog.getAttribute( 'data-blocks-engine-triggers' ) || '' ).split( /\s+/ ).map( function( id ) { return document.getElementById( id ); } ).filter( Boolean );
         if ( ! triggers.length ) return;
         dialog.dataset.blocksEngineMounted = 'true';
         triggers.forEach( function( trigger ) { trigger.addEventListener( 'click', function( event ) { event.preventDefault(); if ( dialog.showModal ) dialog.showModal(); else dialog.setAttribute( 'open', '' ); } ); } );
-        dialog.addEventListener( 'click', function( event ) { if ( event.target === dialog || event.target.closest( '[data-blocks-engine-dialog-close]' ) ) dialog.close ? dialog.close() : dialog.removeAttribute( 'open' ); } );
+        dialog.addEventListener( 'click', function( event ) { if ( event.target === dialog || closeControl( event.target ) ) dialog.close ? dialog.close() : dialog.removeAttribute( 'open' ); } );
     }
     function mountAll() { document.querySelectorAll( 'dialog[data-blocks-engine-triggers]' ).forEach( mount ); }
     if ( 'loading' === document.readyState ) document.addEventListener( 'DOMContentLoaded', mountAll ); else mountAll();
