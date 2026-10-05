@@ -121,6 +121,48 @@ final class RichTextElementConverter implements ElementConverter
     }
 
     /**
+     * Lowers a paragraph made only of text and disclosure-widget spans to a
+     * group of paragraphs and `core/details`; anything else is declined.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function textWithDisclosureChildren(DOMElement $element, array &$fallbacks): ?array
+    {
+        $children = array();
+        $found = false;
+        $text = '';
+        $flush = function () use (&$children, &$text): void {
+            if ( '' !== trim($text) ) {
+                $children = array_merge($children, $this->context->convertText(trim($text)));
+            }
+            $text = '';
+        };
+        foreach ( $element->childNodes as $node ) {
+            if ( $node instanceof DOMElement && 'span' === strtolower($node->tagName) ) {
+                $local = array();
+                $details = $this->context->nativeDisclosureBlock($node, $local);
+                if ( null === $details ) {
+                    return null;
+                }
+                $flush();
+                $fallbacks = array_merge($fallbacks, $local);
+                $children[] = $details;
+                $found = true;
+            } elseif ( $node instanceof \DOMComment ) {
+                continue;
+            } elseif ( $node instanceof \DOMText ) {
+                $text .= $node->textContent;
+            } else {
+                return null;
+            }
+        }
+        $flush();
+
+        return $found ? $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element) : null;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
@@ -161,6 +203,13 @@ final class RichTextElementConverter implements ElementConverter
             $mixedMedia = $this->context->mixedMediaLinkGroupFromParagraph($element, $fallbacks);
             if ( null !== $mixedMedia ) {
                 return $mixedMedia;
+            }
+
+            // A text run ending in a toggle + collapsed-region span is text plus a
+            // native disclosure, not an opaque HTML island.
+            $disclosure = $this->textWithDisclosureChildren($element, $fallbacks);
+            if ( null !== $disclosure ) {
+                return $disclosure;
             }
 
             return $this->context->htmlPreservationBlock($element);

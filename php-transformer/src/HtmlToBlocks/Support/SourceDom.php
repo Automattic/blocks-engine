@@ -923,6 +923,30 @@ final class SourceDom
     }
 
     /**
+     * Whether the element is the opener of a projected native dialog: its id is
+     * named by a captured dialog's `data-blocks-engine-triggers`. Such a control
+     * owns that dialog and is never redundant hamburger or navigation chrome.
+     */
+    public static function isBoundCapturedDialogTrigger(DOMElement $element): bool
+    {
+        $id = trim(self::attr($element, 'id'));
+        $document = $element->ownerDocument;
+        if ( '' === $id || null === $document ) {
+            return false;
+        }
+        foreach ( $document->getElementsByTagName('dialog') as $dialog ) {
+            if ( $dialog instanceof DOMElement
+                && 'true' === self::attr($dialog, 'data-blocks-engine-captured-dialog')
+                && in_array($id, preg_split('/\s+/', trim(self::attr($dialog, 'data-blocks-engine-triggers'))) ?: array(), true)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Whether $container is $element or one of its ancestors. Shared DOM
      * ancestry helper; consumed by form dispatch and navigation suppression.
      */
