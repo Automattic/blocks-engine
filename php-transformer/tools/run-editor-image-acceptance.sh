@@ -37,7 +37,7 @@ wp=(run docker run --rm --network "$network" --user 33:33 -e WORDPRESS_DB_HOST="
 wait_for 'WordPress base files' "docker exec ${project}_wordpress test -f /var/www/html/wp-includes/version.php"
 # Keep the disposable image's PHP/Apache and config/content volume, but run the
 # operator-provided, checksum-pinned 7.1 core source rather than faking WP_VERSION.
-run docker exec "${project}_wordpress" sh -c 'tar --overwrite -xzf /tmp/wordpress71-core.tar.gz -C /var/www/html 2>/dev/null && chown -R www-data:www-data /var/www/html/wp-admin /var/www/html/wp-includes'
+run docker exec "${project}_wordpress" sh -c 'tar --overwrite -xzf /tmp/wordpress71-core.tar.gz -C /var/www/html 2>/dev/null'
 run docker exec "${project}_wordpress" php -r 'require "/var/www/html/wp-includes/version.php"; require "/var/www/html/wp-includes/icons.php"; printf("core=%s default_icon_callback=%s icons_sha256=%s wp_settings_sha256=%s\\n", $wp_version, function_exists("_wp_register_default_icon_collections") ? "loaded" : "missing", hash_file("sha256", "/var/www/html/wp-includes/icons.php"), hash_file("sha256", "/var/www/html/wp-settings.php"));' | tee "$evidence/core-overlay-preflight.txt"
 "${wp[@]}" core version | tee "$evidence/wordpress-version.txt"
 wait_for 'WordPress 7.1 login' "curl --silent --fail http://127.0.0.1:${port}/wp-login.php >/dev/null"

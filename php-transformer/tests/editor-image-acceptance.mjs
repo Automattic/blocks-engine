@@ -175,11 +175,11 @@ try {
   await page.setContent( source.listing.source_markup, { waitUntil: 'domcontentloaded' } );
   const sourceGeometry = await page.locator( '.card' ).evaluateAll( ( cards ) => cards.map( ( card ) => {
     const children = [ ...card.children ].map( ( child ) => ( { tag: child.tagName, className: child.className, rect: child.getBoundingClientRect().toJSON(), margin: getComputedStyle( child ).margin } ) );
-    return { text: card.innerText, rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border, children };
+    return { text: card.innerText.trim().replace( /\s+/g, ' ' ), rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border, children };
   } ) );
   await page.screenshot( { path: `${ evidence }/source-capture-desktop.png`, fullPage: true } );
   await page.setViewportSize( { width: 390, height: 844 } );
-  const sourceMobileGeometry = await page.locator( '.card' ).evaluateAll( ( cards ) => cards.map( ( card ) => ( { text: card.innerText, rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border } ) ) );
+  const sourceMobileGeometry = await page.locator( '.card' ).evaluateAll( ( cards ) => cards.map( ( card ) => ( { text: card.innerText.trim().replace( /\s+/g, ' ' ), rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border } ) ) );
   await page.screenshot( { path: `${ evidence }/source-capture-mobile.png`, fullPage: true } );
   await page.setViewportSize( { width: 1440, height: 1000 } );
   await publicWp.setViewportSize( { width: 1440, height: 1000 } );
@@ -188,20 +188,33 @@ try {
   await importedCards.first().waitFor();
   const wordpressDesktopGeometry = await importedCards.evaluateAll( ( cards ) => cards.map( ( card ) => {
     const overlay = card.querySelector( '.blocks-engine-listing-overlay' );
-    return { text: card.innerText, rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border, children: [ ...card.children ].map( ( child ) => ( { tag: child.tagName, className: child.className, rect: child.getBoundingClientRect().toJSON(), margin: getComputedStyle( child ).margin } ) ), overlay: overlay && { href: overlay.href, display: getComputedStyle( overlay ).display, position: getComputedStyle( overlay ).position, rect: overlay.getBoundingClientRect().toJSON(), ariaHidden: overlay.getAttribute( 'aria-hidden' ), tabIndex: overlay.tabIndex } };
+    const visible = card.cloneNode( true ); visible.querySelectorAll( '.blocks-engine-listing-overlay' ).forEach( ( link ) => link.remove() );
+    return { text: visible.innerText.trim().replace( /\s+/g, ' ' ), rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border, children: [ ...card.children ].map( ( child ) => ( { tag: child.tagName, className: child.className, rect: child.getBoundingClientRect().toJSON(), margin: getComputedStyle( child ).margin } ) ), overlay: overlay && { href: overlay.href, display: getComputedStyle( overlay ).display, position: getComputedStyle( overlay ).position, rect: overlay.getBoundingClientRect().toJSON(), ariaHidden: overlay.getAttribute( 'aria-hidden' ), tabIndex: overlay.tabIndex } };
   } ) );
   await publicWp.screenshot( { path: `${ evidence }/wordpress-capture-desktop.png`, fullPage: true } );
+  await writeFile( `${ evidence }/source-wordpress-desktop-geometry.json`, JSON.stringify( { sourceGeometry, wordpressDesktopGeometry }, null, 2 ) + '\n' );
   assert.equal( wordpressDesktopGeometry.length, sourceGeometry.length, 'WordPress frontend renders the source fixture card count' );
   assert.ok( wordpressDesktopGeometry.every( ( card ) => card.overlay && 'absolute' === card.overlay.position && card.overlay.rect.width >= card.rect.width - 2 && card.overlay.rect.height >= card.rect.height - 2 ), 'frontend overlay retains full-card geometry on the generated listing route' );
   await publicWp.setViewportSize( { width: 390, height: 844 } );
   await publicWp.reload( { waitUntil: 'networkidle' } );
   const wordpressMobileGeometry = await publicWp.locator( '.wp-block-query article.card' ).evaluateAll( ( cards ) => cards.map( ( card ) => {
     const overlay = card.querySelector( '.blocks-engine-listing-overlay' );
-    return { text: card.innerText, rect: card.getBoundingClientRect().toJSON(), overlay: overlay && { position: getComputedStyle( overlay ).position, rect: overlay.getBoundingClientRect().toJSON() } };
+    const visible = card.cloneNode( true ); visible.querySelectorAll( '.blocks-engine-listing-overlay' ).forEach( ( link ) => link.remove() );
+    return { text: visible.innerText.trim().replace( /\s+/g, ' ' ), rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border, overlay: overlay && { position: getComputedStyle( overlay ).position, rect: overlay.getBoundingClientRect().toJSON() } };
   } ) );
   await publicWp.screenshot( { path: `${ evidence }/wordpress-capture-mobile.png`, fullPage: true } );
   assert.ok( wordpressMobileGeometry.every( ( card ) => card.overlay && 'absolute' === card.overlay.position && card.overlay.rect.width >= card.rect.width - 2 && card.overlay.rect.height >= card.rect.height - 2 ), 'mobile frontend overlay remains full-card geometry' );
-  await writeFile( `${ evidence }/source-wordpress-geometry.json`, JSON.stringify( { sourceDesktop: sourceGeometry, sourceMobile: sourceMobileGeometry, wordpressDesktop: wordpressDesktopGeometry, wordpressMobile: wordpressMobileGeometry }, null, 2 ) + '\n' );
+  const heightDeltas = {
+    desktop: wordpressDesktopGeometry.map( ( card, index ) => Number((card.rect.height - sourceGeometry[index].rect.height).toFixed(2)) ),
+    mobile: wordpressMobileGeometry.map( ( card, index ) => Number((card.rect.height - sourceMobileGeometry[index].rect.height).toFixed(2)) ),
+  };
+  const exactGeometry = [ ...heightDeltas.desktop, ...heightDeltas.mobile ].every( ( delta ) => 0 === delta );
+  const geometrySummary = {
+    desktop: wordpressDesktopGeometry.map( ( card, index ) => ( { textMatches: card.text.replace( /\s/g, '' ) === sourceGeometry[index].text.replace( /\s/g, '' ), borderMatches: card.border === sourceGeometry[index].border, x: Number((card.rect.x - sourceGeometry[index].rect.x).toFixed(2)), y: Number((card.rect.y - sourceGeometry[index].rect.y).toFixed(2)), width: Number((card.rect.width - sourceGeometry[index].rect.width).toFixed(2)), height: heightDeltas.desktop[index] } ) ),
+    mobile: wordpressMobileGeometry.map( ( card, index ) => ( { textMatches: card.text.replace( /\s/g, '' ) === sourceMobileGeometry[index].text.replace( /\s/g, '' ), borderMatches: card.border === sourceMobileGeometry[index].border, x: Number((card.rect.x - sourceMobileGeometry[index].rect.x).toFixed(2)), y: Number((card.rect.y - sourceMobileGeometry[index].rect.y).toFixed(2)), width: Number((card.rect.width - sourceMobileGeometry[index].rect.width).toFixed(2)), height: heightDeltas.mobile[index] } ) ),
+  };
+  await writeFile( `${ evidence }/source-wordpress-geometry.json`, JSON.stringify( { exactGeometry, geometrySummary, sourceDesktop: sourceGeometry, sourceMobile: sourceMobileGeometry, wordpressDesktop: wordpressDesktopGeometry, wordpressMobile: wordpressMobileGeometry }, null, 2 ) + '\n' );
+  assert.ok( exactGeometry && [ ...geometrySummary.desktop, ...geometrySummary.mobile ].every( ( card ) => card.textMatches && card.borderMatches && 0 === card.x && 0 === card.y && 0 === card.width ), 'neutral source and WordPress cards match text, border, and full desktop/mobile geometry' );
 
   await page.setViewportSize( { width: 1440, height: 1000 } );
   await page.goto( `${ baseUrl }/wp-admin/post.php?post=${ source.listing.post_id }&action=edit`, { waitUntil: 'domcontentloaded' } );
