@@ -416,7 +416,8 @@
             "php tests/unit/link-wrapper-text-color-parity.php",
             "php tests/unit/propagated-link-decoration.php",
             "php tests/unit/navigation-dropped-toggle-author-type-rules.php",
-            "php tests/unit/navigation-overlay-source-colors.php"
+            "php tests/unit/navigation-overlay-source-colors.php",
+            "php tests/unit/navigation-open-button-source-placement.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",

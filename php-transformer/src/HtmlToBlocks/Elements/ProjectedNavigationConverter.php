@@ -128,6 +128,14 @@ final class ProjectedNavigationConverter implements ElementConverter
         $display = strtolower(CssValueInspector::withoutImportant(trim((string) ($sourceDeclarations['display'] ?? ''))));
         $extra = '';
         $openDeclarations = $declarations;
+        // A toggle the source places absolutely at the collapsed viewport
+        // hands that placement to Core's open button, which renders in its
+        // stead; the host then has to stop being the button's containing
+        // block (see nativeNavigationTogglePlacement()).
+        $placement = $always ? array() : $this->nativeNavigationTogglePlacement($toggle, $navigation);
+        foreach ( $placement as $property => $value ) {
+            $openDeclarations[] = $property . ':' . $value . '!important';
+        }
         if ( $always ) {
             if ( 'table-cell' === $display && ! $hasUsableHeight ) {
                 $openDeclarations[] = 'min-height:60px!important';
@@ -154,8 +162,11 @@ final class ProjectedNavigationConverter implements ElementConverter
 
         $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra), 0, 12);
         $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.' . $marker;
-        $hostRule = $host . '{' . implode(';', $this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations)) . '}';
+        $hostRule = $host . '{' . implode(';', $this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement)) . '}';
         $openRule = $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $openDeclarations) . '}';
+        if ( array() !== $placement ) {
+            $openRule .= $this->nativeNavigationTogglePlacementEditorReset($host, $placement);
+        }
         $extraRules = '';
         if ( str_contains($extra, 'SVG_HIDE') ) {
             $extraRules .= $host . '>.wp-block-navigation__responsive-container-open svg{display:none!important}';
@@ -323,15 +334,240 @@ final class ProjectedNavigationConverter implements ElementConverter
     }
 
     /**
+     * Properties that place a positioned toggle: its positioning scheme, the
+     * offsets it is placed by (physical and logical, shorthand and longhand),
+     * the transform that typically centres it, its margins and its stacking.
+     * Listed longhand after shorthand so a caller emitting them in the order
+     * the cascade last declared them reproduces the author's result.
+     */
+    private const TOGGLE_PLACEMENT_PROPERTIES = array(
+        'position',
+        'inset',
+        'inset-block',
+        'inset-inline',
+        'top',
+        'right',
+        'bottom',
+        'left',
+        'inset-block-start',
+        'inset-block-end',
+        'inset-inline-start',
+        'inset-inline-end',
+        'transform',
+        'translate',
+        'rotate',
+        'scale',
+        'transform-origin',
+        'margin',
+        'margin-block',
+        'margin-inline',
+        'margin-top',
+        'margin-right',
+        'margin-bottom',
+        'margin-left',
+        'margin-block-start',
+        'margin-block-end',
+        'margin-inline-start',
+        'margin-inline-end',
+        'z-index',
+    );
+
+    /** The offset properties among {@see self::TOGGLE_PLACEMENT_PROPERTIES}; an absolute toggle with none set keeps its static position, which the host cannot reproduce. */
+    private const TOGGLE_OFFSET_PROPERTIES = array(
+        'inset',
+        'inset-block',
+        'inset-inline',
+        'top',
+        'right',
+        'bottom',
+        'left',
+        'inset-block-start',
+        'inset-block-end',
+        'inset-inline-start',
+        'inset-inline-end',
+    );
+
+    /**
+     * Properties that make an element the containing block of a positioned
+     * (or fixed) descendant: `position` other than static, and the
+     * transform-like properties that establish one for fixed boxes too.
+     */
+    private const CONTAINING_BLOCK_PROPERTIES = array(
+        'position',
+        'transform',
+        'translate',
+        'rotate',
+        'scale',
+        'perspective',
+        'filter',
+        'backdrop-filter',
+        'will-change',
+        'contain',
+    );
+
+    /**
+     * The source toggle's placement at the collapsed viewport, to restate on
+     * Core's open button, or an empty array when nothing should be carried.
+     *
+     * Core's open button renders inside the navigation host, which the host
+     * rule pins `position:relative` and sizes to the button, so it sits in
+     * the header's flow at the navigation's slot. A source toggle the author
+     * placed absolutely — `.nav button{position:absolute;right:0;top:50%;
+     * transform:translateY(-50%)}` under the breakpoint that shows it — is
+     * pinned to the header's edge instead; its author rule no longer reaches
+     * anything once the toggle is dropped, so the button lost the placement.
+     *
+     * The placement is read from the author cascade at the mobile reference
+     * viewport, the state in which the toggle shows, and moved onto the open
+     * button itself: a transform on the host would make it the containing
+     * block of Core's fixed overlay, while on the button, a leaf, it moves
+     * nothing else. The host turns `position:static` (see
+     * {@see nativeNavigationToggleHostDeclarations()}) so the button's
+     * offsets resolve against the same ancestor the source toggle's did.
+     * That only holds when the toggle and the navigation share their nearest
+     * containing-block ancestor; a toggle placed inside its own positioned
+     * wrapper, or inside a positioned navigation, is left alone, as is a
+     * toggle in normal flow or one hidden at that viewport. The values are
+     * resolved at one viewport, so a toggle the source moves between its
+     * breakpoints is placed where the narrowest one puts it.
+     *
+     * @return array<string, string>
+     */
+    private function nativeNavigationTogglePlacement(DOMElement $toggle, DOMElement $navigation): array
+    {
+        // The author analysis, not the resting cascade: transforms are kept
+        // out of the source-style collections, and the toggle's transform is
+        // the part that centres it.
+        $declared = $this->styleResolver->collapsedViewportAuthorDeclarations(
+            $toggle,
+            array_merge(self::TOGGLE_PLACEMENT_PROPERTIES, array( 'display' ))
+        );
+        $portable = array();
+        foreach ( $declared as $property => $value ) {
+            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant(trim($value)), $toggle);
+            if ( '' === $value || preg_match('/[{}<>;]|var\(/i', $value) ) {
+                continue;
+            }
+            $portable[$property] = $value;
+        }
+        if ( 'none' === strtolower((string) ( $portable['display'] ?? '' )) ) {
+            return array();
+        }
+        unset($portable['display']);
+        if ( ! in_array(strtolower((string) ( $portable['position'] ?? '' )), array( 'absolute', 'fixed' ), true) ) {
+            return array();
+        }
+        $offset = false;
+        foreach ( self::TOGGLE_OFFSET_PROPERTIES as $property ) {
+            $value = strtolower((string) ( $portable[$property] ?? '' ));
+            if ( '' !== $value && 'auto' !== $value ) {
+                $offset = true;
+                break;
+            }
+        }
+        if ( ! $offset ) {
+            return array();
+        }
+        $toggleContainingBlock = $this->collapsedContainingBlock($toggle);
+        $navigationContainingBlock = $this->collapsedContainingBlock($navigation);
+        if ( $toggleContainingBlock !== $navigationContainingBlock
+            && ! ( $toggleContainingBlock instanceof DOMElement && $navigationContainingBlock instanceof DOMElement && $toggleContainingBlock->isSameNode($navigationContainingBlock) ) ) {
+            return array();
+        }
+
+        return $portable;
+    }
+
+    /**
+     * The nearest proper ancestor that, at the collapsed viewport, is the
+     * containing block of a positioned descendant — positioned itself or
+     * transformed — or null when only the initial containing block is.
+     */
+    private function collapsedContainingBlock(DOMElement $element): ?DOMElement
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
+                break;
+            }
+            $declared = $this->styleResolver->collapsedViewportAuthorDeclarations($node, self::CONTAINING_BLOCK_PROPERTIES);
+            foreach ( $declared as $property => $value ) {
+                if ( $this->establishesContainingBlock($property, strtolower(CssValueInspector::withoutImportant(trim($value)))) ) {
+                    return $node;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Undo the carried placement inside the block editor canvas.
+     *
+     * The editor gives every block wrapper `position:relative` for its own
+     * chrome, so the group wrappers between the host and the source's
+     * containing block become the open button's containing block there and
+     * the placement lands against a zero-size box. The canvas keeps the
+     * in-flow placement it had before the placement was carried; the front
+     * end, where the wrappers are static as in the source, keeps the fix.
+     *
+     * @param array<string, string> $placement
+     */
+    private function nativeNavigationTogglePlacementEditorReset(string $host, array $placement): string
+    {
+        $initial = array(
+            'position' => 'static',
+            'transform' => 'none',
+            'translate' => 'none',
+            'rotate' => 'none',
+            'scale' => 'none',
+            'transform-origin' => 'initial',
+            'z-index' => 'auto',
+        );
+        $reset = array();
+        foreach ( array_keys($placement) as $property ) {
+            if ( in_array($property, self::TOGGLE_OFFSET_PROPERTIES, true) ) {
+                $reset['inset'] = 'inset:auto!important';
+            } elseif ( str_starts_with($property, 'margin' ) ) {
+                $reset['margin'] = 'margin:0!important';
+            } else {
+                $reset[$property] = $property . ':' . ( $initial[$property] ?? 'initial' ) . '!important';
+            }
+        }
+
+        return ':root .editor-styles-wrapper ' . $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $reset) . '}';
+    }
+
+    /** Whether one declared value of a {@see self::CONTAINING_BLOCK_PROPERTIES} property makes its element a containing block. */
+    private function establishesContainingBlock(string $property, string $value): bool
+    {
+        if ( '' === $value || in_array($value, array( 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
+            return false;
+        }
+        switch ( $property ) {
+            case 'position':
+                return 'static' !== $value;
+            case 'will-change':
+                return 1 === preg_match('/\b(transform|perspective|filter|translate|rotate|scale)\b/', $value);
+            case 'contain':
+                return 1 === preg_match('/\b(layout|paint|strict|content)\b/', $value);
+            default:
+                return 'none' !== $value;
+        }
+    }
+
+    /**
      * @param array<string, string> $sourceDeclarations
      * @return array<int, string>
      */
-    private function nativeNavigationToggleHostDeclarations(bool $always, string $display, array $sourceDeclarations): array
+    private function nativeNavigationToggleHostDeclarations(bool $always, string $display, array $sourceDeclarations, bool $placesOpenButton = false): array
     {
         $host = array(
             'box-sizing:border-box!important',
             'padding:0!important',
-            'position:relative!important',
+            // When the open button carries the source toggle's absolute
+            // placement, the host must not be its containing block: the
+            // offsets have to resolve against the ancestor the toggle's did.
+            $placesOpenButton ? 'position:static!important' : 'position:relative!important',
             'overflow:visible!important',
         );
         if ( $always && 'table-cell' === $display ) {
@@ -349,6 +585,14 @@ final class ProjectedNavigationConverter implements ElementConverter
         $host[] = 'height:fit-content!important';
         $host[] = 'min-width:0!important';
         $host[] = 'min-height:0!important';
+        if ( ! $always ) {
+            // The source menu's collapsed-panel rules land on this host, which
+            // at these widths is the toggle-sized box around Core's open
+            // button. Its padding is already stripped above; its border would
+            // frame the button (or, once the button is placed out of flow,
+            // draw an empty bordered dot), and the source toggle had neither.
+            $host[] = 'border:0!important';
+        }
 
         return $host;
     }
