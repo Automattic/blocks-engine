@@ -32,6 +32,8 @@ $view = (string) ($definition['view_js'] ?? '');
 $editor = (string) ($definition['assets']['index.js'] ?? '');
 $assert('custom/theme-toggle' === ($definition['block_json']['name'] ?? null) && str_contains($editor, "registerBlockType( 'custom/theme-toggle'") && 'file:./view.js' === ($definition['block_json']['viewScriptModule'] ?? null) && true === ($definition['block_json']['supports']['interactivity'] ?? null) && array('@wordpress/interactivity') === ($definition['script_dependencies']['view.js'] ?? null) && str_contains($editor, "'data-wp-init': 'callbacks.init'"), 'the generated companion declares the canonical Blocks Engine block name, registers its Interactivity API runtime asset, and keeps save/init parity with PHP markup');
 $assert(str_contains($view, "store( 'custom/theme-toggle'") && str_contains($view, "classList.toggle( rootClass, dark )") && str_contains($view, "root.style.colorScheme = dark ? 'dark' : 'light'") && str_contains($view, "context.storageKey || 'theme'") && str_contains($view, 'get label()') && str_contains($view, 'get hideLightIcon()') && str_contains($view, 'get hideDarkIcon()') && str_contains($view, 'context.defaultTheme'), 'the runtime toggles the captured root class and color scheme, persists through the configurable source-compatible key, and reactively swaps the label and icons');
+$threeWay = (new ThemeToggleBlockGenerator())->markup(array('themeModes' => array('light', 'system', 'dark')), 'custom/theme-toggle');
+$assert(str_contains($threeWay, '&quot;themeModes&quot;:[&quot;light&quot;,&quot;system&quot;,&quot;dark&quot;]') && str_contains($view, "window.matchMedia( '(prefers-color-scheme: dark)' )") && str_contains($view, "media.addEventListener( 'change', onSchemeChange )") && str_contains($view, "window.localStorage.setItem( context.storageKey || 'theme', next )"), 'the canonical control can cycle an explicit system preference, follow OS scheme changes, and persist all three modes');
 $payload = (new CompanionPluginPayload())->fromBlockTypes(array(), array(), array(), array($definition));
 $assert('theme-toggle' === ($payload['blocks'][0]['name'] ?? null) && array('@wordpress/interactivity') === ($payload['blocks'][0]['script_dependencies']['view.js'] ?? null), 'the companion plugin payload preserves runtime asset registration');
 
@@ -52,6 +54,13 @@ $assert('custom/theme-toggle' !== ($unsafeOnly['blocks'][0]['blockName'] ?? null
 
 $unsafeMarkup = (new ThemeToggleBlockGenerator())->markup(array('lightIcon' => '<svg><script>alert(1)</script></svg>', 'darkIcon' => '<svg onload="alert(1)"><path d="M1 1"></path></svg>', 'labelMarker' => 'bad\" marker'), 'custom/theme-toggle');
 $assert(!str_contains($unsafeMarkup, '<script') && !str_contains($unsafeMarkup, 'onload=') && !str_contains($unsafeMarkup, 'bad\" marker'), 'PHP serialization rejects unsafe editable icon markup and malformed marker values');
+
+$threeWayDefinition = (new ThemeToggleBlockGenerator())->definition('custom');
+$threeWayMarkup = (new ThemeToggleBlockGenerator())->markup(array('themeModes' => array('light', 'system', 'dark')), 'custom/theme-toggle');
+$assert(str_contains((string) ($threeWayDefinition['view_js'] ?? ''), "context.themeModes.includes( 'system' )")
+    && str_contains((string) ($threeWayDefinition['view_js'] ?? ''), "window.matchMedia( '(prefers-color-scheme: dark)' )")
+    && str_contains((string) ($threeWayDefinition['view_js'] ?? ''), "setItem( context.storageKey || 'theme', next )")
+    && str_contains($threeWayMarkup, 'themeModes'), 'the existing companion runtime can cycle and persist an explicit light/system/dark preference while resolving system through prefers-color-scheme');
 
 $consumerNamespace = (new HtmlTransformer())->transform($source, array('static_css' => $css, 'generated_block_namespace' => 'acme-site'))->toArray();
 $consumerDefinition = $consumerNamespace['source_reports']['generated_blocks'][0] ?? array();

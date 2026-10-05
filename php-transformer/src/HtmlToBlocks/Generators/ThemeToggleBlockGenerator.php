@@ -26,6 +26,7 @@ final class ThemeToggleBlockGenerator
             'rootClass' => array('type' => 'string', 'default' => 'dark'),
             'defaultTheme' => array('type' => 'string', 'default' => 'dark'),
             'storageKey' => array('type' => 'string', 'default' => 'theme'),
+            'themeModes' => array('type' => 'array', 'default' => array('light', 'dark')),
         );
         $editor = <<<'JS'
 ( function( blocks, blockEditor, element ) {
@@ -40,7 +41,7 @@ final class ThemeToggleBlockGenerator
         attributes: __ATTRIBUTES__,
         supports: { html: false, customClassName: false, interactivity: true },
         edit: function( props ) { var attrs = props.attributes; var light = 'light' === attrs.defaultTheme; var label = light ? attrs.darkLabel : attrs.lightLabel; return createElement( 'button', buttonProps( attrs ), icon( light ? attrs.darkIcon : attrs.lightIcon ), createElement( RichText, labelProps( attrs, label, function( value ) { props.setAttributes( light ? { darkLabel: value } : { lightLabel: value } ); } ) ) ); },
-        save: function( props ) { var attrs = props.attributes; var light = 'light' === attrs.defaultTheme; return createElement( 'button', Object.assign( buttonProps( attrs ), { 'data-wp-interactive': '__BLOCK_NAME__', 'data-wp-context': JSON.stringify( { rootClass: attrs.rootClass || 'dark', defaultTheme: attrs.defaultTheme || 'dark', dark: ! light, lightLabel: attrs.lightLabel || 'Light Mode', darkLabel: attrs.darkLabel || 'Dark Mode', storageKey: attrs.storageKey || 'theme' } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--click': 'actions.toggle' } ), icon( attrs.lightIcon, 'state.hideLightIcon' ), icon( attrs.darkIcon, 'state.hideDarkIcon' ), createElement( RichText.Content, Object.assign( labelProps( attrs, light ? ( attrs.darkLabel || 'Dark Mode' ) : ( attrs.lightLabel || 'Light Mode' ) ), { 'data-wp-text': 'state.label' } ) ) ); }
+        save: function( props ) { var attrs = props.attributes; var light = 'light' === attrs.defaultTheme; return createElement( 'button', Object.assign( buttonProps( attrs ), { 'data-wp-interactive': '__BLOCK_NAME__', 'data-wp-context': JSON.stringify( { rootClass: attrs.rootClass || 'dark', defaultTheme: attrs.defaultTheme || 'dark', dark: ! light, lightLabel: attrs.lightLabel || 'Light Mode', darkLabel: attrs.darkLabel || 'Dark Mode', storageKey: attrs.storageKey || 'theme', themeModes: attrs.themeModes || ['light','dark'] } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--click': 'actions.toggle' } ), icon( attrs.lightIcon, 'state.hideLightIcon' ), icon( attrs.darkIcon, 'state.hideDarkIcon' ), createElement( RichText.Content, Object.assign( labelProps( attrs, light ? ( attrs.darkLabel || 'Dark Mode' ) : ( attrs.lightLabel || 'Light Mode' ) ), { 'data-wp-text': 'state.label' } ) ) ); }
     } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
 JS;
@@ -54,10 +55,40 @@ const applyTheme = ( rootClass, dark ) => {
         root.style.colorScheme = dark ? 'dark' : 'light';
 };
 
+const applyPreference = ( context, preference ) => {
+    const dark = 'dark' === preference || ( 'system' === preference && context.systemDark );
+    context.preference = preference;
+    context.dark = dark;
+    applyTheme( context.rootClass || 'dark', dark );
+};
+
+const watchSystemPreference = ( context ) => {
+    const media = window.matchMedia( '(prefers-color-scheme: dark)' );
+    context.systemDark = media.matches;
+    if ( context.systemMedia && context.systemListener ) return;
+    const onSchemeChange = ( event ) => {
+        context.systemDark = event.matches;
+        if ( 'system' === context.preference ) applyPreference( context, 'system' );
+    };
+    if ( media.addEventListener ) media.addEventListener( 'change', onSchemeChange );
+    else if ( media.addListener ) media.addListener( onSchemeChange );
+    context.systemMedia = media;
+    context.systemListener = onSchemeChange;
+};
+
 store( '__BLOCK_NAME__', {
     actions: {
         toggle() {
             const context = getContext();
+            if ( Array.isArray( context.themeModes ) && context.themeModes.includes( 'system' ) ) {
+                const modes = context.themeModes.filter( ( mode ) => [ 'light', 'system', 'dark' ].includes( mode ) );
+                const current = modes.indexOf( context.preference || context.defaultTheme || 'dark' );
+                const next = modes[ ( current + 1 ) % modes.length ] || 'light';
+                if ( 'system' === next ) watchSystemPreference( context );
+                applyPreference( context, next );
+                try { window.localStorage.setItem( context.storageKey || 'theme', next ); } catch ( error ) {}
+                return;
+            }
             context.dark = ! context.dark;
             applyTheme( context.rootClass || 'dark', context.dark );
             try { window.localStorage.setItem( context.storageKey || 'theme', context.dark ? 'dark' : 'light' ); } catch ( error ) {}
@@ -82,10 +113,18 @@ store( '__BLOCK_NAME__', {
             let dark = 'light' !== context.defaultTheme;
             try {
                 const preference = window.localStorage.getItem( context.storageKey || 'theme' );
+                if ( Array.isArray( context.themeModes ) && context.themeModes.includes( 'system' ) && [ 'light', 'system', 'dark' ].includes( preference ) ) {
+                    if ( 'system' === preference ) {
+                        watchSystemPreference( context );
+                    }
+                    applyPreference( context, preference );
+                    return;
+                }
                 dark = 'dark' === preference || ( 'light' !== preference && dark );
             } catch ( error ) {}
             context.dark = dark;
             applyTheme( rootClass, dark );
+            context.preference = dark ? 'dark' : 'light';
         },
     },
 } );
@@ -124,7 +163,9 @@ JS;
         $lightLabel = (string) ($attributes['lightLabel'] ?? 'Light Mode');
         $darkLabel = (string) ($attributes['darkLabel'] ?? 'Dark Mode');
         $marker = $this->safeToken((string) ($attributes['labelMarker'] ?? ''));
-        $context = $escape((string) json_encode(array('rootClass' => (string) ($attributes['rootClass'] ?? 'dark'), 'defaultTheme' => $defaultTheme, 'dark' => 'dark' === $defaultTheme, 'lightLabel' => $lightLabel, 'darkLabel' => $darkLabel, 'storageKey' => (string) ($attributes['storageKey'] ?? 'theme')), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+        $themeModes = is_array($attributes['themeModes'] ?? null) ? array_values(array_intersect($attributes['themeModes'], array('light', 'system', 'dark'))) : array('light', 'dark');
+        if (count($themeModes) < 2) $themeModes = array('light', 'dark');
+        $context = $escape((string) json_encode(array('rootClass' => (string) ($attributes['rootClass'] ?? 'dark'), 'defaultTheme' => $defaultTheme, 'dark' => 'dark' === $defaultTheme, 'lightLabel' => $lightLabel, 'darkLabel' => $darkLabel, 'storageKey' => (string) ($attributes['storageKey'] ?? 'theme'), 'themeModes' => $themeModes), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
         return '<button type="button"'
             . ('' !== ($attributes['className'] ?? '') ? ' class="' . $escape((string) $attributes['className']) . '"' : '')
             . ' aria-label="' . $escape((string) ($attributes['ariaLabel'] ?? 'Toggle theme')) . '"'
