@@ -423,7 +423,7 @@ final class CapturedSelectableSetProjector
             }
         }
         if (2 !== count($children)) {
-            return self::FLOW_INLINE;
+            return '';
         }
 
         return $children[0]->isSameNode($region) ? self::FLOW_LIST_LAST : self::FLOW_INLINE;
@@ -432,8 +432,8 @@ final class CapturedSelectableSetProjector
     /**
      * Capture does not click the member that is already active, so its state
      * is the region's own initial content. When exactly one member of a set
-     * was never probed, that member is the initially active one: keep it as
-     * a tab rather than losing the default content.
+     * was never probed, source selection or the region's leading heading must
+     * corroborate that member: a spent probing budget also leaves gaps.
      *
      * @param array{selector:string, size?:int, probed?:array<int, int>} $set
      * @param array<int, array{index?:int, label:string, html:string, tag:string, selector:string}> $members
@@ -451,6 +451,9 @@ final class CapturedSelectableSetProjector
             return $unchanged;
         }
         $element = $this->setMemberTrigger($region, $set['selector'], $missing[0]);
+        if (! $element instanceof DOMElement || ! $this->initialMemberIsProven($region, $element, $set)) {
+            return $unchanged;
+        }
         $label = $element instanceof DOMElement ? $this->labelFromTriggerElement($element) : '';
         $html = $document->saveHTML($region);
         $html = is_string($html) ? $this->safeRegionHtml($html) : null;
@@ -466,6 +469,46 @@ final class CapturedSelectableSetProjector
         }
 
         return $unchanged;
+    }
+
+    /** @param array{selector:string, size?:int} $set */
+    private function initialMemberIsProven(DOMElement $region, DOMElement $trigger, array $set): bool
+    {
+        foreach (array('aria-selected', 'aria-pressed', 'aria-checked') as $attribute) {
+            if ($trigger->hasAttribute($attribute)) {
+                return 'true' === strtolower(trim($trigger->getAttribute($attribute)));
+            }
+        }
+        $state = strtolower(trim($trigger->getAttribute('data-state')));
+        if (in_array($state, array('active', 'inactive'), true)) {
+            return 'active' === $state;
+        }
+        $heading = '';
+        foreach ($region->getElementsByTagName('*') as $element) {
+            if (1 === preg_match('/^h[1-6]$/i', $element->tagName)) {
+                $heading = strtolower(trim(preg_replace('/\s+/u', ' ', $element->textContent ?? '') ?? ''));
+                break;
+            }
+        }
+        if (strlen($heading) < 3) return false;
+        // Structured trigger labels retain their number/title/tag runs. The
+        // leading panel heading must name exactly this one source member.
+        $matchesHeading = function (DOMElement $element) use ($heading): bool {
+            $parts = array_merge($this->labelParts($element), array($this->labelFromTriggerElement($element)));
+            foreach ($parts as $part) {
+                $part = strtolower(trim(preg_replace('/^\d+\s+/', '', $part) ?? $part));
+                if ($heading === $part) return true;
+            }
+            return false;
+        };
+        if (! $matchesHeading($trigger)) return false;
+        for ($index = 0; $index < (int) ($set['size'] ?? 0); ++$index) {
+            $other = $this->setMemberTrigger($region, $set['selector'], $index);
+            if ($other instanceof DOMElement && ! $other->isSameNode($trigger) && $matchesHeading($other)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function setMemberTrigger(DOMElement $region, string $setSelector, int $index): ?DOMElement
