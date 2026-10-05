@@ -229,6 +229,7 @@ final class AuthorSelectorSemanticPreparer
                 $parentPath = $element->parentNode instanceof DOMElement ? ($element->parentNode->getNodePath() ?? '') : '';
                 if ( '' !== $path
                     && $this->context->requiresInlineLayoutCarrier($element)
+                    && ! $this->isPhrasingWithinHeading($element)
                     && ! $projections->isControlPath($parentPath)
                     && ! ('' !== $projections->richTextMarker($path) && $this->ancestorElement($element, 'label') instanceof DOMElement)
                 ) {
@@ -470,6 +471,27 @@ final class AuthorSelectorSemanticPreparer
     {
         return 1 === preg_match('/^[A-Za-z][A-Za-z0-9_-]*$/', trim($id));
     }
+    /**
+     * A heading's phrasing content is its RichText value, never a set of
+     * sibling paragraph carriers: a block-display span inside a heading stays an
+     * inline element of the heading, so its rules must not be scoped behind a
+     * carrier paragraph that is never emitted.
+     */
+    private function isPhrasingWithinHeading(DOMElement $element): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            $tag = strtolower($parent->tagName);
+            if ( 1 === preg_match('/^h[1-6]$/', $tag) ) {
+                return true;
+            }
+            if ( ! $this->context->isInlineContentElement($tag) ) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
     private function ancestorElement(DOMElement $element, string $tagName): ?DOMElement
     {
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
