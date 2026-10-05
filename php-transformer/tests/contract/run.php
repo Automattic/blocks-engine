@@ -5986,7 +5986,7 @@ $sideBySideSelectableSet = $compiler->compile(array(
     'site' => array('name' => 'Captured Side By Side Selectable Set Site', 'slug' => 'captured-side-by-side-selectable-set-site'),
     'entrypoint' => 'website/index.html',
     'files' => array(
-        array('path' => 'website/index.html', 'content' => '<main><div class="split" style="display:grid;grid-template-columns:1fr 1fr"><div>' . $sideBySideActive . '</div><ul><li><button type="button"><span>0<!---->1</span><span>Alpha</span></button></li><li><button type="button"><span>0<!---->2</span><span>Beta</span></button></li><li><button type="button"><span>0<!---->3</span><span>Gamma</span></button></li></ul></div></main>'),
+        array('path' => 'website/index.html', 'content' => '<main><div class="split" style="display:grid;grid-template-columns:1fr 1fr"><div>' . $sideBySideActive . '</div><ul class="items"><li><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->1</span><span class="name">Alpha</span></button></li><li style="margin-top:.5rem"><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->2</span><span class="name">Beta</span></button></li><li style="margin-top:.5rem"><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->3</span><span class="name">Gamma</span></button></li></ul></div></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
             'schema' => 'data-liberation/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
@@ -6009,6 +6009,9 @@ $assert(str_contains($sideBySideMarkup, '"label":"01 Alpha"') && ! str_contains(
 $assert(1 === preg_match('/<!-- wp:tabs \{[^}]*"activeTabIndex":2/', $sideBySideMarkup), 'the tabs block opens on the member that was active in the source');
 $assert(1 === preg_match('/<!-- wp:tabs \{[^}]*"className":"blocks-engine-tabs-flow blocks-engine-tabs-flow-list-last"/', $sideBySideMarkup), 'tabs that replaced a sibling region and trigger row add no layout box of their own');
 $sideBySideCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $sideBySideSelectableSet['assets'] ?? array()));
+$assert(1 === preg_match('/<button type="button" role="tab"><span class="num">01<\/span><span class="name">Alpha<\/span><\/button>/', $sideBySideMarkup), 'each tab keeps the trigger\'s number/title boxes as classed spans');
+$assert(1 === preg_match('/\.wp-block-tab-list\.(blocks-engine-tab-list-[a-f0-9]+)\{flex-direction:column;flex-wrap:nowrap;align-items:stretch;row-gap:\.5rem\}/', $sideBySideCss), 'a vertical source trigger list stays a vertical stack with its row gap');
+$assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\{[^}]*display:flex[^}]*border:[^}]*\}/', $sideBySideCss), 'the source trigger box styling is carried onto the tab buttons');
 $assert(str_contains($sideBySideCss, '.blocks-engine-tabs-flow{display:contents}'), 'the flow class dissolves the tabs wrapper box');
 $assert(str_contains($sideBySideCss, '.blocks-engine-tabs-flow.blocks-engine-tabs-flow-list-last>.wp-block-tab-list{order:1}'), 'a list that followed its region in the source keeps that order');
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($sideBySideSelectableSet['blocks'] ?? array()), 'side-by-side selectable-set tabs retain a canonical save shape');

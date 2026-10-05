@@ -17,6 +17,8 @@ final class CapturedSelectableSetProjector
     private const KIND = 'selectable-set';
     public const ACTIVE_TAB_ATTRIBUTE = 'data-blocks-engine-active-tab';
     public const FLOW_ATTRIBUTE = 'data-blocks-engine-tabs-flow';
+    public const TRIGGER_ATTRIBUTE = 'data-blocks-engine-tab-trigger';
+    public const LABEL_ATTRIBUTE = 'data-blocks-engine-tab-label';
     public const FLOW_INLINE = 'inline';
     public const FLOW_LIST_LAST = 'list-last';
     private const MAX_PAGES = 128;
@@ -341,7 +343,14 @@ final class CapturedSelectableSetProjector
             $button->setAttribute('id', $tabId);
             $button->setAttribute('aria-controls', $panelId);
             $button->setAttribute('aria-selected', $active === $index ? 'true' : 'false');
-            $button->appendChild($document->createTextNode($member['label']));
+            $markup = $triggerRow instanceof DOMElement && ($member['element'] ?? null) instanceof DOMElement ? $this->labelMarkup($document, $member['element']) : null;
+            if ($markup instanceof \DOMDocumentFragment) {
+                $button->setAttribute(self::LABEL_ATTRIBUTE, $member['label']);
+                $button->appendChild($markup);
+                $member['element']->setAttribute(self::TRIGGER_ATTRIBUTE, $identity);
+            } else {
+                $button->appendChild($document->createTextNode($member['label']));
+            }
             $tabList->appendChild($button);
         }
         $region->appendChild($tabList);
@@ -441,13 +450,14 @@ final class CapturedSelectableSetProjector
         if (1 !== count($missing)) {
             return $unchanged;
         }
-        $label = $this->setMemberLabel($document, $region, $set['selector'], $missing[0]);
+        $element = $this->setMemberTrigger($region, $set['selector'], $missing[0]);
+        $label = $element instanceof DOMElement ? $this->labelFromTriggerElement($element) : '';
         $html = $document->saveHTML($region);
         $html = is_string($html) ? $this->safeRegionHtml($html) : null;
         if ('' === $label || null === $html || '' === trim($html) || strlen($html) > self::MAX_REGION_BYTES) {
             return $unchanged;
         }
-        $members[] = array('index' => $missing[0], 'label' => $label, 'html' => $html, 'tag' => '', 'selector' => '');
+        $members[] = array('index' => $missing[0], 'label' => $label, 'html' => $html, 'tag' => '', 'selector' => '', 'element' => $element);
         usort($members, static fn(array $a, array $b): int => ($a['index'] ?? 0) <=> ($b['index'] ?? 0));
         foreach ($members as $position => $member) {
             if ($missing[0] === ($member['index'] ?? null)) {
@@ -458,11 +468,11 @@ final class CapturedSelectableSetProjector
         return $unchanged;
     }
 
-    private function setMemberLabel(DOMDocument $document, DOMElement $region, string $setSelector, int $index): string
+    private function setMemberTrigger(DOMElement $region, string $setSelector, int $index): ?DOMElement
     {
         $matched = $this->selectorMatches($this->scopeRoot($region), $setSelector);
         if (1 !== count($matched)) {
-            return '';
+            return null;
         }
         $position = 0;
         foreach ($matched[0]->childNodes as $child) {
@@ -475,14 +485,14 @@ final class CapturedSelectableSetProjector
             foreach (array('button', 'a') as $tag) {
                 $trigger = $child->getElementsByTagName($tag)->item(0);
                 if ($trigger instanceof DOMElement) {
-                    return $this->labelFromTriggerElement($trigger);
+                    return $trigger;
                 }
             }
 
-            return $this->labelFromTriggerElement($child);
+            return $child;
         }
 
-        return '';
+        return null;
     }
 
     private function insideNativeCollection(DOMElement $region): bool
@@ -669,6 +679,7 @@ final class CapturedSelectableSetProjector
             if ('' !== $label) {
                 $members[$index]['label'] = $label;
             }
+            $members[$index]['element'] = $element;
         }
 
         return $members;
@@ -687,6 +698,39 @@ final class CapturedSelectableSetProjector
         }
 
         return null;
+    }
+
+    /**
+     * The trigger's inner structure (number, title, tag boxes) as spans that
+     * keep only their class, so the source's own styles keep laying them out.
+     * Null when the trigger is plain text.
+     */
+    private function labelMarkup(DOMDocument $document, DOMElement $trigger): ?\DOMDocumentFragment
+    {
+        $fragment = $document->createDocumentFragment();
+        $structured = false;
+        $copy = function (\DOMNode $from, \DOMNode $into) use (&$copy, $document, &$structured): void {
+            foreach ($from->childNodes as $child) {
+                if (XML_TEXT_NODE === $child->nodeType) {
+                    $into->appendChild($document->createTextNode($child->textContent ?? ''));
+                    continue;
+                }
+                if (! $child instanceof DOMElement || in_array(strtolower($child->tagName), array('script', 'style', 'desc'), true)) {
+                    continue;
+                }
+                $span = $document->createElement('span');
+                $class = trim(preg_replace('/\s+/', ' ', $child->getAttribute('class')) ?? '');
+                if ('' !== $class && 1 === preg_match('/^[A-Za-z0-9_\s:\/\[\].%#,()-]+$/', $class)) {
+                    $span->setAttribute('class', $class);
+                }
+                $structured = true;
+                $into->appendChild($span);
+                $copy($child, $span);
+            }
+        };
+        $copy($trigger, $fragment);
+
+        return $structured ? $fragment : null;
     }
 
     private function labelFromTriggerElement(DOMElement $element): string

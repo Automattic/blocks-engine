@@ -1041,6 +1041,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $this->layoutGeometry()->registerRule(CapturedSelectableSetConverter::FLOW_LIST_LAST_CLASS, CapturedSelectableSetConverter::flowListLastCss());
 
                     return CapturedSelectableSetConverter::FLOW_CLASS . ' ' . CapturedSelectableSetConverter::FLOW_LIST_LAST_CLASS;
+                },
+                function (string $className, string $rule): void {
+                    $this->layoutGeometry()->registerRule($className, $rule);
                 }
             ),
             new ScrollStateConverter(
