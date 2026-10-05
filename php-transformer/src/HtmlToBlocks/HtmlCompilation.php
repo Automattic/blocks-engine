@@ -1034,6 +1034,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $this->layoutGeometry()->registerRule($className, CapturedSelectableSetConverter::visuallyHiddenTabListCss($className));
 
                     return $className;
+                },
+                function (bool $listLast): string {
+                    $this->layoutGeometry()->registerRule(CapturedSelectableSetConverter::FLOW_CLASS, CapturedSelectableSetConverter::flowCss());
+                    if (! $listLast) {
+                        return CapturedSelectableSetConverter::FLOW_CLASS;
+                    }
+                    $this->layoutGeometry()->registerRule(CapturedSelectableSetConverter::FLOW_LIST_LAST_CLASS, CapturedSelectableSetConverter::flowListLastCss());
+
+                    return CapturedSelectableSetConverter::FLOW_CLASS . ' ' . CapturedSelectableSetConverter::FLOW_LIST_LAST_CLASS;
+                },
+                function (string $className, string $rule): void {
+                    $this->layoutGeometry()->registerRule($className, $rule);
                 }
             ),
             new ScrollStateConverter(
