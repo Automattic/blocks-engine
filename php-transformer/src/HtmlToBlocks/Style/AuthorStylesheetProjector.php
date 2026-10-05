@@ -1470,6 +1470,18 @@ final class AuthorStylesheetProjector
             }
             $matches = $nonTableMatches;
 
+            // Every match is a direct anchor core re-parents into a list item of
+            // its own, so the subject's sibling position belongs to that item.
+            // Any other match, or a subject this projection cannot place, keeps
+            // the authored selector exactly.
+            if ( $this->matchesOnlyNavigationItemAnchors($matches, $context) ) {
+                $itemSelector = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context);
+                if ( null !== $itemSelector ) {
+                    $rewritten[] = $itemSelector;
+                    continue;
+                }
+            }
+
             $controls = array();
             $semanticLeaves = array();
             $richTextLeaves = array();
@@ -1508,6 +1520,11 @@ final class AuthorStylesheetProjector
             $controls = array_values(array_unique($controls));
             $semanticLeaves = array_values(array_unique($semanticLeaves));
             $richTextLeaves = array_values(array_unique($richTextLeaves));
+            // In a mixed set the authored selector stays for the other matches,
+            // but every rendered menu anchor is the only child of its item, so
+            // the kept selector has to stop reaching them. Exclude them through
+            // the class core hard-codes on them; `:not(:where(…))` adds no
+            // specificity.
             if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves && ! $inlineLayoutCarriers ) {
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
                 continue;
@@ -2049,10 +2066,14 @@ final class AuthorStylesheetProjector
         return implode(';', $bridge);
     }
 
-    /** @param array<string, mixed> $parsed */
-    private function rewriteSourceTagTypes(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, string $rightmostInsertion = ''): string
+    /**
+     * @param array<string, mixed> $parsed
+     * @param array<int, array{end: int, value: string}> $replacements Further
+     *        span replacements, keyed by start offset, that must not overlap a
+     *        rewritten type span.
+     */
+    private function rewriteSourceTagTypes(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, string $rightmostInsertion = '', array $replacements = array()): string
     {
-        $replacements = array();
         foreach ( $parsed['type_spans'] as $typeSpan ) {
             $marker = $context->selectorProjections->tagMarker((string) $typeSpan['name']);
             if ( '' !== $marker ) {
@@ -2291,6 +2312,296 @@ final class AuthorStylesheetProjector
                 . str_repeat(':not(#' . $context->authorStyles->idSpecificityShim() . ')', $listSpecificity['ids']);
         }
         return $shims;
+    }
+
+    /**
+     * core/navigation renders a direct source anchor inside a list item of its
+     * own, so every rendered anchor is the only child of its item. A structural
+     * pseudo-class authored on that anchor (`nav a:last-child`) then describes
+     * the item's position among its siblings, not the anchor's, and would reach
+     * every link. Move it onto a zero-specificity item wrapper, and address the
+     * anchor through the class core hard-codes on it (with the type specificity
+     * shim, as for every other projected type), so the projected rule selects
+     * the same links with the authored specificity. The `>` it introduces is a
+     * relationship inside one block, which the editor shell variants skip for a
+     * `:where(.wp-block-…)` child.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function projectNavigationItemAnchorSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    {
+        $span = $parsed['rightmost_compound_span'] ?? null;
+        if ( ! is_array($span) ) {
+            return null;
+        }
+        $start = (int) $span['start'];
+        $end = (int) $span['end'];
+        // A dynamic state stays on the content anchor, and only as the
+        // compound's trailing suffix; anything after it is left as authored.
+        $bodyEnd = $end;
+        $trailingState = '';
+        $suffix = $parsed['pseudo_state_suffix_span'] ?? null;
+        if ( is_array($suffix) ) {
+            if ( (int) $suffix['end'] !== $end ) {
+                return null;
+            }
+            $bodyEnd = (int) $suffix['start'];
+            $trailingState = substr($selector, $bodyEnd, $end - $bodyEnd);
+        }
+        $typeLength = 0;
+        foreach ( $parsed['type_spans'] as $typeSpan ) {
+            if ( (int) $typeSpan['start'] >= $start ) {
+                if ( 'a' !== strtolower((string) $typeSpan['name']) ) {
+                    return null;
+                }
+                $typeLength = (int) $typeSpan['end'] - (int) $typeSpan['start'];
+            }
+        }
+        $split = $this->splitNavigationItemCompound(substr($selector, $start, $bodyEnd - $start));
+        if ( null === $split || '' === $split['structural'] ) {
+            return null;
+        }
+        // The type leads its compound; the rendered anchor's own class takes
+        // that place.
+        $subject = ':where(.wp-block-navigation-item__content)';
+        $rest = $split['rest'];
+        if ( $typeLength > 0 ) {
+            $subject .= $this->typeSpecificityShim($context) . substr($rest, $typeLength);
+        } elseif ( str_starts_with($rest, '*') ) {
+            $subject .= substr($rest, 1);
+        } else {
+            $subject .= $rest;
+        }
+        $subject .= $trailingState;
+        // Core renders a `<ul>` (and, for an overlay menu, more wrappers)
+        // between the navigation and its items. A one-to-one menu has no
+        // nested lists, so a child combinator before the anchor relaxes to a
+        // descendant without reaching any other item.
+        $replaceStart = $start;
+        $lead = '';
+        if ( preg_match('/\s*>\s*$/', substr($selector, 0, $start), $childCombinator) ) {
+            $replaceStart = $start - strlen($childCombinator[0]);
+            $lead = ' ';
+        }
+        return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
+            $replaceStart => array( 'end' => $end, 'value' => $lead . ':where(.wp-block-navigation-item)' . $split['item'] . $split['structural'] . '>' . $subject ),
+        ));
+    }
+
+    /**
+     * Separate a compound selector's simple selectors into what moves onto the
+     * rendered navigation item and what stays on its content anchor, or null
+     * when the compound holds a simple selector this projection cannot place.
+     *
+     * core/navigation-link renders the anchor's classes (`className`) and id
+     * (`anchor`) on the `<li>`; the `<a>` keeps its class, `href`, and runtime
+     * state. So: classes, ids, `[class…]`/`[id…]` attribute selectors, the
+     * structural pseudo-classes the matcher models (`:first-child`,
+     * `:last-child`, `:nth-child(n)`, `:nth-of-type(n)`), and a `:not()` made of
+     * one of those kinds alone move to the item. The type and `[href…]` stay on
+     * the anchor (the caller keeps a trailing dynamic state there too). Any
+     * other attribute (not rendered on the anchor), pseudo-class,
+     * pseudo-element, or namespace declines, and the authored selector is kept.
+     * Identifiers are consumed through the CSS scanner, so an escape such as
+     * `\26 ` keeps its whitespace terminator.
+     *
+     * @return array{structural: string, item: string, rest: string}|null
+     */
+    private function splitNavigationItemCompound(string $compound): ?array
+    {
+        $structural = '';
+        $item = '';
+        $rest = '';
+        $length = strlen($compound);
+        for ( $offset = 0; $offset < $length; ) {
+            $character = $compound[$offset];
+            if ( '.' === $character || '#' === $character ) {
+                $end = $this->cssIdentifierEnd($compound, $offset + 1);
+                if ( null === $end ) {
+                    return null;
+                }
+                $item .= substr($compound, $offset, $end - $offset);
+                $offset = $end;
+                continue;
+            }
+            if ( '[' === $character ) {
+                $end = $this->balancedGroupEnd($compound, $offset);
+                if ( null === $end ) {
+                    return null;
+                }
+                $attribute = substr($compound, $offset, $end - $offset);
+                $owner = $this->navigationAttributeOwner($attribute);
+                if ( null === $owner ) {
+                    return null;
+                }
+                if ( 'item' === $owner ) {
+                    $item .= $attribute;
+                } else {
+                    $rest .= $attribute;
+                }
+                $offset = $end;
+                continue;
+            }
+            if ( ':' === $character ) {
+                if ( ':' === ($compound[$offset + 1] ?? '') ) {
+                    return null;
+                }
+                $nameEnd = $this->cssIdentifierEnd($compound, $offset + 1);
+                if ( null === $nameEnd ) {
+                    return null;
+                }
+                $name = strtolower(substr($compound, $offset + 1, $nameEnd - $offset - 1));
+                $argument = null;
+                $end = $nameEnd;
+                if ( '(' === ($compound[$nameEnd] ?? '') ) {
+                    $end = $this->balancedGroupEnd($compound, $nameEnd);
+                    if ( null === $end ) {
+                        return null;
+                    }
+                    $argument = trim(substr($compound, $nameEnd + 1, $end - $nameEnd - 2));
+                }
+                $owner = $this->navigationPseudoClassOwner($name, $argument);
+                if ( null === $owner ) {
+                    return null;
+                }
+                $token = substr($compound, $offset, $end - $offset);
+                if ( 'structural' === $owner ) {
+                    $structural .= $token;
+                } elseif ( 'item' === $owner ) {
+                    $item .= $token;
+                } else {
+                    $rest .= $token;
+                }
+                $offset = $end;
+                continue;
+            }
+            if ( '*' === $character && 0 === $offset ) {
+                $rest .= '*';
+                ++$offset;
+                continue;
+            }
+            if ( 0 === $offset ) {
+                $end = $this->cssIdentifierEnd($compound, 0);
+                if ( null !== $end ) {
+                    $rest .= substr($compound, 0, $end);
+                    $offset = $end;
+                    continue;
+                }
+            }
+            return null;
+        }
+
+        return array( 'structural' => $structural, 'item' => $item, 'rest' => $rest );
+    }
+
+    /**
+     * Offset after the CSS identifier starting at $offset, consuming escapes
+     * through the scanner (a hex escape takes its whitespace terminator), or
+     * null when no identifier starts there.
+     */
+    private function cssIdentifierEnd(string $value, int $offset): ?int
+    {
+        $length = strlen($value);
+        $end = $offset;
+        while ( $end < $length ) {
+            $character = $value[$end];
+            if ( '\\' === $character ) {
+                $escapeEnd = CssSyntaxScanner::escapeEnd($value, $end);
+                if ( null === $escapeEnd ) {
+                    return null;
+                }
+                $end = $escapeEnd;
+                continue;
+            }
+            if ( ctype_alnum($character) || '-' === $character || '_' === $character || ord($character) >= 0x80 ) {
+                ++$end;
+                continue;
+            }
+            break;
+        }
+
+        return $end > $offset ? $end : null;
+    }
+
+    /**
+     * Offset after the `)` or `]` matching the group opened at $open, honouring
+     * strings and escapes, or null when the group never closes.
+     */
+    private function balancedGroupEnd(string $value, int $open): ?int
+    {
+        $state = CssSyntaxScanner::state();
+        $length = strlen($value);
+        $offset = $open;
+        while ( $offset < $length ) {
+            $offset = CssSyntaxScanner::consume($value, $offset, $state);
+            if ( null === $offset ) {
+                return null;
+            }
+            if ( CssSyntaxScanner::isTopLevel($state) ) {
+                return $offset;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Which rendered element an attribute selector on a source navigation
+     * anchor can still address: `class` and `id` land on the `<li>`, `href` is
+     * rendered on the `<a>`; nothing else is retained.
+     *
+     * @return 'item'|'anchor'|null
+     */
+    private function navigationAttributeOwner(string $attribute): ?string
+    {
+        if ( ! preg_match('/^\[\s*((?:\\\\.|[A-Za-z0-9_-])+)\s*(?:[~|^$*]?=|\])/', $attribute, $match) ) {
+            return null;
+        }
+        $name = strtolower(stripslashes($match[1]));
+        if ( 'class' === $name || 'id' === $name ) {
+            return 'item';
+        }
+
+        return 'href' === $name ? 'anchor' : null;
+    }
+
+    /**
+     * @return 'structural'|'item'|null
+     */
+    private function navigationPseudoClassOwner(string $name, ?string $argument): ?string
+    {
+        if ( null === $argument ) {
+            return 'first-child' === $name || 'last-child' === $name ? 'structural' : null;
+        }
+        if ( 'nth-child' === $name || 'nth-of-type' === $name ) {
+            return preg_match('/^[1-9][0-9]*$/', $argument) ? 'structural' : null;
+        }
+        if ( 'not' !== $name || '' === $argument ) {
+            return null;
+        }
+        // A negation moves with its single kind of content; a mixed argument
+        // could not be split without changing what it negates.
+        $negated = $this->splitNavigationItemCompound($argument);
+        if ( null === $negated || '' !== $negated['rest'] ) {
+            return null;
+        }
+        if ( '' !== $negated['structural'] && '' === $negated['item'] ) {
+            return 'structural';
+        }
+
+        return '' !== $negated['item'] && '' === $negated['structural'] ? 'item' : null;
+    }
+
+    /** @param list<DOMElement> $matches */
+    private function matchesOnlyNavigationItemAnchors(array $matches, AuthorStylesheetProjectionContext $context): bool
+    {
+        foreach ( $matches as $element ) {
+            if ( ! $context->selectorProjections->isNavigationItemAnchorPath($element->getNodePath() ?? '') ) {
+                return false;
+            }
+        }
+
+        return array() !== $matches;
     }
 
     /** @param array<string, mixed> $parsed */

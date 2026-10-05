@@ -182,6 +182,19 @@ $assert(1 === ($unmatched['projected_count'] ?? 0), 'an unmatched region still p
 $assert(str_contains($unmatchedMarkup, 'Alpha specification'), 'appended tabs still carry captured content');
 $assert(in_array('captured_selectable_set_region_appended', $codes($unmatched), true), 'unmatched regions emit an append diagnostic');
 
+$idSource = '<html><body><main><section><h1>Heading</h1><div role="tablist"><button type="button" role="tab" id="t-:r1:-trigger-one">Alpha</button><button type="button" role="tab" id="t-:r1:-trigger-two">Beta</button></div><div role="tabpanel" id="t-:r1:-content-one"><p>Select an item</p></div></section><footer><p>After the tabs</p></footer></main></body></html>';
+$idMember = static fn(int $index, string $label, string $html): array => $member($index, $label, $html, 'captured', false, array('selector' => '#t-\\:r1\\:-trigger-' . (0 === $index ? 'one' : 'two')), array('selector' => 'body > main > section > div:nth-of-type(1)'));
+$idStates = array_map(static function (array $state): array {
+    $state['dialog']['selector'] = '#t-\\:r1\\:-content-one';
+    return $state;
+}, array($idMember(0, 'Alpha', $alphaHtml), $idMember(1, 'Beta', $betaHtml)));
+$byId = $project($files($idSource, $idStates));
+$byIdMarkup = (string) ($byId['files'][0]['content'] ?? '');
+$assert(1 === ($byId['projected_count'] ?? 0), 'a region selected by a CSS-escaped id projects one set');
+$assert(! in_array('captured_selectable_set_region_appended', $codes($byId), true), 'a CSS-escaped id region is matched in place rather than appended');
+$assert(! str_contains($byIdMarkup, 'Select an item') && str_contains($byIdMarkup, 'Alpha specification') && str_contains($byIdMarkup, 'Beta specification'), 'the id-selected region is replaced by the captured panels');
+$assert(false !== strpos($byIdMarkup, 'Alpha specification') && strpos($byIdMarkup, 'Alpha specification') < strpos($byIdMarkup, 'After the tabs'), 'the captured panels stay inside the source layout instead of trailing the document');
+
 $graphicSource = '<html><body><main><div><svg><g><text>FR1</text><text>1,530 ft²</text></g><g><text>FR2</text><text>1,530 ft²</text></g></svg></div><div><p>Select a zone</p></div></main></body></html>';
 $graphicTrigger = static function (int $index, string $label): array {
     return array(

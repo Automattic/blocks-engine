@@ -3949,6 +3949,17 @@ final class ArtifactCompiler
             }
         }
         if ( '' !== $contentHeading ) {
+            // Block-display inline children (a styled span on its own line) carry
+            // no whitespace in the markup, so flattening the heading to text glues
+            // the lines together. When the document title spells the same words
+            // with the spacing the author rendered, it is the faithful form.
+            if ( preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $html, $match) ) {
+                $documentTitle = $normalize($match[1]);
+                $compact = static fn (string $text): string => strtolower(preg_replace('/\s+/u', '', $text) ?? $text);
+                if ( $documentTitle !== $contentHeading && '' !== $documentTitle && $compact($documentTitle) === $compact($contentHeading) ) {
+                    return $documentTitle;
+                }
+            }
             if ( $path !== $entryPath && $contentHeading === $entryTitle
                 && preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $html, $match) ) {
                 $documentTitle = $normalize($match[1]);

@@ -432,9 +432,48 @@ final class CapturedSelectableSetProjector
         return false;
     }
 
+    /**
+     * Capture names an element that has a unique id by that id alone, with the
+     * id CSS-escaped (`#radix-\:r1\:-content`). Returns the unescaped id, or
+     * null when the selector is not a lone id selector.
+     */
+    private function bareIdSelector(string $selector): ?string
+    {
+        if (1 !== preg_match('/^#((?:[A-Za-z0-9_-]|[^\x00-\x7F]|\\\\(?:[0-9a-fA-F]{1,6} ?|[^0-9a-fA-F\r\n\f]))+)$/u', $selector, $matches)) {
+            return null;
+        }
+        $id = preg_replace_callback(
+            '/\\\\(?:([0-9a-fA-F]{1,6}) ?|(.))/su',
+            static fn(array $escape): string => '' !== ($escape[1] ?? '') ? (string) mb_chr(min((int) hexdec($escape[1]), 0x10FFFF), 'UTF-8') : $escape[2],
+            $matches[1]
+        );
+
+        return is_string($id) && '' !== $id ? $id : null;
+    }
+
+    /** @return array<int, DOMElement> */
+    private function descendantsWithId(DOMElement $scope, string $id): array
+    {
+        $found = array();
+        if ($scope->getAttribute('id') === $id) {
+            $found[] = $scope;
+        }
+        foreach ($scope->getElementsByTagName('*') as $element) {
+            if ($element instanceof DOMElement && $element->getAttribute('id') === $id) {
+                $found[] = $element;
+            }
+        }
+
+        return $found;
+    }
+
     /** @return array<int, DOMElement> */
     private function selectorMatches(DOMElement $scope, string $selector): array
     {
+        $id = $this->bareIdSelector($selector);
+        if (null !== $id) {
+            return $this->descendantsWithId($scope, $id);
+        }
         if ('' === $selector || str_contains($selector, ',') || ! str_contains($selector, '>')) {
             return array();
         }
