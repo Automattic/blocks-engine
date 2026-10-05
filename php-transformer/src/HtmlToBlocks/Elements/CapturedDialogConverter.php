@@ -50,12 +50,13 @@ final class CapturedDialogConverter implements ElementConverter
             'ariaLabelledby' => trim(SourceDom::attr($element, 'aria-labelledby')),
             'ariaDescribedby' => trim(SourceDom::attr($element, 'aria-describedby')),
             'className' => trim(SourceDom::attr($element, 'class')),
+            'presentation' => 'dropdown' === SourceDom::attr($element, 'data-blocks-engine-presentation') ? 'dropdown' : '',
             'addCloseButton' => 'true' === SourceDom::attr($element, 'data-blocks-engine-add-close'),
         ), static fn(mixed $value): bool => false !== $value && '' !== $value && array() !== $value);
         $children = ($this->convertChildren)($element, $fallbacks);
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $opening = '<dialog';
-        foreach (array('dialogId' => 'id', 'className' => 'class', 'ariaLabel' => 'aria-label', 'ariaLabelledby' => 'aria-labelledby', 'ariaDescribedby' => 'aria-describedby') as $key => $attribute) {
+        foreach (array('dialogId' => 'id', 'className' => 'class', 'presentation' => 'data-blocks-engine-presentation', 'ariaLabel' => 'aria-label', 'ariaLabelledby' => 'aria-labelledby', 'ariaDescribedby' => 'aria-describedby') as $key => $attribute) {
             if (isset($attrs[$key])) $opening .= ' ' . $attribute . '="' . $escape((string) $attrs[$key]) . '"';
         }
         if (isset($attrs['triggerIds'])) $opening .= ' data-blocks-engine-triggers="' . $escape(implode(' ', $attrs['triggerIds'])) . '"';

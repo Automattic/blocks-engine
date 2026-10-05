@@ -213,6 +213,9 @@ final class CapturedDialogProjector
             $dialogElement->setAttribute('data-blocks-engine-captured-dialog', 'true');
             $dialogElement->setAttribute('data-blocks-engine-triggers', implode(' ', $triggerIds));
             if (is_string($fragment['class']) && '' !== $fragment['class']) $dialogElement->setAttribute('class', $fragment['class']);
+            // A menu panel that does not place itself drops under its header. Its
+            // paint usually lives on that header, so the dialog block resolves it.
+            if ('dropdown' === strtolower(trim((string) ($dialog['presentation'] ?? ''))) && ! $fragment['self_positioned']) $dialogElement->setAttribute('data-blocks-engine-presentation', 'dropdown');
             if (is_string($fragment['aria_label']) && '' !== $fragment['aria_label']) $dialogElement->setAttribute('aria-label', $fragment['aria_label']);
             if (is_string($fragment['aria_labelledby']) && '' !== $fragment['aria_labelledby']) $dialogElement->setAttribute('aria-labelledby', $fragment['aria_labelledby']);
             if (is_string($fragment['aria_describedby']) && '' !== $fragment['aria_describedby']) $dialogElement->setAttribute('aria-describedby', $fragment['aria_describedby']);
@@ -605,7 +608,7 @@ final class CapturedDialogProjector
         return false;
     }
 
-    /** @return array{nodes:array<int, \DOMNode>, class:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool}|null */
+    /** @return array{nodes:array<int, \DOMNode>, class:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool}|null */
     private function safeDialogFragment(string $html): ?array
     {
         $previous = libxml_use_internal_errors(true);
@@ -662,6 +665,10 @@ final class CapturedDialogProjector
             'aria_labelledby' => $sourceRoot instanceof DOMElement ? trim($sourceRoot->getAttribute('aria-labelledby')) : '',
             'aria_describedby' => $sourceRoot instanceof DOMElement ? trim($sourceRoot->getAttribute('aria-describedby')) : '',
             'has_close_control' => $hasCloseControl,
+            'self_positioned' => $sourceRoot instanceof DOMElement && (
+                1 === preg_match('/(?:^|\s)(?:absolute|fixed|sticky)(?:\s|$)/', $sourceRoot->getAttribute('class'))
+                || 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed|sticky)/i', $sourceRoot->getAttribute('style'))
+            ),
         );
     }
 
