@@ -10,7 +10,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapp
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
-use DOMNode;
 
 final class NavigationPattern implements PatternRecognizerInterface
 {
@@ -2562,7 +2561,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $tagName = strtolower($child->tagName);
             if ( in_array($tagName, array( 'nav', 'ul', 'ol' ), true)
                 || $this->hasSubmenuSignal($child)
-                || ( $this->isAnchorOnlyCluster($child) && 0 !== ( $primaryAnchor->compareDocumentPosition($child) & DOMNode::DOCUMENT_POSITION_FOLLOWING ) )
+                || $this->isAnchorOnlyCluster($child)
                 || ( $this->isNavigationWrapperElement($child)
                     && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length ) )
             ) {
