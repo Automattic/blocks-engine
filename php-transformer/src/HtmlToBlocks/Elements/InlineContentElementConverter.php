@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -41,6 +42,17 @@ final class InlineContentElementConverter implements ElementConverter
         $socialLinks = $this->context->recognizePatterns($element, $fallbacks, array( SocialLinksPattern::class ));
         if ( null !== $socialLinks ) {
             return ConversionOutcome::handled($socialLinks);
+        }
+
+        // A single toggle plus the region it controls is one native disclosure
+        // even when its wrapper is an inline span (a positioned trigger/popover
+        // wrapper); otherwise the region lowers to an always-visible group.
+        if ( 'span' === $tagName ) {
+            $disclosure = $this->context->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
+            if ( null !== $disclosure ) {
+                $this->context->rememberNativeDisclosureRoot($element);
+                return ConversionOutcome::handled($disclosure);
+            }
         }
 
         // Captured markup can place flow content inside an inline wrapper. A

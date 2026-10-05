@@ -207,6 +207,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
+            $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $element, $navigationContext);
         }
         if ( $label instanceof DOMElement ) {
@@ -374,6 +375,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = array('overlayMenu' => $overlayMenu);
         if ( 'mobile' === $overlayMenu ) {
             $navigationAttrs['className'] = 'blocks-engine-native-responsive-navigation';
+            $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $context->navigationContext());
         }
         $blocks[] = $context->createBlock('core/navigation', $navigationAttrs, $links, $element);
 
@@ -534,7 +536,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             ) {
                 // Chrome that scripts drive at runtime is not decoration: a
                 // carrier group would drop it, so keep the source shape.
-                if ( $navigationContext?->isRuntimeDomTarget($child) || $this->containsDialogCloseTarget($child) ) {
+                if ( $navigationContext?->isRuntimeDomTarget($child) || $this->containsDialogCloseTarget($child) || SourceDom::isBoundCapturedDialogTrigger($child) ) {
                     return null;
                 }
                 continue;
@@ -682,6 +684,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
+            $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $cluster, $navigationContext);
         }
         $isDirectDivCluster = 'div' === strtolower($cluster->tagName);
@@ -835,6 +838,20 @@ final class NavigationPattern implements PatternRecognizerInterface
         // list-based.
         $attrs = $this->withClassName($attrs, self::LIST_NAVIGATION_CLASS);
         return $this->withClassName($attrs, $marker);
+    }
+
+    /**
+     * Carry the source menu's collapsed-state paint onto Core's open overlay
+     * (see {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ProjectedNavigationConverter::responsiveNavigationOverlayMarker()}).
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withResponsiveOverlayMarker(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    {
+        $marker = $navigationContext?->responsiveOverlayMarker($element) ?? '';
+
+        return '' === $marker ? $attrs : $this->withClassName($attrs, $marker);
     }
 
     /** @param array<string, mixed> $attrs @return array<string, mixed> */
@@ -3100,6 +3117,9 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function isMenuPanelContent(DOMElement $element): bool
     {
         $panel = $element->parentNode;
+        if ( $panel instanceof DOMElement && 'dialog' === strtolower($panel->tagName) && 'true' === $panel->getAttribute('data-blocks-engine-captured-menu') ) {
+            return true;
+        }
         if ( ! $panel instanceof DOMElement || ! $panel->hasAttribute('data-dla-dialog-panel') ) {
             return false;
         }
