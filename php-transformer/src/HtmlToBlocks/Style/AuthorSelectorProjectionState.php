@@ -225,6 +225,12 @@ final class AuthorSelectorProjectionState
         return isset($this->navigationItemAnchors[$path]);
     }
 
+    /** @return list<DOMElement> */
+    public function navigationItemAnchors(): array
+    {
+        return array_values($this->navigationItemAnchors);
+    }
+
     public function ensureAttributeMarker(string $path, ?string $stableIdentity = null): string
     {
         if ( null !== $stableIdentity ) {

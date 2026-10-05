@@ -401,6 +401,129 @@ $assert(
     'anchors of a wrapper that is the only source of items are still rewritten: ' . json_encode($soleWrapperBorder)
 );
 
+// --- Every simple-selector kind a compound can carry. -------------------------
+// Bare and universal subjects, attribute selectors (class/id render on the
+// <li>, href on the <a>, others are not retained), escaped identifiers, and a
+// child combinator before the subject (core puts a <ul> between the nav and
+// its items, so a one-to-one menu relaxes it to a descendant).
+
+$kinds = $transform(
+    '<style>'
+    . '.menu nav a{color:#333}'
+    . '.menu nav > :last-child{border:1px solid #999}'
+    . '.menu nav *:last-child{padding:4px 8px}'
+    . '.menu nav a[class~="lang"]:last-child{letter-spacing:.1em}'
+    . '.menu nav a[id="first"]:first-child{font-weight:700}'
+    . '.menu nav a[href^="#g"]:last-child{text-transform:uppercase}'
+    . '.menu nav a[rel]:last-child{color:#000}'
+    . '.menu nav .foo\\26 bar:last-child{margin-right:12px}'
+    . '.menu nav #\\31 23:last-child{opacity:.5}'
+    . '.menu nav > a:last-child{outline:1px solid red}'
+    . '.menu nav a:not(:hover):last-child{text-decoration:none}'
+    . '</style>'
+    . '<header><div class="menu"><nav>'
+    . '<a id="first" href="#alpha">Alpha</a><a href="#beta">Beta</a><a class="lang foo&amp;bar" id="123" rel="nofollow" href="#gamma">Gamma</a>'
+    . '</nav></div></header>'
+);
+$kindsMarkup = (string) ($kinds['serialized_blocks'] ?? '');
+$kindsLinks = array();
+preg_match_all('/<!-- wp:navigation-link (\{.*?\}) \/-->/', $kindsMarkup, $kindLinkMatches);
+foreach ( $kindLinkMatches[1] as $json ) {
+    $attrs = json_decode($json, true);
+    if ( is_array($attrs) ) {
+        $kindsLinks[(string) ($attrs['label'] ?? '')] = $attrs;
+    }
+}
+$gammaClasses = preg_split('/\s+/', (string) ($kindsLinks['Gamma']['className'] ?? '')) ?: array();
+$assert(
+    'first' === ($kindsLinks['Alpha']['anchor'] ?? null) && in_array('lang', $gammaClasses, true) && in_array('foo&bar', $gammaClasses, true),
+    'the fixture carries the id and classes core renders on the <li>: ' . json_encode(array( $kindsLinks['Alpha']['anchor'] ?? null, $gammaClasses ))
+);
+preg_match('/<!-- wp:navigation (\{.*?\}) -->/s', $kindsMarkup, $kindsOpener);
+preg_match('/blocks-engine-source-nav-[A-Za-z0-9-]+/', $kindsOpener[1] ?? '', $kindsMarkerMatch);
+$kindsMarker = $kindsMarkerMatch[0] ?? '';
+$kindsScope = '.menu :where(.' . $kindsMarker . '):not(blocks-engine-specificity-site-0)';
+$kindsRules = $rules($css($kinds));
+$content = '>:where(.wp-block-navigation-item__content)';
+$bareBorder = $selectorsDeclaring($kindsRules, 'border:1px solid #999');
+$assert(
+    in_array($kindsScope . ' ' . $item . ':last-child' . $content, $bareBorder, true)
+        && in_array($kindsScope . ' > :last-child' . $mixedExclusion, $bareBorder, true),
+    'a bare structural subject after a child combinator is projected onto the item and kept for other elements without the rendered anchors: ' . json_encode($bareBorder)
+);
+$universalPadding = $selectorsDeclaring($kindsRules, 'padding:4px 8px');
+$assert(
+    in_array($kindsScope . ' ' . $item . ':last-child' . $content, $universalPadding, true)
+        && in_array($kindsScope . ' *:last-child' . $mixedExclusion, $universalPadding, true),
+    'a universal structural subject is projected onto the item and kept for other elements without the rendered anchors: ' . json_encode($universalPadding)
+);
+$assert(
+    array( $kindsScope . ' ' . $item . '[class~="lang"]:last-child' . $anchor ) === $selectorsDeclaring($kindsRules, 'letter-spacing:.1em'),
+    'a class attribute selector moves onto the item compound: ' . json_encode($selectorsDeclaring($kindsRules, 'letter-spacing:.1em'))
+);
+$assert(
+    in_array($kindsScope . ' ' . $item . '[id="first"]:first-child' . $anchor, $selectorsDeclaring($kindsRules, 'font-weight:700'), true),
+    'an id attribute selector moves onto the item compound: ' . json_encode($selectorsDeclaring($kindsRules, 'font-weight:700'))
+);
+$assert(
+    array( $kindsScope . ' ' . $item . ':last-child' . $anchor . '[href^="#g"]' ) === $selectorsDeclaring($kindsRules, 'text-transform:uppercase'),
+    'an href attribute selector stays on the content anchor: ' . json_encode($selectorsDeclaring($kindsRules, 'text-transform:uppercase'))
+);
+$assert(
+    array( $kindsScope . ' a[rel]:last-child' ) === $selectorsDeclaring($kindsRules, 'color:#000'),
+    'an attribute core does not render on the anchor declines the projection and keeps the authored selector: ' . json_encode($selectorsDeclaring($kindsRules, 'color:#000'))
+);
+$escapedClass = $selectorsDeclaring($kindsRules, 'margin-right:12px');
+$assert(
+    1 === count($escapedClass) && str_starts_with($escapedClass[0], $kindsScope . ' ' . $item . '.foo\\26 bar:last-child' . $content),
+    'a hex-escaped class with its whitespace terminator moves whole onto the item compound: ' . json_encode($escapedClass)
+);
+$assert(
+    array( $kindsScope . ' ' . $item . '#\\31 23:last-child' . $content ) === $selectorsDeclaring($kindsRules, 'opacity:.5'),
+    'a hex-escaped id moves whole onto the item compound: ' . json_encode($selectorsDeclaring($kindsRules, 'opacity:.5'))
+);
+$assert(
+    array( $kindsScope . ' ' . $item . ':last-child' . $anchor ) === $selectorsDeclaring($kindsRules, 'outline:1px solid red'),
+    'a child combinator before the anchor relaxes to a descendant, since core renders a <ul> between the nav and its items: ' . json_encode($selectorsDeclaring($kindsRules, 'outline:1px solid red'))
+);
+$assert(
+    array( $kindsScope . ' ' . $item . ':last-child' . $anchor . ':not(:hover)' ) === $selectorsDeclaring($kindsRules, 'text-decoration:none'),
+    'a resting-state negation stays on the content anchor: ' . json_encode($selectorsDeclaring($kindsRules, 'text-decoration:none'))
+);
+$assert(
+    ! preg_match('/:where\(\.wp-block-navigation-item\)[^>{]*>[^,{]* (?:bar|23)[\s,{]/', $css($kinds)),
+    'no escaped identifier is split across the item and anchor compounds'
+);
+
+// Rendered as core does: ids and classes on the <li>, href on the <a>.
+$kindsRendered = new DOMDocument();
+libxml_use_internal_errors(true);
+$kindsRendered->loadHTML(
+    '<!DOCTYPE html><html><body><header class="wp-block-group"><div class="wp-block-group menu">'
+    . '<nav class="wp-block-navigation ' . $kindsMarker . ' is-layout-flex"><ul class="wp-block-navigation__container">'
+    . '<li class="wp-block-navigation-item wp-block-navigation-link" id="first"><a class="wp-block-navigation-item__content" href="#alpha"><span class="wp-block-navigation-item__label">Alpha</span></a></li>'
+    . '<li class="wp-block-navigation-item wp-block-navigation-link"><a class="wp-block-navigation-item__content" href="#beta"><span class="wp-block-navigation-item__label">Beta</span></a></li>'
+    . '<li class="wp-block-navigation-item lang foo&amp;bar wp-block-navigation-link" id="123"><a class="wp-block-navigation-item__content" href="#gamma"><span class="wp-block-navigation-item__label">Gamma</span></a></li>'
+    . '</ul></nav></div></header></body></html>'
+);
+libxml_clear_errors();
+libxml_use_internal_errors(false);
+$kindsAnchors = array();
+foreach ( $kindsRendered->getElementsByTagName('a') as $kindsAnchor ) {
+    if ( $kindsAnchor instanceof DOMElement ) {
+        $kindsAnchors[] = $kindsAnchor;
+    }
+}
+$assert(array( '#gamma' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'border:1px solid #999'), 'the bare subject rule reaches only the last rendered link');
+$assert(array( '#gamma' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'padding:4px 8px'), 'the universal subject rule reaches only the last rendered link');
+$assert(array( '#gamma' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'letter-spacing:.1em'), 'the class attribute rule reaches only the rendered link whose item carries the class');
+$assert(array( '#alpha' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'font-weight:700'), 'the id attribute rule reaches only the rendered link whose item carries the id');
+$assert(array( '#gamma' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'text-transform:uppercase'), 'the href attribute rule reaches only the last rendered link');
+$assert(array( '#gamma' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'margin-right:12px'), 'the escaped class rule reaches only the rendered link whose item carries the class');
+$assert(array( '#gamma' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'outline:1px solid red'), 'the child-combinator rule reaches only the last rendered link through the <ul>');
+// The engine only carries an id that starts with a letter onto the item, so
+// `#\31 23` is checked by shape above; it cannot reach rendered markup.
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "navigation-item-structural-pseudo: {$failures} failure(s), {$passes} pass(es)" . PHP_EOL);
     exit(1);
