@@ -62,6 +62,36 @@ $assert(str_contains((string) ($threeWayDefinition['view_js'] ?? ''), "context.t
     && str_contains((string) ($threeWayDefinition['view_js'] ?? ''), "setItem( context.storageKey || 'theme', next )")
     && str_contains($threeWayMarkup, 'themeModes'), 'the existing companion runtime can cycle and persist an explicit light/system/dark preference while resolving system through prefers-color-scheme');
 
+$groupSource = '<html class="dark"><body><footer><div class="theme-choices layout-row" style="display:flex;gap:8px" role="group" aria-label="Color theme" data-site-control="appearance"><button type="button" class="theme-choice" aria-label="Light theme"><svg class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle></svg></button><button type="button" class="theme-choice" aria-label="System theme"><svg class="lucide lucide-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14"></rect></svg></button><button type="button" class="theme-choice" aria-label="Dark theme"><svg class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-8-8"></path></svg></button></div></footer></body></html>';
+$groupCss = '.dark .theme-choices .theme-choice{color:#fff}:root:not(.dark) .theme-choices .theme-choice{color:#111}';
+$groupRuntime = 'const theme=localStorage.getItem("theme"); const dark=window.matchMedia("(prefers-color-scheme: dark)").matches; document.documentElement.classList.toggle("dark",dark); localStorage.setItem("theme",theme);';
+$groupResult = (new HtmlTransformer())->transform($groupSource, array('static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $groupRuntime))))->toArray();
+$groupBlock = $groupResult['blocks'][0] ?? array();
+$groupAttrs = $groupBlock['attrs'] ?? array();
+$groupMarkup = (string) ($groupResult['serialized_blocks'] ?? '');
+$assert('custom/theme-toggle' === ($groupBlock['blockName'] ?? null)
+    && 3 === count($groupAttrs['selectionButtons'] ?? array())
+    && array('light', 'system', 'dark') === ($groupAttrs['themeModes'] ?? array())
+    && 'system' === ($groupAttrs['selectedMode'] ?? '')
+    && 'theme-choices layout-row' === ($groupAttrs['groupClassName'] ?? '')
+    && str_contains($groupMarkup, 'style="display:flex;gap:8px"')
+    && 'group' === ($groupAttrs['groupAttributes']['role'] ?? '')
+    && 'Color theme' === ($groupAttrs['groupAttributes']['aria-label'] ?? '')
+    && 'appearance' === ($groupAttrs['groupAttributes']['data-site-control'] ?? '')
+    && str_contains($groupMarkup, 'aria-label="System theme"')
+    && str_contains($groupMarkup, 'lucide-monitor'), 'corroborated icon-only source groups promote once onto the canonical block while preserving the authored wrapper, names, icons, and order');
+$groupDefinition = $groupResult['source_reports']['generated_blocks'][0] ?? array();
+$groupEditor = (string) ($groupDefinition['assets']['index.js'] ?? '');
+$assert(str_contains($groupMarkup, 'data-wp-bind--aria-pressed="state.selected"')
+    && str_contains($groupMarkup, 'data-wp-on--click="actions.select"')
+    && str_contains($groupEditor, 'attrs.selectionButtons.map')
+    && str_contains((string) ($groupDefinition['view_js'] ?? ''), "preference: 'dark'")
+    && str_contains((string) ($groupDefinition['view_js'] ?? ''), "const { state: themeState } = store( 'custom/theme-toggle'") , 'the canonical saved/editable selection group exposes reactive selected state and direct per-mode actions');
+$unconfirmedGroup = (new HtmlTransformer())->transform($groupSource, array('static_css' => '.dark .theme-choices .theme-choice{color:#fff}:root:not(.dark) .theme-choices .theme-choice{color:#111}'))->toArray();
+$assert('custom/theme-toggle' !== ($unconfirmedGroup['blocks'][0]['blockName'] ?? null), 'theme-shaped buttons without runtime corroboration remain ordinary controls');
+$ambiguousGroup = (new HtmlTransformer())->transform(str_replace('lucide-monitor', 'lucide-star', $groupSource), array('static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $groupRuntime))))->toArray();
+$assert('custom/theme-toggle' !== ($ambiguousGroup['blocks'][0]['blockName'] ?? null), 'a three-button group with one semantically ambiguous icon is not guessed to be a theme selector even when labels and runtime resemble one');
+
 $consumerNamespace = (new HtmlTransformer())->transform($source, array('static_css' => $css, 'generated_block_namespace' => 'acme-site'))->toArray();
 $consumerDefinition = $consumerNamespace['source_reports']['generated_blocks'][0] ?? array();
 $assert('acme-site/theme-toggle' === ($consumerNamespace['blocks'][0]['blockName'] ?? null)
