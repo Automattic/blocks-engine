@@ -27,7 +27,7 @@
             "path": "blocks.0.innerBlocks.1",
             "name": "core/navigation",
             "attrs": {
-                "className": "hidden md:flex items-center gap-0.5 blocks-engine-native-responsive-navigation blocks-engine-list-navigation blocks-engine-native-navigation-toggle-c214e3ba6841",
+                "className": "hidden md:flex items-center gap-0.5 blocks-engine-native-responsive-navigation blocks-engine-list-navigation blocks-engine-native-navigation-toggle-1c26bcda041c",
                 "style": {
                     "spacing": {
                         "blockGap": "0.125rem"

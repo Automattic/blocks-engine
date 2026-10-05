@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DeclaredPresentation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use DOMDocument;
 use DOMElement;
@@ -1426,6 +1427,146 @@ final class NavigationToggleSuppressor
         return $this->isHiddenAtDefaultViewport($control) && $this->hasDefaultViewportVisibleNavigationTwin($control)
             ? 'mobile'
             : 'always';
+    }
+
+    /**
+     * The viewport width (px) at and below which the source collapses this
+     * navigation behind its toggle, or null when the author stylesheet states
+     * no such boundary.
+     *
+     * core/navigation switches its native overlay at a fixed 600px. A source
+     * that hides its menu and shows the toggle below a wider boundary — a
+     * `max-width:1300px` query setting the menu to `display:none`, or a
+     * mobile-first menu that stays `display:none` until a `min-width` query
+     * shows it — needs that boundary carried into the generated support CSS,
+     * or the result renders wrong between 600px and the source boundary.
+     *
+     * The evidence is the author's own media-conditional `display`, read on
+     * the menu side and on the toggle side separately. The menu side is every
+     * element on the path from each menu link up to, but excluding, the first
+     * ancestor that also holds the toggle (a wrapper that holds both cannot
+     * be what collapses one behind the other); the menu reads hidden at a
+     * width when every link has some element on its path set to `none`. The
+     * toggle side is the path from the toggle up to the first ancestor that
+     * holds a menu link. Every width those queries name is a candidate, and
+     * the boundary is the widest candidate at which the menu reads hidden
+     * while it reads visible one pixel wider. When the menu's `display` never
+     * switches (a panel hidden by a transform, a clip or an off-canvas
+     * offset), the toggle's own visibility is the fallback: the widest width
+     * at which the toggle shows but is gone one pixel wider.
+     *
+     * Only width media queries can yield a boundary. A `print`-only or
+     * `prefers-*`-only hide names no width and leaves the result null, as
+     * does a menu hidden or shown at every width.
+     */
+    public function sourceCollapseBreakpoint(DOMElement $navigation, DOMElement $toggle): ?float
+    {
+        $menuLinks = array();
+        foreach ( $navigation->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor instanceof DOMElement
+                && $anchor->hasAttribute('href')
+                && ! $anchor->isSameNode($toggle)
+                && ! SourceDom::elementContains($anchor, $toggle)
+                && ! SourceDom::elementContains($toggle, $anchor) ) {
+                $menuLinks[] = $anchor;
+            }
+        }
+        if ( array() === $menuLinks ) {
+            $menuLinks[] = $navigation;
+        }
+
+        $displays = array();
+        $displayOf = function (DOMElement $element) use (&$displays): DeclaredPresentation {
+            $id = spl_object_id($element);
+            if ( ! isset($displays[ $id ]) ) {
+                $displays[ $id ] = $this->styleResolver->declaredPresentation($element, 'display');
+            }
+
+            return $displays[ $id ];
+        };
+        $pathAbove = static function (DOMElement $start, callable $stop): array {
+            $path = array();
+            for ( $node = $start; $node instanceof DOMElement; $node = $node->parentNode ) {
+                if ( in_array(strtolower($node->tagName), array( 'body', 'html' ), true) || $stop($node) ) {
+                    break;
+                }
+                $path[] = $node;
+            }
+
+            return $path;
+        };
+
+        $menuPaths = array();
+        foreach ( $menuLinks as $link ) {
+            $menuPaths[] = $pathAbove($link, static fn (DOMElement $node): bool => SourceDom::elementContains($node, $toggle) || $node->isSameNode($toggle));
+        }
+        $togglePath = $pathAbove($toggle, static function (DOMElement $node) use ($menuLinks): bool {
+            foreach ( $menuLinks as $link ) {
+                if ( SourceDom::elementContains($node, $link) || $node->isSameNode($link) ) {
+                    return true;
+                }
+            }
+
+            return false;
+        });
+
+        $candidates = array();
+        foreach ( array_merge(array_merge(array(), ...$menuPaths), $togglePath) as $element ) {
+            foreach ( $displayOf($element)->conditionStacks() as $stack ) {
+                foreach ( $stack as $condition ) {
+                    if ( 1 !== preg_match('/^@media\b/i', trim($condition)) ) {
+                        continue;
+                    }
+                    if ( preg_match_all('/(\d*\.?\d+)\s*(px|r?em)\b/i', $condition, $matches, PREG_SET_ORDER) ) {
+                        foreach ( $matches as $match ) {
+                            $px = (float) $match[1] * ( 'px' === strtolower($match[2]) ? 1.0 : 16.0 );
+                            $candidates[] = $px;
+                            $candidates[] = $px - 1.0;
+                        }
+                    }
+                }
+            }
+        }
+        if ( array() === $candidates ) {
+            return null;
+        }
+        $candidates = array_values(array_unique(array_filter($candidates, static fn (float $px): bool => 0.0 < $px)));
+        rsort($candidates);
+
+        $hiddenAt = function (array $path, float $width) use ($displayOf): bool {
+            foreach ( $path as $element ) {
+                $value = $displayOf($element)->resolvedValueWhere(
+                    fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                );
+                if ( 'none' === strtolower(CssValueInspector::withoutImportant(trim($value))) ) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+        $menuHiddenAt = static function (float $width) use ($menuPaths, $hiddenAt): bool {
+            foreach ( $menuPaths as $path ) {
+                if ( ! $hiddenAt($path, $width) ) {
+                    return false;
+                }
+            }
+
+            return true;
+        };
+
+        foreach ( $candidates as $width ) {
+            if ( $menuHiddenAt($width) && ! $menuHiddenAt($width + 1.0) ) {
+                return $width;
+            }
+        }
+        foreach ( $candidates as $width ) {
+            if ( ! $hiddenAt($togglePath, $width) && $hiddenAt($togglePath, $width + 1.0) ) {
+                return $width;
+            }
+        }
+
+        return null;
     }
 
     private function hasDefaultViewportVisibleNavigationTwin(DOMElement $control): bool
