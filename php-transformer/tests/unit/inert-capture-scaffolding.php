@@ -33,6 +33,24 @@ $assert('capture-shell' === ($namedWrapper['fallbacks'][0]['tag'] ?? ''), 'seman
 $customElement = $transform('<main><custom-widget aria-label="Custom control"></custom-widget></main>');
 $assert('custom-widget' === ($customElement['fallbacks'][0]['tag'] ?? ''), 'unrelated custom elements remain explicit fallbacks');
 
+$emptyCustomElement = $transform('<main><next-route-announcer style="position:absolute"></next-route-announcer><p>Visible copy</p></main>');
+$assert(array() === ($emptyCustomElement['fallbacks'] ?? array()), 'an empty unaddressed custom element with no rendered box is inert scaffolding');
+$assert(! str_contains((string) ($emptyCustomElement['serialized_blocks'] ?? ''), 'next-route-announcer') && str_contains((string) ($emptyCustomElement['serialized_blocks'] ?? ''), 'Visible copy'), 'dropping an inert custom element retains its content siblings');
+
+$resetAnnouncer = $transform('<style>.stack{display:flex;flex-direction:column;justify-content:space-between;min-height:100vh}*{border:0 solid;border-color:var(--border);margin:0;padding:0}</style><main class="stack"><p>Before</p><next-route-announcer style="position:absolute"></next-route-announcer><p>After</p></main>');
+$assert(array() === ($resetAnnouncer['fallbacks'] ?? array()), 'zero-width framework border resets do not make an empty out-of-flow announcer visible');
+$assert(! str_contains((string) ($resetAnnouncer['serialized_blocks'] ?? ''), 'next-route-announcer'), 'a visually inert announcer is not preserved as a fallback after framework resets');
+
+$outOfFlowAnnouncer = $transform('<main style="display:flex;flex-direction:column;min-height:100vh"><p>Before</p><next-route-announcer style="position:absolute"></next-route-announcer><p>After</p></main>');
+$assert(array() === ($outOfFlowAnnouncer['fallbacks'] ?? array()), 'an out-of-flow empty custom element does not become a flex-slot fallback');
+$assert(! str_contains((string) ($outOfFlowAnnouncer['serialized_blocks'] ?? ''), 'next-route-announcer'), 'an out-of-flow empty custom element is omitted without moving its siblings');
+
+$inFlowCustomElement = $transform('<style>.stack{display:flex;flex-direction:column;gap:16px;min-height:100vh}</style><main class="stack"><p>Before</p><custom-widget style="position:relative"></custom-widget><p>After</p></main>');
+$assert('custom-widget' === ($inFlowCustomElement['fallbacks'][0]['tag'] ?? ''), 'an in-flow empty custom element still preserves its owned flex slot');
+
+$styledCustomElement = $transform('<style>layout-slot{display:block;width:1px;height:1px;background:#000}</style><main><layout-slot></layout-slot></main>');
+$assert('layout-slot' === ($styledCustomElement['fallbacks'][0]['tag'] ?? ''), 'a rendered empty custom-element box remains an explicit fallback');
+
 $unreferencedStore = $transform('<main><svg data-dom-store style="display:none"><defs><symbol id="unused"><path d="M0 0h1v1z"/></symbol></defs></svg><p>Visible copy</p></main>');
 $assert(array() === ($unreferencedStore['fallbacks'] ?? array()), 'hidden unreferenced SVG store emits no fallback');
 $assert(! str_contains((string) ($unreferencedStore['serialized_blocks'] ?? ''), 'unused'), 'hidden unreferenced SVG store emits no raw HTML');
