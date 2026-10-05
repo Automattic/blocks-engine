@@ -53,7 +53,11 @@ $placementResets = static function (string $css): array {
         }
         $selector = substr($chunk, 0, $brace);
         $body = substr($chunk, $brace + 1);
-        if ( str_contains($selector, '.wp-block-navigation__container') && str_contains($body, 'position:static!important') ) {
+        $placementReset = false;
+        foreach ( array( 'position:static!important', 'transform:none!important', 'translate:none!important', 'rotate:none!important', 'scale:none!important', 'offset-path:none!important' ) as $declaration ) {
+            $placementReset = $placementReset || str_contains($body, $declaration);
+        }
+        if ( str_contains($selector, '.wp-block-navigation__container') && $placementReset ) {
             $rules[] = trim($chunk) . '}';
         }
     }
@@ -140,6 +144,21 @@ $dropdown = $compile(
     $barCss . '.drop-menu{position:relative;display:block}.drop-menu>ul{position:absolute;top:100%;left:0;margin:0;padding:0;list-style:none}.drop-menu a{text-decoration:none}'
 );
 $assert(array() === $placementResets($dropdown), 'a list the source places itself keeps its placement');
+
+// The list owning one placement family does not excuse the others: a menu
+// translated as a whole over a dropdown list it positions itself keeps the
+// list's position, but the nav's transform must not reach the list again.
+$mixedPlacement = $compile(
+    $document('<nav class="slide-menu"><ul><li><a href="#alpha">Alpha</a></li><li><a href="#beta">Beta</a></li><li><a href="#gamma">Gamma</a></li></ul></nav>'),
+    $barCss . '.slide-menu{transform:translateX(1rem);display:block}.slide-menu>ul{position:absolute;top:100%;left:0;margin:0;padding:0;list-style:none}.slide-menu a{text-decoration:none}'
+);
+$mixedResets = $placementResets($mixedPlacement);
+$assert(1 === count($mixedResets) && str_contains($mixedResets[0], 'transform:none!important'), 'a nav transform is still reset when the list positions itself: ' . json_encode($mixedResets));
+$assert(1 === count($mixedResets) && ! str_contains($mixedResets[0], 'position:static') && ! str_contains($mixedResets[0], 'inset:auto'), 'the list keeps the position family it declares itself: ' . json_encode($mixedResets));
+
+// Only the families the nav declares are reset.
+$transformOnly = $placementResets($translated)[0] ?? '';
+$assert(str_contains($transformOnly, 'transform:none!important') && ! str_contains($transformOnly, 'position:static') && ! str_contains($transformOnly, 'scale:none'), 'a transform-only menu resets only its transform family: ' . $transformOnly);
 
 // A brand anchor beside a link cluster is hoisted out of the nav, and
 // core/navigation then stands in for the cluster. A cluster pinned to the
