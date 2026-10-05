@@ -30,6 +30,14 @@ $assert(1 === preg_match('/<!-- wp:navigation-submenu \{"label":"Shop","kind":"c
 $assert(2 === preg_match_all('/<!-- wp:navigation-link \{[^}]*"label":"(?:New in|Sale)","url":"#(?:new|sale)"/', $markup), 'the panel links become navigation links inside the submenu', $markup);
 $assert(! str_contains($markup, 'wp:details') && ! str_contains($markup, 'data-dla-dialog-panel'), 'the panel is not kept as a disclosure or a leftover wired panel', $markup);
 
+// The menu row is still one navigation when the surrounding bar also holds
+// controls that cannot become menu items (a call to action and icon-only links).
+$mixed = '<header><nav class="bar"><a href="#top"><span>Acme</span></a><div class="row"><a href="#one">One</a>'
+    . $item('shop', 'Shop', '<a href="#new">New in</a><a href="#sale">Sale</a>')
+    . '</div><div class="end"><a href="#join">Join</a><div class="icons"><a href="https://example.test/x" aria-label="X"></a></div></div></nav></header>';
+$mixedMarkup = (string) ( ( new HtmlTransformer() )->transform($mixed)->toArray()['serialized_blocks'] ?? '' );
+$assert(1 === preg_match('/<!-- wp:navigation-submenu \{"label":"Shop","kind":"custom"\}/', $mixedMarkup) && ! str_contains($mixedMarkup, 'wp:details'), 'the menu row converts even beside a call to action and icon links', $mixedMarkup);
+
 // A button that opens a dialog (not a menu of links) is not a submenu.
 $dialogItem = '<div class="item"><button type="button" aria-haspopup="dialog" aria-controls="p-d" aria-expanded="false" data-dla-dialog-trigger="p-d">Contact</button>'
     . '<div class="dla-dialog" role="dialog" aria-modal="true" hidden id="p-d" data-dla-dialog-panel="p-d"><p>Write to us.</p><a href="#mail">Mail</a></div></div>';
