@@ -29,6 +29,18 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  */
 final class StyleResolver implements ElementPresentationResolver
 {
+    /** Viewport the desktop cascade is evaluated at: the capture's desktop reference. */
+    private const DESKTOP_REFERENCE_WIDTH = 1440.0;
+
+    /**
+     * Viewport the collapsed (phone) cascade is evaluated at: the capture's
+     * mobile reference. Core's responsive overlay is the menu below 600px, and
+     * this width sits inside that range below every common menu breakpoint,
+     * so the values it resolves are what the source paints while its own menu
+     * is collapsed.
+     */
+    public const MOBILE_REFERENCE_WIDTH = 390.0;
+
     public function __construct(
         private readonly StyleResolutionContext $context,
         private readonly HtmlTransformerAnalysisCache $analysisCache
@@ -642,6 +654,160 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $conditionalFamilies;
+    }
+
+    /**
+     * What the cascade declares for a family of properties at the mobile
+     * reference viewport, in the order the cascade last stated them.
+     *
+     * The desktop-anchored resolvers read the element as the capture rendered
+     * it at {@see self::DESKTOP_REFERENCE_WIDTH}; a menu's collapsed panel is
+     * painted only below the source breakpoint, so those resolvers never see
+     * it. This walks the same candidate rules but keeps every unconditional
+     * declaration plus the media/feature conditions that hold at
+     * {@see self::MOBILE_REFERENCE_WIDTH}, with a source inline declaration
+     * last. An `!important` declaration is not displaced by a later ordinary
+     * one. The returned map is keyed by property and ordered by last
+     * declaration, so a caller resolving a shorthand against its longhand
+     * (`background` after `background-color`) takes the final key.
+     *
+     * @param list<string> $properties
+     * @return array<string, string>
+     */
+    public function collapsedViewportDeclarations(DOMElement $element, array $properties): array
+    {
+        $rules = ( function () use ($element): iterable {
+            foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $rule ) {
+                yield array(
+                    'selectors' => array( (string) ( $rule['selector'] ?? '' ) ),
+                    'declarations' => is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(),
+                    'conditions' => is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array(),
+                );
+            }
+        } )();
+
+        return $this->collapsedViewportDeclarationsFromRules($element, $properties, $rules, fn (string $selector): bool => $this->matchesCssSelector($element, $selector));
+    }
+
+    /**
+     * {@see collapsedViewportDeclarations()} read from the author analysis
+     * instead of the source-style collections.
+     *
+     * The source-style collections keep only the classification allow-list,
+     * which leaves out the transform family (runtime-animatable, so kept out
+     * of the resting cascade) and the logical inset and margin properties. An
+     * element's placement needs those, and the author analysis keeps every
+     * declaration together with its condition stack. The cascade rules are
+     * the same: source order, an `!important` declaration not displaced by a
+     * later ordinary one, the inline style last, conditions evaluated at
+     * {@see self::MOBILE_REFERENCE_WIDTH}.
+     *
+     * @param list<string> $properties
+     * @return array<string, string>
+     */
+    public function collapsedViewportAuthorDeclarations(DOMElement $element, array $properties): array
+    {
+        $authorStyles = $this->context->authorStyles();
+        $parsedBySelector = array();
+        $rules = ( function () use ($authorStyles, &$parsedBySelector): iterable {
+            foreach ( $authorStyles->styleRules() as $rule ) {
+                $selectors = array();
+                foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
+                    $selector = (string) ( $record['selector'] ?? '' );
+                    // Interaction states and generated content are not the
+                    // resting element, as in the source-style collections.
+                    if ( '' === $selector || $this->selectorCarriesPseudoState($selector) ) {
+                        continue;
+                    }
+                    $selectors[] = $selector;
+                    $parsedBySelector[ $selector ] ??= is_array($record['parsed'] ?? null) ? $record['parsed'] : array();
+                }
+                // The author analysis keeps at-rule preludes verbatim, so a
+                // comment written before `@media` travels with the condition
+                // (`/* tablet */ @media(max-width:1300px)`); the viewport
+                // evaluator reads the at-rule itself.
+                $conditions = array();
+                foreach ( is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array() as $condition ) {
+                    $condition = trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition));
+                    if ( '' !== $condition ) {
+                        $conditions[] = $condition;
+                    }
+                }
+                yield array(
+                    'selectors' => $selectors,
+                    'declarations' => is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(),
+                    'conditions' => $conditions,
+                );
+            }
+        } )();
+        $selectorCache = $authorStyles->selectorMatchCache();
+        $matches = static function (string $selector) use ($element, $selectorCache, &$parsedBySelector): bool {
+            $match = $selectorCache->matches($element, $selector, $parsedBySelector[ $selector ] ?? array());
+
+            return ( $match['supported'] ?? false ) && ( $match['matches'] ?? false );
+        };
+
+        return $this->collapsedViewportDeclarationsFromRules($element, $properties, $rules, $matches);
+    }
+
+    /**
+     * The shared walk behind the collapsed-viewport readers: every rule whose
+     * selector matches and whose conditions hold at the mobile reference
+     * viewport records its declarations in order, the inline style last.
+     *
+     * @param list<string> $properties
+     * @param iterable<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>}> $rules
+     * @param callable(string): bool $matches Whether one selector matches the element.
+     * @return array<string, string>
+     */
+    private function collapsedViewportDeclarationsFromRules(DOMElement $element, array $properties, iterable $rules, callable $matches): array
+    {
+        $declared = array();
+        $important = array();
+        $record = static function (string $property, string $value) use (&$declared, &$important): void {
+            if ( isset($important[$property]) && ! CssValueInspector::isImportant($value) ) {
+                return;
+            }
+            unset($declared[$property]);
+            $declared[$property] = $value;
+            if ( CssValueInspector::isImportant($value) ) {
+                $important[$property] = true;
+            }
+        };
+        foreach ( $rules as $rule ) {
+            $matched = null;
+            foreach ( $properties as $property ) {
+                $value = trim((string) ( $rule['declarations'][ $property ] ?? '' ));
+                if ( '' === $value ) {
+                    continue;
+                }
+                if ( null === $matched ) {
+                    $matched = false;
+                    foreach ( $rule['selectors'] as $selector ) {
+                        if ( $matches($selector) ) {
+                            $matched = true;
+                            break;
+                        }
+                    }
+                }
+                if ( ! $matched ) {
+                    break;
+                }
+                if ( array() !== $rule['conditions'] && ! $this->conditionsApplyAtViewport($rule['conditions'], self::MOBILE_REFERENCE_WIDTH) ) {
+                    break;
+                }
+                $record($property, $value);
+            }
+        }
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        foreach ( $properties as $property ) {
+            $value = trim((string) ( $inline[ $property ] ?? '' ));
+            if ( '' !== $value ) {
+                $record($property, $value);
+            }
+        }
+
+        return $declared;
     }
 
     /**
@@ -3682,13 +3848,19 @@ final class StyleResolver implements ElementPresentationResolver
     /** @param list<string> $conditions */
     private function conditionsApplyAtReferenceViewport(array $conditions): bool
     {
+        return $this->conditionsApplyAtViewport($conditions, self::DESKTOP_REFERENCE_WIDTH);
+    }
+
+    /** @param array<int, string> $conditions */
+    private function conditionsApplyAtViewport(array $conditions, float $viewportWidth): bool
+    {
         foreach ($conditions as $condition) {
             $condition = trim($condition);
             if (preg_match('/^@layer\b/i', $condition)) continue;
             if (preg_match('/^@supports\b/i', $condition)) {
                 if (!CssCascade::supportsConditionApplies((string) preg_replace('/^@supports\s*/i', '', $condition))) return false;
             } elseif (preg_match('/^@media\b/i', $condition)) {
-                if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), 1440.0)) return false;
+                if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), $viewportWidth)) return false;
             } else return false;
         }
         return true;
