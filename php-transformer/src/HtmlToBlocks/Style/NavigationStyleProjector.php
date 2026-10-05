@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -807,6 +808,13 @@ final class NavigationStyleProjector
                 $match = array( $anchorMatch[1], $anchorMatch[2], $anchorMatch[3], 'anchor' );
             } elseif ( 1 === preg_match('/^(.*?)(?:^|\s)\.([A-Za-z_][A-Za-z0-9_-]*)\s*>\s*a((?::[a-z-]+)*)$/', $selector, $itemMatch) ) {
                 $match = array( $itemMatch[1], $itemMatch[2], $itemMatch[3], 'item' );
+            } else {
+                foreach ( array_keys($itemClasses) as $itemClass ) {
+                    if ( 1 === preg_match('/^' . CssIdent::classSelectorRegex($itemClass) . '((?::[a-z-]+)+)$/i', $selector, $stateMatch) ) {
+                        $match = array( '', $itemClass, $stateMatch[1], 'anchor' );
+                        break;
+                    }
+                }
             }
             if ( array() === $match ) {
                 continue;
@@ -873,7 +881,7 @@ final class NavigationStyleProjector
                     . ' .wp-block-navigation-item__content[aria-current]' . $pseudo;
             } else {
                 $selectorText = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
-                    . $class . '>.wp-block-navigation-item__content' . $pseudo;
+                    . CssIdent::escape($class) . '>.wp-block-navigation-item__content' . $pseudo;
             }
             $rules[$selectorText] = $selectorText . '{' . implode(';', $declarations) . '}';
         }

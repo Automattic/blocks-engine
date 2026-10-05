@@ -667,6 +667,22 @@ $assert(
     substr($hoverCss, -800)
 );
 
+$utilityHover = $transform(
+    '<style>.text-muted-foreground{color:#777}.hover\\:text-foreground:hover{color:#111}.transition-colors{transition:color 150ms}</style>'
+        . '<nav><ul><li><a class="text-muted-foreground hover:text-foreground transition-colors" href="/">Home</a></li></ul></nav>'
+);
+$utilityHoverCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($utilityHover['assets'] ?? null) ? $utilityHover['assets'] : array()
+));
+$assert(
+    str_contains($utilityHoverCss, '.wp-block-navigation-item.hover\\:text-foreground>.wp-block-navigation-item__content:hover{color:#111}')
+        && str_contains($utilityHoverCss, '.wp-block-navigation-item__content:not(:hover){color:#777}')
+        && str_contains($utilityHoverCss, 'transition:color 150ms'),
+    'escaped utility hover paint reaches the native anchor without freezing its resting color or dropping its transition',
+    substr($utilityHoverCss, -1100)
+);
+
 $dynamicCurrentList = $transform(
     '<style>.current-menu a{color:#223344}.current-menu .current>a{color:#aa1100}'
         . '.current-menu .current>a:hover{color:#00cc44}</style>'
