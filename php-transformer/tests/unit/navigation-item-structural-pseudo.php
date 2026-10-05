@@ -233,6 +233,10 @@ $assert(
 );
 
 // --- Mixed match set: the rule also reaches anchors outside the menu. ---------
+// The projection only moves a selector whose every source match is a
+// re-parented menu anchor. A rule that also reaches a footer link keeps the
+// authored selector exactly as trunk emits it (and so still reaches every
+// rendered menu anchor, as it did before).
 
 $mixed = $transform(
     '<style>'
@@ -245,28 +249,20 @@ $mixed = $transform(
 $mixedRules = $rules($css($mixed));
 $mixedBorder = $selectorsDeclaring($mixedRules, 'border:1px solid #999');
 $assert(
-    in_array('.site :where(.wp-block-navigation-item):last-child' . $anchor, $mixedBorder, true),
-    'a rule reaching both menu and non-menu anchors still projects the item-positioned selector: ' . json_encode($mixedBorder)
-);
-// The authored selector stays for the non-menu anchors, but every rendered
-// menu anchor is the only child of its item, so it has to stop reaching them.
-// The exclusion is zero-specificity and sits before any dynamic state.
-$mixedExclusion = ':not(:where(.wp-block-navigation-item__content))';
-$assert(
-    in_array('.site a:last-child' . $mixedExclusion, $mixedBorder, true),
-    'the kept authored selector excludes rendered menu anchors without changing specificity: ' . json_encode($mixedBorder)
+    array( '.site a:last-child' ) === $mixedBorder,
+    'a rule reaching both menu and non-menu anchors keeps the authored selector exactly: ' . json_encode($mixedBorder)
 );
 $assert(
-    in_array('.site a:last-child' . $mixedExclusion . ':hover', $selectorsDeclaring($mixedRules, 'color:#000'), true),
-    'the exclusion sits before the authored dynamic state'
+    array( '.site a:last-child:hover' ) === $selectorsDeclaring($mixedRules, 'color:#000'),
+    'the dynamic-state copy of a mixed rule is kept exactly'
 );
 $assert(
-    in_array('.site a:last-child' . $mixedExclusion, $selectorsDeclaring($mixedRules, 'padding:4px 8px', array( '@media (max-width:720px)' )), true),
-    'the exclusion is applied inside a conditional copy of the rule'
+    array( '.site a:last-child' ) === $selectorsDeclaring($mixedRules, 'padding:4px 8px', array( '@media (max-width:720px)' )),
+    'the conditional copy of a mixed rule is kept exactly'
 );
 $assert(
-    ! preg_match('/\.site a:last-child\s*[,{]/', $css($mixed)),
-    'no copy of the authored selector is left reaching every rendered menu anchor'
+    ! str_contains($css($mixed), '.wp-block-navigation-item'),
+    'a mixed rule is not projected onto the navigation item at all'
 );
 
 // Evaluate against markup carrying both the rendered menu and the plain footer.
@@ -293,8 +289,8 @@ $assert(5 === count($mixedAnchors), 'the mixed rendered fixture carries two menu
 $mixedReached = $reachedAnchors($mixedAnchors, $mixedRules, 'border:1px solid #999');
 sort($mixedReached);
 $assert(
-    array( '#beta', '#one', '#two' ) === $mixedReached,
-    'only the last menu link and the footer anchors that are last children receive the border: ' . json_encode($mixedReached)
+    array( '#alpha', '#beta', '#one', '#two' ) === $mixedReached,
+    'a mixed rule keeps trunk behavior: every rendered menu anchor and the footer last children receive the border: ' . json_encode($mixedReached)
 );
 
 // --- Item-owned hooks: core renders the anchor's class and id on the <li>. ----
@@ -393,19 +389,50 @@ foreach ( $positional as $name => [$positionalRule, $positionalMarkup, $suffix] 
     );
 }
 
-// A wrapper that is the menu's only source of items maps one-to-one.
-$soleWrapper = $transform('<style>nav a:last-child{border:1px solid #999}</style><header><nav><div class="links"><a href="#a">A</a><a href="#b">B</a><a href="#c">C</a></div></nav></header>');
-$soleWrapperBorder = $selectorsDeclaring($rules($css($soleWrapper)), 'border:1px solid #999');
+// Core removes a wrapper between the nav and its anchors, so a rule that
+// names the wrapper would match nothing once moved. Only direct children of
+// the element that becomes the navigation block are recorded; a wrapped menu
+// keeps the authored selectors exactly as trunk emits them.
+$soleWrapper = $transform(
+    '<style>nav a:last-child{border:1px solid #999}.links a:last-child{color:#000}</style>'
+    . '<header><nav><div class="links"><a href="#a">A</a><a href="#b">B</a><a href="#c">C</a></div></nav></header>'
+);
+$soleWrapperCss = $css($soleWrapper);
+$soleWrapperBorder = $selectorsDeclaring($rules($soleWrapperCss), 'border:1px solid #999');
+preg_match('/blocks-engine-source-nav-[A-Za-z0-9-]+/', $soleWrapperCss, $soleWrapperMarker);
 $assert(
-    1 === count($soleWrapperBorder) && str_ends_with($soleWrapperBorder[0], ' ' . $item . ':last-child' . $anchor),
-    'anchors of a wrapper that is the only source of items are still rewritten: ' . json_encode($soleWrapperBorder)
+    array( ':where(.' . ($soleWrapperMarker[0] ?? '') . '):not(blocks-engine-specificity-site-0) a:last-child' ) === $soleWrapperBorder
+        && array( '.links a:last-child' ) === $selectorsDeclaring($rules($soleWrapperCss), 'color:#000'),
+    'a wrapped menu keeps the authored selectors exactly: ' . json_encode(array( $soleWrapperBorder, $selectorsDeclaring($rules($soleWrapperCss), 'color:#000') ))
+);
+
+// A document with a direct-anchor menu and a list-backed menu: the rule
+// reaches both menus' anchors, and the list-backed ones are not re-parented,
+// so the whole selector keeps trunk's form and the list-backed menu is
+// untouched.
+$twoMenus = $transform(
+    '<style>.site nav a:last-child{border:1px solid #999}</style>'
+    . '<div class="site"><header><nav><a href="#alpha">Alpha</a><a href="#beta">Beta</a></nav></header>'
+    . '<footer><nav><ul><li><a href="#one">One</a></li><li><a href="#two">Two</a></li></ul></nav></footer></div>'
+);
+$twoMenusCss = $css($twoMenus);
+$twoMenusBorder = $selectorsDeclaring($rules($twoMenusCss), 'border:1px solid #999');
+preg_match('/blocks-engine-source-nav-[A-Za-z0-9-]+/', $twoMenusCss, $twoMenusMarker);
+$assert(2 === substr_count((string) ($twoMenus['serialized_blocks'] ?? ''), '<!-- wp:navigation '), 'both menus become core/navigation blocks');
+$assert(
+    array( '.site :where(.' . ($twoMenusMarker[0] ?? '') . '):not(blocks-engine-specificity-site-0) a:last-child' ) === $twoMenusBorder,
+    'a rule reaching a direct-anchor menu and a list-backed menu keeps the authored selector exactly, so the list-backed menu is unchanged: ' . json_encode($twoMenusBorder)
 );
 
 // --- Every simple-selector kind a compound can carry. -------------------------
-// Bare and universal subjects, attribute selectors (class/id render on the
-// <li>, href on the <a>, others are not retained), escaped identifiers, and a
-// child combinator before the subject (core puts a <ul> between the nav and
-// its items, so a one-to-one menu relaxes it to a descendant).
+// Whitelisted kinds move: classes, ids, `[class…]`/`[id…]` (core renders them
+// on the <li>), the modelled structural pseudo-classes; `[href…]` and a
+// trailing dynamic state stay on the <a>; a child combinator right before the
+// subject relaxes to a descendant (core puts a <ul> between the nav and its
+// items). Everything else keeps the authored selector exactly as trunk emits
+// it: bare and universal subjects (they skip source matching), attributes
+// core does not render on the anchor, a state before the structural
+// pseudo-class, and a negation of anything but classes/ids/structure.
 
 $kinds = $transform(
     '<style>'
@@ -420,6 +447,8 @@ $kinds = $transform(
     . '.menu nav #\\31 23:last-child{opacity:.5}'
     . '.menu nav > a:last-child{outline:1px solid red}'
     . '.menu nav a:not(:hover):last-child{text-decoration:none}'
+    . '.menu nav a:hover:last-child{text-decoration:underline}'
+    . '.menu nav a:not([href="#skip"]):last-child{font-style:italic}'
     . '</style>'
     . '<header><div class="menu"><nav>'
     . '<a id="first" href="#alpha">Alpha</a><a href="#beta">Beta</a><a class="lang foo&amp;bar" id="123" rel="nofollow" href="#gamma">Gamma</a>'
@@ -447,15 +476,20 @@ $kindsRules = $rules($css($kinds));
 $content = '>:where(.wp-block-navigation-item__content)';
 $bareBorder = $selectorsDeclaring($kindsRules, 'border:1px solid #999');
 $assert(
-    in_array($kindsScope . ' ' . $item . ':last-child' . $content, $bareBorder, true)
-        && in_array($kindsScope . ' > :last-child' . $mixedExclusion, $bareBorder, true),
-    'a bare structural subject after a child combinator is projected onto the item and kept for other elements without the rendered anchors: ' . json_encode($bareBorder)
+    in_array($kindsScope . ' > :last-child', $bareBorder, true) && ! str_contains(implode(',', $bareBorder), '.wp-block-navigation-item'),
+    'a bare structural subject keeps the authored selector exactly: ' . json_encode($bareBorder)
 );
-$universalPadding = $selectorsDeclaring($kindsRules, 'padding:4px 8px');
 $assert(
-    in_array($kindsScope . ' ' . $item . ':last-child' . $content, $universalPadding, true)
-        && in_array($kindsScope . ' *:last-child' . $mixedExclusion, $universalPadding, true),
-    'a universal structural subject is projected onto the item and kept for other elements without the rendered anchors: ' . json_encode($universalPadding)
+    array( $kindsScope . ' *:last-child' ) === $selectorsDeclaring($kindsRules, 'padding:4px 8px'),
+    'a universal structural subject keeps the authored selector exactly: ' . json_encode($selectorsDeclaring($kindsRules, 'padding:4px 8px'))
+);
+$assert(
+    array( $kindsScope . ' a:hover:last-child' ) === $selectorsDeclaring($kindsRules, 'text-decoration:underline'),
+    'a dynamic state before the structural pseudo-class keeps the authored selector exactly: ' . json_encode($selectorsDeclaring($kindsRules, 'text-decoration:underline'))
+);
+$assert(
+    array( $kindsScope . ' a:not([href="#skip"]):last-child' ) === $selectorsDeclaring($kindsRules, 'font-style:italic'),
+    'a negation of an attribute keeps the authored selector exactly: ' . json_encode($selectorsDeclaring($kindsRules, 'font-style:italic'))
 );
 $assert(
     array( $kindsScope . ' ' . $item . '[class~="lang"]:last-child' . $anchor ) === $selectorsDeclaring($kindsRules, 'letter-spacing:.1em'),
@@ -487,8 +521,8 @@ $assert(
     'a child combinator before the anchor relaxes to a descendant, since core renders a <ul> between the nav and its items: ' . json_encode($selectorsDeclaring($kindsRules, 'outline:1px solid red'))
 );
 $assert(
-    array( $kindsScope . ' ' . $item . ':last-child' . $anchor . ':not(:hover)' ) === $selectorsDeclaring($kindsRules, 'text-decoration:none'),
-    'a resting-state negation stays on the content anchor: ' . json_encode($selectorsDeclaring($kindsRules, 'text-decoration:none'))
+    array( $kindsScope . ' a:not(:hover):last-child' ) === $selectorsDeclaring($kindsRules, 'text-decoration:none'),
+    'a negation of a dynamic state keeps the authored selector exactly: ' . json_encode($selectorsDeclaring($kindsRules, 'text-decoration:none'))
 );
 $assert(
     ! preg_match('/:where\(\.wp-block-navigation-item\)[^>{]*>[^,{]* (?:bar|23)[\s,{]/', $css($kinds)),
@@ -514,8 +548,7 @@ foreach ( $kindsRendered->getElementsByTagName('a') as $kindsAnchor ) {
         $kindsAnchors[] = $kindsAnchor;
     }
 }
-$assert(array( '#gamma' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'border:1px solid #999'), 'the bare subject rule reaches only the last rendered link');
-$assert(array( '#gamma' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'padding:4px 8px'), 'the universal subject rule reaches only the last rendered link');
+$assert(array( '#alpha', '#beta', '#gamma' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'padding:4px 8px'), 'the universal subject rule keeps trunk behavior and reaches every rendered link');
 $assert(array( '#gamma' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'letter-spacing:.1em'), 'the class attribute rule reaches only the rendered link whose item carries the class');
 $assert(array( '#alpha' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'font-weight:700'), 'the id attribute rule reaches only the rendered link whose item carries the id');
 $assert(array( '#gamma' ) === $reachedAnchors($kindsAnchors, $kindsRules, 'text-transform:uppercase'), 'the href attribute rule reaches only the last rendered link');

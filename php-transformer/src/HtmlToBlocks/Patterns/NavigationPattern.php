@@ -602,7 +602,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 }
             }
         } else {
-            $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, false, true, $directAnchors);
+            $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, false, true);
         }
         if ( 2 > count($links) ) {
             return null;
@@ -1628,7 +1628,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 }
 
                 if ( $this->isNavigationWrapperElement($child) ) {
-                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $allowsDescriptiveChrome, false, $directAnchors);
+                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $allowsDescriptiveChrome);
                     if ( array() !== $wrappedBlocks ) {
                         $blocks = array_merge($blocks, $wrappedBlocks);
                         continue;
@@ -1817,13 +1817,14 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     /**
      * Record the direct anchors whose source positions map one-to-one onto the
-     * emitted items: every item came from a direct anchor, and every element
-     * child of the anchors' shared parent is one of them. Core then wraps each
-     * in a list item of its own at the same position, so a structural
-     * pseudo-class authored on the anchor can move onto that item. A heading,
-     * a toggle, a separator, a hoisted brand anchor, or an item wrapper beside
-     * the anchors breaks that mapping, and the projector then leaves the
-     * pseudo-class as authored rather than pointing it at the wrong item.
+     * emitted items: every item came from a direct anchor child of the element
+     * that becomes the navigation block, and every element child of that
+     * element is one of them. Core then wraps each in a list item of its own
+     * at the same position, so a structural pseudo-class authored on the
+     * anchor can move onto that item. A heading, a toggle, a separator, a
+     * hoisted brand anchor, a wrapper around the anchors, or a list beside
+     * them breaks that mapping, and the projector then leaves the authored
+     * selector as it is.
      *
      * @param array<int, array<string, mixed>> $links
      * @param list<DOMElement> $directAnchors

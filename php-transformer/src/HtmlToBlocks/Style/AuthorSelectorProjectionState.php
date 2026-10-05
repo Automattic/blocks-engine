@@ -71,8 +71,8 @@ final class AuthorSelectorProjectionState
     /** @var array<string, true> */
     private array $inlineLayoutCarrierPaths = array();
 
-    /** @var array<string, DOMElement> */
-    private array $navigationItemAnchors = array();
+    /** @var array<string, true> */
+    private array $navigationItemAnchorPaths = array();
 
     public function installAuthorStyles(AuthorStyleAnalysis $authorStyles): void
     {
@@ -204,31 +204,13 @@ final class AuthorSelectorProjectionState
     {
         $path = $anchor->getNodePath() ?? '';
         if ( '' !== $path ) {
-            $this->navigationItemAnchors[$path] = $anchor;
+            $this->navigationItemAnchorPaths[$path] = true;
         }
-    }
-
-    /**
-     * A navigation pattern can build its link blocks and still give the
-     * container up, so a recorded anchor is only trusted once the emitted
-     * block tree confirms it. Keep the anchors the predicate accepts.
-     *
-     * @param Closure(DOMElement): bool $isRendered
-     */
-    public function retainNavigationItemAnchors(Closure $isRendered): void
-    {
-        $this->navigationItemAnchors = array_filter($this->navigationItemAnchors, $isRendered);
     }
 
     public function isNavigationItemAnchorPath(string $path): bool
     {
-        return isset($this->navigationItemAnchors[$path]);
-    }
-
-    /** @return list<DOMElement> */
-    public function navigationItemAnchors(): array
-    {
-        return array_values($this->navigationItemAnchors);
+        return isset($this->navigationItemAnchorPaths[$path]);
     }
 
     public function ensureAttributeMarker(string $path, ?string $stableIdentity = null): string

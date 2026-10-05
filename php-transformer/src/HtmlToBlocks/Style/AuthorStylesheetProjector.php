@@ -1370,19 +1370,7 @@ final class AuthorStylesheetProjector
         foreach ( $selectors as $selector ) {
             $structuralParsed = $context->sourceStyles->parsedSelector($selector);
             if ( $structuralParsed['supported'] && $this->hasUniversalStructuralLeaf($structuralParsed) ) {
-                // Such a subject skips source matching, but a re-parented
-                // navigation anchor it reaches still needs the item projection,
-                // and the kept selector must then leave the rendered anchors.
-                $itemSelector = $this->projectUniversalNavigationSubject($selector, $structuralParsed, $context);
-                if ( null !== $itemSelector ) {
-                    $rewritten[] = $itemSelector;
-                }
-                $rewritten[] = $this->rewriteSourceTagTypes(
-                    $selector,
-                    $structuralParsed,
-                    $context,
-                    null === $itemSelector ? '' : $this->classExclusion(array( 'wp-block-navigation-item__content' ))
-                );
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $structuralParsed, $context);
                 continue;
             }
             $runtimeProjection = $this->projectRuntimeAttributeSelector($selector, $context);
@@ -1482,23 +1470,28 @@ final class AuthorStylesheetProjector
             }
             $matches = $nonTableMatches;
 
+            // Every match is a direct anchor core re-parents into a list item of
+            // its own, so the subject's sibling position belongs to that item.
+            // Any other match, or a subject this projection cannot place, keeps
+            // the authored selector exactly.
+            if ( $this->matchesOnlyNavigationItemAnchors($matches, $context) ) {
+                $itemSelector = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context);
+                if ( null !== $itemSelector ) {
+                    $rewritten[] = $itemSelector;
+                    continue;
+                }
+            }
+
             $controls = array();
             $semanticLeaves = array();
             $richTextLeaves = array();
             $inlineLayoutCarriers = false;
             $addressableInlineCarriers = false;
-            $navigationItemAnchors = false;
-            $structuralSubject = $this->hasStructuralSubject($parsed);
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
                 if ( $this->isPreservedCodeSyntaxElement($element) ) {
                     $hasNonProjected = true;
-                } elseif ( $structuralSubject && $context->selectorProjections->isNavigationItemAnchorPath($path) ) {
-                    // core/navigation re-parents this anchor into a list item
-                    // of its own, so the subject's sibling position is the
-                    // item's now, not the anchor's.
-                    $navigationItemAnchors = true;
                 } elseif ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
                     // Structured card lowering unwraps the fragment and hoists
                     // its styling hook onto the paragraph it emits, so the class
@@ -1532,17 +1525,8 @@ final class AuthorStylesheetProjector
             // the kept selector has to stop reaching them. Exclude them through
             // the class core hard-codes on them; `:not(:where(…))` adds no
             // specificity.
-            // A compound the projection cannot place keeps the authored selector
-            // exactly, as if the anchors had not been recorded.
-            $itemSelector = $navigationItemAnchors ? $this->projectNavigationItemAnchorSelector($selector, $parsed, $context) : null;
-            $navigationExclusions = null === $itemSelector ? array() : array( 'wp-block-navigation-item__content' );
-            if ( null !== $itemSelector ) {
-                $rewritten[] = $itemSelector;
-            }
             if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves && ! $inlineLayoutCarriers ) {
-                if ( $hasNonProjected || null === $itemSelector ) {
-                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, $this->classExclusion($navigationExclusions));
-                }
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
                 continue;
             }
             $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
@@ -1561,7 +1545,7 @@ final class AuthorStylesheetProjector
                 $hasNonProjected = true;
             }
             if ( $hasNonProjected ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':not(:where(.' . implode(',.', array_merge($projectedMarkers, $navigationExclusions)) . '))');
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':not(:where(.' . implode(',.', $projectedMarkers) . '))');
             }
             foreach ( $controls as $marker ) {
                 $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $context, $controlWrapper);
@@ -2298,18 +2282,6 @@ final class AuthorStylesheetProjector
         return '' === $context->authorStyles->specificityShim() ? '' : ':not(' . $context->authorStyles->specificityShim() . ')';
     }
 
-    /**
-     * A zero-specificity exclusion of the given classes, appended to a kept
-     * authored selector so it no longer reaches elements another projected
-     * selector now owns.
-     *
-     * @param list<string> $classes
-     */
-    private function classExclusion(array $classes): string
-    {
-        return array() === $classes ? '' : ':not(:where(.' . implode(',.', $classes) . '))';
-    }
-
     /** @param array<string, mixed> $parsed */
     private function selectorSpecificityShims(array $parsed, AuthorStylesheetProjectionContext $context): string
     {
@@ -2364,6 +2336,18 @@ final class AuthorStylesheetProjector
         }
         $start = (int) $span['start'];
         $end = (int) $span['end'];
+        // A dynamic state stays on the content anchor, and only as the
+        // compound's trailing suffix; anything after it is left as authored.
+        $bodyEnd = $end;
+        $trailingState = '';
+        $suffix = $parsed['pseudo_state_suffix_span'] ?? null;
+        if ( is_array($suffix) ) {
+            if ( (int) $suffix['end'] !== $end ) {
+                return null;
+            }
+            $bodyEnd = (int) $suffix['start'];
+            $trailingState = substr($selector, $bodyEnd, $end - $bodyEnd);
+        }
         $typeLength = 0;
         foreach ( $parsed['type_spans'] as $typeSpan ) {
             if ( (int) $typeSpan['start'] >= $start ) {
@@ -2373,12 +2357,12 @@ final class AuthorStylesheetProjector
                 $typeLength = (int) $typeSpan['end'] - (int) $typeSpan['start'];
             }
         }
-        $split = $this->splitNavigationItemCompound(substr($selector, $start, $end - $start));
+        $split = $this->splitNavigationItemCompound(substr($selector, $start, $bodyEnd - $start));
         if ( null === $split || '' === $split['structural'] ) {
             return null;
         }
-        // A type or universal selector leads its compound; the rendered anchor's
-        // own class takes that place.
+        // The type leads its compound; the rendered anchor's own class takes
+        // that place.
         $subject = ':where(.wp-block-navigation-item__content)';
         $rest = $split['rest'];
         if ( $typeLength > 0 ) {
@@ -2388,6 +2372,7 @@ final class AuthorStylesheetProjector
         } else {
             $subject .= $rest;
         }
+        $subject .= $trailingState;
         // Core renders a `<ul>` (and, for an overlay menu, more wrappers)
         // between the navigation and its items. A one-to-one menu has no
         // nested lists, so a child combinator before the anchor relaxes to a
@@ -2404,25 +2389,6 @@ final class AuthorStylesheetProjector
     }
 
     /**
-     * A bare or universal structural subject (`nav > :last-child`) skips source
-     * matching, so test it against the recorded navigation anchors alone: when
-     * it reaches one, it needs the item projection as much as `a:last-child`
-     * does. The caller keeps the authored selector for whatever else it reaches.
-     *
-     * @param array<string, mixed> $parsed
-     */
-    private function projectUniversalNavigationSubject(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
-    {
-        foreach ( $context->selectorProjections->navigationItemAnchors() as $anchor ) {
-            if ( CssSelectorMatcher::matches($anchor, $parsed, true)['matches'] ) {
-                return $this->projectNavigationItemAnchorSelector($selector, $parsed, $context);
-            }
-        }
-
-        return null;
-    }
-
-    /**
      * Separate a compound selector's simple selectors into what moves onto the
      * rendered navigation item and what stays on its content anchor, or null
      * when the compound holds a simple selector this projection cannot place.
@@ -2432,11 +2398,10 @@ final class AuthorStylesheetProjector
      * state. So: classes, ids, `[class…]`/`[id…]` attribute selectors, the
      * structural pseudo-classes the matcher models (`:first-child`,
      * `:last-child`, `:nth-child(n)`, `:nth-of-type(n)`), and a `:not()` made of
-     * one of those kinds alone move to the item. The type, `*`, `[href…]`, the
-     * resting-state pseudo-classes (`:hover`, `:focus`, `:active`, `:visited`),
-     * and a `:not()` made of those stay on the anchor. Any other attribute
-     * (not rendered on the anchor), pseudo-element, namespace, `:is()`/`:where()`,
-     * or unknown pseudo-class declines, and the authored selector is kept.
+     * one of those kinds alone move to the item. The type and `[href…]` stay on
+     * the anchor (the caller keeps a trailing dynamic state there too). Any
+     * other attribute (not rendered on the anchor), pseudo-class,
+     * pseudo-element, or namespace declines, and the authored selector is kept.
      * Identifiers are consumed through the CSS scanner, so an escape such as
      * `\26 ` keeps its whitespace terminator.
      *
@@ -2601,15 +2566,12 @@ final class AuthorStylesheetProjector
     }
 
     /**
-     * @return 'structural'|'item'|'anchor'|null
+     * @return 'structural'|'item'|null
      */
     private function navigationPseudoClassOwner(string $name, ?string $argument): ?string
     {
         if ( null === $argument ) {
-            if ( 'first-child' === $name || 'last-child' === $name ) {
-                return 'structural';
-            }
-            return in_array($name, array( 'hover', 'focus', 'active', 'visited' ), true) ? 'anchor' : null;
+            return 'first-child' === $name || 'last-child' === $name ? 'structural' : null;
         }
         if ( 'nth-child' === $name || 'nth-of-type' === $name ) {
             return preg_match('/^[1-9][0-9]*$/', $argument) ? 'structural' : null;
@@ -2620,64 +2582,26 @@ final class AuthorStylesheetProjector
         // A negation moves with its single kind of content; a mixed argument
         // could not be split without changing what it negates.
         $negated = $this->splitNavigationItemCompound($argument);
-        if ( null === $negated ) {
+        if ( null === $negated || '' !== $negated['rest'] ) {
             return null;
         }
-        $kinds = array_keys(array_filter($negated, static fn (string $part): bool => '' !== $part));
-        if ( array( 'structural' ) === $kinds ) {
+        if ( '' !== $negated['structural'] && '' === $negated['item'] ) {
             return 'structural';
         }
-        if ( array( 'item' ) === $kinds ) {
-            return 'item';
-        }
-        if ( array( 'rest' ) === $kinds && preg_match('/^(?::(?:hover|focus|active|visited))+$/i', $negated['rest']) ) {
-            return 'anchor';
-        }
 
-        return null;
+        return '' !== $negated['item'] && '' === $negated['structural'] ? 'item' : null;
     }
 
-    /**
-     * Whether the selector's subject is positioned among its siblings, either
-     * directly or through a negation made of structural pseudo-classes alone.
-     *
-     * @param array<string, mixed> $parsed
-     */
-    private function hasStructuralSubject(array $parsed): bool
+    /** @param list<DOMElement> $matches */
+    private function matchesOnlyNavigationItemAnchors(array $matches, AuthorStylesheetProjectionContext $context): bool
     {
-        $rightmost = $parsed['compounds'][array_key_last($parsed['compounds'])] ?? array();
-        if ( $this->isStructurallyPositioned($rightmost) ) {
-            return true;
-        }
-        foreach ( $rightmost['not'] ?? array() as $negated ) {
-            $compounds = $negated['compounds'] ?? array();
-            if ( 1 === count($compounds) && $this->isStructurallyPositioned($compounds[0]) && $this->isStructuralOnlyCompound($compounds[0]) ) {
-                return true;
+        foreach ( $matches as $element ) {
+            if ( ! $context->selectorProjections->isNavigationItemAnchorPath($element->getNodePath() ?? '') ) {
+                return false;
             }
         }
-        return false;
-    }
 
-    /** @param array<string, mixed> $compound */
-    private function isStructurallyPositioned(array $compound): bool
-    {
-        return ( $compound['first_child'] ?? false )
-            || ( $compound['last_child'] ?? false )
-            || null !== ( $compound['nth_child'] ?? null )
-            || null !== ( $compound['nth_type'] ?? null );
-    }
-
-    /** @param array<string, mixed> $compound */
-    private function isStructuralOnlyCompound(array $compound): bool
-    {
-        return null === ( $compound['type'] ?? null )
-            && ! ( $compound['universal'] ?? false )
-            && ! ( $compound['root'] ?? false )
-            && array() === ( $compound['classes'] ?? array() )
-            && array() === ( $compound['ids'] ?? array() )
-            && array() === ( $compound['attributes'] ?? array() )
-            && array() === ( $compound['not'] ?? array() )
-            && array() === ( $compound['any'] ?? array() );
+        return array() !== $matches;
     }
 
     /** @param array<string, mixed> $parsed */
