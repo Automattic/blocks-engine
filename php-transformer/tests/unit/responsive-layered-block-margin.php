@@ -39,6 +39,11 @@ $unlayered = ( new HtmlTransformer() )->transform($unlayeredSource)->toArray();
 $assert(! str_contains((string) ($unlayered['serialized_blocks'] ?? ''), 'blocks-engine-responsive-margin-top-'), 'unlayered author responsive utilities keep their existing stylesheet ownership');
 
 $scenarioDefinitions = array(
+	'conditional-only-source-default' => array(
+		'classes' => 'footer',
+		'css' => '@layer utilities{@media (min-width:500px){.footer{margin-top:64px}}}',
+		'expected' => array('390' => '0px', '499' => '0px', '500' => '64px', '550' => '64px', '600' => '64px', '800' => '64px'),
+	),
 	'plain-overlapping-breakpoints' => array(
 		'classes' => 'footer',
 		'css' => '@layer utilities{.footer{margin-top:32px}@media (min-width:500px){.footer{margin-top:40px}}@media (min-width:600px){.footer{margin-top:60px}}}',

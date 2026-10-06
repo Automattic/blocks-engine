@@ -51,6 +51,11 @@ $assert('custom-widget' === ($inFlowCustomElement['fallbacks'][0]['tag'] ?? ''),
 $styledCustomElement = $transform('<style>layout-slot{display:block;width:1px;height:1px;background:#000}</style><main><layout-slot></layout-slot></main>');
 $assert('layout-slot' === ($styledCustomElement['fallbacks'][0]['tag'] ?? ''), 'a rendered empty custom-element box remains an explicit fallback');
 
+$modernColorBorder = $transform('<style>empty-box{border:1px solid rgb(0 0 0)}</style><main><empty-box style="position:absolute"></empty-box><p>After</p></main>');
+$assert('empty-box' === ($modernColorBorder['fallbacks'][0]['tag'] ?? ''), 'zero color channels do not make a visible nonzero border inert');
+$mixedWidthBorder = $transform('<style>empty-box{border-width:2px 0 2px 2px;border-style:solid;border-color:#000}</style><main><empty-box style="position:absolute"></empty-box><p>After</p></main>');
+$assert('empty-box' === ($mixedWidthBorder['fallbacks'][0]['tag'] ?? ''), 'one zero border side does not hide nonzero authored border geometry');
+
 $unreferencedStore = $transform('<main><svg data-dom-store style="display:none"><defs><symbol id="unused"><path d="M0 0h1v1z"/></symbol></defs></svg><p>Visible copy</p></main>');
 $assert(array() === ($unreferencedStore['fallbacks'] ?? array()), 'hidden unreferenced SVG store emits no fallback');
 $assert(! str_contains((string) ($unreferencedStore['serialized_blocks'] ?? ''), 'unused'), 'hidden unreferenced SVG store emits no raw HTML');

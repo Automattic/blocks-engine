@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -23,6 +24,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
     private const RENDERED_EMPTY_BOX_PROPERTIES = array(
         'align-self', 'animation', 'animation-name', 'aspect-ratio', 'background', 'background-color', 'background-image', 'content',
         'border', 'border-bottom', 'border-color', 'border-left', 'border-right', 'border-style', 'border-top', 'border-width',
+        'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
         'box-shadow', 'flex', 'flex-basis', 'flex-grow', 'float', 'grid-area', 'grid-column', 'grid-row', 'height',
         'inset', 'justify-self', 'list-style', 'list-style-type', 'margin', 'margin-bottom', 'margin-left',
         'margin-right', 'margin-top', 'min-height', 'min-width', 'order', 'outline', 'outline-width', 'padding',
@@ -162,7 +164,11 @@ final class InertScaffoldingSuppressor implements ElementConverter
                 continue;
             }
             foreach ( $values as $value ) {
-                if ( 1 !== preg_match('/(?:^|\s)0(?:\.0+)?(?:px|rem|em|%|vh|vw)?(?:\s|$)/i', CssValueInspector::comparable($value)) ) {
+                $tokens = CssValueSplitter::splitTopLevelWhitespace(CssValueInspector::comparable($value));
+                $widths = str_ends_with($property, '-width')
+                    ? $tokens
+                    : array_values(array_filter($tokens, static fn(string $token): bool => in_array($token, array('thin', 'medium', 'thick'), true) || 1 === preg_match('/^[+-]?(?:\d*\.)?\d+(?:[a-z%]+)?$/i', $token)));
+                if ( array() === $widths || array() !== array_filter($widths, static fn(string $width): bool => !CssValueInspector::isZeroLength($width)) ) {
                     return false;
                 }
                 $sawZeroWidth = true;

@@ -1024,8 +1024,6 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function responsiveBlockMarginTopClassName(DOMElement $element): string
     {
-        $sourceDeclarations = $this->presentationDeclarations($element);
-        if ('' === trim((string) ($sourceDeclarations['margin-top'] ?? ''))) return '';
         if (! $this->hasConditionalDeclarationForProperties($element, array('margin-top', 'margin'))) return '';
         $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
         if (array_intersect_key($inline, array_flip(array('margin', 'margin-top', 'margin-block', 'margin-block-start'))) !== array()) {
@@ -1064,7 +1062,11 @@ final class StyleResolver implements ElementPresentationResolver
             if ($entry['important']) return '';
         }
 
-        $base = null === $baseWinner ? '' : $this->carriedDeclarationValue($baseWinner['value']);
+        // These group-source tags have no user-agent block margin. When only
+        // a conditional author rule exists, carry that real zero baseline too,
+        // rather than letting an unlayered WordPress block default fill it in.
+        if ( null === $baseWinner && !in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section'), true) ) return '';
+        $base = null === $baseWinner ? '0px' : $this->carriedDeclarationValue($baseWinner['value']);
         $conditional = array();
         $orderedConditionalWinners = array();
         foreach ($conditionalWinners as $condition => $entry) {
