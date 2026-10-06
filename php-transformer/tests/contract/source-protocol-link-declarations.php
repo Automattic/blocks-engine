@@ -150,4 +150,25 @@ $assert(isset($capped['source_reports']['wordpress_site_plan']), 'A head past th
 $assert(51 === count($cappedOmissions), 'The omission list is capped at 50 rows plus one truncation row.');
 $assert(1 === count($truncation) && 11 === ($truncation[0]['omitted_count'] ?? null), 'The truncation row carries the remaining count.');
 
+// The report is keyed on the declaration, not the page. WordPress prints the
+// same discovery links in every head, so keying on the page would spend the
+// whole budget restating one site's boilerplate.
+$page = '<!doctype html><html><head>'
+    . '<link rel="pingback" href="/xmlrpc.php">'
+    . '<link rel="EditURI" type="application/rsd+xml" href="/xmlrpc.php?rsd">'
+    . '<link rel="alternate" type="application/rss+xml" href="/feed/">'
+    . '</head><body><main>Page</main></body></html>';
+$manyPages = array('website/index.html' => $page);
+foreach (range(1, 9) as $index) {
+    $manyPages["website/page-{$index}/index.html"] = $page;
+}
+$repeated = $compile($manyPages);
+$repeatedOmissions = $omissions($repeated);
+$assert(isset($repeated['source_reports']['wordpress_site_plan']), 'A ten-page capture of one WordPress head still produces a plan.');
+$assert(10 === count($repeated['source_reports']['wordpress_site_plan']['pages'] ?? array()), 'All ten pages materialize.');
+$assert(3 === count($repeatedOmissions), 'Boilerplate repeated on every page collapses to one row per declaration.');
+$repeatedCounts = array_column($repeatedOmissions, 'occurrences');
+sort($repeatedCounts);
+$assert(array(10, 10, 10) === $repeatedCounts, 'Each collapsed row counts every page it occurred on.');
+
 echo "source-protocol-link-declarations contract passed\n";

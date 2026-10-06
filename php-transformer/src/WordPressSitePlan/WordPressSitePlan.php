@@ -59,7 +59,8 @@ final class WordPressSitePlan
     private int $omittedUnresolvedNavigationDiagnostics = 0;
     /** @var array<string,array<string,mixed>> */
     private array $omittedLinkDeclarations = array();
-    private int $omittedLinkDeclarationOverflow = 0;
+    /** @var array<string,bool> */
+    private array $omittedLinkDeclarationOverflow = array();
     /** @var array<int,array<string,mixed>> */
     private array $routeCollisions = array();
     private int $omittedRouteCollisionDiagnostics = 0;
@@ -195,7 +196,7 @@ final class WordPressSitePlan
         $this->unresolvedNavigationDiagnostics = array();
         $this->omittedUnresolvedNavigationDiagnostics = 0;
         $this->omittedLinkDeclarations = array();
-        $this->omittedLinkDeclarationOverflow = 0;
+        $this->omittedLinkDeclarationOverflow = array();
         $editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
             throw new InvalidArgumentException('WordPress site plan requires a versioned editability policy.');
@@ -1503,7 +1504,13 @@ final class WordPressSitePlan
     /**
      * Records one omitted link declaration. An omission is a reportable quality
      * defect, not a silent edit: the plan keeps a bounded, deduplicated warning
-     * per page and relation so a materializer can show what the head lost.
+     * per declaration so a consumer can show what the head lost.
+     *
+     * These land on the plan's own `diagnostics`, beside
+     * `wordpress_site_plan_unresolved_navigation_link`. They are not envelope
+     * diagnostics, so they do not reach `source_reports.wordpress_site_plan_diagnostics`
+     * or `WordPressSitePlanView::diagnostics()`, which carry the failure
+     * channel; a consumer wanting these reads the plan.
      *
      * @param array<string,mixed> $link
      */
@@ -1511,10 +1518,18 @@ final class WordPressSitePlan
     {
         $url = (string) ($link['url'] ?? '');
         $relation = trim((string) preg_replace('/\s+/', ' ', (string) ($link['rel'] ?? '')));
-        $key = $sourcePath . "\0" . $relation . "\0" . $url;
-        if (isset($this->omittedLinkDeclarations[$key])) return;
-        if (count($this->omittedLinkDeclarations) >= self::MAX_OMITTED_LINK_DECLARATION_DIAGNOSTICS) { ++$this->omittedLinkDeclarationOverflow; return; }
-        $label = '' === $relation ? 'link' : $relation . ' link';
+        // Keyed on the declaration rather than the page. WordPress prints the
+        // same discovery links in every head, so keying on the page spends the
+        // whole budget restating one site's boilerplate and names no other
+        // defect: a 60-page capture reported 5 facts about 10 pages and gave
+        // up. One row per distinct declaration, with the page it was first seen
+        // on and how often it occurred.
+        $key = $relation . "\0" . $url;
+        if (isset($this->omittedLinkDeclarations[$key])) { ++$this->omittedLinkDeclarations[$key]['occurrences']; return; }
+        // Counted as distinct declarations, the same unit as the rows above it,
+        // so the listed rows and the remainder add up.
+        if (count($this->omittedLinkDeclarations) >= self::MAX_OMITTED_LINK_DECLARATION_DIAGNOSTICS) { $this->omittedLinkDeclarationOverflow[$key] = true; return; }
+        $label = $relation . ' link';
         $this->omittedLinkDeclarations[$key] = array_filter(array(
             'code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE,
             'severity' => 'warning',
@@ -1522,6 +1537,7 @@ final class WordPressSitePlan
             'source_path' => self::clipDiagnosticField($sourcePath),
             'rel' => self::clipDiagnosticField($relation),
             'value' => self::clipDiagnosticField($url),
+            'occurrences' => 1,
             'reason_code' => 'unresolved_local_url',
         ), static fn(mixed $field): bool => '' !== $field);
     }
@@ -1537,7 +1553,8 @@ final class WordPressSitePlan
     private function omittedLinkDeclarationDiagnostics(): array
     {
         $diagnostics = array_values($this->omittedLinkDeclarations);
-        if ($this->omittedLinkDeclarationOverflow > 0) $diagnostics[] = array('code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE, 'severity' => 'warning', 'message' => sprintf('%d more unresolved link declarations were omitted; omitted from this diagnostic list.', $this->omittedLinkDeclarationOverflow), 'reason' => 'truncated', 'omitted_count' => $this->omittedLinkDeclarationOverflow);
+        $overflow = count($this->omittedLinkDeclarationOverflow);
+        if ($overflow > 0) $diagnostics[] = array('code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE, 'severity' => 'warning', 'message' => sprintf('%d more distinct unresolved link declarations were omitted; omitted from this diagnostic list.', $overflow), 'reason' => 'truncated', 'omitted_count' => $overflow);
         return $diagnostics;
     }
     /** @param array<int,array<string,mixed>> $routes */
