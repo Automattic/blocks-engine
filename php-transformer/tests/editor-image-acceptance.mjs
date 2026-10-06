@@ -18,6 +18,18 @@ const page = await browser.newPage( { viewport: { width: 1440, height: 1000 } } 
 page.on( 'pageerror', ( error ) => browserErrors.push( error.message ) );
 page.on( 'response', ( response ) => { if ( saveRequest( response.request() ) ) saveResponses.push( { status: response.status(), url: response.url() } ); } );
 const editorBlock = () => page.evaluate( () => { const store = window.wp.data.select( 'core/block-editor' ); const block = store.getBlocks().find( ( candidate ) => candidate.name === 'core/image' ); return { clientId: block?.clientId, attributes: block?.attributes }; } );
+const compareCapturePngs = async ( sourcePng, wordpressPng ) => page.evaluate( async ( [ sourceData, wordpressData ] ) => {
+ const load = ( data ) => new Promise( ( resolve, reject ) => { const image = new Image(); image.onload = () => resolve( image ); image.onerror = reject; image.src = `data:image/png;base64,${ data }`; } );
+ const [ source, wordpress ] = await Promise.all( [ load( sourceData ), load( wordpressData ) ] );
+ if ( source.width !== wordpress.width || source.height !== wordpress.height ) return { source: [ source.width, source.height ], wordpress: [ wordpress.width, wordpress.height ], pixel_difference_count: null, bounds: null };
+ const canvas = document.createElement( 'canvas' ); canvas.width = source.width; canvas.height = source.height;
+ const ctx = canvas.getContext( '2d', { willReadFrequently: true } );
+ ctx.drawImage( source, 0, 0 ); const a = ctx.getImageData( 0, 0, canvas.width, canvas.height ).data;
+ ctx.clearRect( 0, 0, canvas.width, canvas.height ); ctx.drawImage( wordpress, 0, 0 ); const b = ctx.getImageData( 0, 0, canvas.width, canvas.height ).data;
+ let count = 0; let minX = canvas.width; let minY = canvas.height; let maxX = -1; let maxY = -1;
+ for ( let index = 0; index < a.length; index += 4 ) if ( a[index] !== b[index] || a[index + 1] !== b[index + 1] || a[index + 2] !== b[index + 2] || a[index + 3] !== b[index + 3] ) { const x = ( index / 4 ) % canvas.width; const y = Math.floor( index / ( 4 * canvas.width ) ); count++; minX = Math.min( minX, x ); minY = Math.min( minY, y ); maxX = Math.max( maxX, x ); maxY = Math.max( maxY, y ); }
+ return { width: canvas.width, height: canvas.height, pixel_difference_count: count, total_pixels: canvas.width * canvas.height, bounds: count ? [ minX, minY, maxX, maxY ] : null };
+}, [ sourcePng.toString( 'base64' ), wordpressPng.toString( 'base64' ) ] );
 try {
  await page.goto( `${ baseUrl }/wp-login.php`, { waitUntil: 'networkidle' } );
  await page.getByLabel( 'Username or Email Address' ).fill( process.env.BE_EDITOR_USER );
@@ -173,36 +185,58 @@ try {
 
   await page.setViewportSize( { width: 1440, height: 1000 } );
   await page.setContent( source.listing.source_markup, { waitUntil: 'domcontentloaded' } );
+  await page.evaluate( () => document.fonts.ready );
+  const sourceDesktopCapture = await page.evaluate( () => ( { viewport: { width: innerWidth, height: innerHeight }, devicePixelRatio, fontStatus: document.fonts.status, timesNewRomanAvailable: document.fonts.check( '16px "Times New Roman"' ) } ) );
   const sourceGeometry = await page.locator( '.card' ).evaluateAll( ( cards ) => cards.map( ( card ) => {
     const children = [ ...card.children ].map( ( child ) => ( { tag: child.tagName, className: child.className, rect: child.getBoundingClientRect().toJSON(), margin: getComputedStyle( child ).margin } ) );
-    return { text: card.innerText.trim().replace( /\s+/g, ' ' ), rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border, children };
+    const paint = [ ...card.querySelectorAll( '.metadata a, h2 a, .description' ) ].map( ( node ) => {
+      const css = getComputedStyle( node );
+      return { tag: node.tagName, text: node.innerText, rect: node.getBoundingClientRect().toJSON(), display: css.display, fontFamily: css.fontFamily, fontSize: css.fontSize, fontWeight: css.fontWeight, lineHeight: css.lineHeight, letterSpacing: css.letterSpacing, textDecorationLine: css.textDecorationLine, color: css.color };
+    } );
+    return { text: card.innerText.trim().replace( /\s+/g, ' ' ), rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border, children, paint };
   } ) );
-  await page.screenshot( { path: `${ evidence }/source-capture-desktop.png`, fullPage: true } );
+  const sourceDesktopPng = await page.screenshot( { path: `${ evidence }/source-capture-desktop.png`, fullPage: true } );
   await page.setViewportSize( { width: 390, height: 844 } );
   const sourceMobileGeometry = await page.locator( '.card' ).evaluateAll( ( cards ) => cards.map( ( card ) => ( { text: card.innerText.trim().replace( /\s+/g, ' ' ), rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border } ) ) );
-  await page.screenshot( { path: `${ evidence }/source-capture-mobile.png`, fullPage: true } );
+  await page.evaluate( () => document.fonts.ready );
+  const sourceMobileCapture = await page.evaluate( () => ( { viewport: { width: innerWidth, height: innerHeight }, devicePixelRatio, fontStatus: document.fonts.status, timesNewRomanAvailable: document.fonts.check( '16px "Times New Roman"' ) } ) );
+  const sourceMobilePng = await page.screenshot( { path: `${ evidence }/source-capture-mobile.png`, fullPage: true } );
   await page.setViewportSize( { width: 1440, height: 1000 } );
   await publicWp.setViewportSize( { width: 1440, height: 1000 } );
   await publicWp.goto( `${ baseUrl }/?page_id=${ source.listing.post_id }`, { waitUntil: 'networkidle' } );
   const importedCards = publicWp.locator( '.wp-block-query article.card' );
   await importedCards.first().waitFor();
+  await publicWp.evaluate( () => document.fonts.ready );
+  const wordpressDesktopCapture = await publicWp.evaluate( () => ( { viewport: { width: innerWidth, height: innerHeight }, devicePixelRatio, fontStatus: document.fonts.status, timesNewRomanAvailable: document.fonts.check( '16px "Times New Roman"' ) } ) );
   const wordpressDesktopGeometry = await importedCards.evaluateAll( ( cards ) => cards.map( ( card ) => {
     const overlay = card.querySelector( '.blocks-engine-listing-overlay' );
     const visible = card.cloneNode( true ); visible.querySelectorAll( '.blocks-engine-listing-overlay' ).forEach( ( link ) => link.remove() );
-    return { text: visible.innerText.trim().replace( /\s+/g, ' ' ), rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border, children: [ ...card.children ].map( ( child ) => ( { tag: child.tagName, className: child.className, rect: child.getBoundingClientRect().toJSON(), margin: getComputedStyle( child ).margin } ) ), overlay: overlay && { href: overlay.href, display: getComputedStyle( overlay ).display, position: getComputedStyle( overlay ).position, rect: overlay.getBoundingClientRect().toJSON(), ariaHidden: overlay.getAttribute( 'aria-hidden' ), tabIndex: overlay.tabIndex } };
+    const paint = [ ...card.querySelectorAll( '.metadata a, h2 a, .description' ) ].map( ( node ) => {
+      const css = getComputedStyle( node );
+      return { tag: node.tagName, text: node.innerText, rect: node.getBoundingClientRect().toJSON(), display: css.display, fontFamily: css.fontFamily, fontSize: css.fontSize, fontWeight: css.fontWeight, lineHeight: css.lineHeight, letterSpacing: css.letterSpacing, textDecorationLine: css.textDecorationLine, color: css.color };
+    } );
+    return { text: visible.innerText.trim().replace( /\s+/g, ' ' ), rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border, children: [ ...card.children ].map( ( child ) => ( { tag: child.tagName, className: child.className, rect: child.getBoundingClientRect().toJSON(), margin: getComputedStyle( child ).margin } ) ), paint, overlay: overlay && { href: overlay.href, display: getComputedStyle( overlay ).display, position: getComputedStyle( overlay ).position, rect: overlay.getBoundingClientRect().toJSON(), ariaHidden: overlay.getAttribute( 'aria-hidden' ), tabIndex: overlay.tabIndex } };
   } ) );
-  await publicWp.screenshot( { path: `${ evidence }/wordpress-capture-desktop.png`, fullPage: true } );
+  const wordpressDesktopPng = await publicWp.screenshot( { path: `${ evidence }/wordpress-capture-desktop.png`, fullPage: true } );
+  const desktopPixelComparison = await compareCapturePngs( sourceDesktopPng, wordpressDesktopPng );
   await writeFile( `${ evidence }/source-wordpress-desktop-geometry.json`, JSON.stringify( { sourceGeometry, wordpressDesktopGeometry }, null, 2 ) + '\n' );
   assert.equal( wordpressDesktopGeometry.length, sourceGeometry.length, 'WordPress frontend renders the source fixture card count' );
   assert.ok( wordpressDesktopGeometry.every( ( card ) => card.overlay && 'absolute' === card.overlay.position && card.overlay.rect.width >= card.rect.width - 2 && card.overlay.rect.height >= card.rect.height - 2 ), 'frontend overlay retains full-card geometry on the generated listing route' );
   await publicWp.setViewportSize( { width: 390, height: 844 } );
   await publicWp.reload( { waitUntil: 'networkidle' } );
+  await publicWp.evaluate( () => document.fonts.ready );
+  const wordpressMobileCapture = await publicWp.evaluate( () => ( { viewport: { width: innerWidth, height: innerHeight }, devicePixelRatio, fontStatus: document.fonts.status, timesNewRomanAvailable: document.fonts.check( '16px "Times New Roman"' ) } ) );
   const wordpressMobileGeometry = await publicWp.locator( '.wp-block-query article.card' ).evaluateAll( ( cards ) => cards.map( ( card ) => {
     const overlay = card.querySelector( '.blocks-engine-listing-overlay' );
     const visible = card.cloneNode( true ); visible.querySelectorAll( '.blocks-engine-listing-overlay' ).forEach( ( link ) => link.remove() );
-    return { text: visible.innerText.trim().replace( /\s+/g, ' ' ), rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border, overlay: overlay && { position: getComputedStyle( overlay ).position, rect: overlay.getBoundingClientRect().toJSON() } };
+    const paint = [ ...card.querySelectorAll( '.metadata a, h2 a, .description' ) ].map( ( node ) => {
+      const css = getComputedStyle( node );
+      return { tag: node.tagName, text: node.innerText, rect: node.getBoundingClientRect().toJSON(), display: css.display, fontFamily: css.fontFamily, fontSize: css.fontSize, fontWeight: css.fontWeight, lineHeight: css.lineHeight, letterSpacing: css.letterSpacing, textDecorationLine: css.textDecorationLine, color: css.color };
+    } );
+    return { text: visible.innerText.trim().replace( /\s+/g, ' ' ), rect: card.getBoundingClientRect().toJSON(), border: getComputedStyle( card ).border, paint, overlay: overlay && { position: getComputedStyle( overlay ).position, rect: overlay.getBoundingClientRect().toJSON() } };
   } ) );
-  await publicWp.screenshot( { path: `${ evidence }/wordpress-capture-mobile.png`, fullPage: true } );
+  const wordpressMobilePng = await publicWp.screenshot( { path: `${ evidence }/wordpress-capture-mobile.png`, fullPage: true } );
+  const mobilePixelComparison = await compareCapturePngs( sourceMobilePng, wordpressMobilePng );
   assert.ok( wordpressMobileGeometry.every( ( card ) => card.overlay && 'absolute' === card.overlay.position && card.overlay.rect.width >= card.rect.width - 2 && card.overlay.rect.height >= card.rect.height - 2 ), 'mobile frontend overlay remains full-card geometry' );
   const heightDeltas = {
     desktop: wordpressDesktopGeometry.map( ( card, index ) => Number((card.rect.height - sourceGeometry[index].rect.height).toFixed(2)) ),
@@ -213,8 +247,11 @@ try {
     desktop: wordpressDesktopGeometry.map( ( card, index ) => ( { textMatches: card.text.replace( /\s/g, '' ) === sourceGeometry[index].text.replace( /\s/g, '' ), borderMatches: card.border === sourceGeometry[index].border, x: Number((card.rect.x - sourceGeometry[index].rect.x).toFixed(2)), y: Number((card.rect.y - sourceGeometry[index].rect.y).toFixed(2)), width: Number((card.rect.width - sourceGeometry[index].rect.width).toFixed(2)), height: heightDeltas.desktop[index] } ) ),
     mobile: wordpressMobileGeometry.map( ( card, index ) => ( { textMatches: card.text.replace( /\s/g, '' ) === sourceMobileGeometry[index].text.replace( /\s/g, '' ), borderMatches: card.border === sourceMobileGeometry[index].border, x: Number((card.rect.x - sourceMobileGeometry[index].rect.x).toFixed(2)), y: Number((card.rect.y - sourceMobileGeometry[index].rect.y).toFixed(2)), width: Number((card.rect.width - sourceMobileGeometry[index].rect.width).toFixed(2)), height: heightDeltas.mobile[index] } ) ),
   };
-  await writeFile( `${ evidence }/source-wordpress-geometry.json`, JSON.stringify( { exactGeometry, geometrySummary, sourceDesktop: sourceGeometry, sourceMobile: sourceMobileGeometry, wordpressDesktop: wordpressDesktopGeometry, wordpressMobile: wordpressMobileGeometry }, null, 2 ) + '\n' );
+  const pixelParity = { desktop: desktopPixelComparison, mobile: mobilePixelComparison };
+  await writeFile( `${ evidence }/source-wordpress-geometry.json`, JSON.stringify( { exactGeometry, geometrySummary, pixelParity, sourceCapture: { desktop: sourceDesktopCapture, mobile: sourceMobileCapture }, wordpressCapture: { desktop: wordpressDesktopCapture, mobile: wordpressMobileCapture }, sourceDesktop: sourceGeometry, sourceMobile: sourceMobileGeometry, wordpressDesktop: wordpressDesktopGeometry, wordpressMobile: wordpressMobileGeometry }, null, 2 ) + '\n' );
   assert.ok( exactGeometry && [ ...geometrySummary.desktop, ...geometrySummary.mobile ].every( ( card ) => card.textMatches && card.borderMatches && 0 === card.x && 0 === card.y && 0 === card.width ), 'neutral source and WordPress cards match text, border, and full desktop/mobile geometry' );
+  assert.equal( desktopPixelComparison.pixel_difference_count, 0, 'desktop source and WordPress screenshots have exact per-pixel parity under matched viewport, DPR, and font readiness' );
+  assert.equal( mobilePixelComparison.pixel_difference_count, 0, 'mobile source and WordPress screenshots have exact per-pixel parity under matched viewport, DPR, and font readiness' );
 
   await page.setViewportSize( { width: 1440, height: 1000 } );
   await page.goto( `${ baseUrl }/wp-admin/post.php?post=${ source.listing.post_id }&action=edit`, { waitUntil: 'domcontentloaded' } );
@@ -266,11 +303,17 @@ try {
   await publicSource.setViewportSize( { width: 390, height: 844 } );
   await publicSource.screenshot( { path: `${ evidence }/public-source-mobile.png`, fullPage: true } );
   await writeFile( `${ evidence }/public-source-dom.json`, JSON.stringify( publicSourceDom, null, 2 ) + '\n' );
-  await publicSource.goto( 'https://ndiego-wanbk-studio.wp.build', { waitUntil: 'networkidle', timeout: 60000 } );
-  await publicSource.screenshot( { path: `${ evidence }/public-wordpress-preview-desktop.png`, fullPage: true } );
-  await publicSource.setViewportSize( { width: 390, height: 844 } );
-  await publicSource.screenshot( { path: `${ evidence }/public-wordpress-preview-mobile.png`, fullPage: true } );
-  console.log( JSON.stringify( { ok: true, postId, listingPostId: process.env.BE_EDITOR_LISTING_POST_ID, listingSelection: selection, editorOverlayDisplay: presentation.overlay?.display, frontendOverlay, validation: reloadedValidation.blocks } ) );
+  let publicPreviewCapture = { status: 'captured' };
+  try {
+    await publicSource.goto( 'https://ndiego-wanbk-studio.wp.build', { waitUntil: 'networkidle', timeout: 60000 } );
+    await publicSource.screenshot( { path: `${ evidence }/public-wordpress-preview-desktop.png`, fullPage: true } );
+    await publicSource.setViewportSize( { width: 390, height: 844 } );
+    await publicSource.screenshot( { path: `${ evidence }/public-wordpress-preview-mobile.png`, fullPage: true } );
+  } catch ( error ) {
+    publicPreviewCapture = { status: 'unavailable', error: error.message };
+  }
+  await writeFile( `${ evidence }/public-wordpress-preview-capture.json`, JSON.stringify( publicPreviewCapture, null, 2 ) + '\n' );
+  console.log( JSON.stringify( { ok: true, postId, listingPostId: process.env.BE_EDITOR_LISTING_POST_ID, listingSelection: selection, editorOverlayDisplay: presentation.overlay?.display, frontendOverlay, validation: reloadedValidation.blocks, pixelParity, publicPreviewCapture } ) );
 } finally {
  await writeFile( `${ evidence }/browser-errors.json`, JSON.stringify( browserErrors, null, 2 ) + '\n' );
  await writeFile( `${ evidence }/save-responses.json`, JSON.stringify( saveResponses, null, 2 ) + '\n' );
