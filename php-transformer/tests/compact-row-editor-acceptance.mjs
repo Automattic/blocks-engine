@@ -49,7 +49,8 @@ try {
 	assert.equal( image.attributes.alt, '', 'the decorative source icon remains hidden from assistive technology' );
 	assert.equal( image.attributes.href, '/projects', 'the source link is attached to the replaceable icon' );
 	assert.equal( paragraph.attributes.content.toString(), '<a href="/projects">247</a>', 'the compact row exposes linked RichText separately' );
-	await canvas.locator( '[data-type="core/image"]' ).click();
+	await page.screenshot( { path: `${ evidence }/compact-row-editor-initial.png`, fullPage: true } );
+	await page.evaluate( ( clientId ) => window.wp.data.dispatch( 'core/block-editor' ).selectBlock( clientId ), image.clientId );
 	await page.getByRole( 'button', { name: 'Replace' } ).click();
 	await page.getByRole( 'menuitem', { name: /Open Media Library/ } ).click();
 	const media = page.locator( '.media-modal' );
@@ -62,7 +63,7 @@ try {
 		const visit = ( children ) => children.flatMap( ( block ) => [ block, ...visit( block.innerBlocks || [] ) ] );
 		return visit( window.wp.data.select( 'core/block-editor' ).getBlocks() ).some( ( block ) => block.name === 'core/image' && block.attributes.id === id );
 	}, source.second_attachment.id );
-	await canvas.locator( '[data-type="core/image"]' ).click();
+	await page.evaluate( ( clientId ) => window.wp.data.dispatch( 'core/block-editor' ).selectBlock( clientId ), image.clientId );
 	await page.getByRole( 'button', { name: 'Link', exact: true } ).last().click();
 	const iconLinkInput = page.locator( '#url-input-control-0' );
 	await iconLinkInput.fill( '/projects-updated' );
@@ -70,7 +71,8 @@ try {
 	await page.waitForFunction( ( clientId ) => window.wp.data.select( 'core/block-editor' ).getBlock( clientId )?.attributes.href === '/projects-updated', image.clientId );
 	await page.keyboard.press( 'Escape' );
 	const paragraphEditor = canvas.locator( '[data-type="core/paragraph"][contenteditable="true"]' );
-	await paragraphEditor.click();
+	await page.evaluate( ( clientId ) => window.wp.data.dispatch( 'core/block-editor' ).selectBlock( clientId ), paragraph.clientId );
+	await paragraphEditor.click( { force: true } );
 	await paragraphEditor.press( 'Control+A' );
 	await paragraphEditor.pressSequentially( '248' );
 	await page.waitForFunction( ( clientId ) => window.wp.data.select( 'core/block-editor' ).getBlock( clientId )?.attributes.content?.toString().includes( '248' ), paragraph.clientId );
@@ -120,7 +122,7 @@ try {
 	assert.equal( await page.locator( '.wp-block-group.project-row p a[href="/projects-updated"]' ).textContent(), '248' );
 	assert.equal( await page.locator( '.wp-block-group.project-row figure a[href="/projects-updated"] img' ).getAttribute( 'src' ), source.second_attachment.url );
 	const desktopGeometry = await page.locator( '.wp-block-group.project-row' ).evaluate( ( group ) => {
-		const image = group.querySelector( 'figure' ).getBoundingClientRect();
+		const image = group.querySelector( 'figure img' ).getBoundingClientRect();
 		const text = group.querySelector( 'p a' ).getBoundingClientRect();
 		return { display: getComputedStyle( group ).display, gap: getComputedStyle( group ).gap, image: { x: image.x, y: image.y, width: image.width, height: image.height }, text: { x: text.x, y: text.y, width: text.width, height: text.height } };
 	} );
@@ -128,15 +130,19 @@ try {
 	const hoverColor = await page.locator( '.wp-block-group.project-row' ).evaluate( ( group ) => getComputedStyle( group ).color );
 	assert.equal( hoverColor, 'rgb(18, 52, 86)', 'authored hover paint survives selector projection' );
 	assert.equal( desktopGeometry.display, 'flex', 'authored inline layout remains a native flex row' );
+	assert.equal( desktopGeometry.image.width, 32, 'the replaced icon retains its source display width' );
+	assert.equal( desktopGeometry.image.height, 32, 'the replaced icon retains its source display height' );
 	assert.ok( desktopGeometry.text.x >= desktopGeometry.image.x + desktopGeometry.image.width, 'icon precedes text in the desktop row' );
 	await page.screenshot( { path: `${ evidence }/compact-row-frontend.png`, fullPage: true } );
 	await page.setViewportSize( { width: 375, height: 812 } );
 	const mobileGeometry = await page.locator( '.wp-block-group.project-row' ).evaluate( ( group ) => {
-		const image = group.querySelector( 'figure' ).getBoundingClientRect();
+		const image = group.querySelector( 'figure img' ).getBoundingClientRect();
 		const text = group.querySelector( 'p a' ).getBoundingClientRect();
 		return { display: getComputedStyle( group ).display, image: { x: image.x, y: image.y, width: image.width, height: image.height }, text: { x: text.x, y: text.y, width: text.width, height: text.height } };
 	} );
 	assert.equal( mobileGeometry.display, 'flex', 'narrow viewport retains the authored row geometry' );
+	assert.equal( mobileGeometry.image.width, 32, 'the icon retains its display width on mobile' );
+	assert.equal( mobileGeometry.image.height, 32, 'the icon retains its display height on mobile' );
 	assert.ok( mobileGeometry.text.x >= mobileGeometry.image.x + mobileGeometry.image.width, 'icon still precedes text on mobile' );
 	await page.screenshot( { path: `${ evidence }/compact-row-frontend-mobile.png`, fullPage: true } );
 	await writeFile( `${ evidence }/compact-row-edit.json`, JSON.stringify( { postId, initial, edited, reloadedBlocks, saved, validation, saveResponses, frontend: { text: '248', href: '/projects-updated', iconUrl: source.second_attachment.url, desktopGeometry, mobileGeometry }, errors }, null, 2 ) + '\n' );
