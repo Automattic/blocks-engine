@@ -183,7 +183,10 @@ final class SourceBlockAttributeProjector
         ) {
             $className = SourceDom::mergeClassNames($className, ...$context->authorStyles->sourceBodyProjectionClasses());
         }
-        $semanticMarkers = $context->selectorProjections->semanticMarkersForPath($element->getNodePath() ?? '');
+        $semanticMarkers = array_merge(
+            $context->selectorProjections->semanticMarkersForPath($element->getNodePath() ?? ''),
+            $context->selectorProjections->ancestorAttributeStateMarkers($element->getNodePath() ?? '')
+        );
         if ( array() !== $semanticMarkers ) {
             $className = SourceDom::mergeClassNames($className, ...$semanticMarkers);
         }

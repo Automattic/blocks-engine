@@ -1376,11 +1376,46 @@ final class AuthorStylesheetProjector
 
     private function rewriteSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): string
     {
+        $projected = $this->rewriteSelectorPreludeOnce($prelude, $context, $controlWrapper);
+        if ( ! $context->selectorProjections->hasAncestorAttributeStateConditions() ) {
+            return $projected;
+        }
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return $projected;
+        }
+        $variants = array();
+        foreach ( $selectors as $selector ) {
+            $conditions = $context->selectorProjections->ancestorAttributeStateConditions(trim($selector));
+            if ( array() === $conditions ) {
+                continue;
+            }
+            // Derive the class form from this selector's own projection so it
+            // inherits every per-element safeguard (superseded toggles,
+            // rich-text exclusions, control and editor variants).
+            $own = 1 === count($selectors) ? $projected : $this->rewriteSelectorPreludeOnce($selector, $context, $controlWrapper);
+            foreach ( CssStylesheetTransformer::splitSelectorList($own) ?? array() as $ownSelector ) {
+                $variant = $ownSelector;
+                foreach ( $conditions as $condition => $marker ) {
+                    $variant = str_replace($condition, '.' . $marker, $variant);
+                }
+                if ( $variant !== $ownSelector ) {
+                    $variants[] = trim($variant);
+                }
+            }
+        }
+        if ( array() === $variants ) {
+            return $projected;
+        }
+        return ( '' === trim($projected) ? '' : $projected . ',' ) . implode(',', array_values(array_unique($variants)));
+    }
+
+    private function rewriteSelectorPreludeOnce(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): string
+    {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors ) {
             return $prelude;
         }
-        $selectors = $this->withAncestorAttributeStateSelectors($selectors, $context);
         $rewritten = array();
         foreach ( $selectors as $selector ) {
             $structuralParsed = $context->sourceStyles->parsedSelector($selector);
@@ -1860,23 +1895,6 @@ final class AuthorStylesheetProjector
             $projected[] = ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed, $context);
         }
         return array_values(array_unique($projected));
-    }
-
-    /**
-     * @param list<string> $selectors
-     * @return list<string> Each selector followed by its ancestor attribute-state form, when one was prepared.
-     */
-    private function withAncestorAttributeStateSelectors(array $selectors, AuthorStylesheetProjectionContext $context): array
-    {
-        $expanded = array();
-        foreach ( $selectors as $selector ) {
-            $expanded[] = $selector;
-            $projected = $context->selectorProjections->ancestorAttributeStateSelector(trim($selector));
-            if ( '' !== $projected ) {
-                $expanded[] = $projected;
-            }
-        }
-        return $expanded;
     }
 
     private function projectSourceAttributeNegationStateSelector(string $selector, AuthorStylesheetProjectionContext $context): string
