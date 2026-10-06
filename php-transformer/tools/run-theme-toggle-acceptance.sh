@@ -14,6 +14,7 @@ test "$actual_sha" = "$expected_sha" || { printf 'WordPress core SHA mismatch: %
 mkdir -p "$evidence"
 exec > >(tee -a "$evidence/runner.log") 2>&1
 
+THEME_ACCEPTANCE_EVIDENCE_DIR="$evidence" node "$root/tests/capture-theme-runtime-ownership.mjs" | tee "$evidence/source-runtime-capture.txt"
 THEME_ACCEPTANCE_EVIDENCE_DIR="$evidence" php "$root/tests/build-theme-toggle-acceptance.php"
 project="be_theme_${RANDOM}_$$"
 network="${project}_network"
@@ -36,7 +37,7 @@ run() { timeout "${THEME_ACCEPTANCE_COMMAND_TIMEOUT:-240}" "$@"; }
 
 run docker network create "$network" >/dev/null
 run docker volume create "$volume" >/dev/null
-run docker run --detach --name "$db_container" --network "$network" --network-alias mysql -e MYSQL_DATABASE="$db_name" -e MYSQL_USER="$db_user" -e MYSQL_PASSWORD="$db_password" -e MYSQL_RANDOM_ROOT_PASSWORD=yes mysql:8.4 >/dev/null
+run docker run --detach --name "$db_container" --network "$network" --network-alias mysql -e MYSQL_DATABASE="$db_name" -e MYSQL_USER="$db_user" -e MYSQL_PASSWORD="$db_password" -e MYSQL_RANDOM_ROOT_PASSWORD=yes mysql:8.4 --innodb-use-native-aio=0 >/dev/null
 for attempt in $(seq 1 60); do
     if docker exec "$db_container" mysqladmin ping -h 127.0.0.1 -u"$db_user" -p"$db_password" >/dev/null 2>&1; then break; fi
     sleep 2
@@ -65,10 +66,6 @@ wp=(docker run --rm --network "$network" --user 33:33 -e WORDPRESS_DB_HOST=mysql
 content="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).content)' "$evidence/source-and-page.json")"
 post_id="$("${wp[@]}" post create --post_type=page --post_status=publish --post_title='Theme selection acceptance' --post_content="$content" --porcelain)"
 printf '%s\n' "$post_id" > "$evidence/wordpress-post-id.txt"
-attribute_content="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).content)' "$evidence/root-attribute-page.json")"
-attribute_post_id="$("${wp[@]}" post create --post_type=page --post_status=publish --post_title='Theme data attribute acceptance' --post_content="$attribute_content" --porcelain)"
-printf '%s\n' "$attribute_post_id" > "$evidence/wordpress-attribute-post-id.txt"
-THEME_ACCEPTANCE_WP_URL="http://127.0.0.1:${port}" THEME_ACCEPTANCE_POST_ID="$post_id" THEME_ACCEPTANCE_ATTRIBUTE_POST_ID="$attribute_post_id" THEME_ACCEPTANCE_USER=themeadmin THEME_ACCEPTANCE_PASSWORD=theme-password THEME_ACCEPTANCE_EVIDENCE_DIR="$evidence" \
 attribute_content="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).content)' "$evidence/root-attribute-page.json")"
 attribute_post_id="$("${wp[@]}" post create --post_type=page --post_status=publish --post_title='Theme data attribute acceptance' --post_content="$attribute_content" --porcelain)"
 printf '%s\n' "$attribute_post_id" > "$evidence/wordpress-attribute-post-id.txt"

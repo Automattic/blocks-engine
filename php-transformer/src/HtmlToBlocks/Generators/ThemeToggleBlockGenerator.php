@@ -29,6 +29,7 @@ final class ThemeToggleBlockGenerator
             'rootAttribute' => array('type' => 'string', 'default' => 'class'),
             'darkValue' => array('type' => 'string', 'default' => 'dark'),
             'lightValue' => array('type' => 'string', 'default' => 'light'),
+            'rootAttributeRemoved' => array('type' => 'boolean', 'default' => false),
             'defaultTheme' => array('type' => 'string', 'default' => 'dark'),
             'storageKey' => array('type' => 'string', 'default' => 'theme'),
             'themeModes' => array('type' => 'array', 'default' => array('light', 'dark')),
@@ -45,7 +46,7 @@ final class ThemeToggleBlockGenerator
     var RawHTML = element.RawHTML;
     var RichText = blockEditor.RichText;
     function buttonProps( attrs ) { return { type: 'button', className: attrs.className || undefined, 'aria-label': attrs.ariaLabel || 'Toggle theme' }; }
-    function safeStyle( style ) { var clean = {}; Object.keys( style || {} ).forEach( function( name ) { var value = style[ name ]; if ( /^(?:--[a-zA-Z0-9_-]+|[a-z][a-zA-Z0-9]*)$/.test( name ) && !/^on/i.test( name ) && !/(?:url\s*\(|expression\s*\(|javascript\s*:)/i.test( String( value ) ) && ( 'string' === typeof value || 'number' === typeof value ) ) clean[ name ] = value; } ); return clean; }
+    function safeStyle( style ) { var clean = {}; Object.keys( style || {} ).forEach( function( name ) { var key = name.indexOf( '--' ) === 0 ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ).replace( /^ms-/, 'ms' ); var value = style[ name ]; if ( /^(?:--[a-zA-Z0-9_-]+|[a-z][a-zA-Z0-9-]*)$/.test( name ) && /^(?:--[a-zA-Z0-9_-]+|[a-z][a-zA-Z0-9]*)$/.test( key ) && !/^on/i.test( name ) && !/(?:url\s*\(|expression\s*\(|javascript\s*:)/i.test( String( value ) ) && ( 'string' === typeof value || 'number' === typeof value ) ) clean[ key ] = value; } ); return clean; }
     function entryProps( entry ) { var props = {}; var safe = entry && entry.attributes || {}; Object.keys( safe ).forEach( function( name ) { if ( /^(?:role|id|title|tabIndex|dir|lang|hidden|disabled|aria-[a-z-]+|data-[a-z0-9_.:-]+)$/i.test( name ) && !/^on/i.test( name ) ) props[ name ] = safe[ name ]; } ); var clean = safeStyle( entry && entry.style ); if ( Object.keys( clean ).length ) props.style = clean; return props; }
     function safeIcon( icon ) { return /^<svg(?:\s|>)/i.test( icon || '' ) && !/(?:<\/?(?:script|style|foreignobject|iframe|object|embed|link)\b|\son[a-z]+\s*=|javascript\s*:)/i.test( icon ) ? icon : ''; }
     function icon( value, hidden ) { var svg = safeIcon( value ) ? createElement( RawHTML, null, safeIcon( value ) ) : null; return undefined === hidden ? svg : createElement( 'span', { 'data-wp-bind--hidden': hidden }, svg ); }
@@ -59,6 +60,7 @@ final class ThemeToggleBlockGenerator
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
 JS;
         $editor = str_replace("lightValue: attrs.lightValue || 'light'", "lightValue: null === attrs.lightValue ? 'light' : attrs.lightValue", $editor);
+        $editor = str_replace("lightValue: null === attrs.lightValue ? 'light' : attrs.lightValue, defaultTheme:", "lightValue: null === attrs.lightValue ? 'light' : attrs.lightValue, rootAttributeRemoved: Boolean( attrs.rootAttributeRemoved ), defaultTheme:", $editor);
         $editor = str_replace('groupProps.style = JSON.parse( attrs.groupStyle )', 'groupProps.style = safeStyle( JSON.parse( attrs.groupStyle ) )', $editor);
         $view = <<<'JS'
 import { getContext, store } from '@wordpress/interactivity';
@@ -67,12 +69,13 @@ const applyTheme = ( context, dark ) => {
     const root = document.documentElement;
     const attribute = context.rootAttribute || 'class';
     const darkValue = context.darkValue || context.rootClass || 'dark';
-    const lightValue = context.lightValue || 'light';
+    const lightValue = 'undefined' === typeof context.lightValue ? 'light' : context.lightValue;
     if ( 'class' === attribute ) {
         root.classList.toggle( darkValue, dark );
         if ( lightValue ) root.classList.toggle( lightValue, ! dark );
     } else if ( /^[a-zA-Z_:][a-zA-Z0-9:._-]*$/.test( attribute ) ) {
-        root.setAttribute( attribute, dark ? darkValue : lightValue );
+        if ( ! dark && context.rootAttributeRemoved && ! lightValue ) root.removeAttribute( attribute );
+        else root.setAttribute( attribute, dark ? darkValue : lightValue );
     }
     root.style.colorScheme = dark ? 'dark' : 'light';
 };
@@ -219,7 +222,7 @@ JS;
             $modes = is_array($attributes['themeModes'] ?? null) ? array_values(array_intersect($attributes['themeModes'], array('light', 'system', 'dark'))) : array('light', 'system', 'dark');
             $selected = (string) ($attributes['selectedMode'] ?? $attributes['defaultTheme'] ?? 'dark');
             if (! in_array($selected, $modes, true)) $selected = 'dark';
-            $context = $escape((string) json_encode(array('rootAttribute' => (string) ($attributes['rootAttribute'] ?? 'class'), 'rootClass' => (string) ($attributes['rootClass'] ?? 'dark'), 'darkValue' => (string) ($attributes['darkValue'] ?? $attributes['rootClass'] ?? 'dark'), 'lightValue' => (string) ($attributes['lightValue'] ?? 'light'), 'defaultTheme' => (string) ($attributes['defaultTheme'] ?? 'dark'), 'selectedMode' => $selected, 'storageKey' => (string) ($attributes['storageKey'] ?? 'theme'), 'themeModes' => $modes), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+            $context = $escape((string) json_encode(array('rootAttribute' => (string) ($attributes['rootAttribute'] ?? 'class'), 'rootClass' => (string) ($attributes['rootClass'] ?? 'dark'), 'darkValue' => (string) ($attributes['darkValue'] ?? $attributes['rootClass'] ?? 'dark'), 'lightValue' => (string) ($attributes['lightValue'] ?? 'light'), 'rootAttributeRemoved' => ! empty($attributes['rootAttributeRemoved']), 'defaultTheme' => (string) ($attributes['defaultTheme'] ?? 'dark'), 'selectedMode' => $selected, 'storageKey' => (string) ($attributes['storageKey'] ?? 'theme'), 'themeModes' => $modes), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
             $tag = preg_match('/^[A-Za-z][A-Za-z0-9-]*$/', (string) ($attributes['groupTag'] ?? 'div')) ? (string) $attributes['groupTag'] : 'div';
             $groupAttrs = is_array($attributes['groupAttributes'] ?? null) ? $attributes['groupAttributes'] : array();
             $html = '<' . $tag . ' data-wp-interactive="' . $escape($blockName) . '" data-wp-context="' . $context . '" data-wp-init="callbacks.init"';

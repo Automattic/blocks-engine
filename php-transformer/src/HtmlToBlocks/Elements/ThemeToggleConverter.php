@@ -72,9 +72,8 @@ final class ThemeToggleConverter implements ElementConverter
             return null;
         }
         $evidenceAnalyzer = new RuntimeScriptEvidenceAnalyzer();
-        $ownershipByContract = array();
+        $runtimeOwners = array();
         $runtimeBytes = 0;
-        $sourceLabels = array_map(static fn (DOMElement $button): string => trim(SourceDom::attr($button, 'aria-label')), $buttons);
         foreach ( $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets() as $asset ) {
             $script = (string) ($asset['content'] ?? '');
             $scriptBytes = strlen($script);
@@ -82,50 +81,10 @@ final class ThemeToggleConverter implements ElementConverter
                 continue;
             }
             $runtimeBytes += $scriptBytes;
-            $controlLabelsPresent = true;
-            foreach ( $sourceLabels as $label ) {
-                if ( '' === $label || ! str_contains($script, $label) ) { $controlLabelsPresent = false; break; }
-            }
-            if ( ! $controlLabelsPresent ) continue;
             $ownership = $evidenceAnalyzer->themePreferenceOwnership($script);
             if ( null !== $ownership ) {
-                $ownershipByContract[json_encode($ownership, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)] = $ownership;
+                $runtimeOwners[] = array('path' => (string) ($asset['path'] ?? ''), 'sha256' => hash('sha256', $script), 'ownership' => $ownership);
             }
-        }
-        if ( 1 !== count($ownershipByContract) ) {
-            return null;
-        }
-        $ownership = reset($ownershipByContract);
-        $rootAttribute = $ownership['rootAttribute'] ?? null;
-        if ( ! is_string($rootAttribute) || ( 'class' !== $rootAttribute && ! preg_match('/^[a-zA-Z_:][a-zA-Z0-9:._-]*$/', $rootAttribute) ) ) return null;
-        $darkValue = null;
-        $lightValue = '';
-        if ('class' === $rootAttribute) {
-            if (preg_match('/(?:^|})\.([a-z][a-z0-9_-]*)(?:\s[^{}]*)?\{[^}]*(?:color-scheme|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css, $darkClass)) {
-                $darkValue = $darkClass[1];
-            }
-            foreach ( $ownership['rootClassValues'] ?? array() as $classValue ) {
-                if ( is_string($classValue) && $classValue !== $darkValue ) { $lightValue = $classValue; break; }
-            }
-            if ( '' === $lightValue && 'light' === $defaultTheme ) $lightValue = 'light';
-        } else {
-            $attributeValues = is_array($ownership['rootAttributeValues'] ?? null) ? $ownership['rootAttributeValues'] : array();
-            if ( preg_match_all('/:root[^{}]*\[' . preg_quote($rootAttribute, '/') . '\s*=\s*(["\']?)([A-Za-z0-9_-]+)\1\s*\][^{}]*\{([^}]*)\}/i', $css, $attributeRules, PREG_SET_ORDER) ) {
-                foreach ( $attributeRules as $rule ) {
-                    $value = $rule[2];
-                    $body = $rule[3];
-                    if ( null === $darkValue && ('dark' === strtolower($value) || preg_match('/color-scheme\s*:\s*dark\b/i', $body)) ) $darkValue = $value;
-                    if ( '' === $lightValue && ('light' === strtolower($value) || preg_match('/color-scheme\s*:\s*light\b/i', $body)) ) $lightValue = $value;
-                }
-            }
-            if ( null === $darkValue || ( '' === $lightValue && empty($ownership['rootAttributeRemoved']) ) ) return null;
-        }
-        if ( ! is_string($darkValue) || '' === $darkValue ) return null;
-        $runtimeClassValues = is_array($ownership['rootClassValues'] ?? null) ? $ownership['rootClassValues'] : array();
-        if ( 'class' === $rootAttribute && array() !== $runtimeClassValues && ! in_array($darkValue, $runtimeClassValues, true) ) return null;
-        if ( ! in_array($defaultTheme, array( 'dark', 'light' ), true) ) {
-            // The source boot script chooses the OS scheme when no explicit class was captured.
-            $defaultTheme = 'system';
         }
 
         $modes = array( 'light', 'system', 'dark' );
@@ -177,6 +136,7 @@ final class ThemeToggleConverter implements ElementConverter
             $entries[] = array(
                 'mode' => $mode,
                 'ariaLabel' => $label,
+                'iconSemantic' => $semantic,
                 'className' => implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim(SourceDom::attr($button, 'class') . ' ' . (string) ($presentation['className'] ?? ''))) ?: array())))),
                 'attributes' => $safeAttributes,
                 'style' => is_array($presentation['style'] ?? null) ? $presentation['style'] : array(),
@@ -192,6 +152,23 @@ final class ThemeToggleConverter implements ElementConverter
         if ( 1 < count(array_filter($entries, static fn (array $entry): bool => true === $entry['selected'])) ) {
             return null;
         }
+        $qualified = $this->sourceQualifiedThemeOwnership($element, $entries, $runtimeOwners);
+        if ( null === $qualified ) return null;
+        $ownership = $qualified['runtime_ownership'];
+        $operator = $qualified['operator'];
+        $rootAttribute = (string) $operator['root']['attribute'];
+        $darkValue = (string) $operator['root']['dark_value'];
+        $lightValue = (string) $operator['root']['light_value'];
+        if ( 'class' === $rootAttribute ) {
+            if ( ! preg_match('/(?:^|})\.' . preg_quote($darkValue, '/') . '(?:\s[^{}]*)?\{[^}]*(?:color-scheme|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css) ) return null;
+            $runtimeClassValues = is_array($ownership['rootClassValues'] ?? null) ? $ownership['rootClassValues'] : array();
+            if ( array() !== $runtimeClassValues && ! in_array($darkValue, $runtimeClassValues, true) ) return null;
+            if ( '' !== $lightValue && ! in_array($lightValue, $runtimeClassValues, true) ) return null;
+        } else {
+            if ( ! preg_match('/:root[^{}]*\[' . preg_quote($rootAttribute, '/') . '\s*=\s*(["\']?)([A-Za-z0-9_-]+)\1\s*\][^{}]*\{[^}]*(?:color-scheme\s*:\s*dark|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css) ) return null;
+            if ( '' === $lightValue && empty($ownership['rootAttributeRemoved']) ) return null;
+        }
+        if ( ! in_array($defaultTheme, array( 'dark', 'light' ), true) ) $defaultTheme = 'system';
         $generator = new ThemeToggleBlockGenerator();
         $registry = $this->session->generatedBlockRegistry()
             ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
@@ -212,6 +189,7 @@ final class ThemeToggleConverter implements ElementConverter
             'rootAttribute' => $rootAttribute,
             'darkValue' => $darkValue,
             'lightValue' => $lightValue,
+            'rootAttributeRemoved' => ! empty($ownership['rootAttributeRemoved']),
             'defaultTheme' => $defaultTheme,
             'storageKey' => (string) $ownership['storageKey'],
         );
@@ -224,6 +202,119 @@ final class ThemeToggleConverter implements ElementConverter
         }
         $markup = $generator->markup($attributes, $blockName);
         return array('blockName' => $blockName, 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
+    }
+
+    /** @param array<int, array<string, mixed>> $entries @param array<int, array<string, mixed>> $runtimeOwners @return array{operator:array<string, mixed>,runtime_ownership:array<string, mixed>}|null */
+    private function sourceQualifiedThemeOwnership(DOMElement $element, array $entries, array $runtimeOwners): ?array
+    {
+        $matches = array();
+        foreach ( $this->session->runtimeBehaviorState()->themePreferenceOwnership() as $operator ) {
+            if ( 'blocks-engine/php-transformer/theme-preference-ownership/v1' !== ($operator['schema'] ?? null)
+                || ! is_string($operator['source_path'] ?? null)
+                || $operator['source_path'] !== $this->session->sourcePath()
+                || ! is_string($operator['group_selector'] ?? null)
+                || ! $this->groupMatchesOwnershipSelector($element, $operator['group_selector'])
+                || ! is_string($operator['runtime_script_path'] ?? null)
+                || ! is_string($operator['runtime_script_sha256'] ?? null)
+                || 1 !== preg_match('/^[a-f0-9]{64}$/', $operator['runtime_script_sha256']) ) {
+                continue;
+            }
+            $scriptOwner = null;
+            foreach ( $runtimeOwners as $owner ) {
+                if ( $operator['runtime_script_path'] === ($owner['path'] ?? null) && $operator['runtime_script_sha256'] === ($owner['sha256'] ?? null) ) {
+                    if ( null !== $scriptOwner ) { $scriptOwner = null; break; }
+                    $scriptOwner = $owner['ownership'] ?? null;
+                }
+            }
+            if ( ! is_array($scriptOwner) || ($operator['storage_key'] ?? null) !== ($scriptOwner['storageKey'] ?? null)
+                || '(prefers-color-scheme: dark)' !== trim((string) ($operator['system_query'] ?? '')) ) {
+                continue;
+            }
+            $root = is_array($operator['root'] ?? null) ? $operator['root'] : array();
+            if ( ! in_array($root['selector'] ?? null, array('html', ':root'), true)
+                || ($root['attribute'] ?? null) !== ($scriptOwner['rootAttribute'] ?? null)
+                || ! is_string($root['dark_value'] ?? null) || '' === $root['dark_value']
+                || ! is_string($root['light_value'] ?? null) ) {
+                continue;
+            }
+            $lightOperation = 'class' === $root['attribute']
+                ? ('' === $root['light_value'] ? 'remove-theme-class' : 'set-theme-class')
+                : ('' === $root['light_value'] ? 'remove-attribute' : 'set-attribute');
+            if ( $lightOperation !== ($root['light_operation'] ?? null)
+                || ('' === $root['light_value'] && empty($scriptOwner['rootAttributeRemoved']) && 'class' !== $root['attribute']) ) {
+                continue;
+            }
+            $controls = is_array($operator['controls'] ?? null) ? array_values($operator['controls']) : array();
+            if ( 3 !== count($controls) ) continue;
+            $controlsMatch = true;
+            foreach ( $entries as $index => $entry ) {
+                $control = $controls[$index] ?? array();
+                if ( ! is_array($control) || ($control['mode'] ?? null) !== ($entry['mode'] ?? null)
+                    || ($control['accessible_name'] ?? null) !== ($entry['ariaLabel'] ?? null)
+                    || ($control['icon'] ?? null) !== ($entry['iconSemantic'] ?? null) ) {
+                    $controlsMatch = false;
+                    break;
+                }
+            }
+            if ( ! $controlsMatch || ! $this->observedThemeTransitions($operator['observed_transitions'] ?? null) ) continue;
+            $matches[] = array('operator' => $operator, 'runtime_ownership' => $scriptOwner);
+        }
+
+        return 1 === count($matches) ? $matches[0] : null;
+    }
+
+    private function groupMatchesOwnershipSelector(DOMElement $element, string $selector): bool
+    {
+        if ( ! preg_match('/^(?:#([A-Za-z][A-Za-z0-9_-]*)|\.([A-Za-z][A-Za-z0-9_-]*))$/', trim($selector), $match) ) return false;
+        if ( '' !== ($match[1] ?? '') ) {
+            if ( SourceDom::attr($element, 'id') !== $match[1] ) return false;
+            $attribute = 'id';
+            $expected = $match[1];
+        } else {
+            $class = $match[2] ?? '';
+            $classes = preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array();
+            if ( ! in_array($class, $classes, true) ) return false;
+            $attribute = 'class';
+            $expected = $class;
+        }
+        $document = $element->ownerDocument;
+        if ( ! $document instanceof \DOMDocument ) return false;
+        $count = 0;
+        foreach ( $document->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) continue;
+            if ( 'id' === $attribute ) {
+                if ( SourceDom::attr($candidate, 'id') === $expected ) ++$count;
+            } else {
+                $candidateClasses = preg_split('/\s+/', trim(SourceDom::attr($candidate, 'class'))) ?: array();
+                if ( in_array($expected, $candidateClasses, true) ) ++$count;
+            }
+        }
+
+        return 1 === $count;
+    }
+
+    private function observedThemeTransitions(mixed $transitions): bool
+    {
+        if ( ! is_array($transitions) || 4 !== count($transitions) ) return false;
+        $observed = array();
+        foreach ( $transitions as $transition ) {
+            if ( ! is_array($transition) || ! is_string($transition['mode'] ?? null)
+                || ! is_string($transition['storage_value'] ?? null) || ! is_string($transition['resolved'] ?? null) ) return false;
+            $mode = $transition['mode'];
+            if ( ! in_array($mode, array('light', 'dark', 'system'), true) || $mode !== $transition['storage_value'] ) return false;
+            if ( 'system' === $mode ) {
+                $scheme = $transition['os_scheme'] ?? null;
+                if ( ! in_array($scheme, array('light', 'dark'), true) || $transition['resolved'] !== $scheme ) return false;
+                $key = $mode . ':' . $scheme;
+            } else {
+                if ( array_key_exists('os_scheme', $transition) || $transition['resolved'] !== $mode ) return false;
+                $key = $mode;
+            }
+            if ( isset($observed[$key]) ) return false;
+            $observed[$key] = true;
+        }
+
+        return isset($observed['light'], $observed['dark'], $observed['system:light'], $observed['system:dark']);
     }
 
     /** @return array<string, mixed>|null */

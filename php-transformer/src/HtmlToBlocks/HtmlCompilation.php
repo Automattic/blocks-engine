@@ -1485,6 +1485,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->runtimeBehavior()->installRuntimeProjectionScriptAssets(
             is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
         );
+        $this->runtimeBehavior()->installThemePreferenceOwnership(
+            is_array($options['theme_preference_ownership'] ?? null) ? $options['theme_preference_ownership'] : array()
+        );
         $this->projectedSelectorBindings = array();
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
         $this->session->installSourcePath($this->currentSourcePath);
