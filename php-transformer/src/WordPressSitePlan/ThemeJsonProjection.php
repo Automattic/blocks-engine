@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 
 /** Projects source CSS that has an exact Global Styles equivalent. */
 final class ThemeJsonProjection
@@ -43,6 +44,11 @@ final class ThemeJsonProjection
      */
     public function project(array $assets): array
     {
+        $deliveryAssets = $assets;
+        // A selectable set owns its declarations for its entire lifetime.
+        // Projecting the initially preferred set into permanent Global Styles
+        // would keep its values active after the source selects another set.
+        $assets = array_filter($assets, static fn(array $asset): bool => StylesheetActivation::active($asset) && '' === ($asset['stylesheet_activation']['title'] ?? ''));
         $variables = $this->customProperties($assets);
         $candidates = array();
         $conditionalProperties = array();
@@ -115,7 +121,7 @@ final class ThemeJsonProjection
         $presets = $this->presets($selected, $fontFamilyStacks);
         $responsiveBreakpoints = ResponsiveBreakpoints::fromAssets($assets);
 
-        return array('assets' => $assets, 'theme' => $this->theme($selected, $presets, $this->fontFaces($assets), $responsiveBreakpoints['viewport']), 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets, 'responsive_breakpoints' => $responsiveBreakpoints['report']);
+        return array('assets' => $deliveryAssets, 'theme' => $this->theme($selected, $presets, $this->fontFaces($assets), $responsiveBreakpoints['viewport']), 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets, 'responsive_breakpoints' => $responsiveBreakpoints['report']);
     }
 
     /**
