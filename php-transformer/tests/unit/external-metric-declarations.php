@@ -68,7 +68,7 @@ $neutralSource = $source('neutral.example-records', 'https://metrics.example.com
 $neutralFact = $fact('neutral-score', $neutralSource, 'score', array('kind' => 'json_pointer', 'pointer' => '/measurements/score', 'value_type' => 'nonnegative_integer'), 'identity', '31', array('locale' => 'en-US', 'grouping' => false, 'prefix' => '', 'suffix' => '', 'decimals' => 0));
 $neutralFact['provenance'] = array('kind' => 'operator_mapping', 'author' => 'operator:chubes4', 'source_relationship' => 'The captured score leaf is explicitly mapped to the configured neutral JSON source score value.');
 $neutral = RuntimeDeclarations::normalizeList($declaration(array($neutralFact)));
-$assert('neutral.example-records' === $neutral[0]['payload']['entities'][0]['source']['id'], 'accepts a third neutral JSON source recipe without a source-specific core enum');
+$assert('neutral.example-records' === $neutral[0]['payload']['entities'][0]['source']['id'] && '/measurements/score' === $neutral[0]['payload']['entities'][0]['extraction']['pointer'], 'accepts and retains a third neutral JSON source recipe without a source-specific core enum');
 foreach (array('_github', 'repo.', 'repo_', 'repo-') as $repository) {
     $bounded = $githubFact; $bounded['source']['resources'][0]['repository'] = $repository;
     $assert(!$rejected($declaration(array($bounded))), "accepts bounded GitHub repository character spelling {$repository}");

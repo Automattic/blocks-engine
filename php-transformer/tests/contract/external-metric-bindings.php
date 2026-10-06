@@ -145,7 +145,7 @@ $neutralResolved = (new WordPressSitePlanResolver())->resolve($neutralStaged, ar
 $neutralEntities = $neutralResolved['runtime_declarations'][0]['payload']['entities'] ?? array();
 $neutralParts = array_values(array_filter($neutralResolved['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
 $neutralEntity = $neutralEntities[0] ?? array(); $neutralBinding = $neutralEntity['bindings'][0] ?? array();
-$assert(1 === count($neutralEntities) && 1 === count($neutralParts) && ($neutralEntity['source']['id'] ?? null) === 'neutral.example-records', 'third neutral source recipe survives full compilation and shared-shell extraction');
+$assert(1 === count($neutralEntities) && 1 === count($neutralParts) && ($neutralEntity['source']['id'] ?? null) === 'neutral.example-records' && ($neutralEntity['extraction']['pointer'] ?? null) === '/measurements/score' && ($neutralEntity['extraction']['value_type'] ?? null) === 'nonnegative_integer', 'third neutral source recipe and extraction survive full compilation and shared-shell extraction');
 $assert(($neutralEntity['provenance']['kind'] ?? null) === 'operator_mapping' && ($neutralEntity['fallback']['text'] ?? null) === '31' && ($neutralEntity['fallback']['hash'] ?? null) === hash('sha256', '31'), 'third neutral source preserves operator mapping and its plain numeric fallback/hash');
 $assert(($neutralBinding['source_path'] ?? null) === ($neutralParts[0]['source_path'] ?? null) && WordPressSitePlan::bindingPosition($neutralBinding['position'] ?? null, $neutralParts[0]['resolved_block_markup'], $neutralAnchor), 'third neutral source selector reanchors to the shared native text leaf');
 
