@@ -174,6 +174,20 @@ final class RuntimeDeclarations
         unset($declaration); ksort($records, SORT_STRING); return array('declarations' => self::normalizeList($declarations), 'records' => array_values($records));
     }
 
+    /**
+     * Validate declarations while composition is still editing entity bindings.
+     * The bounded record representation is temporary: shell extraction must see
+     * every entity, including those whose combined payload exceeds 5 MiB.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @return array<int,array<string,mixed>>
+     */
+    public static function normalizeForComposition(array $declarations): array
+    {
+        $factored = self::factor($declarations);
+        return self::materialize($factored['declarations'], $factored['records']);
+    }
+
     /** @param array<int,array<string,mixed>> $records @return array<int,array<string,mixed>> */
     public static function normalizeRecords(array $records): array
     {

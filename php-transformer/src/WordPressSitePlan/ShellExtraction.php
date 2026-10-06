@@ -1098,7 +1098,7 @@ final class ShellExtraction
             }
             if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, 'wordpress-site-plan/shared/' . $area . '#' . $area);
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
-            $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
+            $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
             $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $area;
             $placement = $inlineShell ? 'inline_shared_shell' : ($singlePage ? 'entry_shell' : 'shared_shell');
             if ($inlineShell) { $templateSlugs = array(); $excludedTemplateSlugs = array(); }
@@ -1375,7 +1375,7 @@ final class ShellExtraction
         }
         foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
         unset($declaration);
-        $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
+        $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
         $sourcePath = 'wordpress-site-plan/shared/' . $area;
         $partMarkup = $absorbed['markup'];
         $ancestorContext = is_array($absorbed['ancestor_context'] ?? null) ? $absorbed['ancestor_context'] : null;
