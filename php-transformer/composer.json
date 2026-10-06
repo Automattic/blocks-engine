@@ -389,6 +389,7 @@
       "php tests/unit/svg-element-converter.php",
       "php tests/unit/filtered-svg-materialization.php",
       "php tests/unit/svg-materialized-paint-cascade.php",
+      "php tests/unit/svg-inherited-color-reset.php",
       "php tests/unit/materialized-svg-custom-property-carry.php",
       "php tests/unit/inset-positioned-parent-fill-svg.php",
       "php tests/unit/collapsed-control-presentation.php",
