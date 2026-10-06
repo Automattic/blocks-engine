@@ -269,7 +269,7 @@ final class WordPressSitePlan
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
         $projector = new ThemeJsonProjection();
-        $themeProjection = $projector->project($assets);
+        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'));
         $assets = $themeProjection['assets'];
         $routes = $this->routesForPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
