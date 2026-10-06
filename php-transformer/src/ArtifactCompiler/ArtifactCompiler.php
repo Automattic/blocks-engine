@@ -1709,6 +1709,7 @@ final class ArtifactCompiler
     {
         $areas = array();
         foreach ( $files as $file ) {
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
             if ( ! is_array($file) || ! $this->isTemplatePartFile($file) ) {
                 continue;
             }
@@ -3684,6 +3685,10 @@ final class ArtifactCompiler
             if ( ! $this->isTemplatePartFile($file) ) {
                 continue;
             }
+
+            // Resolved component chrome is bound by ShellExtraction from each
+            // page's actual block tree, not emitted again as an unbound part.
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
 
             $slug = $this->slugFromPath($path);
             $area = $this->templatePartArea($path, (string) ($file['role'] ?? ''));
