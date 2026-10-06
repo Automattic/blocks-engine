@@ -651,13 +651,20 @@ JS;
             ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
 
         if ( ! $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
-            return null;
+            [$identityList] = $this->richestCarouselList($element);
+            $hasIdentity = false;
+            for ( $candidate = $identityList; $candidate instanceof DOMElement && $candidate !== $element; $candidate = $candidate->parentNode ) {
+                $hasIdentity = $hasIdentity || $this->sourceElementClassifier->hasCarouselIdentity($candidate);
+            }
+            if ( ! $hasIdentity ) {
+                return null;
+            }
         }
 
         $hasPrevious = false;
         $hasNext = false;
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselControl($candidate, $element) ) {
                 continue;
             }
             $metadataIdentity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
@@ -679,6 +686,15 @@ JS;
         }
         [$list, $items] = $this->richestCarouselList($element);
         $localList = $list;
+        // Let the smallest complete carousel own its list and controls. An
+        // enclosing gallery section still converts its heading and other copy.
+        if ( $list instanceof DOMElement ) {
+            for ( $owner = $list->parentNode; $owner instanceof DOMElement && $owner !== $element; $owner = $owner->parentNode ) {
+                if ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) {
+                    return null;
+                }
+            }
+        }
         if ( count($items) < 2 ) {
             foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $counterpart ) {
                 if ( ! $counterpart instanceof DOMElement || $counterpart === $element || ! $this->sharesCarouselIdentity($element, $counterpart) ) {
@@ -717,6 +733,7 @@ JS;
                     $slide['attrs']['caption'] = $caption;
                     $slide = $blockFactory->create('core/image', $slide['attrs'], array());
                 }
+                $slide = $this->imageSlideContainers($slide, $image, $item, $styleResolver, $createBlock);
             } else {
                 $geometryStyles = $this->carrySourceGeometryIntoBlockTree($item, $styleResolver);
                 try {
@@ -744,6 +761,27 @@ JS;
         $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
         $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
+        if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousImageSlideList($list) ) {
+            $visible = 0;
+            $hidden = 0;
+            $active = 0;
+            foreach ( $items as $item ) {
+                $active += str_contains(' ' . strtolower(SourceDom::attr($item, 'class')) . ' ', ' active ') ? 1 : 0;
+                $display = strtolower(trim((string) ($styleResolver->structuralPresentationDeclarations($item)['display'] ?? '')));
+                if ( 'none' === $display ) {
+                    ++$hidden;
+                } elseif ( '' !== $display ) {
+                    ++$visible;
+                }
+            }
+            // A capture during a slide transition can expose both the outgoing
+            // active frame and its incoming neighbour while the rest stay hidden.
+            if ( (1 === $visible && count($items) - 1 === $hidden)
+                || (1 === $active && $hidden > 0 && $hidden >= count($items) - 2 && $visible <= 2)
+            ) {
+                $presentation = 'slideshow';
+            }
+        }
         // Selecting a slide from a thumbnail means one slide is on stage.
         if ( 1 < count($pagerItems) ) {
             $presentation = 'slideshow';
@@ -917,7 +955,7 @@ JS;
     {
         $controls = array('previous' => null, 'next' => null);
         foreach ($root->getElementsByTagName('*') as $candidate) {
-            if (!$candidate instanceof DOMElement || !in_array(strtolower($candidate->tagName), array('a', 'button'), true)) {
+            if (!$candidate instanceof DOMElement || !$this->sourceElementClassifier->isCarouselControl($candidate, $root)) {
                 continue;
             }
             $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
@@ -935,7 +973,7 @@ JS;
     {
         $controls = array();
         foreach ($root->getElementsByTagName('*') as $candidate) {
-            if (!$candidate instanceof DOMElement || !in_array(strtolower($candidate->tagName), array('a', 'button'), true)) {
+            if (!$candidate instanceof DOMElement || !$this->sourceElementClassifier->isCarouselControl($candidate, $root)) {
                 continue;
             }
             $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'title'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
@@ -951,7 +989,7 @@ JS;
         $previous = array();
         $next = array();
         foreach ($root->getElementsByTagName('*') as $candidate) {
-            if (!$candidate instanceof DOMElement || !in_array(strtolower($candidate->tagName), array('a', 'button'), true)) {
+            if (!$candidate instanceof DOMElement || !$this->sourceElementClassifier->isCarouselControl($candidate, $root)) {
                 continue;
             }
             $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'title'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
@@ -1181,7 +1219,7 @@ JS;
         $previous = false;
         $next = false;
         foreach ($element->getElementsByTagName('*') as $candidate) {
-            if (!$candidate instanceof DOMElement || !in_array(strtolower($candidate->tagName), array('a', 'button'), true)) {
+            if (!$candidate instanceof DOMElement || !$this->sourceElementClassifier->isCarouselControl($candidate, $element)) {
                 continue;
             }
             $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'title'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
@@ -1628,6 +1666,30 @@ JS;
         return $block;
     }
 
+    /** Preserve authored responsive image holders below the runtime slide. */
+    private function imageSlideContainers(array $imageBlock, DOMElement $image, DOMElement $item, StyleResolver $styleResolver, SourceBlockCreator $createBlock): array
+    {
+        $containers = array();
+        for ( $node = $image->parentNode; $node instanceof DOMElement && $node !== $item; $node = $node->parentNode ) {
+            if ( ! in_array(strtolower($node->tagName), array('div', 'span'), true)
+                || 1 !== $node->getElementsByTagName('img')->length
+                || '' !== trim($node->textContent ?? '')
+            ) {
+                return $imageBlock;
+            }
+            $containers[] = $node;
+        }
+        $block = $imageBlock;
+        foreach ( $containers as $container ) {
+            $geometry = $styleResolver->sourceGeometryPresentationDeclarations($container);
+            if ( array() === array_intersect_key($geometry, array_flip(array('width', 'max-width', 'height', 'min-height', 'aspect-ratio', 'padding', 'padding-top', 'position'))) ) {
+                continue;
+            }
+            $block = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($container), array($block), $container);
+        }
+        return $block === $imageBlock ? $imageBlock : $createBlock->createBlock('core/group', array(), array($block));
+    }
+
     /**
      * When a source root class also owns slide runtime transforms, that class
      * cannot safely surround converted RichText descendants. Restate only
@@ -1724,6 +1786,10 @@ JS;
     private function carouselItemsHaveContent(array $items): bool
     {
         foreach ( $items as $item ) {
+            $image = $item->getElementsByTagName('img')->item(0);
+            if ( $image instanceof DOMElement && '' === trim(SourceDom::attr($image, 'src')) ) {
+                return false;
+            }
             if ( 0 === $item->getElementsByTagName('img')->length
                 && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
             ) {

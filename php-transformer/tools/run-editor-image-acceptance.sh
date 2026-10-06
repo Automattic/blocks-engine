@@ -49,6 +49,14 @@ fi
 "${wp[@]}" plugin activate blocks-engine-php-transformer
 "${wp[@]}" core version | tee "$evidence/wordpress-version.txt"
 
+# Other block acceptance fixtures share this disposable runtime lifecycle.
+if [[ -n "${BE_EDITOR_ACCEPTANCE_BUILDER:-}" ]]; then
+	"${wp[@]}" eval-file "wp-content/plugins/blocks-engine-php-transformer/${BE_EDITOR_ACCEPTANCE_BUILDER}" | tee "$evidence/source-and-page.json"
+	post_id="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); if(!is_int($x["post_id"]??null)||$x["post_id"]<1) exit(1); echo $x["post_id"];' "$evidence/source-and-page.json")"
+	BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_POST_ID="$post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR="$evidence" run node "$root/${BE_EDITOR_ACCEPTANCE_BROWSER:?Set the corresponding browser acceptance script.}" | tee "$evidence/browser.json"
+	exit 0
+fi
+
 # WordPress crop support needs a raster editor. Create two visibly distinct local PNGs through its GD extension.
 "${wp[@]}" eval 'if (!function_exists("imagecreatetruecolor")) { throw new RuntimeException("WordPress image editor prerequisite missing: GD is unavailable."); } foreach ([["first", 210, 70, 70], ["second", 35, 100, 210]] as $spec) { [$name, $r, $g, $b] = $spec; $image=imagecreatetruecolor(960,720); imagefill($image,0,0,imagecolorallocate($image,$r,$g,$b)); imagefilledrectangle($image,160,120,800,600,imagecolorallocate($image,255-$r,255-$g,255-$b)); $file=wp_upload_dir()["path"]."/be-editor-".$name.".png"; imagepng($image,$file); imagedestroy($image); $id=wp_insert_attachment(["post_mime_type"=>"image/png","post_title"=>"BE editor ".$name,"post_status"=>"inherit"],$file); require_once ABSPATH."wp-admin/includes/image.php"; wp_update_attachment_metadata($id,wp_generate_attachment_metadata($id,$file)); echo $id."\n"; }' > "$work/attachment-ids.txt"
 first_id="$(php -r '$a=preg_split("/\\s+/",trim(file_get_contents($argv[1]))); if(2!==count($a)||preg_match("/\\D/",implode("",$a))) exit(1); echo $a[0];' "$work/attachment-ids.txt")"
