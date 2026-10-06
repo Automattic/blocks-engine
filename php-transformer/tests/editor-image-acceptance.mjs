@@ -286,9 +286,96 @@ try {
   assert.ok( queryEditorEvidence.overlays.every( ( overlay ) => 'none' === overlay.display ), 'any rendered query-template overlay is hidden in the real editor' );
   assert.ok( queryEditorEvidence.projectionStyles.some( ( css ) => css.includes( '.editor-styles-wrapper .blocks-engine-listing-bound-meta{display:none}' ) ), 'generated editor settings hide unresolved bound-meta placeholder strings' );
   assert.ok( queryEditorEvidence.boundFields.every( ( field ) => 'none' === field.display ), 'any rendered unresolved bound-meta field is withheld from the editor canvas' );
-  await page.screenshot( { path: `${ evidence }/editor-query-desktop.png`, fullPage: true } );
-  await page.setViewportSize( { width: 390, height: 844 } );
-  await page.screenshot( { path: `${ evidence }/editor-query-mobile.png`, fullPage: true } );
+   await page.screenshot( { path: `${ evidence }/editor-query-desktop.png`, fullPage: true } );
+   await page.setViewportSize( { width: 390, height: 844 } );
+   await page.screenshot( { path: `${ evidence }/editor-query-mobile.png`, fullPage: true } );
+
+   const isolatedFixturePostIds = [ source.listing.post_ids[ 'first.html' ], source.listing.post_ids[ 'second.html' ] ];
+   const removedFixturePosts = await page.evaluate( async ( ids ) => Promise.all( ids.map( ( id ) => window.wp.apiFetch( { path: `/wp/v2/posts/${ id }?force=true`, method: 'DELETE' } ) ) ), isolatedFixturePostIds );
+   assert.ok( removedFixturePosts.every( ( result ) => result && result.deleted ), 'synthetic parity posts are removed before the captured-source query is opened' );
+
+   const capturedSource = JSON.parse( await readFile( `${ evidence }/captured-source-wordpress.json`, 'utf8' ) );
+   const capturedHomeId = capturedSource.home.post_id;
+   assert.ok( capturedHomeId > 0 && capturedSource.home.has_query_overlay && capturedSource.home.has_bound_meta_projection, 'the exact captured source compiled into a native query with the listing overlay and bound-meta projection' );
+   await page.goto( `${ baseUrl }/wp-admin/themes.php`, { waitUntil: 'domcontentloaded' } );
+   const activateCapturedTheme = page.locator( `.theme[data-slug="${ capturedSource.theme }"] a.activate` );
+   await activateCapturedTheme.waitFor();
+   const activateCapturedThemeUrl = await activateCapturedTheme.getAttribute( 'href' );
+   assert.ok( activateCapturedThemeUrl, 'the captured theme exposes its authenticated activation route' );
+   await page.goto( activateCapturedThemeUrl, { waitUntil: 'domcontentloaded' } );
+   const activeCapturedTheme = page.locator( `.theme.active[data-slug="${ capturedSource.theme }"]` );
+   await activeCapturedTheme.waitFor();
+   await writeFile( `${ evidence }/captured-source-theme-activation.json`, JSON.stringify( { theme: capturedSource.theme, url: page.url(), activated: true }, null, 2 ) + '\n' );
+   const expectedCapturedMeta = Object.values( capturedSource.binding_meta_receipts );
+   const capturedBindingRest = await page.evaluate( async ( ids ) => {
+    const posts = await window.wp.apiFetch( { path: '/wp/v2/posts?per_page=100' } );
+    return posts.filter( ( post ) => ids.includes( post.id ) ).map( ( post ) => ( { id: post.id, title: post.title?.rendered, meta: post.meta } ) );
+   }, expectedCapturedMeta.map( ( receipt ) => receipt.post_id ) );
+   for ( const receipt of expectedCapturedMeta ) {
+    const post = capturedBindingRest.find( ( item ) => item.id === receipt.post_id );
+    assert.ok( post && post.meta?.[ receipt.key ] === receipt.value, `REST preserves the exact captured listing label for source post ${ receipt.post_id }` );
+   }
+   await writeFile( `${ evidence }/captured-source-binding-rest.json`, JSON.stringify( { expected: expectedCapturedMeta, rest: capturedBindingRest }, null, 2 ) + '\n' );
+   await page.setViewportSize( { width: 1440, height: 1000 } );
+   await page.goto( `${ baseUrl }/wp-admin/post.php?post=${ capturedHomeId }&action=edit`, { waitUntil: 'domcontentloaded' } );
+   await page.locator( 'iframe[name="editor-canvas"]' ).waitFor();
+   const capturedCanvas = page.frameLocator( 'iframe[name="editor-canvas"]' );
+   await capturedCanvas.locator( '[data-type="core/query"]' ).waitFor();
+   const capturedEditorProjection = await capturedCanvas.locator( '.editor-styles-wrapper' ).evaluate( ( root ) => {
+    const overlays = [ ...root.querySelectorAll( '.blocks-engine-listing-overlay' ) ].map( ( node ) => ( { display: getComputedStyle( node ).display, html: node.outerHTML } ) );
+    const boundMeta = [ ...root.querySelectorAll( '.blocks-engine-listing-bound-meta' ) ].map( ( node ) => ( { display: getComputedStyle( node ).display, text: node.innerText, html: node.outerHTML } ) );
+    const comments = [];
+    const walker = document.createTreeWalker( root, NodeFilter.SHOW_COMMENT );
+    while ( walker.nextNode() ) comments.push( { value: walker.currentNode.data, parent: walker.currentNode.parentElement?.tagName || null } );
+    return { overlays, boundMeta, comments };
+   } );
+   const capturedValidation = await page.evaluate( () => {
+    const content = window.wp.data.select( 'core/editor' ).getEditedPostContent();
+    const visit = ( blocks ) => blocks.flatMap( ( block ) => [ { name: block.name, valid: window.wp.blocks.validateBlock( block )[ 0 ] }, ...visit( block.innerBlocks || [] ) ] );
+    return { blocks: visit( window.wp.blocks.parse( content ) ), content };
+   } );
+   const sourceSpecificMissingBlocks = capturedValidation.blocks.filter( ( block ) => 'core/missing' === block.name );
+   assert.ok( capturedValidation.blocks.length && capturedValidation.blocks.every( ( block ) => block.valid && ![ 'core/html', 'core/freeform' ].includes( block.name ) ), 'the exact captured home has valid WordPress serialization with no HTML/freeform fallback' );
+   assert.ok( capturedEditorProjection.overlays.length && capturedEditorProjection.overlays.every( ( item ) => 'none' === item.display ), 'the exact captured source card overlays are hidden in the WordPress editor' );
+   assert.ok( capturedEditorProjection.boundMeta.length && capturedEditorProjection.boundMeta.every( ( item ) => 'none' === item.display ), 'the exact captured source binding fallback labels are hidden in the WordPress editor' );
+   await writeFile( `${ evidence }/captured-source-editor-before.json`, JSON.stringify( { captureLineage: capturedSource.capture_lineage, captureTimestamp: capturedSource.capture_timestamp, home: capturedSource.home, editorProjection: capturedEditorProjection, validation: capturedValidation.blocks, sourceSpecificMissingBlocks }, null, 2 ) + '\n' );
+   await page.screenshot( { path: `${ evidence }/captured-source-editor-before.png`, fullPage: true } );
+   const capturedHeading = capturedCanvas.locator( '[data-type="core/heading"]' ).first();
+   await capturedHeading.click();
+   const capturedSelection = await page.evaluate( () => {
+    const store = window.wp.data.select( 'core/block-editor' );
+    const id = store.getSelectedBlockClientId();
+    const block = id ? store.getBlock( id ) : null;
+    return { id, name: block?.name || null, attributes: block?.attributes || null };
+   } );
+   assert.equal( capturedSelection.name, 'core/heading', 'the real captured source heading is selectable in the 7.1 editor' );
+   const originalCapturedHeading = await capturedHeading.innerText();
+   const editedCapturedHeading = `${ originalCapturedHeading} — disposable editor save`;
+   await capturedHeading.fill( editedCapturedHeading );
+   await page.waitForFunction( () => window.wp.data.select( 'core/editor' ).isEditedPostDirty() );
+   const capturedSave = page.waitForResponse( ( response ) => {
+    const request = response.request();
+    const url = new URL( request.url() );
+    const route = `/wp/v2/pages/${ capturedHomeId }`;
+    return ( url.pathname.endsWith( route ) || url.searchParams.get( 'rest_route' ) === route ) && [ 'POST', 'PUT', 'PATCH' ].includes( request.method() ) && response.ok();
+   } );
+   await page.getByRole( 'button', { name: /^Save$/ } ).click();
+   const capturedSaveResponse = await capturedSave;
+   await page.waitForFunction( () => { const store = window.wp.data.select( 'core/editor' ); return !store.isSavingPost() && !store.isEditedPostDirty() && store.didPostSaveRequestSucceed(); } );
+   assert.equal( capturedSaveResponse.status(), 200, 'the exact captured source edit is persisted through WordPress REST' );
+   await page.reload( { waitUntil: 'domcontentloaded' } );
+   await page.locator( 'iframe[name="editor-canvas"]' ).waitFor();
+   await page.frameLocator( 'iframe[name="editor-canvas"]' ).getByText( editedCapturedHeading, { exact: true } ).waitFor();
+   const capturedReload = await page.evaluate( () => {
+    const content = window.wp.data.select( 'core/editor' ).getEditedPostContent();
+    const blocks = window.wp.blocks.parse( content );
+    const visit = ( items ) => items.flatMap( ( block ) => [ { name: block.name, valid: window.wp.blocks.validateBlock( block )[ 0 ] }, ...visit( block.innerBlocks || [] ) ] );
+    return { content, blocks: visit( blocks ) };
+   } );
+   assert.ok( capturedReload.content.includes( editedCapturedHeading ), 'the exact captured source heading edit survives a fresh editor load' );
+   assert.ok( capturedReload.blocks.every( ( block ) => block.valid && ![ 'core/html', 'core/freeform' ].includes( block.name ) ), 'the exact captured source remains valid native blocks after reload' );
+   await writeFile( `${ evidence }/captured-source-editor-after.json`, JSON.stringify( { selection: capturedSelection, restStatus: capturedSaveResponse.status(), editedHeading: editedCapturedHeading, reload: capturedReload, sourceSpecificMissingBlocks, removedSyntheticParityPostIds: isolatedFixturePostIds }, null, 2 ) + '\n' );
+   await page.screenshot( { path: `${ evidence }/captured-source-editor-after.png`, fullPage: true } );
 
   const publicSource = await browser.newPage( { viewport: { width: 1440, height: 1000 } } );
   await publicSource.goto( 'https://nickdiego.com', { waitUntil: 'networkidle', timeout: 60000 } );

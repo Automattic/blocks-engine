@@ -18,6 +18,8 @@ volume="${project}_wordpress"
 wordpress_image="${BE_EDITOR_WORDPRESS_IMAGE:-wordpress:beta-php8.3-apache}"
 cli_image="${BE_EDITOR_CLI_IMAGE:-wordpress:cli-php8.3}"
 wordpress_core_archive="${BE_EDITOR_WORDPRESS_CORE_ARCHIVE:?Set the verified WordPress 7.1 core-only archive.}"
+source_archive="${BE_EDITOR_SOURCE_ARCHIVE:?Capture the public source pages/resources with tools/capture-editor-source.mjs first.}"
+test -r "$source_archive" || { printf 'Captured source archive is unreadable: %s\n' "$source_archive" >&2; exit 2; }
 wordpress_core_sha="a874a9c66927ba4e21f30dd88b31c1df12f5a25049e81efb4ceab856da43c27b"
 actual_core_sha="$(sha256sum "$wordpress_core_archive" | cut -d ' ' -f 1)"
 test "$actual_core_sha" = "$wordpress_core_sha" || { printf 'WordPress core archive checksum mismatch: %s\n' "$actual_core_sha" >&2; exit 2; }
@@ -30,10 +32,10 @@ wait_for() { local label="$1" command="$2" attempt; for attempt in $(seq 1 60); 
 
 run docker network create "$network" >/dev/null
 run docker volume create "$volume" >/dev/null
-run docker run --detach --name "${project}_db" --network "$network" --network-alias "$db_host" -e MYSQL_DATABASE="$db_name" -e MYSQL_USER="$db_user" -e MYSQL_PASSWORD="$db_password" -e MYSQL_RANDOM_ROOT_PASSWORD=yes mysql:8.4 >/dev/null
+run docker run --detach --name "${project}_db" --network "$network" --network-alias "$db_host" -e MYSQL_DATABASE="$db_name" -e MYSQL_USER="$db_user" -e MYSQL_PASSWORD="$db_password" -e MYSQL_RANDOM_ROOT_PASSWORD=yes mysql:8.4 --innodb-use-native-aio=0 >/dev/null
 wait_for 'MySQL' "run docker exec ${project}_db mysqladmin ping -u${db_user} -p${db_password}"
 run docker run --detach --name "${project}_wordpress" --network "$network" --publish "127.0.0.1:${port}:80" -e WORDPRESS_DB_HOST="$db_host" -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -v "${volume}:/var/www/html" -v "${root}:/var/www/html/wp-content/plugins/blocks-engine-php-transformer:ro" -v "${wordpress_core_archive}:/tmp/wordpress71-core.tar.gz:ro" "$wordpress_image" >/dev/null
-wp=(run docker run --rm --network "$network" --user 33:33 -e WORDPRESS_DB_HOST="$db_host" -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -v "${volume}:/var/www/html" -v "${root}:/var/www/html/wp-content/plugins/blocks-engine-php-transformer:ro" -v "${work}:/work" -v "${wordpress_core_archive}:/tmp/wordpress71-core.tar.gz:ro" "$cli_image" wp --allow-root)
+wp=(run docker run --rm --network "$network" --user 33:33 -e WORDPRESS_DB_HOST="$db_host" -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -v "${volume}:/var/www/html" -v "${root}:/var/www/html/wp-content/plugins/blocks-engine-php-transformer:ro" -v "${work}:/work" -v "${wordpress_core_archive}:/tmp/wordpress71-core.tar.gz:ro" -v "${source_archive}:/tmp/blocks-engine-captured-source.json:ro" "$cli_image" wp --allow-root)
 wait_for 'WordPress base files' "docker exec ${project}_wordpress test -f /var/www/html/wp-includes/version.php"
 # Keep the disposable image's PHP/Apache and config/content volume, but run the
 # operator-provided, checksum-pinned 7.1 core source rather than faking WP_VERSION.
@@ -50,7 +52,9 @@ first_id="$(php -r '$a=preg_split("/\\s+/",trim(file_get_contents($argv[1]))); i
 second_id="$(php -r '$a=preg_split("/\\s+/",trim(file_get_contents($argv[1]))); if(2!==count($a)||preg_match("/\\D/",implode("",$a))) exit(1); echo $a[1];' "$work/attachment-ids.txt")"
 "${wp[@]}" eval-file wp-content/plugins/blocks-engine-php-transformer/tools/editor-image-acceptance-build-page.php "$first_id" "$second_id" | tee "$evidence/source-and-page.json"
 post_id="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); if(!is_array($x)||!is_int($x["image"]["post_id"]??null)||$x["image"]["post_id"]<1) exit(1); echo $x["image"]["post_id"];' "$evidence/source-and-page.json")"
+synthetic_home_id="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); if(!is_array($x)||!is_int($x["listing"]["post_id"]??null)||$x["listing"]["post_id"]<1) exit(1); echo $x["listing"]["post_id"];' "$evidence/source-and-page.json")"
 listing_post_id="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); if(!is_array($x)||!is_int($x["listing"]["neutral_post_id"]??null)||$x["listing"]["neutral_post_id"]<1) exit(1); echo $x["listing"]["neutral_post_id"];' "$evidence/source-and-page.json")"
+"${wp[@]}" eval-file wp-content/plugins/blocks-engine-php-transformer/tools/editor-image-acceptance-import-captured-source.php /tmp/blocks-engine-captured-source.json "$synthetic_home_id" | tee "$evidence/captured-source-wordpress.json"
 if command -v node >/dev/null; then
 	BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_POST_ID="$post_id" BE_EDITOR_LISTING_POST_ID="$listing_post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR="$evidence" run node "$root/tests/editor-image-acceptance.mjs" | tee "$evidence/browser.json"
 else
