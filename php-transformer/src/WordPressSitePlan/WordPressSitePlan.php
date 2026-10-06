@@ -59,6 +59,8 @@ final class WordPressSitePlan
     private int $omittedUnresolvedNavigationDiagnostics = 0;
     /** @var array<string,array<string,mixed>> */
     private array $omittedLinkDeclarations = array();
+    /** @var array<string,array<string,bool>> */
+    private array $omittedLinkDeclarationPages = array();
     /** @var array<string,bool> */
     private array $omittedLinkDeclarationOverflow = array();
     /** @var array<int,array<string,mixed>> */
@@ -196,6 +198,7 @@ final class WordPressSitePlan
         $this->unresolvedNavigationDiagnostics = array();
         $this->omittedUnresolvedNavigationDiagnostics = 0;
         $this->omittedLinkDeclarations = array();
+        $this->omittedLinkDeclarationPages = array();
         $this->omittedLinkDeclarationOverflow = array();
         $editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
@@ -1492,7 +1495,11 @@ final class WordPressSitePlan
     {
         $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
         $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
-        return !self::explicitUrl($link['url'] ?? null) && array('alternate') === $relations && str_ends_with(strtolower(trim((string) ($link['type'] ?? ''))), '+oembed');
+        // A media type may carry parameters -- `application/json+oembed; charset=utf-8`
+        // is the same type -- and missing one costs the whole plan, so match the
+        // essence before the first `;` rather than the raw attribute.
+        $type = strtolower(trim(explode(';', (string) ($link['type'] ?? ''))[0]));
+        return !self::explicitUrl($link['url'] ?? null) && array('alternate') === $relations && str_ends_with($type, '+oembed');
     }
     /** @param array<string,mixed> $link */
     private function isSourceProtocolEndpointLink(array $link): bool
@@ -1523,13 +1530,18 @@ final class WordPressSitePlan
         // whole budget restating one site's boilerplate and names no other
         // defect: a 60-page capture reported 5 facts about 10 pages and gave
         // up. One row per distinct declaration, with the page it was first seen
-        // on and how often it occurred.
+        // on and how many pages carried it.
+        //
+        // Pages, not tags: fullDocumentMetadata() keeps duplicate links, so a
+        // head that prints one pingback twice would otherwise report two
+        // affected pages when it has one.
         $key = $relation . "\0" . $url;
-        if (isset($this->omittedLinkDeclarations[$key])) { ++$this->omittedLinkDeclarations[$key]['occurrences']; return; }
+        if (isset($this->omittedLinkDeclarations[$key])) { $this->omittedLinkDeclarationPages[$key][$sourcePath] = true; return; }
         // Counted as distinct declarations, the same unit as the rows above it,
         // so the listed rows and the remainder add up.
         if (count($this->omittedLinkDeclarations) >= self::MAX_OMITTED_LINK_DECLARATION_DIAGNOSTICS) { $this->omittedLinkDeclarationOverflow[$key] = true; return; }
         $label = $relation . ' link';
+        $this->omittedLinkDeclarationPages[$key][$sourcePath] = true;
         $this->omittedLinkDeclarations[$key] = array_filter(array(
             'code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE,
             'severity' => 'warning',
@@ -1537,7 +1549,6 @@ final class WordPressSitePlan
             'source_path' => self::clipDiagnosticField($sourcePath),
             'rel' => self::clipDiagnosticField($relation),
             'value' => self::clipDiagnosticField($url),
-            'occurrences' => 1,
             'reason_code' => 'unresolved_local_url',
         ), static fn(mixed $field): bool => '' !== $field);
     }
@@ -1552,7 +1563,11 @@ final class WordPressSitePlan
     /** @return array<int,array<string,mixed>> */
     private function omittedLinkDeclarationDiagnostics(): array
     {
-        $diagnostics = array_values($this->omittedLinkDeclarations);
+        $diagnostics = array();
+        foreach ($this->omittedLinkDeclarations as $key => $diagnostic) {
+            $diagnostic['occurrences'] = count($this->omittedLinkDeclarationPages[$key] ?? array());
+            $diagnostics[] = $diagnostic;
+        }
         $overflow = count($this->omittedLinkDeclarationOverflow);
         if ($overflow > 0) $diagnostics[] = array('code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE, 'severity' => 'warning', 'message' => sprintf('%d more distinct unresolved link declarations were omitted; omitted from this diagnostic list.', $overflow), 'reason' => 'truncated', 'omitted_count' => $overflow);
         return $diagnostics;

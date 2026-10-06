@@ -171,4 +171,32 @@ $repeatedCounts = array_column($repeatedOmissions, 'occurrences');
 sort($repeatedCounts);
 $assert(array(10, 10, 10) === $repeatedCounts, 'Each collapsed row counts every page it occurred on.');
 
+// A media type may carry parameters and still be the same type. Missing one
+// would cost the whole plan, which is the failure this contract exists to stop.
+$parameterized = $compile(array('website/index.html' => '<!doctype html><html><head>'
+    . '<link rel="alternate" type="application/json+oembed; charset=utf-8" href="/wp-json/oembed/1.0/embed?url=x">'
+    . '<link rel="alternate" type="  TEXT/XML+OEMBED ; charset=UTF-8" href="/wp-json/oembed/1.0/embed?format=xml">'
+    . '</head><body><main>Home</main></body></html>'));
+$assert(isset($parameterized['source_reports']['wordpress_site_plan']), 'A parameterized oEmbed media type is still recognized.');
+$assert(array() === $links($parameterized), 'Both parameterized oEmbed links are omitted.');
+$assert(2 === count($omissions($parameterized)), 'Both parameterized omissions are reported.');
+$notOembed = $compile(array('website/index.html' => '<!doctype html><html><head><link rel="alternate" type="application/json" href="/wp-json/oembed/1.0/embed"></head><body><main>Home</main></body></html>'));
+$assert(!isset($notOembed['source_reports']['wordpress_site_plan']) || array() === $omissions($notOembed), 'A non-oEmbed media type is not swept up by the suffix match.');
+
+// `occurrences` counts the pages that carried a declaration, not the tags that
+// matched it: fullDocumentMetadata() keeps duplicates, so one head printing the
+// same pingback twice is still one affected page.
+$twice = '<!doctype html><html><head>'
+    . '<link rel="pingback" href="/xmlrpc.php">'
+    . '<link rel="pingback" href="/xmlrpc.php">'
+    . '</head><body><main>Home</main></body></html>';
+$duplicated = $compile(array('website/index.html' => $twice, 'website/second/index.html' => $twice));
+$duplicatedOmissions = $omissions($duplicated);
+$assert(isset($duplicated['source_reports']['wordpress_site_plan']), 'Duplicate declarations still produce a plan.');
+$assert(1 === count($duplicatedOmissions), 'A declaration repeated within and across pages collapses to one row.');
+$assert(2 === ($duplicatedOmissions[0]['occurrences'] ?? null), 'Two pages carrying it twice each count as two pages, not four tags.');
+$once = $compile(array('website/index.html' => $twice));
+$onceOmissions = $omissions($once);
+$assert(1 === ($onceOmissions[0]['occurrences'] ?? null), 'One page printing it twice counts as one page.');
+
 echo "source-protocol-link-declarations contract passed\n";
