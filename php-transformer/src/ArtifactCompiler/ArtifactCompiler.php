@@ -1904,13 +1904,13 @@ final class ArtifactCompiler
                 ++$inlineIndex;
                 $file = $inline[$inlineIndex] ?? null;
                 if ( is_array($file) && ! isset($seenPaths[$file['path']]) ) {
-                    $assets[] = array( 'path' => $file['path'], 'source_path' => $file['source_path'] ?? $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => (string) ($file['media'] ?? ''), 'type' => (string) ($file['type'] ?? '') );
+                    $assets[] = array( 'path' => $file['path'], 'source_path' => $file['source_path'] ?? $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => StyleTagScanner::authorMedia($attributes), 'type' => (string) ($file['type'] ?? '') );
                     $seenPaths[$file['path']] = true;
                 } elseif ( '' !== ($content = trim(html_entity_decode($tagRecord['content'], ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ) {
                     // Generated inline-style files can be omitted at the artifact
                     // file limit. Their source HTML was accepted independently,
                     // so retain the authored stylesheet for source analysis.
-                    $assets[] = array( 'path' => 'inline-style-' . $inlineIndex . '.css', 'source_path' => 'inline-style', 'content' => $content, 'source_hash' => hash('sha256', $content), 'media' => $this->htmlAttribute($attributes, 'media'), 'type' => $this->htmlAttribute($attributes, 'type') );
+                    $assets[] = array( 'path' => 'inline-style-' . $inlineIndex . '.css', 'source_path' => 'inline-style', 'content' => $content, 'source_hash' => hash('sha256', $content), 'media' => StyleTagScanner::authorMedia($attributes), 'type' => $this->htmlAttribute($attributes, 'type') );
                 }
                 continue;
             }
@@ -1923,7 +1923,7 @@ final class ArtifactCompiler
             $path = $occurrencePaths[$sourcePathForLink][$linkOccurrences[$sourcePathForLink]] ?? '';
             $file = $byPath[$path] ?? null;
             if ( is_array($file) && ! isset($seenPaths[$path]) ) {
-                $assets[] = array( 'path' => $path, 'source_path' => $file['stylesheet_source_path'] ?? $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => $this->htmlAttribute((string) $tag, 'media'), 'type' => $this->htmlAttribute((string) $tag, 'type') );
+                $assets[] = array( 'path' => $path, 'source_path' => $file['stylesheet_source_path'] ?? $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => StyleTagScanner::authorMedia((string) $tag), 'type' => $this->htmlAttribute((string) $tag, 'type') );
                 $seenPaths[$path] = true;
             }
         }
@@ -1992,6 +1992,7 @@ final class ArtifactCompiler
             $type = $this->htmlAttribute((string) $tag, 'type');
             if ( 1 === $occurrence ) {
                 $files[$byPath[$originalPath]]['media'] = $media;
+                if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $files[$byPath[$originalPath]]['source_media'] = StyleTagScanner::authorMedia($tag);
                 $files[$byPath[$originalPath]]['type'] = $type;
                 $files[$byPath[$originalPath]]['stylesheet_source_path'] = $originalPath;
                 $files[$byPath[$originalPath]]['stylesheet_occurrence'] = 1;
@@ -2013,6 +2014,7 @@ final class ArtifactCompiler
             $aliasFile['stylesheet_source_path'] = $originalPath;
             $aliasFile['stylesheet_occurrence'] = $occurrence;
             $aliasFile['media'] = $media;
+            if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $aliasFile['source_media'] = StyleTagScanner::authorMedia($tag);
             $aliasFile['type'] = $type;
             $aliasFile['provenance']['source_path'] = $originalPath;
             $files[] = $aliasFile;
@@ -2082,6 +2084,7 @@ final class ArtifactCompiler
                 if ( ! isset($variants[$sourcePath]) ) {
                     $variants[$sourcePath][$variant] = $sourcePath;
                     $files[$index]['media'] = $media;
+                    if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $files[$index]['source_media'] = StyleTagScanner::authorMedia($tag);
                     $files[$index]['type'] = $type;
                     $files[$index]['stylesheet_source_path'] = $sourcePath;
                     $files[$index]['stylesheet_occurrence'] = 1;
@@ -2099,6 +2102,7 @@ final class ArtifactCompiler
                 $aliasFile['stylesheet_source_path'] = $sourcePath;
                 $aliasFile['stylesheet_occurrence'] = $occurrence;
                 $aliasFile['media'] = $media;
+                if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $aliasFile['source_media'] = StyleTagScanner::authorMedia($tag);
                 $aliasFile['type'] = $type;
                 $aliasFile['references'] = array($reference);
                 $aliasFile['provenance']['source_path'] = $sourcePath;
@@ -4077,6 +4081,7 @@ final class ArtifactCompiler
                     'intent'           => $asset['intent'] ?? '',
                     'media_type'       => $asset['media_type'] ?? $asset['mime_type'] ?? '',
                     'media'            => $asset['media'] ?? '',
+                    'source_media'     => $asset['source_media'] ?? null,
                     'mime_type'        => $asset['mime_type'] ?? '',
                     'bytes'            => $asset['bytes'] ?? 0,
                     'binary'           => $asset['binary'] ?? false,
@@ -4101,7 +4106,7 @@ final class ArtifactCompiler
                     'compilation'      => 'css' === ($asset['kind'] ?? null) ? ($asset['compilation'] ?? null) : null,
                     'stylesheet_link_position' => 'css' === ($asset['kind'] ?? null) && is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null,
                 ),
-                static fn (mixed $value, string $key): bool => ('content' === $key && is_string($value)) || (null !== $value && '' !== $value),
+                static fn (mixed $value, string $key): bool => (in_array($key, array('content', 'source_media'), true) && is_string($value)) || (null !== $value && '' !== $value),
                 ARRAY_FILTER_USE_BOTH
             ),
             $assets
@@ -4377,6 +4382,7 @@ final class ArtifactCompiler
                 // every linking page gives it, or it would apply at all widths.
                 $asset['media'] = $documentLinkMedia[$file['path']];
             }
+            if (isset($file['source_media']) && is_string($file['source_media'])) $asset['source_media'] = $file['source_media'];
             if ( 'css' === ($file['kind'] ?? null) ) {
                 if (is_array($file['metadata']['compilation'] ?? null) || '' !== ArtifactNormalizer::inlineExpansionSourcePath($file)) {
                     $asset['compilation'] = $this->fileOwnership($file);

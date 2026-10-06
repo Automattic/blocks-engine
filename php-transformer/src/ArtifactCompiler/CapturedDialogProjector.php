@@ -489,12 +489,7 @@ final class CapturedDialogProjector
 
     private function isResponsiveDocumentWrapper(DOMElement $element): bool
     {
-        foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
-            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)) {
-                return true;
-            }
-        }
-        return false;
+        return \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom::isDocumentVariantRoot($element);
     }
 
     /**

@@ -330,6 +330,7 @@ final class AuthoredFormControlBlockConverter
             $sourceAttributes[] = array('name' => $name, 'value' => $value);
         }
         $attrs = array_filter(array(
+            'tagName' => AuthoredButtonBlockGenerator::isRoleButton($button) ? strtolower($button->tagName) : '',
             'type' => $type,
             'id' => SourceDom::attr($button, 'id'),
             'name' => SourceDom::attr($button, 'name'),

@@ -5808,6 +5808,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function layoutShellClassName(DOMElement $element): string
     {
         $classes = array_values(array_filter(preg_split('/\s+/', $this->promotedClassName(SourceDom::attr($element, 'class'))) ?: array()));
+        if ($element->hasAttribute('data-dla-document-scope') && SourceDom::isDocumentVariantRoot($element)) return SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), implode(' ', $classes));
         $runtime = array();
         foreach ( $this->runtimeIslands->runtimeDomSelectorsForElement($element) as $selector ) {
             if ( str_starts_with($selector, '.') ) {
@@ -5825,6 +5826,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function preservesScriptStateWrapper(DOMElement $element): bool
     {
+        if ($element->hasAttribute('data-dla-document-scope') && SourceDom::isDocumentVariantRoot($element)) return true;
         if ( $this->isInertHiddenEmptyElement($element) ) {
             return false;
         }
@@ -8638,13 +8640,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         foreach ( $this->descendantElements($element) as $descendant ) {
             $tagName = strtolower($descendant->tagName);
-            if ( in_array($tagName, array( 'canvas', 'iframe', 'template' ), true) ) {
+            // A frame or template can be independently owned by an existing
+            // visual/runtime primitive. Unrelated controls elsewhere in the
+            // document do not turn that frame's ancestors into an application.
+            if ( in_array($tagName, array( 'canvas', 'iframe', 'template' ), true) && ($this->runtimeIslands->isRuntimeDomTarget($descendant) || $this->runtimeIslands->isRuntimeCanvasTarget($descendant)) ) {
                 return true;
             }
             if ( 'textarea' === $tagName && $this->runtimeIslands->textareaIsRuntimeWorkspaceSurface($descendant, $element) ) {
                 return true;
             }
-            if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
+            if ( in_array(strtolower(trim($this->attr($descendant, 'contenteditable'))), array('true', 'plaintext-only'), true) ) {
                 return true;
             }
         }

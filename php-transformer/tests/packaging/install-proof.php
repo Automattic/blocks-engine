@@ -127,6 +127,11 @@ if (!str_contains($headHtml, 'data-selected-viewport=""') || !str_contains($head
     fwrite(STDERR, "php-transformer install proof failed emitted head target/script contract\n");
     exit(1);
 }
+$bodyResult = (new Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('files' => array('index.html' => '<div class="frame host-context extra-context" data-dla-document-scope="slate" data-dla-device-document="slate"><header><div role="button" tabindex="0" aria-label="Open" data-dla-dialog-trigger="panel" aria-controls="panel"><span></span><span></span><span></span></div><div hidden id="panel" data-dla-dialog-panel="panel"><p>Panel</p></div></header><main><p>Editable</p></main></div><script>document.querySelectorAll("[data-dla-dialog-trigger]").forEach(function(control){control.addEventListener("click",function(){document.getElementById("panel").hidden=false;});});</script>')))->toArray();
+if (str_contains($bodyResult['serialized_blocks'], '<!-- wp:html') || !str_contains($bodyResult['serialized_blocks'], '/authored-button') || !str_contains($bodyResult['serialized_blocks'], '/layout-shell') || array() !== ($bodyResult['source_reports']['runtime_dependency_parity']['findings'] ?? array())) {
+    fwrite(STDERR, "php-transformer install proof failed declared body/control ownership\n");
+    exit(1);
+}
 PHP;
 
     run($proofRoot, array(PHP_BINARY, '-r', $smoke));

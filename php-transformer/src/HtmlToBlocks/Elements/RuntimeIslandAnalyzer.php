@@ -5,6 +5,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
@@ -300,8 +302,13 @@ final class RuntimeIslandAnalyzer
     public function shouldPreserveDataAttributeRuntimeTarget(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'canvas', 'form', 'script' ), true) || FormControlClassifier::isControlElement($element) ) {
+        if ( in_array($tagName, array( 'canvas', 'form', 'script' ), true) || FormControlClassifier::isControlElement($element) || AuthoredButtonBlockGenerator::canRetainRoleButton($element) || SourceDom::isDocumentVariantRoot($element) ) {
             return false;
+        }
+        // The existing layout-shell save contract retains explicit wrapper
+        // state while its children remain independently editable blocks.
+        if (in_array($tagName, array('div', 'section', 'article', 'aside', 'header', 'footer', 'main', 'nav'), true)) foreach ($element->attributes ?? array() as $attribute) {
+            if (LayoutShellBlockGenerator::isBooleanAttribute(strtolower($attribute->name))) return false;
         }
 
         foreach ( array_keys($this->context->runtimeSelectors()->domSelectors()) as $selector ) {
@@ -380,6 +387,8 @@ final class RuntimeIslandAnalyzer
 
     public function canRetainRuntimeDomContractNatively(DOMElement $element, string $blockName): bool
     {
+        if ($blockName === $this->context->generatedBlockName('authored-button') && AuthoredButtonBlockGenerator::isRoleButton($element)) return true;
+        if ($blockName === $this->context->generatedBlockName('layout-shell') && in_array(strtolower($element->tagName), array('div', 'span', 'article', 'aside', 'header', 'footer', 'main', 'section', 'nav'), true)) return true;
         // The authored hidden marker is the exact save() DOM contract for these
         // companion blocks. A native editable marker is not a runtime island.
         if ('span' === strtolower($element->tagName) && $element->hasAttribute('hidden') && (

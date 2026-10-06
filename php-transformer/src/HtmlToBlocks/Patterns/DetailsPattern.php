@@ -166,6 +166,12 @@ final class DetailsPattern implements PatternRecognizerInterface
         if ( ! $panel instanceof DOMElement || $this->isNavigationLandmark($panel) ) {
             return null;
         }
+        // A modal has a distinct focus/close contract. Native details cannot
+        // replace that behavior or consume the source's runtime binding.
+        if ('dialog' === strtolower($this->trimmedAttribute($toggle, 'aria-haspopup'))
+            || 'dialog' === strtolower($panel->tagName)
+            || in_array(strtolower($this->trimmedAttribute($panel, 'role')), array('dialog', 'alertdialog'), true)
+            || 'true' === strtolower($this->trimmedAttribute($panel, 'aria-modal'))) return null;
 
         $panelBlocks = $convertChildren($panel);
         if ( array() === $panelBlocks ) {

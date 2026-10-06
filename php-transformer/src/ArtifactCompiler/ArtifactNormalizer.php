@@ -275,7 +275,7 @@ final class ArtifactNormalizer
                     $path
                 );
             }
-            foreach ( array('placement', 'type', 'media', 'source_path', 'selector', 'stylesheet_index', 'superseded_by') as $field ) {
+            foreach ( array('placement', 'type', 'media', 'source_media', 'source_path', 'selector', 'stylesheet_index', 'superseded_by') as $field ) {
                 if ( isset($file[$field]) && is_scalar($file[$field]) && '' !== trim((string) $file[$field]) ) {
                     $normalized[$field] = (string) $file[$field];
                 }
@@ -605,7 +605,7 @@ final class ArtifactNormalizer
                     continue;
                 }
                 $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
-                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
+                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'source_media' => array_key_exists('data-dla-source-media', \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
             // Spacing an author declares inline on <body> is page content the
             // reader sees, but the document is re-wrapped in a bare <body>
@@ -637,6 +637,7 @@ final class ArtifactNormalizer
                     'stylesheet_index' => $index + 1,
                     'stylesheet_link_position' => $style['link_position'] ?? null,
                     'media' => $style['media'],
+                    'source_media' => $style['source_media'] ?? null,
                     'type' => $style['type'],
                 ));
             }

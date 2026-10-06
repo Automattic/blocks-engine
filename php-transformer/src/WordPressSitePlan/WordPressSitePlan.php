@@ -730,20 +730,25 @@ final class WordPressSitePlan
             if ( ! self::safePath($target) ) throw new InvalidArgumentException('Compiled site asset lacks a safe target identity.');
             $assetContent = is_string($asset['content'] ?? null) ? $asset['content'] : null;
             $media = trim((string) ($asset['media'] ?? ''));
-            if ( 'css' === ($asset['kind'] ?? '') && null !== $assetContent && '' !== $media && 'all' !== strtolower($media) ) {
+            // Declared source media belongs to the ordered head element. Its
+            // serialized activation can change at parser time; embedding that
+            // state in a shared CSS payload would permanently disable it.
+            $payloadMedia = isset($asset['source_media']) && is_string($asset['source_media']) ? '' : $media;
+            if ( 'css' === ($asset['kind'] ?? '') && null !== $assetContent && '' !== $payloadMedia && 'all' !== strtolower($payloadMedia) ) {
                 // Some WordPress consumers persist a stylesheet as an asset but
                 // enqueue it without forwarding the source link's `media`
                 // attribute. Keep the condition in the stylesheet payload too,
                 // so responsive author rules cannot leak into the other
                 // responsive document variant (for example desktop-only
                 // absolute positioning collapsing the mobile carousel).
-                $assetContent = '@media ' . $media . "{\n" . $assetContent . "\n}\n";
+                $assetContent = '@media ' . $payloadMedia . "{\n" . $assetContent . "\n}\n";
             }
             $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($assetContent ?? '');
             $reference = self::payloadReference($asset['payload_reference'] ?? null);
             if (null !== $reference && !self::referenceBackedBinaryAsset($asset)) throw new InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.');
             $transportHash = is_string($asset['content_base64'] ?? null) ? self::contentHash($asset['content_base64']) : null;
             $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) ? $asset['references'] : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'stylesheet_link_position' => is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $reference['sha256'] ?? self::contentHash($payload)), static fn(mixed $value): bool => null !== $value);
+            if (isset($asset['source_media']) && is_string($asset['source_media'])) $rows[array_key_last($rows)]['source_media'] = $asset['source_media'];
         }
         return $rows;
     }
@@ -3100,7 +3105,7 @@ final class WordPressSitePlan
         foreach ($assets as $asset) if ('css' === $asset['kind'] && 'frontend' !== ($asset['stylesheet_target'] ?? 'both') && !isset($importLoaded[$asset['target_path']])) {
             $partSlugs = array();
             foreach ($asset['scopes'] as $scope) foreach ($partSlugsBySource[(string) ($scope['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
-            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['media'] ?? null, 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both')), static fn(mixed $value): bool => null !== $value);
+            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? $asset['media'] ?? null, 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both')), static fn(mixed $value): bool => null !== $value);
         }
         if (array() !== $editorStyles) {
             $lines[] = '$blocks_engine_presentation_styles = ' . var_export($editorStyles, true) . ';';

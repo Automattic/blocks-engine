@@ -38,6 +38,7 @@ final class FormControlClassifier
             $type = strtolower(trim($control->hasAttribute('type') ? $control->getAttribute('type') : ''));
             return '' !== $type ? $type : 'submit';
         }
+        if (in_array($tagName, array('div', 'span'), true) && 'button' === strtolower(trim($control->getAttribute('role')))) return 'button';
         if ( 'select' === $tagName && $control->hasAttribute('multiple') ) {
             return 'select-multiple';
         }
