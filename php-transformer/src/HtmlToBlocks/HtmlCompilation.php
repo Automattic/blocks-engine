@@ -1883,13 +1883,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( array() === $templatePartAttrs ) {
                 $templatePartMarkup = $innerMarkup;
             } else {
-                $templatePartBlock = $this->createBlock('core/group', $templatePartAttrs, $blocks[0]['innerBlocks'] ?? array());
                 $responsiveMarginTop = $this->styleResolver->responsiveBlockMarginTopClassName($child);
                 if ( '' !== $responsiveMarginTop ) {
-                    $classNames = preg_split('/\s+/', trim((string) ($templatePartBlock['attrs']['className'] ?? ''))) ?: array();
-                    $classNames[] = $responsiveMarginTop;
-                    $templatePartBlock['attrs']['className'] = implode(' ', array_filter($classNames));
+                    $templatePartAttrs['className'] = SourceDom::mergeClassNames((string) ($templatePartAttrs['className'] ?? ''), $responsiveMarginTop);
                 }
+                $templatePartBlock = $this->createBlock('core/group', $templatePartAttrs, $blocks[0]['innerBlocks'] ?? array());
                 $templatePartMarkup = $this->runtime->serializeBlocks(array($templatePartBlock));
             }
             if ( '' === trim($markup) ) {
