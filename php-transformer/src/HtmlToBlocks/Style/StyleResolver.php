@@ -1018,6 +1018,116 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Preserve layered responsive margin winners on the emitted block root.
+     * WordPress layout defaults are unlayered and therefore outrank normal
+     * author declarations retained inside a named cascade layer.
+     */
+    public function responsiveBlockMarginTopClassName(DOMElement $element): string
+    {
+        $sourceDeclarations = $this->presentationDeclarations($element);
+        if ('' === trim((string) ($sourceDeclarations['margin-top'] ?? ''))) return '';
+        if (! $this->hasConditionalDeclarationForProperties($element, array('margin-top', 'margin'))) return '';
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        if (array_intersect_key($inline, array_flip(array('margin', 'margin-top', 'margin-block', 'margin-block-start'))) !== array()) {
+            return '';
+        }
+
+        $sequence = $this->declarationSequence($element, 'margin-top');
+        if (array() === $sequence) {
+            return '';
+        }
+        $fact = static fn (array $entry): array => array(
+            'important' => $entry['important'],
+            'inline' => false,
+            'layer' => $entry['layerRank'],
+            'specificity' => $entry['specificity'],
+            'order' => $entry['order'],
+        );
+
+        $baseWinner = null;
+        foreach ($sequence as $entry) {
+            if (array() !== $entry['queries']) continue;
+            if (null === $baseWinner || CssCascade::wins($fact($entry), $fact($baseWinner))) $baseWinner = $entry;
+        }
+        $conditionalWinners = array();
+        foreach ($sequence as $entry) {
+            if (array() === $entry['queries'] || (null !== $baseWinner && ! CssCascade::wins($fact($entry), $fact($baseWinner)))) continue;
+            $condition = implode('{', $entry['queries']);
+            $current = $conditionalWinners[$condition] ?? null;
+            if (null === $current || CssCascade::wins($fact($entry), $fact($current))) $conditionalWinners[$condition] = $entry;
+        }
+        $winners = array_merge(null === $baseWinner ? array() : array($baseWinner), array_values($conditionalWinners));
+        if (array() === $conditionalWinners || array() === array_filter($winners, static fn (array $entry): bool => null !== $entry['layerRank'])) {
+            return '';
+        }
+        foreach ($winners as $entry) {
+            if ($entry['important']) return '';
+        }
+
+        $base = null === $baseWinner ? '' : $this->carriedDeclarationValue($baseWinner['value']);
+        $conditional = array();
+        $orderedConditionalWinners = array();
+        foreach ($conditionalWinners as $condition => $entry) {
+            $orderedConditionalWinners[] = array(
+                'condition' => $condition,
+                'entry' => $entry,
+                'position' => count($orderedConditionalWinners),
+            );
+        }
+        usort($orderedConditionalWinners, static function (array $left, array $right) use ($fact): int {
+            $leftWins = CssCascade::wins($fact($left['entry']), $fact($right['entry']));
+            $rightWins = CssCascade::wins($fact($right['entry']), $fact($left['entry']));
+            if ($leftWins === $rightWins) {
+                return $left['position'] <=> $right['position'];
+            }
+
+            // Projected rules use one generated selector, so specificity and
+            // source order must be represented by output order when their
+            // responsive conditions overlap. Emit the source cascade loser
+            // first so the winning declaration remains last in the browser.
+            return $leftWins ? 1 : -1;
+        });
+        foreach ($orderedConditionalWinners as $winner) {
+            $condition = $winner['condition'];
+            $entry = $winner['entry'];
+            $value = $this->carriedDeclarationValue($entry['value']);
+            if ('' !== $value) $conditional[$condition] = $value;
+        }
+        if ('' === $base && array() === $conditional) return '';
+
+        $marker = 'blocks-engine-responsive-margin-top-' . substr(hash(
+            'sha256',
+            $this->geometryStructuralPath($element) . "\n" . $base . "\n" . serialize($conditional)
+        ), 0, 12);
+        $this->context->generatedSupportStyles()->registerResponsiveBlockMarginTop($marker, $base, $conditional);
+
+        return $marker;
+    }
+
+    /** @return list<array{value:string,queries:list<string>,layer:string|null,layerRank:int|null,important:bool,order:int,specificity:array<int,int>}> */
+    private function declarationSequence(DOMElement $element, string $property): array
+    {
+        $entries = array();
+        foreach ($this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $index => $rule) {
+            $declared = trim((string) ($rule['declarations'][$property] ?? ''));
+            $selector = (string) ($rule['selector'] ?? '');
+            if ('' === $declared || ! $this->matchesCssSelector($element, $selector)) continue;
+            $conditions = array_map('trim', $rule['conditions'] ?? array());
+            $entries[] = array(
+                'value' => $declared,
+                'queries' => array_values(array_filter($conditions, static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', $condition))),
+                'layer' => $rule['layer'] ?? null,
+                'layerRank' => $rule['layerRank'] ?? null,
+                'important' => CssValueInspector::isImportant($declared),
+                'order' => (int) ($rule['cascadeOrder'] ?? $index),
+                'specificity' => $this->mediaTextSelectorSpecificity($selector),
+            );
+        }
+
+        return $entries;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $rules
      * @return list<array<string, mixed>>
      */
