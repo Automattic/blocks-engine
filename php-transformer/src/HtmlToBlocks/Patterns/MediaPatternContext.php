@@ -13,12 +13,14 @@ final class MediaPatternContext
      * @param Closure(string): string $resolveImageUrl
      * @param Closure(DOMElement, array<int, string>): array<string, mixed> $mediaTextAttributes
      * @param Closure(DOMElement): string $mediaTextStyle
+     * @param Closure(DOMElement): ?float $documentRootFontSize
      */
     public function __construct(
         private readonly Closure $coverStyle,
         private readonly Closure $resolveImageUrl,
         private readonly Closure $mediaTextAttributes,
-        private readonly Closure $mediaTextStyle
+        private readonly Closure $mediaTextStyle,
+        private readonly Closure $documentRootFontSize
     ) {
     }
 
@@ -29,4 +31,5 @@ final class MediaPatternContext
      */
     public function mediaTextAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array { return ($this->mediaTextAttributes)($element, $excludedGeometryProperties); }
     public function mediaTextStyle(DOMElement $element): string { return ($this->mediaTextStyle)($element); }
+    public function documentRootFontSize(DOMElement $element): ?float { return ($this->documentRootFontSize)($element); }
 }

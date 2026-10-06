@@ -18,6 +18,7 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
     public const SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS = 'blocks-engine-synthetic-anchor-block-display';
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
+    public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
@@ -50,6 +51,9 @@ final class SourceBlockAttributeProjector
         $sourceTagName = strtolower($sourceElement->tagName);
         if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
+            if ($this->sourceImageIsFlexOrGridItem($sourceElement)) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS);
+            }
             // The source image was inline content that its parent aligned. A
             // synthesized figure is a block box that fills the line instead,
             // so the alignment has nothing left to move.
@@ -145,6 +149,17 @@ final class SourceBlockAttributeProjector
         return true;
     }
 
+    private function sourceImageIsFlexOrGridItem(DOMElement $image): bool
+    {
+        $parent = $image->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+
+        $display = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? ''));
+        return in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+    }
+
     private static function isHiddenAccessibilitySupportElement(DOMElement $element): bool
     {
         $identity = strtolower(SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'class'));
@@ -168,7 +183,10 @@ final class SourceBlockAttributeProjector
         ) {
             $className = SourceDom::mergeClassNames($className, ...$context->authorStyles->sourceBodyProjectionClasses());
         }
-        $semanticMarkers = $context->selectorProjections->semanticMarkersForPath($element->getNodePath() ?? '');
+        $semanticMarkers = array_merge(
+            $context->selectorProjections->semanticMarkersForPath($element->getNodePath() ?? ''),
+            $context->selectorProjections->ancestorAttributeStateMarkers($element->getNodePath() ?? '')
+        );
         if ( array() !== $semanticMarkers ) {
             $className = SourceDom::mergeClassNames($className, ...$semanticMarkers);
         }
