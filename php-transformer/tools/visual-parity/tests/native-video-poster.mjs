@@ -52,20 +52,45 @@ try {
     const observe = async () => {
       await page.waitForFunction(() => document.querySelector('video')?.readyState >= 2 && !document.querySelector('video').paused && document.querySelector('img')?.naturalWidth > 0);
       const before = await page.locator('video').evaluate((video) => video.currentTime);
-      await page.waitForTimeout(150);
+      await page.waitForFunction((before) => {
+        const video = document.querySelector('video');
+        return !video.paused && video.currentTime > before;
+      }, before);
+      const advancingTime = await page.locator('video').evaluate((video) => video.currentTime);
+      assert.ok(advancingTime > before, 'The actual video advances during autoplay');
+
+      // VP8 can encode identical painted frames differently. Prove playback
+      // independently, then compare the same decoded frame rather than two
+      // wall-clock-dependent samples from independently advancing players.
+      // MediaRecorder's streaming WebM need not expose a nonzero seekable
+      // duration. Rewinding selects its first decoded frame on both platforms.
+      const targetTime = 0;
+      const frameTime = await page.locator('video').evaluate(async (video, targetTime) => {
+        video.pause();
+        // Let the final autoplay presentation finish before requesting the
+        // decoded frame produced by this seek on the paused player.
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const seeked = new Promise((resolve) => video.addEventListener('seeked', resolve, { once: true }));
+        const decoded = new Promise((resolve) => video.requestVideoFrameCallback((_now, metadata) => resolve(metadata.mediaTime)));
+        video.currentTime = targetTime;
+        const [, mediaTime] = await Promise.all([seeked, decoded]);
+        return mediaTime;
+      }, targetTime);
+      await page.waitForFunction((targetTime) => {
+        const video = document.querySelector('video');
+        return video.paused && !video.seeking && video.readyState >= 2 && video.currentTime === targetTime;
+      }, targetTime);
       const result = await page.evaluate(() => {
         const video = document.querySelector('video');
         const box = (node) => { const { x, y, width, height } = node.getBoundingClientRect(); return { x, y, width, height }; };
         const canvas = document.createElement('canvas'); canvas.width = 1; canvas.height = 1;
         const context = canvas.getContext('2d'); context.drawImage(video, 0, 0, 1, 1);
-        return { time: video.currentTime, geometry: { host: box(document.getElementById('ambient')), video: box(video), poster: box(document.getElementById('cover')), image: box(document.querySelector('img')) }, fit: getComputedStyle(video).objectFit, videoOpacity: getComputedStyle(video).opacity, posterOpacity: getComputedStyle(document.getElementById('cover')).opacity, autoplay: video.autoplay, muted: video.muted, loop: video.loop, inline: video.playsInline, pixel: [...context.getImageData(0, 0, 1, 1).data] };
+        return { geometry: { host: box(document.getElementById('ambient')), video: box(video), poster: box(document.getElementById('cover')), image: box(document.querySelector('img')) }, fit: getComputedStyle(video).objectFit, videoOpacity: getComputedStyle(video).opacity, posterOpacity: getComputedStyle(document.getElementById('cover')).opacity, autoplay: video.autoplay, muted: video.muted, loop: video.loop, inline: video.playsInline, pixel: [...context.getImageData(0, 0, 1, 1).data] };
       });
-      assert.notEqual(result.time, before, 'The actual video advances during autoplay');
       assert.equal(result.fit, 'cover'); assert.equal(result.videoOpacity, '1'); assert.equal(result.posterOpacity, '0');
       assert.ok(result.autoplay && result.muted && result.loop && result.inline, 'Native playback properties survive');
       assert.ok(result.pixel[2] > result.pixel[0] + 80, 'Decoded video artwork is blue; the hidden red poster does not replace it');
-      const { time, ...presentation } = result;
-      return presentation;
+      return { frameTime, ...result };
     };
     await page.goto('http://media.test/source.html');
     const expected = await observe();
@@ -74,6 +99,7 @@ try {
     assert.equal(await page.locator('video').count(), 1, 'Compiled output retains the playable local video');
     const actual = await observe();
     assert.deepEqual(actual, expected, `${width}px native playback, poster opacity, and geometry match source`);
+    console.log(JSON.stringify({ width, decodedFrameTime: actual.frameTime, pixel: actual.pixel }));
     await page.close();
   }
   assert.deepEqual(compiled.fallbacks, []);
