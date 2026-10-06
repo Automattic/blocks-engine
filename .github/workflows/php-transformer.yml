@@ -95,6 +95,10 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/native-button-default-background-browser.mjs
 
+      - name: Verify orphan list-item marker and pixel preservation
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/orphan-list-item-browser.mjs
+
   wordpress-site-plan:
     name: WordPress site plan integration (PHP ${{ matrix.php-version }})
     runs-on: ubuntu-24.04
