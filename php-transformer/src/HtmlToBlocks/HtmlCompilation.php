@@ -642,7 +642,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->styleResolver,
             $this->sourceBlockAttributeProjector,
             $this->session,
-            fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns)
+            fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element)
         );
         $this->patternContext = $this->createPatternContext();
         $this->commercePattern = new CommerceStructureRecognizer($this->sourceElementClassifier);
@@ -760,7 +761,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             },
             $this->styleResolver,
             $this,
-            fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element)
+            fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            fn (DOMElement $element): ?array => $this->runtimeAuthoredButton($element)
         ));
         $detailsConverter = new DetailsElementConverter(new DetailsElementContext(
             fn (DOMElement $element): ?DOMElement => $this->capturedDisclosureDialog($element),
@@ -3435,12 +3438,25 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $sourceTagName = strtolower($element->tagName);
             $tagName = str_contains($sourceTagName, '-') ? 'div' : $sourceTagName;
             $attributes = $this->htmlAttributes($element);
+            $className = $this->layoutShellClassName($element);
+            if ( '' === $className ) {
+                unset($attributes['class']);
+            } else {
+                $attributes['class'] = $className;
+            }
+            foreach ( $attributes as $name => $value ) {
+                if ( LayoutShellBlockGenerator::isBooleanAttribute($name) ) {
+                    $attributes[$name] = true;
+                }
+            }
             $opening = '<' . $tagName;
             foreach ( $attributes as $name => $value ) {
                 if ( ! preg_match('/^[a-z_:][a-z0-9_.:-]*$/i', $name) ) {
                     continue;
                 }
-                $opening .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                $opening .= true === $value
+                    ? ' ' . $name . '=""'
+                    : ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
             }
             $opening .= '>';
 
@@ -3663,6 +3679,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $dialog;
     }
 
+    /** @return array<string, mixed> */
+    private function runtimeAuthoredButton(DOMElement $element): array
+    {
+        $this->formRuntimeIslandRecorder->recordControl($element);
+        $generated = $this->authoredFormControlBlockConverter->runtimeButton($element);
+        $materialized = $this->createBlock(
+            (string) ($generated['blockName'] ?? ''),
+            is_array($generated['attrs'] ?? null) ? $generated['attrs'] : array(),
+            array(),
+            $element
+        );
+        if ( isset($materialized['_source_provenance_id']) ) {
+            $generated['_source_provenance_id'] = $materialized['_source_provenance_id'];
+        }
+
+        return $generated;
+    }
+
     /**
      * @param array<string, mixed> $attrs
      * @param array<int, array<string, mixed>> $innerBlocks
@@ -3670,6 +3704,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     public function createBlock(string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
     {
+        if ( 'core/group' === $name && $sourceElement instanceof DOMElement && $this->preservesScriptStateWrapper($sourceElement) ) {
+            return $this->layoutShellBlockForElements(array( $sourceElement ), $innerBlocks, $sourceElement);
+        }
         if ( $sourceElement instanceof DOMElement
             && in_array($name, array( 'core/paragraph', 'core/heading', 'core/list-item' ), true)
             && $this->richTextMaterializer->hasStructuralHtml((string) ($attrs['content'] ?? ''))
@@ -4369,6 +4406,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
     {
         $children = $this->convertChildren($element, $fallbacks, true);
+        if ( $this->preservesScriptStateWrapper($element) ) {
+            return $this->layoutShellBlockForElements(array( $element ), $children, $element);
+        }
         $isAuthorOwnedLayout = $this->isAuthorOwnedLayout($element);
         $sourceChildCount = $isAuthorOwnedLayout ? $this->childElementCount($element) : 0;
         $sourceTags = $isAuthorOwnedLayout ? $this->directChildTags($element) : array();
@@ -5435,6 +5475,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
+        if ( $this->preservesScriptStateWrapper($element) ) {
+            return null;
+        }
         return $this->wrapperCoalescer->coalescedSingleGroupWrapper($element, $childBlock);
     }
 
@@ -5760,6 +5803,41 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $verticalAlign = strtolower(trim((string) ($declarations['vertical-align'] ?? '')));
         return in_array($display, array( 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true)
             && ! in_array($verticalAlign, array( '', 'baseline', 'inherit', 'initial', 'revert', 'revert-layer', 'unset' ), true);
+    }
+
+    private function layoutShellClassName(DOMElement $element): string
+    {
+        $classes = array_values(array_filter(preg_split('/\s+/', $this->promotedClassName(SourceDom::attr($element, 'class'))) ?: array()));
+        $runtime = array();
+        foreach ( $this->runtimeIslands->runtimeDomSelectorsForElement($element) as $selector ) {
+            if ( str_starts_with($selector, '.') ) {
+                $runtime[substr($selector, 1)] = true;
+            }
+        }
+        foreach ( SourceDom::classNames($element) as $class ) {
+            if ( isset($runtime[$class]) || 1 === preg_match('/^blocks-engine-(?:attribute|editor-anchor)-/', $class) ) {
+                $classes[] = $class;
+            }
+        }
+
+        return implode(' ', array_values(array_unique(array_filter($classes, static fn (string $class): bool => '' !== $class))));
+    }
+
+    private function preservesScriptStateWrapper(DOMElement $element): bool
+    {
+        if ( $this->isInertHiddenEmptyElement($element) ) {
+            return false;
+        }
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->nodeName);
+            if ( LayoutShellBlockGenerator::isBooleanAttribute($name) ) {
+                return true;
+            }
+            if ( $this->runtimeIslands->isRuntimeDomTarget($element) && ( str_starts_with($name, 'data-') || str_starts_with($name, 'aria-') || 'role' === $name ) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function isInertHiddenEmptyElement(DOMElement $element): bool

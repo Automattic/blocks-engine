@@ -18,7 +18,9 @@ final class ButtonElementContext
         private readonly Closure $convertChildren,
         private readonly ElementPresentationResolver $presentationResolver,
         private readonly SourceBlockCreator $createBlock,
-        private readonly Closure $convertButton
+        private readonly Closure $convertButton,
+        private readonly ?Closure $isRuntimeDomTarget = null,
+        private readonly ?Closure $runtimeButton = null
     ) {
     }
 
@@ -63,5 +65,16 @@ final class ButtonElementContext
     public function convertButton(DOMElement $element): ?array
     {
         return ($this->convertButton)($element);
+    }
+
+    public function isRuntimeDomTarget(DOMElement $element): bool
+    {
+        return $this->isRuntimeDomTarget instanceof Closure && ($this->isRuntimeDomTarget)($element);
+    }
+
+    /** @return array<string, mixed>|null */
+    public function runtimeButton(DOMElement $element): ?array
+    {
+        return $this->runtimeButton instanceof Closure ? ($this->runtimeButton)($element) : null;
     }
 }

@@ -2724,16 +2724,20 @@ final class ArtifactCompiler
                 break;
             }
         }
-        if ( ! $hasDeclaredScriptFiles ) {
+        $documentScripts = $this->documentScriptContents($html, $sourcePath, $files);
+        if ( ! $hasDeclaredScriptFiles && array() === $documentScripts ) {
             return array();
         }
 
         $selectors = array();
         $controlSelectors = $this->formControlSelectors($html);
         $statusFeedbackSelectors = $this->formStatusFeedbackSelectors($html);
-        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
+        foreach ( $documentScripts as $script ) {
             foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
                 $selector = (string) $dependency['selector'];
+                if ( ! $hasDeclaredScriptFiles && ! str_contains($selector, '[data-') ) {
+                    continue;
+                }
                 if ( true === $dependency['presentation_only'] ) {
                     continue;
                 }
