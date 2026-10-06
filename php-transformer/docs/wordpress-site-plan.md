@@ -89,16 +89,36 @@ bounded slug on that route, it links to multiple canonical source documents
 classified as posts, and those article documents link back to that exact route
 with the same visible term name. Thus the route is one evidence source, not a
 guessing rule. Uncorroborated collection candidates remain ordinary documents
-and produce `wordpress_site_plan_taxonomy_archive_unproven` when they list posts.
+and produce `wordpress_site_plan_taxonomy_archive_unproven` when they list
+posts. Route or slug spellings outside the canonical term vocabulary produce
+`wordpress_site_plan_taxonomy_archive_unsupported_spelling`, and two
+corroborated archives claiming one term slug produce
+`wordpress_site_plan_taxonomy_archive_ambiguous_term`; neither constructs an
+entity that could fail the whole plan. Link evidence counts only when it is
+root-relative or absolute on the declared source origin, so an unrelated
+external link can never corroborate local term membership.
 
 Each emitted `taxonomy_term` records its bounded canonical post source paths,
 the archive source identity and route, captured presentation markup, and native
 query scope (`post_type`, taxonomy, and term). A consumer materializes the term
 and memberships and uses the archive document as presentation evidence, not as
 a frozen page owner. The generated theme scaffold retains an exact rewrite and
-term-link mapping for the source route without changing the destination's
-global category/tag base. Term pagination and future posts belong to
-WordPress's native archive query.
+term-link mapping for the source route, and rewrites the source route's
+`/page/N` suffix onto the same native term query with `paged` for bounded
+positive page numbers, without changing the destination's global category/tag
+base. Future posts belong to WordPress's native archive query.
+
+The producer-only HTTP acceptance serves a resolved generated theme in a
+disposable WordPress 7.1 runtime without SSI. It follows the rendered base-page
+Next link to `/page/2/`, follows Previous back to the base route, and checks the
+native query contents and unrelated-post exclusion:
+
+```sh
+BLOCKS_ENGINE_TAXONOMY_HTTP_WORDPRESS_VERSION=7.1 \
+BLOCKS_ENGINE_TAXONOMY_HTTP_EVIDENCE=/path/to/durable/evidence \
+WP_CODEBOX_CLI=/path/to/wp-codebox \
+node tests/wordpress-site-plan-taxonomy-http.mjs
+```
 
 An HTML detail document with exactly one valid schema.org `Event` JSON-LD claim
 can add a provider-neutral `entity_collection:events` declaration with

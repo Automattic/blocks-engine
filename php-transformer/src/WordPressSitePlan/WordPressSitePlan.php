@@ -39,6 +39,8 @@ final class WordPressSitePlan
     public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
     public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
+    /** The source-route pagination rewrite capture admits bounded positive page numbers only (1..999999). */
+    public const TAXONOMY_ARCHIVE_PAGED_CAPTURE = '([1-9][0-9]{0,5})';
     public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}';
     /**
      * A generated theme reproduces captured text, so WordPress typographic
@@ -228,7 +230,7 @@ final class WordPressSitePlan
         $surfaces = $this->templateSurfaces($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
         $routeMap = $this->canonicalRoutes($documents, $input->routes);
-        $taxonomyProjection = TaxonomyProjection::project($documents, $routeMap);
+        $taxonomyProjection = TaxonomyProjection::project($documents, $routeMap, $this->sourceOrigin);
         $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations);
         $this->routeSources = array();
         $this->routeTargets = array();
@@ -3101,10 +3103,14 @@ final class WordPressSitePlan
                 $slug = (string) $entity['slug'];
                 $sourceRoute = (string) $entity['archive']['source_route'];
                 $termRoutes[$taxonomy][$slug] = $sourceRoute;
-                $routePattern = '^' . preg_quote(trim($sourceRoute, '/'), '~') . '/?$';
+                $routePrefix = preg_quote(trim($sourceRoute, '/'), '~');
                 $queryVar = 'category' === $taxonomy ? 'category_name' : 'tag';
-                $query = 'index.php?' . $queryVar . '=' . rawurlencode($slug);
-                $lines[] = 'add_action( \'init\', static function (): void { add_rewrite_rule( ' . var_export($routePattern, true) . ', ' . var_export($query, true) . ', \'top\' ); }, 1 );';
+                // The captured term link names the base route only, so the native
+                // term query owns pagination; the rewrite carries the term context
+                // through `paged` instead of mutating global category/tag bases.
+                // Zero, negative, and overlong page numbers stay outside the
+                // capture and keep WordPress's own 404 semantics.
+                $lines[] = 'add_action( \'init\', static function (): void { add_rewrite_rule( ' . var_export('^' . $routePrefix . '/?$', true) . ', ' . var_export('index.php?' . $queryVar . '=' . rawurlencode($slug), true) . ', \'top\' ); add_rewrite_rule( ' . var_export('^' . $routePrefix . '/page/' . self::TAXONOMY_ARCHIVE_PAGED_CAPTURE . '/?$', true) . ', ' . var_export('index.php?' . $queryVar . '=' . rawurlencode($slug) . '&paged=$matches[1]', true) . ', \'top\' ); }, 1 );';
             }
             $lines[] = '$blocks_engine_taxonomy_archive_routes = ' . var_export($termRoutes, true) . ';';
             $lines[] = "add_filter( 'term_link', static function ( string \$url, WP_Term \$term, string \$taxonomy ) use ( \$blocks_engine_taxonomy_archive_routes ): string { \$route = \$blocks_engine_taxonomy_archive_routes[ \$taxonomy ][ \$term->slug ] ?? null; return is_string( \$route ) ? home_url( \$route ) : \$url; }, 10, 3 );";

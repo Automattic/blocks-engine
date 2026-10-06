@@ -67,6 +67,8 @@ $archivePresentation = (string) ($fieldNotes['archive']['presentation_markup'] ?
 $assert(array('stories/first.html', 'stories/second.html') === ($fieldNotes['membership_source_paths'] ?? null) && '/journal/category/field-notes' === ($fieldNotes['archive']['source_route'] ?? null) && str_contains($archivePresentation, '<!-- wp:query ') && str_contains($archivePresentation, '"inherit":true') && str_contains($archivePresentation, '<!-- wp:query-pagination ') && str_contains($archivePresentation, '<!-- wp:query-no-results -->'), 'Membership retains source route identity and turns captured cards into an inherited query loop with pagination and empty state.');
 $taxonomyBootstrap = (string) ((array_values(array_filter($taxonomyPlan['writes'], static fn(array $write): bool => 'functions.php' === ($write['target_path'] ?? null)))[0]['payload']['data'] ?? ''));
 $assert(str_contains($taxonomyBootstrap, "index.php?category_name=field-notes") && str_contains($taxonomyBootstrap, "home_url( \$route )"), 'Generated theme retains the exact native category rewrite and source term-link mapping without changing global taxonomy bases.');
+$assert(str_contains($taxonomyBootstrap, '/page/' . WordPressSitePlan::TAXONOMY_ARCHIVE_PAGED_CAPTURE . '/?$\'') && str_contains($taxonomyBootstrap, "'index.php?category_name=field-notes&paged=\$matches[1]'"), 'The source route gains a pagination rewrite that keeps the native term query context and admits bounded positive page numbers only.');
+$assert(!str_contains($taxonomyBootstrap, 'category_base') && !str_contains($taxonomyBootstrap, 'tag_base'), 'The bootstrap never mutates global category/tag bases.');
 $categoryTemplate = array_values(array_filter($taxonomyPlan['templates'], static fn(array $template): bool => 'category-field-notes' === ($template['slug'] ?? null)))[0] ?? array();
 $sharedMarkup = implode("\n", array_column($taxonomyPlan['template_parts'], 'canonical_block_markup'));
 $assert(str_contains((string) ($categoryTemplate['canonical_block_markup'] ?? ''), 'Field Notes') && str_contains((string) ($categoryTemplate['canonical_block_markup'] ?? ''), 'wp:query') && str_contains((string) ($categoryTemplate['canonical_block_markup'] ?? ''), '"slug":"footer"') && str_contains($sharedMarkup, '"slug":"footer-content"') && str_contains($sharedMarkup, 'Shared footer'), 'Category-specific template retains the shared footer shell and its captured content without duplicating that inline part.');
@@ -77,6 +79,36 @@ foreach ($ambiguousTaxonomyArtifact['files'] as &$taxonomyFile) {
 unset($taxonomyFile);
 $ambiguousTaxonomyPlan = (new ArtifactCompiler())->compile($ambiguousTaxonomyArtifact)->toArray()['source_reports']['wordpress_site_plan'];
 $assert(array() === $ambiguousTaxonomyPlan['taxonomy_entities'] && 1 === count(array_filter($ambiguousTaxonomyPlan['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_taxonomy_archive_unproven' === ($row['code'] ?? null))), 'An archive whose articles do not link back remains explicitly unproven.');
+$unsupportedSpellingArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/corroborated-category.php';
+foreach ($unsupportedSpellingArtifact['files'] as &$spellingFile) if (is_array($spellingFile) && 'archives/field-notes.html' === ($spellingFile['path'] ?? null)) $spellingFile['metadata']['route_path'] = '/journal/category/-field-notes';
+unset($spellingFile);
+$unsupportedSpellingPlan = (new ArtifactCompiler())->compile($unsupportedSpellingArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === $unsupportedSpellingPlan['taxonomy_entities'] && 1 === count(array_filter($unsupportedSpellingPlan['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_taxonomy_archive_unsupported_spelling' === ($row['code'] ?? null))), 'A category archive whose route spelling cannot name a canonical term stays an explicit unproven diagnostic instead of constructing an entity the plan would reject.');
+$ambiguousTermArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/corroborated-category.php';
+foreach ($ambiguousTermArtifact['files'] as $index => $termFile) if (is_array($termFile)) {
+    if ('archives/field-notes.html' === ($termFile['path'] ?? null)) $termFile['metadata']['route_path'] = '/one/category/field-notes';
+    if (str_starts_with((string) ($termFile['path'] ?? ''), 'stories/')) $termFile['content'] = str_replace('<a href="/journal/category/field-notes">Field Notes</a>', '<a href="/one/category/field-notes">Field Notes</a><a href="/two/category/field-notes">Field Notes</a>', (string) $termFile['content']);
+    $ambiguousTermArtifact['files'][$index] = $termFile;
+}
+$ambiguousTermArtifact['files'][] = array('path' => 'more/field-notes.html', 'content' => '<main><h1>Field Notes</h1><article><h2><a href="/stories/first">First story</a></h2><p>First summary.</p></article><article><h2><a href="/stories/second">Second story</a></h2><p>Second summary.</p></article></main>', 'metadata' => array('route_path' => '/two/category/field-notes'));
+$ambiguousTermPlan = (new ArtifactCompiler())->compile($ambiguousTermArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === $ambiguousTermPlan['taxonomy_entities'] && 2 === count(array_filter($ambiguousTermPlan['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_taxonomy_archive_ambiguous_term' === ($row['code'] ?? null))), 'Two corroborated archives claiming one term slug both stay explicitly unproven instead of failing the whole plan.');
+$originTaxonomyFiles = static function (string $backlink, string $sourceUrl = ''): array {
+    $artifact = array('entrypoint' => 'index.html', 'files' => array(
+        'index.html' => '<main><h1>Home</h1></main>',
+        array('path' => 'archives/field-notes.html', 'content' => '<main><h1>Field Notes</h1><article><h2><a href="/stories/first">First story</a></h2><p>First summary.</p></article><article><h2><a href="/stories/second">Second story</a></h2><p>Second summary.</p></article></main>', 'metadata' => array('route_path' => '/journal/category/field-notes')),
+        array('path' => 'stories/first.html', 'content' => '<article><h1>First story</h1><p>Full first story.</p><a href="' . $backlink . '">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
+        array('path' => 'stories/second.html', 'content' => '<article><h1>Second story</h1><p>Full second story.</p><a href="' . $backlink . '">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
+    ));
+    if ('' !== $sourceUrl) $artifact['provenance'] = array('source_url' => $sourceUrl);
+    return $artifact;
+};
+$foreignBacklinkPlan = (new ArtifactCompiler())->compile($originTaxonomyFiles('https://mirror.example/journal/category/field-notes', 'https://source.example/'))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === $foreignBacklinkPlan['taxonomy_entities'] && 1 === count(array_filter($foreignBacklinkPlan['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_taxonomy_archive_unproven' === ($row['code'] ?? null))), 'An unrelated external origin cannot falsely prove local category membership through a coincidental path.');
+$sameOriginBacklinkPlan = (new ArtifactCompiler())->compile($originTaxonomyFiles('https://source.example/journal/category/field-notes', 'https://source.example/'))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(1 === count($sameOriginBacklinkPlan['taxonomy_entities']) && 'category' === ($sameOriginBacklinkPlan['taxonomy_entities'][0]['taxonomy'] ?? null), 'Absolute links on the declared source origin still corroborate local category membership.');
+$noOriginBacklinkPlan = (new ArtifactCompiler())->compile($originTaxonomyFiles('https://source.example/journal/category/field-notes'))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === $noOriginBacklinkPlan['taxonomy_entities'], 'Without a declared source origin, absolute links cannot prove local category membership.');
 $throws = static function (callable $callback, string $message) use ($assert): void { try { $callback(); } catch (InvalidArgumentException) { return; } $assert(false, $message); };
 $validationFailure = static function (callable $callback) use ($assert): ValidationException { try { $callback(); } catch (ValidationException $exception) { return $exception; } $assert(false, 'Expected a contextual WordPress site plan validation failure.'); };
 $writeMap = static function (array $writes): array { $map = array(); foreach ($writes as $write) $map[$write['target_path']] = $write; return $map; };
