@@ -546,6 +546,13 @@ final class InlineGeometry
         if ( array() !== $importantDeclarations ) {
             $rules[] = '.' . $className . '{' . implode(';', $importantDeclarations) . '}';
         }
+        if ('video' === strtolower($element->tagName) && isset($geometry['object-fit'], $geometry['width'], $geometry['height'])) {
+            // core/video places the source box carrier on a new figure. Its
+            // native video must fill that box and inherit the carried crop;
+            // the injected figure contributes no browser-default margin.
+            $rules[] = ':where(figure.' . $className . '){margin:0}';
+            $rules[] = '.' . $className . '>video{display:block;width:100%;height:100%;object-fit:inherit;object-position:inherit}';
+        }
         $float = strtolower(CssValueInspector::comparable((string) ($geometry['float'] ?? '')));
         if ( in_array($float, array( 'left', 'right' ), true) ) {
             // WordPress flow groups are flex containers. Float is ignored on a
