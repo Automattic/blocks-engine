@@ -50,7 +50,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        return $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element);
+        return $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->hasButtonDropdownChild($element);
     }
 
     /**
@@ -1661,7 +1661,9 @@ final class NavigationPattern implements PatternRecognizerInterface
                 }
 
                 if ( $this->isNavigationWrapperElement($child) ) {
-                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $allowsDescriptiveChrome);
+                    // A dropdown button item inside the wrapper proves it is a menu row,
+                    // so its direct links are menu items too.
+                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $allowsDescriptiveChrome, $this->hasButtonDropdownChild($child));
                     if ( array() !== $wrappedBlocks ) {
                         $blocks = array_merge($blocks, $wrappedBlocks);
                         continue;
@@ -1799,6 +1801,17 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function navigationBlockFromItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null): ?array
     {
+        $buttonMenu = $this->buttonDropdownItem($element);
+        if ( null !== $buttonMenu ) {
+            $children = $this->navigationBlocks($buttonMenu['cluster'], $presentationAttributes, $innerHtml, $createBlock, $navigationContext, true);
+            if ( array() !== $children ) {
+                // A button has no destination of its own, so the submenu has no url
+                // and core opens it on activation.
+                $attrs = $this->navigationItemAttributes($element, $buttonMenu['button'], $buttonMenu['cluster'], array( 'label' => $buttonMenu['label'], 'kind' => 'custom' ), $presentationAttributes, $navigationContext);
+                return $createBlock('core/navigation-submenu', $attrs, $children, $element);
+            }
+        }
+
         $anchor = $this->primaryNavigationAnchor($element);
         if ( ! $anchor instanceof DOMElement || '' === $this->anchorLabel($anchor, $innerHtml, $navigationContext) ) {
             return null;
@@ -2666,6 +2679,92 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
+     * An item made of a labelled button and the hidden dropdown panel that
+     * button opens (`aria-haspopup="menu"`, bound by `data-dla-dialog-trigger`
+     * and `data-dla-dialog-panel`). The panel may wrap its links in single
+     * plain wrappers; the links themselves must be the whole content.
+     *
+     * @return array{label:string, cluster:DOMElement, button:DOMElement}|null
+     */
+    public static function buttonDropdownItemParts(DOMElement $element): ?array
+    {
+        $button = null;
+        $panel = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+            if ( 'button' === strtolower($child->tagName) && null === $button ) {
+                $button = $child;
+            } elseif ( null !== $button && null === $panel && $child->hasAttribute('data-dla-dialog-panel') ) {
+                $panel = $child;
+            } else {
+                return null;
+            }
+        }
+        if ( null === $button || null === $panel
+            || 'menu' !== strtolower(trim($button->getAttribute('aria-haspopup')))
+            || '' === $panel->getAttribute('data-dla-dialog-panel')
+            || $button->getAttribute('data-dla-dialog-trigger') !== $panel->getAttribute('data-dla-dialog-panel')
+        ) {
+            return null;
+        }
+        $label = trim(preg_replace('/\s+/', ' ', $button->textContent ?? '') ?? '');
+        if ( '' === $label ) {
+            return null;
+        }
+
+        $cluster = $panel;
+        for ( $depth = 0; $depth < 4; ++$depth ) {
+            $elements = array();
+            foreach ( $cluster->childNodes as $child ) {
+                if ( $child instanceof DOMElement ) {
+                    $elements[] = $child;
+                } elseif ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                    return null;
+                }
+            }
+            if ( array() === $elements ) {
+                return null;
+            }
+            if ( 'a' === strtolower($elements[0]->tagName) ) {
+                foreach ( $elements as $link ) {
+                    if ( 'a' !== strtolower($link->tagName) || '' === trim($link->textContent ?? '') || '' === trim($link->getAttribute('href')) ) {
+                        return null;
+                    }
+                }
+                return array( 'label' => $label, 'cluster' => $cluster, 'button' => $button );
+            }
+            if ( 1 !== count($elements) || ! in_array(strtolower($elements[0]->tagName), array( 'div', 'span' ), true) ) {
+                return null;
+            }
+            $cluster = $elements[0];
+        }
+
+        return null;
+    }
+
+    private function hasButtonDropdownChild(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && null !== self::buttonDropdownItemParts($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array{label:string, cluster:DOMElement, button:DOMElement}|null */
+    private function buttonDropdownItem(DOMElement $element): ?array
+    {
+        return self::buttonDropdownItemParts($element);
+    }
+
+    /**
      * A plain wrapper that holds nothing but labelled destination anchors, set
      * beside an item's own anchor. Builders that render a nested menu without
      * list semantics or a `dropdown`-style name still express it this way:
@@ -2925,6 +3024,11 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
+            if ( null !== $this->buttonDropdownItem($child) ) {
+                $hasNavigationChild = true;
+                continue;
+            }
+
             if ( in_array($tagName, array( 'a', 'ul', 'ol' ), true) || $this->hasNavigationSignal($child) || $this->isNavigationChromeElement($child) ) {
                 $hasNavigationChild = true;
                 continue;
@@ -3094,7 +3198,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        if ( $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->isMenuPanelContent($element) ) {
+        if ( $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) || $this->isMenuPanelContent($element) || $this->hasButtonDropdownChild($element) ) {
             return true;
         }
 

@@ -52,9 +52,17 @@ final class WordPressSitePlan
     private string $sourceUrl = '';
     private const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
     private const MAX_ROUTE_COLLISION_DIAGNOSTICS = 50;
+    private const MAX_OMITTED_LINK_DECLARATION_DIAGNOSTICS = 50;
+    private const OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE = 'wordpress_site_plan_omitted_link_declaration';
     /** @var array<string,array<string,mixed>> */
     private array $unresolvedNavigationDiagnostics = array();
     private int $omittedUnresolvedNavigationDiagnostics = 0;
+    /** @var array<string,array<string,mixed>> */
+    private array $omittedLinkDeclarations = array();
+    /** @var array<string,array<string,bool>> */
+    private array $omittedLinkDeclarationPages = array();
+    /** @var array<string,bool> */
+    private array $omittedLinkDeclarationOverflow = array();
     /** @var array<int,array<string,mixed>> */
     private array $routeCollisions = array();
     private int $omittedRouteCollisionDiagnostics = 0;
@@ -189,6 +197,9 @@ final class WordPressSitePlan
         $this->sourceOrigin = $this->urlOrigin($this->sourceUrl);
         $this->unresolvedNavigationDiagnostics = array();
         $this->omittedUnresolvedNavigationDiagnostics = 0;
+        $this->omittedLinkDeclarations = array();
+        $this->omittedLinkDeclarationPages = array();
+        $this->omittedLinkDeclarationOverflow = array();
         $editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
             throw new InvalidArgumentException('WordPress site plan requires a versioned editability policy.');
@@ -254,10 +265,8 @@ final class WordPressSitePlan
         // Bindings anchor on the final canonical page markup before any shell
         // extraction. Asset and route projection can make source anchors equal,
         // so assign occurrences only after that shared projection is complete.
-        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
-        $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
-        $runtimeDeclarations = $factoredRuntimeDeclarations['declarations'];
-        $runtimeRecords = $factoredRuntimeDeclarations['records'];
+        $runtimeEntityRecords = $compiled['runtime_entity_records'] ?? array();
+        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
         $projector = new ThemeJsonProjection();
@@ -270,7 +279,6 @@ final class WordPressSitePlan
         $existingParts = $this->documents($compiledParts, true, $tokens, $references, $routeMap);
         $reservedPartSlugs = array_fill_keys(array_column($existingParts, 'slug'), true);
         $canonicalInlineParts = $this->documents(is_array($compiled['inline_shell_artifacts'] ?? null) ? $compiled['inline_shell_artifacts'] : array(), true, $tokens, $references, $routeMap);
-        $runtimeEntityRecords = $compiled['runtime_entity_records'] ?? array();
         $inlineShells = $this->shellExtraction->inlineSharedShells($pages, $reservedPartSlugs, $runtimeDeclarations, $canonicalInlineParts, $runtimeEntityRecords);
         $reservedPartSlugs += array_fill_keys(array_column($inlineShells['parts'], 'slug'), true);
         if (array_filter($inlineShells['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_shell_route_variant_extracted' === ($row['code'] ?? null))) $reservedPartSlugs['header'] = true;
@@ -289,9 +297,9 @@ final class WordPressSitePlan
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
-        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
+        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $parts);
          self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
-         $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus, $runtimeDeclarations, $compiled['runtime_entity_records'] ?? array());
+         $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus, $runtimeDeclarations, $runtimeEntityRecords);
          $pages = $navigation['pages'];
          $parts = $navigation['parts'];
          $menus = $navigation['menus'];
@@ -301,8 +309,8 @@ final class WordPressSitePlan
           $assets = ListingQueryPresentation::project($assets, $this->listingQueryContainers);
          // Query Loop projection can shorten page markup after shell extraction.
          // Rebase retained runtime anchors on the final page before validation.
-         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
-         $pages = self::attachWholePageCandidates($pages, $runtimeDeclarations, $compiled['runtime_entity_records'] ?? array());
+         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $parts);
+         $pages = self::attachWholePageCandidates($pages, $runtimeDeclarations, $runtimeEntityRecords);
          foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
          self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
          $projectedTaxonomyEntities = array();
@@ -338,7 +346,12 @@ final class WordPressSitePlan
             $assetWrites = array_merge($assetWrites, $this->assetWrites($placeholderAssets, $references));
         }
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $taxonomyProjection['entities']), $assetWrites);
-        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->missingMedia->diagnostics());
+        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->missingMedia->diagnostics());
+        // All shell, navigation, listing and script binding projection is now
+        // complete. Only the public plan needs the bounded record form.
+        $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
+        $runtimeDeclarations = $factoredRuntimeDeclarations['declarations'];
+        $runtimeRecords = $factoredRuntimeDeclarations['records'];
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => $this->sourceDocumentCatalog($compiled['pages'] ?? array())),
@@ -358,7 +371,7 @@ final class WordPressSitePlan
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
-            'runtime_entity_records' => $compiled['runtime_entity_records'] ?? array(),
+            'runtime_entity_records' => $runtimeEntityRecords,
             'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics),
             'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $input->coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy),
             'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), $surfaces),
@@ -425,7 +438,9 @@ final class WordPressSitePlan
         $records = RuntimeEntityManifest::normalizeRecords($plan['runtime_entity_records']);
         if ($records !== $plan['runtime_entity_records']) throw new InvalidArgumentException('WordPress site plan runtime entity records are not canonically normalized.');
         foreach ($plan['runtime_declarations'] as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) RuntimeEntityManifest::resolve($declaration['payload'], $records);
-        self::assertEntityBindingsAnchored($plan['runtime_declarations'], $plan['pages'], $plan['template_parts'], $plan['assets']);
+        $runtimeRecords = RuntimeDeclarations::normalizeRecords($plan['runtime_records'] ?? array());
+        if ($runtimeRecords !== ($plan['runtime_records'] ?? array())) throw new InvalidArgumentException('WordPress site plan runtime records are not canonically normalized.');
+        self::assertEntityBindingsAnchored(RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $plan['pages'], $plan['template_parts'], $plan['assets']);
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
@@ -1434,8 +1449,10 @@ final class WordPressSitePlan
                 }
                 if ('links' !== $kind) continue;
                 $route = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes);
-                if (null !== $route) $row['url'] = $route;
-                elseif ($this->isOptionalFeedLink($row) || $this->isOptionalResourceHint($row) || $this->isOptionalManifestLink($row) || $this->isVendorLink($row)) $row = null;
+                if (null !== $route) { $row['url'] = $route; continue; }
+                if (!$this->isOptionalFeedLink($row) && !$this->isOptionalDiscoveryLink($row) && !$this->isOptionalResourceHint($row) && !$this->isOptionalManifestLink($row) && !$this->isVendorLink($row) && !$this->isSourceProtocolEndpointLink($row)) continue;
+                $this->recordOmittedLinkDeclaration(self::value($document, 'source_path'), $row);
+                $row = null;
             }
             unset($row);
             $metadata[$kind] = array_values(array_filter($metadata[$kind], static fn(mixed $row): bool => is_array($row)));
@@ -1478,6 +1495,115 @@ final class WordPressSitePlan
     {
         $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
         return !self::explicitUrl($link['url'] ?? null) && array('manifest') === $relations;
+    }
+    /**
+     * Discovery endpoints for server-side protocols the source application
+     * served itself: XML-RPC pingback, RSD (`EditURI`), the Live Writer
+     * manifest, WebSub hubs, Webmention receivers and OpenID delegation.
+     *
+     * WordPress publishes all of these on every page, so a captured WordPress
+     * site arrives with `<link rel="pingback" href="/xmlrpc.php">` and
+     * `<link rel="EditURI" href="/xmlrpc.php?rsd">` in its head. Neither names
+     * a captured asset, and neither can become an artifact route: `routeUrl()`
+     * rejects a dotted segment. They are not subresources either -- nothing a
+     * page renders depends on them -- and the destination site publishes its
+     * own correct endpoints. Carrying the source copies forward is stale
+     * plumbing, so an unresolved one is omitted rather than failing the import.
+     */
+    private const SOURCE_PROTOCOL_LINK_TYPES = array('pingback', 'edituri', 'wlwmanifest', 'hub', 'webmention', 'openid.server', 'openid.delegate', 'openid2.provider', 'openid2.local_id');
+    /**
+     * oEmbed discovery. WordPress core prints both of these on every singular
+     * page, and `oembed/1.0/` carries a dotted segment, so `routeUrl()` rejects
+     * it for exactly the reason it rejects `/xmlrpc.php`. A consumer fetches
+     * these to embed the page somewhere else; nothing the page renders depends
+     * on them, and the destination publishes its own.
+     *
+     * Matched on the `+oembed` media-type suffix, which is what identifies the
+     * pair, and fail-closed on the relation set the way `isOptionalManifestLink()`
+     * is -- a `rel` carrying anything besides `alternate` is not this.
+     *
+     * @param array<string,mixed> $link
+     */
+    private function isOptionalDiscoveryLink(array $link): bool
+    {
+        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
+        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
+        // A media type may carry parameters -- `application/json+oembed; charset=utf-8`
+        // is the same type -- and missing one costs the whole plan, so match the
+        // essence before the first `;` rather than the raw attribute.
+        $type = strtolower(trim(explode(';', (string) ($link['type'] ?? ''))[0]));
+        return !self::explicitUrl($link['url'] ?? null) && array('alternate') === $relations && str_ends_with($type, '+oembed');
+    }
+    /** @param array<string,mixed> $link */
+    private function isSourceProtocolEndpointLink(array $link): bool
+    {
+        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
+        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
+        return !self::explicitUrl($link['url'] ?? null) && array() !== $relations && array() === array_diff($relations, self::SOURCE_PROTOCOL_LINK_TYPES);
+    }
+    /**
+     * Records one omitted link declaration. An omission is a reportable quality
+     * defect, not a silent edit: the plan keeps a bounded, deduplicated warning
+     * per declaration so a consumer can show what the head lost.
+     *
+     * These land on the plan's own `diagnostics`, beside
+     * `wordpress_site_plan_unresolved_navigation_link`. They are not envelope
+     * diagnostics, so they do not reach `source_reports.wordpress_site_plan_diagnostics`
+     * or `WordPressSitePlanView::diagnostics()`, which carry the failure
+     * channel; a consumer wanting these reads the plan.
+     *
+     * @param array<string,mixed> $link
+     */
+    private function recordOmittedLinkDeclaration(string $sourcePath, array $link): void
+    {
+        $url = (string) ($link['url'] ?? '');
+        $relation = trim((string) preg_replace('/\s+/', ' ', (string) ($link['rel'] ?? '')));
+        // Keyed on the declaration rather than the page. WordPress prints the
+        // same discovery links in every head, so keying on the page spends the
+        // whole budget restating one site's boilerplate and names no other
+        // defect: a 60-page capture reported 5 facts about 10 pages and gave
+        // up. One row per distinct declaration, with the page it was first seen
+        // on and how many pages carried it.
+        //
+        // Pages, not tags: fullDocumentMetadata() keeps duplicate links, so a
+        // head that prints one pingback twice would otherwise report two
+        // affected pages when it has one.
+        $key = $relation . "\0" . $url;
+        if (isset($this->omittedLinkDeclarations[$key])) { $this->omittedLinkDeclarationPages[$key][$sourcePath] = true; return; }
+        // Counted as distinct declarations, the same unit as the rows above it,
+        // so the listed rows and the remainder add up.
+        if (count($this->omittedLinkDeclarations) >= self::MAX_OMITTED_LINK_DECLARATION_DIAGNOSTICS) { $this->omittedLinkDeclarationOverflow[$key] = true; return; }
+        $label = $relation . ' link';
+        $this->omittedLinkDeclarationPages[$key][$sourcePath] = true;
+        $this->omittedLinkDeclarations[$key] = array_filter(array(
+            'code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE,
+            'severity' => 'warning',
+            'message' => self::clipDiagnosticField("Omitted {$url} ({$label} declaration), which names neither a captured asset nor an artifact route."),
+            'source_path' => self::clipDiagnosticField($sourcePath),
+            'rel' => self::clipDiagnosticField($relation),
+            'value' => self::clipDiagnosticField($url),
+            'reason_code' => 'unresolved_local_url',
+        ), static fn(mixed $field): bool => '' !== $field);
+    }
+    /**
+     * Clips one diagnostic field to its budget without splitting a UTF-8
+     * sequence. A byte-wise cut can leave an invalid string, and planIdentity()
+     * json_encode()s every diagnostic under JSON_THROW_ON_ERROR, so a split
+     * sequence would discard the whole plan -- the failure this omission exists
+     * to avoid, one layer up.
+     */
+    private static function clipDiagnosticField(string $value): string { return mb_strcut($value, 0, 256, 'UTF-8'); }
+    /** @return array<int,array<string,mixed>> */
+    private function omittedLinkDeclarationDiagnostics(): array
+    {
+        $diagnostics = array();
+        foreach ($this->omittedLinkDeclarations as $key => $diagnostic) {
+            $diagnostic['occurrences'] = count($this->omittedLinkDeclarationPages[$key] ?? array());
+            $diagnostics[] = $diagnostic;
+        }
+        $overflow = count($this->omittedLinkDeclarationOverflow);
+        if ($overflow > 0) $diagnostics[] = array('code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE, 'severity' => 'warning', 'message' => sprintf('%d more distinct unresolved link declarations were omitted; omitted from this diagnostic list.', $overflow), 'reason' => 'truncated', 'omitted_count' => $overflow);
+        return $diagnostics;
     }
     /** @param array<int,array<string,mixed>> $routes */
     private function documentAssetReference(string $url, string $sourcePath, AssetReferenceCanonicalizer $references, array $routes): ?string
@@ -3275,10 +3401,18 @@ final class WordPressSitePlan
      * and route projections used for its source page.
      *
      * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $records
      * @param array<int,array<string,mixed>> $routes
      * @return array<int,array<string,mixed>>
      */
-    private function canonicalEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array()): array
+    private function canonicalEntityBindings(array $declarations, array &$records, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array()): array
+    {
+        $projection = RuntimeEntityManifest::project($declarations, $records, fn(array $inline): array => $this->canonicalInlineEntityBindings($inline, $references, $routes, $pages, $parts));
+        $records = $projection['records'];
+        return $projection['declarations'];
+    }
+
+    private function canonicalInlineEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array()): array
     {
         // A binding owned by a shared part was re-anchored on the part's final
         // markup when the chrome moved; it needs no source projection, and the
@@ -3408,7 +3542,7 @@ final class WordPressSitePlan
         }
         unset($declaration);
 
-        return RuntimeDeclarations::normalizeList($declarations);
+        return RuntimeDeclarations::normalizeForComposition($declarations);
     }
 
     /** @internal Exposed for ShellExtraction, which canonicalizes shell-candidate links through the same route table as page content. @param array<int,array<string,mixed>> $routes */

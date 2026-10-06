@@ -340,6 +340,40 @@ final class SourceDom
         return false;
     }
 
+    /**
+     * The suffix distinguishing a non-default responsive document variant's
+     * copy of a shared source id from its default-variant counterpart, so an
+     * id compiled onto both copies of the same wrapper does not collide on
+     * the page. Empty for the default (desktop) variant, or for an element
+     * outside any declared variant, which both keep the bare source id.
+     *
+     * Mirrors Data Liberation Agent's own `--dla-mobile` convention for
+     * pairing a mobile-specific identity with its desktop counterpart
+     * (`dataItem-kooetu6x` / `dataItem-kooetu6x--dla-mobile`), instead of
+     * inventing a second convention for the same kind of pairing.
+     */
+    public static function documentVariantIdSuffix(DOMElement $element): string
+    {
+        $root = self::documentVariantRoot($element);
+        if ( ! $root instanceof DOMElement ) {
+            return '';
+        }
+
+        foreach ( preg_split('/\s+/', trim(self::attr($root, 'class'))) ?: array() as $class ) {
+            if ( 'data-liberation-mobile-document' === $class ) {
+                return '--dla-mobile';
+            }
+            if ( 'data-liberation-desktop-document' === $class || 'site-document-variant-default' === $class ) {
+                return '';
+            }
+            if ( preg_match('/^site-document-variant-([a-z][a-z0-9_-]{0,31})$/', $class, $match) && 'default' !== $match[1] ) {
+                return '--dla-' . $match[1];
+            }
+        }
+
+        return '';
+    }
+
     public static function associatedLabel(DOMElement $control): ?DOMElement
     {
         $id = self::attr($control, 'id');
