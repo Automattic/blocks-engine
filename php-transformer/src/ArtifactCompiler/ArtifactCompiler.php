@@ -353,7 +353,7 @@ final class ArtifactCompiler
             $assets[] = $wordpressCompatAsset;
         }
         $assets = $this->deduplicateVisualAssets($assets);
-        $assets = $this->coalesceStylesheetAssets($assets);
+        $assets = $this->coalesceStylesheetAssets($assets, $normalized['files']);
         $diagnostics = array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
@@ -494,17 +494,6 @@ final class ArtifactCompiler
         if ( array() !== $entryBlocks['superseded_selectors'] ) {
             $sourceReports['superseded_selectors'] = $entryBlocks['superseded_selectors'];
         }
-        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks);
-        foreach ($sourceReports['runtime_dependency_parity']['findings'] ?? array() as $finding) {
-            if ('runtime_dependency_target_missing' !== ($finding['code'] ?? '') || 'telemetry' === ($finding['script_kind'] ?? '')) {
-                continue;
-            }
-            $diagnostics[] = $this->diagnostic('runtime_dependency_contract_failed', 'error', (string) ($finding['message'] ?? 'A required runtime DOM target is absent from generated markup.'), array_filter(array(
-                'selector' => $finding['selector'] ?? null,
-                'script_path' => $finding['script_path'] ?? null,
-                'source_path' => $finding['source_path'] ?? null,
-            ), static fn (mixed $value): bool => null !== $value && '' !== $value));
-        }
         if ( array() !== $entryBlocks['runtime_islands'] ) {
             $sourceReports['runtime_islands'] = $entryBlocks['runtime_islands'];
             if ( array() !== $runtimeIslandPackage ) {
@@ -558,7 +547,8 @@ final class ArtifactCompiler
                 'analysis_count' => !empty($reduction['inline_compilation']) ? 1 : 0,
                 'terminal_reduction_count' => 1,
             ),
-            $startedAt
+            $startedAt,
+            fn(?array $plan): array => ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks, $plan)
         );
     }
 
@@ -810,8 +800,17 @@ final class ArtifactCompiler
      * @param array<int,array<string,mixed>> $assets
      * @return array<int,array<string,mixed>>
      */
-    private function coalesceStylesheetAssets(array $assets): array
+    private function coalesceStylesheetAssets(array $assets, array $files): array
     {
+        // A stylesheet element with a declared head position is a DOM identity,
+        // not merely an adjacent CSS payload. Coalescing destroys both that
+        // target and script/style parser ordering, even when media agrees.
+        $headStyles = array();
+        foreach ($files as $file) {
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null)) continue;
+            $head = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext::fromHtml($file['content'], $file['path'], $files);
+            foreach ($head['elements'] ?? array() as $row) if ('style' === $row['tag']) $headStyles[$row['url']] = true;
+        }
         $coalesced = array();
         $run = array();
         $runKey = '';
@@ -843,7 +842,7 @@ final class ArtifactCompiler
             $runKey = '';
         };
         foreach ( $assets as $asset ) {
-            if ( ! $this->isCoalescibleStylesheetAsset($asset) ) {
+            if ( isset($headStyles[$asset['path'] ?? '']) || ! $this->isCoalescibleStylesheetAsset($asset) ) {
                 $flush();
                 $coalesced[] = $asset;
                 continue;
@@ -3673,7 +3672,10 @@ final class ArtifactCompiler
         }
         $titles = HtmlTagScanner::scan($html, 'title');
         $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
-        return array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), 'root_attributes' => \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::fromHtml($html), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), 'root_attributes' => \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::fromHtml($html), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        $head = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext::fromHtml($html, $sourcePath, $files);
+        if (null !== $head) $metadata['head'] = $head;
+        return $metadata;
     }
 
     /**

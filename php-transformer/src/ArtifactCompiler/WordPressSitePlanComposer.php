@@ -19,7 +19,7 @@ final class WordPressSitePlanComposer
     /**
      * @param array<string, int|float> $processMetrics
      */
-    public function compose(TransformerResult $envelope, array $processMetrics = array(), ?int $startedAt = null): TransformerResult
+    public function compose(TransformerResult $envelope, array $processMetrics = array(), ?int $startedAt = null, ?callable $runtimeParity = null): TransformerResult
     {
         $data = $envelope->toArray();
         $sourceReports = $data['source_reports'];
@@ -48,6 +48,18 @@ final class WordPressSitePlanComposer
                 $diagnostics[] = $exception instanceof ValidationException
                     ? array_merge($exception->diagnostic(), array('severity' => 'error', 'source' => ArtifactCompiler::class))
                     : $this->diagnostic('wordpress_site_plan_not_self_contained', 'error', $exception->getMessage());
+            }
+        }
+        if (null !== $runtimeParity) {
+            $sourceReports['runtime_dependency_parity'] = $runtimeParity($wordpressSitePlan);
+            foreach ($sourceReports['runtime_dependency_parity']['findings'] ?? array() as $finding) {
+                if ('runtime_dependency_target_missing' !== ($finding['code'] ?? '') || 'telemetry' === ($finding['script_kind'] ?? '')) continue;
+                $diagnostics[] = $this->diagnostic('runtime_dependency_contract_failed', 'error', (string) $finding['message'], array_filter(array(
+                    'selector' => $finding['selector'] ?? null,
+                    'script_path' => $finding['script_path'] ?? null,
+                    'source_path' => $finding['source_path'] ?? null,
+                ), static fn(mixed $value): bool => null !== $value && '' !== $value));
+                $wordpressSitePlan = null;
             }
         }
         if ( null !== $wordpressSitePlan ) {

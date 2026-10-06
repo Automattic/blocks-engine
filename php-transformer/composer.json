@@ -66,6 +66,7 @@
       "php tests/contract/finding-contract.php",
       "php tests/contract/wordpress-site-plan.php",
       "php tests/contract/inert-document-declarations.php",
+      "php tests/contract/document-head-runtime.php",
       "php tests/contract/form-source-ownership.php",
       "php tests/contract/unresolved-navigation-links.php",
       "php tests/contract/source-protocol-link-declarations.php",
