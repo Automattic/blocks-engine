@@ -45,6 +45,7 @@
     "visual:empty-destination-anchor": "node tools/visual-parity/tests/empty-destination-anchor.mjs",
     "visual:source-class-selector-ownership": "node tools/visual-parity/tests/source-class-selector-ownership.mjs",
     "visual:nested-responsive-font-size": "node tools/visual-parity/tests/nested-responsive-font-size.mjs",
+    "visual:native-emoji-wordpress": "node tools/visual-parity/tests/native-emoji-wordpress.mjs",
     "benchmark:selector-cache": "php tools/benchmarks/css-selector-match-cache.php",
     "benchmark:staged-page-compilation": "php tools/benchmarks/staged-page-compilation-production.php",
     "corpus-diagnostics": "php tools/corpus-diagnostics/run.php",
@@ -105,6 +106,7 @@
       "@test:unit"
     ],
     "test:unit": [
+      "php tests/unit/form-physical-box-ownership.php",
       "php tests/unit/runtime-declarations-streaming-hash.php",
       "php tests/unit/external-metric-declarations.php",
       "php tests/unit/runtime-script-evidence-analyzer.php",
@@ -176,6 +178,7 @@
       "php tests/unit/theme-json-projection-blockgap-optin.php",
       "php tests/unit/theme-json-projection-typography-families.php",
       "php tests/unit/theme-json-projection-layered-deferral.php",
+      "php tests/unit/theme-json-projection-route-defaults.php",
       "php tests/unit/theme-json-projection-responsive-breakpoints.php",
       "php tests/unit/responsive-font-size-not-baked.php",
       "php tests/unit/heading-block-span-font-size.php",
