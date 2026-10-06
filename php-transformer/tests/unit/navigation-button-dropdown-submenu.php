@@ -57,7 +57,7 @@ $project = static function (string $html, array $trigger, string $dialogHtml): a
     );
     $result = ( new CapturedDialogProjector() )->project($files);
 
-    return array( (int) ( $result['projected_count'] ?? 0 ), (string) ( $result['files'][0]['content'] ?? '' ) );
+    return array( (int) ( $result['projected_count'] ?? 0 ), (string) ( $result['files'][0]['content'] ?? '' ), $result );
 };
 $linksHtml = '<div class="drop"><div class="box"><a href="#new">New in</a><a href="#sale">Sale</a></div></div>';
 [ $navProjected, $navHtml ] = $project('<html><body>' . $header . '</body></html>', array('selector' => '#shop', 'tag' => 'button', 'ariaHaspopup' => 'menu', 'label' => 'Shop', 'dataBindings' => array()), $linksHtml);
@@ -65,6 +65,12 @@ $assert(0 === $navProjected && ! str_contains($navHtml, '<dialog'), 'a navigatio
 $actionHtml = '<html><body><main><button id="open" type="button">Open the record</button></main></body></html>';
 [ $actionProjected, $actionOut ] = $project($actionHtml, array('selector' => '#open', 'tag' => 'button', 'ariaHaspopup' => '', 'label' => 'Open the record', 'dataBindings' => array()), '<div role="dialog"><h2>Record</h2><p>Details</p></div>');
 $assert(1 === $actionProjected && str_contains($actionOut, '<dialog'), 'a plain action button still projects a native dialog', $actionOut);
+
+$wiredHeader = '<html><body>' . $header . '<script data-dla-disclosure-runtime="true">document.querySelectorAll("[data-dla-dialog-trigger]");</script><button type="button" hidden data-dla-dialog-close="p-shop">Close</button></body></html>';
+[ $handledCount, $handledHtml, $handledResult ] = $project($wiredHeader, array('selector' => '#shop', 'tag' => 'button', 'ariaHaspopup' => 'menu', 'label' => 'Shop', 'dataBindings' => array()), $linksHtml);
+$assert(0 === $handledCount && !str_contains($handledHtml, 'data-dla-disclosure-runtime') && !str_contains($handledHtml, 'data-dla-dialog-close'), 'a menu-only capture retires superseded wiring and close helpers without claiming a projected dialog', $handledHtml);
+$compiled = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $handledResult['files']))->toArray();
+$assert(str_contains((string) ($compiled['serialized_blocks'] ?? ''), '<!-- wp:navigation-submenu') && !str_contains((string) ($compiled['serialized_blocks'] ?? ''), 'data-blocks-engine-captured-dialog'), 'the entire artifact pipeline keeps the menu as a native submenu');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "Navigation button dropdown contract: {$failures} failed, {$passes} passed\n");

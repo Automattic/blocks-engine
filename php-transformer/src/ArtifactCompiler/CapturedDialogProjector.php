@@ -82,7 +82,7 @@ final class CapturedDialogProjector
 
             $projection = $this->projectPage((string) $files[$index]['content'], $dialogStates, $path);
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
-            if (0 < $projection['projected_count']) {
+            if (0 < $projection['projected_count'] || array() !== $projection['retired_scripts']) {
                 $files[$index]['content'] = $projection['html'];
                 $files[$index]['bytes'] = strlen($projection['html']);
                 $projected += $projection['projected_count'];
@@ -154,6 +154,7 @@ final class CapturedDialogProjector
         $adoption = $this->adoptWiredPanels($document, $sourcePath);
         $adopted = $adoption['triggers'];
         $projected = $adoption['count'];
+        $handledNavigationDropdown = false;
         foreach ($states as $state) {
             if (! is_array($state) || 'captured' !== ($state['status'] ?? null) || ! is_array($state['trigger'] ?? null) || ! is_array($state['dialog'] ?? null)) {
                 continue;
@@ -184,6 +185,10 @@ final class CapturedDialogProjector
             // A navigation button with its dropdown panel of links stays in place:
             // it becomes a navigation submenu, not a dialog opened from a button.
             if (array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isNavigationDropdownTrigger($trigger))) {
+                $handledNavigationDropdown = true;
+                foreach ($triggers as $trigger) {
+                    $this->consumeMatchedCloseHelper($document, array($trigger), $trigger->parentNode);
+                }
                 continue;
             }
             $fragment = $this->safeDialogFragment($dialogHtml);
@@ -226,7 +231,7 @@ final class CapturedDialogProjector
             ++$projected;
         }
         $retired = array();
-        if ($projected > 0 && !$this->hasDialogCloseHelper($document) && $this->everyDialogTriggerIsBound($document)) {
+        if (($projected > 0 || $handledNavigationDropdown) && !$this->hasDialogCloseHelper($document) && $this->everyDialogTriggerIsBound($document)) {
             foreach (iterator_to_array($document->getElementsByTagName('script')) as $script) {
                 if (!$script instanceof DOMElement || !$script->hasAttribute('data-dla-disclosure-runtime')) continue;
                 $body = trim($script->textContent ?? '');
