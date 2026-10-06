@@ -191,6 +191,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
                 }
             }
             $mediaStyle = $fullPresentationStyle($resolution['media']);
+            $rootFontSize = $this->rootFontSize($element->ownerDocument?->documentElement, $fullPresentationStyle);
         } catch ( \Throwable ) {
             return null;
         }
@@ -198,7 +199,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
         // A small, explicitly sized image beside short text is an icon lockup,
         // not a two-pane media/text section. Let normal group lowering retain
         // the authored row so both the image and text stay editable.
-        if ( 'img' === $mediaType && $this->isCompactIconTextPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle) ) {
+        if ( 'img' === $mediaType && $this->isCompactIconTextPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle, $rootFontSize) ) {
             return null;
         }
 
@@ -590,7 +591,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
         return false;
     }
 
-    private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle): bool
+    private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle, ?float $rootFontSize): bool
     {
         $simpleText = preg_match('/^(?:h[1-6]|p|span)$/', strtolower($text->tagName));
         if ( ! $simpleText && ! $this->hasCompactPortraitPresentation($mediaStyle) ) {
@@ -607,9 +608,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return true;
         }
 
-        $width = $this->compactPixelDimension($this->normalizedCssValue((string) ($declarations['width'] ?? '')));
+        $width = $this->compactPixelDimension($this->normalizedCssValue((string) ($declarations['width'] ?? '')), $rootFontSize);
         $heightValue = strtolower($this->normalizedCssValue((string) ($declarations['height'] ?? 'auto')));
-        $height = $this->compactPixelDimension($heightValue);
+        $height = $this->compactPixelDimension($heightValue, $rootFontSize);
 
         $compact = null !== $width
             && 64 >= $width
@@ -625,7 +626,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
         return 'cover' === $objectFit || '' !== $borderRadius;
     }
 
-    private function compactPixelDimension(string $value): ?float
+    private function compactPixelDimension(string $value, ?float $rootFontSize): ?float
     {
         if ( ! preg_match('/^\s*(\d+(?:\.\d+)?)\s*(px|rem)\s*$/i', $value, $matches) ) {
             return null;
@@ -633,11 +634,13 @@ final class MediaTextPattern implements PatternRecognizerInterface
 
         $dimension = (float) $matches[1];
         // Captured utility stylesheets commonly express fixed dimensions in
-        // rem (`w-12`/`h-12` -> 3rem). The compact-media threshold is a CSS
-        // pixel threshold, so resolve rem against the initial 16px root size
-        // rather than treating the authored unit as unresolvable.
+        // rem (`w-12`/`h-12` -> 3rem). Only compare those to the compact-media
+        // pixel threshold when the source root size is known.
         if ( 'rem' === strtolower($matches[2]) ) {
-            $dimension *= 16;
+            if ( null === $rootFontSize ) {
+                return null;
+            }
+            $dimension *= $rootFontSize;
         }
 
         return 0 < $dimension ? $dimension : null;
@@ -651,6 +654,68 @@ final class MediaTextPattern implements PatternRecognizerInterface
 
         $dimension = (float) $matches[1];
         return 0 < $dimension ? $dimension : null;
+    }
+
+    /**
+     * Resolve the document root font size used by rem declarations.
+     *
+     * @param callable(DOMElement): string $fullPresentationStyle
+     */
+    private function rootFontSize(?DOMElement $root, callable $fullPresentationStyle): ?float
+    {
+        if ( null === $root ) {
+            return null;
+        }
+
+        if ( 'html' === strtolower($root->tagName) ) {
+            $declarations = $this->styleDeclarations($fullPresentationStyle($root));
+            $inlineDeclarations = $this->styleDeclarations($this->attr($root, 'style'));
+            if ( isset($inlineDeclarations['font-size']) ) {
+                $declarations['font-size'] = $inlineDeclarations['font-size'];
+            }
+            return isset($declarations['font-size'])
+                ? $this->pixelFontSize((string) $declarations['font-size'])
+                : 16.0;
+        }
+
+        // HTML-to-blocks often compiles a body fragment, so its document root
+        // is not the CSS root. Inspect retained style elements for an explicit
+        // html/:root font-size before falling back to the browser initial size.
+        $document = $root->ownerDocument;
+        if ( null === $document ) {
+            return null;
+        }
+        $rootFontSize = null;
+        $hasExplicitRootFontSize = false;
+        foreach ($document->getElementsByTagName('style') as $styleElement) {
+            $css = $styleElement->textContent ?? '';
+            if (preg_match_all('/(?:^|})\s*(?:html|:root)\s*\{([^}]*)\}/i', $css, $rules)) {
+                foreach ($rules[1] as $declarations) {
+                    $parsed = $this->styleDeclarations((string) $declarations);
+                    if (isset($parsed['font-size'])) {
+                        $hasExplicitRootFontSize = true;
+                        $rootFontSize = $this->pixelFontSize((string) $parsed['font-size']);
+                    }
+                }
+            }
+        }
+
+        return $hasExplicitRootFontSize ? $rootFontSize : 16.0;
+    }
+
+    private function pixelFontSize(string $value): ?float
+    {
+        $fontSize = strtolower($this->normalizedCssValue($value));
+        if (preg_match('/^(\d+(?:\.\d+)?)\s*px$/', $fontSize, $matches)) {
+            return 0 < (float) $matches[1] ? (float) $matches[1] : null;
+        }
+
+        // At the root, em/rem font sizes are relative to the initial 16px.
+        if (preg_match('/^(\d+(?:\.\d+)?)\s*(?:em|rem)$/', $fontSize, $matches)) {
+            return 0 < (float) $matches[1] ? (float) $matches[1] * 16 : null;
+        }
+
+        return null;
     }
 
     /**

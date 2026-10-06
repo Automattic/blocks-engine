@@ -250,13 +250,13 @@ $assertContains('border-radius:9999px', $portraitStyles, 'Portrait keeps authore
 $assertContains('flex-shrink:0', $portraitStyles, 'Portrait keeps authored flex participation.');
 $assertSame('pass', $portraitResult['source_reports']['wp_block_validity']['status'] ?? null, 'Group and image portrait lowering has a canonical Gutenberg-valid save shape.');
 
-// Real retained virtual-care source: Tailwind's w-12/h-12 utilities resolve
-// through the stylesheet in rem units (3rem at the browser's 16px root size).
-// The emitted output previously promoted this 48px author-row image to the
+// Captured testimonial author row shape: Tailwind's w-12/h-12 utilities
+// resolve through the stylesheet in rem units (3rem at the default 16px root).
+// The emitted output previously promoted this compact author row to the
 // media-text pane, whose native image defaults replace the circular crop.
-$capturedAuthorRow = '<div class="flex items-center gap-4"><img class="w-12 h-12 rounded-full object-cover" src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&amp;fit=crop&amp;w=150&amp;q=80" alt="Marina Santos"><div><p>Marina Santos</p><p>CEO, TechStart</p></div></div>';
-$capturedAuthorCss = '.flex{display:flex}.items-center{align-items:center}.gap-4{gap:1rem}.w-12{width:3rem}.h-12{height:3rem}.rounded-full{border-radius:9999px}.object-cover{object-fit:cover}';
-$capturedAuthorResult = ( new HtmlTransformer() )->transform($capturedAuthorRow, array('static_css' => $capturedAuthorCss))->toArray();
+$authorRow = '<div class="flex items-center gap-4"><img class="w-12 h-12 rounded-full object-cover" src="portrait.jpg" alt="Alex Rivera"><div><p>Alex Rivera</p><p>Independent consultant with experience advising growing teams.</p></div></div>';
+$authorCss = '.flex{display:flex}.items-center{align-items:center}.gap-4{gap:1rem}.w-12{width:3rem}.h-12{height:3rem}.rounded-full{border-radius:9999px}.object-cover{object-fit:cover}';
+$capturedAuthorResult = ( new HtmlTransformer() )->transform($authorRow, array('static_css' => $authorCss))->toArray();
 $capturedAuthorBlock = $capturedAuthorResult['blocks'][0] ?? array();
 $assertSame('core/group', $capturedAuthorBlock['blockName'] ?? null, 'Captured rem-sized testimonial portrait row stays an editable group.');
 $assertSame('core/image', $capturedAuthorBlock['innerBlocks'][0]['blockName'] ?? null, 'Captured testimonial portrait remains a native image.');
@@ -266,6 +266,13 @@ $assertContains('width:3rem;height:3rem', $capturedPortraitMarkup, 'Captured rem
 $capturedPortraitStyles = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $capturedAuthorResult['assets'] ?? array()));
 $assertContains('border-radius:9999px', $capturedPortraitStyles, 'Captured rounded-full utility retains portrait rounding.');
 $assertContains('object-fit:cover', $capturedPortraitStyles, 'Captured object-cover utility retains its portrait crop.');
+
+// A non-default root changes what 3rem means. At 24px, the same decorated
+// portrait is 72px and must remain a genuine two-pane media/text composition.
+$largeRemPortrait = ( new HtmlTransformer() )->transform(
+    '<style>html{font-size:24px}' . $authorCss . '</style>' . $authorRow
+)->toArray();
+$assertSame('core/media-text', $largeRemPortrait['blocks'][0]['blockName'] ?? null, 'A 3rem portrait at a 24px root is not misclassified as compact.');
 
 $quoteResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><blockquote><p>Quoted</p></blockquote></section>');
 $assertSame('core/quote', $quoteResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null, 'Blockquote text side keeps core/quote identity.');
