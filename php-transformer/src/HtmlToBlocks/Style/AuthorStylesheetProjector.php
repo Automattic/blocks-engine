@@ -1380,6 +1380,7 @@ final class AuthorStylesheetProjector
         if ( null === $selectors ) {
             return $prelude;
         }
+        $selectors = $this->withAncestorAttributeStateSelectors($selectors, $context);
         $rewritten = array();
         foreach ( $selectors as $selector ) {
             $structuralParsed = $context->sourceStyles->parsedSelector($selector);
@@ -1859,6 +1860,23 @@ final class AuthorStylesheetProjector
             $projected[] = ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed, $context);
         }
         return array_values(array_unique($projected));
+    }
+
+    /**
+     * @param list<string> $selectors
+     * @return list<string> Each selector followed by its ancestor attribute-state form, when one was prepared.
+     */
+    private function withAncestorAttributeStateSelectors(array $selectors, AuthorStylesheetProjectionContext $context): array
+    {
+        $expanded = array();
+        foreach ( $selectors as $selector ) {
+            $expanded[] = $selector;
+            $projected = $context->selectorProjections->ancestorAttributeStateSelector(trim($selector));
+            if ( '' !== $projected ) {
+                $expanded[] = $projected;
+            }
+        }
+        return $expanded;
     }
 
     private function projectSourceAttributeNegationStateSelector(string $selector, AuthorStylesheetProjectionContext $context): string

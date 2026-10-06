@@ -54,6 +54,9 @@ final class AuthorSelectorProjectionState
     /** @var array<string, list<string>> */
     private array $attributeStateMarkers = array();
 
+    /** @var array<string, string> Author selector => selector whose ancestor attribute conditions also accept their state marker. */
+    private array $ancestorAttributeStateSelectors = array();
+
     /** @var array<string, string> */
     private array $rootChildMarkers = array();
 
@@ -304,6 +307,16 @@ final class AuthorSelectorProjectionState
     public function attributeNegationMarkers(): array
     {
         return $this->attributeNegationMarkers;
+    }
+
+    public function installAncestorAttributeStateSelector(string $selector, string $projected): void
+    {
+        $this->ancestorAttributeStateSelectors[$selector] = $projected;
+    }
+
+    public function ancestorAttributeStateSelector(string $selector): string
+    {
+        return $this->ancestorAttributeStateSelectors[$selector] ?? '';
     }
 
     public function addAttributeStateMarker(string $path, string $marker): void

@@ -245,6 +245,7 @@ final class AuthorSelectorSemanticPreparer
         foreach ( $authorSelectors as $authorSelector ) {
             $parsed = $authorSelector['parsed'];
             $this->discoverNegatedDataAttributeState($authorSelector['selector'], $authorStyles, $projections);
+            $this->discoverAncestorAttributeState($authorSelector['selector'], $authorStyles, $projections);
             $pseudoHost = CssSelectorMatcher::pseudoElementHost($authorSelector['selector']);
             $selector = $pseudoHost['selector'] ?? $authorSelector['selector'];
             $parsed = $pseudoHost['parsed'] ?? $parsed;
@@ -374,6 +375,159 @@ final class AuthorSelectorSemanticPreparer
             }
         }
         $projections->installAttributeNegationMarker($selector, $marker);
+    }
+
+    /**
+     * Ancestor attribute conditions such as Wix's
+     * `.mu5PoX[aria-disabled=false] .twJknM` select on a container whose
+     * block serialization keeps only id, class and style. Once the container
+     * becomes a group the condition can never match again, so the descendant
+     * loses every declaration the rule owned (the default Wix button skin
+     * paints its fill and border this way). Carry the condition as a stable
+     * class on each ancestor that satisfies it for an element the rule can
+     * style, and record a sibling selector that reads the class instead of
+     * the attribute. The projector emits both: the class form keeps converted
+     * containers matching, the original keeps wrappers that retain their
+     * attributes (preserved layout shells, inline anchors) matching, and a
+     * class carries the same specificity as the attribute it replaces.
+     * `data-*` conditions keep their existing per-element projection.
+     */
+    private function discoverAncestorAttributeState(string $selector, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
+    {
+        $selector = trim($selector);
+        if ( ! str_contains($selector, '[') || '' !== $projections->ancestorAttributeStateSelector($selector) ) {
+            return;
+        }
+        $rightmostStart = self::rightmostCompoundStart($selector);
+        if ( null === $rightmostStart || 0 === $rightmostStart ) {
+            return;
+        }
+        $ancestry = substr($selector, 0, $rightmostStart);
+        if ( ! preg_match_all(self::ANCESTOR_ATTRIBUTE_CONDITION, $ancestry, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
+            return;
+        }
+        // Only ancestors of an element the rule can style carry the marker;
+        // the condition's other holders (the inner anchor also reads
+        // aria-disabled="false") keep their attribute and need no class.
+        $subjects = $this->ancestorAttributeSubjects(substr($selector, $rightmostStart), $authorStyles);
+        if ( null === $subjects ) {
+            return;
+        }
+        $projected = $ancestry;
+        $marked = false;
+        foreach ( array_reverse($matches) as $match ) {
+            $condition = $match[0][0];
+            $name = strtolower($match[1][0]);
+            if ( in_array($name, array( 'class', 'id', 'style' ), true) || str_starts_with($name, 'data-')
+                || in_array($name, self::RUNTIME_STATE_ATTRIBUTES, true)
+                || substr_count($ancestry, '(', 0, $match[0][1]) !== substr_count($ancestry, ')', 0, $match[0][1])
+            ) {
+                continue;
+            }
+            $parsedCondition = CssSelectorMatcher::parse($condition);
+            if ( ! $parsedCondition['supported'] ) {
+                continue;
+            }
+            $marker = $authorStyles->allocateStableMarker('attribute-state', 'ancestor-attribute:' . preg_replace('/\s+/', '', $condition));
+            foreach ( $subjects as $subject ) {
+                for ( $element = $subject->parentNode; $element instanceof DOMElement; $element = $element->parentNode ) {
+                    if ( ! in_array(strtolower($element->tagName), self::GROUPED_CONTAINER_TAGS, true)
+                        || ! CssSelectorMatcher::matches($element, $parsedCondition, true, $authorStyles->selectorMatchCache())['matches']
+                    ) {
+                        continue;
+                    }
+                    $path = $element->getNodePath() ?? '';
+                    if ( '' === $path ) {
+                        continue;
+                    }
+                    $marked = true;
+                    if ( in_array($marker, $projections->attributeStateMarkers($path), true) ) {
+                        continue;
+                    }
+                    $projections->addAttributeStateMarker($path, $marker);
+                    $element->setAttribute('class', SourceDom::mergeClassNames($element->getAttribute('class'), $marker));
+                }
+            }
+            $projected = substr_replace($projected, '.' . $marker, $match[0][1], strlen($condition));
+        }
+        if ( $marked ) {
+            $projections->installAncestorAttributeStateSelector($selector, $projected . substr($selector, $rightmostStart));
+        }
+    }
+
+    /**
+     * Generic containers that convert to blocks serializing only id, class
+     * and style. Other holders (custom elements and `details` kept as layout
+     * shells, inline anchors) retain their attributes and the original
+     * selector keeps matching them.
+     */
+    private const GROUPED_CONTAINER_TAGS = array( 'div', 'section', 'article', 'aside', 'main', 'header', 'footer', 'nav', 'figure', 'form', 'ul', 'ol', 'li' );
+
+    /**
+     * Attributes a runtime toggles (`details[open]`, `[aria-expanded=true]`).
+     * A class frozen from the captured state would pin the rule on, so these
+     * stay with their own projections.
+     */
+    private const RUNTIME_STATE_ATTRIBUTES = array( 'open', 'checked', 'selected', 'hidden', 'inert', 'aria-expanded', 'aria-selected', 'aria-checked', 'aria-pressed', 'aria-hidden' );
+
+    /**
+     * Attribute conditions written directly in a compound. Conditions nested
+     * inside a functional pseudo-class argument (`:not([hidden])`) are
+     * skipped by the caller's parenthesis-depth check.
+     */
+    private const ANCESTOR_ATTRIBUTE_CONDITION = '/\[\s*([a-z_][a-z0-9_:-]*)\s*(?:[~|^$*]?=\s*(?:"[^"]*"|\'[^\']*\'|[^\]\s]+)(?:\s+[is])?)?\s*\]/i';
+
+    /**
+     * Source elements matching the rightmost compound, ignoring its trailing
+     * pseudo-classes and pseudo-elements (`.twJknM:hover`, `.x::before`).
+     *
+     * @return list<DOMElement>|null Null when the compound cannot be matched.
+     */
+    private function ancestorAttributeSubjects(string $rightmost, AuthorStyleAnalysis $authorStyles): ?array
+    {
+        $parsed = CssSelectorMatcher::parse($rightmost);
+        if ( ! $parsed['supported'] ) {
+            $rightmost = (string) preg_replace('/^([^:]*?)(?<!\\\\):.*$/s', '$1', $rightmost);
+            $parsed = '' === trim($rightmost) ? $parsed : CssSelectorMatcher::parse($rightmost);
+        }
+        return $parsed['supported'] ? $this->matchingSourceElements($authorStyles, $rightmost, $parsed) : null;
+    }
+
+    /** Byte offset where the rightmost compound starts, or null when the selector cannot be split safely. */
+    private static function rightmostCompoundStart(string $selector): ?int
+    {
+        $start = 0;
+        $depth = 0;
+        $quote = '';
+        $length = strlen($selector);
+        for ( $offset = 0; $offset < $length; ++$offset ) {
+            $char = $selector[ $offset ];
+            if ( '' !== $quote ) {
+                if ( '\\' === $char ) {
+                    ++$offset;
+                } elseif ( $quote === $char ) {
+                    $quote = '';
+                }
+                continue;
+            }
+            if ( '"' === $char || "'" === $char ) {
+                $quote = $char;
+            } elseif ( '\\' === $char ) {
+                ++$offset;
+            } elseif ( '(' === $char || '[' === $char ) {
+                ++$depth;
+            } elseif ( ')' === $char || ']' === $char ) {
+                if ( 0 === $depth ) {
+                    return null;
+                }
+                --$depth;
+            } elseif ( 0 === $depth && ( ctype_space($char) || '>' === $char || '+' === $char || '~' === $char ) ) {
+                $start = $offset + 1;
+            } elseif ( 0 === $depth && ',' === $char ) {
+                return null;
+            }
+        }
+        return 0 === $depth && '' === $quote ? $start : null;
     }
 
     /** @param array<string, mixed> $options */
