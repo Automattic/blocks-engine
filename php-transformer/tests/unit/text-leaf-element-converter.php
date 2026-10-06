@@ -103,6 +103,8 @@ $assert(! $converter->convert($elementFrom('<div>x</div>'), 'div', $fallbacks)->
 
 // Empty text leaves drop out instead of emitting empty blocks.
 $assert(null === $converter->convert($elementFrom('<address>   </address>'), 'address', $fallbacks)->block, 'empty-address-drops');
+// The HTML parser treats <plaintext> as raw text through end-of-document, so
+// construct a whitespace-only DOM text node to isolate converter empty-text semantics.
 $plaintextDocument = new DOMDocument();
 $plaintext          = $plaintextDocument->createElement('plaintext');
 $plaintext->appendChild($plaintextDocument->createTextNode('  '));
