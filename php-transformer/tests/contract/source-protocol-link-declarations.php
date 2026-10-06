@@ -27,7 +27,7 @@ $omissions = static fn (array $result): array => array_values(array_filter(
 // first of them aborted the whole import with `unresolved_local_url`.
 $wordpressHead = <<<HTML
 <!doctype html><html lang="en"><head>
-<title>Mawonga Magic</title>
+<title>Captured Site</title>
 <link rel="stylesheet" href="wp-content/themes/thegem/style.css">
 <link rel="pingback" href="/xmlrpc.php">
 <link rel="alternate" type="application/rss+xml" title="Feed" href="/feed/">
@@ -37,7 +37,7 @@ $wordpressHead = <<<HTML
 <link rel="author" href="https://other.example.test/author">
 <script src="wp-content/themes/thegem/app.js"></script>
 <script>window.theGemSettings = {};</script>
-</head><body><main><h1>Mawonga Magic</h1><p>Captured home.</p></main></body></html>
+</head><body><main><h1>Captured Site</h1><p>Captured home.</p></main></body></html>
 HTML;
 $wordpress = $compile(array(
     'website/index.html' => $wordpressHead,
@@ -92,5 +92,37 @@ $assert(!isset($mixed['source_reports']['wordpress_site_plan']) && 'link' === ($
 $absoluteEndpoint = $compile(array('website/index.html' => '<!doctype html><html><head><link rel="pingback" href="https://other.example.test/xmlrpc.php"></head><body><main>Home</main></body></html>'));
 $absoluteLinks = $links($absoluteEndpoint);
 $assert(isset($absoluteEndpoint['source_reports']['wordpress_site_plan']) && 1 === count($absoluteLinks) && 'https://other.example.test/xmlrpc.php' === ($absoluteLinks[0]['url'] ?? null) && array() === $omissions($absoluteEndpoint), 'An absolute discovery endpoint stays declared and unreported.');
+
+// WordPress core prints the oEmbed discovery pair on every singular page, and
+// `oembed/1.0/` carries a dotted segment for the same reason `/xmlrpc.php` does.
+// A consumer fetches these to embed the page elsewhere; nothing rendered needs
+// them, so an unresolved one is omitted rather than aborting the import.
+$oembed = $compile(array('website/index.html' => '<!doctype html><html><head>'
+    . '<link rel="alternate" type="application/json+oembed" href="/wp-json/oembed/1.0/embed?url=https%3A%2F%2Fexample.test%2F">'
+    . '<link rel="alternate" type="text/xml+oembed" href="/wp-json/oembed/1.0/embed?url=https%3A%2F%2Fexample.test%2F&format=xml">'
+    . '</head><body><main>Home</main></body></html>'));
+$oembedOmissions = $omissions($oembed);
+$assert(isset($oembed['source_reports']['wordpress_site_plan']), 'An oEmbed discovery pair no longer aborts the whole plan.');
+$assert(array() === $links($oembed), 'Both oEmbed discovery links are omitted.');
+$assert(2 === count($oembedOmissions), 'Both oEmbed omissions are reported.');
+$oembedMixed = $compile(array('website/index.html' => '<!doctype html><html><head><link rel="alternate stylesheet" type="application/json+oembed" href="/wp-json/oembed/1.0/embed"></head><body><main>Home</main></body></html>'));
+$assert(!isset($oembedMixed['source_reports']['wordpress_site_plan']), 'An oEmbed type on a relation that also names a rendered resource still fails closed.');
+
+// A diagnostic field is clipped to a byte budget, so a clip that split a UTF-8
+// sequence would leave an invalid string -- and planIdentity() json_encode()s
+// every diagnostic under JSON_THROW_ON_ERROR, which would discard the whole
+// plan. That is the failure this omission exists to avoid, so sweep the
+// boundary rather than pinning one offset.
+foreach (range(248, 264) as $fill) {
+    $href = '/' . str_repeat('a', $fill) . "\u{00e9}x";
+    $long = $compile(array('website/index.html' => '<!doctype html><html><head><link rel="alternate" type="application/rss+xml" href="' . $href . '"></head><body><main>Home</main></body></html>'));
+    $assert(isset($long['source_reports']['wordpress_site_plan']), "A {$fill}-byte non-ASCII feed href is omitted without discarding the plan.");
+    foreach ($omissions($long) as $diagnostic) {
+        foreach ($diagnostic as $field) {
+            $assert(!is_string($field) || mb_check_encoding($field, 'UTF-8'), "Every omission diagnostic field stays valid UTF-8 at {$fill} bytes.");
+        }
+    }
+    $assert(is_string(json_encode($long['source_reports']['wordpress_site_plan']['diagnostics'] ?? array(), JSON_THROW_ON_ERROR)), "Omission diagnostics stay serializable at {$fill} bytes.");
+}
 
 echo "source-protocol-link-declarations contract passed\n";

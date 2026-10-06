@@ -1413,7 +1413,7 @@ final class WordPressSitePlan
                 if ('links' !== $kind) continue;
                 $route = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes);
                 if (null !== $route) { $row['url'] = $route; continue; }
-                if (!$this->isOptionalFeedLink($row) && !$this->isOptionalResourceHint($row) && !$this->isOptionalManifestLink($row) && !$this->isVendorLink($row) && !$this->isSourceProtocolEndpointLink($row)) continue;
+                if (!$this->isOptionalFeedLink($row) && !$this->isOptionalDiscoveryLink($row) && !$this->isOptionalResourceHint($row) && !$this->isOptionalManifestLink($row) && !$this->isVendorLink($row) && !$this->isSourceProtocolEndpointLink($row)) continue;
                 $this->recordOmittedLinkDeclaration(self::value($document, 'source_path'), $row);
                 $row = null;
             }
@@ -1474,6 +1474,25 @@ final class WordPressSitePlan
      * plumbing, so an unresolved one is omitted rather than failing the import.
      */
     private const SOURCE_PROTOCOL_LINK_TYPES = array('pingback', 'edituri', 'wlwmanifest', 'hub', 'webmention', 'openid.server', 'openid.delegate', 'openid2.provider', 'openid2.local_id');
+    /**
+     * oEmbed discovery. WordPress core prints both of these on every singular
+     * page, and `oembed/1.0/` carries a dotted segment, so `routeUrl()` rejects
+     * it for exactly the reason it rejects `/xmlrpc.php`. A consumer fetches
+     * these to embed the page somewhere else; nothing the page renders depends
+     * on them, and the destination publishes its own.
+     *
+     * Matched on the `+oembed` media-type suffix, which is what identifies the
+     * pair, and fail-closed on the relation set the way `isOptionalManifestLink()`
+     * is -- a `rel` carrying anything besides `alternate` is not this.
+     *
+     * @param array<string,mixed> $link
+     */
+    private function isOptionalDiscoveryLink(array $link): bool
+    {
+        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
+        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
+        return !self::explicitUrl($link['url'] ?? null) && array('alternate') === $relations && str_ends_with(strtolower(trim((string) ($link['type'] ?? ''))), '+oembed');
+    }
     /** @param array<string,mixed> $link */
     private function isSourceProtocolEndpointLink(array $link): bool
     {
@@ -1491,7 +1510,7 @@ final class WordPressSitePlan
     private function recordOmittedLinkDeclaration(string $sourcePath, array $link): void
     {
         $url = (string) ($link['url'] ?? '');
-        $relation = trim((string) ($link['rel'] ?? ''));
+        $relation = trim((string) preg_replace('/\s+/', ' ', (string) ($link['rel'] ?? '')));
         $key = $sourcePath . "\0" . $relation . "\0" . $url;
         if (isset($this->omittedLinkDeclarations[$key])) return;
         if (count($this->omittedLinkDeclarations) >= self::MAX_OMITTED_LINK_DECLARATION_DIAGNOSTICS) { ++$this->omittedLinkDeclarationOverflow; return; }
@@ -1499,13 +1518,21 @@ final class WordPressSitePlan
         $this->omittedLinkDeclarations[$key] = array_filter(array(
             'code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE,
             'severity' => 'warning',
-            'message' => substr("Omitted the {$label} declaration for {$url}, which names neither a captured asset nor an artifact route.", 0, 256),
-            'source_path' => substr($sourcePath, 0, 256),
-            'rel' => substr($relation, 0, 256),
-            'value' => substr($url, 0, 256),
+            'message' => self::clipDiagnosticField("Omitted {$url} ({$label} declaration), which names neither a captured asset nor an artifact route."),
+            'source_path' => self::clipDiagnosticField($sourcePath),
+            'rel' => self::clipDiagnosticField($relation),
+            'value' => self::clipDiagnosticField($url),
             'reason_code' => 'unresolved_local_url',
         ), static fn(mixed $field): bool => '' !== $field);
     }
+    /**
+     * Clips one diagnostic field to its budget without splitting a UTF-8
+     * sequence. A byte-wise cut can leave an invalid string, and planIdentity()
+     * json_encode()s every diagnostic under JSON_THROW_ON_ERROR, so a split
+     * sequence would discard the whole plan -- the failure this omission exists
+     * to avoid, one layer up.
+     */
+    private static function clipDiagnosticField(string $value): string { return mb_strcut($value, 0, 256, 'UTF-8'); }
     /** @return array<int,array<string,mixed>> */
     private function omittedLinkDeclarationDiagnostics(): array
     {
