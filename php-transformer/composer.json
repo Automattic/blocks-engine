@@ -146,6 +146,7 @@
       "php tests/unit/core-block-snapshot-validity.php",
       "php tests/unit/core-block-inline-geometry-save-validity.php",
       "php tests/unit/list-item-lowering.php",
+      "php tests/unit/orphan-list-item.php",
       "php tests/unit/compact-linked-icon-text-row.php",
       "php tests/unit/card-fragment-author-rule.php",
       "php tests/unit/artifact-normalizer-idempotence.php",
