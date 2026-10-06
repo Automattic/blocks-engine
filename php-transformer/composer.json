@@ -106,6 +106,7 @@
       "@test:unit"
     ],
     "test:unit": [
+      "php tests/unit/form-physical-box-ownership.php",
       "php tests/unit/runtime-declarations-streaming-hash.php",
       "php tests/unit/external-metric-declarations.php",
       "php tests/unit/runtime-script-evidence-analyzer.php",

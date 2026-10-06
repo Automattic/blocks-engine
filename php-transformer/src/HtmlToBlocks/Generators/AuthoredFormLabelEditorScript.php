@@ -12,10 +12,12 @@ final class AuthoredFormLabelEditorScript
             array(
                 'props.setAttributes( { label: label } );',
                 'props.setAttributes( { labelMarkup: labelMarkup } );',
+                '{ className: attrs.labelClassName || undefined, style: styleObject( attrs.labelStyle ) }, labelContent, input',
             ),
             array(
                 'props.setAttributes( { label: label, labelMarkup: "" } );',
                 'props.setAttributes( { labelMarkup: labelMarkup, label: window.wp.richText.create( { html: labelMarkup } ).text } );',
+                '{ id: attrs.labelId || undefined, className: attrs.labelClassName || undefined, style: styleObject( attrs.labelStyle ) }, attrs.labelAfterControl ? input : labelContent, attrs.labelAfterControl ? labelContent : input',
             ),
             $script
         );

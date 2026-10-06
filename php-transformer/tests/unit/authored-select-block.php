@@ -134,6 +134,10 @@ $assert(( new AuthoredSelectBlockGenerator() )->markup($disabledAttrs) === $save
 $inputAttrs = array( 'type' => 'email', 'className' => 'authored-input', 'required' => true, 'disabled' => true );
 $input      = new AuthoredInputBlockGenerator();
 $assert($input->markup($inputAttrs) === $saveMarkup($input, $inputAttrs), 'authored-input save() already round-trips required and disabled');
+$choiceAttrs = array('type' => 'checkbox', 'checked' => true, 'label' => 'Receive updates', 'labelMarkup' => '<span>Receive updates</span>', 'labelId' => 'choice-label', 'labelClassName' => 'choice', 'labelAfterControl' => true);
+$assert($input->markup($choiceAttrs) === $saveMarkup($input, $choiceAttrs) && str_contains($input->markup($choiceAttrs), '<label id="choice-label" class="choice"><input type="checkbox" checked><span>'), 'native choice identity, state and source order survive PHP/editor save');
+$editedChoice = json_decode($invokeLabelEditor($input, $choiceAttrs, 'inspector', 'Updated choice'), true, 512, JSON_THROW_ON_ERROR);
+$assert(str_contains($editedChoice['html'], '<input type="checkbox" checked>Updated choice') && ($editedChoice['attrs']['labelAfterControl'] ?? false), 'editing and reloading native choice copy preserves control order and checked state');
 
 $textareaAttrs = array( 'className' => 'authored-textarea', 'required' => true, 'value' => 'Notes' );
 $textarea      = new AuthoredTextareaBlockGenerator();
