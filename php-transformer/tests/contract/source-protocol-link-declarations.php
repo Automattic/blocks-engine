@@ -33,6 +33,8 @@ $wordpressHead = <<<HTML
 <link rel="alternate" type="application/rss+xml" title="Feed" href="/feed/">
 <link rel="alternate" type="application/rss+xml" title="Comments Feed" href="/comments/feed/">
 <link rel="EditURI" type="application/rsd+xml" title="RSD" href="/xmlrpc.php?rsd">
+<link rel="alternate" type="application/json+oembed" href="/wp-json/oembed/1.0/embed?url=https%3A%2F%2Fexample.test%2F">
+<link rel="alternate" type="text/xml+oembed" href="/wp-json/oembed/1.0/embed?url=https%3A%2F%2Fexample.test%2F&amp;format=xml">
 <link rel="next" href="/about">
 <link rel="author" href="https://other.example.test/author">
 <script src="wp-content/themes/thegem/app.js"></script>
@@ -60,15 +62,24 @@ $assert('https://other.example.test/author' === ($wordpressLinks[2]['url'] ?? nu
 
 $wordpressScripts = $scripts($wordpress);
 $assert(2 === count($wordpressScripts) && array(0, 1) === array_column($wordpressScripts, 'order'), 'Both captured head scripts are declared with contiguous order.');
-foreach ( $wordpressScripts as $script ) {
-    $assert(is_string($script['asset_reference'] ?? null) || 'inline' === ($script['source_kind'] ?? null), 'Captured and inline scripts are untouched by link omission.');
+$scriptToken = static fn (array $script): string => (string) ($script['asset_reference'] ?? '');
+foreach ( $wordpressScripts as $index => $script ) {
+    $assert(1 === preg_match('/^\{\{wordpress-site-plan:asset:[^}]+\}\}$/', $scriptToken($script)), "Head script {$index} keeps a declared asset token.");
 }
+$assert($scriptToken($wordpressScripts[0]) !== $scriptToken($wordpressScripts[1]), 'The external and inline head scripts keep distinct assets.');
 
 $wordpressOmissions = $omissions($wordpress);
-$assert(4 === count($wordpressOmissions), 'Every omitted link declaration is reported once.');
+$assert(6 === count($wordpressOmissions), 'Every omitted link declaration is reported once.');
 $omittedValues = array_column($wordpressOmissions, 'value');
 sort($omittedValues);
-$assert(array('/comments/feed/', '/feed/', '/xmlrpc.php', '/xmlrpc.php?rsd') === $omittedValues, 'The report names each omitted href.');
+$assert(array(
+    '/comments/feed/',
+    '/feed/',
+    '/wp-json/oembed/1.0/embed?url=https%3A%2F%2Fexample.test%2F',
+    '/wp-json/oembed/1.0/embed?url=https%3A%2F%2Fexample.test%2F&format=xml',
+    '/xmlrpc.php',
+    '/xmlrpc.php?rsd',
+) === $omittedValues, 'The report names each omitted href.');
 $pingback = array_values(array_filter($wordpressOmissions, static fn (array $diagnostic): bool => '/xmlrpc.php' === ($diagnostic['value'] ?? null)))[0] ?? array();
 $assert('warning' === ($pingback['severity'] ?? null) && 'website/index.html' === ($pingback['source_path'] ?? null) && 'pingback' === ($pingback['rel'] ?? null) && 'unresolved_local_url' === ($pingback['reason_code'] ?? null) && str_contains((string) ($pingback['message'] ?? ''), '/xmlrpc.php'), 'The omission warning records the page, relation and reason.');
 $assert(in_array('wordpress_site_plan_omitted_link_declaration', $wordpressPlan['reporting']['diagnostic_codes'], true), 'The omission warning is linked to plan reporting.');
@@ -78,7 +89,7 @@ $assert(in_array('wordpress_site_plan_omitted_link_declaration', $wordpressPlan[
 // page needs, so there is no metadata-only script to omit.
 $inlineOnly = $compile(array('website/index.html' => '<!doctype html><html><head><link rel="pingback" href="/xmlrpc.php"><script>window.inline=1;</script></head><body><main>Home</main></body></html>'));
 $inlineScripts = $scripts($inlineOnly);
-$assert(isset($inlineOnly['source_reports']['wordpress_site_plan']) && 1 === count($inlineScripts) && (is_string($inlineScripts[0]['asset_reference'] ?? null) || 'inline' === ($inlineScripts[0]['source_kind'] ?? null)) && array() === $links($inlineOnly), 'An inline script is unaffected while the pingback link is omitted.');
+$assert(isset($inlineOnly['source_reports']['wordpress_site_plan']) && 1 === count($inlineScripts) && 1 === preg_match('/^\{\{wordpress-site-plan:asset:[^}]+\}\}$/', (string) ($inlineScripts[0]['asset_reference'] ?? '')) && array() === $links($inlineOnly), 'An inline script is unaffected while the pingback link is omitted.');
 $missingScript = $compile(array('website/index.html' => '<!doctype html><html><head><link rel="pingback" href="/xmlrpc.php"><script src="/wp-includes/js/missing.js"></script></head><body><main>Home</main></body></html>'));
 $missingScriptDiagnostic = $missingScript['source_reports']['wordpress_site_plan_diagnostics'][0] ?? array();
 $assert(!isset($missingScript['source_reports']['wordpress_site_plan']) && 'script' === ($missingScriptDiagnostic['declaration_kind'] ?? null) && 'unresolved_local_url' === ($missingScriptDiagnostic['reason'] ?? null), 'An unresolved local script source still fails closed.');
@@ -124,5 +135,19 @@ foreach (range(248, 264) as $fill) {
     }
     $assert(is_string(json_encode($long['source_reports']['wordpress_site_plan']['diagnostics'] ?? array(), JSON_THROW_ON_ERROR)), "Omission diagnostics stay serializable at {$fill} bytes.");
 }
+
+// The diagnostic list is bounded, so a head with more unresolved optional
+// links than the cap reports the cap plus one truncation row carrying the
+// remainder. Without this the bound can be deleted and the suite stays green.
+$manyHints = '';
+foreach (range(1, 61) as $index) {
+    $manyHints .= '<link rel="preload" as="font" href="/fonts/missing-' . $index . '.woff2">';
+}
+$capped = $compile(array('website/index.html' => '<!doctype html><html><head>' . $manyHints . '</head><body><main>Home</main></body></html>'));
+$cappedOmissions = $omissions($capped);
+$truncation = array_values(array_filter($cappedOmissions, static fn (array $diagnostic): bool => 'truncated' === ($diagnostic['reason'] ?? null)));
+$assert(isset($capped['source_reports']['wordpress_site_plan']), 'A head past the diagnostic cap still produces a plan.');
+$assert(51 === count($cappedOmissions), 'The omission list is capped at 50 rows plus one truncation row.');
+$assert(1 === count($truncation) && 11 === ($truncation[0]['omitted_count'] ?? null), 'The truncation row carries the remaining count.');
 
 echo "source-protocol-link-declarations contract passed\n";
