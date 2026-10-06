@@ -39,6 +39,23 @@ $assert(4 === count($eventEntities) && '/calendar/old' === $eventEntities['event
 $assert('2020-02-01T10:00:00-05:00' === $eventEntities['events/old.html']['start_date'] && 'Town Hall' === $eventEntities['events/old.html']['venue']['name'] && '1 Main St' === $eventEntities['events/old.html']['venue']['address']['streetAddress'] && 'https://example.test/event.jpg' === $eventEntities['events/old.html']['image'] && 'Neighbors meet for the evening.' === $eventEntities['events/old.html']['description'], 'Event fields preserve offset, description, venue and image evidence.');
 $assert(!isset($eventEntities['events/minimal.html']['venue']) && !isset($eventEntities['events/minimal.html']['image']) && 'Virtual gathering' === $eventEntities['events/minimal.html']['name'], 'Dated events without venue or image remain representable without invented optional fields.');
 $assert('/media/event-image.avif' === $eventEntities['events/portable.html']['image'], 'Portable source-local image evidence survives event declaration.');
+$eventPages = array_column($eventPlan['pages'], null, 'source_path');
+$assert('blocks-engine/whole-page-candidate/v1' === ($eventPages['events/future.html']['whole_page_candidates'][0]['schema'] ?? null) && $eventEntities['events/future.html']['id'] === $eventPages['events/future.html']['whole_page_candidates'][0]['entity_id'], 'Source-backed event detail pages carry the canonical ownership candidate without caller-added metadata.');
+$eventResolved = (new WordPressSitePlanResolver())->resolve($eventPlan, array('theme_uri' => 'https://example.test/theme'));
+$assert($eventPages['events/future.html']['whole_page_candidates'] === array_column($eventResolved['pages'], null, 'source_path')['events/future.html']['whole_page_candidates'], 'Automatically declared event ownership survives canonical resolution.');
+$homeEvent = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $eventJson($event('2032-08-01T10:00:00Z', '2032-08-01T11:00:00Z')))))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(!isset($homeEvent['pages'][0]['whole_page_candidates']), 'An Event mentioned on the homepage never authorizes provider takeover of the front page.');
+$structuredEvent = $event('2032-08-01T10:00:00Z', '2032-08-01T11:00:00Z');
+$quarantined = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main>Home</main>'),
+    array('path' => 'gathering.html', 'content' => '<main><h1>Community gathering</h1></main>', 'metadata' => array('structured_data' => array(array('type' => 'application/ld+json', 'data' => $structuredEvent)))),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(isset(array_column($quarantined['pages'], null, 'source_path')['gathering.html']['whole_page_candidates']), 'Non-executable quarantined JSON-LD metadata supplies event facts after script markup is removed.');
+$duplicates = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main>Home</main>'),
+    array('path' => 'gathering.html', 'content' => $eventJson($structuredEvent), 'metadata' => array('structured_data' => array(array('type' => 'application/ld+json', 'data' => $structuredEvent)))),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(isset(array_column($duplicates['pages'], null, 'source_path')['gathering.html']['whole_page_candidates']), 'The same structured evidence present in markup and metadata is not falsely ambiguous.');
 $eventRoutes = array_column($eventPlan['routes'], 'source_path');
 $assert(!isset($eventEntities['events/plain.html'], $eventEntities['events/broken.html'], $eventEntities['events/ambiguous.html']) && count($eventRoutes) === count(array_unique($eventRoutes)) && in_array('events/plain.html', $eventRoutes, true) && in_array('events/broken.html', $eventRoutes, true), 'Malformed, ambiguous and non-event documents remain pages without inventing event entities or duplicate route owners.');
 $assert(array() === array_filter($eventPlan['runtime_declarations'], static fn(array $row): bool => 'tickets' === ($row['type'] ?? null)), 'Event facts do not invent ticket entities.');
