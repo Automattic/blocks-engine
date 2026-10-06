@@ -72,6 +72,19 @@ $assert(0 === $handledCount && !str_contains($handledHtml, 'data-dla-disclosure-
 $compiled = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $handledResult['files']))->toArray();
 $assert(str_contains((string) ($compiled['serialized_blocks'] ?? ''), '<!-- wp:navigation-submenu') && !str_contains((string) ($compiled['serialized_blocks'] ?? ''), 'data-blocks-engine-captured-dialog'), 'the entire artifact pipeline keeps the menu as a native submenu');
 
+// Metadata-only dropdowns have the same menu semantics as wired source panels.
+// The captured links must survive even when no dialog or script is projected.
+$metadataHtml = '<html><body><header><nav><button id="menu" type="button">Menu</button></nav></header><main><p>Body</p></main></body></html>';
+[$metadataCount, $metadataOut, $metadataResult] = $project($metadataHtml, array('selector' => '#menu', 'tag' => 'button', 'ariaHaspopup' => '', 'label' => 'Menu', 'dataBindings' => array()), $linksHtml);
+$assert(0 === $metadataCount && 1 === ($metadataResult['navigation_dropdown_count'] ?? 0) && str_contains($metadataOut, 'New in'), 'metadata menu projection retains source links and reports a menu rather than a dialog', $metadataOut);
+$metadataCompiled = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $metadataResult['files']))->toArray();
+$metadataMarkup = (string) ($metadataCompiled['serialized_blocks'] ?? '');
+$assert(str_contains($metadataMarkup, '<!-- wp:navigation-submenu') && str_contains($metadataMarkup, '"label":"New in","url":"#new"') && str_contains($metadataMarkup, '"label":"Sale","url":"#sale"') && !str_contains($metadataMarkup, '<dialog') && !str_contains($metadataMarkup, '>Close<'), 'metadata menu uses native navigation without a fabricated modal or close control', $metadataMarkup);
+$assert(array() === ($metadataCompiled['diagnostics'] ?? array()), 'button-labelled source submenu and destination counts match native semantic reporting', json_encode($metadataCompiled['diagnostics'] ?? array()));
+
+[$mixedCount, $mixedOut, $mixedResult] = $project($metadataHtml, array('selector' => '#menu', 'tag' => 'button', 'ariaHaspopup' => '', 'label' => 'Menu', 'dataBindings' => array()), '<div><p>Account details</p><a href="#profile">Profile</a></div>');
+$assert(1 === $mixedCount && str_contains($mixedOut, '<dialog') && 0 === ($mixedResult['navigation_dropdown_count'] ?? 0), 'non-menu content in navigation stays on the genuine dialog path', $mixedOut);
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "Navigation button dropdown contract: {$failures} failed, {$passes} passed\n");
     exit(1);

@@ -59,6 +59,7 @@ final class CapturedDialogProjector
         }
 
         $projected = 0;
+        $navigationDropdowns = 0;
         $retired = array();
         foreach ($report['pages'] as $page) {
             if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['states'] ?? null)) {
@@ -82,10 +83,11 @@ final class CapturedDialogProjector
 
             $projection = $this->projectPage((string) $files[$index]['content'], $dialogStates, $path);
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
-            if (0 < $projection['projected_count'] || array() !== $projection['retired_scripts']) {
+            if (0 < $projection['projected_count'] || 0 < ($projection['navigation_dropdown_count'] ?? 0) || array() !== $projection['retired_scripts']) {
                 $files[$index]['content'] = $projection['html'];
                 $files[$index]['bytes'] = strlen($projection['html']);
                 $projected += $projection['projected_count'];
+                $navigationDropdowns += $projection['navigation_dropdown_count'] ?? 0;
                 foreach ($projection['retired_scripts'] as $body) {
                     $retired[$path][] = $body;
                 }
@@ -93,7 +95,7 @@ final class CapturedDialogProjector
         }
         $proofs = $this->omitRetiredDisclosureScripts($files, $retired);
 
-        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'native_runtime_replacements' => $proofs);
+        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'navigation_dropdown_count' => $navigationDropdowns, 'native_runtime_replacements' => $proofs);
     }
 
     /** @param array<int, mixed> $pages */
@@ -155,6 +157,7 @@ final class CapturedDialogProjector
         $adopted = $adoption['triggers'];
         $projected = $adoption['count'];
         $handledNavigationDropdown = false;
+        $navigationDropdowns = 0;
         foreach ($states as $state) {
             if (! is_array($state) || 'captured' !== ($state['status'] ?? null) || ! is_array($state['trigger'] ?? null) || ! is_array($state['dialog'] ?? null)) {
                 continue;
@@ -198,6 +201,14 @@ final class CapturedDialogProjector
             }
 
             $identity = substr(hash('sha256', $sourcePath . "\n" . ($state['trigger']['selector'] ?? '') . "\n" . $dialogHtml), 0, 16);
+            if ('dropdown' === strtolower(trim((string) ($dialog['presentation'] ?? ''))) && $this->projectCapturedNavigationDropdown($document, $triggers, $fragment, $identity)) {
+                $handledNavigationDropdown = true;
+                ++$navigationDropdowns;
+                foreach ($triggers as $trigger) {
+                    $this->consumeMatchedCloseHelper($document, array($trigger), $trigger->parentNode);
+                }
+                continue;
+            }
             if ('listbox' === strtolower(trim((string) ($dialog['role'] ?? '')))) {
                 $key = 'blocks-engine-listbox-' . $identity;
                 foreach ($triggers as $trigger) {
@@ -242,7 +253,7 @@ final class CapturedDialogProjector
 
         $output = $document->saveHTML();
         $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
-        return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired);
+        return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'navigation_dropdown_count' => $navigationDropdowns, 'retired_scripts' => $retired);
     }
 
     /**
@@ -361,6 +372,56 @@ final class CapturedDialogProjector
         }
 
         return false;
+    }
+
+    /**
+     * Put a metadata-only menu beside its source trigger so the existing native
+     * submenu recognizer can consume it with the header ancestry intact.
+     * Validate every candidate before changing any source node.
+     *
+     * @param array<int, DOMElement> $triggers
+     * @param array<string, mixed> $fragment
+     */
+    private function projectCapturedNavigationDropdown(DOMDocument $document, array $triggers, array $fragment, string $identity): bool
+    {
+        $items = array();
+        foreach ($triggers as $index => $trigger) {
+            if ('button' !== strtolower($trigger->tagName) || !in_array(strtolower(trim($trigger->getAttribute('aria-haspopup'))), array('', 'menu'), true)) return false;
+            $ancestor = $trigger->parentNode;
+            while ($ancestor instanceof DOMElement && 'nav' !== strtolower($ancestor->tagName) && 'navigation' !== strtolower($ancestor->getAttribute('role'))) $ancestor = $ancestor->parentNode;
+            if (!$ancestor instanceof DOMElement) return false;
+            $key = 'blocks-engine-menu-' . $identity . '-' . $index;
+            $item = $document->createElement('div');
+            $button = $trigger->cloneNode(true);
+            if (!$button instanceof DOMElement) return false;
+            $button->setAttribute('aria-haspopup', 'menu');
+            $button->setAttribute('aria-controls', $key);
+            $button->setAttribute('aria-expanded', 'false');
+            $button->setAttribute('data-dla-dialog-trigger', $key);
+            $panel = $document->createElement('div');
+            $panel->setAttribute('id', $key);
+            $panel->setAttribute('data-dla-dialog-panel', $key);
+            $panel->setAttribute('hidden', '');
+            if (is_string($fragment['class'] ?? null) && '' !== $fragment['class']) $panel->setAttribute('class', $fragment['class']);
+            foreach ($fragment['nodes'] as $node) $panel->appendChild($document->importNode($node, true));
+            $item->appendChild($button);
+            $item->appendChild($panel);
+            if (null === NavigationPattern::buttonDropdownItemParts($item)) return false;
+            $items[] = array('trigger' => $trigger, 'item' => $item, 'panel' => $panel, 'key' => $key);
+        }
+        if (array() === $items) return false;
+        foreach ($items as $candidate) {
+            $trigger = $candidate['trigger'];
+            $item = $candidate['item'];
+            $item->removeChild($item->firstChild);
+            $trigger->parentNode?->replaceChild($item, $trigger);
+            $trigger->setAttribute('aria-haspopup', 'menu');
+            $trigger->setAttribute('aria-controls', $candidate['key']);
+            $trigger->setAttribute('aria-expanded', 'false');
+            $trigger->setAttribute('data-dla-dialog-trigger', $candidate['key']);
+            $item->insertBefore($trigger, $candidate['panel']);
+        }
+        return true;
     }
 
     private function isNavigationDropdownTrigger(DOMElement $trigger): bool

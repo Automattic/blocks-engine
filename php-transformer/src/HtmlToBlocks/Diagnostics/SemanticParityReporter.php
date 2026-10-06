@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMElement;
 
@@ -470,7 +471,13 @@ final class SemanticParityReporter
         }
 
         $items = array();
-        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+        foreach ( $element->getElementsByTagName('*') as $anchor ) {
+            if ($anchor instanceof DOMElement && 'button' === strtolower($anchor->tagName) && $anchor->parentNode instanceof DOMElement) {
+                $dropdown = NavigationPattern::buttonDropdownItemParts($anchor->parentNode);
+                if (null !== $dropdown && $dropdown['button'] === $anchor) $items[] = array('label' => $dropdown['label'], 'url' => '');
+                continue;
+            }
+            if (!$anchor instanceof DOMElement || 'a' !== strtolower($anchor->tagName)) continue;
             if ( ! $anchor instanceof DOMElement || $this->isSourceNavigationChromeAnchor($anchor) ) {
                 continue;
             }
