@@ -153,6 +153,23 @@ jobs:
           REQUIRE_WP_TESTS: "1"
           WP_TESTS_DIR: ${{ runner.temp }}/wordpress-develop/tests/phpunit
         run: composer test:wordpress-integration
+      - name: Setup Node for native document context proof
+        if: matrix.php-version == '8.2'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Verify native document ancestor context in Chromium
+        if: matrix.php-version == '8.2'
+        working-directory: php-transformer
+        env:
+          BODY_CONTEXT_WORDPRESS_BOOTSTRAP: ${{ runner.temp }}/wordpress-develop/tests/phpunit/includes/bootstrap.php
+          BODY_CONTEXT_ARTIFACT: ${{ runner.temp }}/document-body-context.json
+          BODY_CONTEXT_EVIDENCE: ${{ runner.temp }}/document-body-context-browser.json
+        run: |
+          npm ci --prefix tools/visual-parity
+          tools/visual-parity/node_modules/.bin/playwright install --with-deps chromium
+          php tests/contract/document-body-context.php
+          PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/contract/document-body-context-browser.mjs
 
   stylesheet-activation:
     name: WordPress stylesheet activation browser regression

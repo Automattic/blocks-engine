@@ -3364,9 +3364,9 @@ $bodyStateProjection = ( new HtmlTransformer() )->transform(
 )->toArray();
 $bodyStateSerialized = (string) ($bodyStateProjection['serialized_blocks'] ?? '');
 $bodyStateCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $bodyStateProjection['assets'] ?? array()));
-$assert(str_contains($bodyStateSerialized, 'wrapper fixed-shell no-header-page') && str_contains($bodyStateSerialized, 'main-wrap'), 'stylesheet-referenced body state projects onto converted root blocks');
+$assert(str_contains($bodyStateSerialized, 'wrapper') && !str_contains($bodyStateSerialized, 'fixed-shell') && !str_contains($bodyStateSerialized, 'no-header-page'), 'document body state stays separate from converted root blocks');
 $assert(str_contains($bodyStateCss, '.no-header-page .main-wrap{padding-top:80px}'), 'body-state descendant selectors continue matching beneath the projected root block state');
-$assert(str_contains($bodyStateCss, '.fixed-shell .main-wrap{background:#fff}') && ! str_contains($bodyStateCss, 'body.fixed-shell'), 'explicit body-state selectors retarget the projected root state while retaining descendant structure');
+$assert(str_contains($bodyStateCss, 'body.fixed-shell .main-wrap{background:#fff}'), 'explicit body-state selectors retain their ancestor and specificity');
 
 // Webflow-style `<body class="body">` with `.body{background}`: body paint
 // propagates to the canvas behind negative z-index layers, so it must stay on
@@ -3377,11 +3377,10 @@ $bodySubjectProjection = ( new HtmlTransformer() )->transform(
 )->toArray();
 $bodySubjectSerialized = (string) ($bodySubjectProjection['serialized_blocks'] ?? '');
 $bodySubjectCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $bodySubjectProjection['assets'] ?? array()));
-$assert(str_contains($bodySubjectSerialized, 'main-wrapper body'), 'body classes still project onto root blocks for descendant matching');
+$assert(str_contains($bodySubjectSerialized, 'main-wrapper') && !str_contains($bodySubjectSerialized, 'main-wrapper body'), 'body classes are not copied onto unrelated subjects');
 $assert(str_contains($bodySubjectCss, '.body .hero{position:relative}'), 'body-class descendant selectors keep matching beneath the projected root block');
-$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-site-\d+\)\{background-color:#f0f0f0;color:#333\}/', $bodySubjectCss), 'body-subject class rules retarget the rendered body and keep their class specificity');
-$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-site-\d+\)\{font-size:16px\}/', $bodySubjectCss), 'type-qualified body-subject class rules retarget the rendered body');
-$assert(! str_contains($bodySubjectCss, '.body{'), 'body-subject paint does not land on projected root blocks');
+$assert(str_contains($bodySubjectCss, '.body{background-color:#f0f0f0;color:#333}'), 'body-subject class rules retain their state and class specificity');
+$assert(str_contains($bodySubjectCss, 'body.body{font-size:16px}'), 'type-qualified body-subject rules retain their type specificity');
 
 $sharedBodyClassProjection = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><body class="body"><div class="card"><div class="body">Card body</div></div></body></html>',
@@ -3405,10 +3404,16 @@ $variantBodySubject = ( new HtmlTransformer() )->transform(
 $variantBodySubjectSerialized = (string) ($variantBodySubject['serialized_blocks'] ?? '');
 $variantBodySubjectCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $variantBodySubject['assets'] ?? array()));
 $assert(str_contains($variantBodySubjectSerialized, 'data-liberation-desktop-document body'), 'captured document variant roots keep the projected body class for descendant matching');
-$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-site-\d+\)\{background-color:#f0f0f0;flex-flow:column;font-family:Georgia,serif\}/', $variantBodySubjectCss), 'every body-element declaration retargets the rendered body when only document variant roots share the class');
-$assert(1 === preg_match('/@media \(max-width:479px\)\{body:not\(\.blocks-engine-specificity-class-site-\d+\)\{display:flex\}\}/', $variantBodySubjectCss), 'conditional body-subject rules retarget the rendered body alongside the rest state');
-$assert(! str_contains($variantBodySubjectCss, '.body{'), 'no body-subject paint is left to cover the negative z-index hero layers');
+$assert(str_contains($variantBodySubjectCss, ':where(body).body{background-color:#f0f0f0;flex-flow:column;font-family:Georgia,serif}'), 'synthetic document variant classes target the real body without losing state or class specificity');
+$assert(str_contains($variantBodySubjectCss, '@media (max-width:479px){:where(body).body{display:flex}}'), 'conditional variant body-subject rules retain their state');
 $assert(str_contains($variantBodySubjectCss, '.body .hero{position:relative}'), 'body-class descendant selectors keep matching inside a captured document variant');
+
+$escapedVariantBodySubject = (new HtmlTransformer())->transform(
+    '<body class="paint:canvas"><div class="data-liberation-desktop-document paint:canvas"><p>Content</p></div></body>',
+    array('static_css' => '.paint\\:canvas{background-color:#f0f0f0}')
+)->toArray();
+$escapedVariantBodyCss = implode("\n", array_column($escapedVariantBodySubject['assets'] ?? array(), 'content'));
+$assert(str_contains($escapedVariantBodyCss, ':where(body).paint\\:canvas{background-color:#f0f0f0}'), 'escaped body class subjects keep canvas ownership when copied onto synthetic document variants');
 
 $variantSharedBodyClass = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><body class="body"><div class="data-liberation-desktop-document body"><div class="card"><div class="body">Card body</div></div></div></body></html>',
@@ -3416,7 +3421,7 @@ $variantSharedBodyClass = ( new HtmlTransformer() )->transform(
 )->toArray();
 $variantSharedBodyClassCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $variantSharedBodyClass['assets'] ?? array()));
 $assert(str_contains($variantSharedBodyClassCss, '.body{padding:4px;background-color:#f0f0f0}'), 'a body class genuinely shared with content keeps its subject even beneath a document variant root');
-$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-site-\d+\)\{background-color:#f0f0f0\}/', $variantSharedBodyClassCss), 'a shared body class still paints the rendered canvas');
+$assert(!str_contains($variantSharedBodyClassCss, 'body:not('), 'a genuine shared class paints both source subjects without duplicated canvas compensation');
 
 $styledLogo = ( new HtmlTransformer() )->transform(
     '<style>#wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><a class="logo" href="/"><span id="wordmark">Brand Name</span></a>'
@@ -4423,7 +4428,7 @@ $artifactResponsiveRoot = $compiler->compile(
     )
 )->toArray();
 $artifactResponsiveRootCss = (string) ($artifactResponsiveRoot['source_reports']['compiled_site']['theme']['static_css'] ?? '');
-$assert(str_contains($artifactResponsiveRootCss, 'wp-compat: WordPress body does not retain the source responsive root class.') && str_contains($artifactResponsiveRootCss, 'body:not(.responsive) #site-root { min-width:0!important }') && str_contains($artifactResponsiveRootCss, '@media (min-width: 800px) {body:not(.responsive) .desktop-root { min-width:0!important }}') && str_contains($artifactResponsiveRootCss, '@scope (body) {@supports (display:grid) {body:not(.responsive) .scoped-root { min-width:0!important }}'), 'artifact CSS clears source responsive-root desktop minimum widths when WordPress owns the body class, including nested supported conditional rules', $artifactResponsiveRootCss);
+$assert(!str_contains($artifactResponsiveRootCss, 'min-width:0!important') && !str_contains($artifactResponsiveRootCss, 'WordPress body does not retain'), 'route-owned body state makes responsive minimum-width compensation unnecessary', $artifactResponsiveRootCss);
 
 $artifactMobileNavOverlay = $compiler->compile(
     array(

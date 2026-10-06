@@ -3108,6 +3108,7 @@ PHP;
     {
         $writes = array($this->write('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), $this->write('theme_scaffold', 'theme.json', json_encode($theme, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"));
         $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts, $parts, $tokens, $templates, $pages, $menus));
+        if (DocumentRootContext::needsCanvas($pages)) $writes[] = $this->write('theme_scaffold', 'document-canvas.php', DocumentRootContext::canvas());
         foreach ( $templates as $template ) $writes[] = $this->write('theme_template', $template['target_path'], $template['canonical_block_markup']);
         foreach ( $parts as $part ) $writes[] = $this->write('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
         return $writes;
@@ -3117,7 +3118,10 @@ PHP;
     private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array()): string
     {
         $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY);
-        $rootContext = DocumentRootContext::bootstrap($pages);
+        $bodyClassCollisions = array();
+        $compat = new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\WordPressCompatCss();
+        foreach ($assets as $asset) if ('css' === $asset['kind'] && 'editor' !== ($asset['stylesheet_target'] ?? 'both')) array_push($bodyClassCollisions, ...$compat->bodyClassCollisionClasses((string) ($asset['content'] ?? '')));
+        $rootContext = DocumentRootContext::bootstrap($pages, array_values(array_unique($bodyClassCollisions)));
         if ('' !== $rootContext) $lines[] = $rootContext;
         $fields = ListingFieldProjection::bootstrap($pages);
         if ('' !== $fields) $lines[] = $fields;
@@ -3762,6 +3766,10 @@ PHP;
         $bootstrap = $writes['functions.php'] ?? null;
         $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
         if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages'], $plan['menus']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
+        if (DocumentRootContext::needsCanvas($plan['pages'])) {
+            $canvas = $writes['document-canvas.php'] ?? null;
+            if (!is_array($canvas) || 'theme_scaffold' !== ($canvas['kind'] ?? null) || 'wordpress-site-plan/document-canvas.php' !== ($canvas['source_path'] ?? null) || DocumentRootContext::canvas() !== ($canvas['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan document canvas is invalid.');
+        }
     }
     /** @param array<int,mixed> $declarations @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $writes */
     private static function assertAssetPublicationDeclarations(array $declarations, array $assets, array $writes): void
@@ -4016,6 +4024,7 @@ PHP;
     private static function assertDocumentMetadata(array $metadata, array $tokens, string $sourcePath, string $documentKind): void
     {
         if (array_key_exists('root_attributes', $metadata)) DocumentRootContext::assertValid($metadata['root_attributes']);
+        if (array_key_exists('body_attributes', $metadata)) DocumentRootContext::assertValid($metadata['body_attributes']);
         if (!is_array($metadata['source_context'] ?? null) || !self::safePath($metadata['source_context']['source_path'] ?? null) || !is_string($metadata['source_context']['kind'] ?? null) || !is_string($metadata['title'] ?? null) || !is_array($metadata['title_declaration'] ?? null) || 0 !== ($metadata['title_declaration']['order'] ?? null) || 'head' !== ($metadata['title_declaration']['placement'] ?? null) || !is_array($metadata['meta'] ?? null) || !is_array($metadata['links'] ?? null) || !is_array($metadata['scripts'] ?? null)) throw new InvalidArgumentException('WordPress site plan document metadata is structurally invalid.');
         foreach ($metadata['meta'] as $index => $row) {
             if (!is_array($row)) self::invalidDeclaration('meta declaration', 'meta', $index, $sourcePath, $documentKind, 'invalid_structure', $row);

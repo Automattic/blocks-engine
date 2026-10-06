@@ -45,8 +45,6 @@ final class AuthorStyleAnalysis
     private readonly string $specificityShim;
     private readonly string $classSpecificityShim;
     private readonly string $idSpecificityShim;
-    /** @var list<string> */
-    private array $sourceBodyProjectionClasses = array();
     /** @var array<string, string> */
     private array $sourceClassMarkers = array();
 
@@ -121,10 +119,6 @@ final class AuthorStyleAnalysis
         }
         return $this->sourceClassMarkers[$class] ??= $this->allocateStableMarker('source-class', $class);
     }
-    /** @return list<string> */
-    public function sourceBodyProjectionClasses(): array { return $this->sourceBodyProjectionClasses; }
-    /** @param list<string> $classes */
-    public function setSourceBodyProjectionClasses(array $classes): void { $this->sourceBodyProjectionClasses = $classes; }
     /** @param list<array<string, mixed>> $rules */
     public function installStyleRules(array $rules): void
     {
