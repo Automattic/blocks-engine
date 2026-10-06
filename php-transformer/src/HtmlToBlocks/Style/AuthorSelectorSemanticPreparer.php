@@ -398,8 +398,8 @@ final class AuthorSelectorSemanticPreparer
      *
      * Skipped: pseudo-element rules (projected outside the selector path the
      * class form is derived from), `data-*` conditions (their own projection),
-     * conditions inside functional pseudo-classes, runtime-toggled states,
-     * conditions a source script writes, and selectors whose ancestry keeps
+     * conditions also used inside functional pseudo-classes, runtime-toggled
+     * states, conditions an executable source script writes, and selectors whose ancestry keeps
      * another condition that would be lost (the class form could never match).
      */
     private function discoverAncestorAttributeState(string $selector, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
@@ -417,6 +417,16 @@ final class AuthorSelectorSemanticPreparer
         if ( ! preg_match_all(self::ANCESTOR_ATTRIBUTE_CONDITION, $ancestry, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
             return;
         }
+        // The projector swaps every copy of a condition for its class. A copy
+        // inside :not()/:is() would turn `.a[r=g] .b:not([r=g])` into
+        // `.a.M .b:not(.M)`, which over-matches once the inner holder also
+        // carries the class, so such selectors keep only the original.
+        $nested = array();
+        foreach ( $matches as $match ) {
+            if ( 0 !== substr_count($ancestry, '(', 0, $match[0][1]) - substr_count($ancestry, ')', 0, $match[0][1]) ) {
+                $nested[$match[0][0]] = true;
+            }
+        }
         $conditions = array();
         foreach ( $matches as $match ) {
             $condition = $match[0][0];
@@ -429,6 +439,7 @@ final class AuthorSelectorSemanticPreparer
                 continue; // Inside :not()/:is(); left to the original selector.
             }
             if ( str_starts_with($name, 'data-') || in_array($name, self::RUNTIME_STATE_ATTRIBUTES, true)
+                || isset($nested[$condition])
                 || str_contains(substr($selector, $rightmostStart), $condition)
                 || $this->sourceScriptsWriteAttribute($authorStyles, $projections, $name)
             ) {
@@ -555,6 +566,13 @@ final class AuthorSelectorSemanticPreparer
         return substr($ancestry, $start, $end - $start);
     }
 
+    /**
+     * Whether an executable source script writes `$name` on elements, so a
+     * class frozen from the captured value would contradict the runtime.
+     * Data blocks (JSON, ld+json, templates) are ignored, and only write
+     * forms count: setAttribute/toggleAttribute/removeAttribute, jQuery
+     * `.attr(name, value)`, and the ARIA reflection property (`.ariaDisabled =`).
+     */
     private function sourceScriptsWriteAttribute(AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections, string $name): bool
     {
         return $projections->scriptWritesAttribute($name, static function () use ($authorStyles, $name): bool {
@@ -562,14 +580,35 @@ final class AuthorSelectorSemanticPreparer
             if ( null === $document ) {
                 return false;
             }
+            $quoted = '[\'"`]' . preg_quote($name, '/') . '[\'"`]';
+            $patterns = array(
+                '/\b(?:setAttribute|toggleAttribute|removeAttribute)\s*\(\s*' . $quoted . '/i',
+                '/\.attr\s*\(\s*' . $quoted . '\s*,/i',
+            );
+            if ( str_starts_with($name, 'aria-') ) {
+                $property = 'aria' . str_replace(' ', '', ucwords(str_replace('-', ' ', substr($name, 5))));
+                $patterns[] = '/\.' . preg_quote($property, '/') . '\s*=(?!=)/';
+            }
             foreach ( $document->getElementsByTagName('script') as $script ) {
-                if ( false !== stripos($script->textContent, $name) ) {
-                    return true;
+                $type = strtolower(trim(explode(';', $script instanceof \DOMElement ? $script->getAttribute('type') : '')[0]));
+                if ( '' !== $type && ! in_array($type, self::EXECUTABLE_SCRIPT_TYPES, true) ) {
+                    continue;
+                }
+                $source = $script->textContent;
+                if ( false === stripos($source, $name) && ! str_starts_with($name, 'aria-') ) {
+                    continue;
+                }
+                foreach ( $patterns as $pattern ) {
+                    if ( 1 === preg_match($pattern, $source) ) {
+                        return true;
+                    }
                 }
             }
             return false;
         });
     }
+
+    private const EXECUTABLE_SCRIPT_TYPES = array( 'module', 'text/javascript', 'application/javascript', 'application/x-javascript', 'text/ecmascript', 'application/ecmascript', 'text/jscript', 'text/livescript' );
 
     /** Byte offset where the rightmost compound starts, or null when the selector cannot be split safely. */
     private static function rightmostCompoundStart(string $selector): ?int

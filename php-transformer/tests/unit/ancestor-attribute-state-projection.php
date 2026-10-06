@@ -81,5 +81,19 @@ $assert(!str_contains($current['serialized_blocks'], 'blocks-engine-attribute-st
 $mixed = $transform('<style>.w[data-state=on][aria-disabled=false] .t{color:red}</style><main><div class="w" data-state="on" aria-disabled="false"><a class="t" href="/x">x</a></div></main>');
 $assert(!preg_match('/\.w\[data-state=on\]\.blocks-engine-attribute-state-/', $css($mixed)), 'a class form that still needs a lost data condition is not emitted');
 
+// 6. A condition repeated inside :not() keeps only the original selector:
+// replacing both copies would let the negation's own holder match.
+$negated = $transform('<style>.a[role=group] .b:not([role=group]) .c{color:red}</style><main><div class="a" role="group"><div class="b"><p class="c">yes</p></div><div class="b" role="group"><p class="c">no</p></div></div></main>');
+$assert(!preg_match('/:not\(\.blocks-engine-attribute-state-/', $css($negated)), 'a condition copied inside :not() is never replaced by its class');
+$assert(!str_contains($negated['serialized_blocks'], 'blocks-engine-attribute-state-'), 'a selector repeating its condition inside :not() gets no class form');
+
+// 7. Only executable scripts that write the attribute disable the class form.
+$jsonOnly = $transform('<style>.w[aria-disabled=false] .t{background:yellow}</style><main><div class="w" aria-disabled="false"><a class="t" href="/a">A</a></div></main><script type="application/json" id="cfg">{"buttons":{"style":{"aria-disabled":"false"}}}</script>');
+$assert(1 === preg_match('/<div class="wp-block-group w ' . $stateClass . '"/', $jsonOnly['serialized_blocks']), 'a JSON data block mentioning the attribute does not disable the fix');
+$reader = $transform('<style>.w[aria-disabled=false] .t{background:yellow}</style><main><div class="w" aria-disabled="false"><a class="t" href="/a">A</a></div></main><script>if (el.getAttribute("aria-disabled") === "false") go();</script>');
+$assert(1 === preg_match('/<div class="wp-block-group w ' . $stateClass . '"/', $reader['serialized_blocks']), 'a script that only reads the attribute does not disable the fix');
+$property = $transform('<style>.w[aria-disabled=false] .t{background:yellow}</style><main><div class="w" aria-disabled="false"><a class="t" href="/a">A</a></div></main><script>document.querySelectorAll(".w").forEach(e=>e.ariaDisabled="true")</script>');
+$assert(!str_contains($property['serialized_blocks'], 'blocks-engine-attribute-state-'), 'an ARIA reflection property write disables the fix');
+
 if ($failures) { fwrite(STDERR, implode("\n", $failures) . "\n"); exit(1); }
 echo "Ancestor attribute state projection passed: {$assertions} assertions\n";
