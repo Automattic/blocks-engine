@@ -133,6 +133,7 @@ $imageUrl = $assetBase . 'logo.svg';
 $assert(is_file($cssFile) && is_file($themeDir . '/assets/assets/logo.svg') && str_contains((string) file_get_contents($cssFile), 'url("logo.svg")') && str_starts_with($cssUrl, home_url('/')) && str_starts_with($imageUrl, home_url('/')) && !str_contains($cssUrl . $imageUrl, 'build.example.test'), 'A moved active theme exposes local CSS and SVG image fetch URLs under the runtime host and subdirectory without a source-origin URL.');
 $themeJson = json_decode((string) file_get_contents($themeDir . '/theme.json'), true);
 $globalStylesheet = wp_get_global_stylesheet();
+$assert(!isset($themeJson['styles']['typography']['fontFamily']) && !isset($themeJson['styles']['spacing']['padding']), 'A stylesheet loaded by only some pages cannot set the site-wide font or padding.');
 $presetGroups = array(
     'color' => $themeJson['settings']['color']['palette'] ?? array(),
     'font-family' => $themeJson['settings']['typography']['fontFamilies'] ?? array(),
@@ -142,7 +143,18 @@ $presetGroups = array(
 foreach ($presetGroups as $group => $presets) foreach ($presets as $preset) {
     $slug = (string) ($preset['slug'] ?? '');
     $variable = '--wp--preset--' . $group . '--' . $slug;
-    $assert('' !== $slug && $slug === _wp_to_kebab_case($slug) && str_contains($globalStylesheet, $variable . ':') && str_contains($globalStylesheet, 'var(' . $variable . ')'), 'WordPress emits and resolves the generated ' . $group . ' preset without changing its slug.');
+    // Presets are editor choices, including values whose route applicability
+    // prevents setting a Global Styles default. Exercise resolution separately
+    // from the generated theme's decision to apply that value site-wide.
+    $reference = 'var:preset|' . $group . '|' . $slug;
+    $probeStyles = match ($group) {
+        'color' => array('color' => array('text' => $reference)),
+        'font-family' => array('typography' => array('fontFamily' => $reference)),
+        'font-size' => array('typography' => array('fontSize' => $reference)),
+        'spacing' => array('spacing' => array('padding' => $reference)),
+    };
+    $probe = new WP_Theme_JSON(array('version' => 3, 'settings' => $themeJson['settings'], 'styles' => $probeStyles), 'theme');
+    $assert('' !== $slug && $slug === _wp_to_kebab_case($slug) && str_contains($globalStylesheet, $variable . ':') && str_contains($probe->get_stylesheet(), 'var(' . $variable . ')'), 'WordPress emits and resolves the generated ' . $group . ' preset without changing its slug.');
 }
 $sidebarPart = current(array_filter($plan['template_parts'] ?? array(), static fn(array $part): bool => 'sidebar' === ($part['slug'] ?? null)));
 $sidebarWrite = current(array_filter($resolved['writes'] ?? array(), static fn(array $write): bool => 'templates/front-page.html' === ($write['target_path'] ?? null)));
