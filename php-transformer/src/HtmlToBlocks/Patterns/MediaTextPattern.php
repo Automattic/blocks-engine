@@ -49,7 +49,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
             SourceDom::htmlAttributes(...),
             $media->resolveImageUrl(...),
             $context->createBlock(...),
-            $media->coverStyle(...)
+            $media->coverStyle(...),
+            $media->documentRootFontSize(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -64,9 +65,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
      * @param callable(DOMElement): array<string, string> $htmlAttributes
      * @param callable(string): string $resolveAssetUrl
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
-     * @param callable(DOMElement): string $fullPresentationStyle Same source CoverPattern reads background/position
-     *        facts from — a superset of $mergedPresentationStyle's gate-only allow list. Needed here only to see
-     *        `position`, which mediaTextStyle's allow list omits.
+     * @param callable(DOMElement): string $fullPresentationStyle Superset of the gate-only media style, including
+     *        `position` (the same source CoverPattern reads background/position facts from).
+     * @param callable(DOMElement): ?float $documentRootFontSize CSS root size used to resolve rem dimensions.
      * @return array<string, mixed>|null
      */
     public function match(
@@ -79,7 +80,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
         callable $htmlAttributes,
         callable $resolveAssetUrl,
         callable $createBlock,
-        callable $fullPresentationStyle
+        callable $fullPresentationStyle,
+        callable $documentRootFontSize
     ): ?array {
         $elementChildren = $this->strictElementChildren($element);
         if ( null === $elementChildren || 2 !== count($elementChildren) ) {
@@ -191,7 +193,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
                 }
             }
             $mediaStyle = $fullPresentationStyle($resolution['media']);
-            $rootFontSize = $this->rootFontSize($element->ownerDocument?->documentElement, $fullPresentationStyle);
+            $rootFontSize = $documentRootFontSize($element);
         } catch ( \Throwable ) {
             return null;
         }
@@ -654,68 +656,6 @@ final class MediaTextPattern implements PatternRecognizerInterface
 
         $dimension = (float) $matches[1];
         return 0 < $dimension ? $dimension : null;
-    }
-
-    /**
-     * Resolve the document root font size used by rem declarations.
-     *
-     * @param callable(DOMElement): string $fullPresentationStyle
-     */
-    private function rootFontSize(?DOMElement $root, callable $fullPresentationStyle): ?float
-    {
-        if ( null === $root ) {
-            return null;
-        }
-
-        if ( 'html' === strtolower($root->tagName) ) {
-            $declarations = $this->styleDeclarations($fullPresentationStyle($root));
-            $inlineDeclarations = $this->styleDeclarations($this->attr($root, 'style'));
-            if ( isset($inlineDeclarations['font-size']) ) {
-                $declarations['font-size'] = $inlineDeclarations['font-size'];
-            }
-            return isset($declarations['font-size'])
-                ? $this->pixelFontSize((string) $declarations['font-size'])
-                : 16.0;
-        }
-
-        // HTML-to-blocks often compiles a body fragment, so its document root
-        // is not the CSS root. Inspect retained style elements for an explicit
-        // html/:root font-size before falling back to the browser initial size.
-        $document = $root->ownerDocument;
-        if ( null === $document ) {
-            return null;
-        }
-        $rootFontSize = null;
-        $hasExplicitRootFontSize = false;
-        foreach ($document->getElementsByTagName('style') as $styleElement) {
-            $css = $styleElement->textContent ?? '';
-            if (preg_match_all('/(?:^|})\s*(?:html|:root)\s*\{([^}]*)\}/i', $css, $rules)) {
-                foreach ($rules[1] as $declarations) {
-                    $parsed = $this->styleDeclarations((string) $declarations);
-                    if (isset($parsed['font-size'])) {
-                        $hasExplicitRootFontSize = true;
-                        $rootFontSize = $this->pixelFontSize((string) $parsed['font-size']);
-                    }
-                }
-            }
-        }
-
-        return $hasExplicitRootFontSize ? $rootFontSize : 16.0;
-    }
-
-    private function pixelFontSize(string $value): ?float
-    {
-        $fontSize = strtolower($this->normalizedCssValue($value));
-        if (preg_match('/^(\d+(?:\.\d+)?)\s*px$/', $fontSize, $matches)) {
-            return 0 < (float) $matches[1] ? (float) $matches[1] : null;
-        }
-
-        // At the root, em/rem font sizes are relative to the initial 16px.
-        if (preg_match('/^(\d+(?:\.\d+)?)\s*(?:em|rem)$/', $fontSize, $matches)) {
-            return 0 < (float) $matches[1] ? (float) $matches[1] * 16 : null;
-        }
-
-        return null;
     }
 
     /**
