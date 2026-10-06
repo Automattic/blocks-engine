@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 /** Recognizes captured category collections from reciprocal source-document evidence. */
 final class TaxonomyProjection
 {
-    /** @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @return array{entities:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
+    /** @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @return array{entities:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>,pagination_source_paths:array<int,string>} */
     public static function project(array $documents, array $routes, string $sourceOrigin = ''): array
     {
         $routeBySource = array_column($routes, 'target_path', 'source_path');
@@ -24,6 +24,7 @@ final class TaxonomyProjection
 
         $entities = array();
         $diagnostics = array();
+        $paginationSources = array();
         $corroboratedBySlug = array();
         foreach ($documents as $archive) {
             $source = $archive['source_path'] ?? null;
@@ -44,6 +45,11 @@ final class TaxonomyProjection
                 if ('post' === ($listedDocument['metadata']['post_type'] ?? null)) $listed[$link['href']] = $listedDocument;
             }
             $members = array();
+            $archiveDocuments = array($route => $archive);
+            foreach ($documentsByRoute as $archiveRoute => $sibling) {
+                if (!preg_match('~^' . preg_quote($route, '~') . '/page/[1-9][0-9]{0,5}$~', $archiveRoute)) continue;
+                $archiveDocuments[$archiveRoute] = $sibling;
+            }
             if ('' !== $heading && '' !== $slug && basename($route) === $slug) {
                 foreach ($listed as $articleRoute => $article) {
                     $articleSource = (string) $article['source_path'];
@@ -54,12 +60,29 @@ final class TaxonomyProjection
                         }
                     }
                 }
+                foreach ($archiveDocuments as $archiveRoute => $sibling) {
+                    if ($archiveRoute === $route) continue;
+                    if (self::heading((string) ($sibling['html'] ?? '')) !== $heading) continue;
+                    $siblingSource = (string) ($sibling['source_path'] ?? '');
+                    foreach (self::links((string) ($sibling['html'] ?? ''), $sourceOrigin) as $link) {
+                        $listedDocument = $documentsByRoute[$link['href']] ?? null;
+                        if (!is_array($listedDocument) || 'post' !== ($listedDocument['metadata']['post_type'] ?? null)) continue;
+                        $articleSource = (string) ($listedDocument['source_path'] ?? '');
+                        foreach ($linksBySource[$articleSource] ?? array() as $backlink) {
+                            if ($route === $backlink['href'] && $heading === $backlink['label']) {
+                                $members[] = $articleSource;
+                                $paginationSources[$siblingSource] = true;
+                                break;
+                            }
+                        }
+                    }
+                }
             }
             if (count($members) < 2) {
                 if (array() !== $listedDocuments) $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unproven', 'severity' => 'info', 'message' => 'A captured category collection lacked matching article return links, source labels, or multiple post members.', 'source_path' => $source, 'source_route' => $route);
                 continue;
             }
-            $corroboratedBySlug['category:' . $slug][] = array('source' => $source, 'route' => $route, 'slug' => $slug, 'heading' => $heading, 'members' => $members, 'archive' => $archive);
+            $corroboratedBySlug['category:' . $slug][] = array('source' => $source, 'route' => $route, 'slug' => $slug, 'heading' => $heading, 'members' => array_values(array_unique($members)), 'archive' => $archive);
         }
         foreach ($corroboratedBySlug as $group) {
             if (1 < count($group)) {
@@ -75,7 +98,7 @@ final class TaxonomyProjection
                 'evidence' => array('membership' => true, 'name' => true, 'archive' => true),
             );
         }
-        return array('entities' => $entities, 'diagnostics' => $diagnostics);
+        return array('entities' => $entities, 'diagnostics' => $diagnostics, 'pagination_source_paths' => array_keys($paginationSources));
     }
 
     /** A candidate must already spell the route and slug the canonical plan accepts, or the evidence stays unproven instead of failing the whole plan. */

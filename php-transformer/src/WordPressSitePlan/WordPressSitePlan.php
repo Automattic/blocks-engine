@@ -231,6 +231,11 @@ final class WordPressSitePlan
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
         $routeMap = $this->canonicalRoutes($documents, $input->routes);
         $taxonomyProjection = TaxonomyProjection::project($documents, $routeMap, $this->sourceOrigin);
+        // Paginated category captures are evidence and presentation for the
+        // native archive, not independent WordPress pages. In particular, do
+        // not let their `/page` path create a synthetic page ancestor.
+        $paginationSources = array_fill_keys($taxonomyProjection['pagination_source_paths'], true);
+        if (array() !== $paginationSources) $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($paginationSources[$document['source_path'] ?? ''])));
         $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations);
         $this->routeSources = array();
         $this->routeTargets = array();
