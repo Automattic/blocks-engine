@@ -176,6 +176,7 @@
       "php tests/unit/theme-json-projection-blockgap-optin.php",
       "php tests/unit/theme-json-projection-typography-families.php",
       "php tests/unit/theme-json-projection-layered-deferral.php",
+      "php tests/unit/theme-json-projection-route-defaults.php",
       "php tests/unit/theme-json-projection-responsive-breakpoints.php",
       "php tests/unit/responsive-font-size-not-baked.php",
       "php tests/unit/heading-block-span-font-size.php",
