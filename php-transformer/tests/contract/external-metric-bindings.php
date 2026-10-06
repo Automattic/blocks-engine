@@ -25,23 +25,36 @@ $paragraph = '<!-- wp:paragraph --><p>73,000+</p><!-- /wp:paragraph -->';
 $heading = '<!-- wp:heading {"level":2} --><h2 class="wp-block-heading">v1.2.3</h2><!-- /wp:heading -->';
 $assert(str_contains($plainMarkup, $paragraph) && str_contains($plainMarkup, $heading), 'source numeric fallbacks lower to native editable Paragraph and Heading blocks');
 
-$fact = static function (string $id, string $metric, string $aggregation, string $fallback, string $markup, string $role, string $block, array $provenance, array $slugs = array('block-visibility')): array {
+$source = static function (string $id, string $urlTemplate, array $query, array $queryVariables, array $variableSchemas, array $resources, int $freshness, array $headers = array('Accept' => 'application/json')): array {
     return array(
+        'schema' => 'generic/external-metric-source/v1', 'id' => $id, 'intent' => 'external_public_json',
+        'request' => array('method' => 'GET', 'url_template' => $urlTemplate, 'query' => $query, 'query_variables' => $queryVariables, 'headers' => $headers, 'response_media_type' => 'application/json', 'max_response_bytes' => 1048576, 'timeout_seconds' => 5),
+        'resource_variables' => $variableSchemas, 'resources' => $resources, 'freshness' => array('max_age_seconds' => $freshness),
+    );
+};
+$pluginSource = static function (array $slugs) use ($source): array {
+    $slugSchema = array('location' => 'query', 'min_length' => 1, 'max_length' => 100, 'allowed_characters' => 'abcdefghijklmnopqrstuvwxyz0123456789-', 'prohibited_values' => array());
+    return $source('wordpress.org.plugin-information', 'https://api.wordpress.org/plugins/info/1.2/', array('action' => 'plugin_information'), array('slug'), array('slug' => $slugSchema), array_map(static fn(string $slug): array => array('slug' => $slug), $slugs), 3600);
+};
+$fact = static function (string $id, array $source, string $metric, ?array $extraction, string $aggregation, string $fallback, string $markup, string $role, string $block, array $provenance, ?array $format = null): array {
+    $fact = array(
         'id' => $id,
-        'provider' => array('schema' => 'generic/external-metric-provider/v1', 'id' => 'wordpress.org', 'source' => 'plugin_information', 'slugs' => $slugs),
+        'source' => $source,
         'metric' => $metric,
         'aggregation' => $aggregation,
-        'format' => array('locale' => 'en-US', 'grouping' => str_contains($fallback, ','), 'prefix' => 'version' === $metric ? 'v' : '', 'suffix' => 'active_installs' === $metric ? '+' : '', 'decimals' => 0),
+        'format' => $format ?? array('locale' => 'en-US', 'grouping' => str_contains($fallback, ','), 'prefix' => 'version' === $metric ? 'v' : '', 'suffix' => 'active_installs' === $metric ? '+' : '', 'decimals' => 0),
         'provenance' => $provenance,
         'fallback' => array('text' => $fallback, 'hash' => hash('sha256', $fallback)),
         'bindings' => array(array('schema' => 'generic/block-binding/v1', 'role' => $role, 'source_path' => 'index.html', 'search_block_markup' => $markup, 'occurrence' => 1, 'leaf' => array('block' => $block, 'attribute' => 'content'))),
     );
+    if (null !== $extraction) $fact['extraction'] = $extraction;
+    return $fact;
 };
 $sourceProof = array('kind' => 'source_corroboration', 'repository' => 'ndiego/nickdiego.com', 'revision' => '5747c794bbbd0d2b2dfeb999210ab5d4f2e6a3fc', 'source_path' => 'src/components/wp-plugin-card.tsx');
 $operatorMapping = array('kind' => 'operator_mapping', 'author' => 'operator:chubes4', 'source_relationship' => 'Maps the visible card version leaf to the source-backed plugin_information.version field; this relationship is operator-authored, not capture-observed.');
 $declaration = array('kind' => 'entity_collection', 'type' => 'external_metrics', 'source_path' => 'data/external-metrics.json', 'payload' => array('schema' => 'generic/external-metric/v1', 'entities' => array(
-    $fact('nick-projects-five-plugin-installs', 'active_installs', 'sum', '73,000+', $paragraph, 'paragraph', 'core/paragraph', $sourceProof, array('block-visibility', 'icon-block', 'social-sharing-block', 'genesis-featured-page-advanced', 'genesis-columns-advanced')),
-    $fact('block-visibility-version', 'version', 'identity', 'v1.2.3', $heading, 'heading', 'core/heading', $operatorMapping),
+    $fact('nick-projects-five-plugin-installs', $pluginSource(array('block-visibility', 'icon-block', 'social-sharing-block', 'genesis-featured-page-advanced', 'genesis-columns-advanced')), 'active_installs', array('kind' => 'json_pointer', 'pointer' => '/active_installs', 'value_type' => 'nonnegative_integer'), 'sum', '73,000+', $paragraph, 'paragraph', 'core/paragraph', $sourceProof),
+    $fact('block-visibility-version', $pluginSource(array('block-visibility')), 'version', array('kind' => 'json_pointer', 'pointer' => '/version', 'value_type' => 'string', 'max_length' => 64), 'identity', 'v1.2.3', $heading, 'heading', 'core/heading', $operatorMapping),
 )));
 $artifact = array('entrypoint' => 'index.html', 'runtime_declarations' => array($declaration), 'files' => array('index.html' => $html));
 $whole = (new ArtifactCompiler())->compile($artifact)->toArray();
@@ -67,15 +80,18 @@ $assert($jsonRoundTrip['runtime_declarations'] === $resolved['runtime_declaratio
 
 $githubRoutes = array('index.html', 'about.html', 'team.html');
 $githubHeader = '<header class="github-repo-card"><h2><a href="https://github.com/Automattic/.github">Automattic/.github</a></h2><p>7</p><p>9</p><span aria-hidden="true">★</span></header>';
+$asciiAlphaNumeric = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+$githubSource = $source('github.repository-information', 'https://api.github.com/repos/{owner}/{repository}', array(), array(), array(
+    'owner' => array('location' => 'path', 'min_length' => 1, 'max_length' => 39, 'allowed_characters' => $asciiAlphaNumeric . '-', 'first_characters' => $asciiAlphaNumeric, 'last_characters' => $asciiAlphaNumeric, 'prohibited_values' => array()),
+    'repository' => array('location' => 'path', 'min_length' => 1, 'max_length' => 100, 'allowed_characters' => $asciiAlphaNumeric . '._-', 'prohibited_values' => array('.', '..')),
+), array(array('owner' => 'Automattic', 'repository' => '.github')), 86400, array('Accept' => 'application/vnd.github+json', 'X-GitHub-Api-Version' => '2022-11-28'));
 $githubFiles = array(); $githubFacts = array();
 foreach ($githubRoutes as $route) {
     $title = 'index.html' === $route ? 'Home' : ('about.html' === $route ? 'About' : 'Team');
     $githubFiles[$route] = '<!doctype html><html><body>' . $githubHeader . '<main><h1>' . $title . '</h1></main></body></html>';
     foreach (array('stargazers_count' => '7', 'forks_count' => '9') as $metric => $fallback) {
         $githubAnchor = '<!-- wp:paragraph --><p>' . $fallback . '</p><!-- /wp:paragraph -->';
-        $githubEntity = $fact('github-' . $metric . '-' . basename($route, '.html'), $metric, 'identity', $fallback, $githubAnchor, 'paragraph', 'core/paragraph', array('kind' => 'source_corroboration', 'repository' => 'ndiego/nickdiego.com', 'revision' => '5747c794bbbd0d2b2dfeb999210ab5d4f2e6a3fc', 'source_path' => 'src/components/gh-repo-card.tsx'));
-        $githubEntity['provider'] = array('schema' => 'generic/external-metric-provider/v1', 'id' => 'github', 'owner' => 'Automattic', 'repository' => '.github');
-        $githubEntity['provenance'] = array('kind' => 'source_corroboration', 'repository' => 'ndiego/nickdiego.com', 'revision' => '5747c794bbbd0d2b2dfeb999210ab5d4f2e6a3fc', 'source_path' => 'src/components/gh-repo-card.tsx');
+        $githubEntity = $fact('github-' . $metric . '-' . basename($route, '.html'), $githubSource, $metric, array('kind' => 'json_pointer', 'pointer' => '/' . $metric, 'value_type' => 'nonnegative_integer'), 'identity', $fallback, $githubAnchor, 'paragraph', 'core/paragraph', array('kind' => 'source_corroboration', 'repository' => 'ndiego/nickdiego.com', 'revision' => '5747c794bbbd0d2b2dfeb999210ab5d4f2e6a3fc', 'source_path' => 'src/components/gh-repo-card.tsx'), array('locale' => 'en-US', 'grouping' => true, 'prefix' => '', 'suffix' => '', 'decimals' => 0));
         $githubEntity['bindings'][0]['source_path'] = $route;
         $githubEntity['bindings'][0]['search_block_markup'] = $githubAnchor;
         $githubFacts[] = $githubEntity;
@@ -88,12 +104,12 @@ $githubResolved = (new WordPressSitePlanResolver())->resolve($githubPlan, array(
 $githubEntities = $githubResolved['runtime_declarations'][0]['payload']['entities'] ?? array();
 $githubByMetric = array_column($githubEntities, null, 'metric');
 $githubHeaderParts = array_values(array_filter($githubResolved['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
-$assert(2 === count($githubByMetric) && 1 === count($githubHeaderParts), 'GitHub stars and forks coalesce into one shared header template-part declaration');
+$assert(2 === count($githubByMetric) && 1 === count($githubHeaderParts), 'GitHub stars and forks coalesce into one shared header template-part declaration (facts=' . count($githubByMetric) . ', headers=' . count($githubHeaderParts) . ', metrics=' . implode(',', array_keys($githubByMetric)) . ')');
 foreach (array('stargazers_count' => '7', 'forks_count' => '9') as $metric => $fallback) {
     $githubEntity = $githubByMetric[$metric] ?? array();
     $githubBinding = $githubEntity['bindings'][0] ?? array();
     $githubAnchor = '<!-- wp:paragraph --><p>' . $fallback . '</p><!-- /wp:paragraph -->';
-    $assert(($githubEntity['provider']['repository'] ?? null) === '.github' && ($githubEntity['fallback']['text'] ?? null) === $fallback && ($githubEntity['fallback']['hash'] ?? null) === hash('sha256', $fallback), "{$metric} transports the real plain-number repository fallback and hash");
+    $assert(($githubEntity['source']['id'] ?? null) === 'github.repository-information' && ($githubEntity['source']['resources'][0]['repository'] ?? null) === '.github' && ($githubEntity['fallback']['text'] ?? null) === $fallback && ($githubEntity['fallback']['hash'] ?? null) === hash('sha256', $fallback), "{$metric} transports the generic source recipe and real plain-number repository fallback/hash");
     $assert(($githubEntity['provenance']['kind'] ?? null) === 'source_corroboration' && ($githubEntity['provenance']['source_path'] ?? null) === 'src/components/gh-repo-card.tsx', "{$metric} retains explicit source provenance");
     $assert(($githubBinding['source_path'] ?? null) === ($githubHeaderParts[0]['source_path'] ?? null) && WordPressSitePlan::bindingPosition($githubBinding['position'] ?? null, $githubHeaderParts[0]['resolved_block_markup'], $githubAnchor), "{$metric} binding reanchors to the shared native Paragraph leaf");
 }
@@ -104,6 +120,34 @@ $githubShared = $githubCompiler->prepareShared($githubArtifact);
 $githubReceipts = array(); foreach ($githubShared['analysis']['page_ids'] as $pageId) $githubReceipts[] = $githubCompiler->compilePage($githubArtifact, $githubShared, $pageId);
 $githubStaged = $githubCompiler->compose($githubShared, $githubReceipts)->toArray()['source_reports']['wordpress_site_plan'];
 $assert($githubStaged === $githubPlan, 'staged compilation preserves both GitHub fields and shared-shell binding transport');
+
+$neutralRoutes = array('index.html', 'about.html', 'team.html');
+$neutralAnchor = '<!-- wp:paragraph --><p>31</p><!-- /wp:paragraph -->';
+$neutralHeader = '<header class="neutral-metric"><h2><a href="https://metrics.example.com/v1/records/sample">Neutral source</a></h2><p>31</p></header>';
+$neutralSource = $source('neutral.example-records', 'https://metrics.example.com/v1/records/{record}', array(), array(), array('record' => array('location' => 'path', 'min_length' => 1, 'max_length' => 64, 'allowed_characters' => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_', 'prohibited_values' => array('.', '..'))), array(array('record' => 'sample')), 600);
+$neutralFiles = array(); $neutralFacts = array();
+foreach ($neutralRoutes as $route) {
+    $title = 'index.html' === $route ? 'Home' : ('about.html' === $route ? 'About' : 'Team');
+    $neutralFiles[$route] = '<!doctype html><html><body>' . $neutralHeader . '<main><h1>' . $title . '</h1></main></body></html>';
+    $neutralFact = $fact('neutral-score-' . basename($route, '.html'), $neutralSource, 'score', array('kind' => 'json_pointer', 'pointer' => '/measurements/score', 'value_type' => 'nonnegative_integer'), 'identity', '31', $neutralAnchor, 'paragraph', 'core/paragraph', array('kind' => 'operator_mapping', 'author' => 'operator:chubes4', 'source_relationship' => 'The captured neutral source score leaf is explicitly mapped to the configured JSON Pointer score resource.'));
+    $neutralFact['bindings'][0]['source_path'] = $route;
+    $neutralFacts[] = $neutralFact;
+}
+$neutralArtifact = array('entrypoints' => $neutralRoutes, 'runtime_declarations' => array(array('kind' => 'entity_collection', 'type' => 'external_metrics', 'source_path' => 'data/external-metrics.json', 'payload' => array('schema' => 'generic/external-metric/v1', 'entities' => $neutralFacts))), 'files' => $neutralFiles);
+$neutralCompiler = new ArtifactCompiler();
+$neutralPlan = $neutralCompiler->compile($neutralArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+WordPressSitePlan::assertValid($neutralPlan);
+$neutralShared = $neutralCompiler->prepareShared($neutralArtifact);
+$neutralReceipts = array(); foreach ($neutralShared['analysis']['page_ids'] as $pageId) $neutralReceipts[] = $neutralCompiler->compilePage($neutralArtifact, $neutralShared, $pageId);
+$neutralStaged = $neutralCompiler->compose($neutralShared, $neutralReceipts)->toArray()['source_reports']['wordpress_site_plan'];
+$assert($neutralStaged === $neutralPlan, 'third neutral HTTP/JSON recipe is unchanged by staged compilation');
+$neutralResolved = (new WordPressSitePlanResolver())->resolve($neutralStaged, array('theme_uri' => 'https://example.test/theme'));
+$neutralEntities = $neutralResolved['runtime_declarations'][0]['payload']['entities'] ?? array();
+$neutralParts = array_values(array_filter($neutralResolved['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$neutralEntity = $neutralEntities[0] ?? array(); $neutralBinding = $neutralEntity['bindings'][0] ?? array();
+$assert(1 === count($neutralEntities) && 1 === count($neutralParts) && ($neutralEntity['source']['id'] ?? null) === 'neutral.example-records', 'third neutral source recipe survives full compilation and shared-shell extraction');
+$assert(($neutralEntity['provenance']['kind'] ?? null) === 'operator_mapping' && ($neutralEntity['fallback']['text'] ?? null) === '31' && ($neutralEntity['fallback']['hash'] ?? null) === hash('sha256', '31'), 'third neutral source preserves operator mapping and its plain numeric fallback/hash');
+$assert(($neutralBinding['source_path'] ?? null) === ($neutralParts[0]['source_path'] ?? null) && WordPressSitePlan::bindingPosition($neutralBinding['position'] ?? null, $neutralParts[0]['resolved_block_markup'], $neutralAnchor), 'third neutral source selector reanchors to the shared native text leaf');
 
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
@@ -120,7 +164,7 @@ preg_match('/<!-- wp:paragraph -->.*?<!-- \/wp:paragraph -->/', $shellPage['bloc
 $shellAnchor = $shellMatches[0] ?? '';
 $shellMetrics = array();
 foreach (array_keys($shellFiles) as $source) {
-    $shellMetric = $fact('shared-plugin-installs-' . basename($source, '.html'), 'active_installs', 'sum', '73,000+', $shellAnchor, 'paragraph', 'core/paragraph', $sourceProof);
+    $shellMetric = $fact('shared-plugin-installs-' . basename($source, '.html'), $pluginSource(array('block-visibility')), 'active_installs', array('kind' => 'json_pointer', 'pointer' => '/active_installs', 'value_type' => 'nonnegative_integer'), 'sum', '73,000+', $shellAnchor, 'paragraph', 'core/paragraph', $sourceProof);
     $shellMetric['bindings'][0]['source_path'] = $source;
     $shellMetrics[] = $shellMetric;
 }
@@ -160,7 +204,7 @@ $bad = $artifact; $bad['runtime_declarations'][0]['payload']['entities'][0]['fal
 $throws(static fn() => (new ArtifactCompiler())->compile($bad), 'a rehashed but non-matching captured fallback cannot replace the native leaf text');
 $bad = $artifact; $bad['runtime_declarations'][0]['payload']['entities'][0]['bindings'][0]['role'] = 'heading'; $bad['runtime_declarations'][0]['payload']['entities'][0]['bindings'][0]['leaf'] = array('block' => 'core/heading', 'attribute' => 'content');
 $throws(static fn() => (new ArtifactCompiler())->compile($bad), 'native anchor block name must match its declared Paragraph or Heading leaf');
-$bad = $artifact; $bad['runtime_declarations'][0]['payload']['entities'][1]['format']['prefix'] = '';
-$throws(static fn() => (new ArtifactCompiler())->compile($bad), 'format/source contradictions are rejected');
+$bad = $artifact; $bad['runtime_declarations'][0]['payload']['entities'][1]['source']['request']['url_template'] = 'http://attacker.invalid/';
+$throws(static fn() => (new ArtifactCompiler())->compile($bad), 'unsupported non-HTTPS sources are rejected at the artifact boundary');
 
 echo 'External metric native binding contract passed: ' . $assertions . " assertions\n";

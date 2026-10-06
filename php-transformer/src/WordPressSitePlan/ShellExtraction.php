@@ -1262,14 +1262,14 @@ final class ShellExtraction
         $role = (string) ($bindings[array_key_first($bindings)]['role'] ?? '');
         unset($entity['bindings'], $entity['reconciliation_identity'], $entity['fallback_identity'], $entity['replaced_fallback_identities']);
         // External metric rows repeated in equivalent shared chrome are
-        // per-document anchors for one provider fact. The first row owns the
+        // per-document anchors for one source fact. The first row owns the
         // shared-part binding; route-specific IDs are transport identities, not
         // metric semantics, so comparing them would incorrectly retain every
         // otherwise-identical shell page.
-        if ('external_metrics' === $type && is_array($entity['provider'] ?? null) && isset($entity['metric'], $entity['aggregation'], $entity['fallback'])) {
+        if ('external_metrics' === $type && is_array($entity['source'] ?? null) && isset($entity['metric'], $entity['aggregation'], $entity['fallback'])) {
             unset($entity['id']);
             // Unlike ordinary source-location provenance, external metric
-            // provenance establishes why a server-side fact is trustworthy.
+            // provenance establishes why a remote fact is trustworthy.
             // Keep its kind, repository revision and source path in the
             // equivalence key so coalescing cannot discard a distinct mapping.
             return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson($entity));
