@@ -19,6 +19,7 @@ foreach (array('wide', 'pocket') as $variant) {
 }
 $crop = '.frame-crop{position:relative;padding-bottom:75%;overflow:hidden;border-radius:24px}.frame-crop img{position:absolute;top:0;left:0;transform-origin:left top}';
 $css = '.frame-carousel{position:relative;width:100%;margin-left:auto!important;margin-right:auto!important}.frame-window{position:relative;overflow:hidden}'
+    . 'figure{margin:0 0 1rem}'
     . '.frame-item{display:none;width:100%}.frame-item.active{display:block}.image-container{width:100%;aspect-ratio:4/3;margin-inline:auto}.frame-photo{width:100%;height:auto}'
     . '.frame-actions{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;pointer-events:none}.frame-arrow{width:40px;height:40px;padding:0;border:0;background:transparent;color:#123;pointer-events:auto;cursor:pointer}.frame-arrow svg{width:100%;height:100%}'
     . '.frame-carousel[data-frame-scope] .frame-arrow{color:#123}'

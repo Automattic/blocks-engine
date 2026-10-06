@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -1683,6 +1684,15 @@ JS;
                 return $imageBlock;
             }
             $containers[] = $node;
+        }
+        $positions = $styleResolver->authorDeclaredValuesAtAnyViewport($image, array('position'))['position'] ?? array();
+        if ( array() !== $containers && in_array('absolute', array_map(static fn (string $value): string => strtolower(trim(CssValueInspector::withoutImportant($value))), $positions), true) ) {
+            // The source crop contains an out-of-flow image, not a figure.
+            // Keep unowned native figure margins from adding flow height under
+            // authored figure resets; use core/image's native spacing contract.
+            $attributes = $imageBlock['attrs'];
+            $attributes['style']['spacing']['margin'] = array_merge(array('top' => '0', 'bottom' => '0'), $attributes['style']['spacing']['margin'] ?? array());
+            $imageBlock = $createBlock->createBlock('core/image', $attributes, array(), $image);
         }
         $block = $imageBlock;
         foreach ( $containers as $container ) {

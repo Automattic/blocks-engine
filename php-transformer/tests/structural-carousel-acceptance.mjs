@@ -54,10 +54,11 @@ try {
     await sourcePage.setContent(`<style>body{margin:0}${fixture.source.css}</style>${fixture.source.html}`);
     const source = await sourcePage.locator('.frame-carousel').filter({ visible: true }).evaluate(el => {
       const i = el.querySelector('.active img').getBoundingClientRect(), r = el.getBoundingClientRect();
-      return { fraction: i.width/r.width, ratio: i.width/i.height };
+      return { fraction: i.width/r.width, ratio: i.width/i.height, stageHeightFraction: r.height/r.width };
     });
     assert.ok(Math.abs(before.width/before.rootWidth-source.fraction) < .002, `${width}px keeps source responsive image container width: ${JSON.stringify(before)}`);
     assert.ok(Math.abs(before.width/before.height-source.ratio) < .002, `${width}px keeps source image ratio: ${JSON.stringify(before)}`);
+    assert.ok(Math.abs(before.rootHeight/before.rootWidth-source.stageHeightFraction) < .002, `${width}px keeps the source crop height without an extra native figure margin: ${JSON.stringify(before)}`);
     await sourcePage.close();
     await page.screenshot({ path: `${evidence}/frontend-${width}.png`, fullPage: true });
     findings.widths.push({ width, before, next, previous: await state(), source });
