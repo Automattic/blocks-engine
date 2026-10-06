@@ -144,20 +144,29 @@ final class RuntimeDeclarations
         foreach ($entities as $entity) {
             if (!is_array($entity) || !is_string($entity['id'] ?? null) || !preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/', $entity['id']) || isset($seen[$entity['id']])) throw new InvalidArgumentException("Runtime declaration {$index} external metric entity identity is invalid or duplicated.");
             $seen[$entity['id']] = true;
-            if (!is_array($entity['provider'] ?? null) || 'wordpress.org' !== ($entity['provider']['id'] ?? null) || 'generic/external-metric-provider/v1' !== ($entity['provider']['schema'] ?? null) || !is_string($entity['provider']['source'] ?? null) || !in_array($entity['provider']['source'], array('plugin_information', 'plugin_download_history'), true)) throw new InvalidArgumentException("Runtime declaration {$index} external metric provider is unsupported.");
-            $source = $entity['provider']['source'];
-            $slugs = $entity['provider']['slugs'] ?? null;
-            if (!is_array($slugs) || !array_is_list($slugs) || array() === $slugs || count($slugs) > 100) throw new InvalidArgumentException("Runtime declaration {$index} external metric slugs must be a bounded non-empty list.");
-            foreach ($slugs as $slug) if (!is_string($slug) || !preg_match('/^[a-z0-9][a-z0-9-]{0,99}$/', $slug)) throw new InvalidArgumentException("Runtime declaration {$index} external metric slug is invalid.");
-            if (count($slugs) !== count(array_unique($slugs))) throw new InvalidArgumentException("Runtime declaration {$index} external metric slugs must be unique.");
+            if (!is_array($entity['provider'] ?? null) || 'generic/external-metric-provider/v1' !== ($entity['provider']['schema'] ?? null)) throw new InvalidArgumentException("Runtime declaration {$index} external metric provider is unsupported.");
+            $providerId = $entity['provider']['id'] ?? null;
+            if ('github' === $providerId) {
+                if (!is_string($entity['provider']['owner'] ?? null) || !preg_match('/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/', $entity['provider']['owner']) || !is_string($entity['provider']['repository'] ?? null) || !preg_match('/^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?$/', $entity['provider']['repository']) || !in_array($entity['provider']['field'] ?? null, array('stargazers_count', 'forks_count'), true)) throw new InvalidArgumentException("Runtime declaration {$index} GitHub repository selector or field is invalid.");
+                $source = 'github_repository';
+                $slugs = array();
+                $allowed = array($entity['provider']['field'] => array('identity'));
+            } elseif ('wordpress.org' === $providerId && is_string($entity['provider']['source'] ?? null) && in_array($entity['provider']['source'], array('plugin_information', 'plugin_download_history'), true)) {
+                $source = $entity['provider']['source'];
+                $slugs = $entity['provider']['slugs'] ?? null;
+                if (!is_array($slugs) || !array_is_list($slugs) || array() === $slugs || count($slugs) > 100) throw new InvalidArgumentException("Runtime declaration {$index} external metric slugs must be a bounded non-empty list.");
+                foreach ($slugs as $slug) if (!is_string($slug) || !preg_match('/^[a-z0-9][a-z0-9-]{0,99}$/', $slug)) throw new InvalidArgumentException("Runtime declaration {$index} external metric slug is invalid.");
+                if (count($slugs) !== count(array_unique($slugs))) throw new InvalidArgumentException("Runtime declaration {$index} external metric slugs must be unique.");
+                $allowed = 'plugin_information' === $source
+                    ? array('plugin_response_count' => array('success_count'), 'active_installs' => array('sum'), 'version' => array('identity'), 'num_ratings' => array('identity'))
+                    : array('downloads_all_time' => array('sum'));
+            } else throw new InvalidArgumentException("Runtime declaration {$index} external metric provider is unsupported.");
             $metric = $entity['metric'] ?? null; $aggregation = $entity['aggregation'] ?? null;
-            $allowed = 'plugin_information' === $source
-                ? array('plugin_response_count' => array('success_count'), 'active_installs' => array('sum'), 'version' => array('identity'), 'num_ratings' => array('identity'))
-                : array('downloads_all_time' => array('sum'));
+            if ('github_repository' === $source && $metric !== ($entity['provider']['field'] ?? null)) throw new InvalidArgumentException("Runtime declaration {$index} GitHub metric must match its selected repository field.");
             if (!is_string($metric) || !in_array($aggregation, $allowed[$metric] ?? array(), true) || (in_array($metric, array('version', 'num_ratings'), true) && 1 !== count($slugs))) throw new InvalidArgumentException("Runtime declaration {$index} external metric or aggregation is unsupported for its provider.");
             $format = $entity['format'] ?? null;
             if (!is_array($format) || !is_string($format['locale'] ?? null) || !preg_match('/^[a-zA-Z]{2,3}(?:[-_][a-zA-Z0-9]{2,8})*$/', $format['locale']) || !is_bool($format['grouping'] ?? null) || !in_array($format['prefix'] ?? null, array('', 'v'), true) || !in_array($format['suffix'] ?? null, array('', '+'), true) || !is_int($format['decimals'] ?? null) || $format['decimals'] < 0 || $format['decimals'] > 4) throw new InvalidArgumentException("Runtime declaration {$index} external metric formatting is invalid.");
-            if (('version' === $metric) !== ('v' === $format['prefix']) || (in_array($metric, array('active_installs', 'downloads_all_time'), true) !== ('+' === $format['suffix'])) || ('version' === $metric && (true === $format['grouping'] || 0 !== $format['decimals'])) || ('num_ratings' === $metric && '+' === $format['suffix'])) throw new InvalidArgumentException("Runtime declaration {$index} external metric formatting contradicts its metric.");
+            if (('version' === $metric) !== ('v' === $format['prefix']) || (in_array($metric, array('active_installs', 'downloads_all_time'), true) !== ('+' === $format['suffix'])) || ('version' === $metric && (true === $format['grouping'] || 0 !== $format['decimals'])) || ('num_ratings' === $metric && '+' === $format['suffix']) || ('github_repository' === $source && ('' !== $format['prefix'] || '' !== $format['suffix'] || 0 !== $format['decimals']))) throw new InvalidArgumentException("Runtime declaration {$index} external metric formatting contradicts its metric.");
             $provenance = $entity['provenance'] ?? null;
             if (!is_array($provenance) || !in_array($provenance['kind'] ?? null, array('source_corroboration', 'operator_mapping'), true)) throw new InvalidArgumentException("Runtime declaration {$index} external metric requires explicit source provenance.");
             if ('source_corroboration' === $provenance['kind']) {

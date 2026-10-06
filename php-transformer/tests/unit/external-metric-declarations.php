@@ -25,6 +25,10 @@ $fact = static function (string $id, string $source, string $metric, string $agg
 $declaration = static function (array $facts): array {
     return array(array('kind' => 'entity_collection', 'type' => 'external_metrics', 'source_path' => 'projects.html', 'payload' => array('schema' => 'generic/external-metric/v1', 'entities' => $facts)));
 };
+$rejected = static function (array $candidate): bool {
+    try { RuntimeDeclarations::normalizeList($candidate); return false; }
+    catch (\InvalidArgumentException) { return true; }
+};
 
 $facts = array(
     $fact('plugin-count', 'plugin_information', 'plugin_response_count', 'success_count', array('block-visibility', 'icon-block'), '2', array('locale' => 'en-US', 'grouping' => true, 'prefix' => '', 'suffix' => '', 'decimals' => 0)),
@@ -36,11 +40,26 @@ $facts = array(
 $normalized = RuntimeDeclarations::normalizeList($declaration($facts));
 $assert(5 === count($normalized[0]['payload']['entities']), 'accepts source-proven multi-metric WordPress.org declarations');
 $assert($normalized === RuntimeDeclarations::normalizeList($normalized), 'external metric identities and hashes round-trip canonically');
+$githubFact = $facts[0];
+$githubFact['id'] = 'repo-stars';
+$githubFact['provider'] = array('schema' => 'generic/external-metric-provider/v1', 'id' => 'github', 'owner' => 'Automattic', 'repository' => 'blocks-engine', 'field' => 'stargazers_count');
+$githubFact['metric'] = 'stargazers_count';
+$githubFact['aggregation'] = 'identity';
+$githubFact['format'] = array('locale' => 'en-US', 'grouping' => true, 'prefix' => '', 'suffix' => '', 'decimals' => 0);
+$githubFact['provenance']['source_path'] = 'src/components/gh-repo-card.tsx';
+$github = RuntimeDeclarations::normalizeList($declaration(array($githubFact)));
+$assert('github' === $github[0]['payload']['entities'][0]['provider']['id'], 'accepts source-proven GitHub repository count declarations using identity aggregation');
+$badGithub = $githubFact; $badGithub['provider']['owner'] = '../Automattic';
+$assert($rejected($declaration(array($badGithub))), 'rejects malformed GitHub owner selectors');
+$badGithub = $githubFact; $badGithub['provider']['field'] = 'private_token';
+$assert($rejected($declaration(array($badGithub))), 'rejects unsupported GitHub fields');
+$badGithub = $githubFact; $badGithub['provider']['field'] = 'forks_count';
+$assert($rejected($declaration(array($badGithub))), 'requires the GitHub metric to match its selected repository field');
+$badGithub = $githubFact; $badGithub['aggregation'] = 'sum';
+$assert($rejected($declaration(array($badGithub))), 'rejects non-identity aggregation for individual repository counts');
+$badGithub = $githubFact; $badGithub['format']['suffix'] = '+';
+$assert($rejected($declaration(array($badGithub))), 'rejects non-plain GitHub count formatting');
 
-$rejected = static function (array $candidate): bool {
-    try { RuntimeDeclarations::normalizeList($candidate); return false; }
-    catch (\InvalidArgumentException) { return true; }
-};
 $bad = $facts; $bad[0]['provider']['source'] = 'https://attacker.invalid/';
 $assert($rejected($declaration($bad)), 'rejects arbitrary provider URLs');
 $bad = $facts; $bad[1]['aggregation'] = 'average';
