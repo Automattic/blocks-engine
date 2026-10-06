@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 
 $failures = 0;
@@ -65,6 +66,28 @@ $assert(StyleTagScanner::isStylesheetRel('STYLESHEET'), 'the rel token is case-i
 $assert(! StyleTagScanner::isStylesheetRel('stylesheets'), 'a longer token is not a stylesheet rel');
 $assert(! StyleTagScanner::isStylesheetRel('preconnect'), 'an unrelated rel does not match');
 $assert(! StyleTagScanner::isStylesheetRel(''), 'an absent rel does not match');
+
+$examples = '<!-- <style>comment{}</style><link href="comment.css"> -->'
+    . '<div data-example="<link href=attribute.css><style>attribute{}</style>"></div>';
+foreach (array('script', 'style', 'title', 'textarea', 'xmp', 'iframe', 'noembed', 'noframes', 'noscript') as $rawTag) {
+    $examples .= '<' . $rawTag . '><link href="raw.css"><style>raw{}</style></' . $rawTag . '>';
+}
+$realLink = '<LINK href=real.css data-example="<!-- > <link href=attribute.css> -->">';
+$examples .= $realLink . '<style data-example="<!-- >">real{content:"<!--"}</style>';
+$exampleLinks = StyleTagScanner::scanLinks($examples);
+$assert(array(array('tag' => $realLink, 'offset' => (int) strpos($examples, $realLink))) === $exampleLinks, 'link scan ignores comments, quoted examples and every raw-text/RCDATA context');
+$exampleStyles = StyleTagScanner::scan($examples);
+$assert(2 === count($exampleStyles) && 'real{content:"<!--"}' === ($exampleStyles[1]['content'] ?? null), 'style scan sees the actual raw-text style and later author style only');
+$assert(strlen($examples) === ($exampleStyles[1]['end_offset'] ?? null), 'source range includes original closing style tag');
+$assert('real.css' === StyleTagScanner::attribute($realLink, 'href'), 'unquoted link attribute uses shared parser');
+$assert('print > screen' === StyleTagScanner::attribute(" media='print > screen'", 'media'), 'single-quoted attributes retain their values');
+$assert('' === StyleTagScanner::attribute(' data-example="href=fake.css"', 'href'), 'attribute parser does not fabricate attributes inside quoted values');
+$assert(array() === StyleTagScanner::scanLinks('<plaintext><link href=example.css>'), 'plaintext consumes the rest of the document');
+$assert(array() === StyleTagScanner::scanLinks('<!-- unclosed <link href=example.css>'), 'an unclosed comment consumes the rest of the document');
+$scriptBody = 'window.example="<!-- </head><meta name=fake>"; </scripture>';
+$scannedScripts = HtmlTagScanner::scan('<head><script data-example=" > ">' . $scriptBody . '</ScRiPt ><script>window.next=true;</script></head><body><script>window.body=true;</script></body>', 'script');
+$assert($scriptBody === ($scannedScripts[0]['content'] ?? null), 'script raw bytes and closing-tag name boundary are preserved');
+$assert(array('head', 'head', 'body') === array_column($scannedScripts, 'placement'), 'head examples in raw text do not shift placement');
 
 if ($failures > 0) {
     exit(1);

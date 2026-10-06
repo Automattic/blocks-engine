@@ -293,8 +293,12 @@ final class SvgMaterializer implements SvgElementMaterializer
             $carriedProperties = $this->carriedCustomPropertyDeclarations($element, $mediaBox);
             $mediaBox = ( '' === $carriedProperties ? '' : ';' . $carriedProperties ) . $mediaBox;
             $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:baseline' : '') . $mediaBox . '}';
-            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule);
+            $conditionedBox = array() === $dimensions ? $this->mediaConditionedBoxRules($element, $presentation, $richTextImage ? '' : '>img') : array();
+            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule . implode("\n", $conditionedBox));
             $geometryCss = ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule;
+            foreach ( $conditionedBox as $conditionedRule ) {
+                $geometryCss .= str_replace('.{carrier}', '.' . $geometryClass, $conditionedRule);
+            }
             if ( ! $richTextImage && null !== $this->svgPercentageWidth(trim(SourceDom::attr($element, 'width'))) ) {
                 // Core/image wraps linked media in an inline anchor. Let a responsive
                 // SVG resolve its percentage width against the sized figure, not its
@@ -727,6 +731,63 @@ final class SvgMaterializer implements SvgElementMaterializer
     private function plainDeclarationValue(string $value): string
     {
         return strtolower(trim(preg_replace('/\s*!\s*important\s*$/i', '', trim($value)) ?? $value));
+    }
+
+    /**
+     * Restate media-scoped author sizing on the materialized image carrier.
+     *
+     * Source rules that size an inline SVG from a wrapper (`.icon svg{width:24px}`)
+     * never reach the generated `<img>`: no `svg` selector matches it, and the
+     * wrapper is often flattened. Resting sizes already move onto the carrier
+     * through {@see StyleResolver::presentationDeclarations()}; a size that
+     * only a media query states is not in that cascade, so the axis was written
+     * as `auto` and the image fell back to its intrinsic size. Carry each such
+     * width/height under the same media condition, only on axes the resting
+     * cascade leaves unsized, so other viewports keep the source's own
+     * behaviour.
+     *
+     * Returns rule strings with a `.{carrier}` placeholder for the class.
+     *
+     * @param array<string, string> $presentation
+     * @return list<string>
+     */
+    private function mediaConditionedBoxRules(DOMElement $element, array $presentation, string $selectorSuffix): array
+    {
+        // Only the axes {@see unsizedMediaAxisDeclarations()} writes as `auto`.
+        $properties = array_values(array_filter(
+            array( 'width', 'height' ),
+            static fn (string $axis): bool => '' === trim((string) ($presentation[$axis] ?? ''))
+        ));
+        if ( array() === $properties ) {
+            return array();
+        }
+
+        $rules = array();
+        $current = null;
+        foreach ( $this->styleResolver->mediaConditionedBoxDeclarations($element, $properties) as $entry ) {
+            if ( null === $current || $current['conditions'] !== $entry['conditions'] ) {
+                if ( null !== $current ) {
+                    $rules[] = $current;
+                }
+                $current = array( 'conditions' => $entry['conditions'], 'declarations' => array() );
+            }
+            foreach ( $entry['customProperties'] as $name => $declared ) {
+                $current['declarations'][$name] ??= $name . ':' . $declared;
+            }
+            unset($current['declarations'][$entry['property']]);
+            $current['declarations'][$entry['property']] = $entry['property'] . ':' . $entry['value'];
+        }
+        if ( null !== $current ) {
+            $rules[] = $current;
+        }
+
+        return array_map(static function (array $rule) use ($selectorSuffix): string {
+            $css = '.{carrier}' . $selectorSuffix . '{' . implode(';', $rule['declarations']) . '}';
+            foreach ( array_reverse($rule['conditions']) as $condition ) {
+                $css = $condition . '{' . $css . '}';
+            }
+            return $css;
+        }, $rules);
     }
 
     /**
