@@ -45,7 +45,7 @@ final class DocumentRootContext
             $bodyAttributes = $page['document_metadata']['body_attributes'] ?? array();
             self::assertValid($attributes);
             self::assertValid($bodyAttributes);
-            if ((array() === $attributes && array() === $bodyAttributes) || !empty($page['synthetic'])) continue;
+            if (!empty($page['synthetic'])) continue;
             $rows[] = array('identity' => $page['reconciliation_identity'], 'path' => trim((string) ($page['route']['path'] ?? ''), '/'), 'front_page' => !empty($page['entrypoint']), 'attributes' => $attributes, 'body_attributes' => $bodyAttributes);
         }
         if (array() === $rows && array() === $bodyClassCollisions) return '';
@@ -96,10 +96,11 @@ add_filter( 'block_editor_settings_all', static function ( array $settings, $con
 }, 20, 2 );
 PHP;
         // Incremental imports append bootstrap files. One runtime owner reads
-        // their combined route registry; later batches cannot replace the
-        // canvas resolver or strip another batch's genuine body classes.
+        // their combined route registry. Each authoritative identity replaces
+        // its earlier record, including empty state, without dropping other
+        // routes or replacing the canvas resolver.
         return "global \$blocks_engine_document_roots, \$blocks_engine_body_class_collisions, \$blocks_engine_document_attributes;\n"
-            . '$blocks_engine_document_roots = array_merge( ' . var_export($rows, true) . ', $blocks_engine_document_roots ?? array() );' . "\n"
+            . '$blocks_engine_document_roots = array_replace( array_column( $blocks_engine_document_roots ?? array(), null, \'identity\' ), array_column( ' . var_export($rows, true) . ', null, \'identity\' ) );' . "\n"
             . '$blocks_engine_body_class_collisions = array_values( array_unique( array_merge( $blocks_engine_body_class_collisions ?? array(), ' . var_export($bodyClassCollisions, true) . ' ) ) );' . "\n"
             . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n";
     }

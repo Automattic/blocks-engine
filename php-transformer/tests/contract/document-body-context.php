@@ -89,8 +89,9 @@ if (function_exists('do_blocks')) {
         $template->source = 'theme';
         return $template;
     }, 10, 3);
+    global $wp_query;
     $fixtures = array();
-    foreach (array_values($pages) as $index => $page) {
+    $render = static function (array $page, int $index, string $sourceHtml, string $route) use ($plan, $parts, $css, $assert, &$style, &$fixtures): void {
         $activeAssets = array_filter($plan['assets'], static function (array $asset) use ($page): bool {
             if ('css' !== $asset['kind']) return false;
             foreach ($asset['scopes'] as $scope) if ('global' === $scope['kind'] || $page['source_path'] === ($scope['source_path'] ?? null)) return true;
@@ -120,10 +121,38 @@ if (function_exists('do_blocks')) {
         $native = (string) ob_get_clean();
         $context = (object) array('post' => (object) array('ID' => 900001 + $index));
         $settings = apply_filters('block_editor_settings_all', array(), $context);
-        $fixtures[] = array('route' => $page['source_path'], 'source' => str_replace('</head>', '<style>' . $css . '</style></head>', $sources[$page['source_path']]),
+        $fixtures[] = array('route' => $route, 'source' => str_replace('</head>', '<style>' . $css . '</style></head>', $sourceHtml),
             'native' => $native,
             'editor' => '<!doctype html><html><head><style>' . $editorStyle . '</style></head><body class="editor-styles-wrapper">' . do_blocks($markup) . ($settings['__unstableResolvedAssets']['body'] ?? '') . '</body></html>');
         $assert(str_contains($native, 'Shared header') && str_contains($native, 'Shared footer'), 'Native template parts render through core: ' . json_encode(array('parts' => array_keys($parts), 'template' => $template['slug'] ?? '', 'native' => $native)));
+    };
+    foreach (array_values($pages) as $index => $page) {
+        $render($page, $index, $sources[$page['source_path']], $page['source_path']);
+    }
+    if (isset($blocks_engine_document_attributes)) {
+        // An authoritative empty record replaces the same route's earlier
+        // populated state. It is not an instruction to clear other routes.
+        $boxedIndex = (int) array_search('boxed.html', array_keys($pages), true);
+        $wp_query->queried_object_id = 900001 + $boxedIndex;
+        $before = array('html' => $blocks_engine_document_attributes('html'), 'body' => $blocks_engine_document_attributes('body'));
+        $emptyPage = $pages['boxed.html'];
+        $emptyPage['document_metadata']['root_attributes'] = array();
+        $emptyPage['document_metadata']['body_attributes'] = array();
+        $replacement = DocumentRootContext::bootstrap(array($emptyPage));
+        eval($replacement);
+        $after = array('html' => $blocks_engine_document_attributes('html'), 'body' => $blocks_engine_document_attributes('body'));
+        $afterCanvas = apply_filters('template_include', ABSPATH . WPINC . '/template-canvas.php');
+        $wp_query->queried_object_id = 900001;
+        $retained = array('html' => $blocks_engine_document_attributes('html'), 'body' => $blocks_engine_document_attributes('body'));
+        if ($output = getenv('BODY_CONTEXT_TRANSITION_EVIDENCE')) file_put_contents($output, wp_json_encode(array('identity' => $emptyPage['reconciliation_identity'], 'before' => $before, 'after' => $after, 'after_canvas' => $afterCanvas, 'retained_route' => 'index.html', 'retained' => $retained, 'replacement_bootstrap_bytes' => strlen($replacement)), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        $assert('boxed' === ($before['body']['data-mode'] ?? null), 'The prior batch supplies the populated boxed route.');
+        $assert(array('html' => array(), 'body' => array()) === $after, 'An authoritative empty route record must supersede both prior root attribute maps: ' . wp_json_encode($after));
+        $assert(1 === count(array_filter($blocks_engine_document_roots, static fn(array $row): bool => $emptyPage['reconciliation_identity'] === $row['identity'])), 'The canonical registry retains one authoritative record for the updated identity.');
+        $assert(ABSPATH . WPINC . '/template-canvas.php' === $afterCanvas, 'An emptied body context returns to core canvas selection.');
+        $assert(array('html' => $pages['index.html']['document_metadata']['root_attributes'], 'body' => $pages['index.html']['document_metadata']['body_attributes']) === $retained, 'An independent earlier route retains its document state.');
+        $emptySource = str_replace('<html data-document="neutral">', '<html>', $source('', 'Boxed'));
+        $render($emptyPage, $boxedIndex, $emptySource, 'boxed.html#authoritative-empty');
+        $render($pages['index.html'], 0, $sources['index.html'], 'index.html#retained-after-empty');
     }
     $wp_query->is_singular = false;
     $wp_query->is_page = false;
