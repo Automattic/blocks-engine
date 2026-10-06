@@ -51,6 +51,27 @@ Consumers should treat these classes and interface as the public entrypoints for
 
 The remaining classes in `src/HtmlToBlocks`, `src/FormatBridge`, and `src/ArtifactCompiler` are implementation details. Concrete bundled adapters, registries, normalizers, and factories may change as the bridge expands.
 
+### Shared HTML Source
+
+Artifact HTML may reference shared fragments with exactly this comment syntax:
+
+```html
+<!--#include virtual="/parts/header.html" -->
+```
+
+The filename contains one or more ASCII letters, digits, `_` or `-`, followed by
+`.html`. Paths are relative to the artifact's website root, including a retained
+`website/` prefix when present. Quotes, spaces and keyword case are literal;
+nested directories and alternate directive forms are outside this contract.
+Fragments may reference other fragments using the same syntax.
+
+Normalization expands actual comment nodes before asset extraction and site-plan
+compilation, preserving surrounding bytes. Strings in scripts, styles and
+attributes remain literal, as do unrelated comments. Referenced fragments are
+shared source resources, not additional pages or duplicate unbound parts.
+Missing files, cycles and exceeded compiler budgets reject compilation. Whole,
+staged and reference-backed compilation use the same producer-neutral contract.
+
 ### Staged Artifact Compilation
 
 `ArtifactCompiler` also supports resumable, source-agnostic artifact preparation when shared resources are reused across page batches. `prepareShared($artifact)` returns a serializable immutable shared plan. `preparePage($artifact, $sharedPlan, $pageId)` returns one independently validated page plan bound to the shared digest, while `preparePages($artifact, $sharedPlan)` creates every equivalent page plan after one whole-artifact partition for efficient fan-out. `compilePage($artifact, $sharedPlan, $pageId)` adds a digest-bound compiled document receipt that can be persisted by a worker; `compilePreparedPages($sharedPlan, $pagePlans)` produces the same independent receipts while retaining bounded immutable analysis across one worker batch. `compose($sharedPlan, $pagePlans)` verifies every digest, canonicalizes page and file order, and reuses compiled receipts when every supplied page has one; uncompiled plans retain the existing result-envelope behavior.
