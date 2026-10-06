@@ -627,11 +627,19 @@ final class MediaTextPattern implements PatternRecognizerInterface
 
     private function compactPixelDimension(string $value): ?float
     {
-        if ( ! preg_match('/^\s*(\d+(?:\.\d+)?)\s*px\s*$/i', $value, $matches) ) {
+        if ( ! preg_match('/^\s*(\d+(?:\.\d+)?)\s*(px|rem)\s*$/i', $value, $matches) ) {
             return null;
         }
 
         $dimension = (float) $matches[1];
+        // Captured utility stylesheets commonly express fixed dimensions in
+        // rem (`w-12`/`h-12` -> 3rem). The compact-media threshold is a CSS
+        // pixel threshold, so resolve rem against the initial 16px root size
+        // rather than treating the authored unit as unresolvable.
+        if ( 'rem' === strtolower($matches[2]) ) {
+            $dimension *= 16;
+        }
+
         return 0 < $dimension ? $dimension : null;
     }
 

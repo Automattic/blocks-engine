@@ -250,6 +250,23 @@ $assertContains('border-radius:9999px', $portraitStyles, 'Portrait keeps authore
 $assertContains('flex-shrink:0', $portraitStyles, 'Portrait keeps authored flex participation.');
 $assertSame('pass', $portraitResult['source_reports']['wp_block_validity']['status'] ?? null, 'Group and image portrait lowering has a canonical Gutenberg-valid save shape.');
 
+// Real retained virtual-care source: Tailwind's w-12/h-12 utilities resolve
+// through the stylesheet in rem units (3rem at the browser's 16px root size).
+// The emitted output previously promoted this 48px author-row image to the
+// media-text pane, whose native image defaults replace the circular crop.
+$capturedAuthorRow = '<div class="flex items-center gap-4"><img class="w-12 h-12 rounded-full object-cover" src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&amp;fit=crop&amp;w=150&amp;q=80" alt="Marina Santos"><div><p>Marina Santos</p><p>CEO, TechStart</p></div></div>';
+$capturedAuthorCss = '.flex{display:flex}.items-center{align-items:center}.gap-4{gap:1rem}.w-12{width:3rem}.h-12{height:3rem}.rounded-full{border-radius:9999px}.object-cover{object-fit:cover}';
+$capturedAuthorResult = ( new HtmlTransformer() )->transform($capturedAuthorRow, array('static_css' => $capturedAuthorCss))->toArray();
+$capturedAuthorBlock = $capturedAuthorResult['blocks'][0] ?? array();
+$assertSame('core/group', $capturedAuthorBlock['blockName'] ?? null, 'Captured rem-sized testimonial portrait row stays an editable group.');
+$assertSame('core/image', $capturedAuthorBlock['innerBlocks'][0]['blockName'] ?? null, 'Captured testimonial portrait remains a native image.');
+$capturedPortraitMarkup = (string) ($capturedAuthorBlock['innerBlocks'][0]['innerHTML'] ?? '');
+$assertContains('w-12 h-12 rounded-full object-cover', $capturedPortraitMarkup, 'Captured utility classes remain attached to the native portrait image.');
+$assertContains('width:3rem;height:3rem', $capturedPortraitMarkup, 'Captured rem-based portrait dimensions remain intact.');
+$capturedPortraitStyles = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $capturedAuthorResult['assets'] ?? array()));
+$assertContains('border-radius:9999px', $capturedPortraitStyles, 'Captured rounded-full utility retains portrait rounding.');
+$assertContains('object-fit:cover', $capturedPortraitStyles, 'Captured object-cover utility retains its portrait crop.');
+
 $quoteResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><blockquote><p>Quoted</p></blockquote></section>');
 $assertSame('core/quote', $quoteResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null, 'Blockquote text side keeps core/quote identity.');
 
