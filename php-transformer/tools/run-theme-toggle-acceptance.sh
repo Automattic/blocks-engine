@@ -65,6 +65,13 @@ wp=(docker run --rm --network "$network" --user 33:33 -e WORDPRESS_DB_HOST=mysql
 content="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).content)' "$evidence/source-and-page.json")"
 post_id="$("${wp[@]}" post create --post_type=page --post_status=publish --post_title='Theme selection acceptance' --post_content="$content" --porcelain)"
 printf '%s\n' "$post_id" > "$evidence/wordpress-post-id.txt"
-THEME_ACCEPTANCE_WP_URL="http://127.0.0.1:${port}" THEME_ACCEPTANCE_POST_ID="$post_id" THEME_ACCEPTANCE_USER=themeadmin THEME_ACCEPTANCE_PASSWORD=theme-password THEME_ACCEPTANCE_EVIDENCE_DIR="$evidence" \
+attribute_content="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).content)' "$evidence/root-attribute-page.json")"
+attribute_post_id="$("${wp[@]}" post create --post_type=page --post_status=publish --post_title='Theme data attribute acceptance' --post_content="$attribute_content" --porcelain)"
+printf '%s\n' "$attribute_post_id" > "$evidence/wordpress-attribute-post-id.txt"
+THEME_ACCEPTANCE_WP_URL="http://127.0.0.1:${port}" THEME_ACCEPTANCE_POST_ID="$post_id" THEME_ACCEPTANCE_ATTRIBUTE_POST_ID="$attribute_post_id" THEME_ACCEPTANCE_USER=themeadmin THEME_ACCEPTANCE_PASSWORD=theme-password THEME_ACCEPTANCE_EVIDENCE_DIR="$evidence" \
+attribute_content="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).content)' "$evidence/root-attribute-page.json")"
+attribute_post_id="$("${wp[@]}" post create --post_type=page --post_status=publish --post_title='Theme data attribute acceptance' --post_content="$attribute_content" --porcelain)"
+printf '%s\n' "$attribute_post_id" > "$evidence/wordpress-attribute-post-id.txt"
+THEME_ACCEPTANCE_WP_URL="http://127.0.0.1:${port}" THEME_ACCEPTANCE_POST_ID="$post_id" THEME_ACCEPTANCE_ATTRIBUTE_POST_ID="$attribute_post_id" THEME_ACCEPTANCE_USER=themeadmin THEME_ACCEPTANCE_PASSWORD=theme-password THEME_ACCEPTANCE_EVIDENCE_DIR="$evidence" \
     run node "$root/tests/editor-theme-toggle-acceptance.mjs" | tee "$evidence/browser-result.txt"
 printf 'Evidence retained at %s\n' "$evidence"

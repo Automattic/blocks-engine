@@ -31,7 +31,7 @@ $definition = $result['source_reports']['generated_blocks'][0] ?? array();
 $view = (string) ($definition['view_js'] ?? '');
 $editor = (string) ($definition['assets']['index.js'] ?? '');
 $assert('custom/theme-toggle' === ($definition['block_json']['name'] ?? null) && str_contains($editor, "registerBlockType( 'custom/theme-toggle'") && 'file:./view.js' === ($definition['block_json']['viewScriptModule'] ?? null) && true === ($definition['block_json']['supports']['interactivity'] ?? null) && array('@wordpress/interactivity') === ($definition['script_dependencies']['view.js'] ?? null) && str_contains($editor, "'data-wp-init': 'callbacks.init'"), 'the generated companion declares the canonical Blocks Engine block name, registers its Interactivity API runtime asset, and keeps save/init parity with PHP markup');
-$assert(str_contains($view, "store( 'custom/theme-toggle'") && str_contains($view, "classList.toggle( rootClass, dark )") && str_contains($view, "root.style.colorScheme = dark ? 'dark' : 'light'") && str_contains($view, "context.storageKey || 'theme'") && str_contains($view, 'get label()') && str_contains($view, 'get hideLightIcon()') && str_contains($view, 'get hideDarkIcon()') && str_contains($view, 'context.defaultTheme'), 'the runtime toggles the captured root class and color scheme, persists through the configurable source-compatible key, and reactively swaps the label and icons');
+$assert(str_contains($view, "store( 'custom/theme-toggle'") && str_contains($view, "root.classList.toggle( darkValue, dark )") && str_contains($view, "root.setAttribute( attribute, dark ? darkValue : lightValue )") && str_contains($view, "root.style.colorScheme = dark ? 'dark' : 'light'") && str_contains($view, "context.storageKey || 'theme'") && str_contains($view, 'get label()') && str_contains($view, 'get hideLightIcon()') && str_contains($view, 'get hideDarkIcon()') && str_contains($view, 'context.defaultTheme'), 'the runtime mutates the evidenced root contract, follows color scheme, persists the configured preference key, and reactively updates labels/icons');
 $threeWay = (new ThemeToggleBlockGenerator())->markup(array('themeModes' => array('light', 'system', 'dark')), 'custom/theme-toggle');
 $assert(str_contains($threeWay, '&quot;themeModes&quot;:[&quot;light&quot;,&quot;system&quot;,&quot;dark&quot;]') && str_contains($view, "window.matchMedia( '(prefers-color-scheme: dark)' )") && str_contains($view, "media.addEventListener( 'change', onSchemeChange )") && str_contains($view, "window.localStorage.setItem( context.storageKey || 'theme', next )"), 'the canonical control can cycle an explicit system preference, follow OS scheme changes, and persist all three modes');
 $payload = (new CompanionPluginPayload())->fromBlockTypes(array(), array(), array(), array($definition));
@@ -62,9 +62,9 @@ $assert(str_contains((string) ($threeWayDefinition['view_js'] ?? ''), "context.t
     && str_contains((string) ($threeWayDefinition['view_js'] ?? ''), "setItem( context.storageKey || 'theme', next )")
     && str_contains($threeWayMarkup, 'themeModes'), 'the existing companion runtime can cycle and persist an explicit light/system/dark preference while resolving system through prefers-color-scheme');
 
-$groupSource = '<html class="dark"><body><footer><div class="theme-choices layout-row" style="display:flex;gap:8px" role="group" aria-label="Color theme" data-site-control="appearance"><button type="button" class="theme-choice" aria-label="Light theme"><svg class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle></svg></button><button type="button" class="theme-choice" aria-label="System theme"><svg class="lucide lucide-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14"></rect></svg></button><button type="button" class="theme-choice" aria-label="Dark theme"><svg class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-8-8"></path></svg></button></div></footer></body></html>';
+$groupSource = '<html class="dark"><body><footer><div class="theme-choices layout-row" style="display:flex;gap:8px" role="group" aria-label="Color theme" data-site-control="appearance"><button type="button" id="light-choice" class="theme-choice" aria-label="Light theme" aria-describedby="theme-help" data-choice="light" style="width:40px" onclick="unsafe()"><svg class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle></svg></button><button type="button" class="theme-choice" aria-label="System theme"><svg class="lucide lucide-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14"></rect></svg></button><button type="button" class="theme-choice" aria-label="Dark theme"><svg class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-8-8"></path></svg></button></div></footer><span id="theme-help">Select a color theme.</span></body></html>';
 $groupCss = '.dark .theme-choices .theme-choice{color:#fff}:root:not(.dark) .theme-choices .theme-choice{color:#111}';
-$groupRuntime = 'const theme=localStorage.getItem("theme"); const dark=window.matchMedia("(prefers-color-scheme: dark)").matches; document.documentElement.classList.toggle("dark",dark); localStorage.setItem("theme",theme);';
+$groupRuntime = 'const labels=["Light theme","System theme","Dark theme"];const provider=({storageKey:key="theme"})=>{const root=document.documentElement;const read=(arg,fallback)=>localStorage.getItem(arg)||fallback;let preference=read(key,"system");const apply=value=>{root.classList.remove(...["dark"]);root.classList.add(value)};const select=value=>{apply(value);localStorage.setItem(key,value)};window.matchMedia("(prefers-color-scheme: dark)")};';
 $groupResult = (new HtmlTransformer())->transform($groupSource, array('static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $groupRuntime))))->toArray();
 $groupBlock = $groupResult['blocks'][0] ?? array();
 $groupAttrs = $groupBlock['attrs'] ?? array();
@@ -73,11 +73,16 @@ $assert('custom/theme-toggle' === ($groupBlock['blockName'] ?? null)
     && 3 === count($groupAttrs['selectionButtons'] ?? array())
     && array('light', 'system', 'dark') === ($groupAttrs['themeModes'] ?? array())
     && 'system' === ($groupAttrs['selectedMode'] ?? '')
-    && 'theme-choices layout-row' === ($groupAttrs['groupClassName'] ?? '')
-    && str_contains($groupMarkup, 'style="display:flex;gap:8px"')
+    && str_starts_with((string) ($groupAttrs['groupClassName'] ?? ''), 'theme-choices layout-row')
+    && str_contains($groupMarkup, 'style="gap:8px;display:flex"')
     && 'group' === ($groupAttrs['groupAttributes']['role'] ?? '')
     && 'Color theme' === ($groupAttrs['groupAttributes']['aria-label'] ?? '')
     && 'appearance' === ($groupAttrs['groupAttributes']['data-site-control'] ?? '')
+    && 'light-choice' === ($groupAttrs['selectionButtons'][0]['attributes']['id'] ?? '')
+    && 'theme-help' === ($groupAttrs['selectionButtons'][0]['attributes']['aria-describedby'] ?? '')
+    && 'light' === ($groupAttrs['selectionButtons'][0]['attributes']['data-choice'] ?? '')
+    && str_contains($groupMarkup, 'style="width:40px"')
+    && ! str_contains($groupMarkup, 'onclick=')
     && str_contains($groupMarkup, 'aria-label="System theme"')
     && str_contains($groupMarkup, 'lucide-monitor'), 'corroborated icon-only source groups promote once onto the canonical block while preserving the authored wrapper, names, icons, and order');
 $groupDefinition = $groupResult['source_reports']['generated_blocks'][0] ?? array();
@@ -91,6 +96,38 @@ $unconfirmedGroup = (new HtmlTransformer())->transform($groupSource, array('stat
 $assert('custom/theme-toggle' !== ($unconfirmedGroup['blocks'][0]['blockName'] ?? null), 'theme-shaped buttons without runtime corroboration remain ordinary controls');
 $ambiguousGroup = (new HtmlTransformer())->transform(str_replace('lucide-monitor', 'lucide-star', $groupSource), array('static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $groupRuntime))))->toArray();
 $assert('custom/theme-toggle' !== ($ambiguousGroup['blocks'][0]['blockName'] ?? null), 'a three-button group with one semantically ambiguous icon is not guessed to be a theme selector even when labels and runtime resemble one');
+$disconnectedRuntime = 'localStorage.getItem("cart");localStorage.setItem("cart","x");const unrelated="theme";window.matchMedia("(prefers-color-scheme: dark)");const drawer=document.querySelector(".drawer.open");drawer.classList.toggle("open");';
+$disconnected = (new HtmlTransformer())->transform($groupSource, array('static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/unrelated.js', 'content' => $disconnectedRuntime))))->toArray();
+$assert('custom/theme-toggle' !== ($disconnected['blocks'][0]['blockName'] ?? null), 'unrelated cart storage, theme text, OS query, and drawer mutation do not establish root theme preference ownership');
+$compoundRootRuntime = 'const root=document.documentElement;root.classList.toggle("drawer.open");localStorage.getItem("cart");localStorage.setItem("cart","x");const unrelated="theme";window.matchMedia("(prefers-color-scheme: dark)");';
+$compoundRoot = (new HtmlTransformer())->transform($groupSource, array('static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/unrelated.js', 'content' => $compoundRootRuntime))))->toArray();
+$assert('custom/theme-toggle' !== ($compoundRoot['blocks'][0]['blockName'] ?? null), 'a root-class mutation with an invalid compound drawer token is not evidence of theme ownership');
+$semanticNamesSource = str_replace(array('Light theme', 'System theme', 'Dark theme'), array('Light', 'System mode', 'Dark'), $groupSource);
+$semanticNamesRuntime = str_replace(array('Light theme', 'System theme', 'Dark theme'), array('Light', 'System mode', 'Dark'), $groupRuntime);
+$semanticNames = (new HtmlTransformer())->transform($semanticNamesSource, array('static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $semanticNamesRuntime))))->toArray();
+$assert(array('Light', 'System mode', 'Dark') === array_column($semanticNames['blocks'][0]['attrs']['selectionButtons'] ?? array(), 'ariaLabel'), 'semantically equivalent evidenced accessible names remain authored and editable');
+$sourceSelected = (new HtmlTransformer())->transform(str_replace('aria-label="Dark theme"', 'aria-label="Dark theme" aria-pressed="true"', $groupSource), array('static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $groupRuntime))))->toArray();
+$assert('dark' === ($sourceSelected['blocks'][0]['attrs']['selectedMode'] ?? null)
+    && true === ($sourceSelected['blocks'][0]['attrs']['selectionButtons'][2]['selected'] ?? false), 'an explicit source selected-state marker takes precedence over inferred system default');
+$rootAttributeSource = str_replace('<html class="dark">', '<html data-theme="dark">', $groupSource);
+$rootAttributeCss = ':root[data-theme="dark"]{color-scheme:dark;background:#111}:root[data-theme="light"]{color-scheme:light;background:#fff}';
+$rootAttributeRuntime = 'const labels=["Light theme","System theme","Dark theme"];const root=document.documentElement;const storageKey="appearance";const value=localStorage.getItem(storageKey);root.setAttribute("data-theme","dark");root.setAttribute("data-theme","light");localStorage.setItem(storageKey,value);window.matchMedia("(prefers-color-scheme: dark)");';
+$rootAttributeResult = (new HtmlTransformer())->transform($rootAttributeSource, array('static_css' => $rootAttributeCss, 'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $rootAttributeRuntime))))->toArray();
+$findThemeBlock = static function (array $blocks) use (&$findThemeBlock): array {
+    foreach ($blocks as $candidate) {
+        if ('custom/theme-toggle' === ($candidate['blockName'] ?? '')) return $candidate;
+        $nested = $findThemeBlock($candidate['innerBlocks'] ?? array());
+        if (array() !== $nested) return $nested;
+    }
+    return array();
+};
+$rootAttributeBlock = $findThemeBlock($rootAttributeResult['blocks'] ?? array());
+$assert('data-theme' === ($rootAttributeBlock['attrs']['rootAttribute'] ?? null)
+    && 'dark' === ($rootAttributeBlock['attrs']['darkValue'] ?? null)
+    && 'light' === ($rootAttributeBlock['attrs']['lightValue'] ?? null)
+    && 'appearance' === ($rootAttributeBlock['attrs']['storageKey'] ?? null), 'the root attribute and storage key derive from the owned runtime/CSS contract instead of fixed defaults');
+$formSemantics = (new HtmlTransformer())->transform(str_replace('type="button" id="light-choice"', 'type="submit" id="light-choice"', $groupSource), array('static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $groupRuntime))))->toArray();
+$assert('custom/theme-toggle' !== ($formSemantics['blocks'][0]['blockName'] ?? null), 'a source submit button is not consumed by the theme-control projection');
 
 $consumerNamespace = (new HtmlTransformer())->transform($source, array('static_css' => $css, 'generated_block_namespace' => 'acme-site'))->toArray();
 $consumerDefinition = $consumerNamespace['source_reports']['generated_blocks'][0] ?? array();
