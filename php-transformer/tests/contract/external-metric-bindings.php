@@ -65,20 +65,45 @@ $jsonRoundTrip = json_decode(json_encode($resolved, JSON_THROW_ON_ERROR), true, 
 WordPressSitePlan::assertValid($jsonRoundTrip);
 $assert($jsonRoundTrip['runtime_declarations'] === $resolved['runtime_declarations'], 'JSON serialization/reimport preserves canonical runtime binding data');
 
-$githubFact = $fact('github-repository-stars', 'stargazers_count', 'identity', '73,000+', $paragraph, 'paragraph', 'core/paragraph', array('kind' => 'source_corroboration', 'repository' => 'ndiego/nickdiego.com', 'revision' => '5747c794bbbd0d2b2dfeb999210ab5d4f2e6a3fc', 'source_path' => 'src/components/gh-repo-card.tsx'));
-$githubFact['provider'] = array('schema' => 'generic/external-metric-provider/v1', 'id' => 'github', 'owner' => 'Automattic', 'repository' => 'blocks-engine', 'field' => 'stargazers_count');
-$githubFact['format'] = array('locale' => 'en-US', 'grouping' => true, 'prefix' => '', 'suffix' => '', 'decimals' => 0);
-$githubArtifact = array('entrypoint' => 'index.html', 'runtime_declarations' => array(array('kind' => 'entity_collection', 'type' => 'external_metrics', 'source_path' => 'data/external-metrics.json', 'payload' => array('schema' => 'generic/external-metric/v1', 'entities' => array($githubFact)))), 'files' => array('index.html' => $html));
+$githubRoutes = array('index.html', 'about.html', 'team.html');
+$githubHeader = '<header class="github-repo-card"><h2><a href="https://github.com/Automattic/.github">Automattic/.github</a></h2><p>7</p><p>9</p><span aria-hidden="true">★</span></header>';
+$githubFiles = array(); $githubFacts = array();
+foreach ($githubRoutes as $route) {
+    $title = 'index.html' === $route ? 'Home' : ('about.html' === $route ? 'About' : 'Team');
+    $githubFiles[$route] = '<!doctype html><html><body>' . $githubHeader . '<main><h1>' . $title . '</h1></main></body></html>';
+    foreach (array('stargazers_count' => '7', 'forks_count' => '9') as $metric => $fallback) {
+        $githubAnchor = '<!-- wp:paragraph --><p>' . $fallback . '</p><!-- /wp:paragraph -->';
+        $githubEntity = $fact('github-' . $metric . '-' . basename($route, '.html'), $metric, 'identity', $fallback, $githubAnchor, 'paragraph', 'core/paragraph', array('kind' => 'source_corroboration', 'repository' => 'ndiego/nickdiego.com', 'revision' => '5747c794bbbd0d2b2dfeb999210ab5d4f2e6a3fc', 'source_path' => 'src/components/gh-repo-card.tsx'));
+        $githubEntity['provider'] = array('schema' => 'generic/external-metric-provider/v1', 'id' => 'github', 'owner' => 'Automattic', 'repository' => '.github');
+        $githubEntity['provenance'] = array('kind' => 'source_corroboration', 'repository' => 'ndiego/nickdiego.com', 'revision' => '5747c794bbbd0d2b2dfeb999210ab5d4f2e6a3fc', 'source_path' => 'src/components/gh-repo-card.tsx');
+        $githubEntity['bindings'][0]['source_path'] = $route;
+        $githubEntity['bindings'][0]['search_block_markup'] = $githubAnchor;
+        $githubFacts[] = $githubEntity;
+    }
+}
+$githubArtifact = array('entrypoints' => $githubRoutes, 'runtime_declarations' => array(array('kind' => 'entity_collection', 'type' => 'external_metrics', 'source_path' => 'data/external-metrics.json', 'payload' => array('schema' => 'generic/external-metric/v1', 'entities' => $githubFacts))), 'files' => $githubFiles);
 $githubPlan = (new ArtifactCompiler())->compile($githubArtifact)->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($githubPlan);
 $githubResolved = (new WordPressSitePlanResolver())->resolve($githubPlan, array('theme_uri' => 'https://example.test/theme'));
-$githubEntity = $githubResolved['runtime_declarations'][0]['payload']['entities'][0] ?? array();
-$assert(($githubEntity['provider']['field'] ?? null) === 'stargazers_count' && ($githubEntity['fallback']['text'] ?? null) === '73,000+' && WordPressSitePlan::bindingPosition($githubEntity['bindings'][0]['position'] ?? null, $githubResolved['pages'][0]['resolved_block_markup'], $paragraph), 'GitHub count declaration traverses full compilation and resolution with native editable fallback binding');
+$githubEntities = $githubResolved['runtime_declarations'][0]['payload']['entities'] ?? array();
+$githubByMetric = array_column($githubEntities, null, 'metric');
+$githubHeaderParts = array_values(array_filter($githubResolved['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$assert(2 === count($githubByMetric) && 1 === count($githubHeaderParts), 'GitHub stars and forks coalesce into one shared header template-part declaration');
+foreach (array('stargazers_count' => '7', 'forks_count' => '9') as $metric => $fallback) {
+    $githubEntity = $githubByMetric[$metric] ?? array();
+    $githubBinding = $githubEntity['bindings'][0] ?? array();
+    $githubAnchor = '<!-- wp:paragraph --><p>' . $fallback . '</p><!-- /wp:paragraph -->';
+    $assert(($githubEntity['provider']['repository'] ?? null) === '.github' && ($githubEntity['fallback']['text'] ?? null) === $fallback && ($githubEntity['fallback']['hash'] ?? null) === hash('sha256', $fallback), "{$metric} transports the real plain-number repository fallback and hash");
+    $assert(($githubEntity['provenance']['kind'] ?? null) === 'source_corroboration' && ($githubEntity['provenance']['source_path'] ?? null) === 'src/components/gh-repo-card.tsx', "{$metric} retains explicit source provenance");
+    $assert(($githubBinding['source_path'] ?? null) === ($githubHeaderParts[0]['source_path'] ?? null) && WordPressSitePlan::bindingPosition($githubBinding['position'] ?? null, $githubHeaderParts[0]['resolved_block_markup'], $githubAnchor), "{$metric} binding reanchors to the shared native Paragraph leaf");
+}
+$githubHeaderMarkup = $githubHeaderParts[0]['resolved_block_markup'];
+$assert(str_contains($githubHeaderMarkup, 'href="https://github.com/Automattic/.github"') && str_contains($githubHeaderMarkup, '★'), 'GitHub metric declarations preserve the native repository link and authored icon');
 $githubCompiler = new ArtifactCompiler();
 $githubShared = $githubCompiler->prepareShared($githubArtifact);
 $githubReceipts = array(); foreach ($githubShared['analysis']['page_ids'] as $pageId) $githubReceipts[] = $githubCompiler->compilePage($githubArtifact, $githubShared, $pageId);
 $githubStaged = $githubCompiler->compose($githubShared, $githubReceipts)->toArray()['source_reports']['wordpress_site_plan'];
-$assert($githubStaged === $githubPlan, 'staged compilation preserves GitHub provider declaration and native leaf transport');
+$assert($githubStaged === $githubPlan, 'staged compilation preserves both GitHub fields and shared-shell binding transport');
 
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);

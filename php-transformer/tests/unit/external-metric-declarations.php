@@ -42,23 +42,36 @@ $assert(5 === count($normalized[0]['payload']['entities']), 'accepts source-prov
 $assert($normalized === RuntimeDeclarations::normalizeList($normalized), 'external metric identities and hashes round-trip canonically');
 $githubFact = $facts[0];
 $githubFact['id'] = 'repo-stars';
-$githubFact['provider'] = array('schema' => 'generic/external-metric-provider/v1', 'id' => 'github', 'owner' => 'Automattic', 'repository' => 'blocks-engine', 'field' => 'stargazers_count');
+$githubFact['provider'] = array('schema' => 'generic/external-metric-provider/v1', 'id' => 'github', 'owner' => 'Automattic', 'repository' => '.github');
 $githubFact['metric'] = 'stargazers_count';
 $githubFact['aggregation'] = 'identity';
 $githubFact['format'] = array('locale' => 'en-US', 'grouping' => true, 'prefix' => '', 'suffix' => '', 'decimals' => 0);
 $githubFact['provenance']['source_path'] = 'src/components/gh-repo-card.tsx';
 $github = RuntimeDeclarations::normalizeList($declaration(array($githubFact)));
-$assert('github' === $github[0]['payload']['entities'][0]['provider']['id'], 'accepts source-proven GitHub repository count declarations using identity aggregation');
+$assert('github' === $github[0]['payload']['entities'][0]['provider']['id'] && '.github' === $github[0]['payload']['entities'][0]['provider']['repository'], 'accepts the source-backed Automattic/.github repository with identity aggregation');
+$forkFact = $githubFact; $forkFact['id'] = 'repo-forks'; $forkFact['metric'] = 'forks_count'; $forkFact['fallback'] = array('text' => '9', 'hash' => hash('sha256', '9')); $forkFact['bindings'][0]['search_block_markup'] = '<!-- wp:paragraph --><p>9</p><!-- /wp:paragraph -->';
+$forks = RuntimeDeclarations::normalizeList($declaration(array($forkFact)));
+$assert('forks_count' === $forks[0]['payload']['entities'][0]['metric'], 'accepts forks_count as the sole GitHub field selector');
+foreach (array('_github', 'repo.', 'repo_', 'repo-') as $repository) {
+    $bounded = $githubFact; $bounded['provider']['repository'] = $repository;
+    $assert(!$rejected($declaration(array($bounded))), "accepts bounded GitHub repository character spelling {$repository}");
+}
 $badGithub = $githubFact; $badGithub['provider']['owner'] = '../Automattic';
 $assert($rejected($declaration(array($badGithub))), 'rejects malformed GitHub owner selectors');
-$badGithub = $githubFact; $badGithub['provider']['field'] = 'private_token';
-$assert($rejected($declaration(array($badGithub))), 'rejects unsupported GitHub fields');
-$badGithub = $githubFact; $badGithub['provider']['field'] = 'forks_count';
-$assert($rejected($declaration(array($badGithub))), 'requires the GitHub metric to match its selected repository field');
+$badGithub = $githubFact; $badGithub['metric'] = 'private_token';
+$assert($rejected($declaration(array($badGithub))), 'rejects unsupported GitHub metric fields');
+$badGithub = $githubFact; $badGithub['provider']['field'] = 'stargazers_count';
+$assert($rejected($declaration(array($badGithub))), 'rejects redundant provider.field rather than retaining an alias');
+foreach (array('.', '..', 'Automattic/blocks-engine', 'https://github.com/Automattic/.github', 'repo?query', str_repeat('a', 101), '') as $repository) {
+    $badGithub = $githubFact; $badGithub['provider']['repository'] = $repository;
+    $assert($rejected($declaration(array($badGithub))), 'rejects malformed GitHub repository selector ' . $repository);
+}
 $badGithub = $githubFact; $badGithub['aggregation'] = 'sum';
 $assert($rejected($declaration(array($badGithub))), 'rejects non-identity aggregation for individual repository counts');
 $badGithub = $githubFact; $badGithub['format']['suffix'] = '+';
 $assert($rejected($declaration(array($badGithub))), 'rejects non-plain GitHub count formatting');
+$badGithub = $githubFact; $badGithub['provenance'] = array('kind' => 'captured_html');
+$assert($rejected($declaration(array($badGithub))), 'rejects unsupported GitHub provenance');
 
 $bad = $facts; $bad[0]['provider']['source'] = 'https://attacker.invalid/';
 $assert($rejected($declaration($bad)), 'rejects arbitrary provider URLs');
