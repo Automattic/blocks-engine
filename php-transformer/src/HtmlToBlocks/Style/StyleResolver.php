@@ -1066,7 +1066,30 @@ final class StyleResolver implements ElementPresentationResolver
 
         $base = null === $baseWinner ? '' : $this->carriedDeclarationValue($baseWinner['value']);
         $conditional = array();
+        $orderedConditionalWinners = array();
         foreach ($conditionalWinners as $condition => $entry) {
+            $orderedConditionalWinners[] = array(
+                'condition' => $condition,
+                'entry' => $entry,
+                'position' => count($orderedConditionalWinners),
+            );
+        }
+        usort($orderedConditionalWinners, static function (array $left, array $right) use ($fact): int {
+            $leftWins = CssCascade::wins($fact($left['entry']), $fact($right['entry']));
+            $rightWins = CssCascade::wins($fact($right['entry']), $fact($left['entry']));
+            if ($leftWins === $rightWins) {
+                return $left['position'] <=> $right['position'];
+            }
+
+            // Projected rules use one generated selector, so specificity and
+            // source order must be represented by output order when their
+            // responsive conditions overlap. Emit the source cascade loser
+            // first so the winning declaration remains last in the browser.
+            return $leftWins ? 1 : -1;
+        });
+        foreach ($orderedConditionalWinners as $winner) {
+            $condition = $winner['condition'];
+            $entry = $winner['entry'];
             $value = $this->carriedDeclarationValue($entry['value']);
             if ('' !== $value) $conditional[$condition] = $value;
         }

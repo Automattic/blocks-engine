@@ -437,7 +437,7 @@ final class GeneratedSupportStylesheetState
             if (!str_contains($serializedBlocks, $className)) continue;
             if ('' !== $rules['base']) $parts[] = ':root .' . $className . '{margin-top:' . $rules['base'] . '}';
             foreach ($rules['conditional'] as $condition => $value) {
-                $parts[] = $condition . '{:root .' . $className . '{margin-top:' . $value . '}}'
+                $parts[] = $condition . '{:root .' . $className . '{margin-top:' . $value . '}'
                     . str_repeat('}', substr_count($condition, '{') + 1);
             }
         }

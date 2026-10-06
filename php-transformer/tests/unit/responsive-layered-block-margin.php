@@ -38,6 +38,53 @@ $unlayeredSource = '<style>.mt-8{margin-top:32px}@media (min-width:48rem){.md\\:
 $unlayered = ( new HtmlTransformer() )->transform($unlayeredSource)->toArray();
 $assert(! str_contains((string) ($unlayered['serialized_blocks'] ?? ''), 'blocks-engine-responsive-margin-top-'), 'unlayered author responsive utilities keep their existing stylesheet ownership');
 
+$scenarioDefinitions = array(
+	'plain-overlapping-breakpoints' => array(
+		'classes' => 'footer',
+		'css' => '@layer utilities{.footer{margin-top:32px}@media (min-width:500px){.footer{margin-top:40px}}@media (min-width:600px){.footer{margin-top:60px}}}',
+		'expected' => array('390' => '32px', '499' => '32px', '500' => '40px', '550' => '40px', '599' => '40px', '600' => '60px', '650' => '60px', '800' => '60px'),
+	),
+	'nested-overlapping-breakpoints' => array(
+		'classes' => 'footer',
+		'css' => '@layer utilities{.footer{margin-top:32px}@media (min-width:500px){.footer{margin-top:40px}@media (min-width:600px){.footer{margin-top:60px}}}}',
+		'expected' => array('390' => '32px', '499' => '32px', '500' => '40px', '550' => '40px', '599' => '40px', '600' => '60px', '650' => '60px', '800' => '60px'),
+	),
+	'overlapping-specificity-winner' => array(
+		'classes' => 'footer special',
+		'css' => '@layer utilities{.footer{margin-top:32px}@media (min-width:500px){.footer{margin-top:40px}}@media (min-width:600px){.footer{margin-top:60px}}@media (min-width:500px){.footer.special{margin-top:80px}}}',
+		'expected' => array('390' => '32px', '499' => '32px', '500' => '80px', '550' => '80px', '599' => '80px', '600' => '80px', '650' => '80px', '800' => '80px'),
+	),
+	'overlapping-source-order-winner' => array(
+		'classes' => 'footer',
+		'css' => '@layer utilities{.footer{margin-top:32px}@media (min-width:600px){.footer{margin-top:60px}}@media (min-width:500px){.footer{margin-top:40px}}}',
+		'expected' => array('390' => '32px', '499' => '32px', '500' => '40px', '550' => '40px', '599' => '40px', '600' => '40px', '650' => '40px', '800' => '40px'),
+	),
+);
+$scenarioFixtures = array();
+foreach ($scenarioDefinitions as $name => $definition) {
+	$scenarioFooter = '<footer class="' . $definition['classes'] . '"><p>Breakpoint fixture</p></footer>';
+	$scenarioDocument = '<!doctype html><html><head><style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0}body{display:flex;flex-direction:column}:root{--spacing:.25rem}' . $definition['css'] . '</style></head><body><div style="height:200px"></div>' . $scenarioFooter . '</body></html>';
+	$scenarioResult = ( new HtmlTransformer() )->transform(
+		'<style>:root{--spacing:.25rem}' . $definition['css'] . '</style>' . $scenarioFooter,
+		array('static_css' => '.wp-block-group{margin-top:32px}')
+	)->toArray();
+	$scenarioMarkup = (string) ($scenarioResult['serialized_blocks'] ?? '');
+	$scenarioCss = implode("\n", array_map(
+		static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+		$scenarioResult['assets'] ?? array()
+	));
+	$scenarioAssert = 1 === preg_match('/blocks-engine-responsive-margin-top-[0-9a-f]{12}/', $scenarioMarkup, $scenarioMarker);
+	$assert($scenarioAssert, $name . ' attaches a responsive source-winner marker to the emitted block', $scenarioMarkup);
+	$scenarioFixture = array(
+		'name' => $name,
+		'marker' => $scenarioMarker[0],
+		'expected' => $definition['expected'],
+		'sourceHtml' => $scenarioDocument,
+		'candidateHtml' => '<!doctype html><html><head><style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0}body{display:flex;flex-direction:column}:root{--spacing:.25rem}' . $scenarioCss . '</style></head><body><div style="height:200px"></div>' . $scenarioMarkup . '</body></html>',
+	);
+	$scenarioFixtures[] = $scenarioFixture;
+}
+
 echo json_encode(array(
 	'status' => 'passed',
 	'marker' => $marker,
@@ -45,5 +92,6 @@ echo json_encode(array(
 	'desktopRule' => $desktop,
 	'sourceHtml' => '<!doctype html><html><head><style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0}body{display:flex;flex-direction:column}:root{--spacing:.25rem}' . $sourceStyles . '</style></head><body><div style="height:200px"></div>' . $sourceFooter . '</body></html>',
 	'candidateHtml' => '<!doctype html><html><head><style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0}body{display:flex;flex-direction:column}:root{--spacing:.25rem}' . $css . '</style></head><body><div style="height:200px"></div>' . $markup . '</body></html>',
+	'scenarios' => $scenarioFixtures,
 ), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
 echo "\n";
