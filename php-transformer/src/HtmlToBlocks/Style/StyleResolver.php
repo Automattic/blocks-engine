@@ -3953,21 +3953,39 @@ final class StyleResolver implements ElementPresentationResolver
         }
         $pending = array_fill_keys(array_unique($matches[1]), true);
         $carried = array();
-        for ( $node = $element; $node instanceof DOMElement && array() !== $pending; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-            $found = array();
-            foreach ( $this->matchingStyleRules($node, 'conditional') as $rule ) {
-                if ( ($rule['conditions'] ?? array()) !== $conditions ) {
-                    continue;
-                }
-                foreach ( $rule['cascadedDeclarations'] ?? array() as $name => $declared ) {
-                    if ( isset($pending[(string) $name]) && '' !== trim((string) $declared) ) {
-                        $found[(string) $name] = trim((string) $declared);
+        $static = $this->cascadedCustomProperties($element);
+        $visited = array();
+        // Resolve dependencies through the same source scope, with a bound
+        // that also terminates cyclic custom-property references.
+        for ( $depth = 0; $depth < 32 && array() !== $pending; ++$depth ) {
+            $name = (string) array_key_first($pending);
+            unset($pending[$name]);
+            if (isset($visited[$name])) continue;
+            $visited[$name] = true;
+            $declared = '';
+            for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+                $facts = array();
+                foreach ( $this->matchingStyleRules($node, 'conditional') as $order => $rule ) {
+                    $value = trim((string) ($rule['cascadedDeclarations'][$name] ?? ''));
+                    if ( ($rule['conditions'] ?? array()) === $conditions && '' !== $value ) {
+                        CssCascade::apply($facts, $name, array(
+                            'value' => $value, 'important' => CssValueInspector::isImportant($value),
+                            'specificity' => $this->mediaTextSelectorSpecificity((string) $rule['selector']),
+                            'order' => (int) ($rule['cascadeOrder'] ?? $order),
+                            'inline' => false, 'layer' => $rule['layerRank'] ?? null,
+                        ));
                     }
                 }
+                $inline = trim((string) ($this->cssDeclarations(SourceDom::attr($node, 'style'))[$name] ?? ''));
+                if ('' !== $inline) CssCascade::apply($facts, $name, array('value' => $inline, 'important' => CssValueInspector::isImportant($inline), 'specificity' => array(0, 0, 0), 'order' => PHP_INT_MAX, 'inline' => true, 'layer' => null));
+                if (isset($facts[$name])) { $declared = $facts[$name]['value']; break; }
             }
-            foreach ( $found as $name => $declared ) {
+            if ('' === $declared) $declared = trim((string) ($static[$name] ?? ''));
+            if ('' !== $declared && !preg_match('~[{}<>;]|/\*~', $declared)) {
                 $carried[$name] = $declared;
-                unset($pending[$name]);
+                if (preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $declared, $references)) {
+                    foreach ($references[1] as $reference) if (!isset($visited[$reference])) $pending[$reference] = true;
+                }
             }
         }
 

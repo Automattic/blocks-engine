@@ -59,5 +59,12 @@ $assert(!preg_match('/@media[^{]*\{\.be-inline-geometry-/', $css($unrelated)), '
 $mixed = $transform('<style>.w svg{width:20px;height:20px}@media (max-width:767px){.w svg{width:30px;height:30px}}</style><main><button class="b"><span class="w"><svg width="50" height="50" viewBox="0 0 50 50"><circle cx="25" cy="25" r="24"/></svg></span>Go</button></main>');
 $assert(!preg_match('/@media[^{]*\{\.be-inline-geometry-/', $css($mixed)), 'axes with a resting size are left to the existing path');
 
+$priority = $transform('<style>@media (min-width:768px){' . $rules . '#comp-login{--logged-out-icon-size:24px!important}.later{--logged-out-icon-size:40px}}</style>' . str_replace('id="comp-login"', 'id="comp-login" class="later"', $markup));
+[$priorityClass, $priorityCarrier] = $geometryRule($priority['serialized_blocks'], $css($priority));
+$assert(str_contains($priorityCarrier, '--logged-out-icon-size:24px!important') && !str_contains($priorityCarrier, '--logged-out-icon-size:40px'), 'media-scoped variable definitions retain importance and specificity');
+$nested = $transform('<style>@media (min-width:768px){' . $rules . '#comp-login{--logged-out-icon-size:var(--unit-size);--unit-size:24px}}</style>' . $markup);
+[$nestedClass, $nestedCarrier] = $geometryRule($nested['serialized_blocks'], $css($nested));
+$assert(str_contains($nestedCarrier, '--logged-out-icon-size:var(--unit-size)') && str_contains($nestedCarrier, '--unit-size:24px'), 'nested media-scoped variable dependencies remain resolvable on the rebuilt carrier');
+
 if ($failures) { fwrite(STDERR, implode("\n", $failures) . "\n"); exit(1); }
 echo "Media-scoped SVG icon size passed: {$assertions} assertions\n";
