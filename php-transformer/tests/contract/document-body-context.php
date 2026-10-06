@@ -5,7 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 if ($bootstrap = getenv('BODY_CONTEXT_WORDPRESS_BOOTSTRAP')) require $bootstrap;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\WordPressCompatCss;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
@@ -24,23 +24,30 @@ $assert = static function (bool $condition, string $message) use (&$assertions):
     ++$assertions;
     if (!$condition) throw new RuntimeException($message);
 };
-$css = 'body{margin:0}p{margin:0}.expand *{margin:0}.chrome{display:block}.expand{margin-left:-15px;margin-right:-15px;padding-left:15px;padding-right:15px}'
+$css = 'body{margin:0;background:white;color:black}p{margin:0}.expand *{margin:0}.chrome{display:block}.expand{margin-left:-15px;margin-right:-15px;padding-left:15px;padding-right:15px}#content-frame{box-sizing:content-box}'
     . '.scope{padding-top:7px;background-color:rgb(240,240,240)}body.scope{color:rgb(11,22,33)}'
     . '.page{padding-top:7px;background-color:rgb(240,240,240)}'
     . '@media(min-width:1100px){.scope .expand{margin-left:0;margin-right:0;padding-left:0;padding-right:0}}'
     . '@supports(display:block){body[data-mode="boxed"] .expand{margin-left:0;margin-right:0;padding-left:9px;padding-right:9px}}'
     . '[data-mode="plain"] .expand{padding-left:12px;padding-right:12px}'
-    . '@media(min-width:1100px){body:not(.responsive) #content-frame{min-width:1600px}}';
+    . '@media(min-width:1100px){body:not(.responsive) #content-frame{min-width:1600px}}'
+    . '#hero{height:0;overflow:hidden}body.scope #hero{height:240px}'
+    . '@media(min-width:700px){body.scope #hero{height:480px}}'
+    . '@media(min-width:1100px){body.scope #hero{height:100vh}}'
+    . 'body[data-mode="boxed"] #hero{height:320px}'
+    . 'body.wp-block-group #hero{height:300px}';
 $header = '<header class="chrome"><div id="header-frame" class="expand"><p>Shared header</p></div></header>';
 $footer = '<footer class="chrome"><div id="footer-frame" class="expand"><p>Shared footer</p></div></footer>';
 $source = static fn(string $attributes, string $title): string => '<!doctype html><html data-document="neutral"><head><title>' . $title . '</title><link rel="stylesheet" href="/root.css"></head><body ' . $attributes . '>'
-    . $header . '<main><div id="content-frame" class="expand"><p>' . $title . '</p></div><div id="same-element" class="scope page expand"><p>Actual scope subject</p></div></main>' . $footer . '</body></html>';
+    . $header . '<div id="hero"><p>Neutral hero</p></div><main><div id="content-frame" class="expand"><p>' . $title . '</p></div><div id="same-element" class="scope page expand"><p>Actual scope subject</p></div></main>' . $footer . '</body></html>';
 $sources = array('index.html' => $source('id="wide-document" class="scope responsive page" data-mode="wide" data-empty=""', 'Wide'), 'plain.html' => $source('data-mode="plain"', 'Plain'), 'boxed.html' => $source('class="scope responsive page" data-mode="boxed"', 'Boxed'), 'class-only.html' => $source('class="scope responsive page"', 'Class only'));
+$sources['generated-root.html'] = $source('class="wp-block-group responsive"', 'Generated root');
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $sources + array('root.css' => $css)))->toArray();
 $plan = (new WordPressSitePlan())->fromCompilerResult($result);
 $pages = array_column($plan['pages'], null, 'source_path');
 $parts = array_column($plan['template_parts'], null, 'slug');
 $style = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === $asset['kind'] && 'editor' !== ($asset['stylesheet_target'] ?? 'both')), 'content'));
+if ($output = getenv('BODY_CONTEXT_PLAN')) file_put_contents($output, json_encode(array('plan' => $plan, 'sources' => $sources, 'css' => $css), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
 if (!getenv('BODY_CONTEXT_BASELINE_SRC')) {
     $assert('scope responsive page' === ($pages['index.html']['document_metadata']['body_attributes']['class'] ?? null), 'Body context travels through the canonical plan.');
@@ -56,15 +63,10 @@ if (!getenv('BODY_CONTEXT_BASELINE_SRC')) {
 // With WordPress loaded, exercise generated hooks, native template-part
 // resolution, core render callbacks, and the emitted canvas. No DB writes.
 if (function_exists('do_blocks')) {
-    $collisions = array();
-    if (!getenv('BODY_CONTEXT_BASELINE_SRC')) {
-        $compat = new WordPressCompatCss();
-        foreach ($plan['assets'] as $asset) if ('css' === $asset['kind'] && 'editor' !== ($asset['stylesheet_target'] ?? 'both')) array_push($collisions, ...$compat->bodyClassCollisionClasses($asset['content']));
-    }
     // The same shared header/footer spans two independently emitted batches.
     // The first route's body attributes must remain available to the canvas.
-    eval(DocumentRootContext::bootstrap(array_slice($plan['pages'], 0, 1), array_values(array_unique($collisions))));
-    eval(DocumentRootContext::bootstrap(array_slice($plan['pages'], 1), array_values(array_unique($collisions))));
+    eval(DocumentRootContext::bootstrap(array_slice($plan['pages'], 0, 1)));
+    eval(DocumentRootContext::bootstrap(array_slice($plan['pages'], 1)));
     if (isset($blocks_engine_document_attributes)) $GLOBALS['blocks_engine_document_attributes'] = $blocks_engine_document_attributes;
     // Isolate this request's document from host plugins' head/footer output.
     // Core render callbacks and the native template canvas remain real.
@@ -105,7 +107,7 @@ if (function_exists('do_blocks')) {
         $wp_query->is_page = true;
         $wp_query->is_home = false;
         $wp_query->queried_object_id = 900001 + $index;
-        $wp_query->queried_object = (object) array('ID' => 900001 + $index, 'post_type' => 'page');
+        $wp_query->queried_object = new WP_Post((object) array('ID' => 900001 + $index, 'post_type' => 'page', 'post_title' => $page['title'], 'post_name' => $page['slug'], 'post_parent' => 0));
         $canvas = apply_filters('template_include', ABSPATH . WPINC . '/template-canvas.php');
         if (!getenv('BODY_CONTEXT_BASELINE_SRC')) {
             $expectedCanvas = array_diff_key($page['document_metadata']['body_attributes'], array('class' => true)) ? get_theme_file_path('document-canvas.php') : ABSPATH . WPINC . '/template-canvas.php';
@@ -123,7 +125,7 @@ if (function_exists('do_blocks')) {
         $settings = apply_filters('block_editor_settings_all', array(), $context);
         $fixtures[] = array('route' => $route, 'source' => str_replace('</head>', '<style>' . $css . '</style></head>', $sourceHtml),
             'native' => $native,
-            'editor' => '<!doctype html><html><head><style>' . $editorStyle . '</style></head><body class="editor-styles-wrapper">' . do_blocks($markup) . ($settings['__unstableResolvedAssets']['body'] ?? '') . '</body></html>');
+            'editor' => '<!doctype html><html><head><style>' . $editorStyle . '</style></head><body class="editor-styles-wrapper">' . do_blocks($markup) . '<script>window.blocksEngineDocumentContext=' . wp_json_encode($settings['blocksEngineDocumentContext'] ?? array()) . ';' . DocumentRootContext::editorScript() . '</script></body></html>');
         $assert(str_contains($native, 'Shared header') && str_contains($native, 'Shared footer'), 'Native template parts render through core: ' . json_encode(array('parts' => array_keys($parts), 'template' => $template['slug'] ?? '', 'native' => $native)));
     };
     foreach (array_values($pages) as $index => $page) {
@@ -149,7 +151,7 @@ if (function_exists('do_blocks')) {
         $assert(array('html' => array(), 'body' => array()) === $after, 'An authoritative empty route record must supersede both prior root attribute maps: ' . wp_json_encode($after));
         $assert(1 === count(array_filter($blocks_engine_document_roots, static fn(array $row): bool => $emptyPage['reconciliation_identity'] === $row['identity'])), 'The canonical registry retains one authoritative record for the updated identity.');
         $assert(ABSPATH . WPINC . '/template-canvas.php' === $afterCanvas, 'An emptied body context returns to core canvas selection.');
-        $assert(array('html' => $pages['index.html']['document_metadata']['root_attributes'], 'body' => $pages['index.html']['document_metadata']['body_attributes']) === $retained, 'An independent earlier route retains its document state.');
+        $assert(array('html' => SourceClassIdentity::projectRoot($pages['index.html']['document_metadata']['root_attributes']), 'body' => SourceClassIdentity::projectRoot($pages['index.html']['document_metadata']['body_attributes'])) === $retained, 'An independent earlier route retains its document state.');
         $emptySource = str_replace('<html data-document="neutral">', '<html>', $source('', 'Boxed'));
         $render($emptyPage, $boxedIndex, $emptySource, 'boxed.html#authoritative-empty');
         $render($pages['index.html'], 0, $sources['index.html'], 'index.html#retained-after-empty');

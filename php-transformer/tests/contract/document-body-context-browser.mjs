@@ -16,7 +16,7 @@ try {
                 await page.setContent(fixture[role], { waitUntil: 'load' });
                 measurements[role] = await page.evaluate(() => ({
                     body: { paddingTop: getComputedStyle(document.body).paddingTop, background: getComputedStyle(document.body).backgroundColor, color: getComputedStyle(document.body).color, mode: document.body.dataset.mode, id: document.body.id, emptyState: document.body.getAttribute('data-empty'), documentState: document.documentElement.dataset.document },
-                    frames: ['header-frame', 'content-frame', 'same-element', 'footer-frame'].map((id) => {
+                    frames: ['header-frame', 'hero', 'content-frame', 'same-element', 'footer-frame'].map((id) => {
                         const node = document.getElementById(id);
                         if (!node) throw new Error(`Missing native frame ${id}`);
                         const box = node.getBoundingClientRect();

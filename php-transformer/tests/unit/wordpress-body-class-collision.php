@@ -1,63 +1,28 @@
 <?php
 declare(strict_types=1);
 
-/**
- * WordPress stamps template classes onto <body> via body_class(). A source
- * stylesheet that centers `.page` can then acquire an unintended body subject.
- * The existing collision classifier feeds route-owned document reconciliation,
- * preserving genuine source body subjects instead of resetting their geometry.
- */
-
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\WordPressCompatCss;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext;
 
-$failures = 0;
-$passes = 0;
-$assert = static function (bool $condition, string $message) use (&$failures, &$passes): void {
-    if ( $condition ) {
-        ++$passes;
-        return;
-    }
-    ++$failures;
-    fwrite(STDERR, 'FAIL: ' . $message . PHP_EOL);
+$count = 0;
+$assert = static function (bool $value, string $message) use (&$count): void {
+    ++$count;
+    if (!$value) throw new RuntimeException($message);
 };
-
-$compat = static fn (string $css): string => ( new WordPressCompatCss() )->css($css, array(), array());
-$collisions = static fn (string $css): array => (new WordPressCompatCss())->bodyClassCollisionClasses($css);
-$collides = static fn (string $css, string $class): bool => in_array($class, $collisions($css), true);
-
-$frame = $compat('.page {max-width:44rem;margin:0 auto;padding:5rem 2rem 6rem}');
-$assert($collides('.page {max-width:44rem;margin:0 auto;padding:5rem 2rem 6rem}', 'page'), 'a centered page frame identifies the WordPress-owned collision');
-$assert(
-    !str_contains($frame, '!important') && !str_contains($frame, 'body.page'),
-    'route reconciliation replaces the broad body frame reset'
-);
-$assert(! str_contains($frame, 'color'), 'collision ownership emits no compensating paint');
-
-// The block axis matters as much as the inline axis: a page frame's leading and
-// trailing space would otherwise be added again outside the content.
-$blockAxis = $compat('.page {max-width:44rem;margin:0 auto;padding:5rem 2rem 6rem}');
-$assert('' === trim($blockAxis), 'body geometry remains under the authored selector authority');
-$assert($collides('.page{padding-block:5rem 6rem}', 'page'), 'a block-axis-only frame is covered');
-
-$assert($collides('@media (min-width:60rem){.page{padding:0 3rem}}', 'page'), 'responsive frame rules retain collision ownership');
-$assert($collides('.home{max-width:70rem;padding-inline:2rem}', 'home'), 'other reserved template classes are covered');
-$assert($collides('.search{width:60rem}', 'search'), 'a reserved class sizing itself is covered');
-
-$assert(! $collides('.page{color:red;font-size:1rem}', 'page'), 'a reserved class without frame geometry is left alone');
-$assert(! $collides('.card{max-width:40rem;padding:0 2rem}', 'card'), 'an unreserved source class is left alone');
-$assert(! $collides('main.page{max-width:60rem;padding:0 2rem}', 'page'), 'an element-qualified frame cannot match body and is left alone');
-$assert(! $collides('.page .inner{max-width:60rem}', 'page'), 'a descendant frame rule is left alone');
-$assert($collides('.page:not(.blocks-engine-specificity-class-site-0){margin:4px}', 'page'), 'canonical margin specificity shims retain collision ownership');
-$assert('' === trim($compat('')), 'an empty stylesheet emits no compatibility CSS');
-
-$multiple = $collisions('.page{max-width:44rem;padding:0 2rem}.home{margin-inline:auto;max-width:70rem}.page{margin:2rem}');
-$assert(in_array('page', $multiple, true) && in_array('home', $multiple, true), 'all colliding template classes are available to the root owner');
-$assert(2 === count($multiple), 'colliding classes are unique across the authored stream');
-
-if ( 0 < $failures ) {
-    fwrite(STDERR, "WordPress body-class collision tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
-    exit(1);
-}
-fwrite(STDOUT, "WordPress body-class collision tests: {$passes} passed" . PHP_EOL);
+$result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<html><head><style>.page{padding:7px;color:red}body.page{color:blue}.wp-block-group .leaf{margin-left:11px}</style></head><body class="page wp-block-group"><main class="page"><p class="leaf">Source</p></main></body></html>')))->toArray();
+$css = implode("\n", array_column($result['assets'], 'content'));
+$page = SourceClassIdentity::marker('page');
+$group = SourceClassIdentity::marker('wp-block-group');
+$assert(str_contains($css, '.' . $page), 'Source page selectors bind to provenance rather than Core page state.');
+$assert(str_contains($css, '.' . $group), 'Generated block-name ancestry also keeps source ownership.');
+$root = SourceClassIdentity::projectRoot(array('class' => 'page wp-block-group scope', 'data-mode' => 'wide'));
+$assert(str_contains($root['class'], $page) && str_contains($root['class'], $group), 'The true root carries the same source markers as actual element subjects.');
+$assert(str_contains($root['class'], 'page wp-block-group scope'), 'Genuine source classes remain available to authored runtime code.');
+$assert('wide' === $root['data-mode'], 'Class provenance does not alter route attributes.');
+$bootstrap = DocumentRootContext::bootstrap(array(array('reconciliation_identity' => 'neutral', 'entrypoint' => true, 'document_metadata' => array('body_attributes' => array('class' => 'page')))));
+$assert(!str_contains($bootstrap, 'array_diff( $classes'), 'Root context keeps Core classes intact.');
+$assert('' === SourceClassIdentity::marker('neutral-scope'), 'Ordinary source names require no alias.');
+echo "WordPress body-class collision tests: {$count} passed\n";

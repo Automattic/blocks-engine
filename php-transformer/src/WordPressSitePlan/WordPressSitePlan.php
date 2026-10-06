@@ -3118,10 +3118,7 @@ PHP;
     private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array()): string
     {
         $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY);
-        $bodyClassCollisions = array();
-        $compat = new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\WordPressCompatCss();
-        foreach ($assets as $asset) if ('css' === $asset['kind'] && 'editor' !== ($asset['stylesheet_target'] ?? 'both')) array_push($bodyClassCollisions, ...$compat->bodyClassCollisionClasses((string) ($asset['content'] ?? '')));
-        $rootContext = DocumentRootContext::bootstrap($pages, array_values(array_unique($bodyClassCollisions)));
+        $rootContext = DocumentRootContext::bootstrap($pages);
         if ('' !== $rootContext) $lines[] = $rootContext;
         $fields = ListingFieldProjection::bootstrap($pages);
         if ('' !== $fields) $lines[] = $fields;

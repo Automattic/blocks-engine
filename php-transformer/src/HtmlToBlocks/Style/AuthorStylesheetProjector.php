@@ -1677,13 +1677,27 @@ final class AuthorStylesheetProjector
     private function editorDocumentRootRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        $matchesRoot = false;
+        $editorSelectors = array();
         $root = $context->authorStyles->sourceBody()->ownerDocument?->documentElement;
         foreach ($selectors ?? array() as $selector) {
             $parsed = $context->sourceStyles->parsedSelector($selector);
-            if ('body' === strtolower(trim($selector)) || ($root instanceof DOMElement && ($parsed['supported'] ?? false) && null === ($parsed['pseudo_state_suffix_span'] ?? null) && CssSelectorMatcher::matches($root, $parsed)['matches'])) $matchesRoot = true;
+            if (!($parsed['supported'] ?? false) || null !== ($parsed['pseudo_state_suffix_span'] ?? null)) continue;
+            if (1 === count($parsed['compounds'] ?? array()) && (
+                'body' === strtolower((string) ($parsed['compounds'][0]['type'] ?? ''))
+                || CssSelectorMatcher::matches($context->authorStyles->sourceBody(), $parsed)['matches']
+            )) {
+                // Keep the authored predicate and specificity. All body subject
+                // rules receive the same editor-only scope, rather than letting
+                // a lifted bare body reset beat a later body.class declaration.
+                $sourceSelector = $this->projectSourceClassSelector($selector, $context);
+                $sourceParsed = $context->sourceStyles->parsedSelector($sourceSelector);
+                $end = (int) $sourceParsed['rightmost_rewrite_end'];
+                $editorSelectors[] = ':root ' . substr($sourceSelector, 0, $end) . '.editor-styles-wrapper' . substr($sourceSelector, $end);
+            } elseif ($root instanceof DOMElement && CssSelectorMatcher::matches($root, $parsed)['matches']) {
+                $editorSelectors[] = $this->projectSourceClassSelector($selector, $context) . ' .editor-styles-wrapper';
+            }
         }
-        if (!$matchesRoot) {
+        if (array() === $editorSelectors) {
             return '';
         }
 
@@ -1703,7 +1717,7 @@ final class AuthorStylesheetProjector
             ARRAY_FILTER_USE_KEY
         );
         $css = $this->styleResolver->cssDeclarationString($declarations);
-        return '' === $css ? '' : ':root .editor-styles-wrapper{' . $css . '}';
+        return '' === $css ? '' : implode(',', $editorSelectors) . '{' . $css . '}';
     }
 
     /** @return list<string>|null */

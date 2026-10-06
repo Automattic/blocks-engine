@@ -12,17 +12,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocab
  */
 final class WordPressCompatCss
 {
-    /**
-     * Template classes WordPress adds to `<body>` via `body_class()`. A source
-     * stylesheet that styles an element of the same name collides with them.
-     *
-     * @var array<int, string>
-     */
-    private const WORDPRESS_BODY_CLASSES = array(
-        'archive', 'attachment', 'author', 'blog', 'category', 'date', 'error404',
-        'home', 'page', 'paged', 'privacy-policy', 'search', 'single', 'tag',
-    );
-
     /** @var array<string, string> */
     private array $cssCache = array();
 
@@ -41,41 +30,6 @@ final class WordPressCompatCss
             . $this->navigationAnchorCompatCss($authoredCss)
             . $this->rootStartupClassCompatCss($authoredCss, $scriptContents)
             . $this->coreRuntimeCompatCss($authoredCss, $files);
-    }
-
-    /**
-     * WordPress-owned body classes that would accidentally acquire a source
-     * content frame. DocumentRootContext reconciles their ownership per route;
-     * genuine source body subjects retain their authored geometry.
-     *
-     * @return array<int, string>
-     */
-    public function bodyClassCollisionClasses(string $css): array
-    {
-        $classes = array();
-        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
-            if ( str_starts_with(trim($rule['selector']), '@') ) {
-                foreach ( $this->bodyClassCollisionClasses($rule['body']) as $nested ) {
-                    $classes[$nested] = true;
-                }
-                continue;
-            }
-            if ( ! preg_match('/(?:^|;)\s*(?:max-width|width|padding|padding-inline|padding-block|padding-left|padding-right|padding-top|padding-bottom|margin|margin-inline|margin-block)\s*:/i', $rule['body']) ) {
-                continue;
-            }
-            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
-                // The rule scanner keeps preceding comments on the selector.
-                $selector = trim(preg_replace('#/\*.*?\*/#s', '', $selector) ?? $selector);
-                if ( ! preg_match('/^\.([A-Za-z_][A-Za-z0-9_-]*)(?::not\(\.blocks-engine-specificity-class-site-\d+\))?$/', $selector, $match) ) {
-                    continue;
-                }
-                if ( in_array(strtolower($match[1]), self::WORDPRESS_BODY_CLASSES, true) ) {
-                    $classes[$match[1]] = true;
-                }
-            }
-        }
-
-        return array_keys($classes);
     }
 
     /**

@@ -5,7 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
-use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use DOMElement;
 
 /** Per-transform author stylesheet inputs, source indexes, and selector state. */
@@ -114,10 +114,10 @@ final class AuthorStyleAnalysis
     /** A source-only identity for a class that Core can synthesize independently. */
     public function sourceClassMarker(string $class): string
     {
-        if ( ! GeneratedGutenbergClassPolicy::isGeneratedClassName($class) ) {
+        if ( ! SourceClassIdentity::needsMarker($class) ) {
             return '';
         }
-        return $this->sourceClassMarkers[$class] ??= $this->allocateStableMarker('source-class', $class);
+        return $this->sourceClassMarkers[$class] ??= SourceClassIdentity::marker($class);
     }
     /** @param list<array<string, mixed>> $rules */
     public function installStyleRules(array $rules): void

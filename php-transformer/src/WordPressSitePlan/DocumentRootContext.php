@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentRootAttributes;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use InvalidArgumentException;
 
 /** Authored document-root selector identity, distinct from font presets. */
@@ -36,8 +37,8 @@ final class DocumentRootContext
         return (bool) array_filter($pages, static fn(array $page): bool => empty($page['synthetic']) && array() !== array_diff_key($page['document_metadata']['body_attributes'] ?? array(), array('class' => true)));
     }
 
-    /** @param array<int,array<string,mixed>> $pages @param list<string> $bodyClassCollisions */
-    public static function bootstrap(array $pages, array $bodyClassCollisions = array()): string
+    /** @param array<int,array<string,mixed>> $pages */
+    public static function bootstrap(array $pages): string
     {
         $rows = array();
         foreach ($pages as $page) {
@@ -46,9 +47,9 @@ final class DocumentRootContext
             self::assertValid($attributes);
             self::assertValid($bodyAttributes);
             if (!empty($page['synthetic'])) continue;
-            $rows[] = array('identity' => $page['reconciliation_identity'], 'path' => trim((string) ($page['route']['path'] ?? ''), '/'), 'front_page' => !empty($page['entrypoint']), 'attributes' => $attributes, 'body_attributes' => $bodyAttributes);
+            $rows[] = array('identity' => $page['reconciliation_identity'], 'path' => trim((string) ($page['route']['path'] ?? ''), '/'), 'front_page' => !empty($page['entrypoint']), 'attributes' => SourceClassIdentity::projectRoot($attributes), 'body_attributes' => SourceClassIdentity::projectRoot($bodyAttributes));
         }
-        if (array() === $rows && array() === $bodyClassCollisions) return '';
+        if (array() === $rows) return '';
         $code = <<<'PHP'
 $blocks_engine_document_attributes = static function ( string $element ) use ( &$blocks_engine_document_roots ): array {
     $id = is_singular() ? get_queried_object_id() : 0;
@@ -69,9 +70,8 @@ add_filter( 'language_attributes', static function ( string $output ) use ( $blo
     }
     return substr( $tag->get_updated_html(), 6, -1 );
 } );
-add_filter( 'body_class', static function ( array $classes ) use ( $blocks_engine_document_attributes, &$blocks_engine_body_class_collisions ): array {
+add_filter( 'body_class', static function ( array $classes ) use ( $blocks_engine_document_attributes ): array {
     $source_classes = preg_split( '/\s+/', trim( $blocks_engine_document_attributes( 'body' )['class'] ?? '' ), -1, PREG_SPLIT_NO_EMPTY ) ?: array();
-    $classes = array_diff( $classes, array_diff( $blocks_engine_body_class_collisions, $source_classes ) );
     return array_values( array_unique( array_merge( $classes, $source_classes ) ) );
 } );
 add_filter( 'template_include', static function ( string $template ) use ( $blocks_engine_document_attributes ): string {
@@ -86,23 +86,84 @@ add_filter( 'block_editor_settings_all', static function ( array $settings, $con
     $identity = get_post_meta( $context->post->ID, '_blocks_engine_reconciliation_identity', true );
     foreach ( $blocks_engine_document_roots as $row ) {
         if ( $identity !== $row['identity'] ) continue;
-        // Content assets execute in Gutenberg's iframe, whose body is the
-        // native canvas ancestor. Document context never enters saved blocks.
-        $state = wp_json_encode( array( 'html' => $row['attributes'], 'body' => $row['body_attributes'] ), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT );
-        $settings['__unstableResolvedAssets']['body'] = ( $settings['__unstableResolvedAssets']['body'] ?? '' ) . '<script>(function(){var state=' . $state . ';function apply(){if(!document.body||!document.body.classList.contains("editor-styles-wrapper"))return;Object.keys(state).forEach(function(name){var node=name==="html"?document.documentElement:document.body;Object.keys(state[name]).forEach(function(key){var value=state[name][key];if(key==="class"){value.split(/\s+/).filter(Boolean).forEach(function(token){if(!node.classList.contains(token))node.classList.add(token);});}else if(node.getAttribute(key)!==value)node.setAttribute(key,value);});});}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",apply,{once:true});else apply();new MutationObserver(apply).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:["class"]});})();</script>';
+        // React inserts resolved body HTML without executing its script tags.
+        // The parent editor script consumes page-owned settings and reconciles
+        // the actual iframe roots, separately from saved block markup.
+        $settings['blocksEngineDocumentContext'] = array( 'html' => $row['attributes'], 'body' => $row['body_attributes'] );
         break;
     }
     return $settings;
 }, 20, 2 );
 PHP;
+        $code .= "\nadd_action( 'enqueue_block_editor_assets', static function (): void { wp_add_inline_script( 'wp-block-editor', " . var_export(self::editorScript(), true) . ", 'after' ); } );\n";
         // Incremental imports append bootstrap files. One runtime owner reads
         // their combined route registry. Each authoritative identity replaces
         // its earlier record, including empty state, without dropping other
         // routes or replacing the canvas resolver.
-        return "global \$blocks_engine_document_roots, \$blocks_engine_body_class_collisions, \$blocks_engine_document_attributes;\n"
+        return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes;\n"
             . '$blocks_engine_document_roots = array_replace( array_column( $blocks_engine_document_roots ?? array(), null, \'identity\' ), array_column( ' . var_export($rows, true) . ', null, \'identity\' ) );' . "\n"
-            . '$blocks_engine_body_class_collisions = array_values( array_unique( array_merge( $blocks_engine_body_class_collisions ?? array(), ' . var_export($bodyClassCollisions, true) . ' ) ) );' . "\n"
             . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n";
+    }
+
+    public static function editorScript(): string
+    {
+        return <<<'JS'
+(function(){
+    var documents = new WeakMap(), frames = new WeakSet();
+    function state(){
+        return window.wp && wp.data && wp.data.select('core/editor')
+            ? wp.data.select('core/editor').getEditorSettings().blocksEngineDocumentContext || {}
+            : window.blocksEngineDocumentContext || {};
+    }
+    function reconcile(doc){
+        if(!doc.body || !doc.body.classList.contains('editor-styles-wrapper')) return;
+        var record = documents.get(doc);
+        if(!record){
+            record = {html:{},body:{}};
+            documents.set(doc, record);
+            new MutationObserver(apply).observe(doc.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
+        }
+        var current = state();
+        ['html','body'].forEach(function(name){
+            var node = name === 'html' ? doc.documentElement : doc.body;
+            var next = current[name] || {}, prior = record[name];
+            Object.keys(prior).forEach(function(key){
+                var old = prior[key];
+                if(key === 'class'){
+                    old.added.forEach(function(token){if(!(next.class || '').split(/\s+/).includes(token)) node.classList.remove(token);});
+                }else if(!(key in next) && node.getAttribute(key) === old.value){
+                    if(old.original === null) node.removeAttribute(key); else node.setAttribute(key,old.original);
+                }
+            });
+            var owned = {};
+            Object.keys(next).forEach(function(key){
+                var value = next[key];
+                if(key === 'class'){
+                    var added = prior.class ? prior.class.added.filter(function(token){return value.split(/\s+/).includes(token);}) : [];
+                    value.split(/\s+/).filter(Boolean).forEach(function(token){
+                        if(!node.classList.contains(token)){node.classList.add(token); if(!added.includes(token)) added.push(token);}
+                    });
+                    owned.class = {added:added};
+                }else{
+                    owned[key] = {value:value,original:prior[key] ? prior[key].original : node.getAttribute(key)};
+                    if(node.getAttribute(key) !== value) node.setAttribute(key,value);
+                }
+            });
+            record[name] = owned;
+        });
+    }
+    function apply(){
+        reconcile(document);
+        document.querySelectorAll('iframe[name="editor-canvas"]').forEach(function(frame){
+            if(!frames.has(frame)){frames.add(frame);frame.addEventListener('load',apply);}
+            if(frame.contentDocument) reconcile(frame.contentDocument);
+        });
+    }
+    new MutationObserver(apply).observe(document.documentElement,{subtree:true,childList:true});
+    if(window.wp && wp.data) wp.data.subscribe(apply);
+    if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded',apply,{once:true}); else apply();
+})();
+JS;
     }
 
     public static function canvas(): string
