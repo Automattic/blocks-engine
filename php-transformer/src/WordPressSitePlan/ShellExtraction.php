@@ -690,6 +690,10 @@ final class ShellExtraction
                 $clusters[$key]['identity'] = $identity;
                 $clusters[$key]['text_length'] = strlen($text);
                 $clusters[$key]['source_paths'][$document['source_path']] = true;
+                // One shared part can represent many routes, but its content
+                // is already stored once. Only distinct physical owners can
+                // justify another shared-content extraction.
+                $clusters[$key]['owners'][$document['kind'] . ':' . $document['index']] = true;
                 if ('page' === $document['kind']) $clusters[$key]['page_regions'][$document['index']][$document['region_index']] = true;
                 $clusters[$key]['documents'][$documentIndex][] = array(
                     'kind' => $document['kind'],
@@ -707,7 +711,7 @@ final class ShellExtraction
             }
         }
         unset($candidateCluster);
-        $clusters = array_filter($clusters, static fn(array $cluster): bool => empty($cluster['incomplete_responsive_regions']));
+        $clusters = array_filter($clusters, static fn(array $cluster): bool => empty($cluster['incomplete_responsive_regions']) && count($cluster['owners'] ?? array()) >= 2);
         uasort($clusters, static fn(array $left, array $right): int => count($right['source_paths'] ?? array()) <=> count($left['source_paths'] ?? array()) ?: ($right['text_length'] ?? 0) <=> ($left['text_length'] ?? 0));
         $cluster = reset($clusters);
         if (!is_array($cluster) || count($cluster['source_paths'] ?? array()) < 2) return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => array());

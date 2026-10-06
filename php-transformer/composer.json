@@ -81,6 +81,7 @@
       "php tests/contract/entry-point-transform-parity.php",
       "php tests/contract/html-transformer-editability-policy.php",
       "php tests/contract/shared-shell-plan.php",
+      "php tests/contract/canonical-html-includes.php",
       "php tests/contract/shared-navigation-entity.php",
       "php tests/contract/navigation-explicit-references.php",
       "php tests/contract/shared-shell-containment.php",
