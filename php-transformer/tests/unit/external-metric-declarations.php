@@ -62,6 +62,10 @@ $badGithub = $githubFact; $badGithub['metric'] = 'private_token';
 $assert($rejected($declaration(array($badGithub))), 'rejects unsupported GitHub metric fields');
 $badGithub = $githubFact; $badGithub['provider']['field'] = 'stargazers_count';
 $assert($rejected($declaration(array($badGithub))), 'rejects redundant provider.field rather than retaining an alias');
+$badGithub = $githubFact; $badGithub['provider']['source'] = 'https://attacker.invalid/';
+$assert($rejected($declaration(array($badGithub))), 'rejects an arbitrary GitHub provider source override');
+$badGithub = $githubFact; $badGithub['provider']['endpoint'] = 'https://attacker.invalid/';
+$assert($rejected($declaration(array($badGithub))), 'rejects an arbitrary GitHub endpoint override');
 foreach (array('.', '..', 'Automattic/blocks-engine', 'https://github.com/Automattic/.github', 'repo?query', str_repeat('a', 101), '') as $repository) {
     $badGithub = $githubFact; $badGithub['provider']['repository'] = $repository;
     $assert($rejected($declaration(array($badGithub))), 'rejects malformed GitHub repository selector ' . $repository);

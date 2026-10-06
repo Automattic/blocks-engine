@@ -148,7 +148,7 @@ final class RuntimeDeclarations
             $providerId = $entity['provider']['id'] ?? null;
             if ('github' === $providerId) {
                 $repository = $entity['provider']['repository'] ?? null;
-                if (!is_string($entity['provider']['owner'] ?? null) || !preg_match('/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/', $entity['provider']['owner']) || !is_string($repository) || strlen($repository) > 100 || 1 !== preg_match('/^[A-Za-z0-9._-]+$/', $repository) || in_array($repository, array('.', '..'), true) || array_key_exists('field', $entity['provider'])) throw new InvalidArgumentException("Runtime declaration {$index} GitHub repository selector is invalid.");
+                if (array() !== array_diff(array_keys($entity['provider']), array('schema', 'id', 'owner', 'repository')) || !is_string($entity['provider']['owner'] ?? null) || !preg_match('/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/', $entity['provider']['owner']) || !is_string($repository) || strlen($repository) > 100 || 1 !== preg_match('/^[A-Za-z0-9._-]+$/', $repository) || in_array($repository, array('.', '..'), true)) throw new InvalidArgumentException("Runtime declaration {$index} GitHub provider resource or repository selector is invalid.");
                 $source = 'github_repository';
                 $slugs = array();
                 $allowed = array('stargazers_count' => array('identity'), 'forks_count' => array('identity'));
