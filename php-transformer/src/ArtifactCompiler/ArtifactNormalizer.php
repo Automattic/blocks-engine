@@ -80,6 +80,7 @@ final class ArtifactNormalizer
         }
 
         $rawFiles = $this->rawFiles($artifact);
+        $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports);
         $reservedPaths = array();
         foreach ( $rawFiles as $file ) {
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
@@ -579,6 +580,8 @@ final class ArtifactNormalizer
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
+
             if ( isset($expandedSources[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))]) ) {
                 continue;
             }
@@ -803,6 +806,8 @@ final class ArtifactNormalizer
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
+
             if ( isset($expandedSources[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))]) ) {
                 continue;
             }
@@ -905,7 +910,7 @@ final class ArtifactNormalizer
         if (null === $contentKey || !is_string($file[$contentKey])) {
             return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('missing_file_payload', 'warning', 'An artifact file was ignored because it has no explicit text or base64 payload.', array('path' => $path))));
         }
-        $content = $this->normalizeContent($file[$contentKey]);
+        $content = !empty($file['metadata']['compilation']['resolved_html_includes']) ? $file[$contentKey] : $this->normalizeContent($file[$contentKey]);
         return array('accepted' => true, 'content' => $content, 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => strlen($content), 'diagnostics' => array());
     }
 

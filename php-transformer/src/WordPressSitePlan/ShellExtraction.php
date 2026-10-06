@@ -690,6 +690,10 @@ final class ShellExtraction
                 $clusters[$key]['identity'] = $identity;
                 $clusters[$key]['text_length'] = strlen($text);
                 $clusters[$key]['source_paths'][$document['source_path']] = true;
+                // One shared part can represent many routes, but its content
+                // is already stored once. Only distinct physical owners can
+                // justify another shared-content extraction.
+                $clusters[$key]['owners'][$document['kind'] . ':' . $document['index']] = true;
                 if ('page' === $document['kind']) $clusters[$key]['page_regions'][$document['index']][$document['region_index']] = true;
                 $clusters[$key]['documents'][$documentIndex][] = array(
                     'kind' => $document['kind'],
@@ -707,7 +711,7 @@ final class ShellExtraction
             }
         }
         unset($candidateCluster);
-        $clusters = array_filter($clusters, static fn(array $cluster): bool => empty($cluster['incomplete_responsive_regions']));
+        $clusters = array_filter($clusters, static fn(array $cluster): bool => empty($cluster['incomplete_responsive_regions']) && count($cluster['owners'] ?? array()) >= 2);
         uasort($clusters, static fn(array $left, array $right): int => count($right['source_paths'] ?? array()) <=> count($left['source_paths'] ?? array()) ?: ($right['text_length'] ?? 0) <=> ($left['text_length'] ?? 0));
         $cluster = reset($clusters);
         if (!is_array($cluster) || count($cluster['source_paths'] ?? array()) < 2) return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => array());
@@ -1098,7 +1102,7 @@ final class ShellExtraction
             }
             if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, 'wordpress-site-plan/shared/' . $area . '#' . $area);
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
-            $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
+            $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
             $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $area;
             $placement = $inlineShell ? 'inline_shared_shell' : ($singlePage ? 'entry_shell' : 'shared_shell');
             if ($inlineShell) { $templateSlugs = array(); $excludedTemplateSlugs = array(); }
@@ -1217,7 +1221,7 @@ final class ShellExtraction
         foreach ($indexes as $index) {
             $pageKeys = array();
             foreach ($shellBindings[$index] ?? array() as $ref) {
-                $key = self::hoistableEntityKey($declarations[$ref['declaration']]['payload']['entities'][$ref['entity']]);
+                $key = self::hoistableEntityKey($declarations[$ref['declaration']]['payload']['entities'][$ref['entity']], (string) ($declarations[$ref['declaration']]['type'] ?? ''));
                 if (null === $key) return null;
                 $pageKeys[] = $key;
             }
@@ -1251,12 +1255,25 @@ final class ShellExtraction
     }
 
     /** @param array<string,mixed> $entity */
-    private static function hoistableEntityKey(array $entity): ?string
+    private static function hoistableEntityKey(array $entity, string $type = ''): ?string
     {
         $bindings = $entity['bindings'] ?? null;
         if (!is_array($bindings) || 1 !== count($bindings) || !empty($entity['superseded_scripts'])) return null;
         $role = (string) ($bindings[array_key_first($bindings)]['role'] ?? '');
         unset($entity['bindings'], $entity['reconciliation_identity'], $entity['fallback_identity'], $entity['replaced_fallback_identities']);
+        // External metric rows repeated in equivalent shared chrome are
+        // per-document anchors for one provider fact. The first row owns the
+        // shared-part binding; route-specific IDs are transport identities, not
+        // metric semantics, so comparing them would incorrectly retain every
+        // otherwise-identical shell page.
+        if ('external_metrics' === $type && is_array($entity['provider'] ?? null) && isset($entity['metric'], $entity['aggregation'], $entity['fallback'])) {
+            unset($entity['id']);
+            // Unlike ordinary source-location provenance, external metric
+            // provenance establishes why a server-side fact is trustworthy.
+            // Keep its kind, repository revision and source path in the
+            // equivalence key so coalescing cannot discard a distinct mapping.
+            return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson($entity));
+        }
         return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson(self::withoutSourcePaths($entity)));
     }
 
@@ -1375,7 +1392,7 @@ final class ShellExtraction
         }
         foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
         unset($declaration);
-        $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
+        $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
         $sourcePath = 'wordpress-site-plan/shared/' . $area;
         $partMarkup = $absorbed['markup'];
         $ancestorContext = is_array($absorbed['ancestor_context'] ?? null) ? $absorbed['ancestor_context'] : null;

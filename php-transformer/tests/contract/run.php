@@ -5787,11 +5787,10 @@ $scriptCompanion = $compiler->compile(
     )
 )->toArray();
 $scriptPayload = $scriptCompanion['source_reports']['companion_plugin_payload'] ?? array();
-$assert(array() === ($scriptPayload['blocks'] ?? null), 'script-only companion payload does not invent a custom block');
-$assert(1 === count($scriptPayload['preserved_js'] ?? array()), 'script-only artifact emits one preserved companion script');
-$assert(str_contains((string) ($scriptPayload['preserved_js'][0]['content'] ?? ''), 'dataset.ready'), 'companion payload carries the inline script body');
-$assert('script:nth-of-type(1)' === ($scriptPayload['preserved_js'][0]['selector'] ?? ''), 'companion payload carries the source script selector');
-$assert('index.html' === ($scriptPayload['preserved_js'][0]['source_path'] ?? ''), 'companion payload carries the source document path');
+$assert(array() === ($scriptPayload['blocks'] ?? array()), 'script-only companion payload does not invent a custom block');
+$scriptOnlyPlan = $scriptCompanion['source_reports']['wordpress_site_plan'] ?? array();
+$scriptOnlyThemeScripts = array_merge(...array_map(static fn (array $page): array => $page['document_metadata']['scripts'] ?? array(), $scriptOnlyPlan['pages'] ?? array()));
+$assert(array() === ($scriptPayload['preserved_js'] ?? array()) && 1 === count($scriptOnlyThemeScripts), 'theme-declared inline script stays once in the theme and is not duplicated in the companion payload');
 
 $rootedScriptCompanion = $compiler->compile(
     array(

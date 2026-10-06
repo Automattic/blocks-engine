@@ -210,6 +210,8 @@ final class AuthoredFormControlBlockConverter
             'dataAttributes' => $preserveDataAttributes ? $this->dataAttributes($input) : array(),
             'label' => $label instanceof DOMElement ? $this->metadataBuilder->labelText($label) : '',
             'labelMarkup' => $label instanceof DOMElement ? ($this->richTextLabelContent)($label) : '',
+            'labelId' => $label instanceof DOMElement ? SourceDom::attr($label, 'id') : '',
+            'labelAfterControl' => $label instanceof DOMElement && $this->inputBeforeCaption($input, $label),
             'labelClassName' => $label instanceof DOMElement ? SourceDom::attr($label, 'class') : '',
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
@@ -222,6 +224,16 @@ final class AuthoredFormControlBlockConverter
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
+    }
+
+    private function inputBeforeCaption(DOMElement $input, DOMElement $label): bool
+    {
+        if (!$input->parentNode?->isSameNode($label)) return false;
+        foreach ($label->childNodes as $child) {
+            if ($child instanceof \DOMText && '' === trim($child->textContent)) continue;
+            return $child->isSameNode($input);
+        }
+        return false;
     }
 
     /**
@@ -300,6 +312,46 @@ final class AuthoredFormControlBlockConverter
             'style' => SourceDom::attr($button, 'style'),
             'text' => $this->metadataBuilder->submitText($button, 'Submit'),
             'labelWrappers' => AuthoredButtonBlockGenerator::labelWrappers(($this->projectSourceTags)($button) ?? $button),
+            'disabled' => $button->hasAttribute('disabled'),
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
+        $markup = $generator->markup($attrs);
+
+        return array(
+            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function runtimeButton(DOMElement $button): array
+    {
+        $generator = new AuthoredButtonBlockGenerator();
+        $registry = ($this->generatedBlocks)();
+        $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
+        $type = FormControlClassifier::controlType($button);
+        if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
+            $type = 'submit';
+        }
+        $projected = ($this->projectSourceTags)($button) ?? $button;
+        $parts = AuthoredButtonBlockGenerator::contentParts($projected);
+        $sourceAttributes = array();
+        foreach (AuthoredButtonBlockGenerator::sourceSafeAttributes($button) as $name => $value) {
+            $sourceAttributes[] = array('name' => $name, 'value' => $value);
+        }
+        $attrs = array_filter(array(
+            'type' => $type,
+            'id' => SourceDom::attr($button, 'id'),
+            'name' => SourceDom::attr($button, 'name'),
+            'ariaLabel' => SourceDom::attr($button, 'aria-label'),
+            'className' => SourceDom::attr($button, 'class'),
+            'style' => SourceDom::attr($button, 'style'),
+            'text' => array() === $parts ? trim(preg_replace('/\s+/', ' ', $button->textContent ?? '') ?? '') : '',
+            'labelWrappers' => AuthoredButtonBlockGenerator::labelWrappers($projected),
+            'contentParts' => $parts,
+            'sourceAttributes' => $sourceAttributes,
             'disabled' => $button->hasAttribute('disabled'),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $markup = $generator->markup($attrs);

@@ -1709,6 +1709,7 @@ final class ArtifactCompiler
     {
         $areas = array();
         foreach ( $files as $file ) {
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
             if ( ! is_array($file) || ! $this->isTemplatePartFile($file) ) {
                 continue;
             }
@@ -2724,16 +2725,20 @@ final class ArtifactCompiler
                 break;
             }
         }
-        if ( ! $hasDeclaredScriptFiles ) {
+        $documentScripts = $this->documentScriptContents($html, $sourcePath, $files);
+        if ( ! $hasDeclaredScriptFiles && array() === $documentScripts ) {
             return array();
         }
 
         $selectors = array();
         $controlSelectors = $this->formControlSelectors($html);
         $statusFeedbackSelectors = $this->formStatusFeedbackSelectors($html);
-        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
+        foreach ( $documentScripts as $script ) {
             foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
                 $selector = (string) $dependency['selector'];
+                if ( ! $hasDeclaredScriptFiles && ! str_contains($selector, '[data-') ) {
+                    continue;
+                }
                 if ( true === $dependency['presentation_only'] ) {
                     continue;
                 }
@@ -3684,6 +3689,10 @@ final class ArtifactCompiler
             if ( ! $this->isTemplatePartFile($file) ) {
                 continue;
             }
+
+            // Resolved component chrome is bound by ShellExtraction from each
+            // page's actual block tree, not emitted again as an unbound part.
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
 
             $slug = $this->slugFromPath($path);
             $area = $this->templatePartArea($path, (string) ($file['role'] ?? ''));

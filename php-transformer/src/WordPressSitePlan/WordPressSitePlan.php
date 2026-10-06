@@ -45,9 +45,16 @@ final class WordPressSitePlan
      * rewriting stays off while it is active. Static block content survives
      * texturization only because its punctuation is entity encoded; text that a
      * dynamic block decodes and prints is rewritten, so the guarantee belongs to
-     * the theme rather than to any one block.
+     * the theme rather than to any one block. Native emoji also belongs to that
+     * typography: replacing glyphs with images changes authored line boxes.
      */
-    public const SOURCE_TEXT_TYPOGRAPHY = "add_filter( 'run_wptexturize', '__return_false' );";
+    public const SOURCE_TEXT_TYPOGRAPHY = <<<'PHP'
+add_filter( 'run_wptexturize', '__return_false' );
+remove_action( 'wp_head', 'print_emoji_detection_script', 7 );
+remove_action( 'embed_head', 'print_emoji_detection_script' );
+add_action( 'admin_init', static function (): void { remove_action( 'admin_print_scripts', 'print_emoji_detection_script' ); } );
+add_filter( 'tiny_mce_plugins', static function ( array $plugins ): array { return array_values( array_diff( $plugins, array( 'wpemoji' ) ) ); } );
+PHP;
     private string $sourceOrigin = '';
     private string $sourceUrl = '';
     private const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
@@ -266,13 +273,10 @@ final class WordPressSitePlan
         // so assign occurrences only after that shared projection is complete.
         $runtimeEntityRecords = $compiled['runtime_entity_records'] ?? array();
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages);
-        $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
-        $runtimeDeclarations = $factoredRuntimeDeclarations['declarations'];
-        $runtimeRecords = $factoredRuntimeDeclarations['records'];
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
         $projector = new ThemeJsonProjection();
-        $themeProjection = $projector->project($assets);
+        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'));
         $assets = $themeProjection['assets'];
         $routes = $this->routesForPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
@@ -330,6 +334,11 @@ final class WordPressSitePlan
         }
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus), $assetWrites);
         $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->missingMedia->diagnostics());
+        // All shell, navigation, listing and script binding projection is now
+        // complete. Only the public plan needs the bounded record form.
+        $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
+        $runtimeDeclarations = $factoredRuntimeDeclarations['declarations'];
+        $runtimeRecords = $factoredRuntimeDeclarations['records'];
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => $this->sourceDocumentCatalog($compiled['pages'] ?? array())),
@@ -415,7 +424,9 @@ final class WordPressSitePlan
         $records = RuntimeEntityManifest::normalizeRecords($plan['runtime_entity_records']);
         if ($records !== $plan['runtime_entity_records']) throw new InvalidArgumentException('WordPress site plan runtime entity records are not canonically normalized.');
         foreach ($plan['runtime_declarations'] as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) RuntimeEntityManifest::resolve($declaration['payload'], $records);
-        self::assertEntityBindingsAnchored($plan['runtime_declarations'], $plan['pages'], $plan['template_parts'], $plan['assets']);
+        $runtimeRecords = RuntimeDeclarations::normalizeRecords($plan['runtime_records'] ?? array());
+        if ($runtimeRecords !== ($plan['runtime_records'] ?? array())) throw new InvalidArgumentException('WordPress site plan runtime records are not canonically normalized.');
+        self::assertEntityBindingsAnchored(RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $plan['pages'], $plan['template_parts'], $plan['assets']);
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
@@ -3460,7 +3471,7 @@ final class WordPressSitePlan
         }
         unset($declaration);
 
-        return $declarations;
+        return RuntimeDeclarations::normalizeForComposition($declarations);
     }
 
     /** @internal Exposed for ShellExtraction, which canonicalizes shell-candidate links through the same route table as page content. @param array<int,array<string,mixed>> $routes */

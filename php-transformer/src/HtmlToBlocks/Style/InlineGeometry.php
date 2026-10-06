@@ -226,7 +226,7 @@ final class InlineGeometry
         }
 
         $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
-        if ( in_array($position, array( 'relative', 'sticky' ), true) ) {
+        if ( in_array($position, array( 'relative', 'fixed', 'sticky' ), true) ) {
             return true;
         }
 
@@ -234,10 +234,9 @@ final class InlineGeometry
     }
 
     /**
-     * Class-owned `relative`/`absolute`/`sticky` keeps per-element inline
+     * Class-owned positioning keeps per-element inline
      * insets. Inline `position` stays on the existing inlineDeclaresPositioning
-     * path so unanchored absolute and viewport-fixed layers are not pinned
-     * through the carrier.
+     * path so unanchored absolute layers are not pinned through the carrier.
      *
      * @param array<string, string> $declarations
      */
@@ -252,7 +251,7 @@ final class InlineGeometry
             (string) (($this->structuralPresentationDeclarations)($element)['position'] ?? '')
         );
 
-        return in_array($position, array( 'relative', 'absolute', 'sticky' ), true);
+        return in_array($position, array( 'relative', 'absolute', 'fixed', 'sticky' ), true);
     }
 
     /**
@@ -399,10 +398,6 @@ final class InlineGeometry
         if ('hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''))) {
             $properties[] = 'visibility';
         }
-        // A viewport-fixed layer is deliberately not pinned (see
-        // inlineDeclaresPositioning()), so it stays in flow. The source box never
-        // occupied flow, so its fixed dimensions must not either; the layer keeps
-        // only its own content's size instead of reserving source space.
         $collapsedHeight = CssValueInspector::comparable((string) ($declarations['height'] ?? $declarations['max-height'] ?? ''));
         if (
             1 === preg_match('/^0(?:px|em|rem|%|vh|vw)?$/', $collapsedHeight)
@@ -417,12 +412,6 @@ final class InlineGeometry
             $properties = array_merge($properties, $this->backgroundCarrierProperties());
         }
         $carried = array_values(array_unique(array_merge($properties, $forcedProperties)));
-        if ( 'fixed' === CssValueInspector::comparable((string) ($declarations['position'] ?? '')) ) {
-            // A viewport-fixed layer is deliberately not pinned (see
-            // inlineDeclaresPositioning()), so it stays in flow. Its source box
-            // never occupied flow, so no carrier may reserve those dimensions.
-            $carried = array_values(array_diff($carried, array( 'width', 'height', 'min-width', 'min-height' )));
-        }
         foreach ($carried as $property) {
             if (in_array($property, $excludedProperties, true)) {
                 continue;
@@ -545,6 +534,13 @@ final class InlineGeometry
         }
         if ( array() !== $importantDeclarations ) {
             $rules[] = '.' . $className . '{' . implode(';', $importantDeclarations) . '}';
+        }
+        if ( 'fixed' === CssValueInspector::comparable(
+            (string) (($this->structuralPresentationDeclarations)($element)['position'] ?? '')
+        ) ) {
+            // Preserve the source box on the frontend. In the editor, keep it
+            // in the canvas flow so viewport chrome cannot cover editable blocks.
+            $rules[] = ':root .editor-styles-wrapper .' . $className . '{position:relative !important;inset:auto !important;z-index:auto !important}';
         }
         $float = strtolower(CssValueInspector::comparable((string) ($geometry['float'] ?? '')));
         if ( in_array($float, array( 'left', 'right' ), true) ) {

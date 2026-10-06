@@ -144,16 +144,21 @@ $assert(
     $carrierRules($unanchored)
 );
 
-// -- `fixed` keeps its existing handling and never reaches the carrier.
+// -- Viewport-fixed layers retain their source box, with editor-only accommodation.
 $fixedOverlay = $transform(
     '<section class="hero"><h1>Atmospheric hero</h1>'
     . '<div class="grain" style="position:fixed;inset:0;pointer-events:none;opacity:.14"></div>'
     . '</section>'
 );
 $assert(
-    ! str_contains($carrierRules($fixedOverlay), 'position:fixed'),
-    'viewport-fixed layers are not pinned to the editor canvas through the carrier',
+    str_contains($carrierRules($fixedOverlay), 'position:fixed') && str_contains($carrierRules($fixedOverlay), 'inset:0'),
+    'viewport-fixed layers retain positioning and insets together on the frontend',
     $carrierRules($fixedOverlay)
+);
+$assert(
+    1 === preg_match('/:root \.editor-styles-wrapper \.be-inline-geometry-[a-f0-9-]+\{position:relative !important;inset:auto !important;z-index:auto !important\}/', $cssOf($fixedOverlay)),
+    'viewport-fixed layers are accommodated in editor flow without changing frontend positioning',
+    $cssOf($fixedOverlay)
 );
 
 // -- `position:relative` needs no containing block of its own.

@@ -250,8 +250,18 @@ final class StyleResolver implements ElementPresentationResolver
             )));
         }
 
+        $anchor = SourceDom::anchorAttributeValue(SourceDom::attr($element, 'id'));
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
-            'anchor'    => SourceDom::anchorAttributeValue(SourceDom::attr($element, 'id')),
+            // A non-default responsive document variant (e.g. the mobile
+            // counterpart of a desktop document) can reuse the very same
+            // source id as its default-variant counterpart's copy of the
+            // same wrapper. Both compile into the same page, so when that
+            // id is genuinely shared across variants it must not survive
+            // unchanged on both: that produces duplicate ids, which is
+            // invalid HTML and breaks same-page anchor navigation to that
+            // id. An id unique to its own variant (no other variant
+            // declares it) is left exactly as authored.
+            'anchor'    => '' === $anchor ? '' : $anchor . $this->documentVariantIdDisambiguationSuffix($element, $anchor),
             'className' => $this->mergePresentationClassNames(
                 $this->inlineStyleDeclaresAllReset($element) ? '' : $this->context->promotedClassName(SourceDom::attr($element, 'class')),
                 $this->editorAnchorClassName($element),
@@ -3297,6 +3307,33 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * The suffix that disambiguates `$id` on `$element` from another
+     * responsive document variant's copy of the same id, or '' when no
+     * other variant actually declares it. Captured desktop/mobile document
+     * pairs commonly reuse ids on genuinely distinct elements that happen to
+     * sit in only one variant (e.g. a mobile-only component root); those
+     * stay exactly as authored, so only an id proven to recur under a
+     * different {@see SourceDom::documentVariantRoot()} is disambiguated.
+     */
+    private function documentVariantIdDisambiguationSuffix(DOMElement $element, string $id): string
+    {
+        $suffix = SourceDom::documentVariantIdSuffix($element);
+        if ( '' === $suffix ) {
+            return '';
+        }
+        $ownRoot = SourceDom::documentVariantRoot($element);
+        foreach ( $this->context->authorStyles()->sourceElementsById($id) as $candidate ) {
+            if ( ! $element->isSameNode($candidate) ) {
+                $candidateRoot = SourceDom::documentVariantRoot($candidate);
+                if ( ! ( $candidateRoot instanceof DOMElement && $ownRoot instanceof DOMElement && $candidateRoot->isSameNode($ownRoot) ) ) {
+                    return $suffix;
+                }
+            }
+        }
+        return '';
+    }
+
+    /**
      * An element is treated as genuinely (decoratively) hidden when it carries
      * no real content or interactivity, or it is presentational. Collapsible
      * regions that still hold content stay content-bearing even when the source
@@ -4411,6 +4448,28 @@ final class StyleResolver implements ElementPresentationResolver
         $cache = $this->context->sourceStyles();
         $index = $cache->ruleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
         return $cache->selectorMatchCache->styleRuleCandidates($element, $collection, $index);
+    }
+
+    /** @return list<string> Authored interaction states that paint a background on this element. */
+    public function sourceBackgroundInteractionStates(DOMElement $element): array
+    {
+        $states = array();
+        foreach ( $this->context->sourceStyles()->navigationStateRules() as $rule ) {
+            $state = strtolower((string) ($rule['state'] ?? ''));
+            if ( ! in_array($state, array('hover', 'focus', 'focus-visible', 'active'), true) ) continue;
+            if ( ! $this->matchesCssSelector($element, (string) ($rule['base_selector'] ?? '')) ) continue;
+            foreach ( array('background', 'background-color') as $property ) {
+                $value = CssValueInspector::comparable((string) ($rule['declarations'][$property] ?? ''));
+                if ( '' !== $value
+                    && ! CssValueInspector::isTransparentColor($value)
+                    && ! in_array($value, array('none', 'initial', 'inherit', 'unset', 'revert'), true)
+                ) {
+                    $states[$state] = true;
+                    break;
+                }
+            }
+        }
+        return array_keys($states);
     }
 
     /** @return array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, attributes: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} */
