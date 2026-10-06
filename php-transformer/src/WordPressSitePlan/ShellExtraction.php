@@ -1262,7 +1262,14 @@ final class ShellExtraction
         // shared-part binding; route-specific IDs are transport identities, not
         // metric semantics, so comparing them would incorrectly retain every
         // otherwise-identical shell page.
-        if ('external_metrics' === $type && is_array($entity['provider'] ?? null) && isset($entity['metric'], $entity['aggregation'], $entity['fallback'])) unset($entity['id']);
+        if ('external_metrics' === $type && is_array($entity['provider'] ?? null) && isset($entity['metric'], $entity['aggregation'], $entity['fallback'])) {
+            unset($entity['id']);
+            // Unlike ordinary source-location provenance, external metric
+            // provenance establishes why a server-side fact is trustworthy.
+            // Keep its kind, repository revision and source path in the
+            // equivalence key so coalescing cannot discard a distinct mapping.
+            return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson($entity));
+        }
         return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson(self::withoutSourcePaths($entity)));
     }
 

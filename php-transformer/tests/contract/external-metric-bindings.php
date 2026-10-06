@@ -105,6 +105,10 @@ $assert($shellDeclarationIdentity === ($shellResolved['runtime_declarations'][0]
 $assert(in_array($shellEntities[0]['id'] ?? null, array_column($shellMetrics, 'id'), true), 'shared-shell hoisting keeps one original route owner');
 $assert(RuntimeDeclarations::canonicalJson($operatorMapping) === RuntimeDeclarations::canonicalJson($resolvedEntities['block-visibility-version']['provenance'] ?? null), 'source operator mapping remains intact after shell extraction');
 $assert('73,000+' === ($shellResolved['runtime_declarations'][0]['payload']['entities'][0]['fallback']['text'] ?? null), 'shared-shell analysis preserves the exact captured metric fallback');
+$provenanceVariant = $shellArtifact;
+$provenanceVariant['runtime_declarations'][0]['payload']['entities'][1]['provenance'] = array('kind' => 'operator_mapping', 'author' => 'operator:chubes4', 'source_relationship' => 'Operator-authored mapping for this route; no captured HTML provenance is claimed.');
+$provenanceVariantPlan = (new ArtifactCompiler())->compile($provenanceVariant)->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === array_values(array_filter($provenanceVariantPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && 3 === count($provenanceVariantPlan['runtime_declarations'][0]['payload']['entities']), 'different source evidence/operator mappings prevent cross-route shell coalescing and retain every source fact');
 
 $bad = $artifact; $bad['runtime_declarations'][0]['payload']['entities'][0]['bindings'][0]['source_path'] = '../outside.html';
 $throws(static fn() => (new ArtifactCompiler())->compile($bad), 'unsafe source selectors fail at the artifact boundary');
