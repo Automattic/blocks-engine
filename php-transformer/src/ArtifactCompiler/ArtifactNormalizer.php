@@ -234,6 +234,19 @@ final class ArtifactNormalizer
             }
             if ( is_array($file['metadata'] ?? null) ) {
                 $metadata = array();
+                if (is_array($file['metadata']['structured_data'] ?? null)) {
+                    $structured = array();
+                    $structuredBytes = 0;
+                    foreach (array_slice($file['metadata']['structured_data'], 0, 32) as $record) {
+                        if (!is_array($record) || 'application/ld+json' !== ($record['type'] ?? null) || !is_array($record['data'] ?? null)) continue;
+                        $encoded = json_encode($record['data']);
+                        if (!is_string($encoded) || strlen($encoded) > 262144 || !is_array(json_decode($encoded, true, 24))) continue;
+                        $structuredBytes += strlen($encoded);
+                        if ($structuredBytes > 262144) break;
+                        $structured[] = array('type' => 'application/ld+json', 'data' => $record['data']);
+                    }
+                    if (array() !== $structured) $metadata['structured_data'] = $structured;
+                }
                 if ( is_string($file['metadata']['route_path'] ?? null) && '' !== trim($file['metadata']['route_path']) ) {
                     $metadata['route_path'] = trim($file['metadata']['route_path']);
                 }
