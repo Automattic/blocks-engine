@@ -3027,6 +3027,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @param list<class-string<\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface>> $allowed */
     private function recognizePatterns(DOMElement $element, array &$fallbacks, array $allowed): ?array
     {
+        if ( $this->runtimeIslands->retainsDataAttributeRuntimeTargetInShell($element) ) {
+            return null;
+        }
         $result = $this->patternRecognizers->firstMatch($element, $this->patternContext, $allowed);
         if (null === $result) return null;
         // Results own fallback payloads until their block wins the ordered stage.
@@ -3252,6 +3255,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
+        if ( $this->isOrphanListItem($element) && $this->isSafeTransparentCustomElement($element) ) {
+            // Invalid list ancestry does not remove browser marker rendering or
+            // author `li` selectors. Keep the source root on the existing exact
+            // wrapper carrier while its children remain native editable blocks.
+            $children = $this->sourceElementClassifier->hasOnlyPhrasingChildren($element)
+                ? array($this->createBlock('core/paragraph', array('content' => $this->richTextMaterializer->content($element), 'className' => self::SYNTHETIC_PARAGRAPH_CLASS)))
+                : $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            return $this->layoutShellBlockForElements(array($element), $children, $element);
+        }
+
         if ( $this->isTransparentUnknownElement($element) ) {
             // A hyphenated custom element is an authored component: when the
             // classifier calls its subtree a cohesive custom block, it still
@@ -3330,6 +3343,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $block['_editability_runtime_owned'] = true;
 
         return array( 'handled' => true, 'block' => $block );
+    }
+
+    /** A `li` whose parent is not a list: invalid markup the list converter never reaches. */
+    private function isOrphanListItem(DOMElement $element): bool
+    {
+        if ( 'li' !== strtolower($element->tagName) ) {
+            return false;
+        }
+        $parent = $element->parentNode;
+
+        return ! $parent instanceof DOMElement || ! in_array(strtolower($parent->tagName), array( 'ul', 'ol', 'menu' ), true);
     }
 
     /**
@@ -5820,6 +5844,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function layoutShellClassName(DOMElement $element): string
     {
         $classes = array_values(array_filter(preg_split('/\s+/', $this->promotedClassName(SourceDom::attr($element, 'class'))) ?: array()));
+        $tagMarker = $this->authorSelectorProjections()->tagMarker(strtolower($element->tagName));
+        if ( '' !== $tagMarker ) {
+            $classes[] = $tagMarker;
+        }
         $runtime = array();
         foreach ( $this->runtimeIslands->runtimeDomSelectorsForElement($element) as $selector ) {
             if ( str_starts_with($selector, '.') ) {
@@ -8650,7 +8678,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         foreach ( $this->descendantElements($element) as $descendant ) {
             $tagName = strtolower($descendant->tagName);
-            if ( in_array($tagName, array( 'canvas', 'iframe', 'template' ), true) ) {
+            if ( in_array($tagName, array( 'canvas', 'template' ), true) ) {
+                return true;
+            }
+            // An iframe loading a third-party document by https URL is a content
+            // embed. Inline (srcdoc), blank or relative-URL frames host an app surface.
+            if ( 'iframe' === $tagName && ( $descendant->hasAttribute('srcdoc') || ! $this->sourceElementClassifier->isSafeVisualIframeUrl(trim($this->attr($descendant, 'src'))) ) ) {
                 return true;
             }
             if ( 'textarea' === $tagName && $this->runtimeIslands->textareaIsRuntimeWorkspaceSurface($descendant, $element) ) {

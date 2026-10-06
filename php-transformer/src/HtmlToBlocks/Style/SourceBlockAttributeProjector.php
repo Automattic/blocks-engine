@@ -173,6 +173,14 @@ final class SourceBlockAttributeProjector
 
     public function sourceProjectionClassName(DOMElement $element, SourceBlockAttributeProjectionContext $context, string $className = ''): string
     {
+        if ( '' !== $context->authorStyles->combinedCss() ) {
+            foreach ( SourceDom::boundedClassTokens(SourceDom::attr($element, 'class')) as $class ) {
+                $marker = $context->authorStyles->sourceClassMarker($class);
+                if ( '' !== $marker ) {
+                    $className = SourceDom::mergeClassNames($className, $marker);
+                }
+            }
+        }
         $sourceTagMarker = $context->selectorProjections->tagMarker(strtolower($element->tagName));
         if ( '' !== $sourceTagMarker ) {
             $className = SourceDom::mergeClassNames($className, $sourceTagMarker);
@@ -182,6 +190,12 @@ final class SourceBlockAttributeProjector
             && array() !== $context->authorStyles->sourceBodyProjectionClasses()
         ) {
             $className = SourceDom::mergeClassNames($className, ...$context->authorStyles->sourceBodyProjectionClasses());
+            foreach ( $context->authorStyles->sourceBodyProjectionClasses() as $class ) {
+                $marker = $context->authorStyles->sourceClassMarker($class);
+                if ( '' !== $marker ) {
+                    $className = SourceDom::mergeClassNames($className, $marker);
+                }
+            }
         }
         $semanticMarkers = array_merge(
             $context->selectorProjections->semanticMarkersForPath($element->getNodePath() ?? ''),
