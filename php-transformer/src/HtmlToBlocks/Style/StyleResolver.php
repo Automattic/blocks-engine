@@ -2605,6 +2605,40 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Resolve the CSS root font size for rem-based structural measurements.
+     * Fragment transforms often retain only a body root; in that case resolve
+     * `html` rules against a detached root element through the same selector
+     * and cascade machinery used for source elements.
+     */
+    public function documentRootFontSize(DOMElement $context): ?float
+    {
+        $document = $context->ownerDocument;
+        if ( null === $document ) {
+            return null;
+        }
+
+        $root = $document->documentElement;
+        if ( ! $root instanceof DOMElement || 'html' !== strtolower($root->tagName) ) {
+            // Fragment input has no author document root; in its default
+            // browser context rem uses the initial 16px root size.
+            return 16.0;
+        }
+        $declarations = $this->structuralPresentationDeclarations($root);
+        $fontSize = trim(CssValueInspector::withoutImportant((string) ($declarations['font-size'] ?? '')));
+        if ( '' === $fontSize ) {
+            return 16.0;
+        }
+        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)\s*px$/i', $fontSize, $matches) ) {
+            return 0 < (float) $matches[1] ? (float) $matches[1] : null;
+        }
+        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)\s*(?:em|rem)$/i', $fontSize, $matches) ) {
+            return 0 < (float) $matches[1] ? 16 * (float) $matches[1] : null;
+        }
+
+        return null;
+    }
+
+    /**
      * Source-owned static box geometry for replacement wrappers, with matched
      * unconditional author declarations included even when a parent runtime
      * class cannot remain on the generated stage.
