@@ -8650,7 +8650,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         foreach ( $this->descendantElements($element) as $descendant ) {
             $tagName = strtolower($descendant->tagName);
-            if ( in_array($tagName, array( 'canvas', 'iframe', 'template' ), true) ) {
+            if ( in_array($tagName, array( 'canvas', 'template' ), true) ) {
+                return true;
+            }
+            // An iframe loading a third-party document by https URL is a content
+            // embed. Inline (srcdoc), blank or relative-URL frames host an app surface.
+            if ( 'iframe' === $tagName && ( $descendant->hasAttribute('srcdoc') || ! $this->sourceElementClassifier->isSafeVisualIframeUrl(trim($this->attr($descendant, 'src'))) ) ) {
                 return true;
             }
             if ( 'textarea' === $tagName && $this->runtimeIslands->textareaIsRuntimeWorkspaceSurface($descendant, $element) ) {
