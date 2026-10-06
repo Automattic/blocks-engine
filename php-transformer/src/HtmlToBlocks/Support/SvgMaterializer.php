@@ -236,9 +236,14 @@ final class SvgMaterializer implements SvgElementMaterializer
         $sourceHeight = trim((string) ($presentation['height'] ?? SourceDom::attr($element, 'height')));
         $fillsSizedParent = ! $richTextImage
             && $parent instanceof DOMElement
-            && CssValueInspector::hasDefiniteWidth($this->styleResolver->cssDeclarationString($parentPresentation))
-            && CssValueInspector::hasDefiniteHeight($this->styleResolver->cssDeclarationString($parentPresentation))
-            && '100%' === $sourceWidth && '100%' === $sourceHeight;
+            && (
+                (
+                    CssValueInspector::hasDefiniteWidth($this->styleResolver->cssDeclarationString($parentPresentation))
+                    && CssValueInspector::hasDefiniteHeight($this->styleResolver->cssDeclarationString($parentPresentation))
+                    && '100%' === $sourceWidth && '100%' === $sourceHeight
+                )
+                || $this->fillsInsetPinnedParent($element, $sourceWidth, $sourceHeight, $parentPresentation)
+            );
         $isResponsiveFillSvg = $fillsSizedParent || (
             (
             ($isFlexOrGridItem && $parent instanceof DOMElement && $this->declarationsOwnMediaBox($parentPresentation))
@@ -667,6 +672,61 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return $declarations;
+    }
+
+    /**
+     * Whether the SVG fills, on both axes, a wrapper whose box is pinned to its
+     * containing block on all four sides (`position:absolute; inset:0`).
+     *
+     * Such a wrapper has a definite size without declaring width or height.
+     * Wix vector images (logos) are built this way, with the SVG sized
+     * `var(--svg-calculated-width,100%)` and the custom property left unset,
+     * so the used size is the 100% fallback. Without the fill, the
+     * materialized viewBox-only image has no intrinsic width and collapses to
+     * 0x0 inside core/image's shrink-to-fit link.
+     *
+     * @param array<string, string> $parentPresentation
+     */
+    private function fillsInsetPinnedParent(DOMElement $element, string $sourceWidth, string $sourceHeight, array $parentPresentation): bool
+    {
+        if ( ! in_array($this->plainDeclarationValue($parentPresentation['position'] ?? ''), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+
+        $shorthand = preg_split('/\s+/', $this->plainDeclarationValue($parentPresentation['inset'] ?? '')) ?: array();
+        $shorthand = array_values(array_filter($shorthand, static fn (string $part): bool => '' !== $part));
+        $count = count($shorthand);
+        $fromShorthand = static fn (int $side): string => match ($count) {
+            1 => $shorthand[0],
+            2 => $shorthand[$side % 2],
+            3 => $shorthand[3 === $side ? 1 : $side],
+            4 => $shorthand[$side],
+            default => '',
+        };
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side => $property ) {
+            $value = $this->plainDeclarationValue($parentPresentation[$property] ?? '');
+            $value = '' === $value ? $fromShorthand($side) : $value;
+            if ( '' === $value || 'auto' === $value || str_contains($value, 'var(') ) {
+                return false;
+            }
+        }
+
+        foreach ( array( $sourceWidth, $sourceHeight ) as $value ) {
+            $value = $this->plainDeclarationValue($value);
+            if ( str_contains($value, 'var(') ) {
+                $value = $this->plainDeclarationValue($this->styleResolver->resolveStructuralCssVariablesInValue($value, $element));
+            }
+            if ( '100%' !== $value ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function plainDeclarationValue(string $value): string
+    {
+        return strtolower(trim(preg_replace('/\s*!\s*important\s*$/i', '', trim($value)) ?? $value));
     }
 
     /**

@@ -381,6 +381,7 @@
             "php tests/unit/filtered-svg-materialization.php",
             "php tests/unit/svg-materialized-paint-cascade.php",
             "php tests/unit/materialized-svg-custom-property-carry.php",
+            "php tests/unit/inset-positioned-parent-fill-svg.php",
              "php tests/unit/collapsed-control-presentation.php",
             "php tests/unit/ancestor-inline-custom-property-carry.php",
             "php tests/unit/form-custom-property-nested-fallback.php",
