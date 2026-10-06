@@ -9,7 +9,7 @@ use DOMText;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 
 /**
- * Builds the static companion block for compact, editable native button controls.
+ * Builds the companion block for compact, editable native button controls.
  */
 final class AuthoredButtonBlockGenerator
 {
@@ -50,12 +50,17 @@ final class AuthoredButtonBlockGenerator
             'category' => 'widgets',
             'description' => 'An editable native button control.',
             'editorScript' => 'file:./index.js',
+            'viewScript' => 'file:./view.js',
             'attributes' => array(
                 'type' => array( 'type' => 'string', 'default' => 'submit' ),
                 'id' => array( 'type' => 'string', 'default' => '' ),
                 'name' => array( 'type' => 'string', 'default' => '' ),
                 'ariaLabel' => array( 'type' => 'string', 'default' => '' ),
                 'ariaPressed' => array( 'type' => 'string', 'default' => '' ),
+                'role' => array( 'type' => 'string', 'default' => '' ),
+                'ariaChecked' => array( 'type' => 'string', 'default' => '' ),
+                'title' => array( 'type' => 'string', 'default' => '' ),
+                'tabIndex' => array( 'type' => 'string', 'default' => '' ),
                 'className' => array( 'type' => 'string', 'default' => '' ),
                 'iconSvg' => array( 'type' => 'string', 'default' => '' ),
                 'sourceAttributes' => array( 'type' => 'array', 'default' => array() ),
@@ -86,6 +91,7 @@ final class AuthoredButtonBlockGenerator
     function styleObject( value ) { if ( ! value ) return undefined; return String( value ).split( ';' ).reduce( function( output, declaration ) { var separator = declaration.indexOf( ':' ); if ( separator < 1 ) return output; var name = declaration.slice( 0, separator ).trim(); var property = name.indexOf( '--' ) === 0 ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); output[ property ] = declaration.slice( separator + 1 ).trim(); return output; }, {} ); }
     function buttonType( value ) { return [ 'button', 'reset', 'submit' ].indexOf( value ) !== -1 ? value : 'submit'; }
     function pressed( value ) { return [ 'true', 'false', 'mixed' ].indexOf( String( value || '' ) ) !== -1 ? String( value ) : ''; }
+    function checkable( attrs ) { return attrs.role === 'checkbox' && [ 'true', 'false' ].indexOf( attrs.ariaChecked ) !== -1; }
     function safeIcon( value ) { value = String( value || '' ).trim(); if ( ! /^<svg[\s>]/i.test( value ) ) return ''; if ( /<\s*(?:script|style|foreignobject|iframe|object|embed|link)\b|\son[a-z]+\s*=|\shref\s*=|\sstyle\s*=|javascript\s*:|\burl\s*\(/i.test( value ) ) return ''; return value; }
     function sourceAttributes( attrs ) { return ( Array.isArray( attrs.sourceAttributes ) ? attrs.sourceAttributes : [] ).filter( function( item ) { return item && isSourceAttributeName( String( item.name || '' ) ); } ).sort( function( a, b ) { return String( a.name ).localeCompare( String( b.name ) ); } ); }
     function labelWrappers( attrs ) { return ( Array.isArray( attrs.labelWrappers ) ? attrs.labelWrappers : [] ).slice( 0, 16 ).filter( function( wrapper ) { return wrapper && labelTags.indexOf( String( wrapper.tagName || '' ).toLowerCase() ) !== -1; } ); }
@@ -101,29 +107,46 @@ final class AuthoredButtonBlockGenerator
     function textFields( parts, path, fields ) { ( parts || [] ).forEach( function( part, index ) { if ( ! part ) return; var here = path.concat( index ); if ( typeof part.text === 'string' ) fields.push( { path: here, value: part.text } ); if ( Array.isArray( part.parts ) ) textFields( part.parts, here.concat( 'parts' ), fields ); } ); return fields; }
     function writeText( parts, path, value ) { var clone = JSON.parse( JSON.stringify( parts ) ); var node = clone; path.forEach( function( step, index ) { if ( index === path.length - 1 ) node[ step ].text = value; else node = node[ step ]; } ); return clone; }
     function labelElement( attrs ) { if ( contentParts( attrs ).length || safeIcon( attrs.iconSvg ) ) return createElement( element.RawHTML, null, innerMarkup( attrs ) ); return labelWrappers( attrs ).reverse().reduce( function( content, wrapper ) { var props = labelProps( wrapper ); if ( props.class !== undefined ) { props.className = props.class; delete props.class; } if ( props.style !== undefined ) props.style = styleObject( props.style ); return createElement( String( wrapper.tagName ).toLowerCase(), props, content ); }, attrs.text || '' ); }
-    function buttonProps( attrs ) { var props = { type: buttonType( attrs.type ), id: attrs.id || undefined, name: attrs.name || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-pressed': pressed( attrs.ariaPressed ) || undefined, className: attrs.className || undefined, style: styleObject( attrs.style ), disabled: attrs.disabled }; sourceAttributes( attrs ).forEach( function( item ) { props[ item.name ] = String( item.value ); } ); return props; }
-    function markup( attrs ) { var output = '<button'; [ 'type', 'id', 'name', 'ariaLabel' ].forEach( function( key ) { var value = 'type' === key ? buttonType( attrs.type ) : attrs[ key ]; if ( value ) output += ' ' + ( 'ariaLabel' === key ? 'aria-label' : key ) + '="' + escapeAttribute( value ) + '"'; } ); var state = pressed( attrs.ariaPressed ); if ( state ) output += ' aria-pressed="' + state + '"'; [ 'className', 'style' ].forEach( function( key ) { if ( attrs[ key ] ) output += ' ' + ( 'className' === key ? 'class' : key ) + '="' + escapeAttribute( attrs[ key ] ) + '"'; } ); output += sourceAttributeMarkup( attrs ); if ( attrs.disabled ) output += ' disabled'; output += '>' + innerMarkup( attrs ) + '</button>'; return output; }
+    function buttonProps( attrs ) { var props = { type: buttonType( attrs.type ), id: attrs.id || undefined, name: attrs.name || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-pressed': pressed( attrs.ariaPressed ) || undefined, role: checkable( attrs ) ? 'checkbox' : undefined, 'aria-checked': checkable( attrs ) ? attrs.ariaChecked : undefined, title: attrs.title || undefined, tabIndex: attrs.tabIndex || undefined, className: attrs.className || undefined, style: styleObject( attrs.style ), disabled: attrs.disabled }; sourceAttributes( attrs ).forEach( function( item ) { props[ item.name ] = String( item.value ); } ); return props; }
+    function markup( attrs ) { var output = '<button'; [ 'type', 'id', 'name', 'ariaLabel' ].forEach( function( key ) { var value = 'type' === key ? buttonType( attrs.type ) : attrs[ key ]; if ( value ) output += ' ' + ( 'ariaLabel' === key ? 'aria-label' : key ) + '="' + escapeAttribute( value ) + '"'; } ); var state = pressed( attrs.ariaPressed ); if ( state ) output += ' aria-pressed="' + state + '"'; if ( checkable( attrs ) ) output += ' role="checkbox" aria-checked="' + attrs.ariaChecked + '" data-blocks-engine-checkable="true"'; [ 'title', 'tabIndex', 'className', 'style' ].forEach( function( key ) { if ( attrs[ key ] ) output += ' ' + ( 'className' === key ? 'class' : ( 'tabIndex' === key ? 'tabindex' : key ) ) + '="' + escapeAttribute( attrs[ key ] ) + '"'; } ); output += sourceAttributeMarkup( attrs ); if ( attrs.disabled ) output += ' disabled'; output += '>' + innerMarkup( attrs ) + '</button>'; return output; }
     function edit( props ) {
         var attrs = props.attributes;
         var fields = textFields( contentParts( attrs ), [], [] );
         var labels = fields.length ? fields.map( function( field, index ) { return createElement( TextControl, { key: 'label-' + index, label: index ? 'Label ' + ( index + 1 ) : 'Label', value: field.value, onChange: function( value ) { props.setAttributes( { contentParts: writeText( contentParts( attrs ), field.path, value ) } ); } } ); } ) : [ createElement( TextControl, { label: 'Label', value: attrs.text || '', onChange: function( text ) { props.setAttributes( { text: text } ); } } ) ];
         var settings = labels.concat( [
-            createElement( TextControl, { label: 'Accessible name', value: attrs.ariaLabel || '', onChange: function( ariaLabel ) { props.setAttributes( { ariaLabel: ariaLabel } ); } } ),
+            createElement( TextControl, { label: 'Accessible name', value: attrs.ariaLabel || attrs.title || '', onChange: function( ariaLabel ) { props.setAttributes( { ariaLabel: ariaLabel } ); } } ),
+            checkable( attrs ) ? createElement( ToggleControl, { label: 'Checked', checked: attrs.ariaChecked === 'true', onChange: function( checked ) { props.setAttributes( { ariaChecked: checked ? 'true' : 'false' } ); } } ) : null,
             createElement( SelectControl, { label: 'Pressed', value: pressed( attrs.ariaPressed ), options: [ '', 'true', 'false', 'mixed' ].map( function( value ) { return { label: value || 'Unset', value: value }; } ), onChange: function( ariaPressed ) { props.setAttributes( { ariaPressed: ariaPressed } ); } } ),
             createElement( TextControl, { label: 'Name', value: attrs.name || '', onChange: function( name ) { props.setAttributes( { name: name } ); } } ),
             createElement( SelectControl, { label: 'Type', value: buttonType( attrs.type ), options: [ 'submit', 'button', 'reset' ].map( function( type ) { return { label: type, value: type }; } ), onChange: function( type ) { props.setAttributes( { type: type } ); } } ),
             createElement( ToggleControl, { label: 'Disabled', checked: !!attrs.disabled, onChange: function( disabled ) { props.setAttributes( { disabled: disabled } ); } } )
         ] );
         var panel = createElement.apply( null, [ PanelBody, { title: 'Button settings' } ].concat( settings ) );
-        return createElement( element.Fragment, null, createElement( InspectorControls, null, panel ), createElement( 'button', buttonProps( attrs ), labelElement( attrs ) ) );
+        var controlProps = buttonProps( attrs );
+        if ( checkable( attrs ) ) controlProps.onClick = function() { props.setAttributes( { ariaChecked: attrs.ariaChecked === 'true' ? 'false' : 'true' } ); };
+        return createElement( element.Fragment, null, createElement( InspectorControls, null, panel ), createElement( 'button', controlProps, labelElement( attrs ) ) );
     }
     function save( props ) { return createElement( element.RawHTML, null, markup( props.attributes ) ); }
     blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
+        $view = <<<'JS'
+( function() {
+    document.addEventListener( 'click', function( event ) {
+        var control = event.target.closest( 'button[data-blocks-engine-checkable="true"][role="checkbox"]' );
+        if ( ! control || control.disabled ) return;
+        var checked = control.getAttribute( 'aria-checked' );
+        if ( checked !== 'true' && checked !== 'false' ) return;
+        control.setAttribute( 'aria-checked', checked === 'true' ? 'false' : 'true' );
+        control.dispatchEvent( new Event( 'change', { bubbles: true } ) );
+    } );
+} )();
+JS;
+
         return array(
             'index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__', '__LABEL_TAGS__'), array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), json_encode(self::LABEL_TAGS, JSON_THROW_ON_ERROR)), $script),
+            'view.js' => $view,
         );
     }
 
@@ -146,10 +169,13 @@ JS;
         if ( in_array($pressed, array( 'true', 'false', 'mixed' ), true) ) {
             $markup .= ' aria-pressed="' . $pressed . '"';
         }
-        foreach ( array( 'className', 'style' ) as $key ) {
+        if ('checkbox' === ($attrs['role'] ?? null) && in_array($attrs['ariaChecked'] ?? null, array('true', 'false'), true)) {
+            $markup .= ' role="checkbox" aria-checked="' . $attrs['ariaChecked'] . '" data-blocks-engine-checkable="true"';
+        }
+        foreach ( array( 'title', 'tabIndex', 'className', 'style' ) as $key ) {
             $value = (string) ($attrs[$key] ?? '');
             if ( '' !== $value ) {
-                $markup .= ' ' . ( 'className' === $key ? 'class' : $key ) . '="' . $escape($value) . '"';
+                $markup .= ' ' . ( 'className' === $key ? 'class' : ('tabIndex' === $key ? 'tabindex' : $key) ) . '="' . $escape($value) . '"';
             }
         }
         foreach ( $this->sourceAttributes($attrs) as $attribute ) {

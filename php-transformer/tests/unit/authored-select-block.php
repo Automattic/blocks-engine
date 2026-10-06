@@ -148,6 +148,10 @@ $button      = new AuthoredButtonBlockGenerator();
 $assert($button->markup($buttonAttrs) === $saveMarkup($button, $buttonAttrs), 'authored-button save() already round-trips disabled');
 $stateAttrs = array( 'type' => 'submit', 'ariaLabel' => 'Play Marquee', 'ariaPressed' => 'true', 'className' => 'kgbJ1s', 'iconSvg' => '<svg viewBox="0 0 18 18" width="18" height="18"><path d="M1,1"></path></svg>', 'sourceAttributes' => array( array( 'name' => 'data-dla-responsive-source', 'value' => 'comp-m5b146s3:button:1' ) ) );
 $assert($button->markup($stateAttrs) === $saveMarkup($button, $stateAttrs) && str_contains($button->markup($stateAttrs), 'aria-pressed="true"') && !str_contains($button->markup($stateAttrs), 'onclick'), 'authored-button save() round-trips a static svg state button Gutenberg validates');
+foreach (array('true', 'false') as $checked) {
+    $checkableAttrs = array('type' => 'button', 'role' => 'checkbox', 'ariaChecked' => $checked, 'title' => 'Favorite', 'tabIndex' => '0', 'iconSvg' => $stateAttrs['iconSvg']);
+    $assert($button->markup($checkableAttrs) === $saveMarkup($button, $checkableAttrs), 'SVG checkbox initial ' . $checked . ' state round-trips through editor save with its title and tabindex.');
+}
 $wrappedIcon = array( 'type' => 'button', 'text' => 'Send', 'iconSvg' => '<svg viewBox="0 0 18 18"><path d="M1,1"></path></svg>', 'labelWrappers' => array( array( 'tagName' => 'span', 'attributes' => array( 'class' => 'label' ) ) ) );
 $wrappedMarkup = $button->markup($wrappedIcon);
 $assert($wrappedMarkup === $saveMarkup($button, $wrappedIcon) && str_contains($wrappedMarkup, '<button type="button"><svg viewBox="0 0 18 18"><path d="M1,1"></path></svg><span class="label">Send</span></button>'), 'an icon stays outside label wrappers in both PHP and editor save');
