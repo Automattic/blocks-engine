@@ -3252,6 +3252,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
+        if ( $this->isOrphanListItem($element) && $this->isSafeTransparentCustomElement($element) ) {
+            // A list item with no list to belong to has no rendering of its own
+            // beyond a generic flow box; the list converter only consumes the
+            // items of a `ul`/`ol`, so lower it like a `div` rather than drop it.
+            return $this->flowContainerConverter->convertUnknownElement($element, $fallbacks)->block;
+        }
+
         if ( $this->isTransparentUnknownElement($element) ) {
             // A hyphenated custom element is an authored component: when the
             // classifier calls its subtree a cohesive custom block, it still
@@ -3330,6 +3337,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $block['_editability_runtime_owned'] = true;
 
         return array( 'handled' => true, 'block' => $block );
+    }
+
+    /** A `li` whose parent is not a list: invalid markup the list converter never reaches. */
+    private function isOrphanListItem(DOMElement $element): bool
+    {
+        if ( 'li' !== strtolower($element->tagName) ) {
+            return false;
+        }
+        $parent = $element->parentNode;
+
+        return ! $parent instanceof DOMElement || ! in_array(strtolower($parent->tagName), array( 'ul', 'ol', 'menu' ), true);
     }
 
     /**
