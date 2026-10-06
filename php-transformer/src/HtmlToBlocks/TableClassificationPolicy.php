@@ -90,6 +90,14 @@ final class TableClassificationPolicy
         return false;
     }
 
+    public function lowersToColumns(DOMElement $table): bool
+    {
+        return $this->isNestedLayoutTableMember($table)
+            || $this->isMediaLayoutTable($table)
+            || $this->isMetadataLayoutTable($table)
+            || $this->isPercentLayoutTable($table);
+    }
+
     /**
      * Legacy tables used for media composition have no tabular semantics, no
      * spanning, and at least one image-bearing cell. Those can become Columns
@@ -235,7 +243,9 @@ final class TableClassificationPolicy
             'row_count'            => count($rows),
             'column_counts'        => $columnCounts,
             'rectangular'          => $rectangular,
-            'data_signals'         => $hasHeaderCell || $hasCaption || $hasSection,
+            'data_signals'         => $hasHeaderCell || $hasCaption || $hasSection
+                || in_array(strtolower($table->getAttribute('role')), array('table', 'grid', 'treegrid'), true)
+                || $table->hasAttribute('summary') || $table->hasAttribute('aria-label') || $table->hasAttribute('aria-labelledby'),
         );
     }
 
