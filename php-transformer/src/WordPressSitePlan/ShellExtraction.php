@@ -915,7 +915,12 @@ final class ShellExtraction
             $identity = array_key_first($clusters);
             $cluster = null === $identity ? null : $clusters[$identity];
             $runnerUp = array_values($clusters)[1] ?? null;
-            if (!is_array($cluster) || (count($cluster['indexes']) < count($applicable) && (count($cluster['indexes']) < 2 || (is_array($runnerUp) && count($cluster['indexes']) === count($runnerUp['indexes']))))) {
+            // A multi-route capture can carry chrome on the entry page only
+            // (single-page apps whose legal pages render bare). When no other
+            // route has any candidate for this area, nothing disagrees with
+            // the entry page, so it owns the part for the front page alone.
+            $entryOnly = is_array($cluster) && 1 === count($cluster['indexes']) && 1 < count($applicable) && !empty($pages[$cluster['indexes'][0]]['entrypoint']) && array() === array_diff_key($candidates, array($cluster['indexes'][0] => true)) && 1 === count($clusters);
+            if (!is_array($cluster) || (!$entryOnly && count($cluster['indexes']) < count($applicable) && (count($cluster['indexes']) < 2 || (is_array($runnerUp) && count($cluster['indexes']) === count($runnerUp['indexes']))))) {
                 $partitioned = $this->viewportPartitionWithoutCandidate($pages, array_keys($applicable), $area, $runtimeDeclarations);
                 if (null === $partitioned) {
                     $reason = array() === $clusters ? 'incomplete' : 'non_equivalent';
@@ -965,6 +970,7 @@ final class ShellExtraction
                     $overrides[$slug] = $index;
                 }
             }
+            if ($entryOnly) $templateSlugs = array('front-page');
             $templateSlugs = array_values(array_unique($templateSlugs));
             $excludedTemplateSlugs = array_keys($overrides ?? array());
             $withoutShells = array();
