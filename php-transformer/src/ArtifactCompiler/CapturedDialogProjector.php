@@ -297,7 +297,9 @@ final class CapturedDialogProjector
                 }
             }
             $key = $stage->getAttribute('data-dla-dialog-trigger');
-            $panels = $xpath->query('.//*[@data-dla-dialog-panel=' . $this->xpathLiteral($key) . ']', $root);
+            $scope = $document->documentElement;
+            foreach ($this->documentScopes($document) as $candidateScope) if (SourceDom::elementContains($candidateScope, $root)) { $scope = $candidateScope; break; }
+            $panels = $xpath->query('.//*[@data-dla-dialog-panel=' . $this->xpathLiteral($key) . ']', $scope);
             $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
             if (!$panel instanceof DOMElement) continue;
             $fullStage = $xpath->query('.//*[@data-dla-gallery-stage]', $panel)?->item(0);

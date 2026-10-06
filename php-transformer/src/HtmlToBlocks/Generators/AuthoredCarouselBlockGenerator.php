@@ -724,7 +724,15 @@ JS;
 
         $slides = array();
         $capturedGallery = $list->hasAttribute('data-dla-gallery-initial');
-        if ($capturedGallery) foreach ($items as $item) $item->removeAttribute('hidden');
+        if ($capturedGallery) foreach ($items as $item) {
+            $item->removeAttribute('hidden');
+            $display = $item->getAttribute('data-dla-gallery-display');
+            if (preg_match('/^[a-z-]+$/D', $display)) {
+                $declarations = $styleResolver->cssDeclarations($item->getAttribute('style'));
+                $declarations['display'] = $display;
+                $item->setAttribute('style', $styleResolver->cssDeclarationString($declarations));
+            }
+        }
         foreach ( $items as $sourceItem ) {
             [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
             $image = $item->getElementsByTagName('img')->item(0);
