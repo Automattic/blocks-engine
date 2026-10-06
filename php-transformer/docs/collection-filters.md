@@ -34,6 +34,29 @@ Category paint comes from separately observed active/inactive attributes; labels
 remain owner-editable. The observed empty-state content stays in its original
 inside/after placement and is shown only when no item matches.
 
+## Finite bootstrap
+
+`finiteBootstrap.schema` must be `data-liberation/finite-bootstrap/v1`. That
+record is admitted only when restoration, replay, observed-response replay,
+intercepted verification, declared count, complete text-only coverage, observed
+answers, universal-query order, and ordered global/category probes all recompute.
+Category mode shows the selected category. A nonempty query searches the whole
+universe and hides the category strip, not the input, status, or results.
+Optional `finiteBootstrap.status` uses `data-liberation/collection-status/v1`.
+Absent status is valid and adds no label. A present record is projected only
+when every node has source HTML, `{count}` or `{query}` tokens, matching binds,
+`before-items` or `after-items`, and `hidesAtZero: true`. The runtime writes
+`textContent` from the editable `data-dla-status-template` attribute. An empty
+query hides those labels. At zero they stay hidden. When the source empty
+state contains that count template rendered at zero with the same tag, role,
+live attributes, and class, that node remains the collection status and the
+empty container owns its visibility. Invalid present status is not claimed,
+and the capture helper stays while those labels are not projected. This does
+not measure visual parity.
+`categoriesAgree: false` moves the same nodes into `order.categoryKeys`; it does
+not clone them. Missing `finiteBootstrap` still requires the blocked
+category-and-query Ward checks, including initial-category membership.
+
 ## Bounds and unsupported mappings
 
 Projection is bounded to 128 report pages, 100 items, 32 categories, and 512 KiB

@@ -71,8 +71,8 @@ final class FormPresentationGraphBuilder
     /** Memoized rule sets for {@see typographyStyles()}, analyzed once per transform. */
     private ?array $typographyAnalysis = null;
 
-    /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker */
-    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null)
+    /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker @param list<DOMElement> $scopeElements */
+    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null, private readonly array $scopeElements = array())
     {
     }
 
@@ -80,7 +80,7 @@ final class FormPresentationGraphBuilder
     public function buildContainer(DOMElement $form, array $stylesheets, string $inlineCss = ''): array
     {
         $this->truncated = false;
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, self::cascadeFilter(array($form)), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         if ($analysis['truncated']) return array();
         $matched = $this->matched($form, $analysis['rules']);
         $styles = $this->styles($matched['base'], $form, null, array());
@@ -157,6 +157,11 @@ final class FormPresentationGraphBuilder
 
     public static function assertElement(array $presentation): void
     {
+        if (array_diff(array_keys($presentation), array('schema', 'styles', 'provenance', 'variants', 'truncated', 'diagnostics')) || !array_is_list($presentation['variants'] ?? null)) throw new InvalidArgumentException('Form element presentation envelope has unknown keys.');
+        foreach ($presentation['variants'] as $variant) {
+            if (!is_array($variant) || array_diff(array_keys($variant), array('condition', 'styles', 'precedence', 'provenance'))) throw new InvalidArgumentException('Form element presentation variant has unknown keys.');
+            foreach (is_array($variant['precedence'] ?? null) ? $variant['precedence'] : array() as $rank) if (!is_array($rank) || array_diff(array_keys($rank), array('source_order', 'specificity', 'important'))) throw new InvalidArgumentException('Form element presentation precedence has unknown keys.');
+        }
         if ('generic/form-element-presentation/v1' !== ($presentation['schema'] ?? null) || !is_array($presentation['styles'] ?? null) || !is_array($presentation['provenance'] ?? null) || !is_array($presentation['variants'] ?? null) || count($presentation['variants']) > self::MAX_RULES_PER_ROLE || !is_bool($presentation['truncated'] ?? null) || !is_array($presentation['diagnostics'] ?? null) || count($presentation['diagnostics']) > self::MAX_DIAGNOSTICS) throw new InvalidArgumentException('Form element presentation envelope is invalid.');
         self::assertStyles($presentation['styles']);
         self::assertProvenance($presentation['provenance'], $presentation['styles'], null);
@@ -271,8 +276,9 @@ final class FormPresentationGraphBuilder
     /** @param list<array<string, mixed>> $stylesheets @return array{truncated: bool, rules: list<array<string, mixed>>, customProperties: list<array<string, mixed>>} */
     private function typographyAnalysis(array $stylesheets, string $inlineCss): array
     {
-        $properties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
-        $customProperties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array('--*'), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
+        $filter = array() === $this->scopeElements ? null : self::cascadeFilter($this->scopeElements);
+        $properties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        $customProperties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array('--*'), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         return array(
             'truncated' => $properties['truncated'] || $customProperties['truncated'],
             'rules' => $properties['rules'],
@@ -280,13 +286,27 @@ final class FormPresentationGraphBuilder
         );
     }
 
+    /** @param list<DOMElement> $elements */
+    private static function cascadeFilter(array $elements): Closure
+    {
+        return static function (array $selector) use ($elements): bool {
+            foreach ($elements as $element) {
+                for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null) {
+                    $match = CssSelectorMatcher::matches($ancestor, $selector);
+                    if (!$match['supported'] || $match['matches']) return true;
+                }
+            }
+            return false;
+        };
+    }
+
     /** @param list<array<string, mixed>> $stylesheets @return array<string, mixed> */
     public function build(DOMElement $form, array $stylesheets, string $inlineCss = ''): array
     {
         $this->diagnostics = array();
         $this->truncated = false;
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
         $controlsForCustomProperties = $this->presentationElements($form);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, self::cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
@@ -335,12 +355,13 @@ final class FormPresentationGraphBuilder
                 $provenance = $this->provenance($matched['base'], null);
                 $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
                 $carried = array();
-                if ( 'label' === $role ) {
+                $buttonCaption = 'control' === $role && 'button' === strtolower($control->tagName);
+                if ( 'label' === $role || $buttonCaption ) {
                     // The label's text is painted by its sole text carrier (a `<p>`
                     // or `<span>` inside it). Typography that carrier declares wins
                     // over the label's own for that text, property by property, so a
                     // provider label that renders the text directly keeps it.
-                    $carried = $this->carrierTypography($roles, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $conditional);
+                    $carried = $this->carrierTypography($buttonCaption ? array() : $roles, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $conditional);
                     if ( array() !== $carried ) {
                         $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
                         foreach ( $provenance as $factIndex => $fact ) {
@@ -721,6 +742,7 @@ final class FormPresentationGraphBuilder
     {
         if ( count($provenance) > self::MAX_PROVENANCE ) throw new InvalidArgumentException('Form presentation provenance exceeds its limit.');
         foreach ( $provenance as $fact ) {
+            if ( is_array($fact) && array_diff(array_keys($fact), array( 'source_path', 'source_sha256', 'selector', 'condition', 'properties' )) ) throw new InvalidArgumentException('Form presentation provenance has unknown keys.');
             if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || '' === ArtifactPath::safeRelativePath($fact['source_path']) || ArtifactPath::safeRelativePath($fact['source_path']) !== $fact['source_path'] || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, self::PROPERTIES, true) || ! isset($styles[self::key($property)])) || ($condition !== null && ($fact['condition'] ?? null) !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) throw new InvalidArgumentException('Form presentation provenance is invalid.');
         }
     }
@@ -740,6 +762,7 @@ final class FormPresentationGraphBuilder
     {
         $elements = $this->controls($form);
         foreach ( $this->controls($form) as $control ) {
+            if (($carrier = self::soleTextCarrier($control)) instanceof DOMElement) $elements[] = $carrier;
             $label = $this->label($control);
             if ( $label instanceof DOMElement ) $elements[] = $label;
             $excluded = array( $control );
@@ -748,6 +771,14 @@ final class FormPresentationGraphBuilder
                 $excluded[] = $marker;
             }
             if ( $label instanceof DOMElement && ($carrier = self::soleTextCarrier($label, $excluded)) instanceof DOMElement ) $elements[] = $carrier;
+            if (null !== $this->sanitizeInlineSvgMarkup) {
+                $visualCount = 0;
+                foreach ($control->getElementsByTagName('svg') as $svg) {
+                    if (!$svg instanceof DOMElement || !SourceDom::svgHasDrawableContent($svg)) continue;
+                    $elements[] = $svg;
+                    if (++$visualCount >= self::MAX_VISUAL_PARTS) break;
+                }
+            }
         }
         return $elements;
     }

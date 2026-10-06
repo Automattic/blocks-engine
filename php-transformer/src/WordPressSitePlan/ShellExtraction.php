@@ -915,7 +915,12 @@ final class ShellExtraction
             $identity = array_key_first($clusters);
             $cluster = null === $identity ? null : $clusters[$identity];
             $runnerUp = array_values($clusters)[1] ?? null;
-            if (!is_array($cluster) || (count($cluster['indexes']) < count($applicable) && (count($cluster['indexes']) < 2 || (is_array($runnerUp) && count($cluster['indexes']) === count($runnerUp['indexes']))))) {
+            // A multi-route capture can carry chrome on the entry page only
+            // (single-page apps whose legal pages render bare). When no other
+            // route has any candidate for this area, nothing disagrees with
+            // the entry page, so it owns the part for the front page alone.
+            $entryOnly = is_array($cluster) && 1 === count($cluster['indexes']) && 1 < count($applicable) && !empty($pages[$cluster['indexes'][0]]['entrypoint']) && array() === array_diff_key($candidates, array($cluster['indexes'][0] => true)) && 1 === count($clusters);
+            if (!is_array($cluster) || (!$entryOnly && count($cluster['indexes']) < count($applicable) && (count($cluster['indexes']) < 2 || (is_array($runnerUp) && count($cluster['indexes']) === count($runnerUp['indexes']))))) {
                 $partitioned = $this->viewportPartitionWithoutCandidate($pages, array_keys($applicable), $area, $runtimeDeclarations);
                 if (null === $partitioned) {
                     $reason = array() === $clusters ? 'incomplete' : 'non_equivalent';
@@ -951,7 +956,7 @@ final class ShellExtraction
             // 'search' is never an applicable page in its own right (WordPress
             // synthesizes it), so it rides along wherever 'index' is bound: both
             // are the site's generic, non-singular fallback templates.
-            $templateSlugs = count($cluster['indexes']) === count($applicable) ? array('index', 'page', 'front-page', 'single', 'search') : array('index', 'search');
+            $templateSlugs = count($cluster['indexes']) === count($applicable) ? WordPressSitePlan::NATIVE_TEMPLATE_SLUGS : WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
             if (count($cluster['indexes']) !== count($applicable)) foreach ($applicable as $index => $page) {
                 $selected = in_array($index, $cluster['indexes'], true);
                 if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
@@ -965,6 +970,7 @@ final class ShellExtraction
                     $overrides[$slug] = $index;
                 }
             }
+            if ($entryOnly) $templateSlugs = array('front-page');
             $templateSlugs = array_values(array_unique($templateSlugs));
             $excludedTemplateSlugs = array_keys($overrides ?? array());
             $withoutShells = array();
@@ -1061,9 +1067,9 @@ final class ShellExtraction
                 $excludedTemplateSlugs = array();
                 $overrides = array();
                 if (count($withoutShells) === count($applicable)) {
-                    $templateSlugs = array('index', 'page', 'front-page', 'single', 'search');
+                    $templateSlugs = WordPressSitePlan::NATIVE_TEMPLATE_SLUGS;
                 } else {
-                    $templateSlugs = array('index', 'search');
+                    $templateSlugs = WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
                     foreach ($applicable as $index => $page) {
                         $selected = isset($withoutShells[$index]);
                         if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
@@ -1092,7 +1098,7 @@ final class ShellExtraction
             }
             if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, 'wordpress-site-plan/shared/' . $area . '#' . $area);
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
-            $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
+            $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
             $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $area;
             $placement = $inlineShell ? 'inline_shared_shell' : ($singlePage ? 'entry_shell' : 'shared_shell');
             if ($inlineShell) { $templateSlugs = array(); $excludedTemplateSlugs = array(); }
@@ -1351,9 +1357,9 @@ final class ShellExtraction
         $excludedTemplateSlugs = array();
         $overrides = array();
         if (count($withoutShells) === count($applicable)) {
-            $templateSlugs = array('index', 'page', 'front-page', 'single', 'search');
+            $templateSlugs = WordPressSitePlan::NATIVE_TEMPLATE_SLUGS;
         } else {
-            $templateSlugs = array('index', 'search');
+            $templateSlugs = WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
             foreach ($applicable as $index => $page) {
                 $selected = isset($withoutShells[$index]);
                 if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
@@ -1369,7 +1375,7 @@ final class ShellExtraction
         }
         foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
         unset($declaration);
-        $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
+        $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
         $sourcePath = 'wordpress-site-plan/shared/' . $area;
         $partMarkup = $absorbed['markup'];
         $ancestorContext = is_array($absorbed['ancestor_context'] ?? null) ? $absorbed['ancestor_context'] : null;

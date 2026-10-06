@@ -50,6 +50,9 @@ final class CssSelectorMatchCache
 
     /** @var list<DOMDocument> */
     private array $connectedDocuments = array();
+    /** @var array<string,array{node:DOMElement,key:string}> */
+    private array $connectedPaths = array();
+    private int $nextConnectedElementKey = 0;
 
     private int $nextDetachedElementKey = 0;
 
@@ -240,6 +243,8 @@ final class CssSelectorMatchCache
         $this->connectedElementKeys = new WeakMap();
         $this->connectedDocumentKeys = new WeakMap();
         $this->connectedDocuments = array();
+        $this->connectedPaths = array();
+        $this->nextConnectedElementKey = 0;
         $this->nextConnectedDocumentKey = 0;
         $this->nextDetachedElementKey = 0;
     }
@@ -253,8 +258,8 @@ final class CssSelectorMatchCache
 
         // PHP may return a new wrapper each time the same native DOM node is
         // fetched, and it reuses spl_object_id() as soon as an old wrapper is
-        // released. A connected node's document path is stable across wrappers
-        // and unique within this per-document cache revision.
+        // released. Paths find wrappers for the same native node, but lowering
+        // can replace a node at that path. Confirm native identity before reuse.
         for ( $ancestor = $element; $ancestor instanceof DOMNode; $ancestor = $ancestor->parentNode ) {
             if ( $ancestor instanceof DOMDocument ) {
                 ++$this->connectedElementKeyBuilds;
@@ -264,9 +269,13 @@ final class CssSelectorMatchCache
                     // another native document during this cache revision.
                     $this->connectedDocuments[] = $ancestor;
                 }
-                return $this->connectedElementKeys[$element] = 'document:'
-                    . $this->connectedDocumentKeys[$ancestor]
-                    . ':path:' . $element->getNodePath();
+                $path = 'document:' . $this->connectedDocumentKeys[$ancestor] . ':path:' . $element->getNodePath();
+                $retained = $this->connectedPaths[$path] ?? null;
+                if (null === $retained || !$retained['node']->isSameNode($element)) {
+                    $retained = array('node' => $element, 'key' => $path . ':node:' . ++$this->nextConnectedElementKey);
+                    $this->connectedPaths[$path] = $retained;
+                }
+                return $this->connectedElementKeys[$element] = $retained['key'];
             }
         }
 

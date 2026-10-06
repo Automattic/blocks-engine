@@ -26,6 +26,62 @@ $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? 
 $serialized = (new Runtime())->serializeBlocks(array($block));
 $assert('custom/authored-carousel' === ((new Runtime())->parseBlocks($serialized)[0]['blockName'] ?? null), 'the carousel and its inner blocks persist through parse and serialize');
 
+$scopedPresentation = (new HtmlTransformer())->transform(
+    '<style>@supports (--test-custom-property:true){.review-frame[data-section-id="review-42"]{--title-font-size-value:1.6}}'
+        . '.review-frame[data-section-id="review-42"] .quote{font-size:calc((var(--title-font-size-value) - 1) * 1.2vw + 1rem);text-align:center}'
+        . '.runtime-slideshow .slide{transform:translateX(-9999px)}</style>'
+        . '<div class="review-frame runtime-slideshow" data-section-id="review-42"><button aria-label="Previous slide">Previous</button>'
+        . '<ul class="slides"><li class="slide"><h2 class="quote">First review</h2></li>'
+        . '<li class="slide" aria-hidden="true"><h2 class="quote">Second review</h2></li></ul>'
+        . '<button aria-label="Next slide">Next</button></div>'
+)->toArray();
+$scopedCarousel = $scopedPresentation['blocks'][0] ?? array();
+$scopedMarkup = (string) ($scopedPresentation['serialized_blocks'] ?? '');
+$scopedRoot = preg_match('/<div class="blocks-engine-authored-carousel[^>]+>/', $scopedMarkup, $scopedRootMatch) ? $scopedRootMatch[0] : '';
+$assert(
+    'custom/authored-carousel' === ($scopedCarousel['blockName'] ?? null)
+        && str_contains($scopedMarkup, 'class="blocks-engine-authored-carousel')
+        && str_contains($scopedRoot, 'review-frame')
+        && str_contains($scopedRoot, 'data-section-id="review-42"')
+        && ! str_contains($scopedMarkup, '--title-font-size-value:1.6')
+        && ! str_contains($scopedRoot, 'runtime-slideshow'),
+    'the converter transfers source identity on the carousel root while keeping stylesheet custom properties under their original conditional cascade'
+);
+
+$isolationInstance = static fn (string $first, string $second): string => '<div class="service-carousel"><button aria-label="Previous slide">Previous</button><div role="list"><div role="listitem"><img src="' . $first . '"></div><div role="listitem"><img src="' . $second . '"></div></div><button aria-label="Next slide">Next</button></div>';
+$isolatedInstances = (new HtmlTransformer())->transform($isolationInstance('one.jpg', 'two.jpg') . $isolationInstance('three.jpg', 'four.jpg'))->toArray();
+$isolatedMarkup = (string) ($isolatedInstances['serialized_blocks'] ?? '');
+preg_match_all('/<div class="blocks-engine-authored-carousel[^>]+>/', $isolatedMarkup, $isolatedRoots);
+$scopeBindings = array();
+foreach ($isolatedRoots[0] as $isolatedRoot) {
+    if (preg_match('/data-be-source-scope="([^"]+)"/', $isolatedRoot, $scopeMatch)) {
+        $scopeBindings[] = $scopeMatch[1];
+    }
+}
+$assert(
+    2 === count($scopeBindings) && $scopeBindings[0] !== $scopeBindings[1]
+        && str_contains($isolatedMarkup, 'data-be-source-scope="' . $scopeBindings[0] . '"')
+        && str_contains($isolatedMarkup, 'data-be-source-scope="' . $scopeBindings[1] . '"'),
+    'same-page carousel instances receive distinct source-scope bindings'
+);
+
+foreach (array(array('Previous', 'Next'), array('<span class="source-arrow">←</span>', '<span class="source-arrow">→</span>')) as $controlLabels) {
+    $textControls = (new HtmlTransformer())->transform(
+        '<div class="text-carousel slideshow"><ul><li class="slide"><h2>First</h2></li><li class="slide"><h2>Second</h2></li></ul>'
+        . '<div class="source-actions"><button aria-label="Previous slide">' . $controlLabels[0] . '</button>'
+        . '<button aria-label="Next slide">' . $controlLabels[1] . '</button></div></div>'
+    )->toArray();
+    $textDocument = new DOMDocument('1.0', 'UTF-8');
+    @$textDocument->loadHTML('<?xml encoding="utf-8" ?>' . (string) $textControls['serialized_blocks']);
+    $buttons = $textDocument->getElementsByTagName('button');
+    $assert(
+        2 === $buttons->length
+            && strip_tags($controlLabels[0]) === $buttons->item(0)->textContent
+            && strip_tags($controlLabels[1]) === $buttons->item(1)->textContent,
+        'captured source control groups preserve both plain labels and safe inline arrow spans'
+    );
+}
+
 $definition = $result['source_reports']['generated_blocks'][0] ?? array();
 $editor = (string) ($definition['assets']['index.js'] ?? '');
 $view = (string) ($definition['view_js'] ?? '');
@@ -36,6 +92,11 @@ $assert(str_contains($view, "'ArrowLeft'") && str_contains($view, "'ArrowRight'"
 $assert(str_contains($style, 'grid-auto-flow:column') && str_contains($style, '@media(max-width:600px)') && str_contains($style, 'prefers-reduced-motion:reduce'), 'carousel layout is bounded and responsive with reduced-motion handling');
 $assert(str_contains($style, '.blocks-engine-authored-carousel{--blocks-engine-carousel-gap:1rem;position:relative;') && ! str_contains($style, '--slideshow{position:static'), 'every carousel presentation keeps a positioned root so a source background layer cannot paint over the rebuilt rail');
 $assert(str_contains($style, 'pointer-events:auto'), 'slideshow controls and viewport remain interactive inside source layers that disable pointer events');
+$assert(
+    ! str_contains($style, 'mobile-arrows') && ! str_contains($style, 'desktop-arrows') && ! str_contains($style, 'arrows-bottom')
+        && ! str_contains($style, '@media(max-width:600px){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls'),
+    'the generic renderer does not prescribe source control classes or responsive boundaries'
+);
 $assert(str_contains($style, 'visibility:hidden!important') && str_contains($style, 'visibility:visible!important'), 'slideshow state overrides captured responsive visibility on borrowed slides');
 $assert(str_contains($style, 'height:var(--blocks-engine-carousel-height,auto)') && str_contains($style, 'slide--active{position:relative!important') && str_contains($style, 'height:auto!important') && str_contains($style, '__track>:first-child'), 'slideshow overlay geometry wins over captured ID positioning so the active slide can size the track');
 
@@ -43,6 +104,17 @@ $shell = (new AuthoredCarouselBlockGenerator())->shell(array('ariaLabel' => 'Car
 $shellMarkup = $shell['opening'] . $shell['closing'];
 $assert(str_contains($shellMarkup, 'aria-label="Care &amp; &lt;support&gt;"') && str_contains($shellMarkup, '--items-6') && str_contains($shellMarkup, 'data-wrap="false"'), 'shell attributes are escaped and bounded');
 $assert(str_contains($shellMarkup, 'data-wp-interactive="blocks-engine/carousel"') && str_contains($shellMarkup, '&quot;presentation&quot;:&quot;track&quot;') && str_contains($shellMarkup, 'data-wp-init="callbacks.init"') && str_contains($shellMarkup, 'data-wp-on--click="actions.next"') && str_contains($shellMarkup, 'data-wp-bind--disabled="state.atEnd"'), 'the shell declares its behavior through Interactivity API directives');
+$authoredTopology = (new AuthoredCarouselBlockGenerator())->shell(array(
+    'sourceControlTopology' => '<section class="source-group"><div class="source-depth"><button type="button" class="source-prev" data-carousel-previous="true" data-wp-on--click="actions.previous" data-wp-bind--disabled="state.atStart" aria-label="Previous slide"><svg viewBox="0 0 10 10"><path d="M1 5H9"></path></svg></button><button type="button" class="source-next" data-carousel-next="true" data-wp-on--click="actions.next" data-wp-bind--disabled="state.atEnd" aria-label="Next slide"><svg viewBox="0 0 10 10"><path d="M1 5H9"></path></svg></button></div></section>',
+));
+$authoredTopologyMarkup = $authoredTopology['opening'] . $authoredTopology['closing'];
+$assert(
+    str_contains($authoredTopologyMarkup, 'source-group') && str_contains($authoredTopologyMarkup, 'source-depth')
+        && str_contains($authoredTopologyMarkup, 'data-wp-on--click="actions.previous"')
+        && str_contains($authoredTopologyMarkup, 'data-wp-on--click="actions.next"')
+        && str_contains($authoredTopologyMarkup, '<svg viewbox="0 0 10 10">'),
+    'the shell retains sanitized source wrapper depth and binds both native controls to carousel actions'
+);
 
 $payload = (new CompanionPluginPayload())->fromBlockTypes(array(), array(), array(), array($definition));
 $payloadBlock = $payload['blocks'][0] ?? array();

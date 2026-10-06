@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 
 /**
@@ -233,6 +234,19 @@ final class ArtifactNormalizer
             }
             if ( is_array($file['metadata'] ?? null) ) {
                 $metadata = array();
+                if (is_array($file['metadata']['structured_data'] ?? null)) {
+                    $structured = array();
+                    $structuredBytes = 0;
+                    foreach (array_slice($file['metadata']['structured_data'], 0, 32) as $record) {
+                        if (!is_array($record) || 'application/ld+json' !== ($record['type'] ?? null) || !is_array($record['data'] ?? null)) continue;
+                        $encoded = json_encode($record['data']);
+                        if (!is_string($encoded) || strlen($encoded) > 262144 || !is_array(json_decode($encoded, true, 24))) continue;
+                        $structuredBytes += strlen($encoded);
+                        if ($structuredBytes > 262144) break;
+                        $structured[] = array('type' => 'application/ld+json', 'data' => $record['data']);
+                    }
+                    if (array() !== $structured) $metadata['structured_data'] = $structured;
+                }
                 if ( is_string($file['metadata']['route_path'] ?? null) && '' !== trim($file['metadata']['route_path']) ) {
                     $metadata['route_path'] = trim($file['metadata']['route_path']);
                 }
@@ -793,15 +807,15 @@ final class ArtifactNormalizer
                 continue;
             }
             $content = $this->payload($file, (string) ($file['path'] ?? ''))['content'];
-            if ( ! $this->isHtmlLikeFile($file) || '' === trim($content) || ! preg_match_all('@<script\b([^>]*)>(.*?)</script>@is', $content, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
+            if ( ! $this->isHtmlLikeFile($file) || '' === trim($content) ) {
                 continue;
             }
 
             $scriptIndex = 0;
-            foreach ( $matches as $match ) {
+            foreach ( HtmlTagScanner::scan($content, 'script') as $script ) {
                 ++$scriptIndex;
-                $attributes = (string) $match[1][0];
-                $body = trim((string) $match[2][0]);
+                $attributes = $script['attributes'];
+                $body = trim($script['content']);
                 if ( '' === $body || '' !== $this->htmlAttribute($attributes, 'src') || ! $this->isExecutableScriptType($this->htmlAttribute($attributes, 'type')) ) {
                     continue;
                 }
@@ -814,7 +828,7 @@ final class ArtifactNormalizer
                     'role'        => 'script',
                     'intent'      => 'behavior',
                     'source'      => 'inline-script',
-                    'placement'   => $this->scriptPlacement($content, (int) $match[0][1]),
+                    'placement'   => $script['placement'],
                     'type'        => $this->htmlAttribute($attributes, 'type'),
                     'defer'       => $this->hasBooleanAttribute($attributes, 'defer'),
                     'async'       => $this->hasBooleanAttribute($attributes, 'async'),
@@ -850,24 +864,12 @@ final class ArtifactNormalizer
 
     private function htmlAttribute(string $attributes, string $name): string
     {
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/i', $attributes, $match) ) {
-            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        }
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*([^\s>]+)/i', $attributes, $match) ) {
-            return html_entity_decode((string) $match[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        }
-        return '';
+        return HtmlTagScanner::attributes($attributes)[strtolower($name)] ?? '';
     }
 
     private function hasBooleanAttribute(string $attributes, string $name): bool
     {
-        return 1 === preg_match('/(?:^|\s)' . preg_quote($name, '/') . '(?:\s|=|$)/i', $attributes);
-    }
-
-    private function scriptPlacement(string $html, int $offset): string
-    {
-        $headClose = stripos($html, '</head>');
-        return false !== $headClose && $offset < $headClose ? 'head' : 'body';
+        return array_key_exists(strtolower($name), HtmlTagScanner::attributes($attributes));
     }
 
     /**

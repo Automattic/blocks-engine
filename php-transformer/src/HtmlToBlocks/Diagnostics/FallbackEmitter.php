@@ -17,6 +17,7 @@ use DOMDocument;
 use DOMElement;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
+use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 
 /**
  * Constructs the per-element fallback / behavior-loss emission entries that
@@ -114,6 +115,15 @@ final class FallbackEmitter
      * Reset the per-transform custom-block dedup registry. Called once per
      * transform so generated-block names/dedup never leak across documents.
      */
+    private function containsProjectedCollectionControl(DOMElement $element): bool
+    {
+        if ($element->hasAttribute('data-blocks-engine-collection-choice') || $element->hasAttribute('data-blocks-engine-collection-choices')) return true;
+        foreach ($element->getElementsByTagName('*') as $node) {
+            if ($node instanceof DOMElement && ($node->hasAttribute('data-blocks-engine-collection-choice') || $node->hasAttribute('data-blocks-engine-collection-choices'))) return true;
+        }
+        return false;
+    }
+
     public function resetGeneratedBlocks(): void
     {
         $this->generatedBlockNames = array();
@@ -137,6 +147,7 @@ final class FallbackEmitter
      */
     public function maybeGenerateCustomBlock(DOMElement $element, GeneratedBlockRegistry $registry, bool $preserveRoot = false, bool $confirmedComponent = false): ?array
     {
+        if ($this->containsProjectedCollectionControl($element)) return null;
         $result = $this->classifier->classify($element, $this->classificationContext($element));
         if ( ! $confirmedComponent && ! $result->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK) ) {
             return null;
@@ -707,18 +718,7 @@ final class FallbackEmitter
 
     private function elementMatchesRuntimeSelector(DOMElement $element, string $selector): bool
     {
-        $tag = strtolower($element->tagName);
-        if ( $selector === $tag && 'canvas' === $tag ) {
-            return true;
-        }
-        if ( preg_match('/^([a-z][a-z0-9-]*)\.([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            return $tag === strtolower((string) $match[1]) && in_array((string) $match[2], preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(), true);
-        }
-        if ( preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ) {
-            return ( '' === (string) ($match[1] ?? '') || $tag === strtolower((string) $match[1]) ) && $element->hasAttribute(strtolower((string) $match[2]));
-        }
-
-        return false;
+        return RuntimeSelectorVocabulary::matchesElement($element, $selector, array( 'canvas' ));
     }
 
     /**

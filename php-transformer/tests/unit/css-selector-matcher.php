@@ -23,6 +23,9 @@ $dom->loadHTML('<!doctype html><div id="root"><section class="outer"><p id="one"
 libxml_clear_errors();
 $byId = static fn (string $id): DOMElement => $dom->getElementById($id);
 $match = static fn (string $selector, DOMElement $element, bool $suffix = false): array => CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector), $suffix);
+$assert($match('section > p:nth-of-type(2)', $byId('two'))['matches'], 'structural source selectors count only same-tag siblings');
+$assert($match('section > span:nth-of-type(1)', $byId('target'))['matches'], 'mixed tags and comments do not shift the type index');
+$assert(!$match('section > span:nth-of-type(4)', $byId('target'))['matches'], 'nth-of-type differs from absolute child position');
 
 foreach ( array( 'p.item#one', '*#one' ) as $selector ) {
     $result = $match($selector, $byId('one'));
@@ -182,7 +185,6 @@ $identityFirst = $identityDom->getElementById('identity-first');
 if ( ! $identityFirst instanceof DOMElement ) {
     throw new RuntimeException('Selector-cache identity fixture did not produce the first element.');
 }
-$firstWrapperId = spl_object_id($identityFirst);
 $identityCache->classTokens($identityFirst);
 $identityCache->attribute($identityFirst, 'data-state');
 $identityCache->attributeNames($identityFirst);
@@ -194,7 +196,8 @@ $identitySecond = $identityDom->getElementById('identity-second');
 if ( ! $identitySecond instanceof DOMElement ) {
     throw new RuntimeException('Selector-cache identity fixture did not produce the second element.');
 }
-$assert($firstWrapperId === spl_object_id($identitySecond), 'identity regression fixture recycles the released DOMElement wrapper ID');
+// Native-node retention may prevent wrapper-ID reuse. The invariant is that
+// distinct nodes never share selector inputs, regardless of PHP's allocation.
 $assert(array( 'second' ) === $identityCache->classTokens($identitySecond), 'class-token cache does not alias a distinct element with a recycled wrapper ID');
 $assert('second' === $identityCache->attribute($identitySecond, 'data-state'), 'attribute cache does not alias a distinct element with a recycled wrapper ID');
 $assert(array( 'id', 'class', 'data-state', 'data-second' ) === $identityCache->attributeNames($identitySecond), 'attribute-name cache does not alias a distinct element with a recycled wrapper ID');

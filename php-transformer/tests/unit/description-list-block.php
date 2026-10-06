@@ -91,7 +91,7 @@ foreach ( $companionGenerators as $companionGenerator ) {
 
     $assert('file:./index.js' === ($companionDefinition['block_json']['editorScript'] ?? null), $expectedBlockName . ' editorScript is a single WordPress file reference');
     $expectedDependencies = in_array($expectedBlockName, array( 'custom/authored-input', 'custom/authored-select' ), true)
-        ? array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) )
+        ? array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text' ) )
         : array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) );
     $assert($expectedDependencies === ($companionDefinition['script_dependencies'] ?? null), $expectedBlockName . ' declares its editor dependencies for SSI without emitting server code');
     $assert(array_reduce(array_keys($companionAssets), static fn (bool $safe, string $path): bool => $safe && $isSafeCompanionAsset($path, $companionAssets[$path]), true), $expectedBlockName . ' emits only static companion assets');

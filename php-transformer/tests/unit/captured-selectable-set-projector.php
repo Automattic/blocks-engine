@@ -49,6 +49,19 @@ $files = static function (string $html, array $states): array {
     );
 };
 
+$initialSource = static fn(string $heading, string $extra = ''): string => '<html><body><main><div><button type="button">Alpha</button><button type="button">Beta</button><button type="button"><span>03</span><span>Gamma</span></button></div><div><h2>' . $heading . '</h2><p>Initial content</p></div>' . $extra . '</main></body></html>';
+$initialStates = array($member(0, 'Alpha', '<div><h2>Alpha</h2></div>', 'captured', false, array(), array('size' => 3)), $member(1, 'Beta', '<div><h2>Beta</h2></div>', 'captured', false, array(), array('size' => 3)));
+$initial = $project($files($initialSource('Gamma'), $initialStates));
+$assert(3 === substr_count((string) $initial['files'][0]['content'], 'role="tabpanel"'), 'initial panel heading corroborates the unprobed source member');
+$incomplete = $project($files($initialSource('Alpha'), $initialStates));
+$assert(2 === substr_count((string) $incomplete['files'][0]['content'], 'role="tabpanel"'), 'an unprobed inactive last member is not recovered after incomplete probing');
+$multiSibling = $project($files($initialSource('Gamma', '<aside>After</aside>'), $initialStates));
+$assert(!str_contains((string) $multiSibling['files'][0]['content'], 'data-blocks-engine-tabs-flow='), 'three-sibling layouts do not receive an unsupported display-contents order projection');
+foreach (array('click-failed', 'no-dialog') as $status) {
+    $reported = $project($files($initialSource('Gamma'), array_merge($initialStates, array($member(2, 'Gamma', '', $status, false, array(), array('size' => 3))))));
+    $assert(2 === substr_count((string) $reported['files'][0]['content'], 'role="tabpanel"'), 'a reported ' . $status . ' member is never recovered from the initial region');
+}
+
 $source = '<html><body><main><div><button type="button">Alpha</button><button type="button">Beta</button></div><div><p>Select an item</p></div></main></body></html>';
 $alphaHtml = '<div><h2>Alpha</h2><p>Alpha specification</p></div>';
 $betaHtml = '<div><h2>Beta</h2><p>Beta specification</p></div>';
@@ -181,6 +194,19 @@ $unmatchedMarkup = (string) ($unmatched['files'][0]['content'] ?? '');
 $assert(1 === ($unmatched['projected_count'] ?? 0), 'an unmatched region still projects by appending');
 $assert(str_contains($unmatchedMarkup, 'Alpha specification'), 'appended tabs still carry captured content');
 $assert(in_array('captured_selectable_set_region_appended', $codes($unmatched), true), 'unmatched regions emit an append diagnostic');
+
+$idSource = '<html><body><main><section><h1>Heading</h1><div role="tablist"><button type="button" role="tab" id="t-:r1:-trigger-one">Alpha</button><button type="button" role="tab" id="t-:r1:-trigger-two">Beta</button></div><div role="tabpanel" id="t-:r1:-content-one"><p>Select an item</p></div></section><footer><p>After the tabs</p></footer></main></body></html>';
+$idMember = static fn(int $index, string $label, string $html): array => $member($index, $label, $html, 'captured', false, array('selector' => '#t-\\:r1\\:-trigger-' . (0 === $index ? 'one' : 'two')), array('selector' => 'body > main > section > div:nth-of-type(1)'));
+$idStates = array_map(static function (array $state): array {
+    $state['dialog']['selector'] = '#t-\\:r1\\:-content-one';
+    return $state;
+}, array($idMember(0, 'Alpha', $alphaHtml), $idMember(1, 'Beta', $betaHtml)));
+$byId = $project($files($idSource, $idStates));
+$byIdMarkup = (string) ($byId['files'][0]['content'] ?? '');
+$assert(1 === ($byId['projected_count'] ?? 0), 'a region selected by a CSS-escaped id projects one set');
+$assert(! in_array('captured_selectable_set_region_appended', $codes($byId), true), 'a CSS-escaped id region is matched in place rather than appended');
+$assert(! str_contains($byIdMarkup, 'Select an item') && str_contains($byIdMarkup, 'Alpha specification') && str_contains($byIdMarkup, 'Beta specification'), 'the id-selected region is replaced by the captured panels');
+$assert(false !== strpos($byIdMarkup, 'Alpha specification') && strpos($byIdMarkup, 'Alpha specification') < strpos($byIdMarkup, 'After the tabs'), 'the captured panels stay inside the source layout instead of trailing the document');
 
 $graphicSource = '<html><body><main><div><svg><g><text>FR1</text><text>1,530 ft²</text></g><g><text>FR2</text><text>1,530 ft²</text></g></svg></div><div><p>Select a zone</p></div></main></body></html>';
 $graphicTrigger = static function (int $index, string $label): array {

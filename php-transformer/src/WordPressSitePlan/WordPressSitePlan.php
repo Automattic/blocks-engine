@@ -25,6 +25,9 @@ final class WordPressSitePlan
 {
     public const SCHEMA = 'blocks-engine/wordpress-site-plan/v2';
     public const IDENTITY_SCHEMA = 'blocks-engine/wordpress-site-plan-identity/v1';
+    /** Shared site shells also serve WordPress routes created after capture. */
+    public const NATIVE_TEMPLATE_SLUGS = array('index', 'page', 'front-page', 'single', 'search', 'archive', '404');
+    public const NATIVE_QUERY_TEMPLATE_SLUGS = array('index', 'search', 'archive', '404');
     public const TOKEN_PREFIX = '{{wordpress-site-plan:asset:';
     public const NAVIGATION_TOKEN_PREFIX = '{{wordpress-site-plan:navigation:';
     /** Blocks whose serialized `url` attribute names a route rather than an asset. */
@@ -36,7 +39,7 @@ final class WordPressSitePlan
     public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
     public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
-    public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}';
+    public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}';
     /**
      * A generated theme reproduces captured text, so WordPress typographic
      * rewriting stays off while it is active. Static block content survives
@@ -49,9 +52,17 @@ final class WordPressSitePlan
     private string $sourceUrl = '';
     private const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
     private const MAX_ROUTE_COLLISION_DIAGNOSTICS = 50;
+    private const MAX_OMITTED_LINK_DECLARATION_DIAGNOSTICS = 50;
+    private const OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE = 'wordpress_site_plan_omitted_link_declaration';
     /** @var array<string,array<string,mixed>> */
     private array $unresolvedNavigationDiagnostics = array();
     private int $omittedUnresolvedNavigationDiagnostics = 0;
+    /** @var array<string,array<string,mixed>> */
+    private array $omittedLinkDeclarations = array();
+    /** @var array<string,array<string,bool>> */
+    private array $omittedLinkDeclarationPages = array();
+    /** @var array<string,bool> */
+    private array $omittedLinkDeclarationOverflow = array();
     /** @var array<int,array<string,mixed>> */
     private array $routeCollisions = array();
     private int $omittedRouteCollisionDiagnostics = 0;
@@ -61,6 +72,8 @@ final class WordPressSitePlan
     private array $routeTargets = array();
     /** @var array<string,string|false> */
     private array $routeReferenceCache = array();
+    /** @var list<string> */
+    private array $listingQueryContainers = array();
     private readonly ShellExtraction $shellExtraction;
     private MissingMediaRecovery $missingMedia;
 
@@ -180,9 +193,13 @@ final class WordPressSitePlan
     public function fromCompilerInput(array $data, WordPressSitePlanInput $input): array
     {
         $this->sourceUrl = $this->sourceUrlFromProvenance($data['provenance'] ?? array());
+        $this->listingQueryContainers = array();
         $this->sourceOrigin = $this->urlOrigin($this->sourceUrl);
         $this->unresolvedNavigationDiagnostics = array();
         $this->omittedUnresolvedNavigationDiagnostics = 0;
+        $this->omittedLinkDeclarations = array();
+        $this->omittedLinkDeclarationPages = array();
+        $this->omittedLinkDeclarationOverflow = array();
         $editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
             throw new InvalidArgumentException('WordPress site plan requires a versioned editability policy.');
@@ -247,10 +264,8 @@ final class WordPressSitePlan
         // Bindings anchor on the final canonical page markup before any shell
         // extraction. Asset and route projection can make source anchors equal,
         // so assign occurrences only after that shared projection is complete.
-        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
-        $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
-        $runtimeDeclarations = $factoredRuntimeDeclarations['declarations'];
-        $runtimeRecords = $factoredRuntimeDeclarations['records'];
+        $runtimeEntityRecords = $compiled['runtime_entity_records'] ?? array();
+        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
         $projector = new ThemeJsonProjection();
@@ -263,7 +278,6 @@ final class WordPressSitePlan
         $existingParts = $this->documents($compiledParts, true, $tokens, $references, $routeMap);
         $reservedPartSlugs = array_fill_keys(array_column($existingParts, 'slug'), true);
         $canonicalInlineParts = $this->documents(is_array($compiled['inline_shell_artifacts'] ?? null) ? $compiled['inline_shell_artifacts'] : array(), true, $tokens, $references, $routeMap);
-        $runtimeEntityRecords = $compiled['runtime_entity_records'] ?? array();
         $inlineShells = $this->shellExtraction->inlineSharedShells($pages, $reservedPartSlugs, $runtimeDeclarations, $canonicalInlineParts, $runtimeEntityRecords);
         $reservedPartSlugs += array_fill_keys(array_column($inlineShells['parts'], 'slug'), true);
         if (array_filter($inlineShells['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_shell_route_variant_extracted' === ($row['code'] ?? null))) $reservedPartSlugs['header'] = true;
@@ -282,19 +296,20 @@ final class WordPressSitePlan
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
-        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
+        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $parts);
          self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
-         $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus, $runtimeDeclarations, $compiled['runtime_entity_records'] ?? array());
+         $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus, $runtimeDeclarations, $runtimeEntityRecords);
          $pages = $navigation['pages'];
          $parts = $navigation['parts'];
          $menus = $navigation['menus'];
         $articleChrome = $this->extractPostArticleChrome($pages, $parts);
          $pages = $articleChrome['pages'];
-         $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations);
+          $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations);
+          $assets = ListingQueryPresentation::project($assets, $this->listingQueryContainers);
          // Query Loop projection can shorten page markup after shell extraction.
          // Rebase retained runtime anchors on the final page before validation.
-         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages, $parts);
-         $pages = self::attachWholePageCandidates($pages, $runtimeDeclarations, $compiled['runtime_entity_records'] ?? array());
+         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $parts);
+         $pages = self::attachWholePageCandidates($pages, $runtimeDeclarations, $runtimeEntityRecords);
          foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
          self::assertEntityBindingsAnchored($runtimeDeclarations, $pages, $parts, $assets);
          $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single']);
@@ -311,7 +326,12 @@ final class WordPressSitePlan
             $assetWrites = array_merge($assetWrites, $this->assetWrites($placeholderAssets, $references));
         }
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus), $assetWrites);
-        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->missingMedia->diagnostics());
+        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->missingMedia->diagnostics());
+        // All shell, navigation, listing and script binding projection is now
+        // complete. Only the public plan needs the bounded record form.
+        $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
+        $runtimeDeclarations = $factoredRuntimeDeclarations['declarations'];
+        $runtimeRecords = $factoredRuntimeDeclarations['records'];
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => $this->sourceDocumentCatalog($compiled['pages'] ?? array())),
@@ -330,7 +350,7 @@ final class WordPressSitePlan
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
-            'runtime_entity_records' => $compiled['runtime_entity_records'] ?? array(),
+            'runtime_entity_records' => $runtimeEntityRecords,
             'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $recoveryDiagnostics),
             'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $input->coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy),
             'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $recoveryDiagnostics), $surfaces),
@@ -397,7 +417,9 @@ final class WordPressSitePlan
         $records = RuntimeEntityManifest::normalizeRecords($plan['runtime_entity_records']);
         if ($records !== $plan['runtime_entity_records']) throw new InvalidArgumentException('WordPress site plan runtime entity records are not canonically normalized.');
         foreach ($plan['runtime_declarations'] as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) RuntimeEntityManifest::resolve($declaration['payload'], $records);
-        self::assertEntityBindingsAnchored($plan['runtime_declarations'], $plan['pages'], $plan['template_parts'], $plan['assets']);
+        $runtimeRecords = RuntimeDeclarations::normalizeRecords($plan['runtime_records'] ?? array());
+        if ($runtimeRecords !== ($plan['runtime_records'] ?? array())) throw new InvalidArgumentException('WordPress site plan runtime records are not canonically normalized.');
+        self::assertEntityBindingsAnchored(RuntimeDeclarations::materialize($plan['runtime_declarations'], $runtimeRecords), $plan['pages'], $plan['template_parts'], $plan['assets']);
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
@@ -1398,8 +1420,10 @@ final class WordPressSitePlan
                 }
                 if ('links' !== $kind) continue;
                 $route = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes);
-                if (null !== $route) $row['url'] = $route;
-                elseif ($this->isOptionalFeedLink($row) || $this->isOptionalResourceHint($row) || $this->isOptionalManifestLink($row) || $this->isVendorLink($row)) $row = null;
+                if (null !== $route) { $row['url'] = $route; continue; }
+                if (!$this->isOptionalFeedLink($row) && !$this->isOptionalDiscoveryLink($row) && !$this->isOptionalResourceHint($row) && !$this->isOptionalManifestLink($row) && !$this->isVendorLink($row) && !$this->isSourceProtocolEndpointLink($row)) continue;
+                $this->recordOmittedLinkDeclaration(self::value($document, 'source_path'), $row);
+                $row = null;
             }
             unset($row);
             $metadata[$kind] = array_values(array_filter($metadata[$kind], static fn(mixed $row): bool => is_array($row)));
@@ -1442,6 +1466,115 @@ final class WordPressSitePlan
     {
         $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
         return !self::explicitUrl($link['url'] ?? null) && array('manifest') === $relations;
+    }
+    /**
+     * Discovery endpoints for server-side protocols the source application
+     * served itself: XML-RPC pingback, RSD (`EditURI`), the Live Writer
+     * manifest, WebSub hubs, Webmention receivers and OpenID delegation.
+     *
+     * WordPress publishes all of these on every page, so a captured WordPress
+     * site arrives with `<link rel="pingback" href="/xmlrpc.php">` and
+     * `<link rel="EditURI" href="/xmlrpc.php?rsd">` in its head. Neither names
+     * a captured asset, and neither can become an artifact route: `routeUrl()`
+     * rejects a dotted segment. They are not subresources either -- nothing a
+     * page renders depends on them -- and the destination site publishes its
+     * own correct endpoints. Carrying the source copies forward is stale
+     * plumbing, so an unresolved one is omitted rather than failing the import.
+     */
+    private const SOURCE_PROTOCOL_LINK_TYPES = array('pingback', 'edituri', 'wlwmanifest', 'hub', 'webmention', 'openid.server', 'openid.delegate', 'openid2.provider', 'openid2.local_id');
+    /**
+     * oEmbed discovery. WordPress core prints both of these on every singular
+     * page, and `oembed/1.0/` carries a dotted segment, so `routeUrl()` rejects
+     * it for exactly the reason it rejects `/xmlrpc.php`. A consumer fetches
+     * these to embed the page somewhere else; nothing the page renders depends
+     * on them, and the destination publishes its own.
+     *
+     * Matched on the `+oembed` media-type suffix, which is what identifies the
+     * pair, and fail-closed on the relation set the way `isOptionalManifestLink()`
+     * is -- a `rel` carrying anything besides `alternate` is not this.
+     *
+     * @param array<string,mixed> $link
+     */
+    private function isOptionalDiscoveryLink(array $link): bool
+    {
+        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
+        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
+        // A media type may carry parameters -- `application/json+oembed; charset=utf-8`
+        // is the same type -- and missing one costs the whole plan, so match the
+        // essence before the first `;` rather than the raw attribute.
+        $type = strtolower(trim(explode(';', (string) ($link['type'] ?? ''))[0]));
+        return !self::explicitUrl($link['url'] ?? null) && array('alternate') === $relations && str_ends_with($type, '+oembed');
+    }
+    /** @param array<string,mixed> $link */
+    private function isSourceProtocolEndpointLink(array $link): bool
+    {
+        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
+        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
+        return !self::explicitUrl($link['url'] ?? null) && array() !== $relations && array() === array_diff($relations, self::SOURCE_PROTOCOL_LINK_TYPES);
+    }
+    /**
+     * Records one omitted link declaration. An omission is a reportable quality
+     * defect, not a silent edit: the plan keeps a bounded, deduplicated warning
+     * per declaration so a consumer can show what the head lost.
+     *
+     * These land on the plan's own `diagnostics`, beside
+     * `wordpress_site_plan_unresolved_navigation_link`. They are not envelope
+     * diagnostics, so they do not reach `source_reports.wordpress_site_plan_diagnostics`
+     * or `WordPressSitePlanView::diagnostics()`, which carry the failure
+     * channel; a consumer wanting these reads the plan.
+     *
+     * @param array<string,mixed> $link
+     */
+    private function recordOmittedLinkDeclaration(string $sourcePath, array $link): void
+    {
+        $url = (string) ($link['url'] ?? '');
+        $relation = trim((string) preg_replace('/\s+/', ' ', (string) ($link['rel'] ?? '')));
+        // Keyed on the declaration rather than the page. WordPress prints the
+        // same discovery links in every head, so keying on the page spends the
+        // whole budget restating one site's boilerplate and names no other
+        // defect: a 60-page capture reported 5 facts about 10 pages and gave
+        // up. One row per distinct declaration, with the page it was first seen
+        // on and how many pages carried it.
+        //
+        // Pages, not tags: fullDocumentMetadata() keeps duplicate links, so a
+        // head that prints one pingback twice would otherwise report two
+        // affected pages when it has one.
+        $key = $relation . "\0" . $url;
+        if (isset($this->omittedLinkDeclarations[$key])) { $this->omittedLinkDeclarationPages[$key][$sourcePath] = true; return; }
+        // Counted as distinct declarations, the same unit as the rows above it,
+        // so the listed rows and the remainder add up.
+        if (count($this->omittedLinkDeclarations) >= self::MAX_OMITTED_LINK_DECLARATION_DIAGNOSTICS) { $this->omittedLinkDeclarationOverflow[$key] = true; return; }
+        $label = $relation . ' link';
+        $this->omittedLinkDeclarationPages[$key][$sourcePath] = true;
+        $this->omittedLinkDeclarations[$key] = array_filter(array(
+            'code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE,
+            'severity' => 'warning',
+            'message' => self::clipDiagnosticField("Omitted {$url} ({$label} declaration), which names neither a captured asset nor an artifact route."),
+            'source_path' => self::clipDiagnosticField($sourcePath),
+            'rel' => self::clipDiagnosticField($relation),
+            'value' => self::clipDiagnosticField($url),
+            'reason_code' => 'unresolved_local_url',
+        ), static fn(mixed $field): bool => '' !== $field);
+    }
+    /**
+     * Clips one diagnostic field to its budget without splitting a UTF-8
+     * sequence. A byte-wise cut can leave an invalid string, and planIdentity()
+     * json_encode()s every diagnostic under JSON_THROW_ON_ERROR, so a split
+     * sequence would discard the whole plan -- the failure this omission exists
+     * to avoid, one layer up.
+     */
+    private static function clipDiagnosticField(string $value): string { return mb_strcut($value, 0, 256, 'UTF-8'); }
+    /** @return array<int,array<string,mixed>> */
+    private function omittedLinkDeclarationDiagnostics(): array
+    {
+        $diagnostics = array();
+        foreach ($this->omittedLinkDeclarations as $key => $diagnostic) {
+            $diagnostic['occurrences'] = count($this->omittedLinkDeclarationPages[$key] ?? array());
+            $diagnostics[] = $diagnostic;
+        }
+        $overflow = count($this->omittedLinkDeclarationOverflow);
+        if ($overflow > 0) $diagnostics[] = array('code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE, 'severity' => 'warning', 'message' => sprintf('%d more distinct unresolved link declarations were omitted; omitted from this diagnostic list.', $overflow), 'reason' => 'truncated', 'omitted_count' => $overflow);
+        return $diagnostics;
     }
     /** @param array<int,array<string,mixed>> $routes */
     private function documentAssetReference(string $url, string $sourcePath, AssetReferenceCanonicalizer $references, array $routes): ?string
@@ -1860,7 +1993,8 @@ final class WordPressSitePlan
              $priority = array('header' => 0, 'footer' => 2);
              return (($priority[$left['area']] ?? 1) <=> ($priority[$right['area']] ?? 1)) ?: strcmp($left['slug'], $right['slug']);
          });
-         $markup = static function (string $templateSlug) use ($bound, $singleContent): string {
+         $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
+         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts): string {
              $before = ''; $after = '';
              $container = null;
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $templateSlug) && !in_array($templateSlug, $part['placement']['excluded_template_slugs'] ?? array(), true))) {
@@ -1870,27 +2004,36 @@ final class WordPressSitePlan
                  if (is_array($wrapper) && is_string($wrapper['opening'] ?? null) && is_string($wrapper['closing'] ?? null)) $reference = $wrapper['opening'] . "\n" . $reference . $wrapper['closing'] . "\n";
                  if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
              }
-             if (in_array($templateSlug, array('index', 'search'), true)) {
-                 $query = ('search' === $templateSlug ? '<!-- wp:query-title {"type":"search"} /-->' . "\n" : '')
-                     . self::queryLoopMarkup(true);
-                 $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . $query . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
+              if (in_array($templateSlug, array('index', 'search', 'archive'), true)) {
+                  $query = ('search' === $templateSlug ? '<!-- wp:query-title {"type":"search"} /-->' . "\n" : ('archive' === $templateSlug ? '<!-- wp:query-title {"type":"archive"} /-->' . "\n" : ''))
+                      . self::queryLoopMarkup(true);
+                  $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . $query . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
+              } elseif ('404' === $templateSlug) {
+                  $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
                  $content = ('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->';
+                 if ('single' === $templateSlug && !$hasCapturedPosts) {
+                     $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
+                 }
              }
             if (is_array($container) && is_string($container['opening'] ?? null) && is_string($container['closing'] ?? null)) return $container['opening'] . $before . $content . "\n" . $container['closing'] . $after;
             return $before . $content . "\n" . $after;
         };
-        $make = static function (string $slug, string $target, string $content): array { return array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'reconciliation_identity' => self::identity('template', 'wordpress-site-plan/' . $target, $target), 'content_hash' => self::contentHash($content)); };
-        $templates = array($make('index', 'templates/index.html', $markup('index')));
-        $templates[] = $make('search', 'templates/search.html', $markup('search'));
+         $make = static function (string $slug, string $target, string $content): array { return array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'source_relation' => 'generated_native_lifecycle', 'reconciliation_identity' => self::identity('template', 'wordpress-site-plan/' . $target, $target), 'content_hash' => self::contentHash($content)); };
+         $templates = array($make('index', 'templates/index.html', $markup('index')));
+         $templates[] = $make('search', 'templates/search.html', $markup('search'));
+         $templates[] = $make('single', 'templates/single.html', $markup('single'));
+         $templates[] = $make('archive', 'templates/archive.html', $markup('archive'));
+         $templates[] = $make('404', 'templates/404.html', $markup('404'));
         if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
-        foreach ( $pages as $page ) if ( 'post' === ($page['post_type'] ?? null) ) { $templates[] = $make('single', 'templates/single.html', $markup('single')); break; }
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
         $overrides = array();
         foreach ($bound as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
         foreach ($bound as $part) foreach (array_keys($part['placement']['template_wrappers'] ?? array()) as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
-        foreach ($surfaces as $surface) {
+         $explicitSlugs = array_fill_keys(array_map(static fn(array $surface): string => $surface['template_surface']['slug'], $surfaces), true);
+         $templates = array_values(array_filter($templates, static fn(array $template): bool => !isset($explicitSlugs[$template['slug']])));
+         foreach ($surfaces as $surface) {
             $declaration = $surface['template_surface']; $slug = $declaration['slug']; $target = 'templates/' . $slug . '.html';
             if (array_filter($templates, static fn(array $template): bool => $template['slug'] === $slug)) throw new InvalidArgumentException('A declared template surface collides with a generated template.');
             $content = is_null($references) ? (string) $surface['block_markup'] : $this->routeLinks($references->content((string) $surface['block_markup'], (string) $surface['source_path']), (string) $surface['source_path'], $routes);
@@ -2102,6 +2245,8 @@ final class WordPressSitePlan
     private function materializeListingQueryLoops(array $pages, array $runtimeDeclarations = array()): array
     {
         $postsByParent = array();
+        $excerpts = array();
+        $postMeta = array();
         $bindingsBySource = array();
         foreach ($runtimeDeclarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) {
             $source = $binding['source_path'] ?? null;
@@ -2122,7 +2267,9 @@ final class WordPressSitePlan
             if (count($posts) < 2 || !is_string($page['canonical_block_markup'] ?? null) || str_contains($page['canonical_block_markup'], '<!-- wp:query')) {
                 continue;
             }
-            $replaced = $this->replaceListingMarkup($page['canonical_block_markup'], $posts);
+            $sourceListingMarkup = $page['canonical_block_markup'];
+            $fields = array();
+            $replaced = $this->replaceListingMarkup($sourceListingMarkup, $posts, $fields);
             if (null === $replaced || $replaced === $page['canonical_block_markup']) {
                 continue;
             }
@@ -2132,18 +2279,35 @@ final class WordPressSitePlan
             }
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = self::contentHash($replaced);
+            $firstCard = ($this->listingCardRanges($sourceListingMarkup, $posts) ?? array())[0] ?? null;
+            $parent = is_array($firstCard) ? self::parentBlockRange($sourceListingMarkup, $firstCard) : null;
+            if (is_array($parent)) $this->listingQueryContainers[] = substr($sourceListingMarkup, $parent['offset'], $parent['length']);
+            foreach ($fields as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
+            foreach ($this->listingCardRanges($sourceListingMarkup, $posts) ?? array() as $card) {
+                $description = ListingExcerptProjection::description($card['post']);
+                if (null === $description) continue;
+                $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
+                foreach (self::blockRanges($cardMarkup) as $leaf) {
+                    $slice = substr($cardMarkup, $leaf['offset'], $leaf['length']);
+                    if ('paragraph' === self::listingBlockName($slice) && ListingExcerptProjection::matches($slice, $card['post'])) { $excerpts[$card['post']['source_path']] = $description; break; }
+                }
+            }
         }
+        unset($page);
+        foreach ($pages as &$page) if (isset($excerpts[$page['source_path']])) $page['metadata']['excerpt'] = $excerpts[$page['source_path']];
+        unset($page);
+        foreach ($pages as &$page) if (isset($postMeta[$page['source_path']])) $page['metadata']['post_meta'] = ($page['metadata']['post_meta'] ?? array()) + $postMeta[$page['source_path']];
         unset($page);
         return $pages;
     }
     /** @param array<int,array<string,mixed>> $posts */
-    private function replaceListingMarkup(string $markup, array $posts): ?string
+    private function replaceListingMarkup(string $markup, array $posts, array &$fields = array()): ?string
     {
         $cards = $this->listingCardRanges($markup, $posts);
         if (null === $cards) {
             return $this->replaceListingArchives($markup, $posts);
         }
-        $template = $this->listingCardTemplate($markup, $cards);
+        $template = $this->listingCardTemplate($markup, $cards, $fields);
         if (null === $template) {
             return $this->replaceListingArchives($markup, $posts);
         }
@@ -2215,10 +2379,28 @@ final class WordPressSitePlan
     /**
      * @param array<int,array{offset:int,length:int,route:string,post:array<string,mixed>}> $cards
      */
-    private function listingCardTemplate(string $markup, array $cards): ?string
+    private function listingCardTemplate(string $markup, array $cards, array &$fields): ?string
     {
         $first = $cards[0];
-        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route']);
+        $groups = $this->listingLinkedMetadataGroups($markup, $first);
+        $boundGroups = array();
+        foreach ($groups as $index => $group) {
+            $key = 'blocks_engine_listing_labels_' . substr(hash('sha256', $group['markup']), 0, 12);
+            $content = ListingFieldProjection::content($group['paragraphs']);
+            $paragraph = ListingFieldProjection::paragraph($group['paragraphs'][0], self::listingBlockAttributes($group['paragraphs'][0]), $key, $content);
+            $bound = $group['markup'];
+            foreach (array_reverse($group['ranges'], true) as $childIndex => $child) {
+                $relative = $child['offset'] - $group['offset'];
+                $bound = substr($bound, 0, $relative) . (0 === $childIndex ? $paragraph : '') . substr($bound, $relative + $child['length']);
+            }
+            $boundGroups[$group['offset']] = $bound;
+            foreach ($cards as $card) {
+                $row = $this->listingLinkedMetadataGroups($markup, $card)[$index] ?? null;
+                $fields[$card['post']['source_path']][$key] = null === $row ? '' : ListingFieldProjection::content($row['paragraphs']);
+            }
+        }
+        $compact = !array_filter($cards, fn(array $card): bool => !$this->isExcerptListingCard($markup, $card));
+        $transformed = $this->listingTransformRange($markup, $first, $first['post'], $first['route'], $compact ? ListingExcerptProjection::length($cards) : 0, $boundGroups);
         if (!$transformed['title'] || '' === $transformed['markup']) {
             return null;
         }
@@ -2235,14 +2417,51 @@ final class WordPressSitePlan
         }
         return $template;
     }
+
+    /** @param array<string,mixed> $card @return list<array{offset:int,markup:string,paragraphs:list<string>}> */
+    private function listingLinkedMetadataGroups(string $markup, array $card): array
+    {
+        $groups = array();
+        foreach (self::blockRanges($markup) as $range) {
+            if ($range['offset'] <= $card['offset'] || $range['offset'] + $range['length'] >= $card['offset'] + $card['length']) continue;
+            $slice = substr($markup, $range['offset'], $range['length']);
+            if ('group' !== self::listingBlockName($slice)) continue;
+            $children = self::childBlockRanges($markup, $range);
+            if (array() === $children) continue;
+            $paragraphs = array();
+            foreach ($children as $child) {
+                $paragraph = substr($markup, $child['offset'], $child['length']);
+                $anchors = $this->listingAnchors($paragraph);
+                if ('paragraph' !== self::listingBlockName($paragraph) || !ListingFieldProjection::isLinkedMetadata($paragraph) || array() === $anchors || ListingExcerptProjection::matches($paragraph, $card['post']) || array_filter($anchors, static fn(array $anchor): bool => self::hrefMatchesListingRoute($anchor['href'], $card['route']))) continue 2;
+                $paragraphs[] = $paragraph;
+            }
+            $groups[] = array('offset' => $range['offset'], 'markup' => $slice, 'paragraphs' => $paragraphs, 'ranges' => $children);
+        }
+        return $groups;
+    }
+
+    /** @param array<string,mixed> $card */
+    private function isExcerptListingCard(string $markup, array $card): bool
+    {
+        $description = false;
+        $slice = substr($markup, $card['offset'], $card['length']);
+        foreach (self::blockRanges($slice) as $range) {
+            $paragraph = substr($slice, $range['offset'], $range['length']);
+            if ('paragraph' !== self::listingBlockName($paragraph)) continue;
+            if (ListingExcerptProjection::matches($paragraph, $card['post'])) { $description = true; continue; }
+            if ('body' === $this->classifyListingCardBlock($paragraph, $card['post'], $card['route']) && !ListingFieldProjection::isLinkedMetadata($paragraph)) return false;
+        }
+        return $description;
+    }
     /**
      * @param array{offset:int,length:int} $range
      * @param array<string,mixed> $post
      * @return array{markup:string,title:bool,content:bool}
      */
-    private function listingTransformRange(string $markup, array $range, array $post, string $route): array
+    private function listingTransformRange(string $markup, array $range, array $post, string $route, int $excerptLength = 0, array $boundGroups = array()): array
     {
         $slice = substr($markup, $range['offset'], $range['length']);
+        if (isset($boundGroups[$range['offset']])) return array('markup' => $boundGroups[$range['offset']], 'title' => false, 'content' => false);
         $className = (string) (self::listingBlockAttributes($slice)['className'] ?? '');
         if (preg_match('/\b(?:social|share-button|twitter-share)\b/', $className)) {
             return array('markup' => '', 'title' => false, 'content' => false);
@@ -2252,6 +2471,22 @@ final class WordPressSitePlan
         }
         $children = self::childBlockRanges($markup, $range);
         if (array() === $children) {
+            if ('paragraph' === self::listingBlockName($slice) && '' === ListingExcerptProjection::text($slice)) {
+                foreach (self::htmlMarkupNodes($slice) as $node) {
+                    $identity = $node['attributes'] ?? array();
+                    if ('a' === ($node['name'] ?? '') && self::hrefMatchesListingRoute((string) ($identity['href'] ?? ''), $route) && 'true' === ($identity['aria-hidden'] ?? '') && '-1' === ($identity['tabindex'] ?? '')) {
+                        $attrs = array('className' => trim((string) ($identity['class'] ?? '') . ' blocks-engine-listing-overlay'), 'content' => '<span aria-hidden="true"></span>');
+                        return array('markup' => '<!-- wp:read-more ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->', 'title' => false, 'content' => false);
+                    }
+                }
+            }
+            if ($excerptLength > 0 && 'paragraph' === self::listingBlockName($slice) && ListingExcerptProjection::matches($slice, $post)) {
+                $attrs = self::listingBlockAttributes($slice);
+                unset($attrs['metadata']);
+                $attrs['excerptLength'] = $excerptLength;
+                $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-authored-excerpt');
+                return array('markup' => '<!-- wp:post-excerpt ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->', 'title' => false, 'content' => false);
+            }
             $kind = $this->classifyListingCardBlock($slice, $post, $route);
             if ('title' === $kind) {
                 return array('markup' => self::postTitleMarkup($slice), 'title' => true, 'content' => false);
@@ -2271,7 +2506,7 @@ final class WordPressSitePlan
         $emittedContent = false;
         $replacements = array();
         foreach ($children as $child) {
-            $transformed = $this->listingTransformRange($markup, $child, $post, $route);
+            $transformed = $this->listingTransformRange($markup, $child, $post, $route, $excerptLength, $boundGroups);
             $foundTitle = $foundTitle || $transformed['title'];
             if ($transformed['content'] && $emittedContent) {
                 $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
@@ -2315,7 +2550,8 @@ final class WordPressSitePlan
                 continue;
             }
             $attributes = is_array($node['attributes'] ?? null) ? $node['attributes'] : array();
-            if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes)) {
+            $datedTime = null !== $timestamp && 'time' === ($node['name'] ?? '') && is_string($attributes['datetime'] ?? null);
+            if (!self::isVisibleDateElement((string) ($node['name'] ?? ''), $attributes) && !$datedTime) {
                 continue;
             }
             $parsed = self::parseVisiblePublicationTimestamp(self::elementInnerText($slice, (string) $node['name'], $node['inner_offset']));
@@ -2361,6 +2597,7 @@ final class WordPressSitePlan
     {
         $attrs = array('isLink' => true);
         $blockAttrs = self::listingBlockAttributes($slice);
+        if (is_array($blockAttrs['style'] ?? null)) $attrs['style'] = $blockAttrs['style'];
         $level = is_int($blockAttrs['level'] ?? null) ? $blockAttrs['level'] : self::listingHeadingLevel($slice);
         if (2 !== $level) {
             $attrs['level'] = $level;
@@ -2369,11 +2606,14 @@ final class WordPressSitePlan
         if (null !== $className) {
             $attrs['className'] = $className;
         }
+        foreach (self::htmlMarkupNodes($slice) as $node) if ('a' === ($node['name'] ?? '') && is_string($node['attributes']['class'] ?? null)) $attrs['metadata']['blocksEngineLinkClass'] = $node['attributes']['class'];
         return '<!-- wp:post-title ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->';
     }
     private static function postDateMarkup(string $slice): string
     {
         $attrs = array();
+        $blockAttrs = self::listingBlockAttributes($slice);
+        if (is_array($blockAttrs['style'] ?? null)) $attrs['style'] = $blockAttrs['style'];
         $format = self::visibleDateFormat(trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? ''));
         if (null !== $format) {
             $attrs['format'] = $format;
@@ -2537,7 +2777,7 @@ final class WordPressSitePlan
         if (preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})$/', $value, $match)) {
             return ((int) $match[1] > 12 && (int) $match[2] <= 12) ? 'j-n-Y' : 'n-j-Y';
         }
-        foreach (array('F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/') as $format => $pattern) {
+        foreach (array('M j, Y' => '/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/', 'F j, Y' => '/^[A-Z][a-z]+ \d{1,2}, \d{4}$/', 'j M Y' => '/^\d{1,2} [A-Z][a-z]{2} \d{4}$/', 'j F Y' => '/^\d{1,2} [A-Z][a-z]+ \d{4}$/') as $format => $pattern) {
             if (1 === preg_match($pattern, $value)) {
                 return $format;
             }
@@ -2786,7 +3026,18 @@ final class WordPressSitePlan
     /** @param array<int,array<string,mixed>> $assets */
     private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array()): string
     {
-        $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY, "add_action( 'wp_enqueue_scripts', static function (): void {");
+        $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY);
+        $rootContext = DocumentRootContext::bootstrap($pages);
+        if ('' !== $rootContext) $lines[] = $rootContext;
+        $fields = ListingFieldProjection::bootstrap($pages);
+        if ('' !== $fields) $lines[] = $fields;
+        if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineLinkClass'))) {
+            $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { \$classes = \$block['attrs']['metadata']['blocksEngineLinkClass'] ?? ''; if ( ! is_string( \$classes ) || '' === \$classes ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) foreach ( preg_split( '/\\s+/', \$classes ) ?: array() as \$class ) \$tag->add_class( \$class ); return \$tag->get_updated_html(); }, 10, 2 );";
+        }
+        if (array_filter($pages, static fn(array $page): bool => str_contains($page['canonical_block_markup'], 'blocks-engine-listing-overlay'))) {
+            $lines[] = "add_filter( 'render_block_core/read-more', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-listing-overlay', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) { \$tag->set_attribute( 'aria-hidden', 'true' ); \$tag->set_attribute( 'tabindex', '-1' ); } return \$tag->get_updated_html(); }, 10, 2 );";
+        }
+        $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void {";
         $importLoaded = self::importLoadedStylesheets($assets);
         foreach ($assets as $asset) {
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
@@ -3072,10 +3323,18 @@ final class WordPressSitePlan
      * and route projections used for its source page.
      *
      * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $records
      * @param array<int,array<string,mixed>> $routes
      * @return array<int,array<string,mixed>>
      */
-    private function canonicalEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array()): array
+    private function canonicalEntityBindings(array $declarations, array &$records, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array()): array
+    {
+        $projection = RuntimeEntityManifest::project($declarations, $records, fn(array $inline): array => $this->canonicalInlineEntityBindings($inline, $references, $routes, $pages, $parts));
+        $records = $projection['records'];
+        return $projection['declarations'];
+    }
+
+    private function canonicalInlineEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array()): array
     {
         // A binding owned by a shared part was re-anchored on the part's final
         // markup when the chrome moved; it needs no source projection, and the
@@ -3205,7 +3464,7 @@ final class WordPressSitePlan
         }
         unset($declaration);
 
-        return RuntimeDeclarations::normalizeList($declarations);
+        return RuntimeDeclarations::normalizeForComposition($declarations);
     }
 
     /** @internal Exposed for ShellExtraction, which canonicalizes shell-candidate links through the same route table as page content. @param array<int,array<string,mixed>> $routes */
@@ -3654,6 +3913,7 @@ final class WordPressSitePlan
     /** @param array<string,mixed> $metadata @param array<string,bool> $tokens */
     private static function assertDocumentMetadata(array $metadata, array $tokens, string $sourcePath, string $documentKind): void
     {
+        if (array_key_exists('root_attributes', $metadata)) DocumentRootContext::assertValid($metadata['root_attributes']);
         if (!is_array($metadata['source_context'] ?? null) || !self::safePath($metadata['source_context']['source_path'] ?? null) || !is_string($metadata['source_context']['kind'] ?? null) || !is_string($metadata['title'] ?? null) || !is_array($metadata['title_declaration'] ?? null) || 0 !== ($metadata['title_declaration']['order'] ?? null) || 'head' !== ($metadata['title_declaration']['placement'] ?? null) || !is_array($metadata['meta'] ?? null) || !is_array($metadata['links'] ?? null) || !is_array($metadata['scripts'] ?? null)) throw new InvalidArgumentException('WordPress site plan document metadata is structurally invalid.');
         foreach ($metadata['meta'] as $index => $row) {
             if (!is_array($row)) self::invalidDeclaration('meta declaration', 'meta', $index, $sourcePath, $documentKind, 'invalid_structure', $row);

@@ -667,6 +667,35 @@ $assert(
     substr($hoverCss, -800)
 );
 
+$utilityHover = $transform(
+    '<style>@keyframes paint{to{opacity:1}}.animated{animation:paint 1s}'
+        . '@layer utilities{.text-muted-foreground{color:#777}.hover\\:text-foreground:focus{color:#111}.transition-colors{transition:color 150ms}}'
+        . '@media (hover:hover){@layer utilities{.hover\\:text-foreground:hover{color:#111}}}</style>'
+        . '<nav><ul><li><a class="text-muted-foreground hover:text-foreground transition-colors" href="/">Home</a></li></ul></nav>'
+);
+$utilityHoverCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($utilityHover['assets'] ?? null) ? $utilityHover['assets'] : array()
+));
+$assert(
+    str_contains($utilityHoverCss, '@media (hover:hover){.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.hover\\:text-foreground>.wp-block-navigation-item__content:hover{color:#111}}')
+        && str_contains($utilityHoverCss, '@media (hover:hover){.wp-block-navigation:not(.blocks-engine-list-navigation) .wp-block-navigation-item.hover\\:text-foreground>.wp-block-navigation-item__content:hover{color:#111}}')
+        && (bool) preg_match('/\.wp-block-navigation-item__content:not\(:hover\)(?::not\(:focus\))?\{color:#777\}/', $utilityHoverCss)
+        && str_contains($utilityHoverCss, 'transition:color 150ms'),
+    'escaped utility hover paint reaches the native anchor without freezing its resting color or dropping its transition',
+    substr($utilityHoverCss, -1100)
+);
+$editorStaticStateCss = implode("\n", array_map(
+    static fn (array $asset): string => 'editor-static-state' === ($asset['source'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($utilityHover['assets'] ?? null) ? $utilityHover['assets'] : array()
+));
+$assert(
+    str_contains($editorStaticStateCss, 'animation-play-state:running!important')
+        && ! str_contains($editorStaticStateCss, 'transition:none!important'),
+    'editor animation settling does not cancel authored navigation transitions',
+    $editorStaticStateCss
+);
+
 $dynamicCurrentList = $transform(
     '<style>.current-menu a{color:#223344}.current-menu .current>a{color:#aa1100}'
         . '.current-menu .current>a:hover{color:#00cc44}</style>'

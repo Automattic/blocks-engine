@@ -97,4 +97,60 @@ sort($fallbackIdentities);
 sort($diagnosticIdentities);
 $assert(2 === count($fallbackIdentities) && $fallbackIdentities === array_values(array_unique($diagnosticIdentities)), 'Form fallback diagnostics carry their fallback identity: ' . json_encode(array($fallbackIdentities, $diagnosticIdentities)));
 
+// A generated SVG inside the complete form anchor must project identically
+// whether entities are inline or stored as content-addressed manifest records.
+$svgArtifact = array('entrypoint' => 'website/index.html', 'files' => array(
+    'website/index.html' => '<main><h1>Contact</h1><div role="form"><input type="email" name="email"><button type="button">Send</button><svg width="24" height="24" viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg></div></main>',
+));
+$svgCompiler = new ArtifactCompiler();
+$svgInput = $svgCompiler->compile($svgArtifact)->toArray();
+unset($svgInput['source_reports']['conversion_report'], $svgInput['source_reports']['wordpress_site_plan']);
+$svgDeclarations = $svgInput['source_reports']['compiled_site']['runtime_declarations'];
+$svgManifestInput = $svgInput;
+foreach ($svgDeclarations as &$declaration) {
+    if ('forms' !== ($declaration['type'] ?? null)) continue;
+    $svgManifest = RuntimeEntityManifest::fromEntities('generic/forms/v1', $declaration['payload']['entities']);
+    $declaration['payload'] = $svgManifest['payload'];
+    unset($declaration['payload_hash'], $declaration['content_hash']);
+}
+unset($declaration);
+$svgManifestInput['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeList($svgDeclarations);
+$svgManifestInput['source_reports']['compiled_site']['runtime_entity_records'] = $svgManifest['records'];
+$inlineSvgPlan = (new WordPressSitePlan())->fromCompilerResult($svgInput);
+$manifestSvgPlan = (new WordPressSitePlan())->fromCompilerResult($svgManifestInput);
+$inlineSvgEntity = array_values(array_filter($entities($inlineSvgPlan), static fn (array $entity): bool => 'form' === ($entity['bindings'][0]['role'] ?? null)))[0];
+$manifestSvgDeclaration = current(array_filter($manifestSvgPlan['runtime_declarations'], static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$manifestSvgEntity = RuntimeEntityManifest::resolve($manifestSvgDeclaration['payload'], $manifestSvgPlan['runtime_entity_records'])[0];
+$assert(str_contains($svgManifest['records'][0]['entity']['bindings'][0]['search_block_markup'], 'materialized-svg/inline-svg-'), 'The compiler materializes the inline SVG into a generated local asset inside the form anchor.');
+$resolvedSvg = (new WordPressSitePlanResolver())->resolve($manifestSvgPlan, array('theme_uri' => 'https://example.test/wp-content/themes/captured'));
+$assert($inlineSvgEntity === $manifestSvgEntity && str_contains($manifestSvgEntity['bindings'][0]['search_block_markup'], WordPressSitePlan::TOKEN_PREFIX), 'Inline and manifest forms receive identical canonical asset, position, and anchor projection.');
+$assert($svgManifest['records'][0]['content_hash'] !== $manifestSvgPlan['runtime_entity_records'][0]['content_hash'], 'Projection recomputes the entity record hash and its declaration reference.');
+$resolvedSvgBinding = $resolvedSvg['runtime_entity_resolution'][0]['entities'][0]['bindings'][0];
+$assert($resolvedSvgBinding['search_block_markup'] === substr($resolvedSvg['pages'][0]['resolved_block_markup'], $resolvedSvgBinding['position']['offset'], $resolvedSvgBinding['position']['length']) && str_contains($resolvedSvgBinding['search_block_markup'], 'https://example.test/wp-content/themes/captured/'), 'The manifest binding resolves to the exact complete form block with the generated asset destination and correct offsets.');
+$svgShared = $svgCompiler->prepareShared($svgArtifact);
+$stagedSvgPlan = $svgCompiler->compose($svgShared, $svgCompiler->compilePreparedPages($svgShared, $svgCompiler->preparePages($svgArtifact, $svgShared)))->toWordPressSitePlanView()['wordpress_site_plan'];
+$stagedSvgResolved = (new WordPressSitePlanResolver())->resolve($stagedSvgPlan, array('theme_uri' => 'https://example.test/wp-content/themes/captured'));
+$stagedSvgEntity = array_values(array_filter($entities($stagedSvgResolved), static fn (array $entity): bool => 'form' === ($entity['bindings'][0]['role'] ?? null)))[0];
+$assert($stagedSvgPlan['pages'][0]['canonical_block_markup'] === $inlineSvgPlan['pages'][0]['canonical_block_markup'] && RuntimeDeclarations::hash($stagedSvgEntity['bindings'][0]) === RuntimeDeclarations::hash($resolvedSvgBinding), 'Staged and whole compilation retain the same page and exact resolved generated-SVG binding.');
+$staleSvgInput = $svgManifestInput;
+foreach ($staleSvgInput['source_reports']['compiled_site']['runtime_entity_records'] as &$record) {
+    $record['entity']['bindings'][0]['search_block_markup'] = str_replace('Send', 'Stale', $record['entity']['bindings'][0]['search_block_markup']);
+}
+unset($record);
+$staleManifest = RuntimeEntityManifest::fromEntities('generic/forms/v1', array_column($staleSvgInput['source_reports']['compiled_site']['runtime_entity_records'], 'entity'));
+$staleSvgInput['source_reports']['compiled_site']['runtime_entity_records'] = $staleManifest['records'];
+foreach ($staleSvgInput['source_reports']['compiled_site']['runtime_declarations'] as &$declaration) if ('forms' === ($declaration['type'] ?? null)) {
+    $declaration['payload'] = $staleManifest['payload'];
+    unset($declaration['payload_hash'], $declaration['content_hash']);
+}
+unset($declaration);
+$staleSvgInput['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeList($staleSvgInput['source_reports']['compiled_site']['runtime_declarations']);
+try {
+    $stalePlan = (new WordPressSitePlan())->fromCompilerResult($staleSvgInput);
+    (new WordPressSitePlanResolver())->resolve($stalePlan, array('theme_uri' => 'https://example.test/theme'));
+    throw new RuntimeException('A stale manifest binding was accepted.');
+} catch (InvalidArgumentException $error) {
+    $assert(str_contains($error->getMessage(), 'anchor') || str_contains($error->getMessage(), 'canonical block'), 'Stale manifest bindings fail exact anchor validation.');
+}
+
 echo "Shared shell entity bindings contract passed.\n";

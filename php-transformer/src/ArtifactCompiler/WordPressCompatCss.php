@@ -476,6 +476,8 @@ final class WordPressCompatCss
         $cursor = 0;
 
         while ( $cursor < $length ) {
+            $cursor += strcspn($css, "\\\"'/*()[]{;", $cursor);
+            if ( $cursor >= $length ) break;
             if ( ! CssSyntaxScanner::isTopLevel($state) || '{' !== $css[ $cursor ] ) {
                 $isStatementEnd = CssSyntaxScanner::isTopLevel($state) && ';' === $css[ $cursor ];
                 $cursor = CssSyntaxScanner::consume($css, $cursor, $state) ?? ( $cursor + 1 );
