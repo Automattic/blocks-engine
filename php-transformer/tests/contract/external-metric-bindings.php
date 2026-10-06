@@ -72,15 +72,19 @@ foreach ($shared['analysis']['page_ids'] as $pageId) $receipts[] = $compiler->co
 $staged = $compiler->compose($shared, $receipts)->toArray();
 $assert($staged['source_reports']['wordpress_site_plan'] === $plan, 'staged compilation preserves the full declaration and exact resolved native leaf bindings');
 
-$shellHtml = '<!doctype html><html><body><header class="site-header"><p>73,000+</p><nav><a href="/">Home</a></nav></header><main><h1>Page content</h1></main></body></html>';
-$shellFiles = array('index.html' => $shellHtml, 'about.html' => str_replace('Page content', 'About content', $shellHtml));
-$shellPlain = (new ArtifactCompiler())->compile(array('entrypoints' => array('index.html', 'about.html'), 'files' => $shellFiles))->toArray();
+$shellHtml = '<!doctype html><html><body><header class="site-header"><p>73,000+</p><nav><a href="https://example.org/">Home</a></nav></header><main><h1>Page content</h1></main></body></html>';
+$shellFiles = array('index.html' => $shellHtml, 'about.html' => str_replace('Page content', 'About content', $shellHtml), 'team.html' => str_replace('Page content', 'Team content', $shellHtml));
+$shellPlain = (new ArtifactCompiler())->compile(array('entrypoints' => array_keys($shellFiles), 'files' => $shellFiles))->toArray();
 $shellPage = array_column($shellPlain['source_reports']['compiled_site']['pages'], null, 'source_path')['index.html'];
 preg_match('/<!-- wp:paragraph -->.*?<!-- \/wp:paragraph -->/', $shellPage['block_markup'], $shellMatches);
 $shellAnchor = $shellMatches[0] ?? '';
-$shellMetric = $fact('shared-plugin-installs', 'active_installs', 'sum', '73,000+', $shellAnchor, 'paragraph', 'core/paragraph', $sourceProof);
-$shellMetric['bindings'][0]['source_path'] = 'index.html';
-$shellArtifact = array('entrypoints' => array('index.html', 'about.html'), 'runtime_declarations' => array(array('kind' => 'entity_collection', 'type' => 'external_metrics', 'source_path' => 'data/external-metrics.json', 'payload' => array('schema' => 'generic/external-metric/v1', 'entities' => array($shellMetric)))), 'files' => $shellFiles);
+$shellMetrics = array();
+foreach (array_keys($shellFiles) as $source) {
+    $shellMetric = $fact('shared-plugin-installs-' . basename($source, '.html'), 'active_installs', 'sum', '73,000+', $shellAnchor, 'paragraph', 'core/paragraph', $sourceProof);
+    $shellMetric['bindings'][0]['source_path'] = $source;
+    $shellMetrics[] = $shellMetric;
+}
+$shellArtifact = array('entrypoints' => array_keys($shellFiles), 'runtime_declarations' => array(array('kind' => 'entity_collection', 'type' => 'external_metrics', 'source_path' => 'data/external-metrics.json', 'payload' => array('schema' => 'generic/external-metric/v1', 'entities' => $shellMetrics))), 'files' => $shellFiles);
 $shellPlan = (new ArtifactCompiler())->compile($shellArtifact)->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($shellPlan);
 $shellCompiler = new ArtifactCompiler();
@@ -90,11 +94,16 @@ foreach ($shellShared['analysis']['page_ids'] as $pageId) $shellReceipts[] = $sh
 $shellStaged = $shellCompiler->compose($shellShared, $shellReceipts)->toArray()['source_reports']['wordpress_site_plan'];
 $assert($shellStaged === $shellPlan, 'staged compilation preserves shared-shell metric binding reanchoring byte-for-byte');
 $shellResolved = (new WordPressSitePlanResolver())->resolve($shellPlan, array('theme_uri' => 'https://example.test/theme'));
-$shellBound = $shellResolved['runtime_declarations'][0]['payload']['entities'][0]['bindings'][0] ?? array();
+$shellEntities = $shellResolved['runtime_declarations'][0]['payload']['entities'] ?? array();
+$shellBound = $shellEntities[0]['bindings'][0] ?? array();
+$shellDeclarationIdentity = $shellPlan['runtime_declarations'][0]['reconciliation_identity'] ?? null;
 $shellParts = array_values(array_filter($shellPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
 $shellContainer = 1 === count($shellParts) ? $shellParts[0]['canonical_block_markup'] : ($shellResolved['pages'][0]['resolved_block_markup'] ?? '');
-$assert(WordPressSitePlan::bindingPosition($shellBound['position'] ?? null, $shellContainer, $shellAnchor), 'shared-shell extraction safely reanchors or retains the native metric leaf in its owning document');
-$assert(1 === count($shellParts) ? ($shellParts[0]['source_path'] ?? null) === ($shellBound['source_path'] ?? null) : 'index.html' === ($shellBound['source_path'] ?? null), 'shared-shell extraction updates the selector to the shared part or retains its page owner');
+$assert(1 === count($shellParts) && 1 === count($shellEntities) && WordPressSitePlan::bindingPosition($shellBound['position'] ?? null, $shellContainer, $shellAnchor), 'shared-shell extraction coalesces equivalent per-route facts and reanchors one native leaf in the shared template part');
+$assert(($shellParts[0]['source_path'] ?? null) === ($shellBound['source_path'] ?? null), 'shared-shell extraction rewrites the binding selector to the shared template-part source path');
+$assert($shellDeclarationIdentity === ($shellResolved['runtime_declarations'][0]['reconciliation_identity'] ?? null), 'shared-shell fact coalescing preserves the declaration reconciliation identity');
+$assert(in_array($shellEntities[0]['id'] ?? null, array_column($shellMetrics, 'id'), true), 'shared-shell hoisting keeps one original route owner');
+$assert(RuntimeDeclarations::canonicalJson($operatorMapping) === RuntimeDeclarations::canonicalJson($resolvedEntities['block-visibility-version']['provenance'] ?? null), 'source operator mapping remains intact after shell extraction');
 $assert('73,000+' === ($shellResolved['runtime_declarations'][0]['payload']['entities'][0]['fallback']['text'] ?? null), 'shared-shell analysis preserves the exact captured metric fallback');
 
 $bad = $artifact; $bad['runtime_declarations'][0]['payload']['entities'][0]['bindings'][0]['source_path'] = '../outside.html';

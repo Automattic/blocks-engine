@@ -1217,7 +1217,7 @@ final class ShellExtraction
         foreach ($indexes as $index) {
             $pageKeys = array();
             foreach ($shellBindings[$index] ?? array() as $ref) {
-                $key = self::hoistableEntityKey($declarations[$ref['declaration']]['payload']['entities'][$ref['entity']]);
+                $key = self::hoistableEntityKey($declarations[$ref['declaration']]['payload']['entities'][$ref['entity']], (string) ($declarations[$ref['declaration']]['type'] ?? ''));
                 if (null === $key) return null;
                 $pageKeys[] = $key;
             }
@@ -1251,12 +1251,18 @@ final class ShellExtraction
     }
 
     /** @param array<string,mixed> $entity */
-    private static function hoistableEntityKey(array $entity): ?string
+    private static function hoistableEntityKey(array $entity, string $type = ''): ?string
     {
         $bindings = $entity['bindings'] ?? null;
         if (!is_array($bindings) || 1 !== count($bindings) || !empty($entity['superseded_scripts'])) return null;
         $role = (string) ($bindings[array_key_first($bindings)]['role'] ?? '');
         unset($entity['bindings'], $entity['reconciliation_identity'], $entity['fallback_identity'], $entity['replaced_fallback_identities']);
+        // External metric rows repeated in equivalent shared chrome are
+        // per-document anchors for one provider fact. The first row owns the
+        // shared-part binding; route-specific IDs are transport identities, not
+        // metric semantics, so comparing them would incorrectly retain every
+        // otherwise-identical shell page.
+        if ('external_metrics' === $type && is_array($entity['provider'] ?? null) && isset($entity['metric'], $entity['aggregation'], $entity['fallback'])) unset($entity['id']);
         return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson(self::withoutSourcePaths($entity)));
     }
 
