@@ -16,6 +16,9 @@ final class GeneratedSupportStylesheetState
     private array $nativeNavigationToggleRules = array();
 
     /** @var array<string, string> */
+    private array $nativeNavigationOverlayRules = array();
+
+    /** @var array<string, string> */
     private array $disclosureSummaryPresentation = array();
 
     /** @var array<string, array<string, string>> */
@@ -95,6 +98,11 @@ final class GeneratedSupportStylesheetState
     public function registerNativeNavigationToggle(string $marker, string $rule): void
     {
         $this->nativeNavigationToggleRules[$marker] = $rule;
+    }
+
+    public function registerNativeNavigationOverlay(string $marker, string $rule): void
+    {
+        $this->nativeNavigationOverlayRules[$marker] = $rule;
     }
 
     public function registerSyntheticHeaderAnchor(string $className, string $rule): void
@@ -394,6 +402,11 @@ final class GeneratedSupportStylesheetState
             $parts[] = $css;
         }
         foreach ($this->nativeNavigationToggleRules as $marker => $rule) {
+            if (str_contains($serializedBlocks, $marker)) {
+                $parts[] = $rule;
+            }
+        }
+        foreach ($this->nativeNavigationOverlayRules as $marker => $rule) {
             if (str_contains($serializedBlocks, $marker)) {
                 $parts[] = $rule;
             }

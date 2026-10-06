@@ -20,6 +20,20 @@ final class AuthorStylesheetProjector
     public const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
 
     /**
+     * Class no emitted element carries. A type selector whose only source
+     * subjects were menu toggles dropped for Core's native overlay control is
+     * bound to it, so the rule stays readable in the projected stylesheet but
+     * can no longer reach the open/close buttons Core renders in their place.
+     */
+    public const SUPERSEDED_MENU_TOGGLE_CLASS = 'blocks-engine-superseded-menu-toggle';
+
+    /**
+     * Core's replacement for a dropped menu toggle, excluded from a type rule
+     * the toggle shared with source elements that survive conversion.
+     */
+    private const NAVIGATION_TOGGLE_CHROME_EXCLUSION = ':not(:where(.wp-block-navigation__responsive-container-open,.wp-block-navigation__responsive-container-open *,.wp-block-navigation__responsive-container-close,.wp-block-navigation__responsive-container-close *))';
+
+    /**
      * Every path from a generated image wrapper down to the <img> it holds.
      * An unlinked image is the wrapper's direct child; a linked one sits
      * inside the anchor the native block serializes for the link.
@@ -1488,10 +1502,19 @@ final class AuthorStylesheetProjector
             $inlineLayoutCarriers = false;
             $addressableInlineCarriers = false;
             $hasNonProjected = false;
+            // A type selector that matched a menu toggle dropped for Core's
+            // native overlay control (or something inside it) has lost that
+            // subject; left bare it would reach the open/close buttons Core
+            // renders in the toggle's place. Only a type subject can reach
+            // them: Core's chrome carries no authored class, id or attribute.
+            $typeSubject = null !== (($parsed['compounds'][array_key_last($parsed['compounds'])] ?? array())['type'] ?? null);
+            $supersededToggles = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
                 if ( $this->isPreservedCodeSyntaxElement($element) ) {
                     $hasNonProjected = true;
+                } elseif ( $typeSubject && $context->selectorProjections->isSupersededControlPath($path) ) {
+                    $supersededToggles = true;
                 } elseif ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
                     // Structured card lowering unwraps the fragment and hoists
                     // its styling hook onto the paragraph it emits, so the class
@@ -1526,7 +1549,16 @@ final class AuthorStylesheetProjector
             // the class core hard-codes on them; `:not(:where(…))` adds no
             // specificity.
             if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves && ! $inlineLayoutCarriers ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+                $insertion = '';
+                if ( $supersededToggles ) {
+                    // Nothing else matched: the rule's subject is gone, so bind
+                    // it to a marker nothing carries. Otherwise keep it for the
+                    // surviving subjects but away from Core's toggle chrome.
+                    $insertion = $hasNonProjected
+                        ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION
+                        : ':where(.' . self::SUPERSEDED_MENU_TOGGLE_CLASS . ')';
+                }
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, $insertion);
                 continue;
             }
             $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
@@ -1545,7 +1577,12 @@ final class AuthorStylesheetProjector
                 $hasNonProjected = true;
             }
             if ( $hasNonProjected ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':not(:where(.' . implode(',.', $projectedMarkers) . '))');
+                $rewritten[] = $this->rewriteSourceTagTypes(
+                    $selector,
+                    $parsed,
+                    $context,
+                    ':not(:where(.' . implode(',.', $projectedMarkers) . '))' . ( $supersededToggles ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION : '' )
+                );
             }
             foreach ( $controls as $marker ) {
                 $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $context, $controlWrapper);
