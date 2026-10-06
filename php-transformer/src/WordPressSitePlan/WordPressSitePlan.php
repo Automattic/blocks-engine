@@ -45,9 +45,16 @@ final class WordPressSitePlan
      * rewriting stays off while it is active. Static block content survives
      * texturization only because its punctuation is entity encoded; text that a
      * dynamic block decodes and prints is rewritten, so the guarantee belongs to
-     * the theme rather than to any one block.
+     * the theme rather than to any one block. Native emoji also belongs to that
+     * typography: replacing glyphs with images changes authored line boxes.
      */
-    public const SOURCE_TEXT_TYPOGRAPHY = "add_filter( 'run_wptexturize', '__return_false' );";
+    public const SOURCE_TEXT_TYPOGRAPHY = <<<'PHP'
+add_filter( 'run_wptexturize', '__return_false' );
+remove_action( 'wp_head', 'print_emoji_detection_script', 7 );
+remove_action( 'embed_head', 'print_emoji_detection_script' );
+add_action( 'admin_init', static function (): void { remove_action( 'admin_print_scripts', 'print_emoji_detection_script' ); } );
+add_filter( 'tiny_mce_plugins', static function ( array $plugins ): array { return array_values( array_diff( $plugins, array( 'wpemoji' ) ) ); } );
+PHP;
     private string $sourceOrigin = '';
     private string $sourceUrl = '';
     private const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
@@ -269,7 +276,7 @@ final class WordPressSitePlan
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
         $projector = new ThemeJsonProjection();
-        $themeProjection = $projector->project($assets);
+        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'));
         $assets = $themeProjection['assets'];
         $routes = $this->routesForPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
