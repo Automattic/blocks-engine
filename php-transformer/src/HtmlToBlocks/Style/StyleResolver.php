@@ -4450,6 +4450,28 @@ final class StyleResolver implements ElementPresentationResolver
         return $cache->selectorMatchCache->styleRuleCandidates($element, $collection, $index);
     }
 
+    /** @return list<string> Authored interaction states that paint a background on this element. */
+    public function sourceBackgroundInteractionStates(DOMElement $element): array
+    {
+        $states = array();
+        foreach ( $this->context->sourceStyles()->navigationStateRules() as $rule ) {
+            $state = strtolower((string) ($rule['state'] ?? ''));
+            if ( ! in_array($state, array('hover', 'focus', 'focus-visible', 'active'), true) ) continue;
+            if ( ! $this->matchesCssSelector($element, (string) ($rule['base_selector'] ?? '')) ) continue;
+            foreach ( array('background', 'background-color') as $property ) {
+                $value = CssValueInspector::comparable((string) ($rule['declarations'][$property] ?? ''));
+                if ( '' !== $value
+                    && ! CssValueInspector::isTransparentColor($value)
+                    && ! in_array($value, array('none', 'initial', 'inherit', 'unset', 'revert'), true)
+                ) {
+                    $states[$state] = true;
+                    break;
+                }
+            }
+        }
+        return array_keys($states);
+    }
+
     /** @return array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, attributes: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} */
     private function styleRuleCandidateIndex(string $collection): array
     {

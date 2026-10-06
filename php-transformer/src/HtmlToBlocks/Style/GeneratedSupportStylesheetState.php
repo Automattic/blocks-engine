@@ -80,6 +80,46 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, array{marker: string, selector: string, conditions: list<string>, declarations: array<string, string>}> */
     private array $sourceCustomPropertyRules = array();
 
+    /**
+     * Commit only the generated support records owned by blocks accepted from
+     * an isolated fragment compilation. Records remain structured through this
+     * boundary; conditions, state variants, declarations, and family-specific
+     * data are interpreted only by their normal stylesheet stage.
+     *
+     * @param list<array<string, mixed>> $acceptedBlocks
+     */
+    public function commitAcceptedFrom(self $candidate, array $acceptedBlocks): void
+    {
+        $identities = array();
+        $collect = static function (array $blocks) use (&$collect, &$identities): void {
+            foreach ( $blocks as $block ) {
+                if ( ! is_array($block) ) continue;
+                $className = trim((string) ($block['attrs']['className'] ?? ''));
+                foreach ( preg_split('/\s+/', $className) ?: array() as $identity ) {
+                    if ( '' !== $identity ) $identities[$identity] = true;
+                }
+                $collect(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array());
+            }
+        };
+        $collect($acceptedBlocks);
+        if ( array() === $identities ) return;
+
+        // All instance arrays are structured support-family maps. Walking the
+        // state itself means a new family participates in fragment ownership
+        // automatically instead of requiring a second family registry.
+        foreach ( get_object_vars($candidate) as $family => $records ) {
+            if ( ! is_array($records) || ! is_array($this->{$family} ?? null) ) continue;
+            foreach ( $records as $key => $record ) {
+                $identity = is_string($key) && isset($identities[$key])
+                    ? $key
+                    : (is_array($record) && is_string($record['marker'] ?? null) ? $record['marker'] : '');
+                if ( '' !== $identity && isset($identities[$identity]) ) {
+                    $this->{$family}[$key] = $record;
+                }
+            }
+        }
+    }
+
     public function registerNativeSearchTrigger(string $className, string $rule): void
     {
         $this->nativeSearchTriggerRules[$className] = $rule;
@@ -93,6 +133,11 @@ final class GeneratedSupportStylesheetState
     public function registerNativeButton(string $marker, string $rule): void
     {
         $this->nativeButtonRules[$marker] = $rule;
+    }
+
+    public function appendNativeButton(string $marker, string $rule): void
+    {
+        $this->nativeButtonRules[$marker] = ($this->nativeButtonRules[$marker] ?? '') . $rule;
     }
 
     public function registerNativeNavigationToggle(string $marker, string $rule): void
