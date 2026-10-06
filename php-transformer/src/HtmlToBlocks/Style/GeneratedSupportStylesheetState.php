@@ -95,6 +95,11 @@ final class GeneratedSupportStylesheetState
         $this->nativeButtonRules[$marker] = $rule;
     }
 
+    public function appendNativeButton(string $marker, string $rule): void
+    {
+        $this->nativeButtonRules[$marker] = ($this->nativeButtonRules[$marker] ?? '') . $rule;
+    }
+
     public function registerNativeNavigationToggle(string $marker, string $rule): void
     {
         $this->nativeNavigationToggleRules[$marker] = $rule;

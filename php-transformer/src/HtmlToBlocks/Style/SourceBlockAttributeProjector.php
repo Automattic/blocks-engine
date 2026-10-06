@@ -234,6 +234,13 @@ final class SourceBlockAttributeProjector
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $controlMarker);
                 if ( 'core/button' === $name ) {
                     $this->generatedStyleProjector->registerNativeButtonStyleRule($controlMarker, $attrs, $context->generatedStyles, $nativeButtonTextAlignment, $logicalControl);
+                    $blockColor = is_array($attrs['style']['color'] ?? null) ? $attrs['style']['color'] : array();
+                    $this->generatedStyleProjector->registerNativeButtonDefaultBackgroundGuard(
+                        $controlMarker,
+                        $logicalControl,
+                        $context->generatedStyles,
+                        '' !== trim((string) ($blockColor['background'] ?? ''))
+                    );
                     $childOwnedOffsets = $participation instanceof LayoutParticipation && $participation->positioned;
                     if ( $participation instanceof LayoutParticipation && $participation->needsDirectFlexRepair() ) {
                         $this->generatedStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $context->generatedStyles);
@@ -263,6 +270,19 @@ final class SourceBlockAttributeProjector
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
             $this->generatedStyleProjector->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $context->generatedStyles, $nativeButtonTextAlignment);
             $this->registerButtonWidth($attrs, $nativeButtonMarker, $logicalControl, $context);
+        }
+        if ( 'core/button' === $name
+            && 1 === preg_match('/(?:^|\s)(blocks-engine-native-button-alignment-(?:start|end|left|center|right))(?:\s|$)/', (string) ($attrs['className'] ?? ''), $alignmentMarker)
+        ) {
+            $guardMarker = $context->authorStyles->allocateMarker('native-button');
+            if ( $this->generatedStyleProjector->registerNativeButtonDefaultBackgroundGuard(
+                $guardMarker,
+                $logicalControl,
+                $context->generatedStyles,
+                '' !== trim((string) ($attrs['style']['color']['background'] ?? ''))
+            ) ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $guardMarker);
+            }
         }
         return $attrs;
     }

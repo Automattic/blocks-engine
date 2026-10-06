@@ -262,21 +262,6 @@ final class GeneratedBlockStyleProjector
                 $declarations[] = 'width:max-content';
                 $declarations[] = 'max-width:100%';
             }
-            $background = CssValueInspector::comparable((string) ($sourceDeclarations['background'] ?? ''));
-            $backgroundColor = CssValueInspector::comparable((string) ($sourceDeclarations['background-color'] ?? ''));
-            $sourceHasNoFill = '' === $background && '' === $backgroundColor;
-            $sourceHasTransparentFill = preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $background)
-                || preg_match('/^(?:0(?:px)?|transparent)$/', $backgroundColor);
-            if ( '' === trim((string) ($style['color']['background'] ?? ''))
-                && ( $sourceHasNoFill || $sourceHasTransparentFill )
-                && ! $this->sourceControlSurfaceIsFilled($sourceControl)
-            ) {
-                // Only while the block has no fill of its own: an owner-set
-                // background (inline) then takes over. An absent source fill is
-                // transparent too, but the native core/button theme style is
-                // opaque; neutralize it just as we do an authored transparent reset.
-                $guardedDeclarations[':not([style*="background"])'][] = 'background-color:transparent!important';
-            }
             if ( ! self::sourceControlHasVisibleBorder($sourceDeclarations) ) {
                 if ( '' === trim((string) ($style['border']['style'] ?? '')) ) {
                     $guardedDeclarations[':not([style*="border-style"]):not([style*="border-top-style"])'][] = 'border-style:none!important';
@@ -358,6 +343,66 @@ final class GeneratedBlockStyleProjector
         $generatedStyles->registerNativeButton($marker, $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . $linkRules);
     }
 
+    public function registerNativeButtonDefaultBackgroundGuard(string $marker, DOMElement $sourceControl, GeneratedSupportStylesheetState $generatedStyles, bool $blockHasInlineBackground = false): bool
+    {
+        if ( $blockHasInlineBackground ) return false;
+        $sourceDeclarations = $this->styleResolver->cssDeclarations(
+            $this->styleResolver->specificityResolvedPresentationStyle($sourceControl)
+        );
+        if ( ! $this->sourceControlNeedsDefaultButtonBackgroundGuard($sourceControl, $sourceDeclarations) ) {
+            return false;
+        }
+        $media = $this->sourceBackgroundGuardMedia($sourceControl);
+        if ( null === $media ) return false;
+        $selector = '.' . $marker . '.' . $marker . '>.wp-block-button__link:not([style*="background"]):not(:hover):not(:focus):not(:active)';
+        $rule = $selector . '{background-color:transparent!important}';
+        if ( '' !== $media ) $rule = '@media ' . $media . '{' . $rule . '}';
+        $generatedStyles->appendNativeButton($marker, $rule);
+        return true;
+    }
+
+    /** @param array<string, string> $sourceDeclarations */
+    private function sourceControlNeedsDefaultButtonBackgroundGuard(DOMElement $sourceControl, array $sourceDeclarations): bool
+    {
+        $background = CssValueInspector::comparable((string) ($sourceDeclarations['background'] ?? ''));
+        $backgroundColor = CssValueInspector::comparable((string) ($sourceDeclarations['background-color'] ?? ''));
+        $sourceHasNoFill = '' === $background && '' === $backgroundColor;
+        $sourceHasTransparentFill = self::isTransparentBackgroundValue($background)
+            || self::isTransparentBackgroundValue($backgroundColor);
+        return ( $sourceHasNoFill || $sourceHasTransparentFill ) && ! $this->sourceControlSurfaceIsFilled($sourceControl);
+    }
+
+    private function sourceBackgroundGuardMedia(DOMElement $sourceControl): ?string
+    {
+        $minWidth = null;
+        $maxWidth = null;
+        foreach ( $this->styleResolver->styleRuleCandidates($sourceControl, 'conditional') as $rule ) {
+            if ( ! $this->styleResolver->matchesCssSelector($sourceControl, (string) ($rule['selector'] ?? '')) ) continue;
+            $hasPaint = false;
+            foreach ( array('background', 'background-color') as $property ) {
+                $value = CssValueInspector::comparable((string) ($rule['declarations'][$property] ?? ''));
+                if ( '' !== $value && ! self::isTransparentBackgroundValue($value) ) {
+                    $hasPaint = true;
+                    break;
+                }
+            }
+            if ( ! $hasPaint ) continue;
+            foreach ( $rule['conditions'] ?? array() as $condition ) {
+                if ( ! is_string($condition) || ! preg_match('/^@media\s*\(\s*(max|min)-width\s*:\s*(\d+(?:\.\d+)?)px\s*\)$/i', trim($condition), $matches) ) return null;
+                $value = (float) $matches[2];
+                if ( 'max' === strtolower($matches[1]) ) $minWidth = max($minWidth ?? 0, (int) floor($value) + 1);
+                else $maxWidth = min($maxWidth ?? PHP_INT_MAX, (int) ceil($value) - 1);
+            }
+        }
+        if ( null === $minWidth && null === $maxWidth ) return '';
+        if ( null !== $minWidth && null !== $maxWidth && $minWidth > $maxWidth ) return null;
+        $conditions = array();
+        if ( null !== $minWidth ) $conditions[] = '(min-width:' . $minWidth . 'px)';
+        if ( null !== $maxWidth ) $conditions[] = '(max-width:' . $maxWidth . 'px)';
+        return implode(' and ', $conditions);
+    }
+
+
     /**
      * Whether the control renders a fill at the desktop reference viewport.
      *
@@ -368,12 +413,21 @@ final class GeneratedBlockStyleProjector
      */
     private function sourceControlSurfaceIsFilled(DOMElement $sourceControl): bool
     {
+        foreach ( $this->styleResolver->styleRuleCandidates($sourceControl, 'static') as $rule ) {
+            if ( ! $this->styleResolver->matchesCssSelector($sourceControl, (string) ($rule['selector'] ?? '')) ) continue;
+            foreach ( array('background', 'background-color') as $property ) {
+                $value = CssValueInspector::comparable((string) ($rule['declarations'][$property] ?? ''));
+                if ( '' !== $value && ! self::isTransparentBackgroundValue($value) ) return true;
+            }
+        }
         $declarations = $this->styleResolver->cssDeclarations(
             $this->styleResolver->controlSurfaceResolvedStyle($sourceControl)
         );
         foreach ( array( 'background', 'background-color' ) as $property ) {
             $value = CssValueInspector::comparable((string) ($declarations[$property] ?? ''));
-            if ( '' === $value || preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent|initial|inherit|unset|revert)(?:\s+none)?$/', $value) ) {
+            if ( '' === $value || preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent|initial|inherit|unset|revert)(?:\s+none)?$/', $value)
+                || self::isTransparentBackgroundValue($value)
+            ) {
                 continue;
             }
 
@@ -381,6 +435,13 @@ final class GeneratedBlockStyleProjector
         }
 
         return false;
+    }
+
+    private static function isTransparentBackgroundValue(string $value): bool
+    {
+        return (bool) preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $value)
+            || (bool) preg_match('/^(?:rgba|hsla)\(\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*0(?:\.0+)?%?\s*\)$/i', $value)
+            || (bool) preg_match('/^(?:rgb|hsl)\(\s*[^\/]+\/\s*0(?:\.0+)?%?\s*\)$/i', $value);
     }
 
     /**
