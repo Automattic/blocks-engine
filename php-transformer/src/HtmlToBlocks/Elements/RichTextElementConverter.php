@@ -180,6 +180,11 @@ final class RichTextElementConverter implements ElementConverter
             return $image;
         }
 
+        $editableIconRow = $this->context->compactLinkedIconTextRowFromParagraph($element);
+        if ( null !== $editableIconRow ) {
+            return $editableIconRow;
+        }
+
         $content         = $this->context->richTextContent($element);
         $withLowered     = $this->context->richTextWithInlineSafeButtonsLowered($element, $content);
         if ( null !== $withLowered ) {

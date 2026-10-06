@@ -50,6 +50,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         'isRuntimeDomTarget'                => static fn (DOMElement $e): bool => false,
         'imageBlockFromParagraph'           => static fn (DOMElement $e): ?array => null,
         'mixedMediaLinkGroupFromParagraph'  => static fn (DOMElement $e, array &$f): ?array => null,
+        'compactLinkedIconTextRowFromParagraph' => static fn (DOMElement $e): ?array => null,
         'convertText'                       => static fn (string $t): array => '' === $t ? array() : array(array('blockName' => 'core/paragraph', 'attrs' => array('content' => $t))),
         'convertChildren'                   => static function (DOMElement $e, array &$f, bool $c): array {
             return array();
@@ -76,6 +77,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         $c['isRuntimeDomTarget'],
         $c['imageBlockFromParagraph'],
         $c['mixedMediaLinkGroupFromParagraph'],
+        $c['compactLinkedIconTextRowFromParagraph'],
         $c['convertText'],
         new Runtime(),
         $c['convertChildren']

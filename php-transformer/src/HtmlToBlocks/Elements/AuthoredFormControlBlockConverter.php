@@ -313,6 +313,46 @@ final class AuthoredFormControlBlockConverter
         );
     }
 
+    /** @return array<string, mixed> */
+    public function runtimeButton(DOMElement $button): array
+    {
+        $generator = new AuthoredButtonBlockGenerator();
+        $registry = ($this->generatedBlocks)();
+        $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
+        $type = FormControlClassifier::controlType($button);
+        if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
+            $type = 'submit';
+        }
+        $projected = ($this->projectSourceTags)($button) ?? $button;
+        $parts = AuthoredButtonBlockGenerator::contentParts($projected);
+        $sourceAttributes = array();
+        foreach (AuthoredButtonBlockGenerator::sourceSafeAttributes($button) as $name => $value) {
+            $sourceAttributes[] = array('name' => $name, 'value' => $value);
+        }
+        $attrs = array_filter(array(
+            'type' => $type,
+            'id' => SourceDom::attr($button, 'id'),
+            'name' => SourceDom::attr($button, 'name'),
+            'ariaLabel' => SourceDom::attr($button, 'aria-label'),
+            'className' => SourceDom::attr($button, 'class'),
+            'style' => SourceDom::attr($button, 'style'),
+            'text' => array() === $parts ? trim(preg_replace('/\s+/', ' ', $button->textContent ?? '') ?? '') : '',
+            'labelWrappers' => AuthoredButtonBlockGenerator::labelWrappers($projected),
+            'contentParts' => $parts,
+            'sourceAttributes' => $sourceAttributes,
+            'disabled' => $button->hasAttribute('disabled'),
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
+        $markup = $generator->markup($attrs);
+
+        return array(
+            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
     /** @return array<string, string> */
     private function dataAttributes(DOMElement $input): array
     {

@@ -55,4 +55,39 @@ final class RuntimeEntityManifest
         }
         return $entities;
     }
+
+    /**
+     * Project inline and manifest entities together, retaining their storage form.
+     * The callback retains declaration identities and returns unnormalized payloads:
+     * expanded manifests may exceed the inline declaration byte budget.
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $records
+     * @param callable(array):array $project
+     * @return array{declarations:array<int,array<string,mixed>>,records:array<int,array<string,mixed>>}
+     */
+    public static function project(array $declarations, array $records, callable $project): array
+    {
+        $records = self::normalizeRecords($records);
+        $manifests = array();
+        foreach ($declarations as &$declaration) {
+            if (self::SCHEMA !== ($declaration['payload']['schema'] ?? null)) continue;
+            $schema = $declaration['payload']['entity_schema'];
+            $manifests[$declaration['reconciliation_identity']] = $schema;
+            $declaration['payload'] = array('schema' => $schema, 'entities' => self::resolve($declaration['payload'], $records));
+        }
+        unset($declaration);
+        $declarations = $project($declarations);
+        $projectedRecords = array();
+        foreach ($declarations as &$declaration) {
+            $schema = $manifests[$declaration['reconciliation_identity']] ?? null;
+            if (null === $schema) continue;
+            $manifest = self::fromEntities($schema, $declaration['payload']['entities']);
+            $declaration['payload'] = $manifest['payload'];
+            foreach ($manifest['records'] as $record) $projectedRecords[$record['content_hash']] = $record;
+        }
+        unset($declaration);
+        foreach ($declarations as &$declaration) unset($declaration['payload_hash'], $declaration['content_hash']);
+        unset($declaration);
+        return array('declarations' => RuntimeDeclarations::normalizeList($declarations), 'records' => self::normalizeRecords(array_values($projectedRecords)));
+    }
 }

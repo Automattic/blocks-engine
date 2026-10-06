@@ -108,6 +108,8 @@ final class AuthorStyleAnalysis
     public function sourceElementsByClass(string $class): array { return $this->sourceElementsByClass[$class] ?? array(); }
     /** @return list<string> */
     public function sourceElementIds(): array { return array_keys($this->sourceElementsById); }
+    /** @return list<DOMElement> */
+    public function sourceElementsById(string $id): array { return $this->sourceElementsById[$id] ?? array(); }
     public function specificityShim(): string { return $this->specificityShim; }
     public function classSpecificityShim(): string { return $this->classSpecificityShim; }
     public function idSpecificityShim(): string { return $this->idSpecificityShim; }

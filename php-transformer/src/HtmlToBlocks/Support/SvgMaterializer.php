@@ -236,9 +236,14 @@ final class SvgMaterializer implements SvgElementMaterializer
         $sourceHeight = trim((string) ($presentation['height'] ?? SourceDom::attr($element, 'height')));
         $fillsSizedParent = ! $richTextImage
             && $parent instanceof DOMElement
-            && CssValueInspector::hasDefiniteWidth($this->styleResolver->cssDeclarationString($parentPresentation))
-            && CssValueInspector::hasDefiniteHeight($this->styleResolver->cssDeclarationString($parentPresentation))
-            && '100%' === $sourceWidth && '100%' === $sourceHeight;
+            && (
+                (
+                    CssValueInspector::hasDefiniteWidth($this->styleResolver->cssDeclarationString($parentPresentation))
+                    && CssValueInspector::hasDefiniteHeight($this->styleResolver->cssDeclarationString($parentPresentation))
+                    && '100%' === $sourceWidth && '100%' === $sourceHeight
+                )
+                || $this->fillsInsetPinnedParent($element, $sourceWidth, $sourceHeight, $parentPresentation)
+            );
         $isResponsiveFillSvg = $fillsSizedParent || (
             (
             ($isFlexOrGridItem && $parent instanceof DOMElement && $this->declarationsOwnMediaBox($parentPresentation))
@@ -288,8 +293,12 @@ final class SvgMaterializer implements SvgElementMaterializer
             $carriedProperties = $this->carriedCustomPropertyDeclarations($element, $mediaBox);
             $mediaBox = ( '' === $carriedProperties ? '' : ';' . $carriedProperties ) . $mediaBox;
             $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:baseline' : '') . $mediaBox . '}';
-            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule);
+            $conditionedBox = array() === $dimensions ? $this->mediaConditionedBoxRules($element, $presentation, $richTextImage ? '' : '>img') : array();
+            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule . implode("\n", $conditionedBox));
             $geometryCss = ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule;
+            foreach ( $conditionedBox as $conditionedRule ) {
+                $geometryCss .= str_replace('.{carrier}', '.' . $geometryClass, $conditionedRule);
+            }
             if ( ! $richTextImage && null !== $this->svgPercentageWidth(trim(SourceDom::attr($element, 'width'))) ) {
                 // Core/image wraps linked media in an inline anchor. Let a responsive
                 // SVG resolve its percentage width against the sized figure, not its
@@ -667,6 +676,118 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return $declarations;
+    }
+
+    /**
+     * Whether the SVG fills, on both axes, a wrapper whose box is pinned to its
+     * containing block on all four sides (`position:absolute; inset:0`).
+     *
+     * Such a wrapper has a definite size without declaring width or height.
+     * Wix vector images (logos) are built this way, with the SVG sized
+     * `var(--svg-calculated-width,100%)` and the custom property left unset,
+     * so the used size is the 100% fallback. Without the fill, the
+     * materialized viewBox-only image has no intrinsic width and collapses to
+     * 0x0 inside core/image's shrink-to-fit link.
+     *
+     * @param array<string, string> $parentPresentation
+     */
+    private function fillsInsetPinnedParent(DOMElement $element, string $sourceWidth, string $sourceHeight, array $parentPresentation): bool
+    {
+        if ( ! in_array($this->plainDeclarationValue($parentPresentation['position'] ?? ''), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+
+        $shorthand = preg_split('/\s+/', $this->plainDeclarationValue($parentPresentation['inset'] ?? '')) ?: array();
+        $shorthand = array_values(array_filter($shorthand, static fn (string $part): bool => '' !== $part));
+        $count = count($shorthand);
+        $fromShorthand = static fn (int $side): string => match ($count) {
+            1 => $shorthand[0],
+            2 => $shorthand[$side % 2],
+            3 => $shorthand[3 === $side ? 1 : $side],
+            4 => $shorthand[$side],
+            default => '',
+        };
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side => $property ) {
+            $value = $this->plainDeclarationValue($parentPresentation[$property] ?? '');
+            $value = '' === $value ? $fromShorthand($side) : $value;
+            if ( '' === $value || 'auto' === $value || str_contains($value, 'var(') ) {
+                return false;
+            }
+        }
+
+        foreach ( array( $sourceWidth, $sourceHeight ) as $value ) {
+            $value = $this->plainDeclarationValue($value);
+            if ( str_contains($value, 'var(') ) {
+                $value = $this->plainDeclarationValue($this->styleResolver->resolveStructuralCssVariablesInValue($value, $element));
+            }
+            if ( '100%' !== $value ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function plainDeclarationValue(string $value): string
+    {
+        return strtolower(trim(preg_replace('/\s*!\s*important\s*$/i', '', trim($value)) ?? $value));
+    }
+
+    /**
+     * Restate media-scoped author sizing on the materialized image carrier.
+     *
+     * Source rules that size an inline SVG from a wrapper (`.icon svg{width:24px}`)
+     * never reach the generated `<img>`: no `svg` selector matches it, and the
+     * wrapper is often flattened. Resting sizes already move onto the carrier
+     * through {@see StyleResolver::presentationDeclarations()}; a size that
+     * only a media query states is not in that cascade, so the axis was written
+     * as `auto` and the image fell back to its intrinsic size. Carry each such
+     * width/height under the same media condition, only on axes the resting
+     * cascade leaves unsized, so other viewports keep the source's own
+     * behaviour.
+     *
+     * Returns rule strings with a `.{carrier}` placeholder for the class.
+     *
+     * @param array<string, string> $presentation
+     * @return list<string>
+     */
+    private function mediaConditionedBoxRules(DOMElement $element, array $presentation, string $selectorSuffix): array
+    {
+        // Only the axes {@see unsizedMediaAxisDeclarations()} writes as `auto`.
+        $properties = array_values(array_filter(
+            array( 'width', 'height' ),
+            static fn (string $axis): bool => '' === trim((string) ($presentation[$axis] ?? ''))
+        ));
+        if ( array() === $properties ) {
+            return array();
+        }
+
+        $rules = array();
+        $current = null;
+        foreach ( $this->styleResolver->mediaConditionedBoxDeclarations($element, $properties) as $entry ) {
+            if ( null === $current || $current['conditions'] !== $entry['conditions'] ) {
+                if ( null !== $current ) {
+                    $rules[] = $current;
+                }
+                $current = array( 'conditions' => $entry['conditions'], 'declarations' => array() );
+            }
+            foreach ( $entry['customProperties'] as $name => $declared ) {
+                $current['declarations'][$name] ??= $name . ':' . $declared;
+            }
+            unset($current['declarations'][$entry['property']]);
+            $current['declarations'][$entry['property']] = $entry['property'] . ':' . $entry['value'];
+        }
+        if ( null !== $current ) {
+            $rules[] = $current;
+        }
+
+        return array_map(static function (array $rule) use ($selectorSuffix): string {
+            $css = '.{carrier}' . $selectorSuffix . '{' . implode(';', $rule['declarations']) . '}';
+            foreach ( array_reverse($rule['conditions']) as $condition ) {
+                $css = $condition . '{' . $css . '}';
+            }
+            return $css;
+        }, $rules);
     }
 
     /**

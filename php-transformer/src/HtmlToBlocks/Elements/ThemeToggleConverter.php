@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ThemeToggleBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -11,9 +12,11 @@ use Closure;
 use DOMElement;
 use LogicException;
 
-/** Promotes a corroborated theme toggle button onto the companion block. */
+/** Promotes corroborated theme controls onto the canonical companion block. */
 final class ThemeToggleConverter implements ElementConverter
 {
+    private const MAX_THEME_CSS_EVIDENCE_BYTES = 2097152;
+    private const MAX_THEME_RUNTIME_EVIDENCE_BYTES = 1048576;
     /**
      * @param Closure(DOMElement): string $sanitizeInlineSvgMarkup
      * @param Closure(): string $capturedRootTheme
@@ -30,7 +33,8 @@ final class ThemeToggleConverter implements ElementConverter
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
         if ( 'button' !== $tagName ) {
-            return ConversionOutcome::unhandled();
+            $themeGroup = $this->selectionGroup($element);
+            return null === $themeGroup ? ConversionOutcome::unhandled() : ConversionOutcome::handled($themeGroup);
         }
 
         $themeToggle = $this->block($element);
@@ -38,6 +42,125 @@ final class ThemeToggleConverter implements ElementConverter
         return null === $themeToggle
             ? ConversionOutcome::unhandled()
             : ConversionOutcome::handled($themeToggle);
+    }
+
+    /** @return array<string, mixed>|null */
+    private function selectionGroup(DOMElement $element): ?array
+    {
+        if ( ! in_array(strtolower($element->tagName), array('div', 'nav', 'section', 'footer'), true) ) {
+            return null;
+        }
+        $buttons = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'button' !== strtolower($child->tagName) ) {
+                return null;
+            }
+            $buttons[] = $child;
+        }
+        $defaultTheme = ($this->capturedRootTheme)();
+        if ( 3 !== count($buttons) ) {
+            return null;
+        }
+
+        $css = substr($this->session->authorStyleAnalysis()->combinedCss(), 0, self::MAX_THEME_CSS_EVIDENCE_BYTES);
+        if ( ! preg_match('/\.dark(?:\s|[,:.{])[^{}]*\{[^}]*(?:color-scheme|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css)
+            || ! preg_match('/:root(?:\s|[,:.{])[^{}]*\{[^}]*(?:color-scheme|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css) ) {
+            return null;
+        }
+        $runtimeEvidence = '';
+        $runtimeBytes = 0;
+        foreach ( $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets() as $asset ) {
+            $script = (string) ($asset['content'] ?? '');
+            $scriptBytes = strlen($script);
+            if ( $scriptBytes > self::MAX_THEME_RUNTIME_EVIDENCE_BYTES || $runtimeBytes + $scriptBytes > self::MAX_THEME_RUNTIME_EVIDENCE_BYTES ) {
+                continue;
+            }
+            $runtimeBytes += $scriptBytes;
+            $runtimeEvidence .= "\n" . $script;
+        }
+        if ( ! preg_match('/localStorage\s*(?:\.\s*|\[\s*[\'"])getItem/i', $runtimeEvidence)
+            || ! preg_match('/localStorage\s*(?:\.\s*|\[\s*[\'"])setItem/i', $runtimeEvidence)
+            || ! preg_match('/[\'"]theme[\'"]/', $runtimeEvidence)
+            || ! preg_match('/prefers-color-scheme/i', $runtimeEvidence)
+            || ! preg_match('/classList\s*\.\s*(?:add|remove|toggle)|className\s*=/', $runtimeEvidence) ) {
+            return null;
+        }
+        if ( ! in_array($defaultTheme, array( 'dark', 'light' ), true) ) {
+            // The source boot script chooses the OS scheme when no explicit class was captured.
+            $defaultTheme = 'system';
+        }
+
+        $modes = array( 'light', 'system', 'dark' );
+        $modeByLabel = array('light theme' => 'light', 'system theme' => 'system', 'dark theme' => 'dark');
+        $entries = array();
+        foreach ( $buttons as $button ) {
+            $label = trim(SourceDom::attr($button, 'aria-label'));
+            $mode = $modeByLabel[strtolower($label)] ?? '';
+            if ( '' === $mode || in_array($mode, array_column($entries, 'mode'), true) || 1 !== SourceDom::childElementCount($button) ) {
+                return null;
+            }
+            $svg = SourceDom::firstChildElement($button, 'svg');
+            if ( ! $svg instanceof DOMElement || ! SourceDom::svgHasDrawableContent($svg) ) {
+                return null;
+            }
+            $identity = strtolower(SourceDom::attr($svg, 'class') . ' ' . SourceDom::attr($svg, 'data-lucide'));
+            $semantic = array('light' => 'sun', 'system' => 'monitor', 'dark' => 'moon')[$mode];
+            if ( ! preg_match('/(?:^|[^a-z0-9])(?:lucide[-_ ])?' . $semantic . '(?:[^a-z0-9]|$)/', $identity) ) {
+                return null;
+            }
+            $icon = $this->svgMaterializer->restoreSvgCasing(($this->sanitizeInlineSvgMarkup)($svg));
+            if ( '' === $icon || ! SourceDom::isSafeSvgContent($icon) ) {
+                return null;
+            }
+            $entries[] = array(
+                'mode' => $mode,
+                'ariaLabel' => $label,
+                'className' => trim(SourceDom::attr($button, 'class')),
+                'icon' => $icon,
+                'selected' => 'true' === strtolower(SourceDom::attr($button, 'aria-pressed')),
+            );
+        }
+
+        if ( 1 < count(array_filter($entries, static fn (array $entry): bool => true === $entry['selected'])) ) {
+            return null;
+        }
+        $generator = new ThemeToggleBlockGenerator();
+        $registry = $this->session->generatedBlockRegistry()
+            ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
+        $blockName = $registry->blockName(ThemeToggleBlockGenerator::LOCAL_NAME);
+        $registry->register(ThemeToggleBlockGenerator::class, $generator->definition($registry->namespace()));
+        $selectedIndex = array_search(true, array_column($entries, 'selected'), true);
+        $groupStyle = array();
+        foreach ( CssValueSplitter::splitTopLevel(SourceDom::attr($element, 'style'), array(';')) as $declaration ) {
+            $parts = explode(':', $declaration, 2);
+            if ( 2 !== count($parts) || ! preg_match('/^(?:--[a-z0-9_-]+|-?[a-z][a-z0-9-]*)$/i', trim($parts[0])) ) continue;
+            $property = trim($parts[0]);
+            if ( ! str_starts_with($property, '--') ) $property = lcfirst(str_replace(' ', '', ucwords(str_replace('-', ' ', $property))));
+            $groupStyle[$property] = trim($parts[1]);
+        }
+        $attributes = array(
+            'themeModes' => $modes,
+            'selectionButtons' => $entries,
+            'selectedMode' => false === $selectedIndex ? 'system' : (string) $entries[$selectedIndex]['mode'],
+            'groupTag' => strtolower($element->tagName),
+            'groupClassName' => trim(SourceDom::attr($element, 'class')),
+            'groupStyle' => (string) json_encode($groupStyle, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            'rootClass' => 'dark',
+            'defaultTheme' => $defaultTheme,
+            'storageKey' => 'theme',
+        );
+        foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
+            if ( in_array(strtolower($name), array('role', 'id', 'title', 'tabindex', 'dir', 'lang'), true)
+                || str_starts_with(strtolower($name), 'aria-')
+                || str_starts_with(strtolower($name), 'data-') ) {
+                $attributes['groupAttributes'][$name] = $value;
+            }
+        }
+        $markup = $generator->markup($attributes, $blockName);
+        return array('blockName' => $blockName, 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
     }
 
     /** @return array<string, mixed>|null */

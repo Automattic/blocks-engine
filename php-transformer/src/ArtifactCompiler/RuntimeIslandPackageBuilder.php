@@ -118,8 +118,8 @@ final class RuntimeIslandPackageBuilder
     }
 
     /**
-     * Return required non-script runtime-island scripts already declared by a
-     * compiled theme document, keyed by source path and script occurrence.
+     * Return runtime-island scripts already declared by a compiled theme
+     * document, keyed by source path and script occurrence.
      *
      * @param array<string, mixed>             $package
      * @param array<int, array<string, mixed>> $pages
@@ -139,7 +139,7 @@ final class RuntimeIslandPackageBuilder
 
         $owned = array();
         foreach ( $package['islands'] ?? array() as $island ) {
-            if ( ! is_array($island) || 'script' === ($island['kind'] ?? null) ) {
+            if ( ! is_array($island) ) {
                 continue;
             }
             $sourcePath = is_string($island['source_path'] ?? null) ? $island['source_path'] : '';
