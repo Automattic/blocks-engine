@@ -8,6 +8,8 @@ if ( ! isset( $args ) || 2 !== count( $args ) || ! is_readable( (string) $args[0
 	throw new RuntimeException( 'Expected a readable captured source archive JSON and synthetic acceptance home ID.' );
 }
 require_once WP_PLUGIN_DIR . '/blocks-engine-php-transformer/vendor/autoload.php';
+require_once __DIR__ . '/editor-image-acceptance-candidate-autoload.php';
+$candidate_class_files = blocks_engine_editor_acceptance_candidate_autoload();
 
 $archive = json_decode( (string) file_get_contents( (string) $args[0] ), true );
 if ( ! is_array( $archive ) || ! is_array( $archive['pages'] ?? null ) || ! is_array( $archive['resources'] ?? null ) || ! isset( $archive['pages']['index.html'] ) ) {
@@ -68,6 +70,8 @@ foreach ( $archive['resources'] as $path => $payload ) {
 
 $compiled = ( new ArtifactCompiler() )->compile( array(
 	'entrypoint' => (string) ( $archive['entrypoint'] ?? 'index.html' ),
+	'site_slug' => 'nickdiego-captured-acceptance',
+	'site_name' => 'Nick Diego captured acceptance',
 	'files' => $files,
 ) )->toArray();
 $plan = $compiled['source_reports']['wordpress_site_plan'] ?? array();
@@ -103,6 +107,17 @@ foreach ( $resolved['writes'] as $write ) {
 wp_clean_themes_cache();
 if ( ! wp_get_theme( $theme )->exists() ) {
 	throw new RuntimeException( 'WordPress did not recognize the captured source theme.' );
+}
+
+$companion_payload = $compiled['source_reports']['companion_plugin_payload'] ?? array();
+if ( ! is_array( $companion_payload ) || empty( $companion_payload['blocks'] ) ) {
+	throw new RuntimeException( 'The candidate compiler did not emit its supported companion-plugin payload.' );
+}
+$uploads = wp_upload_dir();
+$companion_path = rtrim( (string) ( $uploads['basedir'] ?? '' ), '/\\' ) . '/blocks-engine-captured-source-companion.json';
+$companion_bytes = wp_json_encode( $companion_payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+if ( '' === dirname( $companion_path ) || false === $companion_bytes || false === file_put_contents( $companion_path, $companion_bytes . "\n" ) ) {
+	throw new RuntimeException( 'Could not stage the compiler-produced companion payload for the SSI materializer.' );
 }
 
 $post_ids = array();
@@ -217,8 +232,11 @@ echo wp_json_encode( array(
 	'capture_lineage' => $archive['lineage'] ?? array(),
 	'capture_timestamp' => $archive['captured_at'] ?? null,
 	'compiler_status' => $compiled['status'] ?? null,
+	'candidate_class_files' => $candidate_class_files['classes'],
 	'compiler_diagnostics' => $compiled['diagnostics'] ?? array(),
 	'fallback_count' => count( $compiled['fallbacks'] ?? array() ),
+	'companion_payload' => $companion_payload,
+	'companion_payload_path' => $companion_path,
 	'source_comments' => $comment_evidence,
 	'binding_meta_receipts' => $binding_meta_receipts,
 	'home' => array(

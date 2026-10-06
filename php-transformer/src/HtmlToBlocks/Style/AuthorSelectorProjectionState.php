@@ -26,6 +26,16 @@ final class AuthorSelectorProjectionState
     /** @var array<string, true> */
     private array $controlPaths = array();
 
+    /**
+     * Node paths of menu toggles the transformer drops in favour of Core's
+     * native overlay control, and of everything inside them. These never reach
+     * the output, so a type selector whose only subjects sit here has nothing
+     * to address but the chrome Core renders in their place.
+     *
+     * @var array<string, true>
+     */
+    private array $supersededControlPaths = array();
+
     /** @var array<string, string> */
     private array $semanticMarkers = array();
 
@@ -43,6 +53,21 @@ final class AuthorSelectorProjectionState
 
     /** @var array<string, list<string>> */
     private array $attributeStateMarkers = array();
+
+    /** @var array<string, array<string, string>> Author selector => ancestor attribute condition text => state class. */
+    private array $ancestorAttributeStateConditions = array();
+
+    /** @var array<string, list<string>> Source path => class-only ancestor attribute-state markers. */
+    private array $ancestorAttributeStateMarkers = array();
+
+    /** @var array<string, array<string, true>> Holder key => visited source paths. */
+    private array $ancestorAttributeStateVisits = array();
+
+    /** @var array<string, true> Holder keys with at least one marked holder. */
+    private array $ancestorAttributeStateHolders = array();
+
+    /** @var array<string, bool> */
+    private array $scriptWrittenAttributes = array();
 
     /** @var array<string, string> */
     private array $rootChildMarkers = array();
@@ -104,6 +129,18 @@ final class AuthorSelectorProjectionState
     public function isControlPath(string $path): bool
     {
         return isset($this->controlPaths[$path]);
+    }
+
+    public function markSupersededControlPath(string $path): void
+    {
+        if ( '' !== $path ) {
+            $this->supersededControlPaths[$path] = true;
+        }
+    }
+
+    public function isSupersededControlPath(string $path): bool
+    {
+        return isset($this->supersededControlPaths[$path]);
     }
 
     public function ensureControlMarker(string $path): string
@@ -282,6 +319,73 @@ final class AuthorSelectorProjectionState
     public function attributeNegationMarkers(): array
     {
         return $this->attributeNegationMarkers;
+    }
+
+    /** @param array<string, string> $conditions Condition text => state class; empty records a decision not to project. */
+    public function installAncestorAttributeStateConditions(string $selector, array $conditions): void
+    {
+        $this->ancestorAttributeStateConditions[$selector] = $conditions;
+    }
+
+    public function hasAncestorAttributeStateDecision(string $selector): bool
+    {
+        return isset($this->ancestorAttributeStateConditions[$selector]);
+    }
+
+    /** @return array<string, string> */
+    public function ancestorAttributeStateConditions(string $selector): array
+    {
+        return $this->ancestorAttributeStateConditions[$selector] ?? array();
+    }
+
+    public function hasAncestorAttributeStateConditions(): bool
+    {
+        foreach ( $this->ancestorAttributeStateConditions as $conditions ) {
+            if ( array() !== $conditions ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Records a visit; false when `$path` was already walked for this holder key. */
+    public function visitAncestorAttributeStatePath(string $holderKey, string $path): bool
+    {
+        if ( isset($this->ancestorAttributeStateVisits[$holderKey][$path]) ) {
+            return false;
+        }
+        $this->ancestorAttributeStateVisits[$holderKey][$path] = true;
+        return true;
+    }
+
+    public function addAncestorAttributeStateMarker(string $path, string $marker, string $holderKey): void
+    {
+        $this->ancestorAttributeStateHolders[$holderKey] = true;
+        if ( ! in_array($marker, $this->ancestorAttributeStateMarkers[$path] ?? array(), true) ) {
+            $this->ancestorAttributeStateMarkers[$path][] = $marker;
+        }
+    }
+
+    public function hasAncestorAttributeStateHolder(string $holderKey): bool
+    {
+        return isset($this->ancestorAttributeStateHolders[$holderKey]);
+    }
+
+    /**
+     * Class-only markers: emitted on the block's className, never consulted
+     * for wrapper preservation or layout ownership.
+     *
+     * @return list<string>
+     */
+    public function ancestorAttributeStateMarkers(string $path): array
+    {
+        return $this->ancestorAttributeStateMarkers[$path] ?? array();
+    }
+
+    /** @param \Closure(): bool $resolve */
+    public function scriptWritesAttribute(string $name, \Closure $resolve): bool
+    {
+        return $this->scriptWrittenAttributes[$name] ??= $resolve();
     }
 
     public function addAttributeStateMarker(string $path, string $marker): void

@@ -5787,11 +5787,10 @@ $scriptCompanion = $compiler->compile(
     )
 )->toArray();
 $scriptPayload = $scriptCompanion['source_reports']['companion_plugin_payload'] ?? array();
-$assert(array() === ($scriptPayload['blocks'] ?? null), 'script-only companion payload does not invent a custom block');
-$assert(1 === count($scriptPayload['preserved_js'] ?? array()), 'script-only artifact emits one preserved companion script');
-$assert(str_contains((string) ($scriptPayload['preserved_js'][0]['content'] ?? ''), 'dataset.ready'), 'companion payload carries the inline script body');
-$assert('script:nth-of-type(1)' === ($scriptPayload['preserved_js'][0]['selector'] ?? ''), 'companion payload carries the source script selector');
-$assert('index.html' === ($scriptPayload['preserved_js'][0]['source_path'] ?? ''), 'companion payload carries the source document path');
+$assert(array() === ($scriptPayload['blocks'] ?? array()), 'script-only companion payload does not invent a custom block');
+$scriptOnlyPlan = $scriptCompanion['source_reports']['wordpress_site_plan'] ?? array();
+$scriptOnlyThemeScripts = array_merge(...array_map(static fn (array $page): array => $page['document_metadata']['scripts'] ?? array(), $scriptOnlyPlan['pages'] ?? array()));
+$assert(array() === ($scriptPayload['preserved_js'] ?? array()) && 1 === count($scriptOnlyThemeScripts), 'theme-declared inline script stays once in the theme and is not duplicated in the companion payload');
 
 $rootedScriptCompanion = $compiler->compile(
     array(
@@ -5971,6 +5970,51 @@ $assert(! str_contains($triggerRowMarkup, 'data-blocks-engine-tablist-row'), 'th
 $assert(! str_contains($triggerRowMarkup, '<!-- wp:button'), 'the source trigger row is replaced by the tab-list rather than kept as duplicate buttons');
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($triggerRowSelectableSet['blocks'] ?? array()), 'trigger-row selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($triggerRowSelectableSet['blocks'] ?? array())['status'] ?? ''), 'trigger-row selectable-set tabs remain Gutenberg-valid');
+
+$sideBySideActive = '<div class="panel"><h2>Gamma</h2><p>Gamma specification details</p></div>';
+$sideBySideTrigger = static fn(int $index, string $label, string $html, int $size): array => array(
+    'status' => 'captured',
+    'kind' => 'selectable-set',
+    'trigger' => array('selector' => 'body > main > div > ul > li:nth-of-type(' . ($index + 1) . ') > button', 'tag' => 'button', 'label' => $label, 'ariaHaspopup' => '', 'dataBindings' => array()),
+    'dialog' => array('selector' => 'body > main > div > div:nth-of-type(1)', 'tag' => 'div', 'html' => $html, 'htmlBytes' => strlen($html), 'htmlTruncated' => false),
+    'set' => array('selector' => 'body > main > div > ul', 'size' => $size, 'index' => $index),
+);
+// The source lays a detail region and a trigger list side by side in one grid; the
+// last member is the one active at load, so capture never clicked it.
+$sideBySideSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Side By Side Selectable Set Site', 'slug' => 'captured-side-by-side-selectable-set-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><div class="split" style="display:grid;grid-template-columns:1fr 1fr"><div>' . $sideBySideActive . '</div><ul class="items"><li><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->1</span><span class="name">Alpha</span></button></li><li style="margin-top:.5rem"><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->2</span><span class="name">Beta</span></button></li><li style="margin-top:.5rem"><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->3</span><span class="name">Gamma</span></button></li></ul></div></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(
+                    $sideBySideTrigger(0, '01Alpha', $selectableAlpha, 3),
+                    $sideBySideTrigger(1, '02Beta', $selectableBeta, 3),
+                ),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$sideBySideMarkup = (string) ($sideBySideSelectableSet['serialized_blocks'] ?? '');
+$assert(1 === preg_match('/"label":"03 Gamma"/', $sideBySideMarkup) && str_contains($sideBySideMarkup, 'Gamma specification details'), 'the member active at load keeps its content as an editable tab even though capture never clicked it');
+$assert(str_contains($sideBySideMarkup, '"label":"01 Alpha"') && ! str_contains($sideBySideMarkup, '0 1'), 'a label split by hydration comment nodes reads as one word');
+$assert(1 === preg_match('/<!-- wp:tabs \{[^}]*"activeTabIndex":2/', $sideBySideMarkup), 'the tabs block opens on the member that was active in the source');
+$assert(1 === preg_match('/<!-- wp:tabs \{[^}]*"className":"blocks-engine-tabs-flow blocks-engine-tabs-flow-list-last"/', $sideBySideMarkup), 'tabs that replaced a sibling region and trigger row add no layout box of their own');
+$sideBySideCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $sideBySideSelectableSet['assets'] ?? array()));
+$assert(1 === preg_match('/<button type="button" role="tab"><span class="num">01<\/span><span class="name">Alpha<\/span><\/button>/', $sideBySideMarkup), 'each tab keeps the trigger\'s number/title boxes as classed spans');
+$assert(1 === preg_match('/\.wp-block-tab-list\.(blocks-engine-tab-list-[a-f0-9]+)\{flex-direction:column;flex-wrap:nowrap;align-items:stretch;row-gap:\.5rem\}/', $sideBySideCss), 'a vertical source trigger list stays a vertical stack with its row gap');
+$assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\{[^}]*display:flex[^}]*border:[^}]*\}/', $sideBySideCss), 'the source trigger box styling is carried onto the tab buttons');
+$assert(str_contains($sideBySideCss, '.blocks-engine-tabs-flow{display:contents}'), 'the flow class dissolves the tabs wrapper box');
+$assert(str_contains($sideBySideCss, '.blocks-engine-tabs-flow.blocks-engine-tabs-flow-list-last>.wp-block-tab-list{order:1}'), 'a list that followed its region in the source keeps that order');
+$assert(array() === (new CanonicalSaveShapeValidator())->findings($sideBySideSelectableSet['blocks'] ?? array()), 'side-by-side selectable-set tabs retain a canonical save shape');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($sideBySideSelectableSet['blocks'] ?? array())['status'] ?? ''), 'side-by-side selectable-set tabs remain Gutenberg-valid');
 
 $regionLayoutSelectableSet = $compiler->compile(array(
     'site' => array('name' => 'Captured Region Layout Selectable Set Site', 'slug' => 'captured-region-layout-selectable-set-site'),

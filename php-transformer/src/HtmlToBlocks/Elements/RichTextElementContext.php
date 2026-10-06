@@ -29,6 +29,7 @@ final class RichTextElementContext
      * @param Closure(DOMElement): bool                                                                      $isRuntimeDomTarget
      * @param Closure(DOMElement): ?array<string, mixed>                                                     $imageBlockFromParagraph
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $mixedMediaLinkGroupFromParagraph
+     * @param Closure(DOMElement): ?array<string, mixed>                                                     $compactLinkedIconTextRowFromParagraph
      * @param Closure(string): array<int, array<string, mixed>>                                              $convertText
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>>   $convertChildren
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $emptyInlineGeometryBlock
@@ -44,10 +45,12 @@ final class RichTextElementContext
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $imageBlockFromParagraph,
         private readonly Closure $mixedMediaLinkGroupFromParagraph,
+        private readonly Closure $compactLinkedIconTextRowFromParagraph,
         private readonly Closure $convertText,
         private readonly Runtime $runtime,
         private readonly Closure $convertChildren,
-        private readonly ?Closure $emptyInlineGeometryBlock = null
+        private readonly ?Closure $emptyInlineGeometryBlock = null,
+        private readonly ?Closure $nativeDisclosureBlock = null
     ) {
     }
 
@@ -160,6 +163,12 @@ final class RichTextElementContext
         return ($this->mixedMediaLinkGroupFromParagraph)($element, $fallbacks);
     }
 
+    /** @return array<string, mixed>|null */
+    public function compactLinkedIconTextRowFromParagraph(DOMElement $element): ?array
+    {
+        return ($this->compactLinkedIconTextRowFromParagraph)($element);
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */
@@ -189,5 +198,16 @@ final class RichTextElementContext
     public function emptyInlineGeometryBlock(DOMElement $element, array &$fallbacks): ?array
     {
         return null === $this->emptyInlineGeometryBlock ? null : ($this->emptyInlineGeometryBlock)($element, $fallbacks);
+    }
+
+    /**
+     * A span that wraps one toggle and the region it controls, as `core/details`.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    public function nativeDisclosureBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        return null === $this->nativeDisclosureBlock ? null : ($this->nativeDisclosureBlock)($element, $fallbacks);
     }
 }

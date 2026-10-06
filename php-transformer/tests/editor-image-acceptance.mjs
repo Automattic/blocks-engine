@@ -290,12 +290,19 @@ try {
    await page.setViewportSize( { width: 390, height: 844 } );
    await page.screenshot( { path: `${ evidence }/editor-query-mobile.png`, fullPage: true } );
 
-   const isolatedFixturePostIds = [ source.listing.post_ids[ 'first.html' ], source.listing.post_ids[ 'second.html' ] ];
+    let capturedSource = null;
+    try {
+     capturedSource = JSON.parse( await readFile( `${ evidence }/captured-source-wordpress.json`, 'utf8' ) );
+    } catch ( error ) {
+     if ( 'ENOENT' !== error.code ) throw error;
+    }
+    if ( capturedSource ) {
+    const isolatedFixturePostIds = [ source.listing.post_ids[ 'first.html' ], source.listing.post_ids[ 'second.html' ] ];
    const removedFixturePosts = await page.evaluate( async ( ids ) => Promise.all( ids.map( ( id ) => window.wp.apiFetch( { path: `/wp/v2/posts/${ id }?force=true`, method: 'DELETE' } ) ) ), isolatedFixturePostIds );
    assert.ok( removedFixturePosts.every( ( result ) => result && result.deleted ), 'synthetic parity posts are removed before the captured-source query is opened' );
 
-   const capturedSource = JSON.parse( await readFile( `${ evidence }/captured-source-wordpress.json`, 'utf8' ) );
-   const capturedHomeId = capturedSource.home.post_id;
+    const capturedCompanion = JSON.parse( await readFile( `${ evidence }/captured-source-companion-materialization.json`, 'utf8' ) );
+    const capturedHomeId = capturedSource.home.post_id;
    assert.ok( capturedHomeId > 0 && capturedSource.home.has_query_overlay && capturedSource.home.has_bound_meta_projection, 'the exact captured source compiled into a native query with the listing overlay and bound-meta projection' );
    await page.goto( `${ baseUrl }/wp-admin/themes.php`, { waitUntil: 'domcontentloaded' } );
    const activateCapturedTheme = page.locator( `.theme[data-slug="${ capturedSource.theme }"] a.activate` );
@@ -331,14 +338,17 @@ try {
    } );
    const capturedValidation = await page.evaluate( () => {
     const content = window.wp.data.select( 'core/editor' ).getEditedPostContent();
-    const visit = ( blocks ) => blocks.flatMap( ( block ) => [ { name: block.name, valid: window.wp.blocks.validateBlock( block )[ 0 ] }, ...visit( block.innerBlocks || [] ) ] );
+     const visit = ( blocks ) => blocks.flatMap( ( block ) => [ { name: block.name, registered: Boolean( window.wp.blocks.getBlockType( block.name ) ), valid: window.wp.blocks.validateBlock( block )[ 0 ] }, ...visit( block.innerBlocks || [] ) ] );
     return { blocks: visit( window.wp.blocks.parse( content ) ), content };
    } );
    const sourceSpecificMissingBlocks = capturedValidation.blocks.filter( ( block ) => 'core/missing' === block.name );
-   assert.ok( capturedValidation.blocks.length && capturedValidation.blocks.every( ( block ) => block.valid && ![ 'core/html', 'core/freeform' ].includes( block.name ) ), 'the exact captured home has valid WordPress serialization with no HTML/freeform fallback' );
+    assert.ok( capturedCompanion.registered_linked_responsive_content, 'the SSI-generated companion registers the captured source linked-content block in WordPress' );
+    assert.ok( capturedCompanion.block_names.includes( capturedCompanion.linked_content_block_name ), 'SSI companion receipt names the source-specific linked-content block' );
+   assert.equal( sourceSpecificMissingBlocks.length, 0, 'SSI companion registration leaves no core/missing blocks in the captured home page' );
+   assert.ok( capturedValidation.blocks.length && capturedValidation.blocks.every( ( block ) => block.registered && block.valid && ![ 'core/html', 'core/freeform', 'core/missing' ].includes( block.name ) ), 'the exact captured home uses registered, valid WordPress blocks with no missing/HTML/freeform fallback' );
    assert.ok( capturedEditorProjection.overlays.length && capturedEditorProjection.overlays.every( ( item ) => 'none' === item.display ), 'the exact captured source card overlays are hidden in the WordPress editor' );
    assert.ok( capturedEditorProjection.boundMeta.length && capturedEditorProjection.boundMeta.every( ( item ) => 'none' === item.display ), 'the exact captured source binding fallback labels are hidden in the WordPress editor' );
-   await writeFile( `${ evidence }/captured-source-editor-before.json`, JSON.stringify( { captureLineage: capturedSource.capture_lineage, captureTimestamp: capturedSource.capture_timestamp, home: capturedSource.home, editorProjection: capturedEditorProjection, validation: capturedValidation.blocks, sourceSpecificMissingBlocks }, null, 2 ) + '\n' );
+    await writeFile( `${ evidence }/captured-source-editor-before.json`, JSON.stringify( { captureLineage: capturedSource.capture_lineage, captureTimestamp: capturedSource.capture_timestamp, companionRegistration: capturedCompanion, home: capturedSource.home, editorProjection: capturedEditorProjection, validation: capturedValidation.blocks, sourceSpecificMissingBlocks }, null, 2 ) + '\n' );
    await page.screenshot( { path: `${ evidence }/captured-source-editor-before.png`, fullPage: true } );
    const capturedHeading = capturedCanvas.locator( '[data-type="core/heading"]' ).first();
    await capturedHeading.click();
@@ -369,13 +379,14 @@ try {
    const capturedReload = await page.evaluate( () => {
     const content = window.wp.data.select( 'core/editor' ).getEditedPostContent();
     const blocks = window.wp.blocks.parse( content );
-    const visit = ( items ) => items.flatMap( ( block ) => [ { name: block.name, valid: window.wp.blocks.validateBlock( block )[ 0 ] }, ...visit( block.innerBlocks || [] ) ] );
+     const visit = ( items ) => items.flatMap( ( block ) => [ { name: block.name, registered: Boolean( window.wp.blocks.getBlockType( block.name ) ), valid: window.wp.blocks.validateBlock( block )[ 0 ] }, ...visit( block.innerBlocks || [] ) ] );
     return { content, blocks: visit( blocks ) };
    } );
    assert.ok( capturedReload.content.includes( editedCapturedHeading ), 'the exact captured source heading edit survives a fresh editor load' );
-   assert.ok( capturedReload.blocks.every( ( block ) => block.valid && ![ 'core/html', 'core/freeform' ].includes( block.name ) ), 'the exact captured source remains valid native blocks after reload' );
-   await writeFile( `${ evidence }/captured-source-editor-after.json`, JSON.stringify( { selection: capturedSelection, restStatus: capturedSaveResponse.status(), editedHeading: editedCapturedHeading, reload: capturedReload, sourceSpecificMissingBlocks, removedSyntheticParityPostIds: isolatedFixturePostIds }, null, 2 ) + '\n' );
-   await page.screenshot( { path: `${ evidence }/captured-source-editor-after.png`, fullPage: true } );
+   assert.ok( capturedReload.blocks.every( ( block ) => block.registered && block.valid && ![ 'core/html', 'core/freeform', 'core/missing' ].includes( block.name ) ), 'the exact captured source remains registered, valid WordPress blocks after reload' );
+    await writeFile( `${ evidence }/captured-source-editor-after.json`, JSON.stringify( { selection: capturedSelection, restStatus: capturedSaveResponse.status(), editedHeading: editedCapturedHeading, reload: capturedReload, companionRegistration: capturedCompanion, sourceSpecificMissingBlocks, removedSyntheticParityPostIds: isolatedFixturePostIds }, null, 2 ) + '\n' );
+    await page.screenshot( { path: `${ evidence }/captured-source-editor-after.png`, fullPage: true } );
+   }
 
   const publicSource = await browser.newPage( { viewport: { width: 1440, height: 1000 } } );
   await publicSource.goto( 'https://nickdiego.com', { waitUntil: 'networkidle', timeout: 60000 } );

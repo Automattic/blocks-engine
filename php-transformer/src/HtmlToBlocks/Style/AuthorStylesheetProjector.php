@@ -20,6 +20,20 @@ final class AuthorStylesheetProjector
     public const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
 
     /**
+     * Class no emitted element carries. A type selector whose only source
+     * subjects were menu toggles dropped for Core's native overlay control is
+     * bound to it, so the rule stays readable in the projected stylesheet but
+     * can no longer reach the open/close buttons Core renders in their place.
+     */
+    public const SUPERSEDED_MENU_TOGGLE_CLASS = 'blocks-engine-superseded-menu-toggle';
+
+    /**
+     * Core's replacement for a dropped menu toggle, excluded from a type rule
+     * the toggle shared with source elements that survive conversion.
+     */
+    private const NAVIGATION_TOGGLE_CHROME_EXCLUSION = ':not(:where(.wp-block-navigation__responsive-container-open,.wp-block-navigation__responsive-container-open *,.wp-block-navigation__responsive-container-close,.wp-block-navigation__responsive-container-close *))';
+
+    /**
      * Every path from a generated image wrapper down to the <img> it holds.
      * An unlinked image is the wrapper's direct child; a linked one sits
      * inside the anchor the native block serializes for the link.
@@ -1362,6 +1376,42 @@ final class AuthorStylesheetProjector
 
     private function rewriteSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): string
     {
+        $projected = $this->rewriteSelectorPreludeOnce($prelude, $context, $controlWrapper);
+        if ( ! $context->selectorProjections->hasAncestorAttributeStateConditions() ) {
+            return $projected;
+        }
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return $projected;
+        }
+        $variants = array();
+        foreach ( $selectors as $selector ) {
+            $conditions = $context->selectorProjections->ancestorAttributeStateConditions(trim($selector));
+            if ( array() === $conditions ) {
+                continue;
+            }
+            // Derive the class form from this selector's own projection so it
+            // inherits every per-element safeguard (superseded toggles,
+            // rich-text exclusions, control and editor variants).
+            $own = 1 === count($selectors) ? $projected : $this->rewriteSelectorPreludeOnce($selector, $context, $controlWrapper);
+            foreach ( CssStylesheetTransformer::splitSelectorList($own) ?? array() as $ownSelector ) {
+                $variant = $ownSelector;
+                foreach ( $conditions as $condition => $marker ) {
+                    $variant = str_replace($condition, '.' . $marker, $variant);
+                }
+                if ( $variant !== $ownSelector ) {
+                    $variants[] = trim($variant);
+                }
+            }
+        }
+        if ( array() === $variants ) {
+            return $projected;
+        }
+        return ( '' === trim($projected) ? '' : $projected . ',' ) . implode(',', array_values(array_unique($variants)));
+    }
+
+    private function rewriteSelectorPreludeOnce(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): string
+    {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors ) {
             return $prelude;
@@ -1389,7 +1439,7 @@ final class AuthorStylesheetProjector
             if ( ! $parsed['supported'] ) {
                 $projectedControls = $this->projectUnsupportedFunctionalControlSelector($selector, $context, $controlWrapper);
                 if ( array() === $projectedControls ) {
-                    $rewritten[] = $this->projectImageLinkIdentitySelector($selector, $context);
+                    $rewritten[] = $this->projectSourceClassSelector($this->projectImageLinkIdentitySelector($selector, $context), $context);
                 } else {
                     array_push($rewritten, ...$projectedControls);
                 }
@@ -1488,10 +1538,19 @@ final class AuthorStylesheetProjector
             $inlineLayoutCarriers = false;
             $addressableInlineCarriers = false;
             $hasNonProjected = false;
+            // A type selector that matched a menu toggle dropped for Core's
+            // native overlay control (or something inside it) has lost that
+            // subject; left bare it would reach the open/close buttons Core
+            // renders in the toggle's place. Only a type subject can reach
+            // them: Core's chrome carries no authored class, id or attribute.
+            $typeSubject = null !== (($parsed['compounds'][array_key_last($parsed['compounds'])] ?? array())['type'] ?? null);
+            $supersededToggles = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
                 if ( $this->isPreservedCodeSyntaxElement($element) ) {
                     $hasNonProjected = true;
+                } elseif ( $typeSubject && $context->selectorProjections->isSupersededControlPath($path) ) {
+                    $supersededToggles = true;
                 } elseif ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
                     // Structured card lowering unwraps the fragment and hoists
                     // its styling hook onto the paragraph it emits, so the class
@@ -1526,7 +1585,16 @@ final class AuthorStylesheetProjector
             // the class core hard-codes on them; `:not(:where(…))` adds no
             // specificity.
             if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves && ! $inlineLayoutCarriers ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+                $insertion = '';
+                if ( $supersededToggles ) {
+                    // Nothing else matched: the rule's subject is gone, so bind
+                    // it to a marker nothing carries. Otherwise keep it for the
+                    // surviving subjects but away from Core's toggle chrome.
+                    $insertion = $hasNonProjected
+                        ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION
+                        : ':where(.' . self::SUPERSEDED_MENU_TOGGLE_CLASS . ')';
+                }
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, $insertion);
                 continue;
             }
             $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
@@ -1545,7 +1613,12 @@ final class AuthorStylesheetProjector
                 $hasNonProjected = true;
             }
             if ( $hasNonProjected ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':not(:where(.' . implode(',.', $projectedMarkers) . '))');
+                $rewritten[] = $this->rewriteSourceTagTypes(
+                    $selector,
+                    $parsed,
+                    $context,
+                    ':not(:where(.' . implode(',.', $projectedMarkers) . '))' . ( $supersededToggles ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION : '' )
+                );
             }
             foreach ( $controls as $marker ) {
                 $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $context, $controlWrapper);
@@ -1810,7 +1883,9 @@ final class AuthorStylesheetProjector
         }
         $compounds = $parsed['compounds'] ?? array();
         $rightmost = $compounds[array_key_last($compounds)] ?? array();
-        if ( ! \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::containsDataAttribute($rightmost) ) {
+        if ( ! \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::containsDataAttribute($rightmost)
+            || \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::hasLiveAttributePredicate($rightmost)
+        ) {
             return null;
         }
         $projected = array();
@@ -2084,6 +2159,45 @@ final class AuthorStylesheetProjector
         }
         if ( '' !== $rightmostInsertion ) {
             $replacements[(int) $parsed['rightmost_rewrite_end']] = array( 'end' => (int) $parsed['rightmost_rewrite_end'], 'value' => $rightmostInsertion );
+        }
+        return $this->projectSourceClassSelector($selector, $context, $replacements);
+    }
+
+    /**
+     * Preserve class ownership even when a selector is dormant or outside the
+     * matcher's subset. Replace simple class tokens, including those inside
+     * functional pseudos, without changing specificity or touching strings.
+     * @param array<int, array{end: int, value: string}> $replacements
+     */
+    private function projectSourceClassSelector(string $selector, AuthorStylesheetProjectionContext $context, array $replacements = array()): string
+    {
+        $state = CssSyntaxScanner::state();
+        // Native projection spans own their replacement markup. Only untouched
+        // source tokens are eligible; Core classes introduced by a bridge are
+        // destination identities, not author selector provenance.
+        $ownedSpans = $replacements;
+        $length = strlen($selector);
+        for ( $offset = 0; $offset < $length; ) {
+            if ( '.' === $selector[$offset] && '' === $state['quote'] && ! $state['comment'] && 0 === $state['brackets']
+                && 1 === preg_match('/\G\.((?:[A-Za-z0-9_-]|[^\x00-\x7f]|\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n\f]))+)/', $selector, $match, 0, $offset)
+            ) {
+                $parsed = CssSelectorMatcher::parse($match[0]);
+                $class = (string) ($parsed['compounds'][0]['classes'][0] ?? '');
+                $marker = $context->authorStyles->sourceClassMarker($class);
+                $end = $offset + strlen($match[0]);
+                foreach ( $ownedSpans as $start => $replacement ) {
+                    if ( $offset < $replacement['end'] && $end > $start ) {
+                        $marker = '';
+                        break;
+                    }
+                }
+                if ( '' !== $marker ) {
+                    $replacements[$offset] = array('end' => $end, 'value' => '.' . $marker);
+                }
+                $offset = $end;
+                continue;
+            }
+            $offset = CssSyntaxScanner::consume($selector, $offset, $state) ?? ($offset + 1);
         }
         return $this->replaceSelectorSpans($selector, $replacements);
     }

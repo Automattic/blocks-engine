@@ -15,10 +15,10 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 // A shared footer part owns a form entity whose binding anchors on the form
-// block, and the form block holds a consent paragraph. Footer copy shared
-// across pages may be factored into its own part, but the bound block is
-// replaced whole by the provider form: its consent line must stay, and the
-// binding must still find its block.
+// block, and the form block holds a consent paragraph. One shared footer
+// already stores its copy once, regardless of how many routes it represents.
+// Distinct footer variants can share copy, but the provider replaces a bound
+// form whole: its consent line and binding must stay intact in either case.
 $paragraph = static fn (string $text): string => '<!-- wp:paragraph --><p>' . $text . '</p><!-- /wp:paragraph -->';
 $form = '<!-- wp:group {"className":"signup"} --><div class="wp-block-group signup">' . $paragraph('Yes, send me the monthly newsletter and occasional offers.') . '<!-- wp:buttons --><div class="wp-block-buttons"><!-- wp:button --><div class="wp-block-button"><a class="wp-block-button__link wp-element-button">Join</a></div><!-- /wp:button --></div><!-- /wp:buttons --></div><!-- /wp:group -->';
 $footer = '<!-- wp:group {"anchor":"site-foot"} --><div id="site-foot" class="wp-block-group">' . $paragraph('12 Harbour Street') . $form . '</div><!-- /wp:group -->';
@@ -36,7 +36,20 @@ $factoredFooter = (string) $result['parts'][0]['canonical_block_markup'];
 $assert(str_contains($factoredFooter, $form), 'The bound form block, consent line included, is untouched: ' . $factoredFooter);
 $assert(1 === substr_count($factoredFooter, $form), 'The binding still finds exactly one block to replace.');
 $contentPart = array_values(array_filter($result['parts'], static fn (array $row): bool => 'footer-content' === ($row['slug'] ?? null)))[0] ?? null;
-$assert(is_array($contentPart) && str_contains((string) $contentPart['canonical_block_markup'], '12 Harbour Street'), 'Shared copy outside the bound block is still factored into its own part.');
+$assert(null === $contentPart && $footer === $factoredFooter, 'A single physical shared footer stays intact instead of acquiring a redundant content part.');
+
+// A real second footer variant owns another copy of the address. It does not
+// own the signup form: only the repeated address is eligible for sharing.
+$alternate = $part;
+$alternate['source_path'] = 'wordpress-site-plan/shared/footer-alternate#footer';
+$alternate['slug'] = 'footer-alternate';
+$alternate['canonical_block_markup'] = '<!-- wp:group --><div class="wp-block-group">' . $paragraph('12 Harbour Street') . $paragraph('Alternate footer navigation') . '</div><!-- /wp:group -->';
+$result = $extraction->factorSharedFooterContent($pages, array($part, $alternate), $declarations);
+$factoredFooter = (string) $result['parts'][0]['canonical_block_markup'];
+$contentPart = array_values(array_filter($result['parts'], static fn (array $row): bool => 'footer-content' === ($row['slug'] ?? null)))[0] ?? null;
+$assert(is_array($contentPart) && $paragraph('12 Harbour Street') === $contentPart['canonical_block_markup'], 'Distinct physical footer variants share exactly their repeated address.');
+$assert(1 === substr_count($factoredFooter, $form), 'Factoring across actual variants preserves the complete bound form.');
+$assert(str_contains($factoredFooter, '"slug":"footer-content"') && str_contains((string) $result['parts'][1]['canonical_block_markup'], '"slug":"footer-content"'), 'Both physical footer variants reference the single shared address.');
 
 // The same form stored as a runtime entity manifest record keeps the position
 // it was compiled with, which page canonicalization can shift. Its block is
@@ -44,7 +57,7 @@ $assert(is_array($contentPart) && str_contains((string) $contentPart['canonical_
 $recordedBinding = $declarations[0]['payload']['entities'][0]['bindings'][0];
 $recordedBinding['position']['offset'] += 7;
 $manifest = RuntimeEntityManifest::fromEntities('generic/forms/v1', array(array('bindings' => array($recordedBinding))));
-$recorded = $extraction->factorSharedFooterContent($pages, array($part), RuntimeDeclarations::normalizeList(array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => $manifest['payload']))), $manifest['records']);
+$recorded = $extraction->factorSharedFooterContent($pages, array($part, $alternate), RuntimeDeclarations::normalizeList(array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => $manifest['payload']))), $manifest['records']);
 $assert(1 === substr_count((string) $recorded['parts'][0]['canonical_block_markup'], $form), 'A bound block whose entity lives in a manifest record is untouched: ' . $recorded['parts'][0]['canonical_block_markup']);
 
 echo "Footer content bound blocks contract passed.\n";

@@ -141,6 +141,44 @@ final class DeclaredPresentation
         return $value;
     }
 
+    /**
+     * The value that wins where the caller's predicate says a condition stack
+     * holds — the same flattening as {@see resolvedValue()}, but at a viewport
+     * (or under feature assumptions) the caller chooses instead of the
+     * reference one. Unconditional entries always hold.
+     *
+     * @param callable(list<string>): bool $conditionsApply
+     */
+    public function resolvedValueWhere(callable $conditionsApply): string
+    {
+        $value = '';
+        foreach ( $this->entries as $entry ) {
+            if ( array() === $entry['conditions'] || $conditionsApply($entry['conditions']) ) {
+                $value = $entry['value'];
+            }
+        }
+
+        return $value;
+    }
+
+    /**
+     * Every condition stack the author scoped this property under, in cascade
+     * order, so a caller can read which viewports the declaration changes at.
+     *
+     * @return list<list<string>>
+     */
+    public function conditionStacks(): array
+    {
+        $stacks = array();
+        foreach ( $this->entries as $entry ) {
+            if ( array() !== $entry['conditions'] ) {
+                $stacks[] = $entry['conditions'];
+            }
+        }
+
+        return $stacks;
+    }
+
     /** The subset declared inside a cascade layer. */
     public function layered(): self
     {
