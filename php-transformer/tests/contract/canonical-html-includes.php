@@ -85,7 +85,7 @@ foreach ($variantPlan['pages'] as $route) $assert(substr_count($route['canonical
 $variantShared = $compiler->prepareShared($variantArtifact);
 $assert($compiler->compose($variantShared, $compiler->compilePreparedPages($variantShared, $compiler->preparePages($variantArtifact, $variantShared)))->toArray()['source_reports']['wordpress_site_plan'] === $variantPlan, 'Whole/staged variant bindings agree.');
 
-$nested = array('entrypoint' => 'index.html', 'files' => array('index.html' => "Before\r\n<!--#include virtual=\"/fragments/header.html\" -->\r\nAfter", 'fragments/header.html' => '<header><!--#include virtual="/parts/brand.html" --></header>', 'parts/brand.html' => "Brand\r\n"));
+$nested = array('entrypoint' => 'index.html', 'files' => array('index.html' => "Before\r\n<!--#include virtual=\"/parts/header.html\" -->\r\nAfter", 'parts/header.html' => '<header><!--#include virtual="/parts/Shared_Brand-1.html" --></header>', 'parts/Shared_Brand-1.html' => "Brand\r\n"));
 $nestedFiles = array_column((new ArtifactNormalizer())->normalize($nested)['files'], 'content', 'path');
 $assert($nestedFiles['index.html'] === "Before\r\n<header>Brand\r\n</header>\r\nAfter", 'Nested local fragments preserve CRLF source bytes without HTML reserialization.');
 $nestedRefs = $nested; $nestedRefs['files'] = array(); $nestedPayloads = array();
@@ -97,15 +97,24 @@ $nestedReader = new class($nestedPayloads) implements PayloadReader {
 };
 $nestedShared = $compiler->prepareShared($nestedRefs, $nestedReader);
 $nestedPrepared = $compiler->preparePage($nestedRefs, $nestedShared, 'index.html', $nestedReader);
-$assert(in_array('fragments/header.html', $nestedReader->reads, true), 'Reference-backed dependency closure hydrates HTML fragments outside parts/.');
+$assert(in_array('parts/Shared_Brand-1.html', $nestedReader->reads, true), 'Reference-backed stages hydrate nested canonical fragments.');
 $assert($compiler->compose($nestedShared, array($compiler->compilePreparedPage($nestedShared, $nestedPrepared, $nestedReader)), $nestedReader)->toArray()['source_reports']['wordpress_site_plan'] === $compiler->compile($nested)->toArray()['source_reports']['wordpress_site_plan'], 'Nested reference-backed fragments agree with whole compilation.');
 
 foreach (array(
     '<!--#include virtual="/parts/missing.html" -->' => 'missing_path',
-    '<!--#include virtual="/../secret.html" -->' => 'unsafe_path',
-    '<!--#include virtual="//host/a.html" -->' => 'unsafe_path',
-    '<!--#include virtual="/parts/%2e%2e/a.html" -->' => 'unsafe_path',
-    '<!--#exec cmd="date" -->' => 'invalid_directive',
+    '<!--#include virtual="/../secret.html" -->' => 'invalid_directive',
+    '<!--#include virtual="//host/a.html" -->' => 'invalid_directive',
+    '<!--#include virtual="/parts/%2e%2e/a.html" -->' => 'invalid_directive',
+    "<!--#include virtual='/parts/header.html' -->" => 'invalid_directive',
+    '<!--#include  virtual="/parts/header.html" -->' => 'invalid_directive',
+    '<!--#include virtual ="/parts/header.html" -->' => 'invalid_directive',
+    '<!-- #include virtual="/parts/header.html" -->' => 'invalid_directive',
+    '<!--#INCLUDE virtual="/parts/header.html" -->' => 'invalid_directive',
+    '<!--#include virtual="/fragments/header.html" -->' => 'invalid_directive',
+    '<!--#include virtual="/parts/nested/header.html" -->' => 'invalid_directive',
+    '<!--#include virtual="/parts/header.htm" -->' => 'invalid_directive',
+    '<!--#include virtual="/parts/.html" -->' => 'invalid_directive',
+    '<!--#include virtual="/parts/header.html"-->' => 'invalid_directive',
     '<!--#include file="parts/header.html" -->' => 'invalid_directive',
     '<!--#include virtual="/parts/header.html" -->' => 'cycle',
 ) as $directive => $reason) {
@@ -114,7 +123,7 @@ foreach (array(
         throw new RuntimeException('Invalid include unexpectedly compiled: ' . $reason);
     } catch (InvalidArgumentException $error) { $assert(str_contains($error->getMessage(), 'html_include_' . $reason), 'Invalid includes fail visibly with the expected reason.'); }
 }
-$literal = '<script>const literal = \'<!--#include virtual="/missing.html" -->\';</script><style>/* <!--#exec cmd="date" --> */</style>';
+$literal = '<script>const literal = \'<!--#include virtual="/missing.html" -->\';</script><style>/* <!--#exec cmd="date" --> */</style><!--#exec cmd="date" --><!--#ordinary comment -->';
 $assert((new ArtifactNormalizer())->normalize(array('files' => array('index.html' => $literal)))['files'][0]['content'] === $literal, 'Raw-text script/style directive literals are inert and byte-preserved.');
 foreach (array('max_file_bytes' => 500, 'max_total_bytes' => 700) as $limit => $value) {
     try {

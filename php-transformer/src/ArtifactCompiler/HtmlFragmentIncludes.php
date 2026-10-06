@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use InvalidArgumentException;
 
-/** Artifact-local SSI includes. No filesystem, URL fetching, or server execution. */
+/** Canonical artifact-local HTML includes. No filesystem, URL fetching, or server execution. */
 final class HtmlFragmentIncludes
 {
     public const MAX_DEPTH = 16;
@@ -33,15 +33,14 @@ final class HtmlFragmentIncludes
     /** @return array<int,array{virtual:string,offset:int,length:int}> */
     public static function directives(string $source, string $path): array
     {
+        if (false === stripos($source, '#include')) return array();
         $directives = array();
         foreach (HtmlTagScanner::scan($source, '#comment') as $comment) {
             $token = $comment['tag'];
-            if (!str_starts_with($token, '<!--#')) continue;
-            if (1 !== preg_match('~^<!--#include\s+virtual\s*=\s*(["\'])(/[^"\']*)\1\s*-->$~D', $token, $match)) throw new InvalidArgumentException('html_include_invalid_directive: ' . $path);
-            $virtual = $match[2];
-            if (str_starts_with($virtual, '//') || preg_match('~[\\\\%?#\x00-\x20]|(?:^|/)\.{1,2}(?:/|$)~', $virtual) || !preg_match('/\.html?$/i', $virtual)) throw new InvalidArgumentException('html_include_unsafe_path: ' . $virtual);
+            if (1 !== preg_match('/^<!--\s*#include/i', $token)) continue;
+            if (1 !== preg_match('~^<!--#include virtual="(/parts/[a-zA-Z0-9_-]+\.html)" -->$~D', $token, $match)) throw new InvalidArgumentException('html_include_invalid_directive: ' . $path);
             if (count($directives) >= self::MAX_INCLUDES) throw new InvalidArgumentException('html_include_count_exceeded: ' . $path);
-            $directives[] = array('virtual' => $virtual, 'offset' => $comment['offset'], 'length' => strlen($token));
+            $directives[] = array('virtual' => $match[1], 'offset' => $comment['offset'], 'length' => strlen($token));
         }
         return $directives;
     }
@@ -60,6 +59,7 @@ final class HtmlFragmentIncludes
     public function expand(array $files, array $entrypoints, array $limits, callable $payload, array $reports = array()): array
     {
         $contents = array();
+        $directives = array();
         $active = false;
         $duplicates = array();
         foreach ($files as $file) {
@@ -71,7 +71,8 @@ final class HtmlFragmentIncludes
             }
             if (isset($contents[$path])) $duplicates[] = $path;
             $contents[$path] = $content;
-            $active = $active || str_contains($content, '<!--#');
+            $directives[$path] = self::directives($content, $path);
+            $active = $active || array() !== $directives[$path];
         }
         if (!$active) return $files;
         if (array() !== $duplicates) throw new InvalidArgumentException('html_include_duplicate_path: ' . $duplicates[0]);
@@ -79,7 +80,7 @@ final class HtmlFragmentIncludes
         $referenced = array();
         $count = 0;
         $total = 0;
-        $resolve = function (string $path, array $stack) use (&$resolve, &$referenced, &$count, $contents, $root, $limits): string {
+        $resolve = function (string $path, array $stack) use (&$resolve, &$referenced, &$count, $contents, $directives, $root, $limits): string {
             if (isset($stack[$path])) throw new InvalidArgumentException('html_include_cycle: ' . $path);
             if (count($stack) >= self::MAX_DEPTH) throw new InvalidArgumentException('html_include_depth_exceeded: ' . $path);
             $stack[$path] = true;
@@ -87,7 +88,7 @@ final class HtmlFragmentIncludes
             if (strlen($source) > $limits['max_file_bytes']) throw new InvalidArgumentException('html_include_file_budget_exceeded: ' . $path);
             $result = '';
             $offset = 0;
-            foreach (self::directives($source, $path) as $directive) {
+            foreach ($directives[$path] as $directive) {
                 $position = $directive['offset'];
                 $target = $root . substr($directive['virtual'], 1);
                 if (!array_key_exists($target, $contents)) throw new InvalidArgumentException('html_include_missing_path: ' . $target);
@@ -104,7 +105,7 @@ final class HtmlFragmentIncludes
         };
         foreach ($files as &$file) {
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
-            if (isset($contents[$path]) && str_contains($contents[$path], '<!--#')) {
+            if (isset($contents[$path]) && array() !== $directives[$path]) {
                 $file['content'] = $resolve($path, array());
                 if (!isset($file['metadata']['compilation'])) $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $path);
                 $file['metadata']['compilation']['resolved_html_includes'] = true;
@@ -116,7 +117,7 @@ final class HtmlFragmentIncludes
         unset($file);
         foreach ($files as &$file) {
             if (!isset($referenced[$file['path']])) continue;
-            if (!str_contains($contents[$file['path']], '<!--#')) $file['content'] = $contents[$file['path']];
+            if (array() === $directives[$file['path']]) $file['content'] = $contents[$file['path']];
             $file['metadata']['compilation'] = array('scope' => 'shared', 'included_component' => true, 'resolved_html_includes' => true);
             // Included HTML is source data, never an additional route.
             $file['role'] = 'template-part';
