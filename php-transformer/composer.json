@@ -67,6 +67,7 @@
       "php tests/contract/wordpress-site-plan.php",
       "php tests/contract/inert-document-declarations.php",
       "php tests/contract/form-source-ownership.php",
+      "php tests/contract/external-metric-bindings.php",
       "php tests/contract/unresolved-navigation-links.php",
       "php tests/contract/source-protocol-link-declarations.php",
       "php tests/contract/missing-local-media.php",
