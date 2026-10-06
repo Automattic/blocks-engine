@@ -3027,6 +3027,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @param list<class-string<\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface>> $allowed */
     private function recognizePatterns(DOMElement $element, array &$fallbacks, array $allowed): ?array
     {
+        if ( $this->runtimeIslands->retainsDataAttributeRuntimeTargetInShell($element) ) {
+            return null;
+        }
         $result = $this->patternRecognizers->firstMatch($element, $this->patternContext, $allowed);
         if (null === $result) return null;
         // Results own fallback payloads until their block wins the ordered stage.
