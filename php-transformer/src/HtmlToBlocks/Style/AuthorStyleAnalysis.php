@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use DOMElement;
 
 /** Per-transform author stylesheet inputs, source indexes, and selector state. */
@@ -46,6 +47,8 @@ final class AuthorStyleAnalysis
     private readonly string $idSpecificityShim;
     /** @var list<string> */
     private array $sourceBodyProjectionClasses = array();
+    /** @var array<string, string> */
+    private array $sourceClassMarkers = array();
 
     /** @param list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> $stylesheetAssets */
     public function __construct(string $html, string $combinedCss, array $stylesheetAssets, DOMElement $sourceBody)
@@ -108,6 +111,14 @@ final class AuthorStyleAnalysis
     public function specificityShim(): string { return $this->specificityShim; }
     public function classSpecificityShim(): string { return $this->classSpecificityShim; }
     public function idSpecificityShim(): string { return $this->idSpecificityShim; }
+    /** A source-only identity for a class that Core can synthesize independently. */
+    public function sourceClassMarker(string $class): string
+    {
+        if ( ! GeneratedGutenbergClassPolicy::isGeneratedClassName($class) ) {
+            return '';
+        }
+        return $this->sourceClassMarkers[$class] ??= $this->allocateStableMarker('source-class', $class);
+    }
     /** @return list<string> */
     public function sourceBodyProjectionClasses(): array { return $this->sourceBodyProjectionClasses; }
     /** @param list<string> $classes */
