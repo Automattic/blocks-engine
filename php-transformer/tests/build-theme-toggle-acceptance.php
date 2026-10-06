@@ -9,9 +9,9 @@ $evidence = (string) getenv('THEME_ACCEPTANCE_EVIDENCE_DIR');
 if ('' === $evidence || ! is_dir($evidence)) {
     throw new RuntimeException('THEME_ACCEPTANCE_EVIDENCE_DIR must point to an existing evidence directory.');
 }
-$source = '<!doctype html><html class="dark"><head><title>Theme selection acceptance</title></head><body><main><h1>Theme selection acceptance</h1><footer><div class="flex items-center gap-2 theme-choices" role="group" aria-label="Color theme" data-site-control="appearance"><button type="button" tabindex="0" class="theme-choice" aria-label="Light theme"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="lucide lucide-sun" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path></svg></button><button type="button" tabindex="0" class="theme-choice" aria-label="System theme"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="lucide lucide-monitor" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"></rect><line x1="8" x2="16" y1="21" y2="21"></line></svg></button><button type="button" tabindex="0" class="theme-choice" aria-label="Dark theme"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="lucide lucide-moon" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472"></path></svg></button></div></footer></main></body></html>';
+$source = '<!doctype html><html class="dark"><head><title>Theme selection acceptance</title></head><body><main><h1>Theme selection acceptance</h1><footer><div class="flex items-center gap-2 theme-choices" role="group" aria-label="Color theme" data-site-control="appearance"><button type="button" tabindex="0" id="light-choice" class="theme-choice" aria-label="Light theme" aria-describedby="theme-help" data-choice="light" style="width:40px" onclick="unsafe()"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="lucide lucide-sun" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path></svg></button><button type="button" tabindex="0" class="theme-choice" aria-label="System theme"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="lucide lucide-monitor" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"></rect><line x1="8" x2="16" y1="21" y2="21"></line></svg></button><button type="button" tabindex="0" class="theme-choice" aria-label="Dark theme"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="lucide lucide-moon" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472"></path></svg></button></div><span id="theme-help">Select a color theme.</span></footer></main></body></html>';
 $css = ':root{color-scheme:light}.dark{color-scheme:dark}.theme-choices{display:flex;gap:8px}.theme-choice{width:28px;height:28px}.dark .theme-choice{color:white}:root:not(.dark) .theme-choice{color:black}';
-$runtime = 'const current=localStorage.getItem("theme")||"system"; const dark=window.matchMedia("(prefers-color-scheme: dark)").matches; document.documentElement.classList.toggle("dark",dark); localStorage.setItem("theme",current);';
+$runtime = 'const labels=["Light theme","System theme","Dark theme"];const provider=({storageKey:key="theme"})=>{const root=document.documentElement;const read=(arg,fallback)=>localStorage.getItem(arg)||fallback;let preference=read(key,"system");const apply=value=>{root.classList.remove(...["dark"]);root.classList.add(value)};const select=value=>{apply(value);localStorage.setItem(key,value)};window.matchMedia("(prefers-color-scheme: dark)")};';
 $result = (new HtmlTransformer())->transform($source, array(
     'static_css' => $css,
     'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $runtime)),
@@ -28,6 +28,17 @@ $block = $findBlock($result['blocks'] ?? array());
 if (array() === $block) throw new RuntimeException('The three-button source group was not promoted.');
 if (count($block['attrs']['selectionButtons'] ?? array()) !== 3) {
     throw new RuntimeException('The promoted group does not contain three selection controls.');
+}
+$attributeSource = str_replace('<html class="dark">', '<html data-theme="dark">', $source);
+$attributeCss = ':root[data-theme="light"]{color-scheme:light;background:#fff}:root[data-theme="dark"]{color-scheme:dark;background:#111}';
+$attributeRuntime = 'const labels=["Light theme","System theme","Dark theme"];const provider=({storageKey:key="appearance"})=>{const root=document.documentElement;const read=(arg,fallback)=>localStorage.getItem(arg)||fallback;let preference=read(key,"system");const apply=value=>root.setAttribute("data-theme",value);const select=value=>{apply(value);localStorage.setItem(key,value)};window.matchMedia("(prefers-color-scheme: dark)")};';
+$attributeResult = (new HtmlTransformer())->transform($attributeSource, array(
+    'static_css' => $attributeCss,
+    'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $attributeRuntime)),
+))->toArray();
+$attributeBlock = $findBlock($attributeResult['blocks'] ?? array());
+if ('custom/theme-toggle' !== ($attributeBlock['blockName'] ?? '') || 'data-theme' !== ($attributeBlock['attrs']['rootAttribute'] ?? '')) {
+    throw new RuntimeException('The source data-theme ownership contract was not derived.');
 }
 
 $plugin = $evidence . '/theme-toggle-companion';
@@ -53,5 +64,13 @@ file_put_contents($evidence . '/source-and-page.json', json_encode(array(
     'source_group_markup' => $source,
     'static_css' => $css,
     'source_runtime_evidence' => $runtime,
+), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+file_put_contents($evidence . '/root-attribute-page.json', json_encode(array(
+    'content' => $attributeResult['serialized_blocks'] ?? '',
+    'block_name' => $attributeBlock['blockName'],
+    'attributes' => $attributeBlock['attrs'],
+    'fallbacks' => $attributeResult['fallbacks'] ?? array(),
+    'root_css' => $attributeCss,
+    'runtime_evidence' => $attributeRuntime,
 ), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 fwrite(STDOUT, "Built canonical theme selection fixture and disposable companion plugin\n");
