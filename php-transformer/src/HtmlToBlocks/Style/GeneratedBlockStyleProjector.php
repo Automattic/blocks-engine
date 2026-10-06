@@ -354,7 +354,10 @@ final class GeneratedBlockStyleProjector
         }
         $media = $this->sourceBackgroundGuardMedia($sourceControl);
         if ( null === $media ) return false;
-        $selector = '.' . $marker . '.' . $marker . '>.wp-block-button__link:not([style*="background"]):not(:hover):not(:focus):not(:active)';
+        $selector = '.' . $marker . '.' . $marker . '>.wp-block-button__link:not([style*="background"])';
+        foreach ( $this->styleResolver->sourceBackgroundInteractionStates($sourceControl) as $state ) {
+            $selector .= ':not(:' . $state . ')';
+        }
         $rule = $selector . '{background-color:transparent!important}';
         if ( '' !== $media ) $rule = '@media ' . $media . '{' . $rule . '}';
         $generatedStyles->appendNativeButton($marker, $rule);

@@ -1802,7 +1802,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        $result = (new self($this->runtime, $this->analysisCache))->transform($html, array('extract_global_shell' => false, 'fallback_reduction_mode' => true));
+        $fragmentCompilation = new self($this->runtime, $this->analysisCache);
+        $result = $fragmentCompilation->transform($html, array('extract_global_shell' => false, 'fallback_reduction_mode' => true));
         $data = $result->toArray();
         $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : array();
         if (array() === $blocks || array() !== ($data['fallbacks'] ?? array())) {
@@ -1814,78 +1815,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        $transparentButtonGuardCss = $this->transparentButtonGuardCssFromAcceptedFragment(
-            $blocks,
-            is_array($data['assets'] ?? null) ? $data['assets'] : array()
-        );
-        if ( array() !== $transparentButtonGuardCss && $this->session->hasAssetMaterializationState() ) {
-            // This exploratory fragment transform is intentionally isolated from
-            // the document's selector state. Carry only its per-control default
-            // button-background guards when accepting the native block result.
-            $this->stylesheetAssetStage->generated(
-                $transparentButtonGuardCss,
-                'engine-support',
-                'after-author',
-                'engine-support-after-author'
+        if ( $this->session->hasAssetMaterializationState() ) {
+            // Fragment-owned support remains in the compiler's structured
+            // records until acceptance. Commit only records whose source
+            // identities survive in the returned blocks; a rejected exploratory
+            // compilation never reaches this boundary.
+            $this->generatedSupportStyles()->commitAcceptedFrom(
+                $fragmentCompilation->generatedSupportStyles(),
+                $blocks
             );
         }
 
         return $blocks;
-    }
-
-    /** @param list<array<string, mixed>> $blocks @param list<array<string, mixed>> $assets @return list<string> */
-    private function transparentButtonGuardCssFromAcceptedFragment(array $blocks, array $assets): array
-    {
-        $markers = array();
-        $collectMarkers = static function (array $nodes) use (&$collectMarkers, &$markers): void {
-            foreach ( $nodes as $node ) {
-                if ( ! is_array($node) ) continue;
-                $className = (string) ($node['attrs']['className'] ?? '');
-                foreach ( preg_split('/\s+/', trim($className)) ?: array() as $classNamePart ) {
-                    if ( str_starts_with($classNamePart, 'blocks-engine-native-button-') && ! str_contains($classNamePart, 'alignment-') ) {
-                        $markers[$classNamePart] = true;
-                    }
-                }
-                $collectMarkers(is_array($node['innerBlocks'] ?? null) ? $node['innerBlocks'] : array());
-            }
-        };
-        $collectMarkers($blocks);
-        if ( array() === $markers ) return array();
-
-        $rules = array();
-        foreach ( $assets as $asset ) {
-            if ( 'css' !== ($asset['kind'] ?? '') || ! is_string($asset['content'] ?? null) ) continue;
-            foreach ( array_keys($markers) as $marker ) {
-                $selector = preg_quote('.' . $marker . '.' . $marker . '>.wp-block-button__link:not([style*="background"])', '/');
-                if ( 1 === preg_match('/' . $selector . '(?:\:not\(:hover\))?(?:\:not\(:focus\))?(?:\:not\(:active\))?\s*\{[^{}]*background-color:transparent!important[^{}]*\}/', $asset['content'], $match, PREG_OFFSET_CAPTURE) ) {
-                    $rule = $this->transparentButtonGuardRuleWithMediaContext($asset['content'], $match[0][1], strlen($match[0][0]));
-                    $rules[$rule] = $rule;
-                }
-            }
-        }
-        return array_values($rules);
-    }
-
-    private function transparentButtonGuardRuleWithMediaContext(string $css, int $ruleOffset, int $ruleLength): string
-    {
-        $prefix = substr($css, 0, $ruleOffset);
-        $mediaOffset = strrpos($prefix, '@media');
-        $closeOffset = strrpos($prefix, '}');
-        if ( false === $mediaOffset || ( false !== $closeOffset && $mediaOffset < $closeOffset ) ) {
-            return substr($css, $ruleOffset, $ruleLength);
-        }
-
-        $openOffset = strpos($css, '{', $mediaOffset);
-        if ( false === $openOffset ) return substr($css, $ruleOffset, $ruleLength);
-        $depth = 0;
-        $length = strlen($css);
-        for ( $offset = $openOffset; $offset < $length; ++$offset ) {
-            if ( '{' === $css[$offset] ) ++$depth;
-            elseif ( '}' === $css[$offset] && 0 === --$depth ) {
-                return substr($css, $mediaOffset, $offset - $mediaOffset + 1);
-            }
-        }
-        return substr($css, $ruleOffset, $ruleLength);
     }
 
     /**

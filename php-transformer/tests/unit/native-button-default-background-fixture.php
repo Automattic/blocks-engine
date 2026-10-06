@@ -10,10 +10,10 @@ $output = (new ArtifactCompiler())->compile(array(
 	'entrypoint' => 'index.html',
 	'files' => array(
 		'index.html' => $source,
-		'site.css' => '.responsive:hover{background-color:rgb(0,170,0)}@media(max-width:600px){.responsive{background-color:rgb(0,102,204)}}',
+		'site.css' => '.responsive:hover{background-color:rgb(0,170,0)}.responsive:focus{background-color:rgb(170,0,170)}@media(max-width:600px){.responsive{background-color:rgb(0,102,204)}}',
 	),
 ))->toArray();
-$sourceCss = '.responsive:hover{background-color:rgb(0,170,0)}@media(max-width:600px){.responsive{background-color:rgb(0,102,204)}}';
+$sourceCss = '.responsive:hover{background-color:rgb(0,170,0)}.responsive:focus{background-color:rgb(170,0,170)}@media(max-width:600px){.responsive{background-color:rgb(0,102,204)}}';
 $css = implode("\n", array_map(
 	static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
 	$output['assets'] ?? array()
