@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
@@ -180,6 +181,11 @@ final class CapturedDialogProjector
             if (array() !== $triggers && array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isAdopted($adopted, $trigger))) {
                 continue;
             }
+            // A navigation button with its dropdown panel of links stays in place:
+            // it becomes a navigation submenu, not a dialog opened from a button.
+            if (array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isNavigationDropdownTrigger($trigger))) {
+                continue;
+            }
             $fragment = $this->safeDialogFragment($dialogHtml);
             if (null === $fragment) {
                 $diagnostics[] = $this->diagnostic('captured_dialog_markup_invalid', 'warning', 'A captured dialog was ignored because its markup could not be sanitized.', array('source_path' => $sourcePath));
@@ -279,6 +285,7 @@ final class CapturedDialogProjector
             $groups = array();
             foreach ($xpath->query('.//*[@data-dla-dialog-trigger]', $scope) ?: array() as $trigger) {
                 if (! $trigger instanceof DOMElement || $this->insideProjectedDialog($trigger)) continue;
+                if ($this->isNavigationDropdownTrigger($trigger)) continue;
                 $key = trim($trigger->getAttribute('data-dla-dialog-trigger'));
                 if (1 === preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key) && $key === trim($trigger->getAttribute('aria-controls'))) {
                     $groups[$key][] = $trigger;
@@ -351,6 +358,13 @@ final class CapturedDialogProjector
         return false;
     }
 
+    private function isNavigationDropdownTrigger(DOMElement $trigger): bool
+    {
+        $item = $trigger->parentNode;
+
+        return $item instanceof DOMElement && null !== NavigationPattern::buttonDropdownItemParts($item);
+    }
+
     /** @param array<int, DOMElement> $triggers */
     private function consumeMatchedCloseHelper(DOMDocument $document, array $triggers, DOMElement $dialog): void
     {
@@ -385,6 +399,8 @@ final class CapturedDialogProjector
         }
         foreach ($document->getElementsByTagName('*') as $node) {
             if (!$node instanceof DOMElement || '' === trim($node->getAttribute('data-dla-dialog-trigger'))) continue;
+            // A navigation dropdown trigger becomes a submenu, so it needs no dialog binding.
+            if ($this->isNavigationDropdownTrigger($node)) continue;
             $id = trim($node->getAttribute('id'));
             if ('' === $id || !isset($bound[$id])) return false;
         }
