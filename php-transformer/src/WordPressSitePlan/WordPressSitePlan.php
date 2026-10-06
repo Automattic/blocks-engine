@@ -52,9 +52,14 @@ final class WordPressSitePlan
     private string $sourceUrl = '';
     private const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
     private const MAX_ROUTE_COLLISION_DIAGNOSTICS = 50;
+    private const MAX_OMITTED_LINK_DECLARATION_DIAGNOSTICS = 50;
+    private const OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE = 'wordpress_site_plan_omitted_link_declaration';
     /** @var array<string,array<string,mixed>> */
     private array $unresolvedNavigationDiagnostics = array();
     private int $omittedUnresolvedNavigationDiagnostics = 0;
+    /** @var array<string,array<string,mixed>> */
+    private array $omittedLinkDeclarations = array();
+    private int $omittedLinkDeclarationOverflow = 0;
     /** @var array<int,array<string,mixed>> */
     private array $routeCollisions = array();
     private int $omittedRouteCollisionDiagnostics = 0;
@@ -189,6 +194,8 @@ final class WordPressSitePlan
         $this->sourceOrigin = $this->urlOrigin($this->sourceUrl);
         $this->unresolvedNavigationDiagnostics = array();
         $this->omittedUnresolvedNavigationDiagnostics = 0;
+        $this->omittedLinkDeclarations = array();
+        $this->omittedLinkDeclarationOverflow = 0;
         $editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
             throw new InvalidArgumentException('WordPress site plan requires a versioned editability policy.');
@@ -318,7 +325,7 @@ final class WordPressSitePlan
             $assetWrites = array_merge($assetWrites, $this->assetWrites($placeholderAssets, $references));
         }
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus), $assetWrites);
-        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->missingMedia->diagnostics());
+        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->missingMedia->diagnostics());
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => $this->sourceDocumentCatalog($compiled['pages'] ?? array())),
@@ -1405,8 +1412,10 @@ final class WordPressSitePlan
                 }
                 if ('links' !== $kind) continue;
                 $route = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes);
-                if (null !== $route) $row['url'] = $route;
-                elseif ($this->isOptionalFeedLink($row) || $this->isOptionalResourceHint($row) || $this->isOptionalManifestLink($row) || $this->isVendorLink($row)) $row = null;
+                if (null !== $route) { $row['url'] = $route; continue; }
+                if (!$this->isOptionalFeedLink($row) && !$this->isOptionalResourceHint($row) && !$this->isOptionalManifestLink($row) && !$this->isVendorLink($row) && !$this->isSourceProtocolEndpointLink($row)) continue;
+                $this->recordOmittedLinkDeclaration(self::value($document, 'source_path'), $row);
+                $row = null;
             }
             unset($row);
             $metadata[$kind] = array_values(array_filter($metadata[$kind], static fn(mixed $row): bool => is_array($row)));
@@ -1449,6 +1458,60 @@ final class WordPressSitePlan
     {
         $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
         return !self::explicitUrl($link['url'] ?? null) && array('manifest') === $relations;
+    }
+    /**
+     * Discovery endpoints for server-side protocols the source application
+     * served itself: XML-RPC pingback, RSD (`EditURI`), the Live Writer
+     * manifest, WebSub hubs, Webmention receivers and OpenID delegation.
+     *
+     * WordPress publishes all of these on every page, so a captured WordPress
+     * site arrives with `<link rel="pingback" href="/xmlrpc.php">` and
+     * `<link rel="EditURI" href="/xmlrpc.php?rsd">` in its head. Neither names
+     * a captured asset, and neither can become an artifact route: `routeUrl()`
+     * rejects a dotted segment. They are not subresources either -- nothing a
+     * page renders depends on them -- and the destination site publishes its
+     * own correct endpoints. Carrying the source copies forward is stale
+     * plumbing, so an unresolved one is omitted rather than failing the import.
+     */
+    private const SOURCE_PROTOCOL_LINK_TYPES = array('pingback', 'edituri', 'wlwmanifest', 'hub', 'webmention', 'openid.server', 'openid.delegate', 'openid2.provider', 'openid2.local_id');
+    /** @param array<string,mixed> $link */
+    private function isSourceProtocolEndpointLink(array $link): bool
+    {
+        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
+        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
+        return !self::explicitUrl($link['url'] ?? null) && array() !== $relations && array() === array_diff($relations, self::SOURCE_PROTOCOL_LINK_TYPES);
+    }
+    /**
+     * Records one omitted link declaration. An omission is a reportable quality
+     * defect, not a silent edit: the plan keeps a bounded, deduplicated warning
+     * per page and relation so a materializer can show what the head lost.
+     *
+     * @param array<string,mixed> $link
+     */
+    private function recordOmittedLinkDeclaration(string $sourcePath, array $link): void
+    {
+        $url = (string) ($link['url'] ?? '');
+        $relation = trim((string) ($link['rel'] ?? ''));
+        $key = $sourcePath . "\0" . $relation . "\0" . $url;
+        if (isset($this->omittedLinkDeclarations[$key])) return;
+        if (count($this->omittedLinkDeclarations) >= self::MAX_OMITTED_LINK_DECLARATION_DIAGNOSTICS) { ++$this->omittedLinkDeclarationOverflow; return; }
+        $label = '' === $relation ? 'link' : $relation . ' link';
+        $this->omittedLinkDeclarations[$key] = array_filter(array(
+            'code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE,
+            'severity' => 'warning',
+            'message' => substr("Omitted the {$label} declaration for {$url}, which names neither a captured asset nor an artifact route.", 0, 256),
+            'source_path' => substr($sourcePath, 0, 256),
+            'rel' => substr($relation, 0, 256),
+            'value' => substr($url, 0, 256),
+            'reason_code' => 'unresolved_local_url',
+        ), static fn(mixed $field): bool => '' !== $field);
+    }
+    /** @return array<int,array<string,mixed>> */
+    private function omittedLinkDeclarationDiagnostics(): array
+    {
+        $diagnostics = array_values($this->omittedLinkDeclarations);
+        if ($this->omittedLinkDeclarationOverflow > 0) $diagnostics[] = array('code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE, 'severity' => 'warning', 'message' => sprintf('%d more unresolved link declarations were omitted; omitted from this diagnostic list.', $this->omittedLinkDeclarationOverflow), 'reason' => 'truncated', 'omitted_count' => $this->omittedLinkDeclarationOverflow);
+        return $diagnostics;
     }
     /** @param array<int,array<string,mixed>> $routes */
     private function documentAssetReference(string $url, string $sourcePath, AssetReferenceCanonicalizer $references, array $routes): ?string

@@ -66,6 +66,7 @@
       "php tests/contract/wordpress-site-plan.php",
       "php tests/contract/form-source-ownership.php",
       "php tests/contract/unresolved-navigation-links.php",
+      "php tests/contract/source-protocol-link-declarations.php",
       "php tests/contract/missing-local-media.php",
       "php tests/contract/template-surfaces.php",
       "php tests/contract/native-template-lifecycle.php",
