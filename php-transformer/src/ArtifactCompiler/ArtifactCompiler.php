@@ -263,8 +263,8 @@ final class ArtifactCompiler
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $normalized['files'] = $this->withStylesheetMediaForDocuments($normalized['files']);
         $this->indexFiles($normalized['files']);
-        $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
-        $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
+        $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations']);
+        $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations']);
         $inlineShellCompilation = is_array($reduction['inline_shell_compilation'] ?? null)
             ? $reduction['inline_shell_compilation']
             : $this->compileSharedInlineShells($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
@@ -1344,9 +1344,9 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, runtime_script_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
      */
-    private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
+    private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = '', array $runtimeDeclarations = array()): array
     {
-        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry', $generatedBlockNamespace, true);
+        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry', $generatedBlockNamespace, true, $runtimeDeclarations);
 
         return array(
             'blocks'            => $result['blocks'],
@@ -1372,7 +1372,7 @@ final class ArtifactCompiler
         );
     }
 
-    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false): array
+    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false, array $runtimeDeclarations = array()): array
     {
         ++$this->htmlDocumentTransformCount;
         $preserveBlockMarkup = $this->containsBlockMarkup($html);
@@ -1408,6 +1408,28 @@ final class ArtifactCompiler
             : new HtmlTransformerAnalysisCache();
         $runtimeDomSelectors = $this->runtimeDomSelectors($html, $sourcePath, $files);
         $runtimeProjectionSelectors = $this->runtimeProjectionSelectors($html, $sourcePath, $files);
+        $themePreferenceOwnership = $this->themePreferenceOwnershipForSource($runtimeDeclarations, $sourcePath);
+        $runtimeProjectionScriptAssets = $this->runtimeProjectionScriptAssetsForSource($html, $sourcePath, $files);
+        foreach ($themePreferenceOwnership as $ownership) {
+            $ownerPath = $ownership['runtime_script_path'] ?? null;
+            if (!is_string($ownerPath) || array_filter($runtimeProjectionScriptAssets, static fn(array $asset): bool => $ownerPath === ($asset['path'] ?? null))) continue;
+            $ownerAsset = null;
+            foreach ($files as $file) if ($ownerPath === ($file['path'] ?? null) && is_string($file['content'] ?? null)) { $ownerAsset = $file; break; }
+            if (is_array($ownerAsset) && hash('sha256', $ownerAsset['content']) === ($ownership['runtime_script_sha256'] ?? null)) {
+                // The capture declaration binds this browser-observed asset even
+                // when a static snapshot has intentionally omitted the source
+                // app's script tag before compilation. The asset is analysis
+                // evidence only; it is not re-enqueued into the generated page.
+                $runtimeProjectionScriptAssets[] = array('path' => $ownerPath, 'content' => $ownerAsset['content']);
+            } elseif (is_string($ownership['runtime_script_content'] ?? null)
+                && hash('sha256', $ownership['runtime_script_content']) === ($ownership['runtime_script_sha256'] ?? null)) {
+                // SSI's inert-script policy can remove executable source files
+                // before compilation. The canonical browser evidence retains
+                // the exact bounded bytes needed for analysis without reviving
+                // the source script in the imported page.
+                $runtimeProjectionScriptAssets[] = array('path' => $ownerPath, 'content' => $ownership['runtime_script_content']);
+            }
+        }
         $result = (new HtmlTransformer(analysisCache: $analysisCache))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
@@ -1422,7 +1444,8 @@ final class ArtifactCompiler
             'runtime_dom_selectors'     => $runtimeDomSelectors,
             'runtime_behavioral_selectors' => $runtimeDomSelectors,
             'runtime_projection_selectors' => $runtimeProjectionSelectors,
-            'runtime_projection_script_assets' => $this->runtimeProjectionScriptAssetsForSource($html, $sourcePath, $files),
+            'runtime_projection_script_assets' => $runtimeProjectionScriptAssets,
+            'theme_preference_ownership' => $themePreferenceOwnership,
             'runtime_canvas_selectors'  => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
             'generated_block_namespace' => $generatedBlockNamespace,
             'generated_asset_root'       => $this->generatedAssetRoot,
@@ -2562,7 +2585,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<string, array<string, mixed>>
      */
-    private function compileHtmlSourceDocuments(array $files, string $entryPath, string $generatedBlockNamespace = ''): array
+    private function compileHtmlSourceDocuments(array $files, string $entryPath, string $generatedBlockNamespace = '', array $runtimeDeclarations = array()): array
     {
         $documents = array();
         foreach ( $files as $file ) {
@@ -2580,10 +2603,24 @@ final class ArtifactCompiler
             // whole-artifact driver does the same so both see one conversion.
             $documentFiles = $this->withStylesheetOccurrenceAssets((string) ($file['content'] ?? ''), $path, self::withoutStylesheetOccurrenceRecords($files));
             $this->indexFiles($documentFiles);
-            $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $documentFiles, 'artifact-document', $generatedBlockNamespace, true);
+            $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $documentFiles, 'artifact-document', $generatedBlockNamespace, true, $runtimeDeclarations);
         }
         $this->indexFiles($files);
         return $documents;
+    }
+
+    /** @param array<int,array<string,mixed>> $runtimeDeclarations @return array<int,array<string,mixed>> */
+    private function themePreferenceOwnershipForSource(array $runtimeDeclarations, string $sourcePath): array
+    {
+        foreach ($runtimeDeclarations as $declaration) {
+            if (ThemePreferenceOwnership::DECLARATION_KIND !== ($declaration['kind'] ?? null)
+                || ThemePreferenceOwnership::DECLARATION_TYPE !== ($declaration['type'] ?? null)
+                || $sourcePath !== ($declaration['source_path'] ?? null)) continue;
+            $ownership = $declaration['payload']['ownership'] ?? null;
+            if (!is_array($ownership) || $sourcePath !== ($ownership['source_path'] ?? null)) return array();
+            return array($ownership);
+        }
+        return array();
     }
 
     /**

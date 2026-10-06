@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeScriptEvidenceAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ThemeToggleBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -68,7 +69,7 @@ final class ThemeToggleConverter implements ElementConverter
         }
 
         $css = substr($this->session->authorStyleAnalysis()->combinedCss(), 0, self::MAX_THEME_CSS_EVIDENCE_BYTES);
-        if ( ! preg_match('/:root(?:\s|,|:|\.|\{|\[)[^{}]*\{[^}]*(?:color-scheme|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css) ) {
+        if ( ! preg_match('/:root(?:(?:\s|,|:|\.|\[)[^{}]*)?\{[^}]*(?:color-scheme|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css) ) {
             return null;
         }
         $evidenceAnalyzer = new RuntimeScriptEvidenceAnalyzer();
@@ -159,11 +160,13 @@ final class ThemeToggleConverter implements ElementConverter
         $rootAttribute = (string) $operator['root']['attribute'];
         $darkValue = (string) $operator['root']['dark_value'];
         $lightValue = (string) $operator['root']['light_value'];
+        $defaultTheme = (string) ($operator['default_preference'] ?? $defaultTheme);
         if ( 'class' === $rootAttribute ) {
             if ( ! preg_match('/(?:^|})\.' . preg_quote($darkValue, '/') . '(?:\s[^{}]*)?\{[^}]*(?:color-scheme|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css) ) return null;
             $runtimeClassValues = is_array($ownership['rootClassValues'] ?? null) ? $ownership['rootClassValues'] : array();
-            if ( array() !== $runtimeClassValues && ! in_array($darkValue, $runtimeClassValues, true) ) return null;
-            if ( '' !== $lightValue && ! in_array($lightValue, $runtimeClassValues, true) ) return null;
+            if ( array() !== $runtimeClassValues
+                && ( ! in_array($darkValue, $runtimeClassValues, true)
+                    || ( '' !== $lightValue && ! in_array($lightValue, $runtimeClassValues, true) ) ) ) return null;
         } else {
             if ( ! preg_match('/:root[^{}]*\[' . preg_quote($rootAttribute, '/') . '\s*=\s*(["\']?)([A-Za-z0-9_-]+)\1\s*\][^{}]*\{[^}]*(?:color-scheme\s*:\s*dark|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css) ) return null;
             if ( '' === $lightValue && empty($ownership['rootAttributeRemoved']) ) return null;
@@ -256,7 +259,7 @@ final class ThemeToggleConverter implements ElementConverter
                     break;
                 }
             }
-            if ( ! $controlsMatch || ! $this->observedThemeTransitions($operator['observed_transitions'] ?? null) ) continue;
+            if ( ! $controlsMatch || ! $this->observedThemeTransitions($operator['observed_transitions'] ?? null, $root) ) continue;
             $matches[] = array('operator' => $operator, 'runtime_ownership' => $scriptOwner);
         }
 
@@ -265,41 +268,32 @@ final class ThemeToggleConverter implements ElementConverter
 
     private function groupMatchesOwnershipSelector(DOMElement $element, string $selector): bool
     {
-        if ( ! preg_match('/^(?:#([A-Za-z][A-Za-z0-9_-]*)|\.([A-Za-z][A-Za-z0-9_-]*))$/', trim($selector), $match) ) return false;
-        if ( '' !== ($match[1] ?? '') ) {
-            if ( SourceDom::attr($element, 'id') !== $match[1] ) return false;
-            $attribute = 'id';
-            $expected = $match[1];
-        } else {
-            $class = $match[2] ?? '';
-            $classes = preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array();
-            if ( ! in_array($class, $classes, true) ) return false;
-            $attribute = 'class';
-            $expected = $class;
-        }
+        if ( 512 < strlen($selector) || str_contains($selector, ',') ) return false;
+        $parsed = CssSelectorMatcher::parse($selector);
+        if ( ! ($parsed['supported'] ?? false) || null !== ($parsed['pseudo_state_suffix_span'] ?? null) ) return false;
         $document = $element->ownerDocument;
         if ( ! $document instanceof \DOMDocument ) return false;
         $count = 0;
         foreach ( $document->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) continue;
-            if ( 'id' === $attribute ) {
-                if ( SourceDom::attr($candidate, 'id') === $expected ) ++$count;
-            } else {
-                $candidateClasses = preg_split('/\s+/', trim(SourceDom::attr($candidate, 'class'))) ?: array();
-                if ( in_array($expected, $candidateClasses, true) ) ++$count;
-            }
+            $matched = CssSelectorMatcher::matches($candidate, $parsed);
+            if ( ($matched['supported'] ?? false) && ($matched['matches'] ?? false) ) ++$count;
         }
 
-        return 1 === $count;
+        $actual = CssSelectorMatcher::matches($element, $parsed);
+        return 1 === $count && ($actual['supported'] ?? false) && ($actual['matches'] ?? false);
     }
 
-    private function observedThemeTransitions(mixed $transitions): bool
+    private function observedThemeTransitions(mixed $transitions, array $root): bool
     {
         if ( ! is_array($transitions) || 4 !== count($transitions) ) return false;
         $observed = array();
         foreach ( $transitions as $transition ) {
             if ( ! is_array($transition) || ! is_string($transition['mode'] ?? null)
                 || ! is_string($transition['storage_value'] ?? null) || ! is_string($transition['resolved'] ?? null) ) return false;
+            if ( ! is_array($transition['root_state'] ?? null)
+                || ($transition['root_state']['attribute'] ?? null) !== ($root['attribute'] ?? null)
+                || ! array_key_exists('value', $transition['root_state']) ) return false;
             $mode = $transition['mode'];
             if ( ! in_array($mode, array('light', 'dark', 'system'), true) || $mode !== $transition['storage_value'] ) return false;
             if ( 'system' === $mode ) {
@@ -310,6 +304,10 @@ final class ThemeToggleConverter implements ElementConverter
                 if ( array_key_exists('os_scheme', $transition) || $transition['resolved'] !== $mode ) return false;
                 $key = $mode;
             }
+            $expectedRootValue = 'dark' === $transition['resolved']
+                ? ($root['dark_value'] ?? null)
+                : (in_array($root['light_operation'] ?? null, array('remove-theme-class', 'remove-attribute'), true) ? null : ($root['light_value'] ?? null));
+            if ($transition['root_state']['value'] !== $expectedRootValue) return false;
             if ( isset($observed[$key]) ) return false;
             $observed[$key] = true;
         }

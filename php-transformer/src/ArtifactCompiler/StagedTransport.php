@@ -260,7 +260,8 @@ trait StagedTransport
                 $documentFiles,
                 $path === $entryPath ? 'artifact-entry' : 'artifact-document',
                 (string) ($sharedPlan['analysis']['block_namespace'] ?? ''),
-                true
+                true,
+                is_array($pagePlan['artifact']['runtime_declarations'] ?? null) ? $pagePlan['artifact']['runtime_declarations'] : array()
             );
         }
         ksort($compiledDocuments, SORT_STRING);

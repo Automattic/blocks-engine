@@ -66,31 +66,39 @@ $groupSource = '<html class="dark"><body><footer><div class="theme-choices layou
 $groupCss = '.dark .theme-choices .theme-choice{color:#fff}:root:not(.dark) .theme-choices .theme-choice{color:#111}';
 $groupRuntime = 'const labels=["Light theme","System theme","Dark theme"];const provider=({storageKey:key="theme"})=>{const root=document.documentElement;const read=(arg,fallback)=>localStorage.getItem(arg)||fallback;let preference=read(key,"system");const apply=value=>{root.classList.remove(...["dark"]);root.classList.add(value)};const select=value=>{apply(value);localStorage.setItem(key,value)};window.matchMedia("(prefers-color-scheme: dark)")};';
 $makeOwnership = static function (string $sourcePath, string $runtimePath, string $runtime, string $storageKey = 'theme', string $rootAttribute = 'class', string $darkValue = 'dark', string $lightValue = '', string $lightOperation = 'remove-theme-class', array $labels = array('Light theme', 'System theme', 'Dark theme')): array {
+    $rootState = static fn (string $resolved): array => array('attribute' => $rootAttribute, 'value' => 'dark' === $resolved ? $darkValue : (in_array($lightOperation, array('remove-theme-class', 'remove-attribute'), true) ? null : $lightValue));
     return array(
         'schema' => 'blocks-engine/php-transformer/theme-preference-ownership/v1',
         'source_path' => $sourcePath,
         'group_selector' => '.theme-choices',
         'runtime_script_path' => $runtimePath,
         'runtime_script_sha256' => hash('sha256', $runtime),
+        'runtime_script_content' => $runtime,
         'storage_key' => $storageKey,
         'system_query' => '(prefers-color-scheme: dark)',
         'root' => array('selector' => 'html', 'attribute' => $rootAttribute, 'dark_value' => $darkValue, 'light_value' => $lightValue, 'light_operation' => $lightOperation),
+        'default_preference' => 'system',
+        'default_observations' => array(
+            array('storage_value' => null, 'os_scheme' => 'light', 'resolved' => 'light', 'root_state' => array('attribute' => $rootAttribute, 'value' => in_array($lightOperation, array('remove-theme-class', 'remove-attribute'), true) ? null : $lightValue)),
+            array('storage_value' => null, 'os_scheme' => 'dark', 'resolved' => 'dark', 'root_state' => array('attribute' => $rootAttribute, 'value' => $darkValue)),
+        ),
         'controls' => array(
             array('mode' => 'light', 'accessible_name' => $labels[0], 'icon' => 'sun'),
             array('mode' => 'system', 'accessible_name' => $labels[1], 'icon' => 'monitor'),
             array('mode' => 'dark', 'accessible_name' => $labels[2], 'icon' => 'moon'),
         ),
         'observed_transitions' => array(
-            array('mode' => 'light', 'storage_value' => 'light', 'resolved' => 'light'),
-            array('mode' => 'dark', 'storage_value' => 'dark', 'resolved' => 'dark'),
-            array('mode' => 'system', 'storage_value' => 'system', 'os_scheme' => 'dark', 'resolved' => 'dark'),
-            array('mode' => 'system', 'storage_value' => 'system', 'os_scheme' => 'light', 'resolved' => 'light'),
+            array('mode' => 'light', 'storage_value' => 'light', 'resolved' => 'light', 'root_state' => $rootState('light')),
+            array('mode' => 'dark', 'storage_value' => 'dark', 'resolved' => 'dark', 'root_state' => $rootState('dark')),
+            array('mode' => 'system', 'storage_value' => 'system', 'os_scheme' => 'dark', 'resolved' => 'dark', 'root_state' => $rootState('dark')),
+            array('mode' => 'system', 'storage_value' => 'system', 'os_scheme' => 'light', 'resolved' => 'light', 'root_state' => $rootState('light')),
         ),
     );
 };
 $groupOperator = $makeOwnership('theme-controls/index.html', 'js/theme.js', $groupRuntime);
 $groupTransformOptions = array('source' => 'theme-controls/index.html', 'static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $groupRuntime)), 'theme_preference_ownership' => array($groupOperator));
 $groupResult = (new HtmlTransformer())->transform($groupSource, $groupTransformOptions)->toArray();
+$bareRootCssGroup = (new HtmlTransformer())->transform($groupSource, array_replace($groupTransformOptions, array('static_css' => '.dark{--background:#111}:root{--background:#fff}')))->toArray();
 $findThemeBlock = static function (array $blocks) use (&$findThemeBlock): array {
     foreach ($blocks as $candidate) {
         if ('custom/theme-toggle' === ($candidate['blockName'] ?? '')) return $candidate;
@@ -100,6 +108,7 @@ $findThemeBlock = static function (array $blocks) use (&$findThemeBlock): array 
     return array();
 };
 $groupBlock = $findThemeBlock($groupResult['blocks'] ?? array());
+$assert('custom/theme-toggle' === ($findThemeBlock($bareRootCssGroup['blocks'] ?? array())['blockName'] ?? null), 'source contracts backed by a direct :root declaration and a dark root rule are not rejected for lacking an extra pseudo-class');
 $groupAttrs = $groupBlock['attrs'] ?? array();
 $groupMarkup = (string) ($groupResult['serialized_blocks'] ?? '');
 $assert('custom/theme-toggle' === ($groupBlock['blockName'] ?? null)

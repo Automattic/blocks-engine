@@ -86,6 +86,7 @@
       "php tests/contract/shared-chrome-stylesheet-scope.php",
       "php tests/contract/shared-chrome-authored-rules.php",
       "php tests/contract/shared-empty-data-carrier-geometry.php",
+      "php tests/contract/theme-preference-ownership-artifact.php",
       "php tests/contract/generated-block-document-identity.php",
       "php tests/contract/shared-shell-entity-bindings.php",
       "php tests/contract/form-control-not-menu-toggle.php",

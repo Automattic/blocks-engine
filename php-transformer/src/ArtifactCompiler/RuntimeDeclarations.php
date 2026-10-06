@@ -75,6 +75,9 @@ final class RuntimeDeclarations
                 if ('entity_collection' === $kind && 'forms' === $name && 'generic/forms/v1' === ($payload['schema'] ?? null)) foreach ($payload['entities'] ?? array() as $entity) if (is_array($entity) && isset($entity['presentation_graph'])) { if (!is_array($entity['presentation_graph'])) throw new InvalidArgumentException("Runtime declaration {$index} form presentation graph must be an object."); FormPresentationGraphBuilder::assertValid($entity['presentation_graph']); }
                 if ('entity_collection' === $kind && 'external_metrics' === $name && 'generic/external-metric/v1' === ($payload['schema'] ?? null)) self::assertExternalMetricPayload($payload, $sourcePath, $index);
             }
+            if (ThemePreferenceOwnership::DECLARATION_KIND === $kind && ThemePreferenceOwnership::DECLARATION_TYPE === $name) {
+                $normalized['payload'] = ThemePreferenceOwnership::normalizePayload($normalized['payload'] ?? null, $sourcePath);
+            }
             if ('entity_collection' === $kind && !isset($normalized['type'])) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
             if ('entity_collection' === $kind && !isset($normalized['payload']['entities']) && self::RECORD_MANIFEST_SCHEMA !== ($normalized['payload']['schema'] ?? null)) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
             if ('entity_collection' === $kind && isset($normalized['payload']['entities']) && !array_is_list($normalized['payload']['entities'])) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");

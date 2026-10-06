@@ -62,7 +62,7 @@ const capture = async (attribute, storageKey, sourcePath, lightOperation) => {
         await group.getByRole('button', { name: label }).click();
         await page.waitForFunction(({ key, value }) => localStorage.getItem(key) === value, { key: storageKey, value: mode });
         assert.equal(await rootState(), mode);
-        transitions.push({ mode, storage_value: await storageValue(), resolved: await rootState() });
+        transitions.push({ mode, storage_value: await storageValue(), resolved: await rootState(), root_state: { attribute, value: 'class' === attribute ? ('dark' === await rootState() ? 'dark' : null) : await page.locator('html').getAttribute(attribute) } });
     }
 
     await group.getByRole('button', { name: 'System theme' }).click();
@@ -70,12 +70,12 @@ const capture = async (attribute, storageKey, sourcePath, lightOperation) => {
     await page.waitForFunction((name) => 'class' === name
         ? document.documentElement.classList.contains('dark')
         : 'dark' === document.documentElement.getAttribute(name), attribute);
-    transitions.push({ mode: 'system', storage_value: await storageValue(), os_scheme: 'dark', resolved: await rootState() });
+    transitions.push({ mode: 'system', storage_value: await storageValue(), os_scheme: 'dark', resolved: await rootState(), root_state: { attribute, value: 'class' === attribute ? 'dark' : await page.locator('html').getAttribute(attribute) } });
     await page.emulateMedia({ colorScheme: 'light' });
     await page.waitForFunction((name) => 'class' === name
         ? ! document.documentElement.classList.contains('dark')
         : ! document.documentElement.hasAttribute(name), attribute);
-    transitions.push({ mode: 'system', storage_value: await storageValue(), os_scheme: 'light', resolved: await rootState() });
+    transitions.push({ mode: 'system', storage_value: await storageValue(), os_scheme: 'light', resolved: await rootState(), root_state: { attribute, value: 'class' === attribute ? null : await page.locator('html').getAttribute(attribute) } });
 
     const capturedControls = await group.getByRole('button').evaluateAll((buttons) => buttons.map((button) => ({
         accessible_name: button.getAttribute('aria-label'),
@@ -91,9 +91,15 @@ const capture = async (attribute, storageKey, sourcePath, lightOperation) => {
             group_selector: '.theme-choices',
             runtime_script_path: runtimeScriptPath,
             runtime_script_sha256: createHash('sha256').update(runtimeScriptContent).digest('hex'),
+            runtime_script_content: runtimeScriptContent,
             storage_key: storageKey,
             system_query: '(prefers-color-scheme: dark)',
             root: { selector: 'html', attribute, dark_value: 'dark', light_value: '', light_operation: lightOperation },
+            default_preference: 'system',
+            default_observations: [
+                { storage_value: null, os_scheme: 'light', resolved: 'light', root_state: { attribute, value: null } },
+                { storage_value: null, os_scheme: 'dark', resolved: 'dark', root_state: { attribute, value: 'dark' } },
+            ],
             controls: capturedControls.map((control, index) => ({ mode: modes[index].mode, accessible_name: control.accessible_name, icon: modes[index].icon })),
             observed_transitions: transitions,
         },
