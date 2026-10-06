@@ -3853,6 +3853,146 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Box declarations that author rules give this element only under a media
+     * query, resolved per condition stack.
+     *
+     * A materialized SVG becomes an `<img>` that no `svg` selector reaches, and
+     * the wrappers such rules go through are often flattened, so the projected
+     * stylesheet cannot size it. The resting cascade
+     * ({@see presentationDeclarations()}) leaves media rules out. Each entry is
+     * one property's winner inside one condition stack (with `@layer` dropped,
+     * since the carrier is unlayered), ordered so that emitting them in order
+     * at equal specificity resolves overlapping stacks the way the source
+     * cascade does. Custom properties the value reads are re-rooted from the
+     * nearest source element defining them under the same conditions.
+     *
+     * @param list<string> $properties
+     * @return list<array{conditions: list<string>, property: string, value: string, customProperties: array<string, string>}>
+     */
+    public function mediaConditionedBoxDeclarations(DOMElement $element, array $properties): array
+    {
+        $wanted = array_fill_keys($properties, true);
+        $groups = array();
+        foreach ( $this->styleRuleCandidates($element, 'image-shape') as $rule ) {
+            $property = (string) ($rule['property'] ?? '');
+            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            if ( ! isset($wanted[$property]) || array() === $conditions ) {
+                continue;
+            }
+            $media = array();
+            $hasMedia = false;
+            foreach ( $conditions as $condition ) {
+                $condition = trim((string) $condition);
+                if ( preg_match('/^@layer\b/i', $condition) ) {
+                    continue;
+                }
+                if ( preg_match('/^@media\b/i', $condition) ) {
+                    $hasMedia = true;
+                } elseif ( ! $this->conditionResolvesStatically($condition) ) {
+                    // Container queries and unknown @supports terms depend on
+                    // context the carrier cannot restate.
+                    continue 2;
+                }
+                $media[] = $condition;
+            }
+            if ( ! $hasMedia || ! $this->matchesCssSelector($element, (string) $rule['selector']) ) {
+                continue;
+            }
+            $key = implode("\n", $media);
+            $groups[$key]['conditions'] = $media;
+            $groups[$key]['raw'] = $conditions;
+            $groups[$key]['facts'] ??= array();
+            CssCascade::apply($groups[$key]['facts'], $property, array(
+                'value' => (string) $rule['value'],
+                'important' => CssValueInspector::isImportant((string) $rule['value']),
+                'specificity' => $this->mediaTextSelectorSpecificity((string) $rule['selector']),
+                'order' => (int) $rule['order'],
+                'inline' => false,
+                'layer' => $rule['layer'] ?? null,
+            ));
+        }
+        if ( array() === $groups ) {
+            return array();
+        }
+
+        $entries = array();
+        foreach ( $groups as $group ) {
+            foreach ( $group['facts'] ?? array() as $property => $winner ) {
+                $value = trim((string) $winner['value']);
+                if ( '' === $value || preg_match('~[{}<>;]|/\*~', $value) ) {
+                    continue;
+                }
+                $entries[] = array(
+                    'conditions' => $group['conditions'],
+                    'property' => (string) $property,
+                    'value' => $value,
+                    'customProperties' => $this->conditionedCustomProperties($value, $element, $group['raw']),
+                    'cascade' => $winner,
+                );
+            }
+        }
+        usort($entries, static fn (array $a, array $b): int => CssCascade::wins($a['cascade'], $b['cascade']) ? (CssCascade::wins($b['cascade'], $a['cascade']) ? 0 : 1) : -1);
+
+        return array_map(static function (array $entry): array {
+            unset($entry['cascade']);
+            return $entry;
+        }, $entries);
+    }
+
+    /**
+     * Custom properties a value reads, defined on the element or an ancestor
+     * by a rule under exactly these conditions, nearest definition first.
+     *
+     * @param list<string> $conditions
+     * @return array<string, string>
+     */
+    private function conditionedCustomProperties(string $value, DOMElement $element, array $conditions): array
+    {
+        if ( ! str_contains($value, 'var(') || ! preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $value, $matches) ) {
+            return array();
+        }
+        $pending = array_fill_keys(array_unique($matches[1]), true);
+        $carried = array();
+        $static = $this->cascadedCustomProperties($element);
+        $visited = array();
+        // Resolve dependencies through the same source scope, with a bound
+        // that also terminates cyclic custom-property references.
+        for ( $depth = 0; $depth < 32 && array() !== $pending; ++$depth ) {
+            $name = (string) array_key_first($pending);
+            unset($pending[$name]);
+            if (isset($visited[$name])) continue;
+            $visited[$name] = true;
+            $declared = '';
+            for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+                $facts = array();
+                foreach ( $this->matchingStyleRules($node, 'conditional') as $order => $rule ) {
+                    $value = trim((string) ($rule['cascadedDeclarations'][$name] ?? ''));
+                    if ( ($rule['conditions'] ?? array()) === $conditions && '' !== $value ) {
+                        CssCascade::apply($facts, $name, array(
+                            'value' => $value, 'important' => CssValueInspector::isImportant($value),
+                            'specificity' => $this->mediaTextSelectorSpecificity((string) $rule['selector']),
+                            'order' => (int) ($rule['cascadeOrder'] ?? $order),
+                            'inline' => false, 'layer' => $rule['layerRank'] ?? null,
+                        ));
+                    }
+                }
+                $inline = trim((string) ($this->cssDeclarations(SourceDom::attr($node, 'style'))[$name] ?? ''));
+                if ('' !== $inline) CssCascade::apply($facts, $name, array('value' => $inline, 'important' => CssValueInspector::isImportant($inline), 'specificity' => array(0, 0, 0), 'order' => PHP_INT_MAX, 'inline' => true, 'layer' => null));
+                if (isset($facts[$name])) { $declared = $facts[$name]['value']; break; }
+            }
+            if ('' === $declared) $declared = trim((string) ($static[$name] ?? ''));
+            if ('' !== $declared && !preg_match('~[{}<>;]|/\*~', $declared)) {
+                $carried[$name] = $declared;
+                if (preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $declared, $references)) {
+                    foreach ($references[1] as $reference) if (!isset($visited[$reference])) $pending[$reference] = true;
+                }
+            }
+        }
+
+        return $carried;
+    }
+
+    /**
      * Whether one at-rule condition holds identically for every reader.
      *
      * `@layer` only orders the cascade, so a layered rule is always resting.
@@ -4270,6 +4410,7 @@ final class StyleResolver implements ElementPresentationResolver
             'static-conditional' => array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules()),
             'static-conditional-pseudo' => array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules(), $this->context->sourceStyles()->pseudoElementRules()),
             'cascaded-values' => $this->context->sourceStyles()->cascadedValueRules(),
+            'image-shape' => $this->context->sourceStyles()->imageShapeRules(),
         };
         $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'attributes' => array(), 'total' => count($rules));
         foreach ( $rules as $order => $rule ) {
