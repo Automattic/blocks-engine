@@ -1376,6 +1376,42 @@ final class AuthorStylesheetProjector
 
     private function rewriteSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): string
     {
+        $projected = $this->rewriteSelectorPreludeOnce($prelude, $context, $controlWrapper);
+        if ( ! $context->selectorProjections->hasAncestorAttributeStateConditions() ) {
+            return $projected;
+        }
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return $projected;
+        }
+        $variants = array();
+        foreach ( $selectors as $selector ) {
+            $conditions = $context->selectorProjections->ancestorAttributeStateConditions(trim($selector));
+            if ( array() === $conditions ) {
+                continue;
+            }
+            // Derive the class form from this selector's own projection so it
+            // inherits every per-element safeguard (superseded toggles,
+            // rich-text exclusions, control and editor variants).
+            $own = 1 === count($selectors) ? $projected : $this->rewriteSelectorPreludeOnce($selector, $context, $controlWrapper);
+            foreach ( CssStylesheetTransformer::splitSelectorList($own) ?? array() as $ownSelector ) {
+                $variant = $ownSelector;
+                foreach ( $conditions as $condition => $marker ) {
+                    $variant = str_replace($condition, '.' . $marker, $variant);
+                }
+                if ( $variant !== $ownSelector ) {
+                    $variants[] = trim($variant);
+                }
+            }
+        }
+        if ( array() === $variants ) {
+            return $projected;
+        }
+        return ( '' === trim($projected) ? '' : $projected . ',' ) . implode(',', array_values(array_unique($variants)));
+    }
+
+    private function rewriteSelectorPreludeOnce(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): string
+    {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors ) {
             return $prelude;
@@ -1403,7 +1439,7 @@ final class AuthorStylesheetProjector
             if ( ! $parsed['supported'] ) {
                 $projectedControls = $this->projectUnsupportedFunctionalControlSelector($selector, $context, $controlWrapper);
                 if ( array() === $projectedControls ) {
-                    $rewritten[] = $this->projectImageLinkIdentitySelector($selector, $context);
+                    $rewritten[] = $this->projectSourceClassSelector($this->projectImageLinkIdentitySelector($selector, $context), $context);
                 } else {
                     array_push($rewritten, ...$projectedControls);
                 }
@@ -1847,7 +1883,9 @@ final class AuthorStylesheetProjector
         }
         $compounds = $parsed['compounds'] ?? array();
         $rightmost = $compounds[array_key_last($compounds)] ?? array();
-        if ( ! \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::containsDataAttribute($rightmost) ) {
+        if ( ! \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::containsDataAttribute($rightmost)
+            || \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::hasLiveAttributePredicate($rightmost)
+        ) {
             return null;
         }
         $projected = array();
@@ -2121,6 +2159,45 @@ final class AuthorStylesheetProjector
         }
         if ( '' !== $rightmostInsertion ) {
             $replacements[(int) $parsed['rightmost_rewrite_end']] = array( 'end' => (int) $parsed['rightmost_rewrite_end'], 'value' => $rightmostInsertion );
+        }
+        return $this->projectSourceClassSelector($selector, $context, $replacements);
+    }
+
+    /**
+     * Preserve class ownership even when a selector is dormant or outside the
+     * matcher's subset. Replace simple class tokens, including those inside
+     * functional pseudos, without changing specificity or touching strings.
+     * @param array<int, array{end: int, value: string}> $replacements
+     */
+    private function projectSourceClassSelector(string $selector, AuthorStylesheetProjectionContext $context, array $replacements = array()): string
+    {
+        $state = CssSyntaxScanner::state();
+        // Native projection spans own their replacement markup. Only untouched
+        // source tokens are eligible; Core classes introduced by a bridge are
+        // destination identities, not author selector provenance.
+        $ownedSpans = $replacements;
+        $length = strlen($selector);
+        for ( $offset = 0; $offset < $length; ) {
+            if ( '.' === $selector[$offset] && '' === $state['quote'] && ! $state['comment'] && 0 === $state['brackets']
+                && 1 === preg_match('/\G\.((?:[A-Za-z0-9_-]|[^\x00-\x7f]|\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n\f]))+)/', $selector, $match, 0, $offset)
+            ) {
+                $parsed = CssSelectorMatcher::parse($match[0]);
+                $class = (string) ($parsed['compounds'][0]['classes'][0] ?? '');
+                $marker = $context->authorStyles->sourceClassMarker($class);
+                $end = $offset + strlen($match[0]);
+                foreach ( $ownedSpans as $start => $replacement ) {
+                    if ( $offset < $replacement['end'] && $end > $start ) {
+                        $marker = '';
+                        break;
+                    }
+                }
+                if ( '' !== $marker ) {
+                    $replacements[$offset] = array('end' => $end, 'value' => '.' . $marker);
+                }
+                $offset = $end;
+                continue;
+            }
+            $offset = CssSyntaxScanner::consume($selector, $offset, $state) ?? ($offset + 1);
         }
         return $this->replaceSelectorSpans($selector, $replacements);
     }

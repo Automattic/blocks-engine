@@ -22,6 +22,23 @@ $project = static function (array $files): array {
 $codes = static function (array $result): array {
     return array_values(array_filter(array_map(static fn(array $row): string => (string) ($row['code'] ?? ''), $result['diagnostics'] ?? array())));
 };
+$scrollStateConfig = static function (string $html): ?array {
+    $document = new DOMDocument();
+    $previous = libxml_use_internal_errors(true);
+    $loaded = $document->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+    if (! $loaded) {
+        return null;
+    }
+    foreach ($document->getElementsByTagName('*') as $element) {
+        if ($element instanceof DOMElement && 'true' === $element->getAttribute('data-blocks-engine-scroll-state')) {
+            $config = json_decode($element->getAttribute('data-blocks-engine-scroll-state-config'), true);
+            return is_array($config) ? $config : null;
+        }
+    }
+    return null;
+};
 $toggle = static function (array $target, array $overrides = array()): array {
     return array_merge(array(
         'status' => 'captured',
@@ -72,7 +89,11 @@ $idResult = $project($files(array('https://example.test/' => $idHtml), array('ht
 $assert(1 === ($idResult['projected_count'] ?? 0), 'an id-addressed target projects one scroll-state marker');
 $markup = (string) ($idResult['files'][0]['content'] ?? '');
 $assert(str_contains($markup, 'data-blocks-engine-scroll-state="true"'), 'the matched element receives the scroll-state marker');
-$assert(str_contains($markup, 'sticky-animate') && str_contains($markup, '"scrolled":"50px"'), 'the projected config carries the captured class and style diff');
+$config = $scrollStateConfig($markup);
+$assert(is_array($config)
+    && array('sticky-animate') === ($config['addClasses'] ?? null)
+    && array() === ($config['removeClasses'] ?? null)
+    && array(array('selector' => '#logo', 'properties' => array('max-height' => array('rest' => '100px', 'scrolled' => '50px')))) === ($config['styleTargets'] ?? null), 'the projected config carries the exact captured classes and style diff');
 $assert(array() === $codes($idResult), 'a clean id match emits no diagnostics');
 
 // --- structural selector match (no id) -------------------------------------
@@ -161,7 +182,12 @@ $scopeResult = $project($files(array('https://example.test/scope' => $scopeHtml)
     )),
 ))));
 $assert(1 === ($scopeResult['projected_count'] ?? 0), 'a :scope computed-style target still projects onto the header bar');
-$assert(str_contains((string) ($scopeResult['files'][0]['content'] ?? ''), '":scope"') && str_contains((string) ($scopeResult['files'][0]['content'] ?? ''), 'background-color'), 'the projected config keeps the :scope computed rest/scrolled styles');
+$scopeConfig = $scrollStateConfig((string) ($scopeResult['files'][0]['content'] ?? ''));
+$assert(is_array($scopeConfig)
+    && array(array('selector' => ':scope', 'properties' => array(
+        'background-color' => array('rest' => 'rgba(0, 0, 0, 0)', 'scrolled' => 'rgb(43, 43, 43)'),
+        'position' => array('rest' => 'absolute', 'scrolled' => 'fixed'),
+    ))) === ($scopeConfig['styleTargets'] ?? null), 'the projected config keeps the exact :scope computed rest/scrolled styles');
 
 if (0 !== $failures) {
     fwrite(STDERR, "scroll-state-projector failed: {$failures} failure(s), {$passes} pass(es)\n");

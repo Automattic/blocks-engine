@@ -1009,4 +1009,22 @@ foreach ($foldedFooterResult['source_reports']['compiled_site']['pages'] as $pag
 foreach ($pages($foldedFooterPlan) as $source => $row) $assert(!str_contains($row['canonical_block_markup'] ?? '', 'Shared colophon.') && str_contains($row['canonical_block_markup'] ?? '', 'site-root'), "{$source} hands its footer to the shared part and keeps its own wrappers.");
 WordPressSitePlan::assertValid($foldedFooterPlan);
 
+// Chrome that only the entry page renders (the other routes are bare legal
+// pages) still becomes header and footer template parts for the front page.
+$entryOnlyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<!doctype html><html><body><div id="root"><div class="app"><header id="entry-head" class="entry-head" style="border-top:2px solid #111"><nav><a href="#top">Brand</a><a href="#story">Story</a><a href="notes/index.html">Notes</a></nav></header><main><h1>Entry home</h1><p>Entry body copy.</p></main><footer id="entry-foot" class="entry-foot" style="border-top:1px solid #333"><p>Entry footer copy.</p></footer></div></div></body></html>',
+    'notes/index.html' => '<!doctype html><html><body><div id="root"><section><h2>Notes</h2><p>Bare notes page.</p></section></div></body></html>',
+    'legal/index.html' => '<!doctype html><html><body><div id="root"><section><h2>Legal</h2><p>Bare legal page.</p></section></div></body></html>',
+)))->toArray();
+$entryOnlyPlan = $entryOnlyResult['source_reports']['wordpress_site_plan'];
+$entryOnlyPages = $pages($entryOnlyPlan);
+$entryOnlyParts = array_values(array_filter($entryOnlyPlan['template_parts'], static fn(array $part): bool => in_array($part['area'] ?? null, array('header', 'footer'), true)));
+$assert(2 === count($entryOnlyParts), 'Entry-only header and footer chrome becomes two template parts.');
+$assert(2 === count(array_filter($entryOnlyParts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null))), 'The entry page is nested in a root wrapper, so both parts are bound at their source position.');
+$entryPageMarkup = $entryOnlyPages['index.html']['canonical_block_markup'] ?? '';
+$assert(str_contains($entryPageMarkup, '"slug":"header"') && str_contains($entryPageMarkup, '"slug":"footer"') && str_contains($entryPageMarkup, 'Entry body copy.') && !str_contains($entryPageMarkup, 'Entry footer copy.') && !str_contains($entryPageMarkup, 'Brand'), 'The entry page references the header and footer parts and keeps only the main content.');
+foreach ($entryOnlyParts as $part) $assert(str_contains($part['canonical_block_markup'] ?? '', 'entry-head') || str_contains($part['canonical_block_markup'] ?? '', 'Entry footer copy.'), 'Each extracted part holds the chrome that left the page.');
+foreach (array('notes/index.html', 'legal/index.html') as $barePath) $assert(!str_contains($entryOnlyPages[$barePath]['canonical_block_markup'] ?? '', 'wp:template-part'), "{$barePath} does not get chrome it never had.");
+WordPressSitePlan::assertValid($entryOnlyPlan);
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");

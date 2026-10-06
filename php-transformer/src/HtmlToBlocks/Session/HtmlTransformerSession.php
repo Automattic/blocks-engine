@@ -100,6 +100,11 @@ final class HtmlTransformerSession
         $this->assetMaterializationState = $state;
     }
 
+    public function hasAssetMaterializationState(): bool
+    {
+        return null !== $this->assetMaterializationState;
+    }
+
     public function assetMaterializationState(): AssetMaterializationState
     {
         return $this->assetMaterializationState

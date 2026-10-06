@@ -156,4 +156,41 @@ try {
     $assert(true, 'Unsafe variant media is rejected.');
 }
 
+// Desktop and mobile documents commonly reuse the same source id on their own
+// copy of the same landmark (e.g. a Wix-style `#PAGES_CONTAINER` wrapper).
+// Both variants compile into the same page, so the id must not survive
+// unchanged on both copies: that produces duplicate ids in the final HTML,
+// which is invalid and breaks same-page anchor navigation to that id.
+$duplicateIdArtifact = array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'entrypoint' => 'website/index.html',
+    'document_variants' => array(
+        array(
+            'source_path' => 'website/index.html',
+            'variants' => array(
+                array(
+                    'id' => 'mobile',
+                    'source_path' => 'website/.variants/mobile/index.html',
+                    'media' => '(max-width: 768px)',
+                ),
+            ),
+        ),
+    ),
+    'files' => array(
+        array(
+            'path' => 'website/index.html',
+            'content' => '<!doctype html><html><head></head><body class="desktop"><main id="PAGES_CONTAINER"><h1>Desktop</h1></main></body></html>',
+        ),
+        array(
+            'path' => 'website/.variants/mobile/index.html',
+            'role' => 'document_variant',
+            'content' => '<!doctype html><html><head></head><body class="mobile"><main id="PAGES_CONTAINER"><h1>Mobile</h1></main></body></html>',
+        ),
+    ),
+);
+$duplicateIdResult = (new ArtifactCompiler())->compile($duplicateIdArtifact)->toArray();
+$duplicateIdBlocks = (string) ($duplicateIdResult['serialized_blocks'] ?? '');
+$assert(1 === substr_count($duplicateIdBlocks, 'id="PAGES_CONTAINER"'), 'Only one compiled element keeps the bare shared id: duplicate ids in the final HTML break same-page anchor navigation.');
+$assert(str_contains($duplicateIdBlocks, 'id="PAGES_CONTAINER--dla-mobile"'), 'The mobile document variant copy of a shared id is suffixed so it stays unique on the page, mirroring Data Liberation Agent\'s own --dla-mobile pairing convention.');
+
 fwrite(STDOUT, "Responsive document variant tests passed.\n");
