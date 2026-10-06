@@ -3192,7 +3192,11 @@ PHP;
         }
         $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS;
         if ($hasListingQuery) {
-            $editorCss .= self::LISTING_QUERY_CSS;
+            // Gutenberg's query-template editor can expose a core/post-meta key
+            // before its post context resolves; the frontend binding remains live.
+            $editorCss .= self::LISTING_QUERY_CSS
+                . ':root .editor-styles-wrapper .blocks-engine-listing-overlay{display:none}'
+                . ':root .editor-styles-wrapper .blocks-engine-listing-bound-meta{display:none}';
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-listing-query', false, array(), null ); wp_enqueue_style( 'blocks-engine-listing-query' ); wp_add_inline_style( 'blocks-engine-listing-query', " . var_export(self::LISTING_QUERY_CSS, true) . " ); } );";
         }
         $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export($editorCss, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
