@@ -47,7 +47,8 @@ final class RichTextElementContext
         private readonly Closure $convertText,
         private readonly Runtime $runtime,
         private readonly Closure $convertChildren,
-        private readonly ?Closure $emptyInlineGeometryBlock = null
+        private readonly ?Closure $emptyInlineGeometryBlock = null,
+        private readonly ?Closure $nativeDisclosureBlock = null
     ) {
     }
 
@@ -189,5 +190,16 @@ final class RichTextElementContext
     public function emptyInlineGeometryBlock(DOMElement $element, array &$fallbacks): ?array
     {
         return null === $this->emptyInlineGeometryBlock ? null : ($this->emptyInlineGeometryBlock)($element, $fallbacks);
+    }
+
+    /**
+     * A span that wraps one toggle and the region it controls, as `core/details`.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    public function nativeDisclosureBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        return null === $this->nativeDisclosureBlock ? null : ($this->nativeDisclosureBlock)($element, $fallbacks);
     }
 }
