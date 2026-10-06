@@ -1,6 +1,7 @@
 name: Solved Site Promotion Gate
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - '.github/workflows/solved-fixture-regression.yml'
