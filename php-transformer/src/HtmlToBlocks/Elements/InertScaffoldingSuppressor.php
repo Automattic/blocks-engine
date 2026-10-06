@@ -21,7 +21,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
      * @var array<int, string>
      */
     private const RENDERED_EMPTY_BOX_PROPERTIES = array(
-        'align-self', 'animation', 'animation-name', 'aspect-ratio', 'background', 'background-color', 'background-image',
+        'align-self', 'animation', 'animation-name', 'aspect-ratio', 'background', 'background-color', 'background-image', 'content',
         'border', 'border-bottom', 'border-color', 'border-left', 'border-right', 'border-style', 'border-top', 'border-width',
         'box-shadow', 'flex', 'flex-basis', 'flex-grow', 'float', 'grid-area', 'grid-column', 'grid-row', 'height',
         'inset', 'justify-self', 'list-style', 'list-style-type', 'margin', 'margin-bottom', 'margin-left',
@@ -57,6 +57,10 @@ final class InertScaffoldingSuppressor implements ElementConverter
         }
 
         if ( $this->isInertLiveRegionScaffolding($element) ) {
+            return ConversionOutcome::handled(null);
+        }
+
+        if ( str_contains($tagName, '-') && $this->isInertEmptyCustomElement($element) ) {
             return ConversionOutcome::handled(null);
         }
 
@@ -96,10 +100,46 @@ final class InertScaffoldingSuppressor implements ElementConverter
         return true;
     }
 
+    /**
+     * Empty custom elements can be browser-injected scaffolding. Drop only a
+     * transparent, unaddressed host with no content, runtime target, semantics,
+     * or authored box; meaningful or styled custom elements remain explicit.
+     */
+    private function isInertEmptyCustomElement(DOMElement $element): bool
+    {
+        if ( 0 !== SourceDom::childElementCount($element)
+            || '' !== trim($element->textContent ?? '')
+            || ! $this->isSafeTransparentCustomElement($element)
+            || $this->sourceElementClassifier->hasMotionStructureToken($element)
+            || $this->statesRenderedEmptyBox($element)
+            || $this->occupiesAuthorLayoutSlot($element)
+        ) {
+            return false;
+        }
+
+        foreach ( $element->attributes as $attribute ) {
+            if ( ! in_array(strtolower($attribute->name), array( 'class', 'id', 'style' ), true) ) {
+                return false;
+            }
+        }
+
+        $id = SourceDom::namedFragmentTargetId($element);
+        if ( '' !== $id && SourceDom::documentReferencesFragmentId($element, $id) ) {
+            return false;
+        }
+
+        return true;
+    }
+
     /** Does the author stylesheet ever give this empty box something to render? */
     private function statesRenderedEmptyBox(DOMElement $element): bool
     {
-        foreach ( $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, self::RENDERED_EMPTY_BOX_PROPERTIES) as $values ) {
+        $declared = $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, self::RENDERED_EMPTY_BOX_PROPERTIES);
+        $zeroBorder = $this->borderWidthRemainsZero($declared);
+        foreach ( $declared as $property => $values ) {
+            if ( $zeroBorder && str_starts_with($property, 'border') ) {
+                continue;
+            }
             foreach ( $values as $value ) {
                 if ( ! $this->isNeutralDeclarationValue($this->styleResolver->resolveCssVariablesInValue($value, $element)) ) {
                     return true;
@@ -110,6 +150,28 @@ final class InertScaffoldingSuppressor implements ElementConverter
         return false;
     }
 
+    /** A reset such as `border:0 solid` styles a border that has no width. */
+    private function borderWidthRemainsZero(array $declared): bool
+    {
+        $sawZeroWidth = false;
+        foreach ( $declared as $property => $values ) {
+            if ( ! in_array($property, array(
+                'border', 'border-top', 'border-right', 'border-bottom', 'border-left',
+                'border-width', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+            ), true) ) {
+                continue;
+            }
+            foreach ( $values as $value ) {
+                if ( 1 !== preg_match('/(?:^|\s)0(?:\.0+)?(?:px|rem|em|%|vh|vw)?(?:\s|$)/i', CssValueInspector::comparable($value)) ) {
+                    return false;
+                }
+                $sawZeroWidth = true;
+            }
+        }
+
+        return $sawZeroWidth;
+    }
+
     /**
      * A parent's authored layout can hand an empty box a slot of its own: every
      * grid item owns a track, a gap is inserted between every pair of flex or
@@ -118,6 +180,19 @@ final class InertScaffoldingSuppressor implements ElementConverter
      */
     private function occupiesAuthorLayoutSlot(DOMElement $element): bool
     {
+        $positions = $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array( 'position' ))['position'] ?? array();
+        $inlinePosition = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['position'] ?? '';
+        if ( '' !== $inlinePosition ) {
+            $positions[] = $inlinePosition;
+        }
+        if ( array() !== $positions && array_reduce(
+            $positions,
+            static fn (bool $allOutOfFlow, string $position): bool => $allOutOfFlow && in_array(CssValueInspector::comparable($position), array( 'absolute', 'fixed' ), true),
+            true
+        ) ) {
+            return false;
+        }
+
         $parent = $element->parentNode;
         if ( ! $parent instanceof DOMElement ) {
             return false;
