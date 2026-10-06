@@ -73,7 +73,7 @@ final class RuntimeDeclarations
                 if ($manifest && (!is_string($payload['entity_schema'] ?? null) || !is_array($payload['entities'] ?? null) || !array_is_list($payload['entities']))) throw new InvalidArgumentException("Runtime declaration {$index} entity manifest is invalid.");
                 if ('entity_collection' === $kind && 'forms' === $name && 'generic/forms/v1' === ($payload['schema'] ?? null)) foreach ($payload['entities'] ?? array() as $entity) if (is_array($entity) && isset($entity['layout_graph'])) { if (!is_array($entity['layout_graph'])) throw new InvalidArgumentException("Runtime declaration {$index} form layout graph must be an object."); FormLayoutGraphBuilder::assertValid($entity['layout_graph']); }
                 if ('entity_collection' === $kind && 'forms' === $name && 'generic/forms/v1' === ($payload['schema'] ?? null)) foreach ($payload['entities'] ?? array() as $entity) if (is_array($entity) && isset($entity['presentation_graph'])) { if (!is_array($entity['presentation_graph'])) throw new InvalidArgumentException("Runtime declaration {$index} form presentation graph must be an object."); FormPresentationGraphBuilder::assertValid($entity['presentation_graph']); }
-                if ('entity_collection' === $kind && 'external_metrics' === $name && 'generic/external-metric/v1' === ($payload['schema'] ?? null)) self::assertExternalMetricPayload($payload, $sourcePath, $index);
+                if ('entity_collection' === $kind && 'external_metrics' === $name && 'generic/external-metric/v1' === ($payload['schema'] ?? null)) self::assertExternalMetricPayload($payload, $index);
             }
             if ('entity_collection' === $kind && !isset($normalized['type'])) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
             if ('entity_collection' === $kind && !isset($normalized['payload']['entities']) && self::RECORD_MANIFEST_SCHEMA !== ($normalized['payload']['schema'] ?? null)) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
@@ -136,7 +136,7 @@ final class RuntimeDeclarations
     private static function isHash(mixed $value): bool { return is_string($value) && 1 === preg_match('/^[a-f0-9]{64}$/', $value); }
 
     /** @param array<string,mixed> $payload */
-    private static function assertExternalMetricPayload(array $payload, string $sourcePath, int $index): void
+    private static function assertExternalMetricPayload(array $payload, int $index): void
     {
         $entities = $payload['entities'] ?? null;
         if (!is_array($entities) || !array_is_list($entities) || array() === $entities || count($entities) > self::MAX_DECLARATIONS) throw new InvalidArgumentException("Runtime declaration {$index} external metrics require a bounded non-empty entity list.");
@@ -167,8 +167,21 @@ final class RuntimeDeclarations
             $bindings = $entity['bindings'] ?? null;
             if (!is_array($bindings) || !array_is_list($bindings) || 1 !== count($bindings)) throw new InvalidArgumentException("Runtime declaration {$index} external metric requires one native text-leaf binding.");
             $binding = $bindings[0];
-            if (!is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || !in_array($binding['role'] ?? null, array('paragraph', 'heading'), true) || ($binding['source_path'] ?? null) !== $sourcePath || !is_string($binding['search_block_markup'] ?? null) || '' === $binding['search_block_markup'] || !is_int($binding['occurrence'] ?? null) || $binding['occurrence'] < 1 || !is_array($binding['leaf'] ?? null) || !in_array($binding['leaf']['block'] ?? null, array('core/paragraph', 'core/heading'), true) || !in_array($binding['leaf']['attribute'] ?? null, array('content'), true) || (($binding['role'] === 'paragraph') !== ($binding['leaf']['block'] === 'core/paragraph'))) throw new InvalidArgumentException("Runtime declaration {$index} external metric native text-leaf binding is invalid.");
+            if (!is_array($binding)) throw new InvalidArgumentException("Runtime declaration {$index} external metric native text-leaf binding is invalid.");
+            $bindingPath = $binding['source_path'] ?? null;
+            if ('generic/block-binding/v1' !== ($binding['schema'] ?? null) || !in_array($binding['role'] ?? null, array('paragraph', 'heading'), true) || !is_string($bindingPath) || '' === ArtifactPath::safeRelativePath($bindingPath) || ArtifactPath::safeRelativePath($bindingPath) !== $bindingPath || !is_string($binding['search_block_markup'] ?? null) || '' === $binding['search_block_markup'] || !is_int($binding['occurrence'] ?? null) || $binding['occurrence'] < 1 || !is_array($binding['leaf'] ?? null) || !in_array($binding['leaf']['block'] ?? null, array('core/paragraph', 'core/heading'), true) || !in_array($binding['leaf']['attribute'] ?? null, array('content'), true) || (($binding['role'] === 'paragraph') !== ($binding['leaf']['block'] === 'core/paragraph'))) throw new InvalidArgumentException("Runtime declaration {$index} external metric native text-leaf binding is invalid.");
+            self::assertExternalMetricLeafAnchor($binding['search_block_markup'], $binding['leaf']['block'], $entity['fallback']['text'], $index);
         }
+    }
+
+    private static function assertExternalMetricLeafAnchor(string $markup, string $block, string $fallback, int $index): void
+    {
+        if (strlen($markup) > 65536) throw new InvalidArgumentException("Runtime declaration {$index} external metric native leaf anchor exceeds its byte limit.");
+        $name = 'core/paragraph' === $block ? 'paragraph' : 'heading';
+        $pattern = '/\A<!--\s*wp:' . preg_quote($name, '/') . '(?:\s+\{.*?\})?\s*-->(.*?)<!--\s*\/wp:' . preg_quote($name, '/') . '\s*-->\z/s';
+        if (1 !== preg_match($pattern, $markup, $matches) || str_contains($matches[1], '<!-- wp:')) throw new InvalidArgumentException("Runtime declaration {$index} external metric anchor must be exactly one native {$block} text block.");
+        $text = html_entity_decode(strip_tags($matches[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if ($text !== $fallback) throw new InvalidArgumentException("Runtime declaration {$index} external metric fallback must match its anchored native leaf text.");
     }
 
     /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $files @return array<int,array<string,mixed>> */
