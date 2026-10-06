@@ -3073,6 +3073,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $prelude->block;
         }
 
+        $checkable = $this->inlineCheckableControlBlock($element);
+        if (null !== $checkable) return $checkable;
+
         if ( $this->richTextConverter->handles($tagName) ) {
             return $this->richTextConverter->convert($element, $tagName, $fallbacks)->block;
         }
@@ -3435,6 +3438,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $sourceTagName = strtolower($element->tagName);
             $tagName = str_contains($sourceTagName, '-') ? 'div' : $sourceTagName;
             $attributes = $this->htmlAttributes($element);
+            if ($this->authorSelectorProjections()->isRetainedSourcePath($element->getNodePath())) {
+                $classes = $this->mergeClassNames((string) ($attributes['class'] ?? ''), $this->authorSelectorProjections()->tagMarker($sourceTagName));
+                if ('' !== $classes) $attributes['class'] = $classes;
+            }
             $opening = '<' . $tagName;
             foreach ( $attributes as $name => $value ) {
                 if ( ! preg_match('/^[a-z_:][a-z0-9_.:-]*$/i', $name) ) {
@@ -10339,7 +10346,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( array() !== SourceDom::eventMetadata($element) ) {
             return null;
         }
-        foreach ( array( 'aria-controls', 'aria-expanded', 'command', 'commandfor', 'formaction', 'popovertarget', 'popovertargetaction' ) as $name ) {
+        foreach ( array( 'aria-controls', 'aria-expanded', 'command', 'commandfor', 'form', 'formaction', 'popovertarget', 'popovertargetaction', 'data-action', 'jsaction' ) as $name ) {
             if ( $element->hasAttribute($name) ) {
                 return null;
             }
@@ -10368,6 +10375,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $pressed && ! in_array($pressed, array( 'true', 'false', 'mixed' ), true) ) {
             return null;
         }
+        $role = strtolower(trim($this->attr($element, 'role')));
+        $checked = strtolower(trim($this->attr($element, 'aria-checked')));
+        if ('' !== $role && 'checkbox' !== $role) return null;
+        if ('checkbox' === $role && (!in_array($checked, array('true', 'false'), true) || '' !== $pressed || FormControlClassifier::hasFormAncestor($element))) return null;
         $sourceAttributes = array();
         foreach ( $element->attributes ?? array() as $attribute ) {
             $name = strtolower($attribute->nodeName);
@@ -10380,11 +10391,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
         $type = FormControlClassifier::controlType($element);
         $attrs = array_filter(array(
-            'type' => in_array($type, array( 'button', 'reset', 'submit' ), true) ? $type : 'submit',
+            'type' => 'checkbox' === $role ? 'button' : (in_array($type, array( 'button', 'reset', 'submit' ), true) ? $type : 'submit'),
             'id' => $this->attr($element, 'id'),
             'name' => $this->attr($element, 'name'),
             'ariaLabel' => $this->attr($element, 'aria-label'),
             'ariaPressed' => $pressed,
+            'role' => $role,
+            'ariaChecked' => 'checkbox' === $role ? $checked : '',
+            'title' => $this->attr($element, 'title'),
+            'tabIndex' => $this->attr($element, 'tabindex'),
             'className' => $this->attr($element, 'class'),
             'style' => $this->attr($element, 'style'),
             'iconSvg' => $icon,
@@ -10400,6 +10415,68 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
+    }
+
+    /** A bounded phrasing tree with named binary SVG controls is layout plus
+     * editable text, rather than one invalid RichText run. Keep source wrappers
+     * with the existing layout shell and transparent text carriers.
+     */
+    private function inlineCheckableControlBlock(DOMElement $element): ?array
+    {
+        if (!in_array(strtolower($element->tagName), array('div', 'span', 'button'), true)) return null;
+        $buttons = 'button' === strtolower($element->tagName) ? array($element) : iterator_to_array($element->getElementsByTagName('button'));
+        if (array() === $buttons || 16 < count($buttons) || 64 < $element->getElementsByTagName('*')->length) return null;
+        foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'))) as $node) {
+            if ($this->runtimeIslands->isRuntimeDomTarget($node) || array() !== SourceDom::eventMetadata($node) || $node->hasAttribute('data-action') || $node->hasAttribute('jsaction')) return null;
+            foreach ($node->attributes as $attribute) if (str_starts_with(strtolower($attribute->name), 'data-wp-')) return null;
+        }
+        // Prove the complete tree before installing any retained selector paths.
+        $supports = function (DOMElement $node, int $depth) use (&$supports): bool {
+            if ($depth > 16) return false;
+            if ('button' === strtolower($node->tagName)) return true;
+            if (!in_array(strtolower($node->tagName), array('div', 'span'), true)) return false;
+            foreach ($this->elementElementChildren($node) as $child) {
+                if ('button' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('button')->length) {
+                    if (!$supports($child, $depth + 1)) return false;
+                } elseif (!$this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) || $this->richTextMaterializer->requiresHtmlFallback($this->outerHtml($child))) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        if (!$supports($element, 0)) return null;
+        $controls = array();
+        foreach ($buttons as $button) {
+            if ('checkbox' !== strtolower(trim($this->attr($button, 'role'))) || '' === trim($this->attr($button, 'aria-label') . $this->attr($button, 'title')) || $this->runtimeIslands->isRuntimeDomTarget($button)) return null;
+            $block = $this->authoredStateButtonBlock($button);
+            if (null === $block) return null;
+            $controls[$button->getNodePath()] = $block;
+        }
+        $build = function (DOMElement $node) use (&$build, $controls): array {
+            if (isset($controls[$node->getNodePath()])) return $controls[$node->getNodePath()];
+            $children = array(); $text = '';
+            $flush = function () use (&$children, &$text): void {
+                if ('' !== trim($text)) $children[] = $this->createBlock('core/paragraph', array('content' => $text, 'className' => self::INLINE_LAYOUT_CARRIER_CLASS));
+                $text = '';
+            };
+            foreach ($node->childNodes as $child) {
+                if ($child instanceof \DOMText) { $text .= $this->runtime->escapeHtml($child->textContent); continue; }
+                if (!$child instanceof DOMElement) continue;
+                if ('button' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('button')->length) {
+                    $flush();
+                    $children[] = $build($child);
+                } else {
+                    $content = $this->richTextMaterializer->content($child);
+                    $flush();
+                    $this->authorSelectorProjections()->markRetainedSourcePath($child->getNodePath());
+                    $children[] = $this->layoutShellBlockForElements(array($child), array($this->createBlock('core/paragraph', array('content' => $content, 'className' => self::INLINE_LAYOUT_CARRIER_CLASS))), $child);
+                }
+            }
+            $flush();
+            $this->authorSelectorProjections()->markRetainedSourcePath($node->getNodePath());
+            return $this->layoutShellBlockForElements(array($node), $children, $node);
+        };
+        return $build($element);
     }
 
     /**

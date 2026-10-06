@@ -1547,7 +1547,7 @@ final class AuthorStylesheetProjector
             $supersededToggles = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( $this->isPreservedCodeSyntaxElement($element) ) {
+                if ( $context->selectorProjections->isRetainedSourcePath($path) || $this->isPreservedCodeSyntaxElement($element) ) {
                     $hasNonProjected = true;
                 } elseif ( $typeSubject && $context->selectorProjections->isSupersededControlPath($path) ) {
                     $supersededToggles = true;

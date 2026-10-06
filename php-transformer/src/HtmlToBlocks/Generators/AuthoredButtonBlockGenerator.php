@@ -8,7 +8,7 @@ use DOMElement;
 use DOMText;
 
 /**
- * Builds the static companion block for compact, editable native button controls.
+ * Builds the companion block for compact, editable native button controls.
  */
 final class AuthoredButtonBlockGenerator
 {
@@ -56,12 +56,17 @@ final class AuthoredButtonBlockGenerator
             'category' => 'widgets',
             'description' => 'An editable native button control.',
             'editorScript' => 'file:./index.js',
+            'viewScript' => 'file:./view.js',
             'attributes' => array(
                 'type' => array( 'type' => 'string', 'default' => 'submit' ),
                 'id' => array( 'type' => 'string', 'default' => '' ),
                 'name' => array( 'type' => 'string', 'default' => '' ),
                 'ariaLabel' => array( 'type' => 'string', 'default' => '' ),
                 'ariaPressed' => array( 'type' => 'string', 'default' => '' ),
+                'role' => array( 'type' => 'string', 'default' => '' ),
+                'ariaChecked' => array( 'type' => 'string', 'default' => '' ),
+                'title' => array( 'type' => 'string', 'default' => '' ),
+                'tabIndex' => array( 'type' => 'string', 'default' => '' ),
                 'className' => array( 'type' => 'string', 'default' => '' ),
                 'iconSvg' => array( 'type' => 'string', 'default' => '' ),
                 'sourceAttributes' => array( 'type' => 'array', 'default' => array() ),
@@ -91,21 +96,36 @@ final class AuthoredButtonBlockGenerator
     function styleObject( value ) { if ( ! value ) return undefined; return String( value ).split( ';' ).reduce( function( output, declaration ) { var separator = declaration.indexOf( ':' ); if ( separator < 1 ) return output; var name = declaration.slice( 0, separator ).trim(); var property = name.indexOf( '--' ) === 0 ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); output[ property ] = declaration.slice( separator + 1 ).trim(); return output; }, {} ); }
     function buttonType( value ) { return [ 'button', 'reset', 'submit' ].indexOf( value ) !== -1 ? value : 'submit'; }
     function pressed( value ) { return [ 'true', 'false', 'mixed' ].indexOf( String( value || '' ) ) !== -1 ? String( value ) : ''; }
+    function checkable( attrs ) { return attrs.role === 'checkbox' && [ 'true', 'false' ].indexOf( attrs.ariaChecked ) !== -1; }
     function safeIcon( value ) { value = String( value || '' ).trim(); if ( ! /^<svg[\s>]/i.test( value ) ) return ''; if ( /<\s*(?:script|style|foreignobject|iframe|object|embed|link)\b|\son[a-z]+\s*=|\shref\s*=|\sstyle\s*=|javascript\s*:|\burl\s*\(/i.test( value ) ) return ''; return value; }
     function sourceAttributes( attrs ) { return ( Array.isArray( attrs.sourceAttributes ) ? attrs.sourceAttributes : [] ).filter( function( item ) { return item && /^data-(?!wp-)[a-z0-9_.:-]+$/.test( String( item.name || '' ) ); } ).sort( function( a, b ) { return String( a.name ).localeCompare( String( b.name ) ); } ); }
     function labelWrappers( attrs ) { return ( Array.isArray( attrs.labelWrappers ) ? attrs.labelWrappers : [] ).slice( 0, 16 ).filter( function( wrapper ) { return wrapper && labelTags.indexOf( String( wrapper.tagName || '' ).toLowerCase() ) !== -1; } ); }
     function labelProps( wrapper ) { var props = {}; Object.keys( wrapper.attributes || {} ).forEach( function( name ) { if ( /^(?:class|id|style|data-(?!wp-)[a-z0-9_.:-]+)$/.test( name ) ) props[ name ] = String( wrapper.attributes[ name ] ); } ); return props; }
     function labelMarkup( attrs ) { return labelWrappers( attrs ).reverse().reduce( function( content, wrapper ) { var tag = String( wrapper.tagName ).toLowerCase(); var props = labelProps( wrapper ); var opening = '<' + tag; Object.keys( props ).forEach( function( name ) { opening += ' ' + name + '="' + escapeAttribute( props[ name ] ) + '"'; } ); return opening + '>' + content + '</' + tag + '>'; }, escapeAttribute( attrs.text ) ); }
     function labelElement( attrs ) { return labelWrappers( attrs ).reverse().reduce( function( content, wrapper ) { var props = labelProps( wrapper ); if ( props.class !== undefined ) { props.className = props.class; delete props.class; } if ( props.style !== undefined ) props.style = styleObject( props.style ); return createElement( String( wrapper.tagName ).toLowerCase(), props, content ); }, attrs.text || '' ); }
-    function markup( attrs ) { var output = '<button'; [ 'type', 'id', 'name', 'ariaLabel' ].forEach( function( key ) { var value = 'type' === key ? buttonType( attrs.type ) : attrs[ key ]; if ( value ) output += ' ' + ( 'ariaLabel' === key ? 'aria-label' : key ) + '="' + escapeAttribute( value ) + '"'; } ); var state = pressed( attrs.ariaPressed ); if ( state ) output += ' aria-pressed="' + state + '"'; [ 'className', 'style' ].forEach( function( key ) { var value = attrs[ key ]; if ( value ) output += ' ' + ( 'className' === key ? 'class' : key ) + '="' + escapeAttribute( value ) + '"'; } ); sourceAttributes( attrs ).forEach( function( item ) { output += ' ' + item.name + '="' + escapeAttribute( item.value ) + '"'; } ); if ( attrs.disabled ) output += ' disabled'; output += '>' + safeIcon( attrs.iconSvg ) + labelMarkup( attrs ) + '</button>'; return output; }
-    function edit( props ) { var attrs = props.attributes; var state = pressed( attrs.ariaPressed ); var icon = safeIcon( attrs.iconSvg ); var button = createElement( 'button', { type: buttonType( attrs.type ), id: attrs.id || undefined, name: attrs.name || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-pressed': state || undefined, className: attrs.className || undefined, style: styleObject( attrs.style ), disabled: attrs.disabled }, icon ? createElement( element.RawHTML, null, icon ) : null, labelElement( attrs ) ); return createElement( element.Fragment, null, createElement( InspectorControls, null, createElement( PanelBody, { title: 'Button settings' }, createElement( TextControl, { label: 'Label', value: attrs.text || '', onChange: function( text ) { props.setAttributes( { text: text } ); } } ), createElement( TextControl, { label: 'Accessible name', value: attrs.ariaLabel || '', onChange: function( ariaLabel ) { props.setAttributes( { ariaLabel: ariaLabel } ); } } ), createElement( SelectControl, { label: 'Pressed', value: state, options: [ { label: 'Unset', value: '' }, { label: 'true', value: 'true' }, { label: 'false', value: 'false' }, { label: 'mixed', value: 'mixed' } ], onChange: function( ariaPressed ) { props.setAttributes( { ariaPressed: ariaPressed } ); } } ), createElement( TextControl, { label: 'Name', value: attrs.name || '', onChange: function( name ) { props.setAttributes( { name: name } ); } } ), createElement( SelectControl, { label: 'Type', value: buttonType( attrs.type ), options: [ 'submit', 'button', 'reset' ].map( function( type ) { return { label: type, value: type }; } ), onChange: function( type ) { props.setAttributes( { type: type } ); } } ), createElement( ToggleControl, { label: 'Disabled', checked: !!attrs.disabled, onChange: function( disabled ) { props.setAttributes( { disabled: disabled } ); } } ) ) ), button ); }
+    function markup( attrs ) { var output = '<button'; [ 'type', 'id', 'name', 'ariaLabel' ].forEach( function( key ) { var value = 'type' === key ? buttonType( attrs.type ) : attrs[ key ]; if ( value ) output += ' ' + ( 'ariaLabel' === key ? 'aria-label' : key ) + '="' + escapeAttribute( value ) + '"'; } ); var state = pressed( attrs.ariaPressed ); if ( state ) output += ' aria-pressed="' + state + '"'; if ( checkable( attrs ) ) output += ' role="checkbox" aria-checked="' + attrs.ariaChecked + '" data-blocks-engine-checkable="true"'; [ 'title', 'tabIndex', 'className', 'style' ].forEach( function( key ) { var value = attrs[ key ]; if ( value ) output += ' ' + ( 'className' === key ? 'class' : ( 'tabIndex' === key ? 'tabindex' : key ) ) + '="' + escapeAttribute( value ) + '"'; } ); sourceAttributes( attrs ).forEach( function( item ) { output += ' ' + item.name + '="' + escapeAttribute( item.value ) + '"'; } ); if ( attrs.disabled ) output += ' disabled'; output += '>' + safeIcon( attrs.iconSvg ) + labelMarkup( attrs ) + '</button>'; return output; }
+    function edit( props ) { var attrs = props.attributes; var state = pressed( attrs.ariaPressed ); var icon = safeIcon( attrs.iconSvg ); var button = createElement( 'button', { type: buttonType( attrs.type ), id: attrs.id || undefined, name: attrs.name || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-pressed': state || undefined, role: checkable( attrs ) ? 'checkbox' : undefined, 'aria-checked': checkable( attrs ) ? attrs.ariaChecked : undefined, title: attrs.title || undefined, tabIndex: attrs.tabIndex || undefined, onClick: checkable( attrs ) ? function() { props.setAttributes( { ariaChecked: attrs.ariaChecked === 'true' ? 'false' : 'true' } ); } : undefined, className: attrs.className || undefined, style: styleObject( attrs.style ), disabled: attrs.disabled }, icon ? createElement( element.RawHTML, null, icon ) : null, labelElement( attrs ) ); return createElement( element.Fragment, null, createElement( InspectorControls, null, createElement( PanelBody, { title: 'Button settings' }, createElement( TextControl, { label: 'Label', value: attrs.text || '', onChange: function( text ) { props.setAttributes( { text: text } ); } } ), createElement( TextControl, { label: 'Accessible name', value: attrs.ariaLabel || attrs.title || '', onChange: function( ariaLabel ) { props.setAttributes( { ariaLabel: ariaLabel } ); } } ), checkable( attrs ) ? createElement( ToggleControl, { label: 'Checked', checked: attrs.ariaChecked === 'true', onChange: function( checked ) { props.setAttributes( { ariaChecked: checked ? 'true' : 'false' } ); } } ) : null, createElement( SelectControl, { label: 'Pressed', value: state, options: [ { label: 'Unset', value: '' }, { label: 'true', value: 'true' }, { label: 'false', value: 'false' }, { label: 'mixed', value: 'mixed' } ], onChange: function( ariaPressed ) { props.setAttributes( { ariaPressed: ariaPressed } ); } } ), createElement( TextControl, { label: 'Name', value: attrs.name || '', onChange: function( name ) { props.setAttributes( { name: name } ); } } ), createElement( SelectControl, { label: 'Type', value: buttonType( attrs.type ), options: [ 'submit', 'button', 'reset' ].map( function( type ) { return { label: type, value: type }; } ), onChange: function( type ) { props.setAttributes( { type: type } ); } } ), createElement( ToggleControl, { label: 'Disabled', checked: !!attrs.disabled, onChange: function( disabled ) { props.setAttributes( { disabled: disabled } ); } } ) ) ), button ); }
     function save( props ) { return createElement( element.RawHTML, null, markup( props.attributes ) ); }
     blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
+        $view = <<<'JS'
+( function() {
+    document.addEventListener( 'click', function( event ) {
+        var control = event.target.closest( 'button[data-blocks-engine-checkable="true"][role="checkbox"]' );
+        if ( ! control || control.disabled ) return;
+        var checked = control.getAttribute( 'aria-checked' );
+        if ( checked !== 'true' && checked !== 'false' ) return;
+        control.setAttribute( 'aria-checked', checked === 'true' ? 'false' : 'true' );
+        control.dispatchEvent( new Event( 'change', { bubbles: true } ) );
+    } );
+} )();
+JS;
+
         return array(
             'index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__', '__LABEL_TAGS__'), array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), json_encode(self::LABEL_TAGS, JSON_THROW_ON_ERROR)), $script),
+            'view.js' => $view,
         );
     }
 
@@ -128,10 +148,13 @@ JS;
         if ( in_array($pressed, array( 'true', 'false', 'mixed' ), true) ) {
             $markup .= ' aria-pressed="' . $pressed . '"';
         }
-        foreach ( array( 'className', 'style' ) as $key ) {
+        if ('checkbox' === ($attrs['role'] ?? null) && in_array($attrs['ariaChecked'] ?? null, array('true', 'false'), true)) {
+            $markup .= ' role="checkbox" aria-checked="' . $attrs['ariaChecked'] . '" data-blocks-engine-checkable="true"';
+        }
+        foreach ( array( 'title', 'tabIndex', 'className', 'style' ) as $key ) {
             $value = (string) ($attrs[$key] ?? '');
             if ( '' !== $value ) {
-                $markup .= ' ' . ( 'className' === $key ? 'class' : $key ) . '="' . $escape($value) . '"';
+                $markup .= ' ' . ( 'className' === $key ? 'class' : ('tabIndex' === $key ? 'tabindex' : $key) ) . '="' . $escape($value) . '"';
             }
         }
         foreach ( $this->sourceAttributes($attrs) as $attribute ) {
