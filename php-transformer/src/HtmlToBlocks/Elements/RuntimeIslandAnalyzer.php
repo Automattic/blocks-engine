@@ -418,9 +418,11 @@ final class RuntimeIslandAnalyzer
         }
         // Only a container of block-level children lowers to a group the shell can
         // wrap; empty mount points and text-only wrappers become other blocks (or
-        // stay script-populated) and cannot carry the attribute.
+        // stay script-populated) and cannot carry the attribute. A hidden panel is
+        // script-toggled state, so it keeps the island treatment.
         if ( $isLayoutShell && (
             ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true)
+            || $element->hasAttribute('hidden')
             || ! $this->hasBlockLevelChildElement($element)
         ) ) {
             return false;

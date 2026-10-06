@@ -84,6 +84,13 @@ $mount = ( new HtmlTransformer() )->transform(
 )->toArray();
 $assert(str_contains((string) ( $mount['serialized_blocks'] ?? '' ), 'wp:html') && ! str_contains((string) ( $mount['serialized_blocks'] ?? '' ), '/layout-shell'), 'an empty script-populated container stays a runtime island');
 
+// A hidden script-toggled panel keeps its island treatment so its links stay in saved markup.
+$panel = ( new HtmlTransformer() )->transform(
+    '<main><div class="panel" hidden data-dla-viewport-entrance="{}"><nav><a href="#top">Top</a></nav></div></main>',
+    array( 'runtime_dom_selectors' => array( '[data-dla-viewport-entrance]' ) )
+)->toArray();
+$assert(str_contains((string) ( $panel['serialized_blocks'] ?? '' ), '<a href="#top">Top</a>') && ! str_contains((string) ( $panel['serialized_blocks'] ?? '' ), '/layout-shell'), 'a hidden script-toggled panel stays a runtime island');
+
 if ( array() !== $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);
