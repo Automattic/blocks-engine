@@ -170,7 +170,18 @@ final class RuntimeDeclarations
             if (!is_array($binding)) throw new InvalidArgumentException("Runtime declaration {$index} external metric native text-leaf binding is invalid.");
             $bindingPath = $binding['source_path'] ?? null;
             if ('generic/block-binding/v1' !== ($binding['schema'] ?? null) || !in_array($binding['role'] ?? null, array('paragraph', 'heading'), true) || !is_string($bindingPath) || '' === ArtifactPath::safeRelativePath($bindingPath) || ArtifactPath::safeRelativePath($bindingPath) !== $bindingPath || !is_string($binding['search_block_markup'] ?? null) || '' === $binding['search_block_markup'] || !is_int($binding['occurrence'] ?? null) || $binding['occurrence'] < 1 || !is_array($binding['leaf'] ?? null) || !in_array($binding['leaf']['block'] ?? null, array('core/paragraph', 'core/heading'), true) || !in_array($binding['leaf']['attribute'] ?? null, array('content'), true) || (($binding['role'] === 'paragraph') !== ($binding['leaf']['block'] === 'core/paragraph'))) throw new InvalidArgumentException("Runtime declaration {$index} external metric native text-leaf binding is invalid.");
+            self::assertExternalMetricLeafAnchor($binding['search_block_markup'], $binding['leaf']['block'], $entity['fallback']['text'], $index);
         }
+    }
+
+    private static function assertExternalMetricLeafAnchor(string $markup, string $block, string $fallback, int $index): void
+    {
+        if (strlen($markup) > 65536) throw new InvalidArgumentException("Runtime declaration {$index} external metric native leaf anchor exceeds its byte limit.");
+        $name = 'core/paragraph' === $block ? 'paragraph' : 'heading';
+        $pattern = '/\A<!--\s*wp:' . preg_quote($name, '/') . '(?:\s+\{.*?\})?\s*-->(.*?)<!--\s*\/wp:' . preg_quote($name, '/') . '\s*-->\z/s';
+        if (1 !== preg_match($pattern, $markup, $matches) || str_contains($matches[1], '<!-- wp:')) throw new InvalidArgumentException("Runtime declaration {$index} external metric anchor must be exactly one native {$block} text block.");
+        $text = html_entity_decode(strip_tags($matches[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if ($text !== $fallback) throw new InvalidArgumentException("Runtime declaration {$index} external metric fallback must match its anchored native leaf text.");
     }
 
     /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $files @return array<int,array<string,mixed>> */

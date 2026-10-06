@@ -17,12 +17,12 @@ $throws = static function (callable $callback, string $message) use ($assert): v
     try { $callback(); } catch (InvalidArgumentException) { $assert(true, $message); return; }
     $assert(false, $message);
 };
-$html = '<!doctype html><html><body><main><div class="plugin-row"><span class="icon" aria-hidden="true">★</span><p>73,000+</p><h2>1.2.3</h2><a href="https://wordpress.org/plugins/block-visibility/">Plugin</a></div></main></body></html>';
+$html = '<!doctype html><html><body><main><div class="plugin-row"><span class="icon" aria-hidden="true">★</span><p>73,000+</p><h2>v1.2.3</h2><a href="https://wordpress.org/plugins/block-visibility/">Plugin</a></div></main></body></html>';
 $plain = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
 $plainPlan = $plain['source_reports']['wordpress_site_plan'];
 $plainMarkup = $plainPlan['pages'][0]['canonical_block_markup'];
 $paragraph = '<!-- wp:paragraph --><p>73,000+</p><!-- /wp:paragraph -->';
-$heading = '<!-- wp:heading {"level":2} --><h2 class="wp-block-heading">1.2.3</h2><!-- /wp:heading -->';
+$heading = '<!-- wp:heading {"level":2} --><h2 class="wp-block-heading">v1.2.3</h2><!-- /wp:heading -->';
 $assert(str_contains($plainMarkup, $paragraph) && str_contains($plainMarkup, $heading), 'source numeric fallbacks lower to native editable Paragraph and Heading blocks');
 
 $fact = static function (string $id, string $metric, string $aggregation, string $fallback, string $markup, string $role, string $block, array $provenance, array $slugs = array('block-visibility')): array {
@@ -112,6 +112,10 @@ $bad = $artifact; $bad['runtime_declarations'][0]['payload']['entities'][0]['bin
 $throws(static function () use ($bad): void { $result = (new ArtifactCompiler())->compile($bad)->toArray(); $candidatePlan = $result['source_reports']['wordpress_site_plan'] ?? null; if (!is_array($candidatePlan)) throw new InvalidArgumentException('Compiler declined an opaque/detached metric anchor.'); (new WordPressSitePlanResolver())->resolve($candidatePlan, array('theme_uri' => 'https://example.test/theme')); }, 'opaque HTML bindings are rejected rather than replacing native editable text');
 $bad = $artifact; $bad['runtime_declarations'][0]['payload']['entities'][0]['provenance'] = array('kind' => 'captured_html');
 $throws(static fn() => (new ArtifactCompiler())->compile($bad), 'ambiguous capture-only source claims are rejected');
+$bad = $artifact; $bad['runtime_declarations'][0]['payload']['entities'][0]['fallback']['text'] = '73,001+'; $bad['runtime_declarations'][0]['payload']['entities'][0]['fallback']['hash'] = hash('sha256', '73,001+');
+$throws(static fn() => (new ArtifactCompiler())->compile($bad), 'a rehashed but non-matching captured fallback cannot replace the native leaf text');
+$bad = $artifact; $bad['runtime_declarations'][0]['payload']['entities'][0]['bindings'][0]['role'] = 'heading'; $bad['runtime_declarations'][0]['payload']['entities'][0]['bindings'][0]['leaf'] = array('block' => 'core/heading', 'attribute' => 'content');
+$throws(static fn() => (new ArtifactCompiler())->compile($bad), 'native anchor block name must match its declared Paragraph or Heading leaf');
 $bad = $artifact; $bad['runtime_declarations'][0]['payload']['entities'][1]['format']['prefix'] = '';
 $throws(static fn() => (new ArtifactCompiler())->compile($bad), 'format/source contradictions are rejected');
 
