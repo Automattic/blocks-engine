@@ -99,9 +99,9 @@ $assert('custom/theme-toggle' !== ($ambiguousGroup['blocks'][0]['blockName'] ?? 
 $disconnectedRuntime = 'localStorage.getItem("cart");localStorage.setItem("cart","x");const unrelated="theme";window.matchMedia("(prefers-color-scheme: dark)");const drawer=document.querySelector(".drawer.open");drawer.classList.toggle("open");';
 $disconnected = (new HtmlTransformer())->transform($groupSource, array('static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/unrelated.js', 'content' => $disconnectedRuntime))))->toArray();
 $assert('custom/theme-toggle' !== ($disconnected['blocks'][0]['blockName'] ?? null), 'unrelated cart storage, theme text, OS query, and drawer mutation do not establish root theme preference ownership');
-$compoundRootRuntime = 'const root=document.documentElement;root.classList.toggle("drawer.open");localStorage.getItem("cart");localStorage.setItem("cart","x");const unrelated="theme";window.matchMedia("(prefers-color-scheme: dark)");';
+$compoundRootRuntime = 'const root=document.documentElement;root.classList.toggle("drawer-open");localStorage.getItem("cart");localStorage.setItem("cart","x");const unrelated="theme";window.matchMedia("(prefers-color-scheme: dark)");';
 $compoundRoot = (new HtmlTransformer())->transform($groupSource, array('static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/unrelated.js', 'content' => $compoundRootRuntime))))->toArray();
-$assert('custom/theme-toggle' !== ($compoundRoot['blocks'][0]['blockName'] ?? null), 'a root-class mutation with an invalid compound drawer token is not evidence of theme ownership');
+$assert('custom/theme-toggle' !== ($compoundRoot['blocks'][0]['blockName'] ?? null), 'a root mutation for a non-theme class and cart storage cannot borrow a separate dark CSS state');
 $semanticNamesSource = str_replace(array('Light theme', 'System theme', 'Dark theme'), array('Light', 'System mode', 'Dark'), $groupSource);
 $semanticNamesRuntime = str_replace(array('Light theme', 'System theme', 'Dark theme'), array('Light', 'System mode', 'Dark'), $groupRuntime);
 $semanticNames = (new HtmlTransformer())->transform($semanticNamesSource, array('static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $semanticNamesRuntime))))->toArray();
