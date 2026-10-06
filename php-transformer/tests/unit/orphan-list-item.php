@@ -38,6 +38,7 @@ $check = static function (string $label, string $html, array $expected) use ($tr
     $serialized = (string) ($result['serialized_blocks'] ?? '');
     $assert(array() === $unsupported($result), "{$label}: no html_unsupported_element fallback; got: " . json_encode(array_column($unsupported($result), 'selector')));
     $assert(! str_contains($serialized, '<!-- wp:html'), "{$label}: no core/html fallback block");
+    $assert(str_contains($serialized, '<li'), "{$label}: source list-item roots and their browser marker semantics survive");
     foreach ( $expected as $needle ) {
         $assert(str_contains($text($serialized), $needle), "{$label}: the text \"{$needle}\" survives; got: " . $text($serialized));
     }

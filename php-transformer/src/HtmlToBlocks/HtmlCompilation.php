@@ -3256,10 +3256,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( $this->isOrphanListItem($element) && $this->isSafeTransparentCustomElement($element) ) {
-            // A list item with no list to belong to has no rendering of its own
-            // beyond a generic flow box; the list converter only consumes the
-            // items of a `ul`/`ol`, so lower it like a `div` rather than drop it.
-            return $this->flowContainerConverter->convertUnknownElement($element, $fallbacks)->block;
+            // Invalid list ancestry does not remove browser marker rendering or
+            // author `li` selectors. Keep the source root on the existing exact
+            // wrapper carrier while its children remain native editable blocks.
+            $children = $this->sourceElementClassifier->hasOnlyPhrasingChildren($element)
+                ? array($this->createBlock('core/paragraph', array('content' => $this->richTextMaterializer->content($element), 'className' => self::SYNTHETIC_PARAGRAPH_CLASS)))
+                : $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            return $this->layoutShellBlockForElements(array($element), $children, $element);
         }
 
         if ( $this->isTransparentUnknownElement($element) ) {
@@ -5841,6 +5844,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function layoutShellClassName(DOMElement $element): string
     {
         $classes = array_values(array_filter(preg_split('/\s+/', $this->promotedClassName(SourceDom::attr($element, 'class'))) ?: array()));
+        $tagMarker = $this->authorSelectorProjections()->tagMarker(strtolower($element->tagName));
+        if ( '' !== $tagMarker ) {
+            $classes[] = $tagMarker;
+        }
         $runtime = array();
         foreach ( $this->runtimeIslands->runtimeDomSelectorsForElement($element) as $selector ) {
             if ( str_starts_with($selector, '.') ) {
