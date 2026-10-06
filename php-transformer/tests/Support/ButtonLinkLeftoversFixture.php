@@ -12,10 +12,12 @@ final class ButtonLinkLeftoversFixture implements ButtonLinkLeftovers
     /**
      * @param Closure(DOMElement): ?array<string, mixed>|null $imageBlockFromAnchor
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>|null $convertLinkWrapperGroup
+     * @param Closure(DOMElement): ?array<string, mixed>|null $linkedResponsiveContentBlockFromAnchor
      */
     public function __construct(
         private readonly ?Closure $imageBlockFromAnchor = null,
-        private readonly ?Closure $convertLinkWrapperGroup = null
+        private readonly ?Closure $convertLinkWrapperGroup = null,
+        private readonly ?Closure $linkedResponsiveContentBlockFromAnchor = null
     ) {
     }
 
@@ -27,5 +29,10 @@ final class ButtonLinkLeftoversFixture implements ButtonLinkLeftovers
     public function convertLinkWrapperGroup(DOMElement $anchor, array &$fallbacks): ?array
     {
         return null === $this->convertLinkWrapperGroup ? null : ($this->convertLinkWrapperGroup)($anchor, $fallbacks);
+    }
+
+    public function linkedResponsiveContentBlockFromAnchor(DOMElement $anchor): ?array
+    {
+        return null === $this->linkedResponsiveContentBlockFromAnchor ? null : ($this->linkedResponsiveContentBlockFromAnchor)($anchor);
     }
 }

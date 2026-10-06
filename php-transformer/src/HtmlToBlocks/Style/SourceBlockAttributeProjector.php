@@ -18,6 +18,7 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
     public const SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS = 'blocks-engine-synthetic-anchor-block-display';
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
+    public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
@@ -50,6 +51,9 @@ final class SourceBlockAttributeProjector
         $sourceTagName = strtolower($sourceElement->tagName);
         if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
+            if ($this->sourceImageIsFlexOrGridItem($sourceElement)) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS);
+            }
             // The source image was inline content that its parent aligned. A
             // synthesized figure is a block box that fills the line instead,
             // so the alignment has nothing left to move.
@@ -103,6 +107,12 @@ final class SourceBlockAttributeProjector
             $context->generatedStyles,
             $facts->preserveGeneratedStyle
         );
+        // This is behavior identity, not an authored styling class. It must
+        // survive the styling resolver's pruning of unused source classes.
+        $collectionMarker = SourceDom::attr($sourceElement, 'data-blocks-engine-collection-item-marker');
+        if (1 === preg_match('/^blocks-engine-collection-item-[a-f0-9]{16}-[0-9]{1,3}$/', $collectionMarker)) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $collectionMarker);
+        }
         if ( 'core/button' === $name
             && $this->buttonLabelHasAuthoredColor($sourceElement, $logicalSourceElement, (string) ($attrs['text'] ?? ''), $sourceElement->getNodePath() ?? '', $logicalSourceElement->getNodePath() ?? '')
         ) {
@@ -139,6 +149,17 @@ final class SourceBlockAttributeProjector
         return true;
     }
 
+    private function sourceImageIsFlexOrGridItem(DOMElement $image): bool
+    {
+        $parent = $image->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+
+        $display = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? ''));
+        return in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+    }
+
     private static function isHiddenAccessibilitySupportElement(DOMElement $element): bool
     {
         $identity = strtolower(SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'class'));
@@ -152,6 +173,14 @@ final class SourceBlockAttributeProjector
 
     public function sourceProjectionClassName(DOMElement $element, SourceBlockAttributeProjectionContext $context, string $className = ''): string
     {
+        if ( '' !== $context->authorStyles->combinedCss() ) {
+            foreach ( SourceDom::boundedClassTokens(SourceDom::attr($element, 'class')) as $class ) {
+                $marker = $context->authorStyles->sourceClassMarker($class);
+                if ( '' !== $marker ) {
+                    $className = SourceDom::mergeClassNames($className, $marker);
+                }
+            }
+        }
         $sourceTagMarker = $context->selectorProjections->tagMarker(strtolower($element->tagName));
         if ( '' !== $sourceTagMarker ) {
             $className = SourceDom::mergeClassNames($className, $sourceTagMarker);
@@ -161,8 +190,17 @@ final class SourceBlockAttributeProjector
             && array() !== $context->authorStyles->sourceBodyProjectionClasses()
         ) {
             $className = SourceDom::mergeClassNames($className, ...$context->authorStyles->sourceBodyProjectionClasses());
+            foreach ( $context->authorStyles->sourceBodyProjectionClasses() as $class ) {
+                $marker = $context->authorStyles->sourceClassMarker($class);
+                if ( '' !== $marker ) {
+                    $className = SourceDom::mergeClassNames($className, $marker);
+                }
+            }
         }
-        $semanticMarkers = $context->selectorProjections->semanticMarkersForPath($element->getNodePath() ?? '');
+        $semanticMarkers = array_merge(
+            $context->selectorProjections->semanticMarkersForPath($element->getNodePath() ?? ''),
+            $context->selectorProjections->ancestorAttributeStateMarkers($element->getNodePath() ?? '')
+        );
         if ( array() !== $semanticMarkers ) {
             $className = SourceDom::mergeClassNames($className, ...$semanticMarkers);
         }
@@ -228,6 +266,13 @@ final class SourceBlockAttributeProjector
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $controlMarker);
                 if ( 'core/button' === $name ) {
                     $this->generatedStyleProjector->registerNativeButtonStyleRule($controlMarker, $attrs, $context->generatedStyles, $nativeButtonTextAlignment, $logicalControl);
+                    $blockColor = is_array($attrs['style']['color'] ?? null) ? $attrs['style']['color'] : array();
+                    $this->generatedStyleProjector->registerNativeButtonDefaultBackgroundGuard(
+                        $controlMarker,
+                        $logicalControl,
+                        $context->generatedStyles,
+                        '' !== trim((string) ($blockColor['background'] ?? ''))
+                    );
                     $childOwnedOffsets = $participation instanceof LayoutParticipation && $participation->positioned;
                     if ( $participation instanceof LayoutParticipation && $participation->needsDirectFlexRepair() ) {
                         $this->generatedStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $context->generatedStyles);
@@ -257,6 +302,19 @@ final class SourceBlockAttributeProjector
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
             $this->generatedStyleProjector->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $context->generatedStyles, $nativeButtonTextAlignment);
             $this->registerButtonWidth($attrs, $nativeButtonMarker, $logicalControl, $context);
+        }
+        if ( 'core/button' === $name
+            && 1 === preg_match('/(?:^|\s)(blocks-engine-native-button-alignment-(?:start|end|left|center|right))(?:\s|$)/', (string) ($attrs['className'] ?? ''), $alignmentMarker)
+        ) {
+            $guardMarker = $context->authorStyles->allocateMarker('native-button');
+            if ( $this->generatedStyleProjector->registerNativeButtonDefaultBackgroundGuard(
+                $guardMarker,
+                $logicalControl,
+                $context->generatedStyles,
+                '' !== trim((string) ($attrs['style']['color']['background'] ?? ''))
+            ) ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $guardMarker);
+            }
         }
         return $attrs;
     }
@@ -398,6 +456,15 @@ final class SourceBlockAttributeProjector
         return 'none' === $this->resolvedTextDecorationLine($anchor, true);
     }
 
+    /** @return array<string,string> */
+    public function syntheticInlineParagraphAttributes(DOMElement $container): array
+    {
+        $anchors = $container->getElementsByTagName('a');
+        if (0 === $anchors->length) return array();
+        foreach ($anchors as $anchor) if (!$anchor instanceof DOMElement || !$this->sourceAnchorHasNoTextDecoration($anchor)) return array();
+        return array('className' => self::SYNTHETIC_PARAGRAPH_CLASS . ' ' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
+    }
+
     /**
      * Resolves the computed `text-decoration-line` an element's authored
      * cascade produces, following an explicit `inherit` keyword up the
@@ -426,7 +493,9 @@ final class SourceBlockAttributeProjector
     private function resolvedTextDecorationLine(DOMElement $element, bool $isLeaf): string
     {
         $declared = null;
-        foreach ( $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($element)) as $property => $value ) {
+        // Decoration determines the generated anchor carrier, even for an
+        // otherwise ordinary link that the presentation fast path skips.
+        foreach ( $this->styleResolver->matchedCascadedDeclarations($element) as $property => $value ) {
             if ( 'text-decoration' === $property || 'text-decoration-line' === $property ) {
                 $declared = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue($value));
             }

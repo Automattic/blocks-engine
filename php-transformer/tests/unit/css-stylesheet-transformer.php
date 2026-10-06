@@ -72,6 +72,24 @@ foreach ( array( '.\\31 0', ".\\31\r\n0" ) as $selector ) {
 $escapedCss = '.before\\{x\\;y\\,z { color:red }';
 $assert('.after\\{x\\;y\\,z { color:red }' === $transformer->transform($escapedCss, $rename), 'escaped structural bytes do not split stylesheet rules');
 
+// Long inert runs must not hide the next lexical transition. In particular,
+// the closing star of a comment and escaped punctuation are not inert bytes.
+foreach (array(str_repeat('ordinary', 4096), "caf\xc3\xa9\0tail") as $run) {
+    $prelude = '/*' . $run . '*/ .before[data-label="' . $run . ',}\"x"]';
+    $body = ' content:"' . $run . ';}\"x"; --value: fn(' . $run . '); /*' . $run . '*/ ';
+    $css = $prelude . '{' . $body . '}';
+    $assert(str_replace('.before', '.after', $css) === $transformer->transform($css, $rename), 'long runs preserve comments, quoted punctuation, escapes and binary bytes');
+    $assert(array($prelude, ' .next') === CssStylesheetTransformer::splitSelectorList($prelude . ', .next'), 'long selector runs split at the actual top-level comma');
+    $visited = array();
+    $transformer->visitStyleRules('@media screen{' . $css . '}', static function (string $selector, string $declarations, array $ancestors) use (&$visited): void {
+        $visited[] = array($selector, $declarations, $ancestors);
+    });
+    $assert(array(array($prelude, $body, array('@media screen'))) === $visited, 'long runs retain complete nested visitor payloads');
+    foreach (array('/*' . $run, '.before{content:"' . $run, '.before{--x:' . $run . '\\', '.before{--x:(' . $run . ';}') as $malformed) {
+        $assert($malformed === $transformer->transform($malformed, $rename), 'malformed long-run input stays byte-identical');
+    }
+}
+
 // CSS whitespace is exactly space, tab, LF, CR, and FF; comments only separate
 // descendants when surrounding whitespace supplies the combinator.
 $tokens = CssSelectorTokenizer::tokenize(".a\f>\f.b");

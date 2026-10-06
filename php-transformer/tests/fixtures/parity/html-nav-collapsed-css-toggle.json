@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header", "tagName": "header" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav inline-menu blocks-engine-list-navigation blocks-engine-native-responsive-navigation blocks-engine-native-navigation-toggle-b5e9ccdeeabe", "style": { "spacing": { "blockGap": "0px" } }, "layout": { "type": "default" }, "overlayMenu": "mobile" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav inline-menu blocks-engine-list-navigation blocks-engine-native-responsive-navigation blocks-engine-native-navigation-toggle-f64761c08952", "style": { "spacing": { "blockGap": "0px" } }, "layout": { "type": "default" }, "overlayMenu": "mobile" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Home", "url": "/", "kind": "custom" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Blog", "url": "/blog", "kind": "custom" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.2", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about", "kind": "custom" } },

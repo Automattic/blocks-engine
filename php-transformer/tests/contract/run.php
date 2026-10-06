@@ -1497,9 +1497,9 @@ $selectorOverflowGraph = (new HtmlTransformer())->transform($deepThreeColumnHtml
 $selectorOverflowArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="style.css">' . $deepThreeColumnHtml, 'style.css' => $selectorOverflowCss)))->toArray();
 $selectorOverflowDeclaration = current(array_filter($selectorOverflowArtifact['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $assert(true === ($selectorOverflowGraph['truncated'] ?? null) && in_array('css_rule_or_selector_limit', $selectorOverflowGraph['diagnostics'] ?? array(), true) && !isset($selectorOverflowDeclaration['payload']['entities'][0]['layout_graph']), 'retained rule overflow remains explicit and incomplete graphs remain omitted from generic/forms/v1.');
-$scanOverflowCss = ''; for ( $index = 0; $index < 4097; ++$index ) $scanOverflowCss .= '.unrelated-' . $index . '{display:grid}';
+$scanOverflowCss = ''; for ( $index = 0; $index < 16385; ++$index ) $scanOverflowCss .= '.unrelated-' . $index . '{display:grid}';
 $scanOverflowGraph = (new HtmlTransformer())->transform($deepThreeColumnHtml, array('static_css' => $scanOverflowCss))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
-$assert(true === ($scanOverflowGraph['truncated'] ?? null) && in_array('css_selector_scan_limit', $scanOverflowGraph['diagnostics'] ?? array(), true) && !in_array('css_rule_or_selector_limit', $scanOverflowGraph['diagnostics'] ?? array(), true), 'unrelated selector scanning fails closed at its independent 4,096-selector work budget.');
+$assert(true === ($scanOverflowGraph['truncated'] ?? null) && in_array('css_selector_scan_limit', $scanOverflowGraph['diagnostics'] ?? array(), true) && !in_array('css_rule_or_selector_limit', $scanOverflowGraph['diagnostics'] ?? array(), true), 'unrelated selector scanning fails closed at its independent 16,384-selector work budget.');
 $assert(is_int($cascadeVariant['precedence']['gap']['source_order'] ?? null) && is_int($cascadeVariant['precedence']['gap']['specificity'] ?? null) && is_bool($cascadeVariant['precedence']['gap']['important'] ?? null), 'conditional variants carry deterministic cascade precedence rather than implying independent winners.');
 $crossConditionGraph = (new HtmlTransformer())->transform('<form method="post" action="#" id="active" class="form"><input name="x"><button type="submit">Send</button></form>', array('static_css' => '.form{display:grid!important}@media (max-width:50rem){.form{display:flex}}@media (min-width:40rem){.form#active{display:flex!important}}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $crossConditionVariants = $crossConditionGraph['variants'] ?? array();
@@ -1526,10 +1526,47 @@ $invalidLayoutGraph = $layoutGraph; $invalidLayoutGraph['nodes'][0]['id'] = 'wra
 $unsafeGraph = $layoutGraph; $unsafeGraph['nodes'][0]['provenance'][0]['source_path'] = '../../untrusted.css'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($unsafeGraph); $assert(false, 'layout graph validation rejects unsafe provenance traversal paths'); } catch (\InvalidArgumentException) { $assert(true, 'layout graph validation rejects unsafe provenance traversal paths'); }
 $semanticGraph = $layoutGraph; $semanticGraph['nodes'][0]['layout']['unknown_layout'] = 'value'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($semanticGraph); $assert(false, 'layout graph validation rejects unknown semantic layout keys'); } catch (\InvalidArgumentException) { $assert(true, 'layout graph validation rejects unknown semantic layout keys'); }
 $invalidSizingGraph = $sizingGraph; $invalidSizingGraph['nodes'][1]['sizing']['container'] = 'control-2'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($invalidSizingGraph); $assert(false, 'layout graph validation rejects sizing evidence that does not name a direct container parent'); } catch (\InvalidArgumentException) { $assert(true, 'layout graph validation rejects sizing evidence that does not name a direct container parent'); }
+foreach (array(
+    'unsafe source tag' => static function (array $g): array { $g['nodes'][0]['source']['tag'] = 'div onload'; return $g; },
+    'unsafe source class' => static function (array $g): array { $g['nodes'][0]['source']['classes'] = array('a"x'); return $g; },
+    'unsafe source id' => static function (array $g): array { $g['nodes'][0]['source']['id'] = 'a b'; return $g; },
+    'unsafe source selector' => static function (array $g): array { $g['nodes'][0]['source']['selector'] = 'form{}'; return $g; },
+    'unknown node key' => static function (array $g): array { $g['nodes'][0]['extra'] = 1; return $g; },
+    'unknown envelope key' => static function (array $g): array { $g['extra'] = 1; return $g; },
+    'child before parent' => static function (array $g): array { $g['nodes'] = array_reverse($g['nodes']); return $g; },
+) as $label => $mutate) {
+    try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($mutate($layoutGraph)); $assert(false, 'layout graph validation rejects ' . $label); } catch (\InvalidArgumentException $e) { $assert(true, 'layout graph validation rejects ' . $label); }
+}
+$elementPresentation = array('schema' => 'generic/form-element-presentation/v1', 'styles' => array('padding' => '12px'), 'provenance' => array(array('source_path' => 'site.css', 'source_sha256' => str_repeat('a', 64), 'selector' => '.wrap', 'condition' => null, 'properties' => array('padding'))), 'variants' => array(), 'truncated' => false, 'diagnostics' => array());
+\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder::assertElement($elementPresentation);
+foreach (array(
+    'unknown envelope key' => static function (array $p): array { $p['extra'] = 1; return $p; },
+    'unknown provenance key' => static function (array $p): array { $p['provenance'][0]['extra'] = 1; return $p; },
+    'keyed variants' => static function (array $p): array { $p['variants'] = array('a' => array()); return $p; },
+) as $label => $mutate) {
+    try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder::assertElement($mutate($elementPresentation)); $assert(false, 'element presentation validation rejects ' . $label); } catch (\InvalidArgumentException $e) { $assert(true, 'element presentation validation rejects ' . $label); }
+}
+$topologyDocument = new \DOMDocument(); @$topologyDocument->loadHTML('<form><div class="row"><label for="a">A</label><input id="a"></div><fieldset><legend>Who</legend><p><label>B<input name="b"></label></p></fieldset><label for="c">C</label><input id="c"></form>');
+$topologyForm = $topologyDocument->getElementsByTagName('form')->item(0);
+$topologyBuilder = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder();
+$controlTopology = $topologyBuilder->build($topologyForm);
+$controlCount = count(array_filter($controlTopology['nodes'], static fn (array $node): bool => 'control' === $node['kind']));
+\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder::assertValid($controlTopology, $controlCount);
+\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder::assertSiblingRelations($topologyBuilder->directLabelControlPairs($topologyForm), $controlCount);
+foreach (array(
+    'unknown key' => static function (array $t): array { $t['extra'] = 1; return $t; },
+    'child before parent' => static function (array $t): array { $t['nodes'] = array_reverse($t['nodes']); return $t; },
+    'unsafe wrapper class' => static function (array $t): array { foreach ($t['nodes'] as &$n) if ('wrapper' === $n['kind']) { $n['class'] = 'a"b'; break; } return $t; },
+    'non-group wrapper tag' => static function (array $t): array { foreach ($t['nodes'] as &$n) if ('wrapper' === $n['kind']) { $n['tag'] = 'script'; break; } return $t; },
+    'duplicate control' => static function (array $t): array { $c = array_keys(array_filter($t['nodes'], static fn (array $n): bool => 'control' === $n['kind'])); $t['nodes'][$c[1]]['control'] = $t['nodes'][$c[0]]['control']; return $t; },
+) as $label => $mutate) {
+    try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder::assertValid($mutate($controlTopology), $controlCount); $assert(false, 'control topology validation rejects ' . $label); } catch (\InvalidArgumentException $e) { $assert(true, 'control topology validation rejects ' . $label); }
+}
+try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder::assertSiblingRelations(array('schema' => 'generic/form-sibling-relations/v1', 'max_pairs' => 128, 'truncated' => false, 'pairs' => array(array('control' => 99))), $controlCount); $assert(false, 'sibling relations reject an unknown control'); } catch (\InvalidArgumentException $e) { $assert(true, 'sibling relations reject an unknown control'); }
 $v1LayoutGraph = $layoutGraph; $v1LayoutGraph['schema'] = 'generic/computed-layout-graph/v1'; $v1LayoutGraph['limits']['depth'] = 8;
 $v1LayoutKeys = array('display' => true, 'columns' => true, 'rows' => true, 'gap' => true, 'row_gap' => true, 'column_gap' => true, 'column' => true, 'row' => true, 'area' => true, 'direction' => true, 'wrap' => true, 'align_items' => true, 'align_content' => true, 'justify_content' => true, 'align_self' => true, 'justify_self' => true, 'order' => true, 'flex' => true, 'flex_grow' => true, 'flex_shrink' => true, 'flex_basis' => true);
 $v1LayoutProperties = array('display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis');
-foreach ($v1LayoutGraph['nodes'] as &$v1Node) { unset($v1Node['sizing']); $v1Node['layout'] = array_intersect_key($v1Node['layout'] ?? array(), $v1LayoutKeys); foreach ($v1Node['provenance'] as &$v1Fact) $v1Fact['properties'] = array_values(array_intersect($v1Fact['properties'] ?? array(), $v1LayoutProperties)); unset($v1Fact); $v1Node['provenance'] = array_values(array_filter($v1Node['provenance'], static fn(array $fact): bool => array() !== ($fact['properties'] ?? array()))); } unset($v1Node);
+foreach ($v1LayoutGraph['nodes'] as &$v1Node) { unset($v1Node['sizing'], $v1Node['presentation'], $v1Node['source']['selector']); $v1Node['source']['classes'] = array_slice($v1Node['source']['classes'], 0, 8); $v1Node['layout'] = array_intersect_key($v1Node['layout'] ?? array(), $v1LayoutKeys); foreach ($v1Node['provenance'] as &$v1Fact) $v1Fact['properties'] = array_values(array_intersect($v1Fact['properties'] ?? array(), $v1LayoutProperties)); unset($v1Fact); $v1Node['provenance'] = array_values(array_filter($v1Node['provenance'], static fn(array $fact): bool => array() !== ($fact['properties'] ?? array()))); } unset($v1Node);
 try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v1LayoutGraph); $assert(true, 'layout graph validation accepts persisted v1 depth-8 graphs using the old property vocabulary'); } catch (\InvalidArgumentException) { $assert(false, 'layout graph validation accepts persisted v1 depth-8 graphs using the old property vocabulary'); }
 $v1WidthGraph = $v1LayoutGraph; $v1WidthGraph['nodes'][0]['layout']['width'] = '100%'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v1WidthGraph); $assert(false, 'v1 layout graph validation rejects v2 width facts'); } catch (\InvalidArgumentException) { $assert(true, 'v1 layout graph validation rejects v2 width facts'); }
 $v1Depth16Graph = $v1LayoutGraph; $v1Depth16Graph['limits']['depth'] = 16; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v1Depth16Graph); $assert(false, 'v1 layout graph validation rejects v2 depth limits'); } catch (\InvalidArgumentException) { $assert(true, 'v1 layout graph validation rejects v2 depth limits'); }
@@ -4980,6 +5017,31 @@ $undeclaredCompanionRenderReport = (new \Automattic\BlocksEngine\PhpTransformer\
 );
 $assert('warning' === ($undeclaredCompanionRenderReport['status'] ?? '') && 'runtime_dependency_target_missing' === ($undeclaredCompanionRenderReport['findings'][0]['code'] ?? ''), 'undeclared companion render strings cannot suppress missing-target failures');
 
+$rendererContentMarkup = '<!-- wp:custom/responsive-layout ' . strtr(json_encode(array( 'content' => '<button type="button" data-dla-dialog-close="menu" style="color:red}">Close</button><script data-stripped="1"></script>' ), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), array( '\\\\' => '\\u005c', '--' => '\\u002d\\u002d', '<' => '\\u003c', '>' => '\\u003e', '&' => '\\u0026', '\\"' => '\\u0022' )) . ' /-->';
+$rendererContentScript = 'document.querySelector("[data-dla-dialog-close]").addEventListener("click", function () {}); document.querySelector("[data-stripped]");';
+$rendererContentSource = '<main><button data-dla-dialog-close="menu">Close</button><script data-stripped="1"></script></main>';
+$undeclaredRendererContentReport = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDependencyParityReport())->fromArtifact(
+    array(array('path' => 'js/app.js', 'kind' => 'js', 'content' => $rendererContentScript)),
+    $rendererContentSource,
+    $rendererContentMarkup,
+    'index.html'
+);
+$assert('warning' === ($undeclaredRendererContentReport['status'] ?? '') && in_array('[data-dla-dialog-close]', array_column($undeclaredRendererContentReport['findings'] ?? array(), 'selector'), true), 'renderer content cannot supply a runtime target without a declared content renderer');
+$declaredRendererContentReport = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDependencyParityReport())->fromArtifact(
+    array(array('path' => 'js/app.js', 'kind' => 'js', 'content' => $rendererContentScript)),
+    $rendererContentSource,
+    $rendererContentMarkup,
+    'index.html',
+    array(),
+    array(),
+    array(),
+    array(),
+    array(array('renderer' => 'blocks-engine/responsive-layout/v1', 'block_json' => array('name' => 'custom/responsive-layout')))
+);
+$declaredRendererClose = array_values(array_filter($declaredRendererContentReport['dependencies'] ?? array(), static fn (array $dependency): bool => '[data-dla-dialog-close]' === ($dependency['selector'] ?? '')))[0] ?? array();
+$declaredRendererStripped = array_values(array_filter($declaredRendererContentReport['findings'] ?? array(), static fn (array $finding): bool => '[data-stripped]' === ($finding['selector'] ?? '')));
+$assert(true === ($declaredRendererClose['generated_present'] ?? null) && 'declared_renderer_content' === ($declaredRendererClose['generated_target_evidence'] ?? '') && array() !== $declaredRendererStripped, 'declared responsive-layout content is a live target, and markup the renderer strips is not');
+
 $hamburgerOverlaySite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
@@ -5709,8 +5771,8 @@ $authoredSelectCompanion = $authoredControlBlocks[0] ?? array();
 $authoredInputCompanion = $authoredControlBlocks[1] ?? array();
 $assert('custom/authored-select' === ($authoredSelectCompanion['block_json']['name'] ?? null), 'authored-select companion metadata uses its canonical block name');
 $assert('custom/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
-$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ) === ($authoredSelectCompanion['script_dependencies'] ?? null), 'authored-select companion dependency metadata survives payload compilation');
-$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text' ) ) === ($authoredSelectCompanion['script_dependencies'] ?? null), 'authored-select companion dependency metadata survives payload compilation');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredSelectCompanion['assets']['index.js'] ?? ''), $authoredSelectRegistrations);
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredInputCompanion['assets']['index.js'] ?? ''), $authoredInputRegistrations);
 $assert(array( 'custom/authored-select' ) === ($authoredSelectRegistrations[1] ?? array()), 'authored-select companion editor script registers only its canonical block name');
@@ -5725,11 +5787,10 @@ $scriptCompanion = $compiler->compile(
     )
 )->toArray();
 $scriptPayload = $scriptCompanion['source_reports']['companion_plugin_payload'] ?? array();
-$assert(array() === ($scriptPayload['blocks'] ?? null), 'script-only companion payload does not invent a custom block');
-$assert(1 === count($scriptPayload['preserved_js'] ?? array()), 'script-only artifact emits one preserved companion script');
-$assert(str_contains((string) ($scriptPayload['preserved_js'][0]['content'] ?? ''), 'dataset.ready'), 'companion payload carries the inline script body');
-$assert('script:nth-of-type(1)' === ($scriptPayload['preserved_js'][0]['selector'] ?? ''), 'companion payload carries the source script selector');
-$assert('index.html' === ($scriptPayload['preserved_js'][0]['source_path'] ?? ''), 'companion payload carries the source document path');
+$assert(array() === ($scriptPayload['blocks'] ?? array()), 'script-only companion payload does not invent a custom block');
+$scriptOnlyPlan = $scriptCompanion['source_reports']['wordpress_site_plan'] ?? array();
+$scriptOnlyThemeScripts = array_merge(...array_map(static fn (array $page): array => $page['document_metadata']['scripts'] ?? array(), $scriptOnlyPlan['pages'] ?? array()));
+$assert(array() === ($scriptPayload['preserved_js'] ?? array()) && 1 === count($scriptOnlyThemeScripts), 'theme-declared inline script stays once in the theme and is not duplicated in the companion payload');
 
 $rootedScriptCompanion = $compiler->compile(
     array(
@@ -5909,6 +5970,51 @@ $assert(! str_contains($triggerRowMarkup, 'data-blocks-engine-tablist-row'), 'th
 $assert(! str_contains($triggerRowMarkup, '<!-- wp:button'), 'the source trigger row is replaced by the tab-list rather than kept as duplicate buttons');
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($triggerRowSelectableSet['blocks'] ?? array()), 'trigger-row selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($triggerRowSelectableSet['blocks'] ?? array())['status'] ?? ''), 'trigger-row selectable-set tabs remain Gutenberg-valid');
+
+$sideBySideActive = '<div class="panel"><h2>Gamma</h2><p>Gamma specification details</p></div>';
+$sideBySideTrigger = static fn(int $index, string $label, string $html, int $size): array => array(
+    'status' => 'captured',
+    'kind' => 'selectable-set',
+    'trigger' => array('selector' => 'body > main > div > ul > li:nth-of-type(' . ($index + 1) . ') > button', 'tag' => 'button', 'label' => $label, 'ariaHaspopup' => '', 'dataBindings' => array()),
+    'dialog' => array('selector' => 'body > main > div > div:nth-of-type(1)', 'tag' => 'div', 'html' => $html, 'htmlBytes' => strlen($html), 'htmlTruncated' => false),
+    'set' => array('selector' => 'body > main > div > ul', 'size' => $size, 'index' => $index),
+);
+// The source lays a detail region and a trigger list side by side in one grid; the
+// last member is the one active at load, so capture never clicked it.
+$sideBySideSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Side By Side Selectable Set Site', 'slug' => 'captured-side-by-side-selectable-set-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><div class="split" style="display:grid;grid-template-columns:1fr 1fr"><div>' . $sideBySideActive . '</div><ul class="items"><li><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->1</span><span class="name">Alpha</span></button></li><li style="margin-top:.5rem"><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->2</span><span class="name">Beta</span></button></li><li style="margin-top:.5rem"><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->3</span><span class="name">Gamma</span></button></li></ul></div></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(
+                    $sideBySideTrigger(0, '01Alpha', $selectableAlpha, 3),
+                    $sideBySideTrigger(1, '02Beta', $selectableBeta, 3),
+                ),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$sideBySideMarkup = (string) ($sideBySideSelectableSet['serialized_blocks'] ?? '');
+$assert(1 === preg_match('/"label":"03 Gamma"/', $sideBySideMarkup) && str_contains($sideBySideMarkup, 'Gamma specification details'), 'the member active at load keeps its content as an editable tab even though capture never clicked it');
+$assert(str_contains($sideBySideMarkup, '"label":"01 Alpha"') && ! str_contains($sideBySideMarkup, '0 1'), 'a label split by hydration comment nodes reads as one word');
+$assert(1 === preg_match('/<!-- wp:tabs \{[^}]*"activeTabIndex":2/', $sideBySideMarkup), 'the tabs block opens on the member that was active in the source');
+$assert(1 === preg_match('/<!-- wp:tabs \{[^}]*"className":"blocks-engine-tabs-flow blocks-engine-tabs-flow-list-last"/', $sideBySideMarkup), 'tabs that replaced a sibling region and trigger row add no layout box of their own');
+$sideBySideCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $sideBySideSelectableSet['assets'] ?? array()));
+$assert(1 === preg_match('/<button type="button" role="tab"><span class="num">01<\/span><span class="name">Alpha<\/span><\/button>/', $sideBySideMarkup), 'each tab keeps the trigger\'s number/title boxes as classed spans');
+$assert(1 === preg_match('/\.wp-block-tab-list\.(blocks-engine-tab-list-[a-f0-9]+)\{flex-direction:column;flex-wrap:nowrap;align-items:stretch;row-gap:\.5rem\}/', $sideBySideCss), 'a vertical source trigger list stays a vertical stack with its row gap');
+$assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\{[^}]*display:flex[^}]*border:[^}]*\}/', $sideBySideCss), 'the source trigger box styling is carried onto the tab buttons');
+$assert(str_contains($sideBySideCss, '.blocks-engine-tabs-flow{display:contents}'), 'the flow class dissolves the tabs wrapper box');
+$assert(str_contains($sideBySideCss, '.blocks-engine-tabs-flow.blocks-engine-tabs-flow-list-last>.wp-block-tab-list{order:1}'), 'a list that followed its region in the source keeps that order');
+$assert(array() === (new CanonicalSaveShapeValidator())->findings($sideBySideSelectableSet['blocks'] ?? array()), 'side-by-side selectable-set tabs retain a canonical save shape');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($sideBySideSelectableSet['blocks'] ?? array())['status'] ?? ''), 'side-by-side selectable-set tabs remain Gutenberg-valid');
 
 $regionLayoutSelectableSet = $compiler->compile(array(
     'site' => array('name' => 'Captured Region Layout Selectable Set Site', 'slug' => 'captured-region-layout-selectable-set-site'),

@@ -27,6 +27,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use DOMDocument;
@@ -43,8 +44,6 @@ final class ArtifactCompiler
     // carries terminal reductions while v1 receipts remain composable.
     public const SHARED_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-shared-plan/v1';
     public const PAGE_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-page-plan/v1';
-    public const PAGE_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v1';
-    public const COMPILED_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v2';
     public const COMPACT_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v3';
 
     /**
@@ -210,7 +209,8 @@ final class ArtifactCompiler
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $this->layoutGeometryProof = is_array($normalized['layout_geometry_proof'] ?? null) ? $normalized['layout_geometry_proof'] : array();
         $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
-        $selectableSets = (new CapturedSelectableSetProjector())->project($capturedDialogs['files']);
+        $collections = (new CapturedCollectionProjector())->project($capturedDialogs['files']);
+        $selectableSets = (new CapturedSelectableSetProjector())->project($collections['files'], $collections['consumed_selectable_bindings'] ?? array());
         $choiceGroups = (new CapturedChoiceGroupProjector())->project($selectableSets['files']);
         $scrollStates = (new ScrollStateProjector())->project($choiceGroups['files']);
         $normalized['files'] = $scrollStates['files'];
@@ -222,10 +222,14 @@ final class ArtifactCompiler
             // reporting bucket. Selectable-set counts stay separate so
             // projected_dialog_count is not inflated.
             'captured_dialogs' => array(
-                'diagnostics' => array_merge($capturedDialogs['diagnostics'], $selectableSets['diagnostics'], $choiceGroups['diagnostics'], $scrollStates['diagnostics']),
+                'diagnostics' => array_merge($capturedDialogs['diagnostics'], $collections['diagnostics'], $selectableSets['diagnostics'], $choiceGroups['diagnostics'], $scrollStates['diagnostics']),
                 'projected_count' => $capturedDialogs['projected_count'] + $scrollStates['projected_count'],
                 'projected_selectable_set_count' => $selectableSets['projected_count'],
                 'projected_choice_group_count' => $choiceGroups['projected_count'],
+                'native_runtime_replacements' => array_merge(
+                    $capturedDialogs['native_runtime_replacements'] ?? array(),
+                    $collections['superseded_runtime_scripts'] ?? array()
+                ),
             ),
         ));
     }
@@ -403,6 +407,9 @@ final class ArtifactCompiler
         }
         if (isset($interactionReport['projected_dialog_count']) || isset($interactionReport['projected_selectable_set_count']) || isset($interactionReport['projected_choice_group_count'])) {
             $sourceReports['captured_interactions'] = $interactionReport;
+        }
+        if (array() !== ($capturedDialogs['native_runtime_replacements'] ?? array())) {
+            $sourceReports['native_runtime_replacements'] = $capturedDialogs['native_runtime_replacements'];
         }
         $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;
@@ -2717,16 +2724,20 @@ final class ArtifactCompiler
                 break;
             }
         }
-        if ( ! $hasDeclaredScriptFiles ) {
+        $documentScripts = $this->documentScriptContents($html, $sourcePath, $files);
+        if ( ! $hasDeclaredScriptFiles && array() === $documentScripts ) {
             return array();
         }
 
         $selectors = array();
         $controlSelectors = $this->formControlSelectors($html);
         $statusFeedbackSelectors = $this->formStatusFeedbackSelectors($html);
-        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
+        foreach ( $documentScripts as $script ) {
             foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
                 $selector = (string) $dependency['selector'];
+                if ( ! $hasDeclaredScriptFiles && ! str_contains($selector, '[data-') ) {
+                    continue;
+                }
                 if ( true === $dependency['presentation_only'] ) {
                     continue;
                 }
@@ -2984,14 +2995,10 @@ final class ArtifactCompiler
     private function documentScriptContents(string $html, string $sourcePath, array $files): array
     {
         $scripts = array();
-        if ( ! preg_match_all('/<script\b([^>]*)>(.*?)<\/script>/is', $html, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        foreach ( $matches as $match ) {
-            $src = $this->htmlAttribute((string) $match[1], 'src');
+        foreach ( HtmlTagScanner::scan($html, 'script') as $script ) {
+            $src = $this->htmlAttribute($script['tag'], 'src');
             if ( '' === $src ) {
-                $scripts[] = (string) $match[2];
+                $scripts[] = $script['content'];
                 continue;
             }
 
@@ -3025,47 +3032,7 @@ final class ArtifactCompiler
     /** @return array<string,string> */
     private function htmlAttributes(string $tag): array
     {
-        $length = strlen($tag);
-        $offset = strpos($tag, '<');
-        if (false === $offset) {
-            $offset = 0;
-        } else {
-            ++$offset;
-            while ($offset < $length && ctype_space($tag[$offset])) ++$offset;
-            if ($offset < $length && '/' === $tag[$offset]) ++$offset;
-            while ($offset < $length && !ctype_space($tag[$offset]) && !in_array($tag[$offset], array('>', '/'), true)) ++$offset;
-        }
-        $attributes = array();
-        while ($offset < $length) {
-            while ($offset < $length && ctype_space($tag[$offset])) ++$offset;
-            if ($offset >= $length || '>' === $tag[$offset] || '/' === $tag[$offset]) break;
-            $start = $offset;
-            while ($offset < $length && !ctype_space($tag[$offset]) && !in_array($tag[$offset], array('=', '>', '/', '"', "'", '<'), true)) ++$offset;
-            if ($start === $offset) break;
-            $name = strtolower(substr($tag, $start, $offset - $start));
-            while ($offset < $length && ctype_space($tag[$offset])) ++$offset;
-            $value = '';
-            if ($offset < $length && '=' === $tag[$offset]) {
-                ++$offset;
-                while ($offset < $length && ctype_space($tag[$offset])) ++$offset;
-                if ($offset >= $length) break;
-                if (in_array($tag[$offset], array('"', "'"), true)) {
-                    $quote = $tag[$offset++]; $start = $offset;
-                    while ($offset < $length && $tag[$offset] !== $quote) ++$offset;
-                    if ($offset >= $length) break;
-                    $value = substr($tag, $start, $offset - $start); ++$offset;
-                } else {
-                    $start = $offset;
-                    while ($offset < $length && !ctype_space($tag[$offset]) && '>' !== $tag[$offset]) {
-                        if (in_array($tag[$offset], array('"', "'", '<'), true)) break 2;
-                        ++$offset;
-                    }
-                    $value = substr($tag, $start, $offset - $start);
-                }
-            }
-            if (!isset($attributes[$name])) $attributes[$name] = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        }
-        return $attributes;
+        return HtmlTagScanner::attributes($tag);
     }
 
     /**
@@ -3266,8 +3233,9 @@ final class ArtifactCompiler
             if ( $entryPath === ($file['path'] ?? '') ) {
                 $entryHtml = (string) ($file['content'] ?? '');
                 $entryTitle = $this->titleFromHtml($entryHtml, $entryPath, $entryPath, '', $siteNameSegments, $siteNameEdge, $entryNavigationLabel);
-                if ( preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $entryHtml, $match) ) {
-                    $entryDocumentTitle = (string) $match[1];
+                $entryTitles = HtmlTagScanner::scan($entryHtml, 'title');
+                if ( isset($entryTitles[0]) ) {
+                    $entryDocumentTitle = $entryTitles[0]['content'];
                 }
                 break;
             }
@@ -3312,7 +3280,7 @@ final class ArtifactCompiler
                     'entrypoint'     => $path === $entryPath,
                     'slug'           => $slug,
                     'title'          => $title,
-                    'metadata'       => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array(), is_string($file['metadata']['post_type'] ?? null) ? array('post_type' => $file['metadata']['post_type'], 'post_type_declaration' => 'metadata:post_type') : array(), is_array($file['metadata']['template_surface'] ?? null) ? array('template_surface' => $file['metadata']['template_surface']) : array()),
+                    'metadata'       => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array(), is_string($file['metadata']['post_type'] ?? null) ? array('post_type' => $file['metadata']['post_type'], 'post_type_declaration' => 'metadata:post_type') : array(), is_array($file['metadata']['template_surface'] ?? null) ? array('template_surface' => $file['metadata']['template_surface']) : array(), is_array($file['metadata']['structured_data'] ?? null) ? array('structured_data' => $file['metadata']['structured_data']) : array()),
                     'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array())),
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
@@ -3534,12 +3502,9 @@ final class ArtifactCompiler
      */
     private function runtimeScriptMetadataForSource(string $html, string $sourcePath, array $files): array
     {
-        if ( ! preg_match_all('/<script\b[^>]*>/i', $html, $matches) ) {
-            return array();
-        }
-
         $metadata = array();
-        foreach ( $matches[0] as $index => $tag ) {
+        foreach ( HtmlTagScanner::scan($html, 'script') as $index => $script ) {
+            $tag = $script['tag'];
             $src = $this->htmlAttribute((string) $tag, 'src');
             if ( '' === $src ) {
                 continue;
@@ -3573,15 +3538,11 @@ final class ArtifactCompiler
      */
     private function runtimeProjectionScriptAssetsForSource(string $html, string $sourcePath, array $files): array
     {
-        if ( ! preg_match_all('/<script\b([^>]*)>(.*?)<\/script>/is', $html, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
         $assets = array();
         $scriptIndex = 0;
-        foreach ( $matches as $match ) {
+        foreach ( HtmlTagScanner::scan($html, 'script') as $script ) {
             ++$scriptIndex;
-            $src = $this->htmlAttribute((string) $match[1], 'src');
+            $src = $this->htmlAttribute($script['tag'], 'src');
             $asset = '' === $src
                 ? $this->findInlineScriptAsset($sourcePath, $scriptIndex, $files)
                 : $this->findAssetByHtmlReference($src, $sourcePath, $files);
@@ -3672,7 +3633,6 @@ final class ArtifactCompiler
     /** @param array<int, array<string, mixed>> $files @param array<int, array<string, mixed>> $generatedAssets @return array<string, mixed> */
     private function fullDocumentMetadata(string $html, string $sourcePath, array $files, array $generatedAssets = array()): array
     {
-        $headEnd = preg_match('/<head\b[^>]*>.*?<\/head\s*>/is', $html, $head) ? (int) strpos($html, $head[0]) + strlen($head[0]) : 0;
         $reference = static fn(string $value): array => array('url' => $value);
         $attributes = function (string $tag, array $names): array {
             $values = array();
@@ -3684,36 +3644,36 @@ final class ArtifactCompiler
             }
             return $values;
         };
-        $placement = static fn(int $offset): string => $offset < $headEnd ? 'head' : 'body';
         $inlineScripts = array();
         foreach ($generatedAssets as $asset) if ('inline-script' === ($asset['source'] ?? null) && is_string($asset['selector'] ?? null) && is_string($asset['path'] ?? null)) $inlineScripts[$asset['selector']] = $asset['path'];
         $meta = array(); $links = array(); $scripts = array();
-        if (preg_match_all('/<meta\b[^>]*>/i', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
-            $tag = (string) $match[0];
+        foreach (HtmlTagScanner::scan($html, 'meta') as $declaration) {
+            $tag = $declaration['tag'];
             $row = $attributes($tag, array('charset', 'name', 'property', 'http-equiv', 'content'));
-            if (array() !== $row) { $row = array_merge(array('order' => count($meta), 'placement' => $placement((int) $match[1])), $row); $meta[] = $row; }
+            if (array() !== $row) { $row = array_merge(array('order' => count($meta), 'placement' => $declaration['placement']), $row); $meta[] = $row; }
         }
-        foreach (StyleTagScanner::scanLinks($html) as $link) {
+        foreach (HtmlTagScanner::scan($html, 'link') as $link) {
             $tag = $link['tag']; $href = $this->htmlAttribute($tag, 'href');
             if ('' === $href) continue;
-            $links[] = array_merge(array('order' => count($links), 'placement' => $placement($link['offset'])), $attributes($tag, array('rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes')), $reference($href));
+            $links[] = array_merge(array('order' => count($links), 'placement' => $link['placement']), $attributes($tag, array('rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes')), $reference($href));
         }
         $scriptIndex = 0;
-        if (preg_match_all('/<script\b[^>]*>(?:.*?)<\/script\s*>/is', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
-            $tag = (string) $match[0]; $open = strstr($tag, '>', true) . '>'; $src = $this->htmlAttribute($open, 'src');
+        foreach (HtmlTagScanner::scan($html, 'script') as $script) {
+            $open = $script['tag']; $src = $this->htmlAttribute($open, 'src');
             $selector = 'script:nth-of-type(' . (++$scriptIndex) . ')';
             // A static-site interpreter of the inert motion markers is replaced by
             // the view scripts of the blocks those markers lower to.
             if ($this->hasHtmlAttribute($open, 'data-blocks-engine-marker-runtime')) continue;
             $async = $this->hasHtmlAttribute($open, 'async'); $defer = $this->hasHtmlAttribute($open, 'defer'); $module = 'module' === strtolower($this->htmlAttribute($open, 'type'));
             $supersededBy = $this->htmlAttribute($open, 'data-blocks-engine-superseded-by');
-            $inlineBodyHash = hash('sha256', trim((string) preg_replace('/^.*?>|<\/script\s*>$/is', '', $tag)));
+            $inlineBodyHash = hash('sha256', trim($script['content']));
             $inline = isset($inlineScripts[$selector]) ? $reference($inlineScripts[$selector]) : array('source_kind' => 'inline', 'body_hash' => $inlineBodyHash);
             if ( '' !== $supersededBy ) $inline = array_merge($inline, array('selector' => $selector, 'superseded_by' => $supersededBy, 'body_hash' => $inlineBodyHash));
-            $scripts[] = array_merge(array('order' => count($scripts), 'placement' => $placement((int) $match[1]), 'async' => $async, 'defer' => $defer, 'module' => $module, 'nomodule' => $this->hasHtmlAttribute($open, 'nomodule'), 'effective_loading' => $async ? 'async' : (($defer || $module) ? 'defer' : 'blocking')), $attributes($open, array('type', 'integrity', 'crossorigin', 'referrerpolicy', 'fetchpriority')), '' !== $src ? $reference($src) : $inline);
+            $scripts[] = array_merge(array('order' => count($scripts), 'placement' => $script['placement'], 'async' => $async, 'defer' => $defer, 'module' => $module, 'nomodule' => $this->hasHtmlAttribute($open, 'nomodule'), 'effective_loading' => $async ? 'async' : (($defer || $module) ? 'defer' : 'blocking')), $attributes($open, array('type', 'integrity', 'crossorigin', 'referrerpolicy', 'fetchpriority')), '' !== $src ? $reference($src) : $inline);
         }
-        $title = preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $html, $match) ? trim(html_entity_decode(strip_tags((string) $match[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
-        return array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        $titles = HtmlTagScanner::scan($html, 'title');
+        $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
+        return array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), 'root_attributes' => \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::fromHtml($html), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
     }
 
     /**
@@ -3848,8 +3808,9 @@ final class ArtifactCompiler
             if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
                 continue;
             }
-            if ( preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', (string) ($file['content'] ?? ''), $match) ) {
-                $title = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($match[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+            $declarations = HtmlTagScanner::scan((string) ($file['content'] ?? ''), 'title');
+            if ( isset($declarations[0]) ) {
+                $title = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($declarations[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
                 if ( '' !== $title ) {
                     $titles[] = $title;
                 }
@@ -3908,8 +3869,9 @@ final class ArtifactCompiler
             return trim(preg_replace('/\s+/', ' ', $titleHtml) ?? '');
         };
 
-        if ( array() !== $siteNameSegments && preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $html, $match) ) {
-            $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, $normalize($match[1])) ?: array();
+        $titleDeclaration = HtmlTagScanner::scan($html, 'title')[0] ?? null;
+        if ( array() !== $siteNameSegments && null !== $titleDeclaration ) {
+            $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, $normalize($titleDeclaration['content'])) ?: array();
             $length = count($siteNameSegments);
             $trailingMatch = $length <= count($segments) && array_slice($segments, $length * -1) === $siteNameSegments;
             $leadingMatch = $length <= count($segments) && array_slice($segments, 0, $length) === $siteNameSegments;
@@ -3943,9 +3905,20 @@ final class ArtifactCompiler
             }
         }
         if ( '' !== $contentHeading ) {
+            // Block-display inline children (a styled span on its own line) carry
+            // no whitespace in the markup, so flattening the heading to text glues
+            // the lines together. When the document title spells the same words
+            // with the spacing the author rendered, it is the faithful form.
+            if ( null !== $titleDeclaration ) {
+                $documentTitle = $normalize($titleDeclaration['content']);
+                $compact = static fn (string $text): string => strtolower(preg_replace('/\s+/u', '', $text) ?? $text);
+                if ( $documentTitle !== $contentHeading && '' !== $documentTitle && $compact($documentTitle) === $compact($contentHeading) ) {
+                    return $documentTitle;
+                }
+            }
             if ( $path !== $entryPath && $contentHeading === $entryTitle
-                && preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $html, $match) ) {
-                $documentTitle = $normalize($match[1]);
+                && null !== $titleDeclaration ) {
+                $documentTitle = $normalize($titleDeclaration['content']);
                 if ( '' !== $documentTitle && $documentTitle !== $normalize($entryDocumentTitle) && $documentTitle !== $entryTitle ) {
                     return $documentTitle;
                 }
@@ -3953,8 +3926,8 @@ final class ArtifactCompiler
             return $contentHeading;
         }
 
-        if ( preg_match('/<title\b[^>]*>(.*?)<\/title>/is', $html, $match) ) {
-            $title = $normalize($match[1]);
+        if ( null !== $titleDeclaration ) {
+            $title = $normalize($titleDeclaration['content']);
             if ( '' !== $title && ( $path === $entryPath || '' === $entryPath || $title !== $entryTitle ) ) {
                 return $title;
             }

@@ -43,6 +43,15 @@ $assert(
 $assert(str_contains($namedMarkup, 'href="#comments"'), '6: same-page hash link is preserved', $namedMarkup);
 $assert(str_contains($namedMarkup, 'Leave a Reply.'), '7: following sibling still converts', $namedMarkup);
 
+$emptyParagraphTarget = $transformer->transform(
+    '<main><nav><a href="#services">Services</a></nav><p id="services"></p><section><h2>What we do</h2></section></main>'
+)->toArray();
+$emptyParagraphMarkup = (string) ($emptyParagraphTarget['serialized_blocks'] ?? '');
+$assert(array() === ($emptyParagraphTarget['fallbacks'] ?? array()), '15: referenced empty paragraph target converts without fallback');
+$assert(1 === substr_count($emptyParagraphMarkup, 'id="services"') && 1 === substr_count($emptyParagraphMarkup, '"anchor":"services"'), '16: referenced empty paragraph target is projected exactly once to a native block anchor', $emptyParagraphMarkup);
+$assert(str_contains($emptyParagraphMarkup, '"url":"#services"') && str_contains($emptyParagraphMarkup, 'What we do'), '17: source fragment link and following native content survive', $emptyParagraphMarkup);
+$assert('pass' === ($validity->validateBlocks($emptyParagraphTarget['blocks'] ?? array())['status'] ?? ''), '18: referenced empty paragraph target remains Gutenberg-valid');
+
 $nameOnly = $transformer->transform(
     '<main><a name="section"></a><h2>Section</h2></main>'
 )->toArray();

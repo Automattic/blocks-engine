@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
 
@@ -74,6 +75,7 @@ final class RuntimeIslandAnalyzer
 
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
+        if ('' !== trim(SourceDom::attr($element, 'data-dla-dialog-close'))) return true;
         $id = trim(SourceDom::attr($element, 'id'));
         if ( '' !== $id && $this->context->runtimeSelectors()->hasDom('#' . $id) && ! $this->isPresentationalRuntimeSelector('#' . $id) ) {
             return true;
@@ -318,18 +320,7 @@ final class RuntimeIslandAnalyzer
 
     public function elementMatchesRuntimeSelector(DOMElement $element, string $selector): bool
     {
-        $tag = strtolower($element->tagName);
-        if ( $selector === $tag && in_array($tag, array_merge(array('canvas', 'svg'), self::RUNTIME_TAG_SELECTORS), true) ) {
-            return true;
-        }
-        if ( preg_match('/^([a-z][a-z0-9-]*)\.([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            return $tag === strtolower((string) $match[1]) && in_array((string) $match[2], preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array(), true);
-        }
-        if ( preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ) {
-            return ( '' === (string) ($match[1] ?? '') || $tag === strtolower((string) $match[1]) ) && $element->hasAttribute(strtolower((string) $match[2]));
-        }
-
-        return false;
+        return RuntimeSelectorVocabulary::matchesElement($element, $selector, array_merge(array( 'canvas', 'svg' ), self::RUNTIME_TAG_SELECTORS));
     }
 
     /**

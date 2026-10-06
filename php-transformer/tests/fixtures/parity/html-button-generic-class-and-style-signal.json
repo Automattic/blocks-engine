@@ -19,7 +19,7 @@
     { "path": "blocks.0", "name": "core/buttons" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "See the Teams", "url": "/teams" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "text": "Sign up today", "url": "/signup" } },
-    { "path": "blocks.0.innerBlocks.2", "name": "core/button", "attrs": { "text": "Donate", "url": "/donate", "className": "blocks-engine-layout-child-button blocks-engine-native-button-alignment-start" } }
+    { "path": "blocks.0.innerBlocks.2", "name": "core/button", "attrs": { "text": "Donate", "url": "/donate" } }
   ],
   "expected_fallbacks": [],
   "expect": [

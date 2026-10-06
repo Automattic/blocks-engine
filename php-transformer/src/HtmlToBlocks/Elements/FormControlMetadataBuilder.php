@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
@@ -371,6 +372,21 @@ final class FormControlMetadataBuilder
                 $presentation = ($this->presentationAttributes)($control);
                 if ( is_array($presentation['style'] ?? null) && array() !== $presentation['style'] ) {
                     $metadata['presentation'] = array( 'style' => $presentation['style'] );
+                }
+            }
+            // A provider flattens the editable label independently from its box.
+            // Read the existing whole-text carrier through the form typography
+            // cascade so a styled paragraph/div chain does not become button defaults.
+            $carrier = FormPresentationGraphBuilder::soleTextCarrier($control);
+            if ($carrier instanceof DOMElement) {
+                $typography = $this->contextTypography($carrier);
+                $declarations = array();
+                foreach ($typography as $property => $value) {
+                    $declarations[str_replace('_', '-', $property)] = $value;
+                }
+                $labelStyle = (new StyleAttributeMapper())->map($declarations)['style'];
+                if (array() !== $labelStyle) {
+                    $metadata['presentation']['style'] = array_replace_recursive($metadata['presentation']['style'] ?? array(), $labelStyle);
                 }
             }
         }

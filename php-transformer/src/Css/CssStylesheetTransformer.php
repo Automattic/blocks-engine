@@ -320,6 +320,8 @@ final class CssStylesheetTransformer
         $length = strlen($prelude);
 
         for ( $index = 0; $index < $length; ++$index ) {
+            $index += strcspn($prelude, "\\\"'/*()[],", $index);
+            if ( $index >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($prelude, $index, $state);
             if ( null === $next ) {
@@ -451,6 +453,8 @@ final class CssStylesheetTransformer
         $state  = CssSyntaxScanner::state();
         $length = strlen($css);
         for ( $index = $offset; $index < $length; ++$index ) {
+            $index += strcspn($css, "\\\"'/*()[]{;", $index);
+            if ( $index >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($css, $index, $state);
             if ( null === $next ) {
@@ -471,6 +475,8 @@ final class CssStylesheetTransformer
         $depth  = 0;
         $length = strlen($css);
         for ( $index = $openingBrace; $index < $length; ++$index ) {
+            $index += strcspn($css, "\\\"'/*()[]{}", $index);
+            if ( $index >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($css, $index, $state);
             if ( null === $next ) {
@@ -497,6 +503,11 @@ final class CssStylesheetTransformer
         return '' !== self::firstSignificantCharacter($prelude) && null !== self::splitSelectorList($prelude);
     }
 
+    public function nestsStyleRules(string $prelude): bool
+    {
+        return $this->isAtRule($prelude) && $this->walksNestedRules($prelude);
+    }
+
     private function walksNestedRules(string $prelude): bool
     {
         return in_array(self::atRuleName($prelude), array( 'container', 'layer', 'media', 'scope', 'starting-style', 'supports' ), true);
@@ -508,6 +519,11 @@ final class CssStylesheetTransformer
         $braces = 0;
         $length = strlen($css);
         for ( $offset = 0; $offset < $length; ) {
+            // Ordinary bytes cannot change lexical state or brace depth. Scan
+            // those runs in C; retain the shared scanner for every delimiter,
+            // escape and malformed-input decision (including inside strings).
+            $offset += strcspn($css, "\\\"'/*()[]{}", $offset);
+            if ( $offset >= $length ) break;
             $topLevel = CssSyntaxScanner::isTopLevel($state);
             $next = CssSyntaxScanner::consume($css, $offset, $state);
             if ( null === $next ) {

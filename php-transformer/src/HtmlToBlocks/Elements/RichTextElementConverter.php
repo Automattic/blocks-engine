@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+
 use DOMElement;
 
 /**
@@ -119,6 +121,48 @@ final class RichTextElementConverter implements ElementConverter
     }
 
     /**
+     * Lowers a paragraph made only of text and disclosure-widget spans to a
+     * group of paragraphs and `core/details`; anything else is declined.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function textWithDisclosureChildren(DOMElement $element, array &$fallbacks): ?array
+    {
+        $children = array();
+        $found = false;
+        $text = '';
+        $flush = function () use (&$children, &$text): void {
+            if ( '' !== trim($text) ) {
+                $children = array_merge($children, $this->context->convertText(trim($text)));
+            }
+            $text = '';
+        };
+        foreach ( $element->childNodes as $node ) {
+            if ( $node instanceof DOMElement && 'span' === strtolower($node->tagName) ) {
+                $local = array();
+                $details = $this->context->nativeDisclosureBlock($node, $local);
+                if ( null === $details ) {
+                    return null;
+                }
+                $flush();
+                $fallbacks = array_merge($fallbacks, $local);
+                $children[] = $details;
+                $found = true;
+            } elseif ( $node instanceof \DOMComment ) {
+                continue;
+            } elseif ( $node instanceof \DOMText ) {
+                $text .= $node->textContent;
+            } else {
+                return null;
+            }
+        }
+        $flush();
+
+        return $found ? $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element) : null;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
@@ -136,6 +180,11 @@ final class RichTextElementConverter implements ElementConverter
             return $image;
         }
 
+        $editableIconRow = $this->context->compactLinkedIconTextRowFromParagraph($element);
+        if ( null !== $editableIconRow ) {
+            return $editableIconRow;
+        }
+
         $content         = $this->context->richTextContent($element);
         $withLowered     = $this->context->richTextWithInlineSafeButtonsLowered($element, $content);
         if ( null !== $withLowered ) {
@@ -146,6 +195,11 @@ final class RichTextElementConverter implements ElementConverter
             $content = $withInlineSvg;
         }
 
+        $emptyLayout = $this->context->emptyInlineGeometryBlock($element, $fallbacks);
+        if ( null !== $emptyLayout ) {
+            return $emptyLayout;
+        }
+
         if ( $this->context->requiresHtmlFallback($content) ) {
             // A paragraph wrapping one anchor that mixes an image with text is
             // not RichText, but the container path already converts that anchor
@@ -154,6 +208,13 @@ final class RichTextElementConverter implements ElementConverter
             $mixedMedia = $this->context->mixedMediaLinkGroupFromParagraph($element, $fallbacks);
             if ( null !== $mixedMedia ) {
                 return $mixedMedia;
+            }
+
+            // A text run ending in a toggle + collapsed-region span is text plus a
+            // native disclosure, not an opaque HTML island.
+            $disclosure = $this->textWithDisclosureChildren($element, $fallbacks);
+            if ( null !== $disclosure ) {
+                return $disclosure;
             }
 
             return $this->context->htmlPreservationBlock($element);
@@ -172,8 +233,16 @@ final class RichTextElementConverter implements ElementConverter
         if ( '' === trim($this->context->stripAllTags($content)) && ! $this->context->containsNativeSvgImageObject($content) ) {
             // An empty paragraph that scripts address by selector must keep a
             // block at that position, otherwise the runtime target disappears.
-            if ( $this->context->isRuntimeDomTarget($element) ) {
-                return $this->context->createBlock('core/group', $this->context->presentationAttributes($element), array(), $element);
+            $fragmentId = SourceDom::namedFragmentTargetId($element);
+            $fragmentTarget = '' !== $fragmentId
+                && SourceDom::documentReferencesFragmentId($element, $fragmentId)
+                && ! SourceDom::documentHasOtherFragmentTarget($element, $fragmentId);
+            if ( $this->context->isRuntimeDomTarget($element) || $fragmentTarget ) {
+                $attributes = $this->context->presentationAttributes($element);
+                if ( $fragmentTarget ) {
+                    $attributes['anchor'] = $fragmentId;
+                }
+                return $this->context->createBlock('core/group', $attributes, array(), $element);
             }
 
             $textBlocks = $this->context->convertText(trim($element->textContent ?? ''));

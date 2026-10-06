@@ -14,6 +14,8 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 
 $failures = 0;
 $passes = 0;
@@ -207,6 +209,35 @@ $assert(
     'a plain title reads its typography through its text carrier',
     json_encode($carrierTitle)
 );
+
+$unrelatedCss = '';
+for ($index = 0; $index < 8300; ++$index) {
+    $unrelatedCss .= '.unrelated-' . $index . '{display:block;padding:0;font-size:12px}';
+}
+$formCss = $unrelatedCss . '.scope{--title-size:30px;--title-family:Georgia;--field-size:22px}'
+    . '@media(min-width:981px){.scope h2{font-size:var(--title-size);font-family:var(--title-family);line-height:1.5}.scope input{font-size:var(--field-size);font-family:var(--title-family)}}';
+$document = new DOMDocument();
+$document->loadHTML('<div class="scope"><form><h2>Contact the owner</h2><input type="email" name="email"><button type="submit">Send</button></form></div>');
+$form = $document->getElementsByTagName('form')->item(0);
+$sheets = array(array('content' => $formCss, 'source_path' => 'styles/owner.css', 'source_hash' => hash('sha256', $formCss)));
+$graph = (new FormLayoutGraphBuilder())->build($form, $sheets);
+$contextNode = null;
+foreach ($graph['nodes'] as $node) {
+    if (($node['source']['tag'] ?? '') === 'h2') $contextNode = $node;
+}
+$assert(!$graph['truncated'], 'unrelated author rules do not exhaust the form-specific graph', json_encode($graph['diagnostics']));
+$assert(is_array($contextNode) && !($contextNode['presentation']['truncated'] ?? true), 'context presentation analyzes the form and its inheritance scope');
+$contextVariant = $contextNode['presentation']['variants'][0] ?? array();
+$assert(($contextVariant['condition']['query'] ?? '') === '(min-width:981px)'
+    && ($contextVariant['styles']['font_size'] ?? '') === '30px'
+    && ($contextVariant['styles']['font_family'] ?? '') === 'Georgia'
+    && ($contextVariant['styles']['line_height'] ?? '') === '1.5',
+    'late responsive context typography retains source custom properties', json_encode($contextVariant));
+$presentation = (new FormPresentationGraphBuilder())->build($form, $sheets);
+$controlVariant = array_values(array_filter($presentation['variants'], static fn(array $variant): bool => ($variant['index'] ?? null) === 0 && ($variant['role'] ?? '') === 'control'))[0] ?? array();
+$assert(!$presentation['truncated'] && ($controlVariant['style_patch']['font_size'] ?? '') === '22px'
+    && ($controlVariant['style_patch']['font_family'] ?? '') === 'Georgia',
+    'late control typography uses the same bounded form-specific cascade', json_encode($presentation['diagnostics']));
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "form entity in-form context FAILED: {$passes} passed, {$failures} failed\n");
