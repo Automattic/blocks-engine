@@ -132,12 +132,12 @@ final class CapturedDialogProjector
     {
         $kind = is_string($state['kind'] ?? null) ? $state['kind'] : 'dialog';
 
-        return '' === $kind || 'dialog' === $kind;
+        return '' === $kind || 'dialog' === $kind || 'gallery' === $kind;
     }
 
     /**
      * @param array<int, mixed> $states
-     * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int, retired_scripts:array<int, string>}
+     * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int, retired_scripts:array<int, array{body:string, attribute:string, reason:string}>}
      */
     private function projectPage(string $html, array $states, string $sourcePath): array
     {
@@ -151,11 +151,13 @@ final class CapturedDialogProjector
         }
 
         $diagnostics = array();
+        $galleryCount = $this->prepareGalleries($document, $states, $sourcePath, $diagnostics);
         $adoption = $this->adoptWiredPanels($document, $sourcePath);
         $adopted = $adoption['triggers'];
         $projected = $adoption['count'];
         $handledNavigationDropdown = false;
         foreach ($states as $state) {
+            if ('gallery' === ($state['kind'] ?? '')) continue; // The verified in-place panels were adopted above.
             if (! is_array($state) || 'captured' !== ($state['status'] ?? null) || ! is_array($state['trigger'] ?? null) || ! is_array($state['dialog'] ?? null)) {
                 continue;
             }
@@ -231,11 +233,19 @@ final class CapturedDialogProjector
             ++$projected;
         }
         $retired = array();
+        if ($galleryCount > 0) {
+            foreach (iterator_to_array($document->getElementsByTagName('script')) as $script) {
+                if (!$script instanceof DOMElement || !$script->hasAttribute('data-dla-gallery-runtime')) continue;
+                $body = trim($script->textContent ?? '');
+                if ('' !== $body) $retired[] = array('body' => $body, 'attribute' => 'data-dla-gallery-runtime', 'reason' => 'native_carousel_and_dialog_replace_capture_gallery');
+                $script->parentNode?->removeChild($script);
+            }
+        }
         if (($projected > 0 || $handledNavigationDropdown) && !$this->hasDialogCloseHelper($document) && $this->everyDialogTriggerIsBound($document)) {
             foreach (iterator_to_array($document->getElementsByTagName('script')) as $script) {
                 if (!$script instanceof DOMElement || !$script->hasAttribute('data-dla-disclosure-runtime')) continue;
                 $body = trim($script->textContent ?? '');
-                if ('' !== $body) $retired[] = $body;
+                if ('' !== $body) $retired[] = array('body' => $body, 'attribute' => 'data-dla-disclosure-runtime', 'reason' => 'native_dialog_close_replaces_capture_close_helper');
                 $script->parentNode?->removeChild($script);
             }
         }
@@ -243,6 +253,90 @@ final class CapturedDialogProjector
         $output = $document->saveHTML();
         $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired);
+    }
+
+    /** Consume viewport-scoped, observed image selection before the ordinary dialog adoption. */
+    private function prepareGalleries(DOMDocument $document, array $states, string $path, array &$diagnostics): int
+    {
+        $xpath = new DOMXPath($document);
+        $count = 0;
+        foreach ($states as $state) {
+            if ('gallery' !== ($state['kind'] ?? '') || !is_array($state['gallery'] ?? null)) continue;
+            $gallery = $state['gallery'];
+            $inline = $gallery['inline'] ?? array();
+            $lightbox = $gallery['lightbox'] ?? array();
+            $selection = $gallery['selection'] ?? array();
+            $frames = $inline['frames'] ?? array();
+            $fullFrames = $lightbox['frames'] ?? array();
+            $validCycle = static fn(array $cycle): bool => 'complete' === ($cycle['coverage'] ?? '') && 'verified' === ($cycle['restoration'] ?? '') && is_array($cycle['frames'] ?? null) && count($cycle['frames']) >= 2 && count($cycle['frames']) <= 24;
+            if (!$validCycle($inline)) continue;
+            $roots = $xpath->query('//*[@data-dla-gallery-source=' . $this->xpathLiteral((string) ($inline['selector'] ?? '')) . ' and @data-dla-gallery-capture-width=' . $this->xpathLiteral((string) ($inline['viewport']['width'] ?? '')) . ']');
+            if ($roots && 0 === $roots->length) continue; // A responsive collapse can retain only one captured viewport.
+            if (!$roots || 1 !== $roots->length) {
+                $diagnostics[] = $this->diagnostic('captured_gallery_source_unmatched', 'warning', 'The observed gallery did not match one viewport-scoped authoring root.', array('source_path' => $path));
+                continue;
+            }
+            $root = $roots->item(0);
+            $stage = $xpath->query('.//*[@data-dla-gallery-stage]', $root)?->item(0);
+            if (!$stage instanceof DOMElement) continue;
+            $stage->setAttribute('role', 'list');
+            foreach ($stage->childNodes as $item) if ($item instanceof DOMElement) $item->setAttribute('role', 'listitem');
+            ++$count;
+            if ('captured' !== ($state['status'] ?? '') || empty($gallery['closed']) || !$validCycle($lightbox)) continue;
+            $expected = range(0, count($fullFrames) - 1);
+            $sorted = $selection;
+            sort($sorted);
+            if (count($frames) !== count($fullFrames) || $sorted !== $expected || count($selection) !== count($frames)) {
+                $diagnostics[] = $this->diagnostic('captured_gallery_selection_invalid', 'warning', 'The captured image-to-lightbox selection is not a complete bijection.', array('source_path' => $path));
+                continue;
+            }
+            foreach ($selection as $index => $selected) {
+                if (($frames[$index]['fullImage'] ?? $frames[$index]['key'] ?? null) !== ($fullFrames[$selected]['key'] ?? null)) {
+                    $diagnostics[] = $this->diagnostic('captured_gallery_selection_invalid', 'warning', 'The selected full image does not match the observed inline image identity.', array('source_path' => $path));
+                    continue 2;
+                }
+            }
+            $key = $stage->getAttribute('data-dla-dialog-trigger');
+            $panels = $xpath->query('.//*[@data-dla-dialog-panel=' . $this->xpathLiteral($key) . ']', $root);
+            $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
+            if (!$panel instanceof DOMElement) continue;
+            $fullStage = $xpath->query('.//*[@data-dla-gallery-stage]', $panel)?->item(0);
+            if (!$fullStage instanceof DOMElement) continue;
+            $children = array_values(array_filter(iterator_to_array($fullStage->childNodes), static fn($child): bool => $child instanceof DOMElement));
+            if (count($children) !== count($fullFrames)) continue;
+            $native = $document->createElement('div');
+            $native->setAttribute('aria-label', 'Image gallery carousel');
+            $native->setAttribute('style', 'width:100%');
+            $list = $document->createElement('div');
+            $list->setAttribute('class', 'slideshow');
+            $list->setAttribute('role', 'list');
+            $list->setAttribute('data-dla-gallery-initial', (string) ($lightbox['initial'] ?? 0));
+            foreach ($children as $index => $child) {
+                $image = $child->getElementsByTagName('img')->item(0);
+                if (!$image instanceof DOMElement || '' === $image->getAttribute('src')) continue 2;
+                $item = $document->createElement('div');
+                $item->setAttribute('role', 'listitem');
+                $item->setAttribute('aria-hidden', $index === ($lightbox['initial'] ?? 0) ? 'false' : 'true');
+                $image = $image->cloneNode(true);
+                $image->setAttribute('style', 'display:block;width:100%;height:auto;max-height:80vh;object-fit:contain');
+                $item->appendChild($image);
+                $list->appendChild($item);
+            }
+            $native->appendChild($list);
+            foreach (array('Previous slide', 'Next slide') as $label) {
+                $button = $document->createElement('button', $label);
+                $button->setAttribute('aria-label', $label);
+                $native->appendChild($button);
+            }
+            while ($panel->firstChild) $panel->removeChild($panel->firstChild);
+            $panel->appendChild($native);
+            $close = $document->createElement('button', 'Close');
+            $close->setAttribute('aria-label', 'Close gallery');
+            $close->setAttribute('data-blocks-engine-dialog-close', 'true');
+            $panel->appendChild($close);
+            $panel->setAttribute('data-blocks-engine-gallery-selection', json_encode($selection, JSON_THROW_ON_ERROR));
+        }
+        return $count;
     }
 
     /**
@@ -322,6 +416,10 @@ final class CapturedDialogProjector
                     $menu = $menu || 'menu' === strtolower(trim($trigger->getAttribute('aria-haspopup')));
                 }
                 $dialog = $this->appendProjectedDialog($document, $fragment, $triggerIds, $identity);
+                $selection = json_decode($panel->getAttribute('data-blocks-engine-gallery-selection'), true);
+                if (is_array($selection) && array() !== $selection) {
+                    $dialog->setAttribute('data-blocks-engine-gallery-selection', json_encode(array_map(static fn(string $id): array => array('triggerId' => $id, 'indices' => $selection), $triggerIds), JSON_THROW_ON_ERROR));
+                }
                 if ($menu) $dialog->setAttribute('data-blocks-engine-captured-menu', 'true');
                 $panel->parentNode?->removeChild($panel);
                 foreach (iterator_to_array($scope->getElementsByTagName('button')) as $button) {
@@ -414,7 +512,7 @@ final class CapturedDialogProjector
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @param array<string, array<int, string>> $retired
+     * @param array<string, array<int, array{body:string, attribute:string, reason:string}>> $retired
      * @return array<int, array<string, string>>
      */
     private function omitRetiredDisclosureScripts(array &$files, array $retired): array
@@ -424,7 +522,9 @@ final class CapturedDialogProjector
         foreach ($files as $file) {
             $sourcePath = ArtifactNormalizer::inlineExpansionSourcePath($file);
             $body = trim((string) ($file['content'] ?? ''));
-            $matched = '' !== $sourcePath && 'inline-script' === ($file['source'] ?? null) && in_array($body, $retired[$sourcePath] ?? array(), true);
+            $replacement = null;
+            foreach ($retired[$sourcePath] ?? array() as $record) if ($body === $record['body']) $replacement = $record;
+            $matched = '' !== $sourcePath && 'inline-script' === ($file['source'] ?? null) && null !== $replacement;
             if (!$matched) {
                 $kept[] = $file;
                 continue;
@@ -434,8 +534,8 @@ final class CapturedDialogProjector
                 'source_path' => $sourcePath,
                 'asset_source_path' => (string) ($file['path'] ?? ''),
                 'body_hash' => hash('sha256', $body),
-                'attribute' => 'data-dla-disclosure-runtime',
-                'reason' => 'native_dialog_close_replaces_capture_close_helper',
+                'attribute' => $replacement['attribute'],
+                'reason' => $replacement['reason'],
             );
         }
         $files = $kept;

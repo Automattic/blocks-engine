@@ -803,6 +803,7 @@ final class SourceElementClassifier
 
     public function hasCarouselIdentity(DOMElement $element): bool
     {
+        if ($element->hasAttribute('data-dla-gallery-stage')) return true;
         $identity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
             $element->tagName,
             SourceDom::attr($element, 'id'),

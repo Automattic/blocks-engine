@@ -68,6 +68,7 @@ final class AuthoredCarouselBlockGenerator
             'transitionDuration' => array('type' => 'number', 'default' => 300),
             'autoplayInterval' => array('type' => 'number', 'default' => 0),
             'showDots' => array('type' => 'boolean', 'default' => false),
+            'showStatus' => array('type' => 'boolean', 'default' => false),
             'fullBleed' => array('type' => 'boolean', 'default' => false),
             'thumbnails' => array('type' => 'array', 'default' => array()),
             'thumbnailPosition' => array('type' => 'string', 'default' => 'right'),
@@ -110,6 +111,7 @@ final class AuthoredCarouselBlockGenerator
         var props = { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle ) + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
         Object.keys( attributes.sourceIdentityAttributes || {} ).forEach( function( name ) { props[ name ] = attributes.sourceIdentityAttributes[ name ]; } );
         if ( attributes.sourceControlArtwork ) { props.className += ' blocks-engine-authored-carousel--source-control-artwork'; }
+        if ( attributes.showStatus ) { props.className += ' blocks-engine-authored-carousel--show-status'; }
         if ( attributes.sourceControlTopology ) { props.className += ' blocks-engine-authored-carousel--source-control-topology'; }
         Object.keys( attributes.controlPresentation || {} ).forEach( function( key ) { props.style = props.style || {}; props.style[ '--blocks-engine-carousel-control-' + key ] = attributes.controlPresentation[ key ]; } );
         Object.keys( attributes.sourceCustomProperties || {} ).forEach( function( name ) { props.style = props.style || {}; props.style[ name ] = attributes.sourceCustomProperties[ name ]; } );
@@ -178,7 +180,7 @@ final class AuthoredCarouselBlockGenerator
             Object.keys( props.attributes.sourceControlAttributes || {} ).forEach( function( name ) { controlIdentityProps[ name ] = props.attributes.sourceControlAttributes[ name ]; } );
             var controls = props.attributes.sourceControlTopology
                 ? createElement( 'div', Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), style: 'slideshow' === props.attributes.presentation ? { position: 'absolute', inset: 0, zIndex: 4, pointerEvents: 'none', boxSizing: 'border-box', width: 'auto', height: 'auto', margin: 0, padding: 0 } : undefined, dangerouslySetInnerHTML: { __html: props.attributes.sourceControlTopology } }, controlIdentityProps ) )
-                : createElement( 'div', { className: 'blocks-engine-authored-carousel__controls' }, previous, next );
+                : createElement( 'div', Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), style: 'slideshow' === props.attributes.presentation ? { position: 'absolute', inset: 0, zIndex: 4, pointerEvents: 'none', boxSizing: 'border-box', width: 'auto', height: 'auto', margin: 0, padding: 0 } : undefined }, controlIdentityProps ), previous, next );
             var stageContent = createElement( 'div', { className: 'blocks-engine-authored-carousel__viewport', tabIndex: 0, 'data-wp-on--keydown': 'actions.keydown' }, createElement( 'div', { className: 'blocks-engine-authored-carousel__track ' + ( props.attributes.stageTrackClassName || '' ) }, createElement( InnerBlocks.Content ) ) );
             var stage = ( props.attributes.stageWrappers || [] ).reduceRight( function( child, wrapper, index ) {
                 var wrapperProps = { key: index, className: wrapper.className || undefined, style: inlineStyle( wrapper.style ) };
@@ -336,11 +338,13 @@ store( 'blocks-engine/carousel', {
             context.index = Math.min( context.index, maximumIndex( context ) );
             syncSlideshow( ref, context );
             const root = rootOf( ref ) ?? ref;
-            if ( 'slideshow' !== context.presentation || ! context.playing ) {
-                return;
-            }
-            startAutoplay( root, context );
-            return () => stopAutoplay( root );
+            const select = withScope( ( event ) => {
+                const index = event.detail?.index;
+                if ( Number.isInteger( index ) && index >= 0 && index < context.count ) show( index );
+            } );
+            root.addEventListener( 'blocks-engine-carousel-select', select );
+            if ( 'slideshow' === context.presentation && context.playing ) startAutoplay( root, context );
+            return () => { root.removeEventListener( 'blocks-engine-carousel-select', select ); stopAutoplay( root ); };
         },
     },
     actions: {
@@ -389,6 +393,7 @@ JS;
 
         $style .= '.blocks-engine-authored-carousel--slideshow{margin-block-start:0;margin-block-end:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{min-height:var(--blocks-engine-carousel-stage-min-height,0)}.blocks-engine-authored-carousel__track>.wp-block-group{min-height:var(--blocks-engine-carousel-stage-min-height,auto);margin-block-start:0;margin-block-end:0}';
         $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next::before{content:none}';
+        $style .= '.blocks-engine-authored-carousel--show-status>.blocks-engine-authored-carousel__status{position:static;width:auto;height:auto;margin:0;clip:auto;overflow:visible;white-space:normal}';
         $style .= '.blocks-engine-authored-carousel--source-control-topology .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--source-control-topology .blocks-engine-authored-carousel__next{position:static;inset:auto;width:auto;height:auto;padding:0;border:0;border-radius:0;background:transparent;color:inherit;transform:none}';
         $style .= '.blocks-engine-authored-carousel__controls{display:contents}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls{display:block;position:absolute!important;inset:0!important;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;margin:0!important;padding:0!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-previous],.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__controls [data-carousel-next]{pointer-events:auto}.blocks-engine-authored-carousel__control-group{display:flex;align-items:center;justify-content:center;gap:.5rem}';
 
@@ -491,6 +496,7 @@ JS;
         $classes .= '' !== trim((string) ($attributes['sourcePresentationClasses'] ?? ''))
             ? ' ' . implode(' ', SourceDom::boundedClassTokens((string) $attributes['sourcePresentationClasses']))
             : '';
+        if (!empty($attributes['showStatus'])) $classes .= ' blocks-engine-authored-carousel--show-status';
         $stageAspect = 0 < $viewportHeight ? '' : $this->normalizedAspectRatio($attributes['stageAspectRatio'] ?? '');
         if ( '' !== $stageAspect ) {
             $classes .= ' blocks-engine-authored-carousel--stage-aspect';
@@ -717,6 +723,8 @@ JS;
         }
 
         $slides = array();
+        $capturedGallery = $list->hasAttribute('data-dla-gallery-initial');
+        if ($capturedGallery) foreach ($items as $item) $item->removeAttribute('hidden');
         foreach ( $items as $sourceItem ) {
             [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
             $image = $item->getElementsByTagName('img')->item(0);
@@ -795,6 +803,10 @@ JS;
                 $initialSlide = $index;
             }
         }
+        if ($capturedGallery) {
+            $presentation = 'slideshow';
+            $initialSlide = min(count($items) - 1, max(0, (int) $list->getAttribute('data-dla-gallery-initial')));
+        }
 
         $showDots = $paginationCount >= 2;
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
@@ -871,6 +883,7 @@ JS;
             $this->stageGeometryTargets($element, $geometryList)
         );
         $sourceScope = $styleResolver->sourceCustomPropertyScope($element, $presentationTargets, $items);
+        if ($list->hasAttribute('data-dla-dialog-trigger') && '' !== $list->getAttribute('id')) $sourceScope['attributes']['id'] = $list->getAttribute('id');
         $controlContainer = $sourceControls['previous'] instanceof DOMElement && $sourceControls['next'] instanceof DOMElement
             ? $this->navigationControlContainer($sourceControls['previous'], $sourceControls['next'])
             : null;
@@ -910,7 +923,8 @@ JS;
             'stageTrackClassName' => $styleResolver->safeTrackClassName($geometryList, $items),
             'sourceRootGeometry' => array_intersect_key($styleResolver->sourceGeometryPresentationDeclarations($element), array_flip(array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right'))),
             'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
-            'autoplayInterval' => 'slideshow' === $presentation ? $autoplayInterval : 0,
+            'autoplayInterval' => !$capturedGallery && 'slideshow' === $presentation ? $autoplayInterval : 0,
+            'showStatus' => $capturedGallery,
             'showDots' => 'slideshow' === $presentation && $showDots && array() === $thumbnails,
             'fullBleed' => 'slideshow' === $presentation && $fullBleed,
             'thumbnails' => $thumbnails,
@@ -1317,6 +1331,8 @@ JS;
             foreach ($container->childNodes as $child) {
                 if ($child instanceof DOMElement) {
                     $safe .= $this->serializeSafeControlNode($child);
+                } elseif ($child instanceof \DOMText) {
+                    $safe .= htmlspecialchars($child->nodeValue ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
                 }
             }
         }
