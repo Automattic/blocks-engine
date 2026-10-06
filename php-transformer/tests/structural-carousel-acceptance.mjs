@@ -16,16 +16,18 @@ const blockTree = () => page.evaluate(() => {
   return flatten(window.wp.data.select('core/block-editor').getBlocks()).map(b => ({ name: b.name, clientId: b.clientId, attrs: b.attributes, valid: b.isValid }));
 });
 const waitForSettledSlide = () => page.waitForFunction(() => {
-  const slides = [...document.querySelector('.blocks-engine-authored-carousel__track').children];
-  return slides.every(s => getComputedStyle(s).visibility === (s.classList.contains('blocks-engine-authored-carousel__slide--active') ? 'visible' : 'hidden'));
+  return [...document.querySelectorAll('.blocks-engine-authored-carousel')].filter(root => root.getBoundingClientRect().width > 0).every(root => {
+    const slides = [...root.querySelector('.blocks-engine-authored-carousel__track').children];
+    return slides.every(s => getComputedStyle(s).visibility === (s.classList.contains('blocks-engine-authored-carousel__slide--active') ? 'visible' : 'hidden'));
+  });
 });
 try {
   for (const width of [390, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`${base}/?page_id=${id}`, { waitUntil: 'domcontentloaded' });
-    const root = page.locator('.blocks-engine-authored-carousel');
+    const root = page.locator('.blocks-engine-authored-carousel').filter({ visible: true });
     await root.waitFor();
-    await page.waitForFunction(() => document.querySelectorAll('.blocks-engine-authored-carousel__slide--active').length === 1);
+    await page.waitForFunction(() => [...document.querySelectorAll('.blocks-engine-authored-carousel')].filter(root => root.getBoundingClientRect().width > 0).every(root => root.querySelectorAll('.blocks-engine-authored-carousel__slide--active').length === 1));
     await waitForSettledSlide();
     const state = () => root.evaluate(el => {
       const slides = [...el.querySelector('.blocks-engine-authored-carousel__track').children];
@@ -40,17 +42,17 @@ try {
     assert.equal(before.count, 20); assert.equal(before.images, 20); assert.equal(before.index, 7); assert.equal(before.visible, 1);
     assert.ok(before.arrows.every(b => b.tag === 'BUTTON' && b.svg && b.width > 0));
     await root.locator('[data-carousel-next]').click();
-    await page.waitForFunction(() => document.querySelector('.blocks-engine-authored-carousel__slide--active img')?.alt === 'Frame 8');
+    await page.waitForFunction(() => [...document.querySelectorAll('.blocks-engine-authored-carousel')].filter(root => root.getBoundingClientRect().width > 0).every(root => root.querySelector('.blocks-engine-authored-carousel__slide--active img')?.alt === 'Frame 8'));
     await waitForSettledSlide();
     const next = await state();
     await root.locator('[data-carousel-previous]').click();
-    await page.waitForFunction(() => document.querySelector('.blocks-engine-authored-carousel__slide--active img')?.alt === 'Frame 7');
+    await page.waitForFunction(() => [...document.querySelectorAll('.blocks-engine-authored-carousel')].filter(root => root.getBoundingClientRect().width > 0).every(root => root.querySelector('.blocks-engine-authored-carousel__slide--active img')?.alt === 'Frame 7'));
     await waitForSettledSlide();
     assert.equal(next.index, 8); assert.equal(next.visible, 1); assert.equal((await state()).index, 7); assert.equal((await state()).visible, 1);
     assert.ok(Math.abs(before.rootHeight-next.rootHeight) < 1, 'navigation keeps responsive stage height stable');
     const sourcePage = await browser.newPage({ viewport: { width, height: 900 } });
     await sourcePage.setContent(`<style>body{margin:0}${fixture.source.css}</style>${fixture.source.html}`);
-    const source = await sourcePage.locator('.frame-carousel').evaluate(el => {
+    const source = await sourcePage.locator('.frame-carousel').filter({ visible: true }).evaluate(el => {
       const i = el.querySelector('.active img').getBoundingClientRect(), r = el.getBoundingClientRect();
       return { fraction: i.width/r.width, ratio: i.width/i.height };
     });
@@ -74,8 +76,22 @@ try {
   }
   const initial = await blockTree();
   findings.editor = { initial };
+  const saveContracts = await page.evaluate(() => {
+    const flat = blocks => blocks.flatMap(block => [block, ...flat(block.innerBlocks || [])]);
+    const presentation = markup => {
+      const document = new DOMParser().parseFromString(markup, 'text/html');
+      const root = document.querySelector('.blocks-engine-authored-carousel');
+      const controls = root.querySelector('.blocks-engine-authored-carousel__controls');
+      const read = element => ({ classes: element.className.split(/\s+/).filter(Boolean).sort(), style: Object.fromEntries([...element.style].sort().map(name => [name, element.style.getPropertyValue(name) + (element.style.getPropertyPriority(name) ? '!important' : '')])), scope: element.getAttribute('data-frame-scope') });
+      return { root: read(root), controls: read(controls) };
+    };
+    return flat(wp.data.select('core/block-editor').getBlocks()).filter(block => /authored-carousel$/.test(block.name)).map(block => ({ topology: !!block.attributes.sourceControlTopology, php: presentation(block.originalContent), js: presentation(wp.blocks.getSaveContent(block.name, block.attributes, block.innerBlocks)) }));
+  });
+  findings.editor.saveContracts = saveContracts;
+  assert.deepEqual(saveContracts.map(contract => contract.topology), [true, false], 'both source control topology branches are exercised');
+  for (const contract of saveContracts) assert.deepEqual(contract.php, contract.js, 'PHP and registered JS save agree on root geometry and control wrapper classes/style/identity');
   assert.ok(initial.every(b => b.valid && b.name !== 'core/missing'), 'all compiled blocks load as valid registered blocks');
-  assert.equal(initial.filter(b => b.name === 'core/image').length, 20);
+  assert.equal(initial.filter(b => b.name === 'core/image').length, fixture.source.images);
   const image = initial.find(b => b.name === 'core/image');
   await page.evaluate(clientId => window.wp.data.dispatch('core/block-editor').updateBlockAttributes(clientId, { alt: 'Edited native carousel image' }), image.clientId);
   await page.evaluate(() => window.wp.data.dispatch('core/editor').savePost());
@@ -84,14 +100,14 @@ try {
   await page.waitForFunction(() => window.wp?.data?.select('core/block-editor')?.getBlocks().length > 0);
   const reloaded = await blockTree();
   assert.ok(reloaded.every(b => b.valid && b.name !== 'core/missing'));
-  assert.equal(reloaded.filter(b => b.name === 'core/image').length, 20);
+  assert.equal(reloaded.filter(b => b.name === 'core/image').length, fixture.source.images);
   assert.equal(reloaded.find(b => b.name === 'core/image').attrs.alt, 'Edited native carousel image');
   const validation = await page.evaluate(() => {
     const visit = blocks => blocks.flatMap(b => [{ name: b.name, registered: !!window.wp.blocks.getBlockType(b.name), valid: window.wp.blocks.validateBlock(b)[0] }, ...visit(b.innerBlocks || [])]);
     return visit(window.wp.blocks.parse(window.wp.data.select('core/editor').getEditedPostContent()));
   });
   assert.ok(validation.every(b => b.registered && b.valid), 'Gutenberg save/parse validates every native child and generated parent');
-  findings.editor = { nativeImages: 20, editedAlt: reloaded.find(b => b.name === 'core/image').attrs.alt, validation };
+  findings.editor = { nativeImages: fixture.source.images, saveContracts, editedAlt: reloaded.find(b => b.name === 'core/image').attrs.alt, validation };
   await page.screenshot({ path: `${evidence}/editor-saved.png`, fullPage: true });
   console.log(JSON.stringify({ ok: true, ...findings }));
 } finally {
