@@ -1415,6 +1415,17 @@ final class AuthorStylesheetProjector
                     continue;
                 }
             }
+            // Every match is a source list that is itself the element a
+            // core/navigation block stands in for. Its classes and id sit on
+            // the rendered `<nav>` (and on the inner list copy); the list type
+            // has to address that block rather than the copy.
+            if ( $this->matchesOnlyNavigationListHosts($matches, $context) ) {
+                $hostSelector = $this->projectNavigationListHostSelector($selector, $parsed, $context);
+                if ( null !== $hostSelector ) {
+                    $rewritten[] = $hostSelector;
+                    continue;
+                }
+            }
 
             $controls = array();
             $linkOwnedControls = array();
@@ -2647,6 +2658,58 @@ final class AuthorStylesheetProjector
         }
 
         return array() !== $matches;
+    }
+
+    /** @param list<DOMElement> $matches */
+    private function matchesOnlyNavigationListHosts(array $matches, AuthorStylesheetProjectionContext $context): bool
+    {
+        foreach ( $matches as $element ) {
+            if ( ! $context->selectorProjections->isNavigationListHostPath($element->getNodePath() ?? '') ) {
+                return false;
+            }
+        }
+
+        return array() !== $matches;
+    }
+
+    /**
+     * A source list that is the element core/navigation stands in for renders
+     * as `<nav class="wp-block-navigation [classes]" id="[id]">` with the same
+     * classes and id copied onto the inner `<ul class="wp-block-navigation__container">`.
+     * A rule keyed by class or id reaches both (and the engine resets the copy's
+     * placement); a rule qualified by the list type (`#header ul#nav{float:right;
+     * width:360px;position:relative;top:20px}`) reached only the inner copy — a
+     * flex item whose float is ignored and whose offsets are reset — so the
+     * menu lost its place. Replace the type with the block, excluding the copy,
+     * and keep the type's specificity through the shim. Classes, ids and
+     * pseudo-classes in the compound stay where they are, so the usual class
+     * projection still applies to them.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function projectNavigationListHostSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    {
+        $span = $parsed['rightmost_compound_span'] ?? null;
+        if ( ! is_array($span) ) {
+            return null;
+        }
+        $start = (int) $span['start'];
+        foreach ( $parsed['type_spans'] as $typeSpan ) {
+            if ( (int) $typeSpan['start'] < $start ) {
+                continue;
+            }
+            if ( ! in_array(strtolower((string) $typeSpan['name']), array( 'ul', 'ol' ), true) ) {
+                return null;
+            }
+            return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
+                (int) $typeSpan['start'] => array(
+                    'end' => (int) $typeSpan['end'],
+                    'value' => ':where(.wp-block-navigation:not(.wp-block-navigation__container))' . $this->typeSpecificityShim($context),
+                ),
+            ));
+        }
+        // Without a type the authored compound already reaches the block.
+        return null;
     }
 
     /** @param list<DOMElement> $matches */

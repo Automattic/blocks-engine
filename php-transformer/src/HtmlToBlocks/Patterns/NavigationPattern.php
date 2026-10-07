@@ -297,6 +297,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             array() !== $authorClasses ? $authorClasses : $this->carriedClassNames((string) ($navigation['attrs']['className'] ?? '')),
             $listSource
         );
+        $this->recordNavigationListHost($navigationSource, $navigationContext);
 
         if ( ! $label instanceof DOMElement ) {
             if ( $splitLandmarkOwnership ) {
@@ -754,6 +755,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             array() !== $clusterClasses ? $clusterClasses : $this->carriedClassNames((string) ($navigation['attrs']['className'] ?? '')),
             $listSource
         );
+        $this->recordNavigationListHost($cluster, $navigationContext);
 
         // The carrier is the authored `<nav>`, so it keeps that tag (see above).
         // The authored `aria-label` does not come with it: core/group registers no
@@ -1954,6 +1956,19 @@ final class NavigationPattern implements PatternRecognizerInterface
         foreach ( $directAnchors as $anchor ) {
             $navigationContext->recordDirectNavigationLinkAnchor($anchor);
         }
+    }
+
+    /**
+     * Record a source list that is itself the element the emitted block stands
+     * in for, so a selector qualified by its type can follow the list's classes
+     * and id onto the rendered `<nav>`.
+     */
+    private function recordNavigationListHost(DOMElement $navigationSource, ?NavigationPatternContext $navigationContext): void
+    {
+        if ( null === $navigationContext || ! in_array(strtolower($navigationSource->tagName), array( 'ul', 'ol' ), true) ) {
+            return;
+        }
+        $navigationContext->recordNavigationListHost($navigationSource);
     }
 
     /**

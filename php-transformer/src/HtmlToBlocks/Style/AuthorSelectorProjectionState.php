@@ -110,6 +110,9 @@ final class AuthorSelectorProjectionState
      */
     private array $navigationListItemPaths = array();
 
+    /** @var array<string, true> Source lists that are the element a core/navigation block stands in for. */
+    private array $navigationListHostPaths = array();
+
     public function installAuthorStyles(AuthorStyleAnalysis $authorStyles): void
     {
         $this->authorStyles = $authorStyles;
@@ -312,6 +315,25 @@ final class AuthorSelectorProjectionState
     public function navigationListItemRendersSourceSiblings(string $path): bool
     {
         return true === ( $this->navigationListItemPaths[$path] ?? false );
+    }
+
+    /**
+     * Record a source `<ul>`/`<ol>` that is itself the element a core/navigation
+     * block replaces. WordPress renders that block as a `<nav>` carrying the
+     * list's classes and id, and copies them onto an inner `<ul>`; a selector
+     * qualified by the list type reaches only that inner copy.
+     */
+    public function markNavigationListHost(DOMElement $list): void
+    {
+        $path = $list->getNodePath() ?? '';
+        if ( '' !== $path ) {
+            $this->navigationListHostPaths[$path] = true;
+        }
+    }
+
+    public function isNavigationListHostPath(string $path): bool
+    {
+        return isset($this->navigationListHostPaths[$path]);
     }
 
     public function ensureAttributeMarker(string $path, ?string $stableIdentity = null): string

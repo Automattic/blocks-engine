@@ -70,6 +70,16 @@ final class NavigationPatternContext
         $this->session?->authorSelectorProjectionState()->markNavigationListItem($item, $rendersSourceSiblings);
     }
 
+    /**
+     * The source list is the element the emitted core/navigation stands in
+     * for; its type-qualified rules have to reach the block, not only the
+     * inner list copy WordPress renders.
+     */
+    public function recordNavigationListHost(DOMElement $list): void
+    {
+        $this->session?->authorSelectorProjectionState()->markNavigationListHost($list);
+    }
+
     /** Marks a block element inside a link label that paints the label text itself. */
     public const LABEL_TYPOGRAPHY_BOX_CLASS = 'blocks-engine-label-typography';
 
