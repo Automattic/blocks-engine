@@ -20,6 +20,20 @@ final class AuthorStylesheetProjector
     public const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
 
     /**
+     * Class no emitted element carries. A type selector whose only source
+     * subjects were menu toggles dropped for Core's native overlay control is
+     * bound to it, so the rule stays readable in the projected stylesheet but
+     * can no longer reach the open/close buttons Core renders in their place.
+     */
+    public const SUPERSEDED_MENU_TOGGLE_CLASS = 'blocks-engine-superseded-menu-toggle';
+
+    /**
+     * Core's replacement for a dropped menu toggle, excluded from a type rule
+     * the toggle shared with source elements that survive conversion.
+     */
+    private const NAVIGATION_TOGGLE_CHROME_EXCLUSION = ':not(:where(.wp-block-navigation__responsive-container-open,.wp-block-navigation__responsive-container-open *,.wp-block-navigation__responsive-container-close,.wp-block-navigation__responsive-container-close *))';
+
+    /**
      * Every path from a generated image wrapper down to the <img> it holds.
      * An unlinked image is the wrapper's direct child; a linked one sits
      * inside the anchor the native block serializes for the link.
@@ -34,12 +48,21 @@ final class AuthorStylesheetProjector
         private readonly AuthorStyleRuleProjector $ruleBodyProjector
     ) {}
 
-    public function project(string $stylesheet, AuthorStylesheetProjectionContext $context): string
+    /**
+     * @param list<string> $outerConditions Conditions that scope the whole
+     *     stylesheet from outside its text, such as a link's media attribute.
+     *     They reach only the rule-body projections that compare against the
+     *     analyzed source cascade, which already reads the stylesheet under them.
+     */
+    public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
-        return ( new CssStylesheetTransformer() )->transformStyleRules(
+        $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors), $ancestors)
+            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions)
         );
+        $ids = ScopedAnchorSelectorProjection::identities($context->authorStyles);
+        if (array() === $ids) return $projected;
+        return (new CssStylesheetTransformer())->transformStyleRules($projected, static fn(string $selector, string $body): string => ScopedAnchorSelectorProjection::selector($selector, $ids) . '{' . $body . '}');
     }
 
     /** @param list<string> $ancestors */
@@ -54,17 +77,17 @@ final class AuthorStylesheetProjector
         return false;
     }
 
-    /** @param list<string> $ancestors */
-    private function projectStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, array $ancestors = array()): string
+    /** @param list<string> $ancestors @param list<string> $outerConditions */
+    private function projectStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, array $ancestors = array(), array $outerConditions = array()): string
     {
         $lifted = ColorSchemeVariant::liftPrelude($prelude);
-        $css = $this->emitProjectedStyleRule($lifted['prelude'], $body, $context, $inConditional);
-        $css .= $this->sharedBodyCanvasPaintRule($lifted['prelude'], $body, $context);
+        $css = $this->emitProjectedStyleRule($lifted['prelude'], $body, $context, $inConditional, array( ...$outerConditions, ...$ancestors ));
 
         return ColorSchemeVariant::wrap($css, $lifted['scheme'], $ancestors);
     }
 
-    private function emitProjectedStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
+    /** @param list<string> $conditions At-rules the rule sits inside, outermost first. */
+    private function emitProjectedStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, array $conditions = array()): string
     {
         $parts = str_contains($body, '{') ? (new CssStylesheetTransformer())->splitStyleRuleBody($body) : array();
         $hasNestedRules = array_filter($parts, static fn (array $part): bool => isset($part['prelude']));
@@ -79,14 +102,14 @@ final class AuthorStylesheetProjector
                 if ( isset($part['declarations']) ) {
                     // Splitting only contiguous runs retains declarations after
                     // a nested condition at their original cascade position.
-                    $css .= $this->emitProjectedStyleRule($prelude, $part['declarations'], $context, $inConditional);
+                    $css .= $this->emitProjectedStyleRule($prelude, $part['declarations'], $context, $inConditional, $conditions);
                 } elseif ( in_array($part['at_rule'], array('media', 'supports'), true) ) {
-                    $css .= $part['prelude'] . '{' . $this->emitProjectedStyleRule($prelude, $part['body'], $context, true) . '}';
+                    $css .= $part['prelude'] . '{' . $this->emitProjectedStyleRule($prelude, $part['body'], $context, true, array( ...$conditions, trim((string) $part['prelude']) )) . '}';
                 } else {
                     // Relative selectors and scoped/layer rules retain their
                     // original host. Only media/supports conditions can lift.
                     $nested = '' === $part['at_rule']
-                        ? $this->emitProjectedStyleRule($part['prelude'], $part['body'], $context, $inConditional)
+                        ? $this->emitProjectedStyleRule($part['prelude'], $part['body'], $context, $inConditional, $conditions)
                         : $part['prelude'] . '{' . $part['body'] . '}';
                     $css .= $this->rewriteSelectorPrelude($prelude, $context) . '{' . $nested . '}';
                 }
@@ -98,7 +121,8 @@ final class AuthorStylesheetProjector
             $body,
             $context->authorStyles,
             $context->sourceStyles,
-            $context->evidence
+            $context->evidence,
+            $conditions
         );
         $body = $projection['body'];
         $declarations = $projection['declarations'];
@@ -115,7 +139,7 @@ final class AuthorStylesheetProjector
         $svgImageRule = '' === $svgImagePrelude
             ? ''
             : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
-        $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body);
+        $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $svgImageRule . $editorDocumentRootRule;
 
@@ -415,18 +439,13 @@ final class AuthorStylesheetProjector
 
     private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
     {
-        $idPartition = $this->partitionPreludeByIdSpecificity($prelude, $context);
-        if ( is_array($idPartition) ) {
-            return $this->rewriteStyleRule($idPartition[0], $body, $context, $inConditional)
-                . $this->rewriteStyleRule($idPartition[1], $body, $context, $inConditional);
-        }
         $buttonPresentationPseudoPrelude = $this->buttonPresentationPseudoPrelude($prelude, $context);
         if ( '' !== $buttonPresentationPseudoPrelude ) {
             return $buttonPresentationPseudoPrelude . '{' . $body . '}';
         }
         $projectedPrelude = $this->rewriteSelectorPrelude($prelude, $context);
         $authoredBody = $body;
-        $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context, $inConditional);
+        $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context);
         $nativeButtonCompatRule = $this->nativeButtonLinkCompatRule($prelude, $authoredBody, $context);
         $nonButtonLinkRule = '';
         if ( $body !== $authoredBody ) {
@@ -525,7 +544,7 @@ final class AuthorStylesheetProjector
                 $markers[] = $marker;
             }
             if ( array() === $markers && ! $hasLabelProjection ) {
-                $rewritten[] = $selector;
+                array_push($rewritten, ...($this->projectSourceAttributePseudoSelector($selector, $context) ?? array($selector)));
                 continue;
             }
             foreach ( array_unique($markers) as $marker ) {
@@ -539,16 +558,15 @@ final class AuthorStylesheetProjector
     /**
      * core/button defaults and support styles are emitted after carried author CSS.
      * Keep source button declarations authoritative after their selector is lowered
-     * to a generated marker, including media-query overrides. ID-themed padding
-     * already beats Gutenberg `:where` defaults, so promoting it to `!important`
-     * would invert a later stretched `padding:0!important` rule.
+     * to a generated marker. Padding preserves authored importance: responsive
+     * padding lives in these selectors, while explicit source/editor values
+     * retain their native inline priority.
      */
-    private function buttonLinkCompatDeclarations(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
+    private function buttonLinkCompatDeclarations(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         if ( ! str_contains($projectedPrelude, '.wp-block-button__link') || ! $this->projectsAnchorButtonControl($prelude, $context) ) {
             return $body;
         }
-        $preserveSourcePaddingImportance = $this->preludeHasIdSpecificity($prelude, $context);
 
         $declarations = array();
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
@@ -570,11 +588,10 @@ final class AuthorStylesheetProjector
                 $declarations[] = $declaration;
                 continue;
             }
-            // Unconditional padding stays ordinary: the button block carries the
-            // resolved padding inline, which (as in the source) outranks a plain
-            // class or element rule, so the owner's padding control keeps working.
-            // Only a conditional (media) override must beat that inline base.
-            if ( ( $preserveSourcePaddingImportance || ! $inConditional ) && ( 'padding' === $name || str_starts_with($name, 'padding-') ) ) {
+            // Conditional families remain stylesheet-owned rather than carrying
+            // an inline base. Preserve padding's authored importance so explicit
+            // source/editor padding keeps its normal priority at every width.
+            if ( 'padding' === $name || str_starts_with($name, 'padding-') ) {
                 $declarations[] = $declaration;
                 continue;
             }
@@ -612,56 +629,6 @@ final class AuthorStylesheetProjector
         }
 
         return array( implode(',', $buttonSelectors), implode(',', $otherSelectors) );
-    }
-
-    /** @return array{0: string, 1: string}|null */
-    private function partitionPreludeByIdSpecificity(string $prelude, AuthorStylesheetProjectionContext $context): ?array
-    {
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors || count($selectors) < 2 ) {
-            return null;
-        }
-        $withId = array();
-        $withoutId = array();
-        foreach ( $selectors as $selector ) {
-            if ( $this->selectorHasIdSpecificity($selector, $context) ) {
-                $withId[] = $selector;
-            } else {
-                $withoutId[] = $selector;
-            }
-        }
-        if ( array() === $withId || array() === $withoutId ) {
-            return null;
-        }
-
-        return array( implode(',', $withId), implode(',', $withoutId) );
-    }
-
-    private function preludeHasIdSpecificity(string $prelude, AuthorStylesheetProjectionContext $context): bool
-    {
-        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array( $prelude ) as $selector ) {
-            if ( $this->selectorHasIdSpecificity($selector, $context) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function selectorHasIdSpecificity(string $selector, AuthorStylesheetProjectionContext $context): bool
-    {
-        $parsed = $context->sourceStyles->parsedSelector($selector);
-        if ( $parsed['supported'] ) {
-            foreach ( $parsed['compounds'] as $compound ) {
-                if ( array() !== ( $compound['ids'] ?? array() ) ) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        return 1 === preg_match('/(?:^|[\s>+~,(])#[A-Za-z_-]/', ' ' . $selector);
     }
 
     private function projectsAnchorButtonControl(string $prelude, AuthorStylesheetProjectionContext $context): bool
@@ -889,7 +856,6 @@ final class AuthorStylesheetProjector
         }
         $rewritten = array();
         foreach ( $selectors as $selector ) {
-            $selector = $this->projectSourceBodyStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] ) {
                 array_push($rewritten, ...$this->projectUnsupportedFunctionalControlSelector($selector, $context, true));
@@ -959,7 +925,6 @@ final class AuthorStylesheetProjector
         }
         $rewritten = array();
         foreach ( $selectors as $selector ) {
-            $selector = $this->projectSourceBodyStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] || $this->hasUniversalStructuralLeaf($parsed) ) {
                 continue;
@@ -1019,116 +984,6 @@ final class AuthorStylesheetProjector
             }
         }
         return array( implode(';', $placement), implode(';', $geometry), implode(';', $inner) );
-    }
-
-    private function projectSourceBodyStateSelector(string $selector, AuthorStylesheetProjectionContext $context): string
-    {
-        $classes = $context->authorStyles->sourceBodyProjectionClasses();
-        if ( array() === $classes ) {
-            return $selector;
-        }
-        $classes = implode('|', array_map(static fn (string $class): string => preg_quote(ColorSchemeVariant::cssEscapeIdent($class), '/'), $classes));
-        $selector = preg_replace('/^\s*body(?=\.(?:' . $classes . ')(?:\b|[.#:\[]))/', '', $selector, 1) ?? $selector;
-        return $this->projectSourceBodySubjectSelector($selector, $classes, $context);
-    }
-
-    /**
-     * Body classes are projected onto root blocks so descendant selectors keep
-     * matching, but a rule whose subject is the body itself paints the canvas
-     * in the source (body backgrounds propagate behind negative z-index
-     * layers). Retarget such rules to the rendered body instead of the root
-     * blocks that carry the projected class. A plain `body` type keeps the
-     * selector recognizable to editor-style scoping.
-     */
-    private function projectSourceBodySubjectSelector(string $selector, string $classPattern, AuthorStylesheetProjectionContext $context): string
-    {
-        $parsed = $context->sourceStyles->parsedSelector($selector);
-        if ( ! ($parsed['supported'] ?? false) || null === ($parsed['rightmost_compound_span'] ?? null) ) {
-            return $selector;
-        }
-        $start = (int) $parsed['rightmost_compound_span']['start'];
-        $end = (int) $parsed['rightmost_rewrite_end'];
-        $subject = substr($selector, $start, $end - $start);
-        if ( 1 !== preg_match('/^(?:\.(?:' . $classPattern . '))+$/', $subject) ) {
-            return $selector;
-        }
-        // Matching indexes body descendants only; any match means the class is
-        // shared with a content element and the rule must keep its subject.
-        if ( array() !== $this->contentElementsSharingBodySubject($selector, $parsed, $context) ) {
-            return $selector;
-        }
-        $shims = str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', substr_count($subject, '.'));
-        return substr($selector, 0, $start) . 'body' . $shims . substr($selector, $end);
-    }
-
-    /**
-     * A capture that records responsive document variants copies the source
-     * body's classes onto each variant root so body-scoped rules keep applying
-     * inside that branch. Such a root is the body of its own document, not a
-     * content element that happens to share the class, so it must not hold a
-     * body-subject rule back from the rendered body.
-     *
-     * @param array<string, mixed> $parsed
-     * @return list<DOMElement>
-     */
-    private function contentElementsSharingBodySubject(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): array
-    {
-        return array_values(array_filter(
-            $this->matchingSourceElements($selector, $parsed, $context),
-            static fn (DOMElement $element): bool => ! SourceDom::isDocumentVariantRoot($element)
-        ));
-    }
-
-    private function sharedBodyCanvasPaintRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
-    {
-        $classes = $context->authorStyles->sourceBodyProjectionClasses();
-        if ( array() === $classes ) {
-            return '';
-        }
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors || 1 !== count($selectors) ) {
-            return '';
-        }
-        $selector = trim($selectors[0]);
-        $parsed = $context->sourceStyles->parsedSelector($selector);
-        if ( ! ($parsed['supported'] ?? false) || null === ($parsed['rightmost_compound_span'] ?? null) ) {
-            return '';
-        }
-        $start = (int) $parsed['rightmost_compound_span']['start'];
-        $end = (int) $parsed['rightmost_rewrite_end'];
-        if ( 0 !== $start ) {
-            return '';
-        }
-        $classPattern = implode('|', array_map(static fn (string $class): string => preg_quote(ColorSchemeVariant::cssEscapeIdent($class), '/'), $classes));
-        $subject = substr($selector, $start, $end - $start);
-        if ( 1 !== preg_match('/^(?:\.(?:' . $classPattern . '))+$/', $subject) ) {
-            return '';
-        }
-        if ( array() === $this->contentElementsSharingBodySubject($selector, $parsed, $context) ) {
-            return '';
-        }
-        $paint = array_intersect_key(
-            $this->styleResolver->verbatimCssDeclarations($body),
-            array_flip(array(
-                'color',
-                'background',
-                'background-color',
-                'background-image',
-                'background-position',
-                'background-size',
-                'background-repeat',
-                'background-attachment',
-                'background-origin',
-                'background-clip',
-                'background-blend-mode',
-            ))
-        );
-        $css = $this->styleResolver->cssDeclarationString($paint);
-        if ( '' === $css ) {
-            return '';
-        }
-
-        return 'body' . str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', substr_count($subject, '.')) . '{' . $css . '}';
     }
 
     /** @return array{string, string} */
@@ -1362,6 +1217,42 @@ final class AuthorStylesheetProjector
 
     private function rewriteSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): string
     {
+        $projected = $this->rewriteSelectorPreludeOnce($prelude, $context, $controlWrapper);
+        if ( ! $context->selectorProjections->hasAncestorAttributeStateConditions() ) {
+            return $projected;
+        }
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return $projected;
+        }
+        $variants = array();
+        foreach ( $selectors as $selector ) {
+            $conditions = $context->selectorProjections->ancestorAttributeStateConditions(trim($selector));
+            if ( array() === $conditions ) {
+                continue;
+            }
+            // Derive the class form from this selector's own projection so it
+            // inherits every per-element safeguard (superseded toggles,
+            // rich-text exclusions, control and editor variants).
+            $own = 1 === count($selectors) ? $projected : $this->rewriteSelectorPreludeOnce($selector, $context, $controlWrapper);
+            foreach ( CssStylesheetTransformer::splitSelectorList($own) ?? array() as $ownSelector ) {
+                $variant = $ownSelector;
+                foreach ( $conditions as $condition => $marker ) {
+                    $variant = str_replace($condition, '.' . $marker, $variant);
+                }
+                if ( $variant !== $ownSelector ) {
+                    $variants[] = trim($variant);
+                }
+            }
+        }
+        if ( array() === $variants ) {
+            return $projected;
+        }
+        return ( '' === trim($projected) ? '' : $projected . ',' ) . implode(',', array_values(array_unique($variants)));
+    }
+
+    private function rewriteSelectorPreludeOnce(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): string
+    {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors ) {
             return $prelude;
@@ -1369,6 +1260,23 @@ final class AuthorStylesheetProjector
         $rewritten = array();
         foreach ( $selectors as $selector ) {
             $structuralParsed = $context->sourceStyles->parsedSelector($selector);
+            $subject = $structuralParsed['compounds'][0] ?? array();
+            if (($structuralParsed['supported'] ?? false) && 1 === count($structuralParsed['compounds'] ?? array())
+                && null === ($subject['type'] ?? null) && !($subject['universal'] ?? false)
+                && array() !== ($subject['classes'] ?? array())
+                && array() === array_merge($subject['ids'] ?? array(), $subject['attributes'] ?? array(), $subject['not'] ?? array(), $subject['any'] ?? array())
+                && null === ($subject['nth_child'] ?? null) && !($subject['first_child'] ?? false) && !($subject['last_child'] ?? false) && !($subject['root'] ?? false)
+                && null === ($structuralParsed['pseudo_state_suffix_span'] ?? null)
+                && CssSelectorMatcher::matches($context->authorStyles->sourceBody(), $structuralParsed)['matches']) {
+                $subjects = $this->matchingSourceElements($selector, $structuralParsed, $context);
+                if (array() !== $subjects && array() === array_filter($subjects, static fn(DOMElement $element): bool => !SourceDom::isDocumentVariantRoot($element))) {
+                    // Capture-created variant roots stand in for a body; they
+                    // must not turn canvas paint into an opaque content layer.
+                    // Keep the real body's state and the authored specificity.
+                    $rewritten[] = ':where(body)' . trim($selector);
+                    continue;
+                }
+            }
             if ( $structuralParsed['supported'] && $this->hasUniversalStructuralLeaf($structuralParsed) ) {
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $structuralParsed, $context);
                 continue;
@@ -1378,13 +1286,17 @@ final class AuthorStylesheetProjector
                 array_push($rewritten, ...$runtimeProjection);
                 continue;
             }
+            $pseudoProjection = $this->projectSourceAttributePseudoSelector($selector, $context);
+            if (null !== $pseudoProjection && array() !== $pseudoProjection) {
+                array_push($rewritten, ...$pseudoProjection);
+                continue;
+            }
             $selector = $this->projectSourceAttributeNegationStateSelector($selector, $context);
-            $selector = $this->projectSourceBodyStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] ) {
                 $projectedControls = $this->projectUnsupportedFunctionalControlSelector($selector, $context, $controlWrapper);
                 if ( array() === $projectedControls ) {
-                    $rewritten[] = $this->projectImageLinkIdentitySelector($selector, $context);
+                    $rewritten[] = $this->projectSourceClassSelector($this->projectImageLinkIdentitySelector($selector, $context), $context);
                 } else {
                     array_push($rewritten, ...$projectedControls);
                 }
@@ -1406,7 +1318,7 @@ final class AuthorStylesheetProjector
                 array_push($rewritten, ...$attributeAncestryProjection);
                 continue;
             }
-            $attributeProjection = $this->projectSourceAttributeSelector($parsed, $matches, $context);
+            $attributeProjection = $this->projectSourceAttributeSelector($selector, $parsed, $matches, $context);
             if ( null !== $attributeProjection ) {
                 array_push($rewritten, ...$attributeProjection);
                 continue;
@@ -1465,16 +1377,38 @@ final class AuthorStylesheetProjector
             }
             $matches = $nonTableMatches;
 
+            // Every match is a direct anchor core re-parents into a list item of
+            // its own, so the subject's sibling position belongs to that item.
+            // Any other match, or a subject this projection cannot place, keeps
+            // the authored selector exactly.
+            if ( $this->matchesOnlyNavigationItemAnchors($matches, $context) ) {
+                $itemSelector = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context);
+                if ( null !== $itemSelector ) {
+                    $rewritten[] = $itemSelector;
+                    continue;
+                }
+            }
+
             $controls = array();
+            $linkOwnedControls = array();
             $semanticLeaves = array();
             $richTextLeaves = array();
             $inlineLayoutCarriers = false;
             $addressableInlineCarriers = false;
             $hasNonProjected = false;
+            // A type selector that matched a menu toggle dropped for Core's
+            // native overlay control (or something inside it) has lost that
+            // subject; left bare it would reach the open/close buttons Core
+            // renders in the toggle's place. Only a type subject can reach
+            // them: Core's chrome carries no authored class, id or attribute.
+            $typeSubject = null !== (($parsed['compounds'][array_key_last($parsed['compounds'])] ?? array())['type'] ?? null);
+            $supersededToggles = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( $this->isPreservedCodeSyntaxElement($element) ) {
+                if ( $context->selectorProjections->isRetainedSourcePath($path) || $this->isPreservedCodeSyntaxElement($element) ) {
                     $hasNonProjected = true;
+                } elseif ( $typeSubject && $context->selectorProjections->isSupersededControlPath($path) ) {
+                    $supersededToggles = true;
                 } elseif ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
                     // Structured card lowering unwraps the fragment and hoists
                     // its styling hook onto the paragraph it emits, so the class
@@ -1492,6 +1426,9 @@ final class AuthorStylesheetProjector
                     $richTextLeaves[] = $marker;
                 } elseif ( '' !== ($marker = $context->selectorProjections->controlMarker($path)) ) {
                     $controls[] = $marker;
+                    if ( $controlWrapper && LayoutParticipation::BOX_LINK === LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox() ) {
+                        $linkOwnedControls[$marker] = true;
+                    }
                 } elseif ( '' !== ($marker = $context->selectorProjections->imageWrapperMarker($path)) ) {
                     $semanticLeaves[] = $marker;
                 } elseif ( '' !== ($marker = $context->selectorProjections->semanticMarker($path)) ) {
@@ -1503,8 +1440,22 @@ final class AuthorStylesheetProjector
             $controls = array_values(array_unique($controls));
             $semanticLeaves = array_values(array_unique($semanticLeaves));
             $richTextLeaves = array_values(array_unique($richTextLeaves));
+            // In a mixed set the authored selector stays for the other matches,
+            // but every rendered menu anchor is the only child of its item, so
+            // the kept selector has to stop reaching them. Exclude them through
+            // the class core hard-codes on them; `:not(:where(…))` adds no
+            // specificity.
             if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves && ! $inlineLayoutCarriers ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+                $insertion = '';
+                if ( $supersededToggles ) {
+                    // Nothing else matched: the rule's subject is gone, so bind
+                    // it to a marker nothing carries. Otherwise keep it for the
+                    // surviving subjects but away from Core's toggle chrome.
+                    $insertion = $hasNonProjected
+                        ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION
+                        : ':where(.' . self::SUPERSEDED_MENU_TOGGLE_CLASS . ')';
+                }
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, $insertion);
                 continue;
             }
             $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
@@ -1523,10 +1474,15 @@ final class AuthorStylesheetProjector
                 $hasNonProjected = true;
             }
             if ( $hasNonProjected ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':not(:where(.' . implode(',.', $projectedMarkers) . '))');
+                $rewritten[] = $this->rewriteSourceTagTypes(
+                    $selector,
+                    $parsed,
+                    $context,
+                    ':not(:where(.' . implode(',.', $projectedMarkers) . '))' . ( $supersededToggles ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION : '' )
+                );
             }
             foreach ( $controls as $marker ) {
-                $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $context, $controlWrapper);
+                $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $context, $controlWrapper && ! isset($linkOwnedControls[$marker]));
             }
             foreach ( $semanticLeaves as $marker ) {
                 $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
@@ -1676,10 +1632,30 @@ final class AuthorStylesheetProjector
         return array_values(array_unique($rewritten));
     }
 
-    private function editorDocumentRootRule(string $prelude, string $body): string
+    private function editorDocumentRootRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors || ! in_array('body', array_map(static fn (string $selector): string => strtolower(trim($selector)), $selectors), true) ) {
+        $editorSelectors = array();
+        $root = $context->authorStyles->sourceBody()->ownerDocument?->documentElement;
+        foreach ($selectors ?? array() as $selector) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if (!($parsed['supported'] ?? false) || null !== ($parsed['pseudo_state_suffix_span'] ?? null)) continue;
+            if (1 === count($parsed['compounds'] ?? array()) && (
+                'body' === strtolower((string) ($parsed['compounds'][0]['type'] ?? ''))
+                || CssSelectorMatcher::matches($context->authorStyles->sourceBody(), $parsed)['matches']
+            )) {
+                // Keep the authored predicate and specificity. All body subject
+                // rules receive the same editor-only scope, rather than letting
+                // a lifted bare body reset beat a later body.class declaration.
+                $sourceSelector = $this->projectSourceClassSelector($selector, $context);
+                $sourceParsed = $context->sourceStyles->parsedSelector($sourceSelector);
+                $end = (int) $sourceParsed['rightmost_rewrite_end'];
+                $editorSelectors[] = ':root ' . substr($sourceSelector, 0, $end) . '.editor-styles-wrapper' . substr($sourceSelector, $end);
+            } elseif ($root instanceof DOMElement && CssSelectorMatcher::matches($root, $parsed)['matches']) {
+                $editorSelectors[] = $this->projectSourceClassSelector($selector, $context) . ' .editor-styles-wrapper';
+            }
+        }
+        if (array() === $editorSelectors) {
             return '';
         }
 
@@ -1699,7 +1675,7 @@ final class AuthorStylesheetProjector
             ARRAY_FILTER_USE_KEY
         );
         $css = $this->styleResolver->cssDeclarationString($declarations);
-        return '' === $css ? '' : ':root .editor-styles-wrapper{' . $css . '}';
+        return '' === $css ? '' : implode(',', $editorSelectors) . '{' . $css . '}';
     }
 
     /** @return list<string>|null */
@@ -1726,6 +1702,17 @@ final class AuthorStylesheetProjector
         return null;
     }
 
+    /** @return list<string>|null */
+    private function projectSourceAttributePseudoSelector(string $selector, AuthorStylesheetProjectionContext $context): ?array
+    {
+        $host = CssSelectorMatcher::pseudoElementHost($selector);
+        if (null === $host) return null;
+        $matches = $this->matchingSourceElements($host['selector'], $host['parsed'], $context);
+        $projected = $this->projectSourceAttributeAncestrySelector($host['selector'], $host['parsed'], $matches, $context)
+            ?? $this->projectSourceAttributeSelector($host['selector'], $host['parsed'], $matches, $context);
+        return null === $projected ? null : array_map(static fn (string $target): string => $target . $host['suffix'], $projected);
+    }
+
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
     private function projectSourceAttributeAncestrySelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
     {
@@ -1733,6 +1720,16 @@ final class AuthorStylesheetProjector
         $ancestry = is_array($rightmost) ? substr($selector, 0, (int) $rightmost['start']) : '';
         if ( null !== $parsed['pseudo_state_suffix_span'] || ! preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry) ) {
             return null;
+        }
+        // Document attributes survive on their actual ancestors. Flattening a
+        // route-owned predicate onto shared content would freeze one page's
+        // state into every use of that header/footer.
+        foreach (array_slice($parsed['compounds'] ?? array(), 0, -1) as $compound) {
+            if (!\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::containsDataAttribute($compound)) continue;
+            $predicate = array_replace($parsed, array('compounds' => array($compound), 'combinators' => array()));
+            for ($root = $context->authorStyles->sourceBody(); $root instanceof DOMElement; $root = $root->parentNode) {
+                if (CssSelectorMatcher::matches($root, $predicate)['matches']) return null;
+            }
         }
         $projected = array();
         $scope = '';
@@ -1743,7 +1740,7 @@ final class AuthorStylesheetProjector
             $id = trim($element->getAttribute('id'));
             $parent = $element->parentNode;
             $parentMarker = $parent instanceof DOMElement && preg_match('/>\s*$/', trim($ancestry))
-                ? $context->selectorProjections->attributeMarker($parent->getNodePath() ?? '')
+                ? $context->selectorProjections->attributeMarker($parent->getNodePath() ?? '', AuthorSelectorProjectionState::parentAttributeIdentity($selector))
                 : '';
             if ( '' !== $parentMarker && preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
                 $projected[] = $scope . ':where(.' . $parentMarker . ')>:where(#' . $id . ')' . $this->selectorSpecificityShims($parsed, $context);
@@ -1752,7 +1749,7 @@ final class AuthorStylesheetProjector
             if ( preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
                 $target = '#' . $id;
             } else {
-                $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '');
+                $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '', $selector);
                 if ( '' === $marker ) {
                     return null;
                 }
@@ -1764,20 +1761,21 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
-    private function projectSourceAttributeSelector(array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
+    private function projectSourceAttributeSelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
     {
         if ( null !== $parsed['pseudo_state_suffix_span'] ) {
             return null;
         }
         $compounds = $parsed['compounds'] ?? array();
         $rightmost = $compounds[array_key_last($compounds)] ?? array();
-        $hasDataAttribute = array_filter($rightmost['attributes'] ?? array(), static fn (array $attribute): bool => str_starts_with($attribute['name'] ?? '', 'data-'));
-        if ( array() === $hasDataAttribute ) {
+        if ( ! \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::containsDataAttribute($rightmost)
+            || \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::hasLiveAttributePredicate($rightmost)
+        ) {
             return null;
         }
         $projected = array();
         foreach ( $matches as $element ) {
-            $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '');
+            $marker = $context->selectorProjections->attributeMarker($element->getNodePath() ?? '', $selector);
             if ( '' === $marker ) {
                 return null;
             }
@@ -2028,10 +2026,14 @@ final class AuthorStylesheetProjector
         return implode(';', $bridge);
     }
 
-    /** @param array<string, mixed> $parsed */
-    private function rewriteSourceTagTypes(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, string $rightmostInsertion = ''): string
+    /**
+     * @param array<string, mixed> $parsed
+     * @param array<int, array{end: int, value: string}> $replacements Further
+     *        span replacements, keyed by start offset, that must not overlap a
+     *        rewritten type span.
+     */
+    private function rewriteSourceTagTypes(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, string $rightmostInsertion = '', array $replacements = array()): string
     {
-        $replacements = array();
         foreach ( $parsed['type_spans'] as $typeSpan ) {
             $marker = $context->selectorProjections->tagMarker((string) $typeSpan['name']);
             if ( '' !== $marker ) {
@@ -2042,6 +2044,45 @@ final class AuthorStylesheetProjector
         }
         if ( '' !== $rightmostInsertion ) {
             $replacements[(int) $parsed['rightmost_rewrite_end']] = array( 'end' => (int) $parsed['rightmost_rewrite_end'], 'value' => $rightmostInsertion );
+        }
+        return $this->projectSourceClassSelector($selector, $context, $replacements);
+    }
+
+    /**
+     * Preserve class ownership even when a selector is dormant or outside the
+     * matcher's subset. Replace simple class tokens, including those inside
+     * functional pseudos, without changing specificity or touching strings.
+     * @param array<int, array{end: int, value: string}> $replacements
+     */
+    private function projectSourceClassSelector(string $selector, AuthorStylesheetProjectionContext $context, array $replacements = array()): string
+    {
+        $state = CssSyntaxScanner::state();
+        // Native projection spans own their replacement markup. Only untouched
+        // source tokens are eligible; Core classes introduced by a bridge are
+        // destination identities, not author selector provenance.
+        $ownedSpans = $replacements;
+        $length = strlen($selector);
+        for ( $offset = 0; $offset < $length; ) {
+            if ( '.' === $selector[$offset] && '' === $state['quote'] && ! $state['comment'] && 0 === $state['brackets']
+                && 1 === preg_match('/\G\.((?:[A-Za-z0-9_-]|[^\x00-\x7f]|\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n\f]))+)/', $selector, $match, 0, $offset)
+            ) {
+                $parsed = CssSelectorMatcher::parse($match[0]);
+                $class = (string) ($parsed['compounds'][0]['classes'][0] ?? '');
+                $marker = $context->authorStyles->sourceClassMarker($class);
+                $end = $offset + strlen($match[0]);
+                foreach ( $ownedSpans as $start => $replacement ) {
+                    if ( $offset < $replacement['end'] && $end > $start ) {
+                        $marker = '';
+                        break;
+                    }
+                }
+                if ( '' !== $marker ) {
+                    $replacements[$offset] = array('end' => $end, 'value' => '.' . $marker);
+                }
+                $offset = $end;
+                continue;
+            }
+            $offset = CssSyntaxScanner::consume($selector, $offset, $state) ?? ($offset + 1);
         }
         return $this->replaceSelectorSpans($selector, $replacements);
     }
@@ -2270,6 +2311,296 @@ final class AuthorStylesheetProjector
                 . str_repeat(':not(#' . $context->authorStyles->idSpecificityShim() . ')', $listSpecificity['ids']);
         }
         return $shims;
+    }
+
+    /**
+     * core/navigation renders a direct source anchor inside a list item of its
+     * own, so every rendered anchor is the only child of its item. A structural
+     * pseudo-class authored on that anchor (`nav a:last-child`) then describes
+     * the item's position among its siblings, not the anchor's, and would reach
+     * every link. Move it onto a zero-specificity item wrapper, and address the
+     * anchor through the class core hard-codes on it (with the type specificity
+     * shim, as for every other projected type), so the projected rule selects
+     * the same links with the authored specificity. The `>` it introduces is a
+     * relationship inside one block, which the editor shell variants skip for a
+     * `:where(.wp-block-…)` child.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function projectNavigationItemAnchorSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    {
+        $span = $parsed['rightmost_compound_span'] ?? null;
+        if ( ! is_array($span) ) {
+            return null;
+        }
+        $start = (int) $span['start'];
+        $end = (int) $span['end'];
+        // A dynamic state stays on the content anchor, and only as the
+        // compound's trailing suffix; anything after it is left as authored.
+        $bodyEnd = $end;
+        $trailingState = '';
+        $suffix = $parsed['pseudo_state_suffix_span'] ?? null;
+        if ( is_array($suffix) ) {
+            if ( (int) $suffix['end'] !== $end ) {
+                return null;
+            }
+            $bodyEnd = (int) $suffix['start'];
+            $trailingState = substr($selector, $bodyEnd, $end - $bodyEnd);
+        }
+        $typeLength = 0;
+        foreach ( $parsed['type_spans'] as $typeSpan ) {
+            if ( (int) $typeSpan['start'] >= $start ) {
+                if ( 'a' !== strtolower((string) $typeSpan['name']) ) {
+                    return null;
+                }
+                $typeLength = (int) $typeSpan['end'] - (int) $typeSpan['start'];
+            }
+        }
+        $split = $this->splitNavigationItemCompound(substr($selector, $start, $bodyEnd - $start));
+        if ( null === $split || '' === $split['structural'] ) {
+            return null;
+        }
+        // The type leads its compound; the rendered anchor's own class takes
+        // that place.
+        $subject = ':where(.wp-block-navigation-item__content)';
+        $rest = $split['rest'];
+        if ( $typeLength > 0 ) {
+            $subject .= $this->typeSpecificityShim($context) . substr($rest, $typeLength);
+        } elseif ( str_starts_with($rest, '*') ) {
+            $subject .= substr($rest, 1);
+        } else {
+            $subject .= $rest;
+        }
+        $subject .= $trailingState;
+        // Core renders a `<ul>` (and, for an overlay menu, more wrappers)
+        // between the navigation and its items. A one-to-one menu has no
+        // nested lists, so a child combinator before the anchor relaxes to a
+        // descendant without reaching any other item.
+        $replaceStart = $start;
+        $lead = '';
+        if ( preg_match('/\s*>\s*$/', substr($selector, 0, $start), $childCombinator) ) {
+            $replaceStart = $start - strlen($childCombinator[0]);
+            $lead = ' ';
+        }
+        return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
+            $replaceStart => array( 'end' => $end, 'value' => $lead . ':where(.wp-block-navigation-item)' . $split['item'] . $split['structural'] . '>' . $subject ),
+        ));
+    }
+
+    /**
+     * Separate a compound selector's simple selectors into what moves onto the
+     * rendered navigation item and what stays on its content anchor, or null
+     * when the compound holds a simple selector this projection cannot place.
+     *
+     * core/navigation-link renders the anchor's classes (`className`) and id
+     * (`anchor`) on the `<li>`; the `<a>` keeps its class, `href`, and runtime
+     * state. So: classes, ids, `[class…]`/`[id…]` attribute selectors, the
+     * structural pseudo-classes the matcher models (`:first-child`,
+     * `:last-child`, `:nth-child(n)`, `:nth-of-type(n)`), and a `:not()` made of
+     * one of those kinds alone move to the item. The type and `[href…]` stay on
+     * the anchor (the caller keeps a trailing dynamic state there too). Any
+     * other attribute (not rendered on the anchor), pseudo-class,
+     * pseudo-element, or namespace declines, and the authored selector is kept.
+     * Identifiers are consumed through the CSS scanner, so an escape such as
+     * `\26 ` keeps its whitespace terminator.
+     *
+     * @return array{structural: string, item: string, rest: string}|null
+     */
+    private function splitNavigationItemCompound(string $compound): ?array
+    {
+        $structural = '';
+        $item = '';
+        $rest = '';
+        $length = strlen($compound);
+        for ( $offset = 0; $offset < $length; ) {
+            $character = $compound[$offset];
+            if ( '.' === $character || '#' === $character ) {
+                $end = $this->cssIdentifierEnd($compound, $offset + 1);
+                if ( null === $end ) {
+                    return null;
+                }
+                $item .= substr($compound, $offset, $end - $offset);
+                $offset = $end;
+                continue;
+            }
+            if ( '[' === $character ) {
+                $end = $this->balancedGroupEnd($compound, $offset);
+                if ( null === $end ) {
+                    return null;
+                }
+                $attribute = substr($compound, $offset, $end - $offset);
+                $owner = $this->navigationAttributeOwner($attribute);
+                if ( null === $owner ) {
+                    return null;
+                }
+                if ( 'item' === $owner ) {
+                    $item .= $attribute;
+                } else {
+                    $rest .= $attribute;
+                }
+                $offset = $end;
+                continue;
+            }
+            if ( ':' === $character ) {
+                if ( ':' === ($compound[$offset + 1] ?? '') ) {
+                    return null;
+                }
+                $nameEnd = $this->cssIdentifierEnd($compound, $offset + 1);
+                if ( null === $nameEnd ) {
+                    return null;
+                }
+                $name = strtolower(substr($compound, $offset + 1, $nameEnd - $offset - 1));
+                $argument = null;
+                $end = $nameEnd;
+                if ( '(' === ($compound[$nameEnd] ?? '') ) {
+                    $end = $this->balancedGroupEnd($compound, $nameEnd);
+                    if ( null === $end ) {
+                        return null;
+                    }
+                    $argument = trim(substr($compound, $nameEnd + 1, $end - $nameEnd - 2));
+                }
+                $owner = $this->navigationPseudoClassOwner($name, $argument);
+                if ( null === $owner ) {
+                    return null;
+                }
+                $token = substr($compound, $offset, $end - $offset);
+                if ( 'structural' === $owner ) {
+                    $structural .= $token;
+                } elseif ( 'item' === $owner ) {
+                    $item .= $token;
+                } else {
+                    $rest .= $token;
+                }
+                $offset = $end;
+                continue;
+            }
+            if ( '*' === $character && 0 === $offset ) {
+                $rest .= '*';
+                ++$offset;
+                continue;
+            }
+            if ( 0 === $offset ) {
+                $end = $this->cssIdentifierEnd($compound, 0);
+                if ( null !== $end ) {
+                    $rest .= substr($compound, 0, $end);
+                    $offset = $end;
+                    continue;
+                }
+            }
+            return null;
+        }
+
+        return array( 'structural' => $structural, 'item' => $item, 'rest' => $rest );
+    }
+
+    /**
+     * Offset after the CSS identifier starting at $offset, consuming escapes
+     * through the scanner (a hex escape takes its whitespace terminator), or
+     * null when no identifier starts there.
+     */
+    private function cssIdentifierEnd(string $value, int $offset): ?int
+    {
+        $length = strlen($value);
+        $end = $offset;
+        while ( $end < $length ) {
+            $character = $value[$end];
+            if ( '\\' === $character ) {
+                $escapeEnd = CssSyntaxScanner::escapeEnd($value, $end);
+                if ( null === $escapeEnd ) {
+                    return null;
+                }
+                $end = $escapeEnd;
+                continue;
+            }
+            if ( ctype_alnum($character) || '-' === $character || '_' === $character || ord($character) >= 0x80 ) {
+                ++$end;
+                continue;
+            }
+            break;
+        }
+
+        return $end > $offset ? $end : null;
+    }
+
+    /**
+     * Offset after the `)` or `]` matching the group opened at $open, honouring
+     * strings and escapes, or null when the group never closes.
+     */
+    private function balancedGroupEnd(string $value, int $open): ?int
+    {
+        $state = CssSyntaxScanner::state();
+        $length = strlen($value);
+        $offset = $open;
+        while ( $offset < $length ) {
+            $offset = CssSyntaxScanner::consume($value, $offset, $state);
+            if ( null === $offset ) {
+                return null;
+            }
+            if ( CssSyntaxScanner::isTopLevel($state) ) {
+                return $offset;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Which rendered element an attribute selector on a source navigation
+     * anchor can still address: `class` and `id` land on the `<li>`, `href` is
+     * rendered on the `<a>`; nothing else is retained.
+     *
+     * @return 'item'|'anchor'|null
+     */
+    private function navigationAttributeOwner(string $attribute): ?string
+    {
+        if ( ! preg_match('/^\[\s*((?:\\\\.|[A-Za-z0-9_-])+)\s*(?:[~|^$*]?=|\])/', $attribute, $match) ) {
+            return null;
+        }
+        $name = strtolower(stripslashes($match[1]));
+        if ( 'class' === $name || 'id' === $name ) {
+            return 'item';
+        }
+
+        return 'href' === $name ? 'anchor' : null;
+    }
+
+    /**
+     * @return 'structural'|'item'|null
+     */
+    private function navigationPseudoClassOwner(string $name, ?string $argument): ?string
+    {
+        if ( null === $argument ) {
+            return 'first-child' === $name || 'last-child' === $name ? 'structural' : null;
+        }
+        if ( 'nth-child' === $name || 'nth-of-type' === $name ) {
+            return preg_match('/^[1-9][0-9]*$/', $argument) ? 'structural' : null;
+        }
+        if ( 'not' !== $name || '' === $argument ) {
+            return null;
+        }
+        // A negation moves with its single kind of content; a mixed argument
+        // could not be split without changing what it negates.
+        $negated = $this->splitNavigationItemCompound($argument);
+        if ( null === $negated || '' !== $negated['rest'] ) {
+            return null;
+        }
+        if ( '' !== $negated['structural'] && '' === $negated['item'] ) {
+            return 'structural';
+        }
+
+        return '' !== $negated['item'] && '' === $negated['structural'] ? 'item' : null;
+    }
+
+    /** @param list<DOMElement> $matches */
+    private function matchesOnlyNavigationItemAnchors(array $matches, AuthorStylesheetProjectionContext $context): bool
+    {
+        foreach ( $matches as $element ) {
+            if ( ! $context->selectorProjections->isNavigationItemAnchorPath($element->getNodePath() ?? '') ) {
+                return false;
+            }
+        }
+
+        return array() !== $matches;
     }
 
     /** @param array<string, mixed> $parsed */

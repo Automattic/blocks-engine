@@ -43,7 +43,7 @@
     { "path": "serialized_blocks", "assert": "not_contains", "value": "steal()" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<script" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "javascript:" },
-    { "path": "assets.0.content", "assert": "contains", "value": "position:absolute" },
+    { "path": "assets.1.content", "assert": "contains", "value": "position:absolute" },
     { "path": "assets.1.content", "assert": "contains", "value": "z-index:2" },
     { "path": "assets.0.content", "assert": "contains", "value": "inset:1rem auto auto 2rem !important" },
     { "path": "assets.0.content", "assert": "contains", "value": "margin-top:0;margin-bottom:0" },

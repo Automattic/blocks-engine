@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Closure;
 use DOMDocument;
 use DOMElement;
@@ -331,6 +332,9 @@ final class SourceDom
      */
     public static function isDocumentVariantRoot(DOMElement $element): bool
     {
+        // A document scope is a declared source-body boundary, independent of
+        // presentation classes or a fixed set of device/profile names.
+        if ($element->hasAttribute('data-dla-document-scope') && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', trim(self::attr($element, 'data-dla-device-document')))) return true;
         foreach ( preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array() as $class ) {
             if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( 'data-liberation-desktop-document', 'data-liberation-mobile-document' ), true) ) {
                 return true;
@@ -338,6 +342,40 @@ final class SourceDom
         }
 
         return false;
+    }
+
+    /**
+     * The suffix distinguishing a non-default responsive document variant's
+     * copy of a shared source id from its default-variant counterpart, so an
+     * id compiled onto both copies of the same wrapper does not collide on
+     * the page. Empty for the default (desktop) variant, or for an element
+     * outside any declared variant, which both keep the bare source id.
+     *
+     * Mirrors Data Liberation Agent's own `--dla-mobile` convention for
+     * pairing a mobile-specific identity with its desktop counterpart
+     * (`dataItem-kooetu6x` / `dataItem-kooetu6x--dla-mobile`), instead of
+     * inventing a second convention for the same kind of pairing. The
+     * convention itself lives in {@see DocumentVariantIds}, which also keeps the
+     * delivered author stylesheets pointing at the suffixed ids.
+     */
+    public static function documentVariantIdSuffix(DOMElement $element): string
+    {
+        $root = self::documentVariantRoot($element);
+        if ( ! $root instanceof DOMElement ) {
+            return '';
+        }
+
+        foreach ( preg_split('/\s+/', trim(self::attr($root, 'class'))) ?: array() as $class ) {
+            $suffix = DocumentVariantIds::suffixForClass($class);
+            if ( null !== $suffix ) {
+                return $suffix;
+            }
+        }
+
+        $declared = trim(self::attr($root, 'data-dla-device-document'));
+        if ($root->hasAttribute('data-dla-document-scope') && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $declared)) return '--dla-' . $declared;
+
+        return '';
     }
 
     public static function associatedLabel(DOMElement $control): ?DOMElement
@@ -920,6 +958,30 @@ final class SourceDom
     public static function dedupeArrayRows(array $rows): array
     {
         return DeterministicRowDeduplicator::dedupe($rows);
+    }
+
+    /**
+     * Whether the element is the opener of a projected native dialog: its id is
+     * named by a captured dialog's `data-blocks-engine-triggers`. Such a control
+     * owns that dialog and is never redundant hamburger or navigation chrome.
+     */
+    public static function isBoundCapturedDialogTrigger(DOMElement $element): bool
+    {
+        $id = trim(self::attr($element, 'id'));
+        $document = $element->ownerDocument;
+        if ( '' === $id || null === $document ) {
+            return false;
+        }
+        foreach ( $document->getElementsByTagName('dialog') as $dialog ) {
+            if ( $dialog instanceof DOMElement
+                && 'true' === self::attr($dialog, 'data-blocks-engine-captured-dialog')
+                && in_array($id, preg_split('/\s+/', trim(self::attr($dialog, 'data-blocks-engine-triggers'))) ?: array(), true)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

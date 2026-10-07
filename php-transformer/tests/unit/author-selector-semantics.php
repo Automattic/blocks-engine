@@ -220,14 +220,14 @@ $assert(2 === count(array_unique($rootChildMarkers[0] ?? array())) && str_contai
 $documentRoot = $transform('<style>body{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65;background:url(texture.png);padding:24px}@media (max-width:600px){body{font-size:15px}}</style><main><p>Document typography</p></main>');
 $documentRootCss = $css($documentRoot);
 $documentRootEditorRule = '';
-if ( preg_match('/:root \.editor-styles-wrapper\{([^}]*)\}/', $documentRootCss, $documentRootEditorMatch) ) {
+if ( preg_match('/:root body\.editor-styles-wrapper\{([^}]*)\}/', $documentRootCss, $documentRootEditorMatch) ) {
     $documentRootEditorRule = $documentRootEditorMatch[1];
 }
 $assert(
-    str_contains($documentRootCss, 'body{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65;background:url(texture.png);padding:24px}:root .editor-styles-wrapper{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65}')
+    str_contains($documentRootCss, 'body{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65;background:url(texture.png);padding:24px}:root body.editor-styles-wrapper{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65}')
         && ! str_contains($documentRootEditorRule, 'background')
         && ! str_contains($documentRootEditorRule, 'padding')
-        && str_contains($documentRootCss, '@media (max-width:600px){body{font-size:15px}:root .editor-styles-wrapper{font-size:15px}}'),
+        && str_contains($documentRootCss, '@media (max-width:600px){body{font-size:15px}:root body.editor-styles-wrapper{font-size:15px}}'),
     'inherited document presentation targets the Gutenberg canvas root without duplicating body paint, geometry, assets, or responsive rules'
 );
 
@@ -250,7 +250,7 @@ $attributeProjectionCss = $css($attributeProjection);
 preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $attributeProjectionMarkup, $attributeMarkers);
 preg_match('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $attributeProjectionMarkup, $attributeStateMarker);
 $assert(
-    1 === count(array_unique($attributeMarkers[0] ?? array()))
+    array() !== ($attributeMarkers[0] ?? array())
     && str_contains($attributeProjectionCss, ':where(.blocks-engine-attribute-')
     && str_contains($attributeProjectionCss, 'flex-grow:1')
     && isset($attributeStateMarker[0])
@@ -259,6 +259,47 @@ $assert(
     && ! str_contains($attributeProjectionMarkup, 'data-state=')
     && 'pass' === ($attributeProjection['source_reports']['wp_block_validity']['status'] ?? ''),
     'rightmost data-attribute flex-grow and settled negated state selectors project through valid synthetic markers without source attributes'
+);
+
+$scopedAttributePredicates = $transform('<style>.a .item[data-state="on"]{display:grid;--tone:red}.b .item[data-state="on"]{display:grid;--tone:blue}</style><section class="a"><div class="item" data-state="on"><p>First</p></div></section><section class="b"><div class="item" data-state="on"><p>Second</p></div></section>');
+$scopedAttributeMarkup = (string) ($scopedAttributePredicates['serialized_blocks'] ?? '');
+$scopedAttributeCss = $css($scopedAttributePredicates);
+preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $scopedAttributeMarkup, $scopedAttributeMarkers);
+$scopedMarkers = array_values(array_unique($scopedAttributeMarkers[0] ?? array()));
+$assert(
+    2 === count($scopedMarkers)
+        && str_contains($scopedAttributeCss, ':where(.' . $scopedMarkers[0] . ')')
+        && str_contains($scopedAttributeCss, ':where(.' . $scopedMarkers[1] . ')')
+        && str_contains($scopedAttributeCss, '--tone:red')
+        && str_contains($scopedAttributeCss, '--tone:blue')
+        && 'pass' === ($scopedAttributePredicates['source_reports']['wp_block_validity']['status'] ?? ''),
+    'attribute projection markers identify full source predicates so identical local attributes in different ancestor scopes keep distinct cascade bindings'
+);
+
+$emptyFunctionalGrid = $transform('<section style="display:flex;flex-direction:column;min-height:297px;padding-top:242px"><div class="content-wrapper" style="display:flex;flex-direction:column;padding:29.7px 0"><div data-runtime-grid-container="1"><style>.neutral-fluid-grid{display:grid;grid-template-rows:repeat(2,minmax(36px,auto))}</style><div class="neutral-fluid-grid"></div></div></div></section>');
+$emptyFunctionalGridMarkup = (string) ($emptyFunctionalGrid['serialized_blocks'] ?? '');
+$emptyFunctionalGridCss = $css($emptyFunctionalGrid);
+$assert(
+    str_contains($emptyFunctionalGridMarkup, 'neutral-fluid-grid blocks-engine-empty-visual-group')
+        && str_contains($emptyFunctionalGridCss, '.neutral-fluid-grid{display:grid;grid-template-rows:repeat(2,minmax(36px,auto))}')
+        && 'pass' === ($emptyFunctionalGrid['source_reports']['wp_block_validity']['status'] ?? ''),
+    'empty nested grid tracks stay represented beneath a source-owned visual wrapper'
+);
+
+$functionalAttributeProjection = $transform('<style>@media (min-width:700px){:is(#neutral-specificity,[data-runtime-clearance="1"]){display:grid;padding-top:242px!important}}@media (max-width:699px){:is(#neutral-specificity,[data-runtime-clearance="1"]){padding-top:36px!important}}</style><section data-runtime-clearance="1"><p>Clearance owner</p></section><section><p>Unaffected sibling</p></section>');
+$functionalAttributeMarkup = (string) ($functionalAttributeProjection['serialized_blocks'] ?? '');
+$functionalAttributeCss = $css($functionalAttributeProjection);
+preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $functionalAttributeMarkup, $functionalAttributeMarkers);
+$functionalAttributeMarkers = array_values(array_unique($functionalAttributeMarkers[0] ?? array()));
+$assert(
+    1 === count($functionalAttributeMarkers)
+        && ! str_contains($functionalAttributeMarkup, 'data-runtime-clearance=')
+        && str_contains($functionalAttributeCss, ':where(.' . $functionalAttributeMarkers[0] . ')')
+        && str_contains($functionalAttributeCss, 'padding-top:242px!important')
+        && str_contains($functionalAttributeCss, 'padding-top:36px!important')
+        && str_contains($functionalAttributeCss, 'blocks-engine-specificity-id-site-')
+        && 'pass' === ($functionalAttributeProjection['source_reports']['wp_block_validity']['status'] ?? ''),
+    'functional :is() data-attribute predicates project onto only the matching block with preserved specificity and responsive declarations'
 );
 
 $functionalAttributeState = $transform('<style>@media(prefers-reduced-motion:no-preference){:is(#hero :where(.artwork),[id^="artwork-"]):not([data-motion-enter="done"]){opacity:0;animation:reveal 1s backwards}}</style><main id="hero"><div class="artwork" data-motion-enter="done">Visible</div></main>');
@@ -282,6 +323,35 @@ $assert(
         && 1 === preg_match_all('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $secondStateClass[0] ?? '')
         && ! str_contains($unrelatedStateClass, 'blocks-engine-attribute-state-'),
     'negated state markers attach only to the settled targets of their owning selectors'
+);
+
+$descendantAttributeState = $transform('<style>.media-frame:not([data-ratio="original"]) .media-image{position:absolute}</style><div class="media-frame" data-ratio="original"><div class="media-image"><img src="frame.jpg" alt="Frame"></div></div>');
+$descendantAttributeStateMarkup = (string) ($descendantAttributeState['serialized_blocks'] ?? '');
+$descendantAttributeStateCss = $css($descendantAttributeState);
+preg_match('/class="([^"]*media-frame[^"]*)"/', $descendantAttributeStateMarkup, $mediaFrameClass);
+preg_match('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $mediaFrameClass[1] ?? '', $mediaFrameStateMarker);
+$assert(
+    isset($mediaFrameStateMarker[0])
+        && str_contains($descendantAttributeStateCss, '.media-frame:not(.' . $mediaFrameStateMarker[0] . ') .media-image{position:absolute}')
+        && ! str_contains($descendantAttributeStateMarkup, 'data-ratio=')
+        && 'pass' === ($descendantAttributeState['source_reports']['wp_block_validity']['status'] ?? ''),
+    'a negated data-state marker on an ancestor is attached to that attribute owner instead of the rightmost matched descendant'
+);
+
+$sourceCardGrid = $transform('<style>.user-items-list-item-container:not([data-num-columns="1"]) .list-item{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}@media(min-width:768px){.user-items-list-item-container:not([data-num-columns="1"]) .list-item{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(min-width:1100px){.user-items-list-item-container:not([data-num-columns="1"]) .list-item{grid-template-columns:repeat(4,minmax(0,1fr))}}.list-item-media-inner:not([data-aspect-ratio="original"]) .list-image{position:absolute}</style><ul class="user-items-list-item-container user-items-list-simple" data-num-columns="4"><li class="list-item"><div class="list-item-media"><div class="list-item-media-inner" data-aspect-ratio="original"><img class="list-image" src="service.png" alt="Service"></div></div><div class="list-item-content"><h2>Service</h2><p>Details</p></div></li></ul>');
+$sourceCardMarkup = (string) ($sourceCardGrid['serialized_blocks'] ?? '');
+$sourceCardCss = $css($sourceCardGrid);
+$assert(
+    ! str_contains($sourceCardMarkup, 'data-num-columns=')
+        && str_contains($sourceCardMarkup, 'blocks-engine-attribute-state-')
+        && str_contains($sourceCardCss, ':not(.blocks-engine-attribute-state-')
+        && ! str_contains($sourceCardCss, '.user-items-list-item-container:not([data-num-columns="1"])')
+        && str_contains($sourceCardCss, 'grid-template-columns:repeat(3,minmax(0,1fr))')
+        && str_contains($sourceCardCss, 'grid-template-columns:repeat(4,minmax(0,1fr))')
+        && str_contains($sourceCardCss, '@media(min-width:768px)')
+        && str_contains($sourceCardCss, '@media(min-width:1100px)')
+        && 'pass' === ($sourceCardGrid['source_reports']['wp_block_validity']['status'] ?? ''),
+    'source-shaped card grids retain negated data-column truth across responsive rules and image-wrapper selector identity in valid emitted blocks'
 );
 
 $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;height:0;padding:0 24px}</style><button class="skip">Skip</button>');
@@ -795,7 +865,7 @@ $assert(array() === ($logoControl['source_reports']['conversion_report']['gutenb
 $inlineSvgOnlyLogo = $transform('<style>.brand-logo{width:228px;height:35px}</style><a class="site-link" href="/"><div class="brand-logo"><svg viewBox="0 0 228 30" width="100%" height="100%" role="img" aria-label="Brand logo"><path d="M0 0h228v30H0z"/></svg></div></a>');
 $inlineSvgOnlyLogoMarkup = (string) ($inlineSvgOnlyLogo['serialized_blocks'] ?? '');
 $inlineSvgOnlyLogoAssets = array_filter($inlineSvgOnlyLogo['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''));
-$assert(str_contains($inlineSvgOnlyLogoMarkup, 'brand-logo') && str_contains($inlineSvgOnlyLogoMarkup, 'assets/materialized-svg/') && str_contains($css($inlineSvgOnlyLogo), '>a{display:block;width:100%}') && 1 === count($inlineSvgOnlyLogoAssets) && ! str_contains($inlineSvgOnlyLogoMarkup, '<svg'), 'an SVG-only logo materializes as a full-width linked image instead of being omitted for lacking text content');
+$assert(str_contains($inlineSvgOnlyLogoMarkup, 'brand-logo') && str_contains($inlineSvgOnlyLogoMarkup, 'assets/materialized-svg/') && 1 === preg_match('/>a\{(?=[^}]*display:block)(?=[^}]*width:100%)[^}]*\}/', $css($inlineSvgOnlyLogo)) && 1 === count($inlineSvgOnlyLogoAssets) && ! str_contains($inlineSvgOnlyLogoMarkup, '<svg'), 'an SVG-only logo materializes as a full-width linked image instead of being omitted for lacking text content');
 
 $structuredAnchor = $transform('<style>.row{display:flex}</style><div class="row"><a class="card" href="/"><span>Copy</span><div>Structured</div></a></div>');
 $structuredAnchorBlock = $structuredAnchor['blocks'][0] ?? array();

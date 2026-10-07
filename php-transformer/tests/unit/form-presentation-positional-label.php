@@ -96,6 +96,24 @@ $label = $rows[0]['label']['styles'] ?? null;
 $assert('15px' === ($label['font_size'] ?? null), 'the carrier-painted font size wins over the label declaration', json_encode($label));
 $assert('#f3f2ed' === ($label['color'] ?? null), 'the carrier-painted color reaches a label that declares other typography', json_encode($label));
 
+$responsiveCarrier = ( new HtmlTransformer() )->transform(
+    '<style>.lbl{font-size:10px;color:#000}.text-context{--copy-size:14px;--copy-leading:21px;--copy-color:#e5eafa;--copy-family:Georgia}'
+    . '@media(min-width:1080px){.text-context{--copy-size:18px;--copy-leading:27px}.copy{font-size:var(--copy-size);line-height:var(--copy-leading);color:var(--copy-color);font-family:var(--copy-family)}}'
+    . '@media(max-width:1079px){.copy{font-size:var(--copy-size);line-height:var(--copy-leading);color:var(--copy-color);font-family:var(--copy-family)}}</style>'
+    . '<form method="post"><label class="lbl"><input type="checkbox" name="consent" required><span class="box"></span>'
+    . '<div class="text-context"><p class="copy"><span>Consent copy<span aria-hidden="true">*</span></span></p></div></label>'
+    . '<label class="lbl"><input type="checkbox" name="fixed-copy"><div class="text-context"><p class="copy"><span style="font-size:15px">Fixed inner size</span></p></div></label>'
+    . '<button type="submit">Send</button></form>'
+)->toArray();
+$responsiveVariants = $responsiveCarrier['fallbacks'][0]['presentation_graph']['variants'] ?? array();
+foreach ( array( '(min-width:1080px)' => array( '18px', '27px' ), '(max-width:1079px)' => array( '14px', '21px' ) ) as $query => $expected ) {
+    $variant = array_values(array_filter($responsiveVariants, static fn (array $v): bool => 0 === $v['index'] && 'label' === $v['role'] && $query === ($v['condition']['query'] ?? '')))[0] ?? array();
+    $patch = $variant['style_patch'] ?? array();
+    $assert($expected[0] === ($patch['font_size'] ?? null) && $expected[1] === ($patch['line_height'] ?? null) && '#e5eafa' === ($patch['color'] ?? null) && 'Georgia' === ($patch['font_family'] ?? null), 'responsive nested carrier typography resolves on its own custom-property owner for ' . $query, json_encode($variant));
+    $fixed = array_values(array_filter($responsiveVariants, static fn (array $v): bool => 1 === $v['index'] && 'label' === $v['role'] && $query === ($v['condition']['query'] ?? '')))[0] ?? array();
+    $assert('15px' === ($fixed['style_patch']['font_size'] ?? null) && '#e5eafa' === ($fixed['style_patch']['color'] ?? null), 'nearest explicit inner typography wins over responsive ancestor typography for ' . $query, json_encode($fixed));
+}
+
 // Multiple overlapping author rules still form a bounded cascade: the final
 // winning facts must survive into the provider declaration, not just a report.
 $rules = implode('', array_map(

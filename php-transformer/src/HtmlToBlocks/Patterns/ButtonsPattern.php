@@ -174,7 +174,9 @@ final class ButtonsPattern
     /** @return array<string, mixed> */
     private function buttonBlockFromAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons, ?DOMElement $presentationElement = null): array
     {
-        $presentationElement ??= $this->buttonSurfaceElement($anchor) ?? $anchor;
+        $presentationElement ??= $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
+            ? $anchor
+            : ($this->buttonSurfaceElement($anchor) ?? $anchor);
         $resolvedPresentation = trim($buttons->resolvedStyle($presentationElement));
         $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));
         $attrs = $this->buttonPresentationAttributes($presentationElement, $context, $buttons);
@@ -184,6 +186,7 @@ final class ButtonsPattern
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
         $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
+        $attrs = array_replace_recursive($attrs, $this->buttonLabelTextAttributes($anchor, $buttons));
 
         return $context->createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,
@@ -192,6 +195,20 @@ final class ButtonsPattern
             'linkTarget' => $buttons->attribute($anchor, 'target'),
             'rel'        => $buttons->attribute($anchor, 'rel'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
+    }
+
+    /** The box and a whole-label descendant can have different source owners. */
+    private function buttonLabelTextAttributes(DOMElement $anchor, ButtonPatternContext $buttons): array
+    {
+        $text = $this->plainText(SourceDom::innerHtml($anchor));
+        $style = array();
+        foreach ($anchor->getElementsByTagName('*') as $label) {
+            if (!$label instanceof DOMElement || '' === $text || $this->plainText(SourceDom::innerHtml($label)) !== $text) continue;
+            $native = $this->styleResolver->nativeAttributes($buttons->nativePresentationStyle($label))['style'] ?? array();
+            if (isset($native['typography'])) $style['typography'] = array_replace($style['typography'] ?? array(), $native['typography']);
+            if (isset($native['color']['text'])) $style['color']['text'] = $native['color']['text'];
+        }
+        return array() === $style ? array() : array('style' => $style);
     }
 
     /**
@@ -454,7 +471,7 @@ final class ButtonsPattern
         // as `button { background: none }` can precede a filled button variant.
         // It is also resolved before the presentation attributes so the carrier
         // can be told which properties the native supports have already claimed.
-        $native = $this->styleResolver->nativeAttributes($resolvedStyle);
+        $native = $this->styleResolver->nativeAttributes($buttons->nativePresentationStyle($element));
         // Native core/button width owns only its canonical percentage values.
         // Other anchors and width values retain their generated geometry carrier.
         $excludedGeometry = null !== $width ? array( 'width' ) : array();

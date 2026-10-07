@@ -3,10 +3,14 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext;
 use DOMDocument;
 use DOMElement;
 
@@ -50,13 +54,16 @@ final class RuntimeDependencyParityReport
      *        as an acceptable, superseded loss rather than a materialization bug.
      * @return array<string, mixed>
      */
-    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array(), array $interactionCandidates = array(), array $supersededSelectors = array(), array $generatedBlocks = array()): array
+    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array(), array $interactionCandidates = array(), array $supersededSelectors = array(), array $generatedBlocks = array(), ?array $wordpressSitePlan = null): array
     {
         if ($this->ownsRuntimeScriptEvidenceAnalyzer) {
             $this->runtimeScriptEvidenceAnalyzer->resetCache();
         }
 
         $sourceTargets = $this->sourceTargets($sourceHtml, $sourcePath);
+        $sourceHeadTargets = $this->sourceTargets($this->headTags($sourceHtml, true), $sourcePath);
+        $sourceBodyTargets = $this->sourceTargets($sourceHtml, $sourcePath, true);
+        $headTargets = $this->htmlTargets($this->headTags(null === $wordpressSitePlan ? '' : DocumentHeadContext::fromPlan($wordpressSitePlan, $sourcePath), false));
         $generatedTargets = $this->withBlockCommentAnchorTargets(
             $this->withRuntimeIslandTargets($this->htmlTargets($generatedHtml), $runtimeIslands),
             $generatedHtml
@@ -67,6 +74,7 @@ final class RuntimeDependencyParityReport
         $flaggedSelectors = array();
         $bundleCanvasSelectors = $this->bundleCanvasSelectors($files, $sourceTargets);
         $companionTargets = $this->htmlTargets($this->declaredCompanionRenderHtml($generatedBlocks));
+        $rendererTargets = $this->htmlTargets($this->declaredRendererContentHtml($generatedBlocks, $generatedHtml));
 
         foreach ( $files as $file ) {
             if ( ! $this->isScriptFile($file) || ! $this->scriptAppliesToSource($file, $sourcePath) ) {
@@ -83,7 +91,9 @@ final class RuntimeDependencyParityReport
             foreach ( $this->scriptDependencies($script, $bundleCanvasSelectors) as $dependency ) {
                 $selector = (string) $dependency['selector'];
                 $target = $sourceTargets[$selector] ?? array();
-                $exists = $this->targetExists($dependency, $generatedTargets) || $this->targetExists($dependency, $companionTargets);
+                $headTarget = isset($sourceHeadTargets[$selector]);
+                $bodyExists = $this->targetExists($dependency, $generatedTargets) || $this->targetExists($dependency, $companionTargets) || $this->targetExists($dependency, $rendererTargets);
+                $exists = $headTarget ? ($this->targetExists($dependency, $headTargets) && (!isset($sourceBodyTargets[$selector]) || $bodyExists)) : $bodyExists;
                 $canvasApi = true === $dependency['canvas_api'] && 'canvas' === ($target['tag'] ?? '');
                 $dependencyRow = array_filter(array(
                     'source_path'       => $target['source_path'] ?? $sourcePath,
@@ -98,7 +108,7 @@ final class RuntimeDependencyParityReport
                     'canvas_api'        => $canvasApi,
                     'source_present'    => array() !== $target,
                     'generated_present' => $exists,
-                    'generated_target_evidence' => $this->targetExists($dependency, $companionTargets) ? 'declared_companion_render' : '',
+                    'generated_target_evidence' => $headTarget ? ($exists ? 'declared_document_head' : '') : $this->generatedTargetEvidence($dependency, $companionTargets, $rendererTargets),
                     'disposition'       => $this->isSupersededSelector($selector, $superseded) ? self::DISPOSITION_SUPERSEDED : '',
                 ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
                 $dependencies[] = $dependencyRow;
@@ -179,6 +189,16 @@ final class RuntimeDependencyParityReport
         return $report;
     }
 
+    /** Scan real start tags, never markup examples inside raw script/style text. */
+    private function headTags(string $html, bool $requireHeadPlacement): string
+    {
+        $tags = array();
+        foreach (array('meta', 'link', 'style', 'script', 'title', 'base') as $name) foreach (HtmlTagScanner::scan($html, $name) as $row) {
+            if (!$requireHeadPlacement || 'head' === $row['placement']) $tags[] = $row['tag'] . (in_array($name, array('style', 'script', 'title'), true) ? '</' . $name . '>' : '');
+        }
+        return implode("\n", $tags);
+    }
+
     /**
      * Page-owned scripts are evaluated only against the page which owns them.
      * Shared scripts intentionally retain their cross-page parity behavior.
@@ -212,6 +232,120 @@ final class RuntimeDependencyParityReport
         }
 
         return implode("\n", $renders);
+    }
+
+    /**
+     * Audited content renderers echo the instance content attribute as frontend
+     * DOM. Count that markup only when the generated block declares the renderer.
+     * Executable tags the renderer strips are not targets.
+     *
+     * @param array<int, array<string, mixed>> $generatedBlocks
+     */
+    private function declaredRendererContentHtml(array $generatedBlocks, string $generatedHtml): string
+    {
+        $names = array();
+        foreach ( $generatedBlocks as $block ) {
+            if ( ! is_array($block) || ! in_array($block['renderer'] ?? null, array( ResponsiveLayoutBlockGenerator::RENDERER, ResponsiveMediaBlockGenerator::RENDERER ), true) ) {
+                continue;
+            }
+            $name = $block['block_json']['name'] ?? null;
+            if ( is_string($name) && 1 === preg_match('/^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/', $name) ) {
+                $names[$name] = true;
+            }
+        }
+        if ( array() === $names ) {
+            return '';
+        }
+
+        $chunks = array();
+        foreach ( array_keys($names) as $name ) {
+            $offset = 0;
+            $needle = '<!-- wp:' . $name . ' ';
+            while ( false !== ($start = strpos($generatedHtml, $needle, $offset)) ) {
+                $jsonStart = $start + strlen($needle);
+                $json = $this->readJsonObject($generatedHtml, $jsonStart);
+                $offset = $jsonStart + (null === $json ? 1 : strlen($json));
+                if ( null === $json ) {
+                    continue;
+                }
+                $attrs = json_decode($json, true);
+                $content = is_array($attrs) ? ($attrs['content'] ?? null) : null;
+                if ( is_string($content) && '' !== $content ) {
+                    $chunks[] = $this->rendererEmittedMarkup($content);
+                }
+            }
+        }
+
+        return implode("\n", $chunks);
+    }
+
+    private function readJsonObject(string $html, int $start): ?string
+    {
+        if ( '{' !== ($html[$start] ?? '') ) {
+            return null;
+        }
+
+        $depth = 0;
+        $inString = false;
+        $escape = false;
+        $length = strlen($html);
+        for ( $i = $start; $i < $length; $i++ ) {
+            $char = $html[$i];
+            if ( $inString ) {
+                if ( $escape ) {
+                    $escape = false;
+                    continue;
+                }
+                if ( '\\' === $char ) {
+                    $escape = true;
+                    continue;
+                }
+                if ( '"' === $char ) {
+                    $inString = false;
+                }
+                continue;
+            }
+            if ( '"' === $char ) {
+                $inString = true;
+                continue;
+            }
+            if ( '{' === $char ) {
+                $depth++;
+                continue;
+            }
+            if ( '}' === $char && 0 === --$depth ) {
+                return substr($html, $start, $i - $start + 1);
+            }
+        }
+
+        return null;
+    }
+
+    private function rendererEmittedMarkup(string $content): string
+    {
+        $content = preg_replace('#<\s*(?:script|style|iframe|object|embed|foreignobject|animate|animatemotion|animatetransform|set)\b[^>]*>.*?</\s*(?:script|style|iframe|object|embed|foreignobject|animate|animatemotion|animatetransform|set)\s*>#is', '', $content) ?? '';
+        $content = preg_replace('#<\s*(?:script|style|iframe|object|embed|foreignobject|animate|animatemotion|animatetransform|set)\b[^>]*/?\s*>#is', '', $content) ?? '';
+        $content = preg_replace('#<\s*(/?)\s*[a-z][a-z0-9]*-[a-z0-9-]+\b#i', '<$1div', $content) ?? '';
+        $content = preg_replace('/\sdata-wp-[a-z0-9_-]*(?:\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+))?/i', '', $content) ?? '';
+
+        return $content;
+    }
+
+    /**
+     * @param array{kind: string, selector: string, events: array<int, string>, canvas_api: bool} $dependency
+     * @param array{ids: array<string, bool>, classes: array<string, bool>, selectors?: array<string, bool>} $companionTargets
+     * @param array{ids: array<string, bool>, classes: array<string, bool>, selectors?: array<string, bool>} $rendererTargets
+     */
+    private function generatedTargetEvidence(array $dependency, array $companionTargets, array $rendererTargets): string
+    {
+        if ( $this->targetExists($dependency, $companionTargets) ) {
+            return 'declared_companion_render';
+        }
+        if ( $this->targetExists($dependency, $rendererTargets) ) {
+            return 'declared_renderer_content';
+        }
+
+        return '';
     }
 
     /**
@@ -418,7 +552,9 @@ final class RuntimeDependencyParityReport
     private function normalizedTargetSelector(string $target): string
     {
         $target = trim($target);
-        if ( 1 === preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*$/', $target) ) {
+        // `[data-attr]` presence selectors are included: capture-owned runtimes
+        // address absorbed panels by attribute.
+        if ( 1 === preg_match('/^(?:[#.][A-Za-z][A-Za-z0-9_-]*|\[data-[a-z0-9_-]+\])$/', $target) ) {
             return $target;
         }
 
@@ -561,12 +697,13 @@ final class RuntimeDependencyParityReport
     /**
      * @return array<string, array{tag: string, source_path: string, id?: string, class?: string, src?: string}>
      */
-    private function sourceTargets(string $html, string $sourcePath): array
+    private function sourceTargets(string $html, string $sourcePath, bool $excludeHead = false): array
     {
         $targets = array();
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $documentHtml = array() !== HtmlTagScanner::scan($html, 'html') ? $html : '<body>' . $html . '</body>';
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
         if ( ! $loaded ) {
@@ -576,6 +713,9 @@ final class RuntimeDependencyParityReport
         foreach ( $document->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) {
                 continue;
+            }
+            if ($excludeHead) {
+                for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) if ('head' === strtolower($ancestor->tagName)) continue 2;
             }
             $tag = strtolower($element->tagName);
             $src = 'script' === $tag && $element->hasAttribute('src') ? trim($element->getAttribute('src')) : '';
@@ -684,6 +824,12 @@ final class RuntimeDependencyParityReport
                         $selector = '[' . strtolower((string) $dataMatch[1]) . ']';
                         $targets['selectors'][$selector] = true;
                         $targets['selectors'][$tag . $selector] = true;
+                        $value = html_entity_decode((string) ($dataMatch[3] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                        if ( '' !== $value ) {
+                            $equality = RuntimeSelectorVocabulary::canonicalScriptSelector('[' . strtolower((string) $dataMatch[1]) . '="' . str_replace(array( '\\', '"' ), array( '\\\\', '\\"' ), $value) . '"]');
+                            $targets['selectors'][$equality] = true;
+                            $targets['selectors'][$tag . $equality] = true;
+                        }
                     }
                 }
                 if ( in_array($tag, array_merge(array('canvas', 'svg'), RuntimeSelectorVocabulary::RUNTIME_TAG_SELECTORS), true) ) {
@@ -736,8 +882,11 @@ final class RuntimeDependencyParityReport
 
                 $attributeSelector = '[' . $attributeName . ']';
                 $targets['selectors'][$attributeSelector] = true;
+                $equalitySelector = RuntimeSelectorVocabulary::canonicalScriptSelector('[' . $attributeName . '="' . str_replace(array( '\\', '"' ), array( '\\\\', '\\"' ), (string) $value) . '"]');
+                $targets['selectors'][$equalitySelector] = true;
                 if ( '' !== $tag ) {
                     $targets['selectors'][$tag . $attributeSelector] = true;
+                    $targets['selectors'][$tag . $equalitySelector] = true;
                 }
             }
         }
@@ -755,6 +904,7 @@ final class RuntimeDependencyParityReport
             $name = strtolower($attribute->nodeName ?? '');
             if ( str_starts_with($name, 'data-') && preg_match('/^data-[a-z][a-z0-9_-]*$/', $name) ) {
                 $selectors['[' . $name . ']'] = $name;
+                $selectors[RuntimeSelectorVocabulary::canonicalScriptSelector('[' . $name . '="' . str_replace(array( '\\', '"' ), array( '\\\\', '\\"' ), (string) ($attribute->nodeValue ?? '')) . '"]')] = $name;
             }
         }
 

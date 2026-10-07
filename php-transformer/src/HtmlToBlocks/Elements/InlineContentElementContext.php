@@ -27,6 +27,7 @@ final class InlineContentElementContext
      * @param Closure(DOMElement): bool $isStructuralListItem
      * @param Closure(DOMElement): bool $shouldPreserveEmptyVisualElement
      * @param Closure(DOMElement): array<string, mixed> $emptyVisualSpacerBlock
+     * @param (Closure(DOMElement): void)|null $rememberNativeDisclosureRoot
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier,
@@ -45,7 +46,8 @@ final class InlineContentElementContext
         private readonly Closure $ancestorElement,
         private readonly Closure $isStructuralListItem,
         private readonly Closure $shouldPreserveEmptyVisualElement,
-        private readonly Closure $emptyVisualSpacerBlock
+        private readonly Closure $emptyVisualSpacerBlock,
+        private readonly ?Closure $rememberNativeDisclosureRoot = null
     ) {
     }
 
@@ -79,4 +81,5 @@ final class InlineContentElementContext
     public function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return ($this->shouldPreserveEmptyVisualElement)($element); }
     /** @return array<string, mixed> */
     public function emptyVisualSpacerBlock(DOMElement $element): array { return ($this->emptyVisualSpacerBlock)($element); }
+    public function rememberNativeDisclosureRoot(DOMElement $element): void { if ( null !== $this->rememberNativeDisclosureRoot ) { ($this->rememberNativeDisclosureRoot)($element); } }
 }

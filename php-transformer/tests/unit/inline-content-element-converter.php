@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
@@ -56,7 +57,8 @@ $context = new InlineContentElementContext(
     static fn (DOMElement $element): array => array( 'blockName' => 'core/spacer' )
 );
 $styleResolver = (new ReflectionClass(StyleResolver::class))->newInstanceWithoutConstructor();
-$converter = new InlineContentElementConverter($context, $styleResolver, new Runtime());
+$sourceAttributes = (new ReflectionClass(SourceBlockAttributeProjector::class))->newInstanceWithoutConstructor();
+$converter = new InlineContentElementConverter($context, $styleResolver, new Runtime(), $sourceAttributes);
 $fallbacks = array();
 $span = $elementFrom('<span>Hello</span>');
 

@@ -83,6 +83,9 @@ final class EngineSupportCss
             // block-library default it must beat) and so still outranks this.
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS . '){margin-top:0;margin-bottom:0}';
         }
+        if (str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS)) {
+            $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS) ) {
             // A standalone SVG becomes valid RichText image markup inside a
             // paragraph. Its source was a block box, so remove the paragraph's
@@ -94,6 +97,13 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
             $parts[] = '.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS) ) {
+            // core/image inserts a figure between a source flex/grid item and
+            // the image. Keep the wrapper in the DOM for Gutenberg, but remove
+            // its layout box so the source image retains its native replaced-
+            // element min-content and flex-shrink behavior.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS) ) {
             // The source image fills both axes of its parent. Its core/image

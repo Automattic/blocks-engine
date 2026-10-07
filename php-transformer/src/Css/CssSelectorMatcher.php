@@ -12,6 +12,21 @@ use DOMNode;
 final class CssSelectorMatcher
 {
     /**
+     * A static pseudo-element paints on a host; its declarations do not style that host.
+     *
+     * @return array{selector:string,suffix:string,parsed:array<string,mixed>}|null
+     */
+    public static function pseudoElementHost(string $selector): ?array
+    {
+        $selector = trim($selector);
+        if (1 !== preg_match('/(:{1,2}(?:before|after))$/i', $selector, $suffix)) return null;
+        $host = substr($selector, 0, -strlen($suffix[1]));
+        $parsed = self::parse($host);
+        if (!$parsed['supported'] || null !== $parsed['pseudo_state_suffix_span']) return null;
+        return array('selector' => $host, 'suffix' => $suffix[1], 'parsed' => $parsed);
+    }
+
+    /**
      * HTML defines these enumerated attribute values as ASCII-case-insensitive
      * by default, which this matcher does not model.
      *

@@ -76,7 +76,18 @@ final class NativeGetFormBlockBuilder
         // form is a search/filter workflow. Keep unspecified forms available
         // for provider materialization, where their submission handler lives.
         if ( '' === $method && '' === $action ) {
-            return false;
+            // An unnamed choice-only fragment has local native state but no
+            // successful controls or source submit. Preserve that exact form;
+            // assigning a provider would invent submission chrome/semantics.
+            $controls = FormControlClassifier::controlElements($form);
+            if (array() === $controls) return false;
+            foreach ($controls as $control) {
+                if ('input' !== strtolower($control->tagName)
+                    || !in_array(strtolower(SourceDom::attr($control, 'type')), array('checkbox', 'radio'), true)
+                    || '' !== trim(SourceDom::attr($control, 'name'))
+                    || '' !== trim(SourceDom::attr($control, 'form'))
+                ) return false;
+            }
         }
         if ( 1 === preg_match('/^\s*(?:javascript|data):/i', $action) ) {
             return false;

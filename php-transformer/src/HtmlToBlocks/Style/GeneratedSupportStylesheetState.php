@@ -16,7 +16,13 @@ final class GeneratedSupportStylesheetState
     private array $nativeNavigationToggleRules = array();
 
     /** @var array<string, string> */
+    private array $nativeNavigationOverlayRules = array();
+
+    /** @var array<string, string> */
     private array $disclosureSummaryPresentation = array();
+
+    /** @var array<string, string> */
+    private array $disclosureSummaryContentCarrierPresentation = array();
 
     /** @var array<string, array<string, string>> */
     private array $disclosureControlConditionalDisplay = array();
@@ -26,8 +32,7 @@ final class GeneratedSupportStylesheetState
 
     /** @var array<string, string> */
     private array $accordionTitlePresentation = array();
-
-    /** @var array<string, array{closed:string,open:string}> */
+    /** @var array<string, array<string, string>> */
     private array $accordionIconPresentation = array();
 
     /** @var array<string, array<string, string>> */
@@ -75,6 +80,52 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, array{base: string, conditional: array<string, string>}> */
     private array $responsiveTypographyRules = array();
 
+    /** @var array<string, array{base: string, conditional: array<string, string>}> */
+    private array $responsiveBlockMarginTopRules = array();
+
+    /** @var array<string, array{marker: string, selector: string, conditions: list<string>, declarations: array<string, string>}> */
+    private array $sourceCustomPropertyRules = array();
+
+    /**
+     * Commit only the generated support records owned by blocks accepted from
+     * an isolated fragment compilation. Records remain structured through this
+     * boundary; conditions, state variants, declarations, and family-specific
+     * data are interpreted only by their normal stylesheet stage.
+     *
+     * @param list<array<string, mixed>> $acceptedBlocks
+     */
+    public function commitAcceptedFrom(self $candidate, array $acceptedBlocks): void
+    {
+        $identities = array();
+        $collect = static function (array $blocks) use (&$collect, &$identities): void {
+            foreach ( $blocks as $block ) {
+                if ( ! is_array($block) ) continue;
+                $className = trim((string) ($block['attrs']['className'] ?? ''));
+                foreach ( preg_split('/\s+/', $className) ?: array() as $identity ) {
+                    if ( '' !== $identity ) $identities[$identity] = true;
+                }
+                $collect(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array());
+            }
+        };
+        $collect($acceptedBlocks);
+        if ( array() === $identities ) return;
+
+        // All instance arrays are structured support-family maps. Walking the
+        // state itself means a new family participates in fragment ownership
+        // automatically instead of requiring a second family registry.
+        foreach ( get_object_vars($candidate) as $family => $records ) {
+            if ( ! is_array($records) || ! is_array($this->{$family} ?? null) ) continue;
+            foreach ( $records as $key => $record ) {
+                $identity = is_string($key) && isset($identities[$key])
+                    ? $key
+                    : (is_array($record) && is_string($record['marker'] ?? null) ? $record['marker'] : '');
+                if ( '' !== $identity && isset($identities[$identity]) ) {
+                    $this->{$family}[$key] = $record;
+                }
+            }
+        }
+    }
+
     public function registerNativeSearchTrigger(string $className, string $rule): void
     {
         $this->nativeSearchTriggerRules[$className] = $rule;
@@ -90,9 +141,19 @@ final class GeneratedSupportStylesheetState
         $this->nativeButtonRules[$marker] = $rule;
     }
 
+    public function appendNativeButton(string $marker, string $rule): void
+    {
+        $this->nativeButtonRules[$marker] = ($this->nativeButtonRules[$marker] ?? '') . $rule;
+    }
+
     public function registerNativeNavigationToggle(string $marker, string $rule): void
     {
         $this->nativeNavigationToggleRules[$marker] = $rule;
+    }
+
+    public function registerNativeNavigationOverlay(string $marker, string $rule): void
+    {
+        $this->nativeNavigationOverlayRules[$marker] = $rule;
     }
 
     public function registerSyntheticHeaderAnchor(string $className, string $rule): void
@@ -164,6 +225,11 @@ final class GeneratedSupportStylesheetState
         $this->disclosureSummaryPresentation[$className] = $declarations;
     }
 
+    public function registerDisclosureSummaryContentCarrierPresentation(string $className, string $declarations): void
+    {
+        $this->disclosureSummaryContentCarrierPresentation[$className] = $declarations;
+    }
+
     /** @param array<string, string> $rules */
     public function registerDisclosureControlConditionalDisplay(string $className, array $rules): void
     {
@@ -180,10 +246,10 @@ final class GeneratedSupportStylesheetState
         $this->accordionTitlePresentation[$className] = $declarations;
     }
 
-    /** @param array{closed:string,open:string} $rules */
-    public function registerAccordionIconPresentation(string $className, array $rules): void
+    /** @param array<string, string> $states */
+    public function registerAccordionIconPresentation(string $className, array $states): void
     {
-        $this->accordionIconPresentation[$className] = $rules;
+        $this->accordionIconPresentation[$className] = $states;
     }
 
     /** @param array<string, string> $rules */
@@ -251,6 +317,28 @@ final class GeneratedSupportStylesheetState
         );
     }
 
+    /** @param array<string, string> $conditional */
+    public function registerResponsiveBlockMarginTop(string $className, string $base, array $conditional): void
+    {
+        $this->responsiveBlockMarginTopRules[$className] = array('base' => $base, 'conditional' => $conditional);
+    }
+
+    /** @param list<string> $conditions @param array<string, string> $declarations */
+    public function registerSourceCustomPropertyScope(string $marker, string $selector, array $conditions, array $declarations): void
+    {
+        if (array() === $declarations) {
+            return;
+        }
+        ksort($declarations, SORT_STRING);
+        $key = hash('sha256', $marker . "\n" . $selector . "\n" . serialize($conditions) . "\n" . serialize($declarations));
+        $this->sourceCustomPropertyRules[$key] = array(
+            'marker' => $marker,
+            'selector' => $selector,
+            'conditions' => array_values($conditions),
+            'declarations' => $declarations,
+        );
+    }
+
     public function beforeAuthorCss(): string
     {
         return implode("\n", $this->nativeSearchTriggerRules);
@@ -275,6 +363,14 @@ final class GeneratedSupportStylesheetState
                 // core/details owns the summary element, so the source toggle's box is
                 // restated on it from here rather than carried as markup.
                 $parts[] = '.wp-block-details.' . $className . '>summary{' . $declarations . '}';
+                $carrier = '>span.' . DisclosureControlPresentation::SUMMARY_CONTENT_CARRIER_CLASS;
+                $summary = '.wp-block-details.' . $className . '>summary';
+                $parts[] = $summary . ':has(' . $carrier . '){padding:0!important;border:0!important;background:none!important;box-shadow:none!important}';
+            }
+        }
+        foreach ($this->disclosureSummaryContentCarrierPresentation as $className => $declarations) {
+            if (str_contains($serializedBlocks, $className)) {
+                $parts[] = ':where(.wp-block-details.' . $className . '>summary>span.' . DisclosureControlPresentation::SUMMARY_CONTENT_CARRIER_CLASS . '){' . $declarations . '}';
             }
         }
         foreach ($this->disclosureControlConditionalDisplay as $className => $rules) {
@@ -289,8 +385,14 @@ final class GeneratedSupportStylesheetState
             $selector = str_starts_with($className, 'blocks-engine-accordion-toggle-')
                 ? '.wp-block-accordion-heading.' . $className
                 : '.wp-block-details.' . $className;
+            $selectors = array($selector);
+            if ( str_starts_with($className, 'blocks-engine-disclosure-summary-') ) {
+                $selectors[] = $selector . '>summary>span.' . DisclosureControlPresentation::SUMMARY_CONTENT_CARRIER_CLASS;
+            }
             foreach ($rules as $condition => $display) {
-                $parts[] = $condition . '{' . $selector . '{display:' . $display . '}' . str_repeat('}', substr_count($condition, '{') + 1);
+                foreach ($selectors as $conditionalSelector) {
+                    $parts[] = $condition . '{' . $conditionalSelector . '{display:' . $display . '}' . str_repeat('}', substr_count($condition, '{') + 1);
+                }
             }
         }
         foreach ($this->accordionTogglePresentation as $className => $declarations) {
@@ -315,11 +417,11 @@ final class GeneratedSupportStylesheetState
                 $parts[] = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle>.wp-block-accordion-heading__toggle-title{' . $declarations . '}';
             }
         }
-        foreach ($this->accordionIconPresentation as $className => $rules) {
+        foreach ($this->accordionIconPresentation as $className => $states) {
             if (!str_contains($serializedBlocks, $className)) continue;
-            foreach (array('closed' => 'false', 'open' => 'true') as $state => $expanded) {
-                $parts[] = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle[aria-expanded="' . $expanded . '"]>.wp-block-accordion-heading__toggle-icon{' . $rules[$state] . '}';
-            }
+            $toggle = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle';
+            $parts[] = $toggle . '>.wp-block-accordion-heading__toggle-icon{' . $states['closed'] . '}';
+            $parts[] = $toggle . '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon{' . $states['open'] . '}';
         }
         foreach ($this->navigationSpacing as $className => $declarations) {
             if (str_contains($serializedBlocks, $className)) {
@@ -353,7 +455,42 @@ final class GeneratedSupportStylesheetState
                     . str_repeat('}', substr_count($condition, '{') + 1);
             }
         }
+        foreach ($this->responsiveBlockMarginTopRules as $className => $rules) {
+            if (!str_contains($serializedBlocks, $className)) continue;
+            if ('' !== $rules['base']) $parts[] = ':root .' . $className . '{margin-top:' . $rules['base'] . '}';
+            foreach ($rules['conditional'] as $condition => $value) {
+                $parts[] = $condition . '{:root .' . $className . '{margin-top:' . $value . '}'
+                    . str_repeat('}', substr_count($condition, '{') + 1);
+            }
+        }
+        $sourceCustomPropertyScopes = array_values($this->sourceCustomPropertyRules);
+        usort($sourceCustomPropertyScopes, static function (array $left, array $right): int {
+            $hasViewportCondition = static fn (array $scope): int => (int) (bool) array_filter(
+                $scope['conditions'],
+                static fn (string $condition): bool => 1 === preg_match('/^@(media|container)\b/i', $condition)
+            );
+            return $hasViewportCondition($left) <=> $hasViewportCondition($right);
+        });
+        foreach ($sourceCustomPropertyScopes as $scope) {
+            if (!str_contains($serializedBlocks, $scope['marker'])) {
+                continue;
+            }
+            $declarations = array();
+            foreach ($scope['declarations'] as $property => $value) {
+                $declarations[] = $property . ':' . $value;
+            }
+            $css = $scope['selector'] . '{' . implode(';', $declarations) . '}';
+            foreach (array_reverse($scope['conditions']) as $condition) {
+                $css = $condition . '{' . $css . str_repeat('}', substr_count($condition, '{') + 1);
+            }
+            $parts[] = $css;
+        }
         foreach ($this->nativeNavigationToggleRules as $marker => $rule) {
+            if (str_contains($serializedBlocks, $marker)) {
+                $parts[] = $rule;
+            }
+        }
+        foreach ($this->nativeNavigationOverlayRules as $marker => $rule) {
             if (str_contains($serializedBlocks, $marker)) {
                 $parts[] = $rule;
             }

@@ -6,10 +6,12 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 use DOMNode;
+use DOMText;
 
 /** Builds provider-neutral form and control metadata from source DOM. */
 final class FormControlMetadataBuilder
@@ -27,11 +29,14 @@ final class FormControlMetadataBuilder
      * @param Closure(DOMElement): string $elementSelector
      * @param Closure(DOMElement): array<string, string>|null $typographyStyles Resolved snake_case typography
      *     facts for one element, through the form presentation graph's cascade.
+     * @param Closure(DOMElement, DOMElement): (array<string, string>|null)|null $hiddenState The declaration
+     *     that hides an element below a form boundary, if the source hides it unconditionally.
      */
     public function __construct(
         private readonly Closure $elementSelector,
         private readonly ?Closure $presentationAttributes = null,
-        private readonly ?Closure $typographyStyles = null
+        private readonly ?Closure $typographyStyles = null,
+        private readonly ?Closure $hiddenState = null
     ) {
     }
 
@@ -165,7 +170,7 @@ final class FormControlMetadataBuilder
                 continue;
             }
 
-            $item = $this->inFormContextItem($node);
+            $item = $this->inFormContextItem($node, $form);
             if ( null === $item ) {
                 continue;
             }
@@ -193,7 +198,7 @@ final class FormControlMetadataBuilder
     }
 
     /** @return array<string, mixed>|null */
-    private function inFormContextItem(DOMElement $node): ?array
+    private function inFormContextItem(DOMElement $node, DOMElement $form): ?array
     {
         $tagName = strtolower($node->tagName);
         $text = trim((string) preg_replace('/\s+/', ' ', $node->textContent ?? ''));
@@ -237,6 +242,15 @@ final class FormControlMetadataBuilder
         $styles = $this->contextTypography($node);
         if ( array() !== $styles ) {
             $item['styles'] = $styles;
+        }
+
+        // Status copy a form keeps hidden until it is submitted ("Thanks for
+        // submitting!") is not copy the reader sees. Say so, and by which
+        // declaration, so a consumer whose provider renders its own status can
+        // leave it out instead of showing it permanently.
+        $hidden = null === $this->hiddenState ? null : ($this->hiddenState)($node, $form);
+        if ( is_array($hidden) ) {
+            $item['hidden'] = $hidden;
         }
 
         return $item;
@@ -371,6 +385,21 @@ final class FormControlMetadataBuilder
                 $presentation = ($this->presentationAttributes)($control);
                 if ( is_array($presentation['style'] ?? null) && array() !== $presentation['style'] ) {
                     $metadata['presentation'] = array( 'style' => $presentation['style'] );
+                }
+            }
+            // A provider flattens the editable label independently from its box.
+            // Read the existing whole-text carrier through the form typography
+            // cascade so a styled paragraph/div chain does not become button defaults.
+            $carrier = FormPresentationGraphBuilder::soleTextCarrier($control);
+            if ($carrier instanceof DOMElement) {
+                $typography = $this->contextTypography($carrier);
+                $declarations = array();
+                foreach ($typography as $property => $value) {
+                    $declarations[str_replace('_', '-', $property)] = $value;
+                }
+                $labelStyle = (new StyleAttributeMapper())->map($declarations)['style'];
+                if (array() !== $labelStyle) {
+                    $metadata['presentation']['style'] = array_replace_recursive($metadata['presentation']['style'] ?? array(), $labelStyle);
                 }
             }
         }

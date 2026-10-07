@@ -105,6 +105,12 @@ final class ButtonLinkDispatchContext
         return $this->leftovers?->convertLinkWrapperGroup($element, $fallbacks);
     }
 
+    /** @return array<string, mixed>|null */
+    public function linkedResponsiveContentBlockFromAnchor(DOMElement $element): ?array
+    {
+        return $this->leftovers?->linkedResponsiveContentBlockFromAnchor($element);
+    }
+
     /**
      * @param array<int, string> $excludedProperties
      * @param array<int, string> $excludedGeometryProperties

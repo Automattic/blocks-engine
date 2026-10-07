@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use DateTimeImmutable;
 
-/** Source-backed Event facts; the existing page remains the sole route owner. */
+/** Source-backed Event facts and explicit provider-neutral detail-page ownership candidates. */
 final class EventDeclarations
 {
     /** @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @param array<int,array<string,mixed>> $declarations @return array<int,array<string,mixed>> */
@@ -26,6 +26,9 @@ final class EventDeclarations
             // A captured detail document must make one unambiguous Event claim.
             preg_match_all('~<script\b([^>]*)>(.*?)</script\s*>~is', $html, $scripts, PREG_SET_ORDER);
             $candidates = array();
+            foreach ($document['metadata']['structured_data'] ?? array() as $record) {
+                if (is_array($record) && 'application/ld+json' === ($record['type'] ?? null)) self::collect($record['data'] ?? null, $candidates, 0, false);
+            }
             foreach (array_slice($scripts, 0, 32) as $script) {
                 if (!preg_match('~\btype\s*=\s*(["\'])application/ld\+json\1~i', $script[1]) || strlen($script[2]) > 262144) continue;
                 $json = json_decode($script[2], true, 24);
@@ -50,7 +53,11 @@ final class EventDeclarations
         $schemaContext = $schemaContext || (is_string($context) && in_array(rtrim($context, '/'), array('https://schema.org', 'http://schema.org'), true));
         $types = $value['@type'] ?? null;
         if (is_string($types)) $types = array($types);
-        if (is_array($types) && (($schemaContext && in_array('Event', $types, true)) || array_intersect(array('https://schema.org/Event', 'http://schema.org/Event'), $types))) { $found[] = $value; return; }
+        if (is_array($types) && (($schemaContext && in_array('Event', $types, true)) || array_intersect(array('https://schema.org/Event', 'http://schema.org/Event'), $types))) {
+            foreach ($found as $existing) if (RuntimeDeclarations::canonicalJson($existing) === RuntimeDeclarations::canonicalJson($value)) return;
+            $found[] = $value;
+            return;
+        }
         foreach ($value as $child) if (is_array($child)) self::collect($child, $found, $depth + 1, $schemaContext);
     }
 
@@ -65,6 +72,12 @@ final class EventDeclarations
         $image = $value['image'] ?? null;
         if (is_array($image)) $image = $image['url'] ?? ($image[0] ?? null);
         $entity = array('source_path' => $source, 'source_route' => $route, 'name' => trim($name), 'start_date' => $start, 'end_date' => $end);
+        $entity['id'] = 'event:' . hash('sha256', $source);
+        // One unambiguous Event owns this detail document. The consumer still
+        // verifies its committed native document before transferring the route.
+        if ('/' !== $route) {
+            $entity['whole_page_candidate'] = 'blocks-engine/whole-page-candidate/v1';
+        }
         $description = $value['description'] ?? null;
         if (is_string($description) && '' !== trim($description) && strlen($description) <= 8192) $entity['description'] = trim($description);
         if (is_array($venue) && is_string($venue['name'] ?? null) && '' !== trim($venue['name']) && strlen($venue['name']) <= 512) {

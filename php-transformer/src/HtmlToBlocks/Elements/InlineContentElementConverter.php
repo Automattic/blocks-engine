@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -16,7 +17,8 @@ final class InlineContentElementConverter implements ElementConverter
     public function __construct(
         private readonly InlineContentElementContext $context,
         private readonly StyleResolver $styleResolver,
-        private readonly Runtime $runtime
+        private readonly Runtime $runtime,
+        private readonly SourceBlockAttributeProjector $sourceAttributes
     ) {
     }
 
@@ -40,6 +42,17 @@ final class InlineContentElementConverter implements ElementConverter
         $socialLinks = $this->context->recognizePatterns($element, $fallbacks, array( SocialLinksPattern::class ));
         if ( null !== $socialLinks ) {
             return ConversionOutcome::handled($socialLinks);
+        }
+
+        // A single toggle plus the region it controls is one native disclosure
+        // even when its wrapper is an inline span (a positioned trigger/popover
+        // wrapper); otherwise the region lowers to an always-visible group.
+        if ( 'span' === $tagName ) {
+            $disclosure = $this->context->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
+            if ( null !== $disclosure ) {
+                $this->context->rememberNativeDisclosureRoot($element);
+                return ConversionOutcome::handled($disclosure);
+            }
         }
 
         // Captured markup can place flow content inside an inline wrapper. A
@@ -85,7 +98,7 @@ final class InlineContentElementConverter implements ElementConverter
                     }
                 }
                 return ConversionOutcome::handled($this->group($element, array(
-                    $this->context->createBlock('core/paragraph', array( 'content' => $content )),
+                    $this->context->createBlock('core/paragraph', array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element), array( 'content' => $content ))),
                 )));
             }
         }
@@ -129,6 +142,14 @@ final class InlineContentElementConverter implements ElementConverter
             if ( array() !== $children ) {
                 return ConversionOutcome::handled($this->group($element, $children));
             }
+            $fragmentId = SourceDom::namedFragmentTargetId($element);
+            if ( '' !== $fragmentId
+                && SourceDom::documentReferencesFragmentId($element, $fragmentId)
+                && ! SourceDom::documentHasOtherFragmentTarget($element, $fragmentId) ) {
+                $attributes = $this->styleResolver->presentationAttributes($element);
+                $attributes['anchor'] = $fragmentId;
+                return ConversionOutcome::handled($this->context->createBlock('core/group', $attributes, array(), $element));
+            }
             if ( $this->context->shouldPreserveEmptyVisualElement($element) ) {
                 return ConversionOutcome::handled($this->context->emptyVisualSpacerBlock($element));
             }
@@ -141,7 +162,9 @@ final class InlineContentElementConverter implements ElementConverter
             || ($listItem instanceof DOMElement && $this->context->isStructuralListItem($listItem))
             ? $element
             : null;
-        return ConversionOutcome::handled($this->context->createBlock('core/paragraph', array( 'content' => $content ), array(), $sourceElement));
+        $attrs = array('content' => $content);
+        if (null === $sourceElement) $attrs = array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element), $attrs);
+        return ConversionOutcome::handled($this->context->createBlock('core/paragraph', $attrs, array(), $sourceElement));
     }
 
     /** @param array<int, array<string, mixed>> $children @return array<string, mixed> */

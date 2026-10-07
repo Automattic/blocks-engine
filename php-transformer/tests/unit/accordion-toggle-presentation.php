@@ -87,14 +87,19 @@ $assert(
 
 // A trigger with nothing of its own to carry stays unmarked.
 $provedIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="source-icon" data-dla-disclosure-closed-class="source-icon" data-dla-disclosure-open-class="source-icon source-open"><path d="m6 9 6 6 6-6"/></svg>';
-$icons = $transform('<style>.source-icon{color:#345;transition-property:transform;transition-duration:150ms}.source-open{transform:rotate(135deg)}</style><main><div>'
+$icons = $transform('<style>.source-icon{color:#345;transition-property:transform;transition-duration:150ms}main button .source-open{transform:rotate(135deg)}</style><main><div>'
     . '<div><button aria-expanded="false" aria-controls="one">One' . $provedIcon . '</button><div role="region" id="one" hidden><p>A</p></div></div>'
     . '<div><button aria-expanded="false" aria-controls="two">Two' . $provedIcon . '</button><div role="region" id="two" hidden><p>B</p></div></div>'
     . '</div></main>');
 $iconCss = $supportCss($icons);
-$assert(str_contains($iconCss, 'data:image/svg+xml;base64,'), 'a source-proved vector occupies the native icon slot through CSS, not invalid extra markup', $iconCss);
+$assert(str_contains($iconCss, 'data:image/svg+xml,'), 'a source-proved vector occupies the native icon slot through CSS, not invalid extra markup', $iconCss);
+preg_match('/data:image\/svg\+xml,([^"\)]+)/', $iconCss, $vectorUrl);
+$vectorDocument = new DOMDocument();
+$assert(@$vectorDocument->loadXML(rawurldecode($vectorUrl[1] ?? '')), 'the standalone native vector is well-formed XML with one SVG namespace');
 $assert(str_contains($iconCss, 'width:18px') && str_contains($iconCss, 'height:18px'), 'the source icon box replaces the larger core default', $iconCss);
 $assert(1 === preg_match('/\[aria-expanded="true"\]>\.wp-block-accordion-heading__toggle-icon\{[^}]*transform:rotate\(135deg\)/', $iconCss), 'open presentation comes from the observed class state on the actual native slot, not an unused author rule or rotation guess', $iconCss);
+$assert(str_contains($iconCss, 'transition-property:transform;transition-duration:150ms'), 'observed transition presentation survives on the native slot');
+$assert('pass' === ($icons['source_reports']['wp_block_validity']['status'] ?? null), '135-degree source state keeps canonical Core block validity');
 $assert(!str_contains($icons['serialized_blocks'], '<svg') && str_contains($icons['serialized_blocks'], 'aria-hidden="true">+</span>'), 'core accordion save markup remains canonical', $icons['serialized_blocks']);
 
 $responsive = $transform(
@@ -120,6 +125,18 @@ $assert(
     'a trigger with no resolved box of its own carries no marker',
     (string) ( $bare['serialized_blocks'] ?? '' )
 );
+
+$iconItem = static fn (string $label): string => '<article><button type="button" aria-expanded="false">'
+    . $label . '<svg class="resting-mark" data-dla-disclosure-open-class="expanded-mark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button><div role="region" hidden><p>Answer</p></div></article>';
+$iconResult = $transform('<style>.resting-mark{color:#345678;rotate:0deg}.expanded-mark{rotate:180deg}</style><main><section>'
+    . $iconItem('Neutral one') . $iconItem('Neutral two') . '</section></main>');
+$iconCss = $supportCss($iconResult);
+$assert(str_contains($iconCss, 'background-image:url("data:image/svg+xml,'), 'native icon CSS retains source SVG artwork', $iconCss);
+$assert(str_contains(rawurldecode($iconCss), 'm6 9 6 6 6-6'), 'retained icon uses observed shape rather than a guessed icon family');
+$assert(str_contains(rawurldecode($iconCss), 'color:#345678'), 'standalone currentColor artwork retains authored source paint', rawurldecode($iconCss));
+$assert(str_contains($iconCss, 'width:18px;height:18px'), 'native icon uses source dimensions');
+$assert(str_contains($iconCss, '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon{transform:none;rotate:180deg}'), 'expanded rotation comes from observed source classes', $iconCss);
+$assert(str_contains((string) $iconResult['serialized_blocks'], '<span class="wp-block-accordion-heading__toggle-icon" aria-hidden="true">+</span>'), 'core icon save markup remains valid and unchanged');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Accordion toggle presentation: {$failures} failed, {$passes} passed\n");

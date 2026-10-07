@@ -93,4 +93,49 @@ $assert('.wp-site-blocks .item' === $reanchor->invoke(null, '.wp-site-blocks .it
 $hooks = (new ReflectionMethod(WordPressSitePlan::class, 'authoredChromeHooks'))->invoke(null, '<!-- wp:group {"anchor":"top","className":"bar blocks-engine-editor-anchor-top wp-block-x"} --><div id="top" class="wp-block-group bar"><!-- wp:navigation-link {"className":"item has-x","label":"A","url":"/"} /--></div><!-- /wp:group -->');
 $assert(array('bar' => true, 'item' => true) == $hooks['class'] && array('top' => true) === $hooks['id'], 'Chrome hooks come from HTML and block attributes, without utility classes: ' . json_encode($hooks));
 
+// A responsive capture (Wix via Data Liberation) ships a desktop and a mobile
+// document per page and scopes the mobile rules by the mobile root. Once the
+// footer is hoisted out of `#masterPage` into a template part, the mobile rule
+// that gave it its containing block must be re-anchored the same way as the
+// desktop rule. Otherwise the footer's absolute background layer resolves
+// against the viewport and covers the whole phone page.
+$variantTree = static fn (string $title, string $variant): string => '<div id="SITE_CONTAINER"><div id="masterPage" class="mesh-layout">'
+    . '<header id="SITE_HEADER" class="site-head"><nav><a href="/index.html">Home</a><a href="/about/index.html">About</a></nav></header>'
+    . '<main id="PAGES_CONTAINER"><h1>' . $title . ' ' . $variant . '</h1><p>Body ' . $title . '</p></main>'
+    . '<footer id="SITE_FOOTER" class="site-foot"><div class="foot-layer"></div><p>Homeowners Association</p></footer>'
+    . '</div></div>';
+$variantPage = static fn (string $title): string => '<!doctype html><html><head>'
+    . '<link rel="stylesheet" href="/desktop.css" media="(min-width:768px)">'
+    . '<link rel="stylesheet" href="/mobile.css" media="(max-width:767px)">'
+    . '<style>.data-liberation-mobile-document{display:none}@media (max-width:767px){.data-liberation-desktop-document{display:none}.data-liberation-mobile-document{display:contents}}</style>'
+    . '</head><body><div class="data-liberation-desktop-document">' . $variantTree($title, 'desktop') . '</div><div class="data-liberation-mobile-document">' . $variantTree($title, 'mobile') . '</div></body></html>';
+$variantPlan = (new ArtifactCompiler())->compile(array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => $variantPage('Home')),
+        array('path' => 'website/about/index.html', 'content' => $variantPage('About')),
+        array('path' => 'website/team/index.html', 'content' => $variantPage('Team')),
+        array('path' => 'website/desktop.css', 'content' => '#masterPage.mesh-layout #SITE_FOOTER{position:relative}.foot-layer{position:absolute;inset:0}'),
+        array('path' => 'website/mobile.css', 'content' => ':where(.data-liberation-mobile-document) #masterPage.mesh-layout #SITE_FOOTER{position:relative}:where(.data-liberation-mobile-document) .foot-layer{position:absolute;inset:0}'),
+    ),
+))->toArray()['source_reports']['wordpress_site_plan'];
+$variantFooter = array_values(array_filter($variantPlan['template_parts'] ?? array(), static fn (array $part): bool => 'footer' === ($part['area'] ?? null)))[0] ?? array();
+$assert('shared_shell' === ($variantFooter['placement']['kind'] ?? null), 'The variant footer is hoisted into a detached shared part.');
+$variantChrome = static function (string $media) use ($variantPlan): string {
+    $css = '';
+    foreach ($variantPlan['assets'] ?? array() as $asset) {
+        if ('css' === ($asset['kind'] ?? null) && str_contains((string) ($asset['target_path'] ?? ''), 'shared-chrome-') && $media === (string) ($asset['media'] ?? '')) $css .= (string) ($asset['content'] ?? '');
+    }
+    return $css;
+};
+$desktopChrome = $variantChrome('(min-width:768px)');
+$mobileChrome = $variantChrome('(max-width:767px)');
+$assert(str_contains($desktopChrome, ':is(#masterPage.mesh-layout,:where(:has(> #SITE_FOOTER),'), 'The desktop footer rule is re-anchored onto the part wrapper as before: ' . $desktopChrome);
+// An id may also be widened to its suffixed mobile copy (`:is(#x,#x--dla-mobile)`).
+$variantId = static fn (string $id): string => '(?:#' . $id . '|:is\(#' . $id . ',#' . $id . '--dla-mobile\))';
+$assert(1 === preg_match('/:is\(:where\(\.data-liberation-mobile-document\) ' . $variantId('masterPage') . '\.mesh-layout,:where\(\.data-liberation-mobile-document:has\(> ' . $variantId('SITE_FOOTER') . '\),[^{]*\) ' . $variantId('SITE_FOOTER') . '\{position:relative\}/', $mobileChrome), 'The mobile-scoped footer rule is re-anchored onto the part wrapper and keeps its variant scope: ' . $mobileChrome);
+$assert(!str_contains(preg_replace('/:where\(\.data-liberation-mobile-document[^)]*\)|\.data-liberation-mobile-document/', '', $mobileChrome) ?? '', ':where(:has(> #SITE_FOOTER)'), 'The mobile wrapper arm never matches the desktop copy of the footer.');
+$assert(str_contains((new ReflectionMethod(WordPressSitePlan::class, 'reanchoredDetachedContextSelector'))->invoke(null, '.data-liberation-mobile-document > #masterPage #SITE_FOOTER', array('class' => array(), 'id' => array('masterPage' => true)), array('SITE_FOOTER')), '.data-liberation-mobile-document > #masterPage #SITE_FOOTER'), 'A variant root joined by a child combinator is not a scope prefix, so the selector is left as written.');
+
 echo "Shared chrome authored rules contract passed.\n";

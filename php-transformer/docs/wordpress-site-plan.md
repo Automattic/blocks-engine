@@ -19,6 +19,24 @@ array(
 
 `meta`, `links`, and `scripts` are ordered source rows. Their zero-based `order` equals their array index. `placement` is `head` or `body`; `title_declaration` always has `order: 0` and `placement: head`. `source_context` identifies the compiler document that supplied the declarations.
 
+### Native post field handoff
+
+A post's `metadata.excerpt`, when declared, is the complete authored excerpt
+string. Consumers persist it as `post_excerpt`, independently of
+`canonical_block_markup` / `post_content`, including an explicitly empty value.
+They apply normal WordPress slashing at insertion and preserve the entire value.
+Compact listing slots use native `core/post-excerpt` only when their description
+is proven against that post's source declaration; full-content listings retain
+`core/post-content`. The block's length is derived from the complete source
+descriptions, rather than applying the default crop to authored excerpts.
+
+`metadata.post_meta` is an optional map of nonempty string keys to string values.
+Consumers pass the map through native `meta_input` with the same WordPress
+slashing contract. Linked listing metadata uses these post-owned fields through
+native `core/post-meta` block bindings. The generated theme bootstrap registers
+the string fields with REST visibility, so the frontend and Gutenberg read the
+same post-owned value instead of repeating the first card's metadata.
+
 ## Page Routes
 
 Each page has `route.path`, `route.parent_path`, and `route.slug`. The route is derived
@@ -61,6 +79,46 @@ or inherit page parents: `parent_source_path` is empty, and a WordPress
 materializer applies its configured post permalink policy. This preserves the
 source route for deterministic references without claiming it is a post
 permalink.
+
+## Taxonomy Archives
+
+The additive `taxonomy_entities` list contains only proven native term/archive
+relationships. The producer recognizes a captured category document only when
+its canonical route has category-archive form, its visible heading names a
+bounded slug on that route, it links to multiple canonical source documents
+classified as posts, and those article documents link back to that exact route
+with the same visible term name. Thus the route is one evidence source, not a
+guessing rule. Uncorroborated collection candidates remain ordinary documents
+and produce `wordpress_site_plan_taxonomy_archive_unproven` when they list
+posts. Route or slug spellings outside the canonical term vocabulary produce
+`wordpress_site_plan_taxonomy_archive_unsupported_spelling`, and two
+corroborated archives claiming one term slug produce
+`wordpress_site_plan_taxonomy_archive_ambiguous_term`; neither constructs an
+entity that could fail the whole plan. Link evidence counts only when it is
+root-relative or absolute on the declared source origin, so an unrelated
+external link can never corroborate local term membership.
+
+Each emitted `taxonomy_term` records its bounded canonical post source paths,
+the archive source identity and route, captured presentation markup, and native
+query scope (`post_type`, taxonomy, and term). A consumer materializes the term
+and memberships and uses the archive document as presentation evidence, not as
+a frozen page owner. The generated theme scaffold retains an exact rewrite and
+term-link mapping for the source route, and rewrites the source route's
+`/page/N` suffix onto the same native term query with `paged` for bounded
+positive page numbers, without changing the destination's global category/tag
+base. Future posts belong to WordPress's native archive query.
+
+The producer-only HTTP acceptance serves a resolved generated theme in a
+disposable WordPress 7.1 runtime without SSI. It follows the rendered base-page
+Next link to `/page/2/`, follows Previous back to the base route, and checks the
+native query contents and unrelated-post exclusion:
+
+```sh
+BLOCKS_ENGINE_TAXONOMY_HTTP_WORDPRESS_VERSION=7.1 \
+BLOCKS_ENGINE_TAXONOMY_HTTP_EVIDENCE=/path/to/durable/evidence \
+WP_CODEBOX_CLI=/path/to/wp-codebox \
+node tests/wordpress-site-plan-taxonomy-http.mjs
+```
 
 An HTML detail document with exactly one valid schema.org `Event` JSON-LD claim
 can add a provider-neutral `entity_collection:events` declaration with

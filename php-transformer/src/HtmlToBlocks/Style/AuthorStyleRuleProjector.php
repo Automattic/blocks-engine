@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 use WeakMap;
 
@@ -38,17 +39,21 @@ final class AuthorStyleRuleProjector
         return $this->projectWithDeclarations($prelude, $body, $authorStyles, $sourceStyles, $evidence)['body'];
     }
 
-    /** @return array{body: string, declarations: array<string, string>} */
+    /**
+     * @param list<string> $conditions At-rules the rule sits inside, outermost first.
+     * @return array{body: string, declarations: array<string, string>}
+     */
     public function projectWithDeclarations(
         string $prelude,
         string $body,
         AuthorStyleAnalysis $authorStyles,
         SourceStyleResolutionState $sourceStyles,
-        TransformationEvidenceState $evidence
+        TransformationEvidenceState $evidence,
+        array $conditions = array()
     ): array {
         $declarations = $this->styleResolver->verbatimCssDeclarations($body);
         $this->acceptProjectedBody($body, $declarations, $this->projectResponsiveCanvasMinimumWidth($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence));
-        $this->acceptProjectedBody($body, $declarations, $this->projectAutoSizedStructuralPercentageHeight($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence));
+        $this->acceptProjectedBody($body, $declarations, $this->projectAutoSizedStructuralPercentageHeight($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence, $conditions));
         $this->acceptProjectedBody($body, $declarations, $this->projectSourceContentBoxSizing($prelude, $body, $declarations, $authorStyles, $sourceStyles));
         $this->acceptProjectedBody($body, $declarations, $this->projectIntrinsicGridRowTracks($prelude, $body, $declarations, $authorStyles, $sourceStyles));
         return array('body' => $body, 'declarations' => $declarations);
@@ -181,12 +186,23 @@ final class AuthorStyleRuleProjector
             if ( ! $parsed['supported'] ) {
                 return $body;
             }
+            // Route-owned document predicates now survive on the native root.
+            // A minimum width explicitly gated by that state is authored
+            // behavior, not an orphaned desktop shell constraint to repair.
+            foreach (array_slice($parsed['compounds'] ?? array(), 0, -1) as $compound) {
+                if (in_array(strtolower((string) ($compound['type'] ?? '')), array('html', 'body'), true)
+                    && (array() !== ($compound['classes'] ?? array()) || array() !== ($compound['ids'] ?? array())
+                        || array() !== ($compound['attributes'] ?? array()) || array() !== ($compound['not'] ?? array())
+                        || array() !== ($compound['any'] ?? array()))) return $body;
+            }
             $matches = $this->semanticPreparer->matchingSourceElements($authorStyles, $selector, $parsed);
             if ( array() === $matches ) {
                 continue;
             }
             $matchedSurface = true;
             foreach ( $matches as $element ) {
+                $scope = SourceDom::documentVariantRoot($element);
+                if ($scope instanceof DOMElement && $scope->hasAttribute('data-dla-document-scope')) return $body;
                 if ( ! $this->isWideAbsoluteMinimumWidth($this->styleResolver->resolveCssVariablesInValue($minimumWidth, $element)) ) {
                     return $body;
                 }
@@ -732,22 +748,21 @@ final class AuthorStyleRuleProjector
         return $pixels >= 640;
     }
 
-    /** @param array<string, string> $declarations */
+    /**
+     * @param array<string, string> $declarations
+     * @param list<string>          $conditions
+     */
     private function projectAutoSizedStructuralPercentageHeight(
         string $prelude,
         string $body,
         array $declarations,
         AuthorStyleAnalysis $authorStyles,
         SourceStyleResolutionState $sourceStyles,
-        TransformationEvidenceState $evidence
+        TransformationEvidenceState $evidence,
+        array $conditions = array()
     ): string {
         $height = (string) ($declarations['height'] ?? '');
         if ( '100%' !== strtolower(CssValueInspector::withoutImportant($height)) ) {
-            return $body;
-        }
-        // Conditional positioning is not part of the unconditional source cascade.
-        $position = strtolower(CssValueInspector::withoutImportant((string) ($declarations['position'] ?? '')));
-        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
             return $body;
         }
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
@@ -765,7 +780,7 @@ final class AuthorStyleRuleProjector
                 continue;
             }
             $matchedSurface = true;
-            $autoSizedMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isAutoSizedStructuralPercentageHeight($element, $authorStyles));
+            $autoSizedMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isAutoSizedStructuralPercentageHeight($element, $authorStyles, $conditions));
             if ( count($autoSizedMatches) !== count($matches) ) {
                 if ( array() !== $autoSizedMatches ) {
                     $evidence->recordResponsiveHeightAmbiguity($selector, $height);
@@ -787,13 +802,13 @@ final class AuthorStyleRuleProjector
         return implode(';', $retained);
     }
 
-    private function isAutoSizedStructuralPercentageHeight(DOMElement $element, AuthorStyleAnalysis $authorStyles): bool
+    /** @param list<string> $conditions */
+    private function isAutoSizedStructuralPercentageHeight(DOMElement $element, AuthorStyleAnalysis $authorStyles, array $conditions = array()): bool
     {
         if ( in_array(strtolower($element->tagName), array( 'canvas', 'embed', 'iframe', 'img', 'input', 'object', 'picture', 'svg', 'video' ), true) ) {
             return false;
         }
-        $elementStyle = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( in_array(strtolower(CssValueInspector::withoutImportant((string) ($elementStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+        if ( $this->isPositionedUnderConditions($element, $conditions) ) {
             return false;
         }
         if ( $this->receivesDefiniteBlockSize($element) || $this->percentageHeightFillsStretchedItem($element) ) {
@@ -802,11 +817,14 @@ final class AuthorStyleRuleProjector
         $ancestor = $element->parentNode;
         while ( $ancestor instanceof DOMElement && $ancestor !== $authorStyles->sourceBody() ) {
             $style = $this->styleResolver->structuralPresentationDeclarations($ancestor);
-            if ( in_array(strtolower(CssValueInspector::withoutImportant((string) ($style['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+            if ( $this->isPositionedUnderConditions($ancestor, $conditions) ) {
                 return false;
             }
             $ancestorHeight = strtolower(CssValueInspector::withoutImportant((string) ($style['height'] ?? '')));
             if ( ! in_array($ancestorHeight, array( '', 'auto', '100%' ), true) ) {
+                return false;
+            }
+            if ( $this->hasDefiniteHeightUnderConditions($ancestor, $conditions) ) {
                 return false;
             }
             if ( in_array(strtolower($ancestor->tagName), array( 'footer', 'header', 'section' ), true) ) {
@@ -815,6 +833,82 @@ final class AuthorStyleRuleProjector
             $ancestor = $ancestor->parentNode;
         }
         return false;
+    }
+
+    /**
+     * Whether `$element` has a definite height wherever a rule scoped by
+     * `$conditions` applies.
+     *
+     * A responsive capture scopes its desktop stylesheet under
+     * `@media (min-width:768px)`, so a wrapper's `height:42px` never reaches
+     * the unconditional structural cascade. A percentage-height rule under that
+     * same condition still resolves against the wrapper in the source. Only
+     * declarations whose own condition stack is a subset of the rule's are
+     * read: those hold everywhere the rule does. An inline height already
+     * reached the structural cascade, and is left to it.
+     *
+     * @param list<string> $conditions
+     */
+    private function hasDefiniteHeightUnderConditions(DOMElement $element, array $conditions): bool
+    {
+        $held = self::restatableConditions($conditions);
+        if ( array() === $held || isset($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['height']) ) {
+            return false;
+        }
+        $height = $this->presentationValueUnderConditions($element, 'height', $conditions);
+
+        return $this->isDefiniteBlockSize($this->styleResolver->resolveStructuralCssVariablesInValue($height, $element));
+    }
+
+    /** @param list<string> $conditions */
+    private function isPositionedUnderConditions(DOMElement $element, array $conditions): bool
+    {
+        $position = $this->presentationValueUnderConditions($element, 'position', $conditions);
+        return in_array(CssValueInspector::comparable($position), array( 'absolute', 'fixed' ), true);
+    }
+
+    /**
+     * Resolve only author declarations guaranteed by this rule's condition
+     * domain, using the same ordered declaration set as definite-height proof.
+     * Position is not inherited: a parent's declaration cannot position a child.
+     * Inline declarations retain their ordinary cascade/importance priority.
+     *
+     * @param list<string> $conditions
+     */
+    private function presentationValueUnderConditions(DOMElement $element, string $property, array $conditions): string
+    {
+        $held = self::restatableConditions($conditions);
+        $value = $this->styleResolver->declaredPresentation($element, $property)->resolvedValueWhere(
+            static fn (array $stack): bool => array() === array_diff(self::restatableConditions($stack), $held)
+        );
+        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        if ( isset($inline[$property]) && CssCascade::wins(
+            array( 'important' => CssValueInspector::isImportant($inline[$property]), 'inline' => true, 'specificity' => 0, 'order' => 1 ),
+            array( 'important' => CssValueInspector::isImportant($value), 'inline' => false, 'specificity' => 0, 'order' => 0 )
+        ) ) {
+            return $inline[$property];
+        }
+        return $value;
+    }
+
+    /**
+     * Viewport and feature conditions, normalized for comparison. A cascade
+     * `@layer` scopes a declaration without conditioning it.
+     *
+     * @param list<string> $conditions
+     * @return list<string>
+     */
+    private static function restatableConditions(array $conditions): array
+    {
+        $normalized = array();
+        foreach ( $conditions as $condition ) {
+            $condition = strtolower((string) preg_replace('/\s+/', '', (string) $condition));
+            if ( '' !== $condition && ! str_starts_with($condition, '@layer') ) {
+                $normalized[] = $condition;
+            }
+        }
+
+        return $normalized;
     }
 
     private function isPageShellOrSectionSurface(DOMElement $element, AuthorStyleAnalysis $authorStyles): bool

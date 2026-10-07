@@ -61,12 +61,12 @@ final class FlowContainerElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function lower(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
+        if ( SourceDom::documentVariantRoot($element) === $element ) {
+            return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
+        }
         $runtimeAppShell = $this->context->runtimeAppShellBlock($element, $fallbacks);
         if ( null !== $runtimeAppShell ) {
             return ConversionOutcome::handled($runtimeAppShell);
-        }
-        if ( SourceDom::documentVariantRoot($element) === $element ) {
-            return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
         if ( $this->context->isEmptyInteractiveFeatureShell($element) ) {
             return ConversionOutcome::handled(null);

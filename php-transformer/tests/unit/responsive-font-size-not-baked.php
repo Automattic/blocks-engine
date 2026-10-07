@@ -18,6 +18,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
 
 $failures = 0;
 $passes   = 0;
@@ -121,6 +122,23 @@ $assert(
         && 'pass' === ( ( new BlockValidityValidator() )->validateBlocks($threeViewport['blocks'] ?? array())['status'] ?? '' ),
     'the three-viewport heading has no frozen typography attribute and remains Gutenberg-valid',
     (string) ( $threeViewport['serialized_blocks'] ?? '' )
+);
+
+$scopedTypography = new GeneratedSupportStylesheetState();
+$scopedTypography->registerResponsiveTypography(
+    'review-typography',
+    '1.6rem',
+    array('@media (max-width:767px)' => 'calc((var(--title-font-size-value) - 1) * calc(.012 * min(100vh,900px)) + 1rem)')
+);
+$scopedTypographyCss = implode("\n", array_map(
+    static fn ($rule): string => $rule->css,
+    $scopedTypography->conditionalAfterAuthorCss('review-typography')
+));
+$assert(
+    str_contains($scopedTypographyCss, 'var(--title-font-size-value)')
+        && ! str_contains($scopedTypographyCss, 'var(--title-font-size-value,1.6)'),
+    'responsive typography preserves the author variable reference without name-based fallback compensation',
+    $scopedTypographyCss
 );
 
 // The artifact compiler's page path must not reintroduce the reference-width

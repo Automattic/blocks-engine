@@ -46,7 +46,9 @@ final class CapturedCollectionConverter implements ElementConverter
         if ($element->hasAttribute('data-blocks-engine-collection-root')) $local = CollectionFilterBlockGenerator::ROOT;
         elseif ($element->hasAttribute('data-blocks-engine-collection-field')) $local = CollectionFilterBlockGenerator::FIELD;
         elseif ($element->hasAttribute('data-blocks-engine-collection-choice')) $local = CollectionFilterBlockGenerator::CHOICE;
+        elseif ($element->hasAttribute('data-blocks-engine-collection-choices')) $local = CollectionFilterBlockGenerator::CHOICES;
         elseif ($element->hasAttribute('data-blocks-engine-collection-empty')) $local = CollectionFilterBlockGenerator::EMPTY;
+        elseif ($element->hasAttribute('data-blocks-engine-collection-status')) $local = CollectionFilterBlockGenerator::STATUS;
         if (null === $local) return ConversionOutcome::unhandled();
         $config = null;
         if (CollectionFilterBlockGenerator::ROOT === $local) {
@@ -54,7 +56,8 @@ final class CapturedCollectionConverter implements ElementConverter
             if (!is_array($config) || !is_array($config['items'] ?? null) || !is_int($config['initialCategory'] ?? null)) return ConversionOutcome::unhandled();
         } elseif (CollectionFilterBlockGenerator::CHOICE === $local) {
             $config = json_decode($element->getAttribute('data-blocks-engine-collection-choice'), true);
-            if ('button' !== $tagName || !is_array($config) || !is_int($config['index'] ?? null) || !is_array($config['active'] ?? null) || !is_array($config['inactive'] ?? null)) return ConversionOutcome::unhandled();
+            $choiceTag = 'button' === $tagName || in_array(strtolower($element->getAttribute('role')), array('button', 'tab'), true);
+            if (!$choiceTag || !in_array($tagName, array('button', 'div', 'span'), true) || !is_array($config) || !is_int($config['index'] ?? null) || !is_array($config['active'] ?? null) || !is_array($config['inactive'] ?? null)) return ConversionOutcome::unhandled();
         } elseif (CollectionFilterBlockGenerator::FIELD === $local && 'input' !== $tagName) {
             return ConversionOutcome::unhandled();
         }
@@ -67,12 +70,31 @@ final class CapturedCollectionConverter implements ElementConverter
         $children = array();
         if (CollectionFilterBlockGenerator::ROOT === $local) {
             $attrs += array('tagName' => $tagName, 'items' => $config['items'], 'initialCategory' => $config['initialCategory']);
+            foreach (array('mode' => 'category-and-query', 'order' => array(), 'categoryOrders' => array()) as $key => $default) {
+                $attrs[$key] = $config[$key] ?? $default;
+            }
+            if (!in_array($attrs['mode'], array('category-and-query', 'category-or-global-search'), true) || !is_array($attrs['order']) || !is_array($attrs['categoryOrders'])) return ConversionOutcome::unhandled();
+            $children = ($this->convertChildren)($element, $fallbacks);
+        } elseif (CollectionFilterBlockGenerator::CHOICES === $local) {
+            $attrs['tagName'] = in_array($tagName, array('div', 'nav', 'section'), true) ? $tagName : 'div';
             $children = ($this->convertChildren)($element, $fallbacks);
         } elseif (CollectionFilterBlockGenerator::FIELD === $local) {
             $attrs += array('inputType' => $element->getAttribute('type') ?: 'text', 'placeholder' => $element->getAttribute('placeholder'), 'ariaLabel' => $element->getAttribute('aria-label'), 'value' => $element->getAttribute('value'));
         } elseif (CollectionFilterBlockGenerator::CHOICE === $local) {
             foreach (array('active', 'inactive') as $state) $config[$state]['style'] = $generator->sourceStyle($config[$state]['style'] ?? '');
-            $attrs += array('label' => htmlspecialchars(trim($element->textContent ?? ''), ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8'), 'ariaLabel' => $element->getAttribute('aria-label')) + $config;
+            $attrs += array('tagName' => $tagName, 'label' => htmlspecialchars(trim($element->textContent ?? ''), ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8'), 'ariaLabel' => $element->getAttribute('aria-label')) + $config;
+            $activeRole = is_string($config['active']['role'] ?? null) ? $config['active']['role'] : '';
+            $inactiveRole = is_string($config['inactive']['role'] ?? null) ? $config['inactive']['role'] : '';
+            $role = $activeRole === $inactiveRole && in_array($activeRole, array('tab', 'button'), true) ? $activeRole : strtolower(trim($element->getAttribute('role')));
+            if (in_array($role, array('tab', 'button'), true)) $attrs['role'] = $role;
+            if (preg_match('/^-?[0-9]{1,4}$/', trim($element->getAttribute('tabindex')))) $attrs['tabIndex'] = (int) $element->getAttribute('tabindex');
+        } elseif (CollectionFilterBlockGenerator::STATUS === $local) {
+            $status = $generator->statusAttributes($element);
+            if (null === $status) return ConversionOutcome::unhandled();
+            $attrs = array_merge($attrs, $status);
+            $html = $generator->statusMarkup($attrs, $registry->namespace());
+            if ('' === $html) return ConversionOutcome::unhandled();
+            return ConversionOutcome::handled(array('blockName' => $registry->blockName($local), 'attrs' => $attrs, 'innerBlocks' => array(), 'innerHTML' => $html, 'innerContent' => array($html)));
         } else {
             $children = ($this->convertChildren)($element, $fallbacks);
         }
@@ -81,10 +103,11 @@ final class CapturedCollectionConverter implements ElementConverter
             $html = $opening;
             $content = array($html);
         } elseif (CollectionFilterBlockGenerator::CHOICE === $local) {
-            $html = $opening . $attrs['label'] . '</button>';
+            $html = $opening . $attrs['label'] . '</' . $attrs['tagName'] . '>';
             $content = array($html);
         } else {
-            $closing = '</' . (CollectionFilterBlockGenerator::ROOT === $local ? $tagName : 'div') . '>';
+            $closingTag = CollectionFilterBlockGenerator::ROOT === $local ? $tagName : ($attrs['tagName'] ?? 'div');
+            $closing = '</' . $closingTag . '>';
             $html = $opening . $closing;
             $content = array_merge(array($opening), array_fill(0, count($children), null), array($closing));
         }

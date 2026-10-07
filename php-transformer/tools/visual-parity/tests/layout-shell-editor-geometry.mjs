@@ -18,7 +18,12 @@ const shellClass = generated.css.match(/wp-block-[a-z0-9-]*layout-shell/)?.[0];
 assert.ok(shellClass, 'the reproduction must compile a layout shell');
 
 const sourceMarkup = '<div class="shell blocks-engine-source-div-outer-3"><section class="hero blocks-engine-source-section-branch-3" data-anchor="hero"><div class="background" data-anchor="background"></div><div class="content" data-anchor="content">Copy</div></section></div>';
-const editorMarkup = `<div class="${shellClass}" style="display:contents"><div class="shell blocks-engine-source-div-outer-3"><section class="hero blocks-engine-source-section-branch-3" data-anchor="hero"><div class="blocks-engine-layout-shell-editor-inner-blocks block-editor-block-list__layout"><div class="background block-editor-block-list__block block-editor-block-list__layout" data-anchor="background"></div><div class="content block-editor-block-list__block block-editor-block-list__layout" data-anchor="content">Copy</div></div></section></div></div>`;
+// The layout-shell's own tracked node (useBlockProps(), merged onto the real
+// outermost authored wrapper) is no longer a separate, boxless carrier: the
+// `shell` wrapper itself now carries the block's className directly, and
+// only the InnerBlocks marker layer remains a box-neutral `display:contents`
+// node for native child blocks.
+const editorMarkup = `<div class="shell blocks-engine-source-div-outer-3 ${shellClass}"><section class="hero blocks-engine-source-section-branch-3" data-anchor="hero"><div class="blocks-engine-layout-shell-editor-inner-blocks block-editor-block-list__layout"><div class="background block-editor-block-list__block block-editor-block-list__layout" data-anchor="background"></div><div class="content block-editor-block-list__block block-editor-block-list__layout" data-anchor="content">Copy</div></div></section></div>`;
 const authorCss = `
   * { box-sizing:border-box } body { margin:0 }
   .hero { position:relative; width:600px; height:220px }
