@@ -132,6 +132,14 @@ if (str_contains($bodyResult['serialized_blocks'], '<!-- wp:html') || !str_conta
     fwrite(STDERR, "php-transformer install proof failed declared body/control ownership\n");
     exit(1);
 }
+$scopedCanvas = '<style>#canvas{min-width:1060px}[data-dla-device-document="slate"] #tile{width:123px}</style>';
+foreach (array('default', 'slate') as $profile) $scopedCanvas .= '<div data-dla-document-scope="" data-dla-device-document="' . $profile . '"><div id="canvas"><header><p>Header</p></header><main><p id="tile">Tile</p></main><footer><p>Footer</p></footer></div></div>';
+$canvasResult = (new Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('files' => array('index.html' => $scopedCanvas)))->toArray();
+$canvasCss = implode("\n", array_column($canvasResult['assets'], 'content'));
+if (!str_contains($canvasCss, 'min-width:1060px') || !str_contains($canvasCss, ':is(#tile,.blocks-engine-editor-anchor-tile)')) {
+    fwrite(STDERR, "php-transformer install proof failed declared canvas/identity projection\n");
+    exit(1);
+}
 PHP;
 
     run($proofRoot, array(PHP_BINARY, '-r', $smoke));

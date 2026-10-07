@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 use WeakMap;
 
@@ -187,6 +188,8 @@ final class AuthorStyleRuleProjector
             }
             $matchedSurface = true;
             foreach ( $matches as $element ) {
+                $scope = SourceDom::documentVariantRoot($element);
+                if ($scope instanceof DOMElement && $scope->hasAttribute('data-dla-document-scope')) return $body;
                 if ( ! $this->isWideAbsoluteMinimumWidth($this->styleResolver->resolveCssVariablesInValue($minimumWidth, $element)) ) {
                     return $body;
                 }

@@ -35,6 +35,7 @@ $requiredPaths = array(
     'src/HtmlToBlocks/HtmlTransformer.php',
     'src/ArtifactCompiler/ArtifactCompiler.php',
     'src/WordPressSitePlan/DocumentHeadContext.php',
+    'src/HtmlToBlocks/Style/ScopedAnchorSelectorProjection.php',
     'src/Contract/VisualParityReportContract.php',
     'docs/contracts/php-transformer-visual-parity-fixture.schema.json',
     'docs/contracts/php-transformer-visual-parity-report.schema.json',
