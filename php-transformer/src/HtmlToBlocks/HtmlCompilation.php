@@ -2362,7 +2362,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $asset['content'],
                 isset($this->sharedStylesheetPaths[$asset['path']])
                     || isset($this->sharedStylesheetPaths[$asset['source_path'] ?? '']),
-                (string) $asset['path']
+                (string) $asset['path'],
+                true,
+                (string) ($asset['media'] ?? '')
             );
             $hash = hash('sha256', $content);
             $projections[] = array(
@@ -2412,9 +2414,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $projections;
     }
 
-    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true): string
+    /**
+     * `$media` is the stylesheet's link/style media attribute. Source analysis
+     * reads the asset as `@media <media>{...}`, so projection is told the same
+     * outer condition for rules that compare against analyzed declarations.
+     */
+    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true, string $media = ''): string
     {
         $bindings = new ProjectedSelectorBindings();
+        $media = trim($media);
         $projected = $this->authorStylesheetProjector->project(
             $stylesheet,
             new AuthorStylesheetProjectionContext(
@@ -2424,7 +2432,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->transformationEvidence(),
                 $keepAuthorClassSelectors,
                 $bindings
-            )
+            ),
+            '' === $media ? array() : array( '@media ' . $media )
         );
         if ( $recordBindings ) {
             foreach ( $bindings->all() as $binding ) {
