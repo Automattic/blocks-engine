@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -18,6 +19,8 @@ use LogicException;
 final class AuthoredCarouselBlockGenerator
 {
     public const LOCAL_NAME = 'authored-carousel';
+    private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right');
+    private const GEOMETRY_VALUE_PATTERN = '^[0-9a-zA-Z.%()+*/,_ -]+(?:\\s*!important)?$';
 
     /**
      * @param Closure(DOMElement): ?array<string, mixed> $convertImage
@@ -92,6 +95,8 @@ final class AuthoredCarouselBlockGenerator
     function normalizedAspect( value ) { return 'string' === typeof value && /^[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?$/.test( value ) ? value : ''; }
     function inlineStyle( source ) { var style = {}; ( source || '' ).split( ';' ).forEach( function( declaration ) { var separator = declaration.indexOf( ':' ); if ( separator < 1 ) return; var name = declaration.slice( 0, separator ).trim(); var value = declaration.slice( separator + 1 ).trim(); var key = name.startsWith( '--' ) ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); if ( name && value ) style[ key ] = value; } ); return style; }
     function controlStyle( source ) { var style = {}; Object.keys( source || {} ).forEach( function( name ) { var key = name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); if ( -1 !== [ 'width', 'height', 'padding', 'border', 'borderRadius', 'background', 'backgroundColor', 'color', 'font' ].indexOf( key ) ) { style[ key ] = source[ name ]; } } ); return style; }
+    var rootGeometryProperties = __ROOT_GEOMETRY_PROPERTIES__;
+    var geometryValuePattern = new RegExp( __GEOMETRY_VALUE_PATTERN__ );
     function rootProps( attributes ) {
         var items = normalizedItems( attributes.itemsPerView );
         var thumbnails = normalizedThumbnails( attributes.thumbnails );
@@ -113,7 +118,7 @@ final class AuthoredCarouselBlockGenerator
         if ( attributes.sourceControlTopology ) { props.className += ' blocks-engine-authored-carousel--source-control-topology'; }
         Object.keys( attributes.controlPresentation || {} ).forEach( function( key ) { props.style = props.style || {}; props.style[ '--blocks-engine-carousel-control-' + key ] = attributes.controlPresentation[ key ]; } );
         Object.keys( attributes.sourceCustomProperties || {} ).forEach( function( name ) { props.style = props.style || {}; props.style[ name ] = attributes.sourceCustomProperties[ name ]; } );
-        Object.keys( attributes.sourceRootGeometry || {} ).forEach( function( name ) { var key = name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); props.style = props.style || {}; props.style[ key ] = attributes.sourceRootGeometry[ name ]; } );
+        Object.keys( attributes.sourceRootGeometry || {} ).forEach( function( name ) { var value = attributes.sourceRootGeometry[ name ]; if ( -1 === rootGeometryProperties.indexOf( name ) || 'string' !== typeof value || ! geometryValuePattern.test( value.trim() ) ) return; var key = name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); props.style[ key ] = value.trim(); } );
         return props;
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
@@ -176,9 +181,10 @@ final class AuthoredCarouselBlockGenerator
             var next = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__next ' + ( props.attributes.nextControlClasses || '' ), style: controlStyle( props.attributes.nextControlPresentation ), 'data-carousel-next': 'true', 'data-wp-on--click': 'actions.next', 'data-wp-bind--disabled': 'state.atEnd', 'aria-label': 'Next slide', dangerouslySetInnerHTML: { __html: props.attributes.nextControlVisual || ( props.attributes.sourceControlArtwork ? 'Next' : '' ) } } );
             var controlIdentityProps = {};
             Object.keys( props.attributes.sourceControlAttributes || {} ).forEach( function( name ) { controlIdentityProps[ name ] = props.attributes.sourceControlAttributes[ name ]; } );
+            var controlsProps = Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), style: 'slideshow' === props.attributes.presentation ? { position: 'absolute', inset: 0, zIndex: 4, pointerEvents: 'none', boxSizing: 'border-box', width: 'auto', height: 'auto', margin: 0, padding: 0 } : undefined }, controlIdentityProps );
             var controls = props.attributes.sourceControlTopology
-                ? createElement( 'div', Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), style: 'slideshow' === props.attributes.presentation ? { position: 'absolute', inset: 0, zIndex: 4, pointerEvents: 'none', boxSizing: 'border-box', width: 'auto', height: 'auto', margin: 0, padding: 0 } : undefined, dangerouslySetInnerHTML: { __html: props.attributes.sourceControlTopology } }, controlIdentityProps ) )
-                : createElement( 'div', { className: 'blocks-engine-authored-carousel__controls' }, previous, next );
+                ? createElement( 'div', Object.assign( { dangerouslySetInnerHTML: { __html: props.attributes.sourceControlTopology } }, controlsProps ) )
+                : createElement( 'div', controlsProps, previous, next );
             var stageContent = createElement( 'div', { className: 'blocks-engine-authored-carousel__viewport', tabIndex: 0, 'data-wp-on--keydown': 'actions.keydown' }, createElement( 'div', { className: 'blocks-engine-authored-carousel__track ' + ( props.attributes.stageTrackClassName || '' ) }, createElement( InnerBlocks.Content ) ) );
             var stage = ( props.attributes.stageWrappers || [] ).reduceRight( function( child, wrapper, index ) {
                 var wrapperProps = { key: index, className: wrapper.className || undefined, style: inlineStyle( wrapper.style ) };
@@ -456,7 +462,7 @@ JS;
                 'supports' => array('html' => false, 'customClassName' => false, 'interactivity' => true),
             ),
             'assets' => array(
-                'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)), $editor),
+                'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__', '__ROOT_GEOMETRY_PROPERTIES__', '__GEOMETRY_VALUE_PATTERN__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), json_encode(self::ROOT_GEOMETRY_PROPERTIES, JSON_THROW_ON_ERROR), json_encode(self::GEOMETRY_VALUE_PATTERN, JSON_THROW_ON_ERROR)), $editor),
                 'style.css' => $style,
             ),
             'view_js' => $view,
@@ -521,8 +527,8 @@ JS;
             }
         }
         foreach (is_array($attributes['sourceRootGeometry'] ?? null) ? $attributes['sourceRootGeometry'] : array() as $property => $value) {
-            if (in_array($property, array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right'), true) && is_string($value) && '' !== $this->safeCssGeometryValue($value)) {
-                $styleDeclarations[] = $property . ':' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            if (in_array($property, self::ROOT_GEOMETRY_PROPERTIES, true) && is_string($value) && '' !== $this->safeCssGeometryValue($value)) {
+                $styleDeclarations[] = $property . ':' . htmlspecialchars($this->safeCssGeometryValue($value), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
         }
         $styleAttribute = array() === $styleDeclarations ? '' : ' style="' . implode(';', $styleDeclarations) . '"';
@@ -651,13 +657,20 @@ JS;
             ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
 
         if ( ! $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
-            return null;
+            [$identityList] = $this->richestCarouselList($element);
+            $hasIdentity = false;
+            for ( $candidate = $identityList; $candidate instanceof DOMElement && $candidate !== $element; $candidate = $candidate->parentNode ) {
+                $hasIdentity = $hasIdentity || $this->sourceElementClassifier->hasCarouselIdentity($candidate);
+            }
+            if ( ! $hasIdentity ) {
+                return null;
+            }
         }
 
         $hasPrevious = false;
         $hasNext = false;
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselControl($candidate, $element) ) {
                 continue;
             }
             $metadataIdentity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
@@ -679,6 +692,15 @@ JS;
         }
         [$list, $items] = $this->richestCarouselList($element);
         $localList = $list;
+        // Let the smallest complete carousel own its list and controls. An
+        // enclosing gallery section still converts its heading and other copy.
+        if ( $list instanceof DOMElement ) {
+            for ( $owner = $list->parentNode; $owner instanceof DOMElement && $owner !== $element; $owner = $owner->parentNode ) {
+                if ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) {
+                    return null;
+                }
+            }
+        }
         if ( count($items) < 2 ) {
             foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $counterpart ) {
                 if ( ! $counterpart instanceof DOMElement || $counterpart === $element || ! $this->sharesCarouselIdentity($element, $counterpart) ) {
@@ -717,6 +739,7 @@ JS;
                     $slide['attrs']['caption'] = $caption;
                     $slide = $blockFactory->create('core/image', $slide['attrs'], array());
                 }
+                $slide = $this->imageSlideContainers($slide, $image, $item, $styleResolver, $createBlock);
             } else {
                 $geometryStyles = $this->carrySourceGeometryIntoBlockTree($item, $styleResolver);
                 try {
@@ -744,6 +767,27 @@ JS;
         $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
         $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
+        if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousImageSlideList($list) ) {
+            $visible = 0;
+            $hidden = 0;
+            $active = 0;
+            foreach ( $items as $item ) {
+                $active += str_contains(' ' . strtolower(SourceDom::attr($item, 'class')) . ' ', ' active ') ? 1 : 0;
+                $display = strtolower(trim((string) ($styleResolver->structuralPresentationDeclarations($item)['display'] ?? '')));
+                if ( 'none' === $display ) {
+                    ++$hidden;
+                } elseif ( '' !== $display ) {
+                    ++$visible;
+                }
+            }
+            // A capture during a slide transition can expose both the outgoing
+            // active frame and its incoming neighbour while the rest stay hidden.
+            if ( (1 === $visible && count($items) - 1 === $hidden)
+                || (1 === $active && $hidden > 0 && $hidden >= count($items) - 2 && $visible <= 2)
+            ) {
+                $presentation = 'slideshow';
+            }
+        }
         // Selecting a slide from a thumbnail means one slide is on stage.
         if ( 1 < count($pagerItems) ) {
             $presentation = 'slideshow';
@@ -870,7 +914,7 @@ JS;
             'sourceControlArtwork' => '' !== ($sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '') || '' !== ($sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : ''),
             'stageWrappers' => $this->stageWrappers($element, $geometryList, $styleResolver, $items),
             'stageTrackClassName' => $styleResolver->safeTrackClassName($geometryList, $items),
-            'sourceRootGeometry' => array_intersect_key($styleResolver->sourceGeometryPresentationDeclarations($element), array_flip(array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right'))),
+            'sourceRootGeometry' => array_intersect_key($styleResolver->sourceGeometryPresentationDeclarations($element), array_flip(self::ROOT_GEOMETRY_PROPERTIES)),
             'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
             'autoplayInterval' => 'slideshow' === $presentation ? $autoplayInterval : 0,
             'showDots' => 'slideshow' === $presentation && $showDots && array() === $thumbnails,
@@ -917,7 +961,7 @@ JS;
     {
         $controls = array('previous' => null, 'next' => null);
         foreach ($root->getElementsByTagName('*') as $candidate) {
-            if (!$candidate instanceof DOMElement || !in_array(strtolower($candidate->tagName), array('a', 'button'), true)) {
+            if (!$candidate instanceof DOMElement || !$this->sourceElementClassifier->isCarouselControl($candidate, $root)) {
                 continue;
             }
             $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
@@ -935,7 +979,7 @@ JS;
     {
         $controls = array();
         foreach ($root->getElementsByTagName('*') as $candidate) {
-            if (!$candidate instanceof DOMElement || !in_array(strtolower($candidate->tagName), array('a', 'button'), true)) {
+            if (!$candidate instanceof DOMElement || !$this->sourceElementClassifier->isCarouselControl($candidate, $root)) {
                 continue;
             }
             $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'title'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
@@ -951,7 +995,7 @@ JS;
         $previous = array();
         $next = array();
         foreach ($root->getElementsByTagName('*') as $candidate) {
-            if (!$candidate instanceof DOMElement || !in_array(strtolower($candidate->tagName), array('a', 'button'), true)) {
+            if (!$candidate instanceof DOMElement || !$this->sourceElementClassifier->isCarouselControl($candidate, $root)) {
                 continue;
             }
             $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'title'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
@@ -1181,7 +1225,7 @@ JS;
         $previous = false;
         $next = false;
         foreach ($element->getElementsByTagName('*') as $candidate) {
-            if (!$candidate instanceof DOMElement || !in_array(strtolower($candidate->tagName), array('a', 'button'), true)) {
+            if (!$candidate instanceof DOMElement || !$this->sourceElementClassifier->isCarouselControl($candidate, $element)) {
                 continue;
             }
             $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'title'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
@@ -1479,7 +1523,7 @@ JS;
     private function safeCssGeometryValue(string $value): string
     {
         $value = trim($value);
-        return '' !== $value && 1 === preg_match('~^[0-9a-zA-Z.%()+*/,_ -]+$~D', $value) ? $value : '';
+        return '' !== $value && 1 === preg_match('~' . self::GEOMETRY_VALUE_PATTERN . '~D', $value) ? $value : '';
     }
 
     /**
@@ -1628,6 +1672,42 @@ JS;
         return $block;
     }
 
+    /** Preserve authored responsive image holders below the runtime slide. */
+    private function imageSlideContainers(array $imageBlock, DOMElement $image, DOMElement $item, StyleResolver $styleResolver, SourceBlockCreator $createBlock): array
+    {
+        $containers = array();
+        for ( $node = $image->parentNode; $node instanceof DOMElement && $node !== $item; $node = $node->parentNode ) {
+            if ( ! in_array(strtolower($node->tagName), array('div', 'span'), true)
+                || 1 !== $node->getElementsByTagName('img')->length
+                || '' !== trim($node->textContent ?? '')
+            ) {
+                return $imageBlock;
+            }
+            $containers[] = $node;
+        }
+        $positions = $styleResolver->authorDeclaredValuesAtAnyViewport($image, array('position'))['position'] ?? array();
+        if ( array() !== $containers && in_array('absolute', array_map(static fn (string $value): string => strtolower(trim(CssValueInspector::withoutImportant($value))), $positions), true) ) {
+            // The source crop contains an out-of-flow image, not a figure.
+            // Keep unowned native figure margins from adding flow height under
+            // authored figure resets; use core/image's native spacing contract.
+            $attributes = $imageBlock['attrs'];
+            $attributes['style']['spacing']['margin'] = array_merge(array('top' => '0', 'bottom' => '0'), $attributes['style']['spacing']['margin'] ?? array());
+            $imageBlock = $createBlock->createBlock('core/image', $attributes, array(), $image);
+        }
+        $block = $imageBlock;
+        foreach ( $containers as $container ) {
+            // A responsive crop holder owns the image even when all of its
+            // geometry is conditional. Recognize it at any viewport; the
+            // preserved source classes keep those conditions stylesheet-owned.
+            $geometry = $styleResolver->authorDeclaredValuesAtAnyViewport($container, array('width', 'max-width', 'height', 'min-height', 'aspect-ratio', 'padding', 'padding-top', 'padding-bottom', 'position'));
+            if ( array() === $geometry ) {
+                continue;
+            }
+            $block = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($container), array($block), $container);
+        }
+        return $block === $imageBlock ? $imageBlock : $createBlock->createBlock('core/group', array(), array($block));
+    }
+
     /**
      * When a source root class also owns slide runtime transforms, that class
      * cannot safely surround converted RichText descendants. Restate only
@@ -1724,6 +1804,10 @@ JS;
     private function carouselItemsHaveContent(array $items): bool
     {
         foreach ( $items as $item ) {
+            $image = $item->getElementsByTagName('img')->item(0);
+            if ( $image instanceof DOMElement && '' === trim(SourceDom::attr($image, 'src')) ) {
+                return false;
+            }
             if ( 0 === $item->getElementsByTagName('img')->length
                 && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
             ) {
