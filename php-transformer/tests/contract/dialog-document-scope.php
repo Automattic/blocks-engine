@@ -37,4 +37,21 @@ foreach (array_filter($flatten($result['blocks']), static fn(array $block): bool
 }
 $assert(in_array('core/heading', array_column($flatten($result['blocks']), 'blockName'), true), 'The generic declared variant contract remains editable.');
 
+$routes = array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<!doctype html><html><head><title>Home</title><style id="source-style">body{margin:0}</style><script type="application/ld+json">{"@type":"LocalBusiness","name":"Neutral"}</script></head><body><h1>Home</h1><a href="about.html">About</a></body></html>',
+    'about.html' => '<!doctype html><html><head><title>About</title><style id="about-style">body{margin:0}</style><script>window.aboutLoaded=true;</script></head><body><h1>About</h1></body></html>',
+));
+$result = (new ArtifactCompiler())->compile($routes)->toArray();
+$assert('failed' !== $result['status'], 'Another route script occurrence cannot overwrite homepage inline-data loading identity.');
+$pages = $result['source_reports']['wordpress_site_plan']['pages'];
+$assert(2 === count($pages), 'Both source-owned routes compile through the real plan validation gate.');
+foreach ($pages as $page) {
+    $script = $page['document_metadata']['scripts'][0];
+    if ('index.html' === $page['source_path']) {
+        $assert('inline' === ($script['source_kind'] ?? null) && 'application/ld+json' === ($script['type'] ?? null), 'Homepage structured data retains its inline loading contract.');
+    } else {
+        $assert(isset($script['asset_reference']), 'The other route retains its executable script asset.');
+    }
+}
+
 echo "Dialog document scope contract passed.\n";

@@ -3400,7 +3400,7 @@ final class ArtifactCompiler
                     'slug'           => $slug,
                     'title'          => $title,
                     'metadata'       => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array(), is_string($file['metadata']['post_type'] ?? null) ? array('post_type' => $file['metadata']['post_type'], 'post_type_declaration' => 'metadata:post_type') : array(), is_array($file['metadata']['template_surface'] ?? null) ? array('template_surface' => $file['metadata']['template_surface']) : array(), is_array($file['metadata']['structured_data'] ?? null) ? array('structured_data' => $file['metadata']['structured_data']) : array()),
-                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array())),
+                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files']),
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
@@ -3749,8 +3749,8 @@ final class ArtifactCompiler
         );
     }
 
-    /** @param array<int, array<string, mixed>> $files @param array<int, array<string, mixed>> $generatedAssets @return array<string, mixed> */
-    private function fullDocumentMetadata(string $html, string $sourcePath, array $files, array $generatedAssets = array()): array
+    /** @param array<int, array<string, mixed>> $files @return array<string, mixed> */
+    private function fullDocumentMetadata(string $html, string $sourcePath, array $files): array
     {
         $reference = static fn(string $value): array => array('url' => $value);
         $attributes = function (string $tag, array $names): array {
@@ -3764,7 +3764,7 @@ final class ArtifactCompiler
             return $values;
         };
         $inlineScripts = array();
-        foreach ($generatedAssets as $asset) if ('inline-script' === ($asset['source'] ?? null) && is_string($asset['selector'] ?? null) && is_string($asset['path'] ?? null)) $inlineScripts[$asset['selector']] = $asset['path'];
+        foreach ($files as $asset) if ($sourcePath === ($asset['source_path'] ?? null) && 'inline-script' === ($asset['source'] ?? null) && is_string($asset['selector'] ?? null) && is_string($asset['path'] ?? null)) $inlineScripts[$asset['selector']] = $asset['path'];
         $meta = array(); $links = array(); $scripts = array();
         foreach (HtmlTagScanner::scan($html, 'meta') as $declaration) {
             $tag = $declaration['tag'];
