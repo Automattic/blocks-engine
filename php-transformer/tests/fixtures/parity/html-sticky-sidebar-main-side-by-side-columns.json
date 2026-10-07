@@ -1,0 +1,66 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-sticky-sidebar-main-side-by-side-columns",
+  "description": "A sticky, fixed-width <aside> beside <main> is laid out in flow at the desktop reference viewport, so the sidebar/content name test still promotes the wrapper to core/columns.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-sticky-sidebar-main-side-by-side-columns.json",
+    "notes": "Companion to html-phone-only-fixed-aside-main-stays-group: position:sticky keeps the box in its flow slot, unlike absolute or fixed, so a sticky docs sidebar remains a column partner."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"layout\"><aside class=\"sidebar\"><p>Nav</p></aside><main class=\"content\"><h1>Title</h1><p>Body</p></main></div>",
+    "options": {
+      "static_css": ".sidebar{position:sticky;top:1rem;width:250px}"
+    }
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/columns",
+      "attrs": {
+        "className": "layout"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/column"
+    },
+    {
+      "path": "blocks.0.innerBlocks.1",
+      "name": "core/column"
+    }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "blocks",
+      "assert": "count",
+      "count": 1
+    },
+    {
+      "path": "blocks.0.innerBlocks",
+      "assert": "count",
+      "count": 2
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<!-- wp:columns {\"className\":\"layout\"} -->"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<!-- wp:column {\"className\":\"sidebar"
+    }
+  ]
+}

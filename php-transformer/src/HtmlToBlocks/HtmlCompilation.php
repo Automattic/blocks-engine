@@ -1880,9 +1880,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $markup = $this->runtime->serializeBlocks($blocks);
             $templatePartAttrs = $wrapperAttrs;
             unset($templatePartAttrs['tagName']);
-            $templatePartMarkup = array() === $templatePartAttrs
-                ? $innerMarkup
-                : $this->runtime->serializeBlocks(array($this->createBlock('core/group', $templatePartAttrs, $blocks[0]['innerBlocks'] ?? array())));
+            if ( array() === $templatePartAttrs ) {
+                $templatePartMarkup = $innerMarkup;
+            } else {
+                $responsiveMarginTop = $this->styleResolver->responsiveBlockMarginTopClassName($child);
+                if ( '' !== $responsiveMarginTop ) {
+                    $templatePartAttrs['className'] = SourceDom::mergeClassNames((string) ($templatePartAttrs['className'] ?? ''), $responsiveMarginTop);
+                }
+                $templatePartBlock = $this->createBlock('core/group', $templatePartAttrs, $blocks[0]['innerBlocks'] ?? array());
+                $templatePartMarkup = $this->runtime->serializeBlocks(array($templatePartBlock));
+            }
             if ( '' === trim($markup) ) {
                 continue;
             }
@@ -2943,7 +2950,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $sourceElement): ?float => $this->styleResolver->documentRootFontSize($sourceElement)
             ),
             new ColumnsPatternContext(
-                fn (DOMElement $sourceElement): string => $this->styleResolver->cssDeclarationString($this->styleResolver->structuralPresentationDeclarations($sourceElement))
+                fn (DOMElement $sourceElement): string => $this->styleResolver->cssDeclarationString($this->styleResolver->structuralPresentationDeclarations($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->controlSurfaceResolvedStyle($sourceElement)
             ),
             new MarkupPatternContext(
                 fn (DOMElement $sourceElement): string => SourceDom::safeFallbackHtml($sourceElement, $this->authorSelectorProjections()->tagMarkers()),
@@ -3027,6 +3035,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @param list<class-string<\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface>> $allowed */
     private function recognizePatterns(DOMElement $element, array &$fallbacks, array $allowed): ?array
     {
+        if ( $this->runtimeIslands->retainsDataAttributeRuntimeTargetInShell($element) ) {
+            return null;
+        }
         $result = $this->patternRecognizers->firstMatch($element, $this->patternContext, $allowed);
         if (null === $result) return null;
         // Results own fallback payloads until their block wins the ordered stage.
@@ -3087,6 +3098,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $prelude->handled ) {
             return $prelude->block;
         }
+
+        $checkable = $this->inlineCheckableControlBlock($element);
+        if (null !== $checkable) return $checkable;
 
         if ( $this->richTextConverter->handles($tagName) ) {
             return $this->richTextConverter->convert($element, $tagName, $fallbacks)->block;
@@ -3252,6 +3266,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
+        if ( $this->isOrphanListItem($element) && $this->isSafeTransparentCustomElement($element) ) {
+            // Invalid list ancestry does not remove browser marker rendering or
+            // author `li` selectors. Keep the source root on the existing exact
+            // wrapper carrier while its children remain native editable blocks.
+            $children = $this->sourceElementClassifier->hasOnlyPhrasingChildren($element)
+                ? array($this->createBlock('core/paragraph', array('content' => $this->richTextMaterializer->content($element), 'className' => self::SYNTHETIC_PARAGRAPH_CLASS)))
+                : $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            return $this->layoutShellBlockForElements(array($element), $children, $element);
+        }
+
         if ( $this->isTransparentUnknownElement($element) ) {
             // A hyphenated custom element is an authored component: when the
             // classifier calls its subtree a cohesive custom block, it still
@@ -3330,6 +3354,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $block['_editability_runtime_owned'] = true;
 
         return array( 'handled' => true, 'block' => $block );
+    }
+
+    /** A `li` whose parent is not a list: invalid markup the list converter never reaches. */
+    private function isOrphanListItem(DOMElement $element): bool
+    {
+        if ( 'li' !== strtolower($element->tagName) ) {
+            return false;
+        }
+        $parent = $element->parentNode;
+
+        return ! $parent instanceof DOMElement || ! in_array(strtolower($parent->tagName), array( 'ul', 'ol', 'menu' ), true);
     }
 
     /**
@@ -5820,6 +5855,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function layoutShellClassName(DOMElement $element): string
     {
         $classes = array_values(array_filter(preg_split('/\s+/', $this->promotedClassName(SourceDom::attr($element, 'class'))) ?: array()));
+        $tagMarker = $this->authorSelectorProjections()->tagMarker(strtolower($element->tagName));
+        if ( '' !== $tagMarker ) {
+            $classes[] = $tagMarker;
+        }
         $runtime = array();
         foreach ( $this->runtimeIslands->runtimeDomSelectorsForElement($element) as $selector ) {
             if ( str_starts_with($selector, '.') ) {
@@ -10434,7 +10473,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( array() !== SourceDom::eventMetadata($element) ) {
             return null;
         }
-        foreach ( array( 'aria-controls', 'aria-expanded', 'command', 'commandfor', 'formaction', 'popovertarget', 'popovertargetaction' ) as $name ) {
+        foreach ( array( 'aria-controls', 'aria-expanded', 'command', 'commandfor', 'form', 'formaction', 'popovertarget', 'popovertargetaction', 'data-action', 'jsaction' ) as $name ) {
             if ( $element->hasAttribute($name) ) {
                 return null;
             }
@@ -10463,6 +10502,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $pressed && ! in_array($pressed, array( 'true', 'false', 'mixed' ), true) ) {
             return null;
         }
+        $role = strtolower(trim($this->attr($element, 'role')));
+        $checked = strtolower(trim($this->attr($element, 'aria-checked')));
+        if ('' !== $role && 'checkbox' !== $role) return null;
+        if ('checkbox' === $role && (!in_array($checked, array('true', 'false'), true) || '' !== $pressed || FormControlClassifier::hasFormAncestor($element))) return null;
         $sourceAttributes = array();
         foreach ( $element->attributes ?? array() as $attribute ) {
             $name = strtolower($attribute->nodeName);
@@ -10475,11 +10518,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
         $type = FormControlClassifier::controlType($element);
         $attrs = array_filter(array(
-            'type' => in_array($type, array( 'button', 'reset', 'submit' ), true) ? $type : 'submit',
+            'type' => 'checkbox' === $role ? 'button' : (in_array($type, array( 'button', 'reset', 'submit' ), true) ? $type : 'submit'),
             'id' => $this->attr($element, 'id'),
             'name' => $this->attr($element, 'name'),
             'ariaLabel' => $this->attr($element, 'aria-label'),
             'ariaPressed' => $pressed,
+            'role' => $role,
+            'ariaChecked' => 'checkbox' === $role ? $checked : '',
+            'title' => $this->attr($element, 'title'),
+            'tabIndex' => $this->attr($element, 'tabindex'),
             'className' => $this->attr($element, 'class'),
             'style' => $this->attr($element, 'style'),
             'iconSvg' => $icon,
@@ -10495,6 +10542,68 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
+    }
+
+    /** A bounded phrasing tree with named binary SVG controls is layout plus
+     * editable text, rather than one invalid RichText run. Keep source wrappers
+     * with the existing layout shell and transparent text carriers.
+     */
+    private function inlineCheckableControlBlock(DOMElement $element): ?array
+    {
+        if (!in_array(strtolower($element->tagName), array('div', 'span', 'button'), true)) return null;
+        $buttons = 'button' === strtolower($element->tagName) ? array($element) : iterator_to_array($element->getElementsByTagName('button'));
+        if (array() === $buttons || 16 < count($buttons) || 64 < $element->getElementsByTagName('*')->length) return null;
+        foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'))) as $node) {
+            if ($this->runtimeIslands->isRuntimeDomTarget($node) || array() !== SourceDom::eventMetadata($node) || $node->hasAttribute('data-action') || $node->hasAttribute('jsaction')) return null;
+            foreach ($node->attributes as $attribute) if (str_starts_with(strtolower($attribute->name), 'data-wp-')) return null;
+        }
+        // Prove the complete tree before installing any retained selector paths.
+        $supports = function (DOMElement $node, int $depth) use (&$supports): bool {
+            if ($depth > 16) return false;
+            if ('button' === strtolower($node->tagName)) return true;
+            if (!in_array(strtolower($node->tagName), array('div', 'span'), true)) return false;
+            foreach ($this->elementElementChildren($node) as $child) {
+                if ('button' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('button')->length) {
+                    if (!$supports($child, $depth + 1)) return false;
+                } elseif (!$this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) || $this->richTextMaterializer->requiresHtmlFallback($this->outerHtml($child))) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        if (!$supports($element, 0)) return null;
+        $controls = array();
+        foreach ($buttons as $button) {
+            if ('checkbox' !== strtolower(trim($this->attr($button, 'role'))) || '' === trim($this->attr($button, 'aria-label') . $this->attr($button, 'title')) || $this->runtimeIslands->isRuntimeDomTarget($button)) return null;
+            $block = $this->authoredStateButtonBlock($button);
+            if (null === $block) return null;
+            $controls[$button->getNodePath()] = $block;
+        }
+        $build = function (DOMElement $node) use (&$build, $controls): array {
+            if (isset($controls[$node->getNodePath()])) return $controls[$node->getNodePath()];
+            $children = array(); $text = '';
+            $flush = function () use (&$children, &$text): void {
+                if ('' !== trim($text)) $children[] = $this->createBlock('core/paragraph', array('content' => $text, 'className' => self::INLINE_LAYOUT_CARRIER_CLASS));
+                $text = '';
+            };
+            foreach ($node->childNodes as $child) {
+                if ($child instanceof \DOMText) { $text .= $this->runtime->escapeHtml($child->textContent); continue; }
+                if (!$child instanceof DOMElement) continue;
+                if ('button' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('button')->length) {
+                    $flush();
+                    $children[] = $build($child);
+                } else {
+                    $content = $this->richTextMaterializer->content($child);
+                    $flush();
+                    $this->authorSelectorProjections()->markRetainedSourcePath($child->getNodePath());
+                    $children[] = $this->layoutShellBlockForElements(array($child), array($this->createBlock('core/paragraph', array('content' => $content, 'className' => self::INLINE_LAYOUT_CARRIER_CLASS))), $child);
+                }
+            }
+            $flush();
+            $this->authorSelectorProjections()->markRetainedSourcePath($node->getNodePath());
+            return $this->layoutShellBlockForElements(array($node), $children, $node);
+        };
+        return $build($element);
     }
 
     /**

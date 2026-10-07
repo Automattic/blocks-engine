@@ -93,6 +93,41 @@ final class LayoutShellBlockGenerator
         }
         return content;
     }
+    function mergeRefs( refs ) {
+        return function( node ) {
+            refs.forEach( function( ref ) {
+                if ( ! ref ) { return; }
+                if ( 'function' === typeof ref ) { ref( node ); }
+                else { ref.current = node; }
+            } );
+        };
+    }
+    // The outermost authored wrapper becomes the block's own tracked DOM
+    // node (the node Gutenberg measures for selection, hover, and the block
+    // popover), so this merges Gutenberg's useBlockProps() onto it instead of
+    // isolating it behind a separate, boxless carrier. Gutenberg's own
+    // `block-editor-block-list__block` class is dropped because it is purely
+    // an internal bookkeeping marker here (the real selection/hover/popover
+    // treatment is computed from the tracked node's rect, not this
+    // className) and keeping it would needlessly let Gutenberg's default
+    // child-carrier CSS (e.g. `position: relative`) compete with the
+    // wrapper's own authored declarations. The wrapper's own `style` always
+    // wins over Gutenberg's for any property both sides set, since the
+    // authored declarations encode captured visual fidelity; Gutenberg's
+    // additions still apply for any property the wrapper does not set itself.
+    function sourceBlockProps( props ) {
+        var blockProps = useBlockProps();
+        var mergedClassName = String( blockProps.className || '' )
+            .split( /\s+/ )
+            .filter( function( className ) { return className && className !== 'block-editor-block-list__block'; } )
+            .concat( String( props.className || '' ).split( /\s+/ ).filter( Boolean ) )
+            .join( ' ' );
+        var merged = Object.assign( {}, blockProps, props );
+        merged.className = mergedClassName;
+        merged.style = Object.assign( {}, blockProps.style || {}, props.style || {} );
+        merged.ref = props.ref ? mergeRefs( [ blockProps.ref, props.ref ] ) : blockProps.ref;
+        return merged;
+    }
     function readableName( value ) {
         value = String( value || '' ).trim();
         if ( ! value || value.indexOf( 'blocks-engine-' ) === 0 || value.indexOf( 'be-inline-' ) === 0 || value.indexOf( 'comp-' ) === 0 || /^[a-f0-9]{16,}$/.test( value ) || /^[a-z]{1,4}\d[a-z0-9_]*$/i.test( value ) || /^[A-Z][a-z][A-Z][a-z]{2,}$/.test( value ) ) { return ''; }
@@ -138,8 +173,7 @@ final class LayoutShellBlockGenerator
         // authored wrapper chain; nested native blocks must retain their own
         // editor topology.
         var content = createElement( 'div', useInnerBlocksProps( { className: 'blocks-engine-layout-shell-editor-inner-blocks' } ) );
-        if ( wrappers.length ) { content = wrappedContent( wrappers, content ); }
-        return createElement( 'div', useBlockProps( { style: { display: 'contents' } } ), content );
+        return wrappers.length ? wrappedContent( wrappers, content, sourceBlockProps ) : createElement( 'div', useBlockProps(), content );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: { wrappers: { type: 'array', default: [] } },
