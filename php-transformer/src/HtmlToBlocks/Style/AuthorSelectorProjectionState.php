@@ -263,6 +263,19 @@ final class AuthorSelectorProjectionState
         return isset($this->navigationItemAnchorPaths[$path]);
     }
 
+    /**
+     * The stable identity for the marker a `>` attribute selector places on
+     * the subject's PARENT. It differs from the subject's identity (the bare
+     * selector), so the parent and the subject get different marker classes:
+     * the projected subject form `:where(.marker)` must not also select the
+     * parent, or the child's declarations (`width:100%`) land on the wrapper.
+     */
+    public static function parentAttributeIdentity(string $selector): string
+    {
+        // Hash input only (never emitted); the NUL keeps it apart from any real selector text.
+        return "parent-of\0" . $selector;
+    }
+
     public function ensureAttributeMarker(string $path, ?string $stableIdentity = null): string
     {
         if ( null !== $stableIdentity ) {
