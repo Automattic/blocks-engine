@@ -18,10 +18,16 @@ if (in_array('--font-paint', $argv, true)) {
     $source = str_replace('</style>', '.icon-row a span{display:inline;width:auto;height:auto;font-size:40px;line-height:34px;font-family:Arial}.icon-row a span:before{display:inline-block}.vector-profile{vertical-align:top}@media(min-width:701px){.icon-row a span{font-size:32px;line-height:28px}}</style>', $source);
     $source = str_replace('<a href="https://example.test/getSocialPlatform?platform=community" aria-label="Community"><span></span>', '<a class="vector-profile" href="https://example.test/getSocialPlatform?platform=community" aria-label="Community"><svg viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg>', $source);
 }
+if (in_array('--interactive', $argv, true)) {
+    $source = str_replace('<a href="https://facebook.com/example"', '<a id="profile-first" class="profile" data-tone="cool" data-layout="profile-box" href="https://facebook.com/example"', $source);
+    $source = str_replace('</style>', '.icon-row{padding:12px;background:#eeeeee}.profile{background:red;border-radius:4px}[class="profile"]{border:2px solid red}.profile:hover{background:blue}.profile:focus-visible{background:green}.profile:active{background:orange}.icon-row:hover{background:#dddddd}@layer foundation{.profile:hover{background:yellow}}@media(min-width:701px){.profile:hover{background:#0066cc}}@supports(display:grid){#profile-first[data-tone="cool"]:focus-visible{background:#006600}}.icon-row:hover>#profile-first.profile[data-tone="cool"]:focus-visible{background:purple}</style>', $source);
+}
 $result = (new HtmlTransformer())->transform($source)->toArray();
 $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $source)))->toArray();
+$bootstrap = '';
+foreach ($compiled['source_reports']['wordpress_site_plan']['writes'] as $write) if ('functions.php' === $write['target_path']) $bootstrap = $write['payload']['data'];
 if (in_array('--fixture', $argv, true)) {
-    echo json_encode(array('source' => $source, 'result' => $result, 'compiled' => $compiled['source_reports']['compiled_site']), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+    echo json_encode(array('source' => $source, 'result' => $result, 'compiled' => $compiled['source_reports']['compiled_site'], 'bootstrap' => $bootstrap), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     exit;
 }
 if (0 !== $result['metrics']['fallback_count'] || 'pass' !== $result['source_reports']['wp_block_validity']['status']) {

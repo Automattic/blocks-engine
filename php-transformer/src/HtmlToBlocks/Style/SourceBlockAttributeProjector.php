@@ -195,6 +195,29 @@ final class SourceBlockAttributeProjector
                 $attrs['tagName'] = $semanticTag;
             }
         }
+        if ('core/social-link' === $name) {
+            $anchor = 'a' === $sourceTagName ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
+            if ($anchor instanceof DOMElement) {
+                $identity = array();
+                if ($anchor->hasAttribute('class')) $identity['data-blocks-engine-social-source-class'] = $anchor->getAttribute('class');
+                foreach ($anchor->attributes as $attribute) {
+                    if (in_array($attribute->name, array('id', 'class', 'style', 'role', 'title', 'tabindex', 'target', 'rel'), true) || str_starts_with($attribute->name, 'data-') || str_starts_with($attribute->name, 'aria-')) $identity[$attribute->name] = $attribute->value;
+                }
+                $classes = $this->sourceProjectionClassName($anchor, $context, (string) ($identity['class'] ?? ''));
+                if ('a' === $sourceTagName) {
+                    $itemClasses = array();
+                    $sourceClasses = SourceDom::boundedClassTokens($anchor->getAttribute('class'));
+                    foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
+                        if (str_starts_with($class, 'blocks-engine-social-source-') && !in_array($class, $sourceClasses, true)) $itemClasses[] = $class;
+                        else $classes = SourceDom::mergeClassNames($classes, $class);
+                    }
+                    $attrs['className'] = implode(' ', $itemClasses);
+                    unset($attrs['anchor'], $attrs['style']);
+                }
+                $identity['class'] = $classes;
+                $attrs['metadata']['blocksEngineSocialAnchor'] = $identity;
+            }
+        }
         return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
     }
 

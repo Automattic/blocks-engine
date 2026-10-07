@@ -21,18 +21,6 @@ final class SocialSourceStyleProjector
     {
         $marker = 'blocks-engine-social-source-item-' . substr(hash('sha256', $anchor->getNodePath() ?? ''), 0, 12);
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $marker);
-        // Core saves source anchor classes on its dynamic li. Replay their
-        // declaration subjects on the actual anchor, including media context.
-        (new CssStylesheetTransformer())->visitStyleRules($author->combinedCss(), function (string $prelude, string $body, array $conditions) use ($anchor, $marker, $author, $targets): void {
-            foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
-                if (preg_match('/:(?:hover|focus|active|visited|before|after)\b/', $selector) || !$this->styles->matchesCssSelector($anchor, $selector)) continue;
-                $parsed = CssSelectorMatcher::parse($selector);
-                if (!$parsed['supported']) continue;
-                $target = ':root :where(.' . $marker . '>a)' . CssSpecificityProjection::shims($parsed, $author->specificityShim(), $author->classSpecificityShim(), $author->idSpecificityShim());
-                $targets->record(SourceDom::elementSelector($anchor), $target, $body, $conditions);
-            }
-        });
-        if ('' !== trim($anchor->getAttribute('style'))) $targets->record(SourceDom::elementSelector($anchor), ':root .' . $marker . '>a', $anchor->getAttribute('style'));
         $glyph = null;
         foreach ($anchor->childNodes as $child) {
             if ($child instanceof DOMElement && in_array(strtolower($child->tagName), array('span', 'svg', 'img'), true)) { $glyph = $child; break; }

@@ -3666,6 +3666,7 @@ PHP;
             $lines[] = '$blocks_engine_taxonomy_archive_routes = ' . var_export($termRoutes, true) . ';';
             $lines[] = "add_filter( 'term_link', static function ( string \$url, WP_Term \$term, string \$taxonomy ) use ( \$blocks_engine_taxonomy_archive_routes ): string { \$route = \$blocks_engine_taxonomy_archive_routes[ \$taxonomy ][ \$term->slug ] ?? null; return is_string( \$route ) ? home_url( \$route ) : \$url; }, 10, 3 );";
         }
+        if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineSocialAnchor'))) $lines[] = SocialLinkSourceAttribution::bootstrap();
         if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineLinkClass'))) {
             $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { \$classes = \$block['attrs']['metadata']['blocksEngineLinkClass'] ?? ''; if ( ! is_string( \$classes ) || '' === \$classes ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) foreach ( preg_split( '/\\s+/', \$classes ) ?: array() as \$class ) \$tag->add_class( \$class ); return \$tag->get_updated_html(); }, 10, 2 );";
         }

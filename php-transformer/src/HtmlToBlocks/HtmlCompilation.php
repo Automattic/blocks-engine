@@ -3931,6 +3931,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     public function createBlock(string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
     {
+        if ('core/social-link' === $name && $sourceElement instanceof DOMElement) {
+            $anchor = 'a' === strtolower($sourceElement->tagName) ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
+            if ($anchor instanceof DOMElement) $this->authorSelectorProjections()->markSocialAnchor($anchor);
+        }
         if ('core/social-link' === $name && $sourceElement instanceof DOMElement && str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item')) {
             $anchor = 'a' === strtolower($sourceElement->tagName) ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
             if ($anchor instanceof DOMElement) $attrs = (new SocialSourceStyleProjector($this->styleResolver))->project($attrs, $anchor, $this->authorStyles(), $this->session->sourceTargetProjectionState());

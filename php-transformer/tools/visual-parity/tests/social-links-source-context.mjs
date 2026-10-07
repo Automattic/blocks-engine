@@ -7,14 +7,16 @@ const { chromium } = process.env.PLAYWRIGHT_MODULE ? await import(process.env.PL
 const root = new URL('../../..', import.meta.url).pathname;
 const fontPaint = process.argv.includes('--font-paint');
 const compiler = process.argv.includes('--compiled');
-const { source, result, compiled } = JSON.parse(execFileSync('php', [root + '/tests/unit/social-links-source-context.php', '--fixture', ...(fontPaint ? ['--font-paint'] : [])], { encoding: 'utf8' }));
+const interactive = process.argv.includes('--interactive');
+const { source, result, compiled, bootstrap } = JSON.parse(execFileSync('php', [root + '/tests/unit/social-links-source-context.php', '--fixture', ...(fontPaint ? ['--font-paint'] : []), ...(interactive ? ['--interactive'] : [])], { encoding: 'utf8' }));
 const markup = compiler ? compiled.pages[0].block_markup : result.serialized_blocks;
 assert.equal(result.metrics.fallback_count, 0);
 assert.ok(process.env.WORDPRESS_PATH, 'WORDPRESS_PATH supplies actual WordPress block rendering');
 const wpPath = process.env.WORDPRESS_PATH;
 const runtime = JSON.parse(execFileSync(process.env.WP_CLI ?? 'wp', [
     '--path=' + wpPath, '--skip-plugins', '--skip-themes', 'eval',
-    '$markup=base64_decode("' + Buffer.from(markup).toString('base64') + '");'
+    'eval(substr(base64_decode("' + Buffer.from(bootstrap).toString('base64') + '"),5));'
+    + '$markup=base64_decode("' + Buffer.from(markup).toString('base64') + '");'
     + '$saved=serialize_blocks(parse_blocks($markup));$names=[];$walk=function($blocks)use(&$walk,&$names){foreach($blocks as $b){if($b["blockName"])$names[]=$b["blockName"]; $walk($b["innerBlocks"]);}};$walk(parse_blocks($saved));'
     + 'wp_enqueue_script("wp-block-library");ob_start();wp_scripts()->do_items();$scripts=ob_get_clean();'
     + 'echo json_encode(["scripts"=>$scripts,"html"=>do_blocks($saved),"names"=>$names,"version"=>get_bloginfo("version"),"stable"=>$saved===serialize_blocks(parse_blocks($saved)),"unregistered"=>array_values(array_filter($names,fn($n)=>!WP_Block_Type_Registry::get_instance()->is_registered($n)))]);',
@@ -25,7 +27,7 @@ assert.equal(runtime.names.filter(n => n === 'core/heading').length, 2);
 assert.equal(runtime.names.filter(n => n === 'core/separator').length, 2);
 assert.equal(runtime.names.filter(n => n === 'core/social-link').length, 3);
 const nativeCss = readFileSync(wpPath + '/wp-includes/css/dist/block-library/common.min.css', 'utf8') + '\n' + ['social-links', 'group', 'heading', 'separator'].map(n => readFileSync(wpPath + '/wp-includes/blocks/' + n + '/style.min.css', 'utf8')).join('\n');
-const css = (compiler ? compiled.assets : result.assets).filter(a => a.kind === 'css').map(a => a.content).join('\n');
+const css = (compiler ? compiled.assets : result.assets).filter(a => a.kind === 'css' && a.stylesheet_target !== 'editor').map(a => a.content).join('\n');
 const browser = await chromium.launch({ headless: true });
 const evidence = [];
 let editorValidation;
@@ -72,8 +74,49 @@ try {
         }
         evidence.push({ width, original, native });
         assert.deepEqual(native, original, `native mixed social content/row/anchor geometry matches at ${width}px: ${JSON.stringify(evidence)}`);
+        if (interactive) {
+            assert.equal(await pages[1].locator('.icon-row a#profile-first.profile[data-tone="cool"][data-layout="profile-box"]').count(), 1, 'source class/ID/data/layout identity belongs to the actual native anchor');
+            assert.equal(await pages[1].locator('.icon-row li.profile,.icon-row li#profile-first').count(), 0, 'source anchor identity is not duplicated on Core li');
+            const paint = page => page.evaluate(() => {
+                const anchor = document.querySelector('.icon-row a');
+                return { anchor:getComputedStyle(anchor).backgroundColor, row:getComputedStyle(document.querySelector('.icon-row')).backgroundColor, hover:anchor.matches(':hover'), focus:anchor.matches(':focus'), focusVisible:anchor.matches(':focus-visible'), active:anchor.matches(':active') };
+            });
+            const states = [];
+            const check = async name => {
+                const [originalPaint, nativePaint] = await Promise.all(pages.map(paint));
+                states.push({ name, original:originalPaint, native:nativePaint });
+                if ('anchor-hover' === name) assert.equal(originalPaint.hover, true);
+                if ('parent-padding-hover' === name || 'focus-visible-with-parent-padding-hover' === name) assert.equal(originalPaint.hover, false);
+                if (name.startsWith('keyboard-focus') || name.startsWith('focus-visible')) assert.equal(originalPaint.focusVisible, true);
+                if ('active' === name) assert.equal(originalPaint.active, true);
+                assert.deepEqual(nativePaint, originalPaint, `native source anchor paint matches ${name} at ${width}px`);
+                assert.deepEqual(await measure(pages[1]), await measure(pages[0]), `heading/wrapper/row geometry matches ${name} at ${width}px`);
+            };
+            await check('base');
+            for (const page of pages) await page.locator('.icon-row a').first().hover();
+            await check('anchor-hover');
+            for (const page of pages) {
+                const row = await page.locator('.icon-row').boundingBox();
+                await page.mouse.move(row.x + 2, row.y + 2);
+            }
+            await check('parent-padding-hover');
+            for (const page of pages) { await page.mouse.move(0, 0); await page.keyboard.press('Tab'); }
+            await check('keyboard-focus-visible');
+            for (const page of pages) {
+                const row = await page.locator('.icon-row').boundingBox();
+                await page.mouse.move(row.x + 2, row.y + 2);
+            }
+            await check('focus-visible-with-parent-padding-hover');
+            for (const page of pages) {
+                await page.locator('.icon-row a').first().hover();
+                await page.mouse.down();
+            }
+            await check('active');
+            for (const page of pages) await page.mouse.up();
+            evidence.at(-1).states = states;
+        }
         await Promise.all(pages.map(p => p.close()));
     }
 } finally { await browser.close(); }
-console.log(JSON.stringify({ runtime:'actual WordPress parse/serialize/do_blocks and Gutenberg parse/edit/serialize/validate', fontPaint, compiler, version:runtime.version, registeredBlocks:runtime.names.length, fallbackCount:result.metrics.fallback_count, editorValidation, evidence }, null, 2));
+console.log(JSON.stringify({ runtime:'actual WordPress parse/serialize/do_blocks and Gutenberg parse/edit/serialize/validate', fontPaint, compiler, interactive, version:runtime.version, registeredBlocks:runtime.names.length, fallbackCount:result.metrics.fallback_count, editorValidation, evidence }, null, 2));
 console.log('Social-links source context browser regression passed');

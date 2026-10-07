@@ -1357,6 +1357,11 @@ final class AuthorStylesheetProjector
         }
         $rewritten = array();
         foreach ( $selectors as $selector ) {
+            $socialAnchor = SocialAnchorSelectorProjector::project($selector, $context);
+            if (null !== $socialAnchor) {
+                $rewritten[] = $socialAnchor;
+                continue;
+            }
             $structuralParsed = $context->sourceStyles->parsedSelector($selector);
             $subject = $structuralParsed['compounds'][0] ?? array();
             if (($structuralParsed['supported'] ?? false) && 1 === count($structuralParsed['compounds'] ?? array())
