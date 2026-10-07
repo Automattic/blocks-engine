@@ -21,6 +21,9 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, string> */
     private array $disclosureSummaryPresentation = array();
 
+    /** @var array<string, string> */
+    private array $disclosureSummaryContentCarrierPresentation = array();
+
     /** @var array<string, array<string, string>> */
     private array $disclosureControlConditionalDisplay = array();
 
@@ -219,6 +222,11 @@ final class GeneratedSupportStylesheetState
         $this->disclosureSummaryPresentation[$className] = $declarations;
     }
 
+    public function registerDisclosureSummaryContentCarrierPresentation(string $className, string $declarations): void
+    {
+        $this->disclosureSummaryContentCarrierPresentation[$className] = $declarations;
+    }
+
     /** @param array<string, string> $rules */
     public function registerDisclosureControlConditionalDisplay(string $className, array $rules): void
     {
@@ -346,15 +354,14 @@ final class GeneratedSupportStylesheetState
                 // core/details owns the summary element, so the source toggle's box is
                 // restated on it from here rather than carried as markup.
                 $parts[] = '.wp-block-details.' . $className . '>summary{' . $declarations . '}';
-                // The saved RichText carrier keeps source classes/state paint.
-                // It owns the one visual control box; summary must not add a
-                // second padding, border, fill or shadow around it. Low-specificity
-                // base carry also reaches root-qualified source rules, while
-                // retained author classes keep owning hover/responsive overrides.
                 $carrier = '>span.' . DisclosureControlPresentation::SUMMARY_CONTENT_CARRIER_CLASS;
                 $summary = '.wp-block-details.' . $className . '>summary';
-                $parts[] = ':where(' . $summary . $carrier . '){' . $declarations . '}';
                 $parts[] = $summary . ':has(' . $carrier . '){padding:0!important;border:0!important;background:none!important;box-shadow:none!important}';
+            }
+        }
+        foreach ($this->disclosureSummaryContentCarrierPresentation as $className => $declarations) {
+            if (str_contains($serializedBlocks, $className)) {
+                $parts[] = ':where(.wp-block-details.' . $className . '>summary>span.' . DisclosureControlPresentation::SUMMARY_CONTENT_CARRIER_CLASS . '){' . $declarations . '}';
             }
         }
         foreach ($this->disclosureControlConditionalDisplay as $className => $rules) {
@@ -369,8 +376,14 @@ final class GeneratedSupportStylesheetState
             $selector = str_starts_with($className, 'blocks-engine-accordion-toggle-')
                 ? '.wp-block-accordion-heading.' . $className
                 : '.wp-block-details.' . $className;
+            $selectors = array($selector);
+            if ( str_starts_with($className, 'blocks-engine-disclosure-summary-') ) {
+                $selectors[] = $selector . '>summary>span.' . DisclosureControlPresentation::SUMMARY_CONTENT_CARRIER_CLASS;
+            }
             foreach ($rules as $condition => $display) {
-                $parts[] = $condition . '{' . $selector . '{display:' . $display . '}' . str_repeat('}', substr_count($condition, '{') + 1);
+                foreach ($selectors as $conditionalSelector) {
+                    $parts[] = $condition . '{' . $conditionalSelector . '{display:' . $display . '}' . str_repeat('}', substr_count($condition, '{') + 1);
+                }
             }
         }
         foreach ($this->accordionTogglePresentation as $className => $declarations) {

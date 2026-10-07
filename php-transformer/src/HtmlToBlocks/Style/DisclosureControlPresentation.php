@@ -81,22 +81,34 @@ final class DisclosureControlPresentation
     {
         $conditionalDisplay = $this->styles->conditionalDisplayRules($control);
         $isSummary = str_starts_with($prefix, 'blocks-engine-disclosure-summary-');
-        $css = $this->disclosureControlCarriedCss($control, array() !== $conditionalDisplay, $isSummary);
+        $hasContentCarrier = $isSummary && $this->summaryHasContentCarrier($control);
+        $css = $this->disclosureControlCarriedCss(
+            $control,
+            array() !== $conditionalDisplay,
+            $isSummary,
+            $isSummary && ! $hasContentCarrier
+        );
+        $carrierCss = $hasContentCarrier
+            ? $this->disclosureControlCarriedCss($control, array() !== $conditionalDisplay, true, true)
+            : '';
         $conditionalPresentation = $this->conditionalPresentation($control, $isSummary);
         $titleCss = str_starts_with($prefix, 'blocks-engine-accordion-toggle-')
             ? $this->styles->cssDeclarationString($this->disclosureSummaryLabelTypography($control)) : '';
         $icon = str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ? $this->accordionIcon($control) : array();
-        if ( '' === $css && array() === $conditionalDisplay && array() === $conditionalPresentation && array() === $icon ) {
+        if ( '' === $css && '' === $carrierCss && array() === $conditionalDisplay && array() === $conditionalPresentation && array() === $icon ) {
             return '';
         }
 
-        $marker = $prefix . substr(hash('sha256', $css . '|' . serialize($conditionalDisplay) . '|' . serialize($conditionalPresentation) . '|' . $titleCss . '|' . serialize($icon)), 0, 12);
+        $marker = $prefix . substr(hash('sha256', $css . '|' . $carrierCss . '|' . serialize($conditionalDisplay) . '|' . serialize($conditionalPresentation) . '|' . $titleCss . '|' . serialize($icon)), 0, 12);
         if ( '' !== $css ) {
             if ( str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ) {
                 $this->support->registerAccordionTogglePresentation($marker, $css);
             } else {
                 $this->support->registerDisclosureSummaryPresentation($marker, $css);
             }
+        }
+        if ( '' !== $carrierCss ) {
+            $this->support->registerDisclosureSummaryContentCarrierPresentation($marker, $carrierCss);
         }
         if ( array() !== $conditionalDisplay ) {
             $this->support->registerDisclosureControlConditionalDisplay($marker, $conditionalDisplay);
@@ -175,7 +187,7 @@ final class DisclosureControlPresentation
      * Both core/details and core/accordion-heading save a bare trigger element,
      * so the source control's own presentation has to be restated as CSS.
      */
-    private function disclosureControlCarriedCss(DOMElement $control, bool $displayIsConditional = false, bool $carrySummaryLayout = false): string
+    private function disclosureControlCarriedCss(DOMElement $control, bool $displayIsConditional = false, bool $carrySummaryLayout = false, bool $preserveReferenceDisplay = false): string
     {
         $summary = $control;
         $declarations = $this->styles->safeVisualDeclarations(
@@ -216,10 +228,24 @@ final class DisclosureControlPresentation
         // unconditionally would outrank the author's own responsive rule, which
         // is layered, and show a small-screen control on every screen.
         if ( $displayIsConditional ) {
-            unset($carried['display']);
+            if ( ! $preserveReferenceDisplay ) {
+                unset($carried['display']);
+            }
         }
 
         return $this->styles->cssDeclarationString($carried);
+    }
+
+    private function summaryHasContentCarrier(DOMElement $summary): bool
+    {
+        foreach ( SourceDom::htmlAttributes($summary) as $name => $_value ) {
+            $name = strtolower($name);
+            if ( in_array($name, array('class', 'style', 'title'), true) || str_starts_with($name, 'data-') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return array<string, string> */
