@@ -26,6 +26,7 @@ $declaration = current(array_filter($artifact['runtime_declarations'] ?? array()
 $ownership = $declaration['payload']['ownership'] ?? array();
 $hash = (string) ($ownership['runtime_script_sha256'] ?? '');
 $path = (string) ($ownership['runtime_script_path'] ?? '');
+$ownerStylesheetPaths = array_column($ownership['stylesheet_evidence'] ?? array(), 'path');
 
 $whole = (new ArtifactCompiler())->compile($artifact);
 $wholeBlock = $findTheme($whole->blocks);
@@ -38,6 +39,10 @@ $pageReceipts = $stagedCompiler->compilePreparedPages($shared, $pagePlans);
 $staged = $stagedCompiler->compose($shared, $pageReceipts);
 $stagedBlock = $findTheme($staged->blocks);
 $assert(($wholeBlock['attrs'] ?? null) === ($stagedBlock['attrs'] ?? false) && array() === $staged->fallbacks, 'staged ArtifactCompiler transport changed or lost the source ownership contract.');
+$wholeActiveStylesheets = $whole->sourceReports['compiled_site']['theme']['stylesheets'] ?? array();
+$stagedActiveStylesheets = $staged->sourceReports['compiled_site']['theme']['stylesheets'] ?? array();
+$assert(array_intersect($ownerStylesheetPaths, $wholeActiveStylesheets) !== array()
+    && array_intersect($ownerStylesheetPaths, $stagedActiveStylesheets) !== array(), 'the unchanged Nick stylesheet remains active in whole and staged compilation because its source HTML links it.');
 
 // SSI's normal inert client-script policy removes executable JS files before
 // compilation. The canonical declaration must still provide its hash-bound
@@ -64,6 +69,9 @@ $summary = array(
     'source_path' => $declaration['source_path'] ?? null,
     'runtime_script_path' => $path,
     'runtime_script_sha256' => $hash,
+    'linked_source_stylesheet_paths' => $ownerStylesheetPaths,
+    'whole_active_stylesheet_paths' => $wholeActiveStylesheets,
+    'staged_active_stylesheet_paths' => $stagedActiveStylesheets,
     'whole_block' => $wholeBlock['blockName'],
     'staged_block' => $stagedBlock['blockName'],
     'inert_policy_block' => $inertBlock['blockName'],

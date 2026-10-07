@@ -12,7 +12,9 @@ const modes = [
     { mode: 'system', accessible_name: 'System theme', icon: 'monitor' },
     { mode: 'dark', accessible_name: 'Dark theme', icon: 'moon' },
 ];
-const stylesheetFor = (attribute) => ':root{color-scheme:light;background:#fff}.dark{color-scheme:dark;background:#111}[data-theme="dark"]{color-scheme:dark;background:#111}.theme-choices{display:flex;gap:8px}';
+const stylesheetFor = (attribute) => `${ 'class' === attribute
+    ? ':root{color-scheme:light;background:#fff}.dark{color-scheme:dark;background:#111}'
+    : ':root:not([data-theme]){color-scheme:light;background:#fff}:root[data-theme="dark"]{color-scheme:dark;background:#111}' }[data-theme="dark"]{color-scheme:dark;background:#111}.theme-choices{display:flex;gap:8px}`;
 const runtimeFor = (attribute, storageKey) => {
     const rootOperation = 'class' === attribute
         ? 'root.classList.toggle("dark","dark"===resolved);'

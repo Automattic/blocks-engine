@@ -100,7 +100,9 @@ $makeOwnership = static function (string $sourcePath, string $runtimePath, strin
 $groupOperator = $makeOwnership('theme-controls/index.html', 'js/theme.js', $groupRuntime, stylesheetEvidence: array($makeStylesheetEvidence('theme-controls/index.css', $groupCss)));
 $groupTransformOptions = array('source' => 'theme-controls/index.html', 'static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $groupRuntime)), 'theme_preference_ownership' => array($groupOperator));
 $groupResult = (new HtmlTransformer())->transform($groupSource, $groupTransformOptions)->toArray();
-$bareRootCssGroup = (new HtmlTransformer())->transform($groupSource, array_replace($groupTransformOptions, array('static_css' => '.dark{--background:#111}:root{--background:#fff}')))->toArray();
+$bareRootCss = '.dark{--background:#111}:root{--background:#fff}';
+$bareRootOwnership = array_replace($groupOperator, array('stylesheet_evidence' => array($makeStylesheetEvidence('theme-controls/direct-root.css', $bareRootCss))));
+$bareRootCssGroup = (new HtmlTransformer())->transform($groupSource, array_replace($groupTransformOptions, array('static_css' => $bareRootCss, 'theme_preference_ownership' => array($bareRootOwnership))))->toArray();
 $findThemeBlock = static function (array $blocks) use (&$findThemeBlock): array {
     foreach ($blocks as $candidate) {
         if ('custom/theme-toggle' === ($candidate['blockName'] ?? '')) return $candidate;

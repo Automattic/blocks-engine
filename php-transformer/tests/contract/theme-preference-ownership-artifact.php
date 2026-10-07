@@ -21,7 +21,7 @@ $controls = array(
     array('mode' => 'dark', 'accessible_name' => 'Dark theme', 'icon' => 'moon'),
 );
 $rootState = static fn (string $value): array => array('attribute' => 'class', 'value' => $value);
-$stylesheet = ':root{--background:#fff}:root:not(.dark){--background:#fff}.dark{--background:#111}';
+$stylesheet = ':root{--background:#fff}:root:not(.dark){--background:#fff}.dark{--background:#111}.outside-control{position:fixed;top:17px}';
 $ownership = array(
     'schema' => ThemePreferenceOwnership::CONTRACT_SCHEMA,
     'source_path' => $sourcePath,
@@ -46,7 +46,7 @@ $ownership = array(
         array('mode' => 'system', 'storage_value' => 'system', 'os_scheme' => 'dark', 'resolved' => 'dark', 'root_state' => $rootState('dark')),
     ),
 );
-$html = '<!doctype html><html class="dark"><head><link rel="stylesheet" href="assets/site.css"></head><body><main><footer><div><div class="flex justify-between items-start gap-8 mb-12"><div class="flex transition-opacity duration-200 opacity-100"><button type="button" aria-label="Light theme"><svg class="lucide lucide-sun"><path d="M1 1"></path></svg></button><button type="button" aria-label="System theme"><svg class="lucide lucide-monitor"><path d="M1 1"></path></svg></button><button type="button" aria-label="Dark theme"><svg class="lucide lucide-moon"><path d="M1 1"></path></svg></button></div></div></div></footer></main><script src="assets/theme.js"></script></body></html>';
+$html = '<!doctype html><html class="dark"><head><link rel="stylesheet" href="assets/site.css"></head><body><main><aside class="outside-control">Visible non-control</aside><footer><div><div class="flex justify-between items-start gap-8 mb-12"><div class="flex transition-opacity duration-200 opacity-100"><button type="button" aria-label="Light theme"><svg class="lucide lucide-sun"><path d="M1 1"></path></svg></button><button type="button" aria-label="System theme"><svg class="lucide lucide-monitor"><path d="M1 1"></path></svg></button><button type="button" aria-label="Dark theme"><svg class="lucide lucide-moon"><path d="M1 1"></path></svg></button></div></div></div></footer></main><script src="assets/theme.js"></script></body></html>';
 $artifact = array(
     'entrypoint' => $sourcePath,
     'files' => array(
@@ -76,14 +76,22 @@ $assert('custom/theme-toggle' === ($wholeBlock['blockName'] ?? null)
     && 'dark' === ($wholeBlock['attrs']['darkValue'] ?? null)
     && 'light' === ($wholeBlock['attrs']['lightValue'] ?? null), 'normal ArtifactCompiler input delivers the canonical source ownership declaration to source conversion.');
 $assert(array() === $whole->fallbacks, 'the canonical source-owned three-button artifact compiles with no fallback blocks.');
+$linkedTheme = $whole->sourceReports['compiled_site']['theme'] ?? array();
+$assert(in_array('assets/site.css', $linkedTheme['stylesheets'] ?? array(), true)
+    && str_contains($linkedTheme['static_css'] ?? '', '.outside-control{position:fixed;top:17px}'), 'a stylesheet linked by the raw HTML remains active, including its unrelated visible non-control rule.');
 $unlinkedCssArtifact = $artifact;
-unset($unlinkedCssArtifact['files']['assets/site.css']);
 $unlinkedCssArtifact['files'][$sourcePath] = str_replace('<link rel="stylesheet" href="assets/site.css">', '', $html);
 $unlinkedCssResult = (new ArtifactCompiler())->compile($unlinkedCssArtifact);
 $unlinkedCssBlock = $find($unlinkedCssResult->blocks);
+$unlinkedTheme = $unlinkedCssResult->sourceReports['compiled_site']['theme'] ?? array();
+$provenanceAsset = current(array_filter($unlinkedCssResult->assets, static fn (array $asset): bool => 'assets/site.css' === ($asset['path'] ?? null))) ?: array();
 $assert('custom/theme-toggle' === ($unlinkedCssBlock['blockName'] ?? null)
     && ($unlinkedCssBlock['attrs'] ?? null) === ($wholeBlock['attrs'] ?? false)
     && array() === $unlinkedCssResult->fallbacks, 'declaration-bound stylesheet bytes still qualify controls when export leaves the source stylesheet asset unlinked.');
+$assert(!in_array('assets/site.css', $unlinkedTheme['stylesheets'] ?? array(), true)
+    && !str_contains($unlinkedTheme['static_css'] ?? '', '.outside-control{position:fixed;top:17px}')
+    && 'source-provenance' === ($provenanceAsset['role'] ?? null)
+    && 'evidence' === ($provenanceAsset['intent'] ?? null), 'unlinked ownership CSS remains a retained provenance asset and cannot style unrelated visible content.');
 
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);

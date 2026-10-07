@@ -68,10 +68,6 @@ final class ThemeToggleConverter implements ElementConverter
             return null;
         }
 
-        $css = substr($this->session->authorStyleAnalysis()->combinedCss(), 0, self::MAX_THEME_CSS_EVIDENCE_BYTES);
-        if ( ! preg_match('/:root(?:(?:\s|,|:|\.|\[)[^{}]*)?\{[^}]*(?:color-scheme|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css) ) {
-            return null;
-        }
         $evidenceAnalyzer = new RuntimeScriptEvidenceAnalyzer();
         $runtimeOwners = array();
         $runtimeBytes = 0;
@@ -155,6 +151,8 @@ final class ThemeToggleConverter implements ElementConverter
         }
         $qualified = $this->sourceQualifiedThemeOwnership($element, $entries, $runtimeOwners);
         if ( null === $qualified ) return null;
+        $css = $this->ownershipStylesheetCss($qualified['operator']);
+        if ( '' === $css || ! preg_match('/:root(?:(?:\s|,|:|\.|\[)[^{}]*)?\{[^}]*(?:color-scheme|--(?:background|foreground)|background(?:-color)?\s*:|color\s*:)/i', $css) ) return null;
         $ownership = $qualified['runtime_ownership'];
         $operator = $qualified['operator'];
         $rootAttribute = (string) $operator['root']['attribute'];
@@ -264,6 +262,31 @@ final class ThemeToggleConverter implements ElementConverter
         }
 
         return 1 === count($matches) ? $matches[0] : null;
+    }
+
+    /**
+     * Original-source stylesheet evidence qualifies this control only. It is
+     * deliberately kept out of the active linked stylesheet cascade so an
+     * unlinked provenance asset cannot change neighboring site presentation.
+     *
+     * @param array<string, mixed> $operator
+     */
+    private function ownershipStylesheetCss(array $operator): string
+    {
+        $evidence = $operator['stylesheet_evidence'] ?? null;
+        if ( ! is_array($evidence) || ! array_is_list($evidence) || array() === $evidence || 16 < count($evidence) ) return '';
+        $css = '';
+        foreach ( $evidence as $stylesheet ) {
+            if ( ! is_array($stylesheet) || ! is_string($stylesheet['path'] ?? null)
+                || '' === $stylesheet['path'] || ! is_string($stylesheet['content'] ?? null)
+                || ! is_string($stylesheet['sha256'] ?? null) || 1 !== preg_match('/^[a-f0-9]{64}$/', $stylesheet['sha256'])
+                || hash('sha256', $stylesheet['content']) !== $stylesheet['sha256'] ) return '';
+            $bytes = strlen($stylesheet['content']);
+            if ( self::MAX_THEME_CSS_EVIDENCE_BYTES < $bytes || self::MAX_THEME_CSS_EVIDENCE_BYTES < strlen($css) + $bytes ) return '';
+            $css .= ( '' === $css ? '' : "\n" ) . $stylesheet['content'];
+        }
+
+        return $css;
     }
 
     private function groupMatchesOwnershipSelector(DOMElement $element, string $selector): bool

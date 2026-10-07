@@ -46,11 +46,14 @@ for attempt in $(seq 1 60); do
     sleep 2
 done
 docker exec "$db_container" mysqladmin ping -h 127.0.0.1 -u"$db_user" -p"$db_password" >/dev/null
+# The disposable SSI fixture resolves its engine dependency from this package
+# path; overlay the current candidate there without changing the SSI checkout.
 run docker run --detach --name "$wp_container" --network "$network" --publish "127.0.0.1:${port}:80" \
     -e WORDPRESS_DB_HOST=mysql -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" \
     -v "$volume:/var/www/html" -v "$core_tar:/tmp/wordpress71-core.tar.gz:ro" \
     -v "$evidence/theme-toggle-companion:/var/www/html/wp-content/plugins/theme-toggle-acceptance:ro" \
     -v "$ssi_root:/var/www/html/wp-content/plugins/static-site-importer:ro" \
+    -v "$root:/var/www/html/wp-content/plugins/static-site-importer/vendor/automattic/blocks-engine-php-transformer:ro" \
     -v "$root:/tmp/blocks-engine-php-transformer:ro" "$wordpress_image" >/dev/null
 for attempt in $(seq 1 60); do
     if curl --silent --fail "http://127.0.0.1:${port}/wp-login.php" >/dev/null; then break; fi
@@ -64,7 +67,7 @@ for attempt in $(seq 1 60); do
     sleep 2
 done
 curl --silent --fail "http://127.0.0.1:${port}/wp-login.php" >/dev/null
-wp=(docker run --rm --network "$network" --user 33:33 -e WORDPRESS_DB_HOST=mysql -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -e BLOCKS_ENGINE_PHP_TRANSFORMER_ROOT=/tmp/blocks-engine-php-transformer -e NICK_THEME_ARTIFACT_PATH=/tmp/nick-evidence/nick-site-artifact.json -v "$volume:/var/www/html" -v "$evidence/theme-toggle-companion:/var/www/html/wp-content/plugins/theme-toggle-acceptance:ro" -v "$ssi_root:/var/www/html/wp-content/plugins/static-site-importer:ro" -v "$root:/tmp/blocks-engine-php-transformer:ro" -v "$evidence/nick-site:/tmp/nick-evidence" "$cli_image" wp --allow-root)
+wp=(docker run --rm --network "$network" --user 33:33 -e WORDPRESS_DB_HOST=mysql -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -e BLOCKS_ENGINE_PHP_TRANSFORMER_ROOT=/tmp/blocks-engine-php-transformer -e NICK_THEME_ARTIFACT_PATH=/tmp/nick-evidence/nick-site-artifact.json -v "$volume:/var/www/html" -v "$evidence/theme-toggle-companion:/var/www/html/wp-content/plugins/theme-toggle-acceptance:ro" -v "$ssi_root:/var/www/html/wp-content/plugins/static-site-importer:ro" -v "$root:/var/www/html/wp-content/plugins/static-site-importer/vendor/automattic/blocks-engine-php-transformer:ro" -v "$root:/tmp/blocks-engine-php-transformer:ro" -v "$evidence/nick-site:/tmp/nick-evidence" "$cli_image" wp --allow-root)
 "${wp[@]}" core install --url="http://127.0.0.1:${port}" --title='Theme selection acceptance' --admin_user=themeadmin --admin_password='theme-password' --admin_email=theme@example.test --skip-email
 "${wp[@]}" core version | tee "$evidence/wordpress-version.txt"
 "${wp[@]}" plugin activate theme-toggle-acceptance

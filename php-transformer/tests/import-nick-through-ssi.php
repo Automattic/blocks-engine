@@ -3,9 +3,10 @@
 $engineRoot = (string) (getenv('BLOCKS_ENGINE_PHP_TRANSFORMER_ROOT') ?: dirname(__DIR__));
 $artifactPath = (string) getenv('NICK_THEME_ARTIFACT_PATH');
 if ('' === $artifactPath || !is_file($artifactPath)) throw new RuntimeException('NICK_THEME_ARTIFACT_PATH must reference the browser-captured Nick artifact.');
-$engineLoader = require $engineRoot . '/vendor/autoload.php';
-$engineLoader->setPsr4('Automattic\\BlocksEngine\\PhpTransformer\\', rtrim($engineRoot, '/') . '/src/', true);
 require_once WP_PLUGIN_DIR . '/static-site-importer/vendor/autoload.php';
+foreach (Composer\Autoload\ClassLoader::getRegisteredLoaders() as $loader) {
+    $loader->setPsr4('Automattic\\BlocksEngine\\PhpTransformer\\', rtrim($engineRoot, '/') . '/src/', true);
+}
 require_once WP_PLUGIN_DIR . '/static-site-importer/static-site-importer.php';
 
 $artifact = json_decode((string) file_get_contents($artifactPath), true, 512, JSON_THROW_ON_ERROR);

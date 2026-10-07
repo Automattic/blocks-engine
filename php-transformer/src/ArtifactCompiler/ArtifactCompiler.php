@@ -262,6 +262,7 @@ final class ArtifactCompiler
         $blockTypes = is_array($reduction['block_types'] ?? null) ? $reduction['block_types'] : $this->detectBlockTypes($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $normalized['files'] = $this->withStylesheetMediaForDocuments($normalized['files']);
+        $normalized['files'] = $this->separateUnlinkedThemePreferenceStylesheets($normalized['files'], $normalized['runtime_declarations']);
         $this->indexFiles($normalized['files']);
         $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations']);
         $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations']);
@@ -1403,22 +1404,6 @@ final class ArtifactCompiler
 
         $themePreferenceOwnership = $this->themePreferenceOwnershipForSource($runtimeDeclarations, $sourcePath);
         $stylesheetAssets = $this->stylesheetAssetsForSource($html, $sourcePath, $files);
-        $stylesheetHashes = array_fill_keys(array_map(static fn(array $asset): string => (string) ($asset['source_hash'] ?? ''), $stylesheetAssets), true);
-        foreach ($themePreferenceOwnership as $ownership) {
-            foreach ($ownership['stylesheet_evidence'] ?? array() as $evidence) {
-                if (!is_array($evidence) || !is_string($evidence['content'] ?? null) || !is_string($evidence['path'] ?? null)
-                    || !is_string($evidence['sha256'] ?? null) || isset($stylesheetHashes[$evidence['sha256']])) continue;
-                $stylesheetAssets[] = array(
-                    'path' => $evidence['path'],
-                    'source_path' => $evidence['path'],
-                    'content' => $evidence['content'],
-                    'source_hash' => $evidence['sha256'],
-                    'media' => '',
-                    'type' => 'text/css',
-                );
-                $stylesheetHashes[$evidence['sha256']] = true;
-            }
-        }
         $stylesheetPayloads = $this->linkedStylesheetPayloads($stylesheetAssets, $sourcePath, $files);
         $analysisCache = $this->cacheHtmlAnalysis
             ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
@@ -2637,6 +2622,68 @@ final class ArtifactCompiler
             return array($ownership);
         }
         return array();
+    }
+
+    /**
+     * Keep an ownership-captured source stylesheet as provenance when an
+     * exported artifact carries its asset but no HTML document links it. A
+     * linked copy remains an ordinary active stylesheet with its normal order,
+     * media, projection and cascade semantics.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return array<int,array<string,mixed>>
+     */
+    private function separateUnlinkedThemePreferenceStylesheets(array $files, array $runtimeDeclarations): array
+    {
+        $unlinkedEvidencePaths = array();
+        $linkedStylesheetPaths = array();
+        foreach ( $files as $document ) {
+            if ( 'html' !== ($document['kind'] ?? null) || ! is_string($document['path'] ?? null) || ! is_string($document['content'] ?? null) ) continue;
+            foreach ( StyleTagScanner::scanLinks($document['content']) as $link ) {
+                $tag = $link['tag'];
+                if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute($tag, 'rel'))
+                    || ! StyleTagScanner::isCssType($this->htmlAttribute($tag, 'type')) ) continue;
+                $path = $this->stylesheetPathFromHref($this->htmlAttribute($tag, 'href'), $document['path'], $files);
+                if ( '' !== $path ) $linkedStylesheetPaths[$path] = true;
+            }
+        }
+        foreach ( $runtimeDeclarations as $declaration ) {
+            if ( ThemePreferenceOwnership::DECLARATION_KIND !== ($declaration['kind'] ?? null)
+                || ThemePreferenceOwnership::DECLARATION_TYPE !== ($declaration['type'] ?? null)
+                || ! is_string($declaration['source_path'] ?? null) ) continue;
+            try {
+                $payload = ThemePreferenceOwnership::normalizePayload($declaration['payload'] ?? null, $declaration['source_path']);
+            } catch ( \InvalidArgumentException ) {
+                continue;
+            }
+            $directory = dirname($declaration['source_path']);
+            $assetPrefix = '.' === $directory ? 'assets/' : trim($directory, '/') . '/assets/';
+            foreach ( $payload['ownership']['stylesheet_evidence'] as $stylesheet ) {
+                $path = $stylesheet['path'];
+                $candidates = array_values(array_unique(array_filter(array(
+                    $path,
+                    ArtifactPath::safeRelativePath($assetPrefix . $path),
+                ), static fn (string $candidate): bool => '' !== $candidate)));
+                foreach ( $files as $index => $file ) {
+                    if ( ! in_array($file['path'] ?? null, $candidates, true)
+                        || ! preg_match('/\.css$/i', (string) ($file['path'] ?? ''))
+                        || ! in_array($file['kind'] ?? null, array('css', 'asset'), true)
+                        || ('stylesheet' !== ($file['role'] ?? null) && 'style' !== ($file['intent'] ?? null))
+                        || isset($file['stylesheet_occurrence']) || isset($linkedStylesheetPaths[$file['path']]) ) continue;
+                    $unlinkedEvidencePaths[$index] = array('source_path' => $path, 'sha256' => $stylesheet['sha256']);
+                }
+            }
+        }
+
+        foreach ( $unlinkedEvidencePaths as $index => $provenance ) {
+            $files[$index]['kind'] = 'asset';
+            $files[$index]['role'] = 'source-provenance';
+            $files[$index]['intent'] = 'evidence';
+            $files[$index]['theme_preference_stylesheet_provenance'] = $provenance;
+        }
+
+        return $files;
     }
 
     /**

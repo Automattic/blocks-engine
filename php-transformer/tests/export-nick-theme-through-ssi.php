@@ -1,9 +1,12 @@
 <?php
 
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+
 $engineRoot = (string) (getenv('BLOCKS_ENGINE_PHP_TRANSFORMER_ROOT') ?: dirname(__DIR__));
-$engineLoader = require $engineRoot . '/vendor/autoload.php';
-$engineLoader->setPsr4('Automattic\\BlocksEngine\\PhpTransformer\\', rtrim($engineRoot, '/') . '/src/', true);
 require_once WP_PLUGIN_DIR . '/static-site-importer/vendor/autoload.php';
+foreach (Composer\Autoload\ClassLoader::getRegisteredLoaders() as $loader) {
+    $loader->setPsr4('Automattic\\BlocksEngine\\PhpTransformer\\', rtrim($engineRoot, '/') . '/src/', true);
+}
 require_once WP_PLUGIN_DIR . '/static-site-importer/static-site-importer.php';
 
 $themeSlug = 'nick-theme-restoration';
@@ -68,6 +71,38 @@ foreach ($document->getElementsByTagName('div') as $candidate) {
     if (3 === count($controls) && array_column($controls, 'label') === array('Light theme', 'System theme', 'Dark theme')) $controlGroups[] = array('class' => $candidate->getAttribute('class'), 'markup' => $candidate->ownerDocument->saveHTML($candidate), 'controls' => $controls);
 }
 $compile = (new Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile($artifact);
+$compiledTheme = $compile->sourceReports['compiled_site']['theme'] ?? array();
+$activeThemeStylesheets = $compiledTheme['stylesheets'] ?? array();
+$activeThemeCss = (string) ($compiledTheme['static_css'] ?? '');
+$exportStylesheetLinks = array();
+foreach ($document->getElementsByTagName('link') as $link) {
+    if ($link instanceof DOMElement && preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $link->getAttribute('rel'))) $exportStylesheetLinks[] = $link->getAttribute('href');
+}
+$linkedStylesheetAssetPaths = array_values(array_filter(array_map(
+    static fn (string $href): string => ArtifactPath::resolveRelativePath($href, (string) ($artifact['entrypoint'] ?? '')),
+    $exportStylesheetLinks
+)));
+$ownerStylesheet = current($owner['stylesheet_evidence'] ?? array()) ?: array();
+$ownerAssetPath = ArtifactPath::safeRelativePath(dirname((string) ($artifact['entrypoint'] ?? '')) . '/assets/' . (string) ($ownerStylesheet['path'] ?? ''));
+$ownerStylesheetLinked = array_filter($exportStylesheetLinks, static function (string $href) use ($ownerStylesheet): bool {
+    $path = parse_url($href, PHP_URL_PATH);
+    return is_string($path) && str_ends_with(ltrim($path, '/'), (string) ($ownerStylesheet['path'] ?? ''));
+});
+$ownerCss = (string) ($ownerStylesheet['content'] ?? '');
+preg_match('/\.mt-8\{[^}]+\}/', $ownerCss, $nonControlRuleMatch);
+$nonControlRule = $nonControlRuleMatch[0] ?? '';
+$activeThemeStylesheetAssets = array_values(array_filter($compile->assets, static fn (array $asset): bool => in_array($asset['path'] ?? null, $activeThemeStylesheets, true)));
+$nonControlRuleInActiveThemeCss = array_filter($activeThemeStylesheetAssets, static fn (array $asset): bool => '' !== $nonControlRule && str_contains((string) ($asset['content'] ?? ''), $nonControlRule));
+$footer = $document->getElementsByTagName('footer')->item(0);
+$footerHasUnrelatedGeometryClass = $footer instanceof DOMElement && in_array('mt-8', preg_split('/\s+/', trim($footer->getAttribute('class'))) ?: array(), true);
+$footerOutsideControlGroup = $footerHasUnrelatedGeometryClass && 0 === count(array_filter($anchorMatches, static fn (array $anchor): bool => 'footer' === ($anchor['tag'] ?? null)));
+if ('' === $ownerAssetPath || !in_array($ownerAssetPath, array_column($artifact['files'] ?? array(), 'path'), true)
+    || array() !== $ownerStylesheetLinked || in_array($ownerAssetPath, $activeThemeStylesheets, true)
+    || array_diff($linkedStylesheetAssetPaths, $activeThemeStylesheets) !== array()
+    || '' === $nonControlRule || !$footerOutsideControlGroup || str_contains($activeThemeCss, $nonControlRule)
+    || array() !== $nonControlRuleInActiveThemeCss) {
+    throw new RuntimeException('Detached owner CSS escaped provenance scope: the actual footer .mt-8 rule must remain an unlinked evidence asset, not active cascade input.');
+}
 $find = static function (array $blocks) use (&$find): array {
     foreach ($blocks as $block) {
         if (is_array($block) && str_ends_with((string) ($block['blockName'] ?? ''), '/theme-toggle')) return $block;
@@ -121,7 +156,12 @@ $diagnostic = array(
     'export_original_anchor_match_count' => count($anchorMatches),
     'export_original_anchor_matches' => $anchorMatches,
     'export_control_groups' => $controlGroups,
+    'export_stylesheet_links' => $exportStylesheetLinks,
     'exported_document_prefix' => substr($exportedHtml, 0, 2500),
+    'detached_owner_stylesheet' => array('path' => $ownerAssetPath, 'source_path' => $ownerStylesheet['path'] ?? null, 'sha256' => $ownerStylesheet['sha256'] ?? null, 'asset_sha256' => current(array_filter($artifact['files'] ?? array(), static fn (array $file): bool => $ownerAssetPath === ($file['path'] ?? null)))['sha256'] ?? null, 'retained_as_asset' => in_array($ownerAssetPath, array_column($artifact['files'] ?? array(), 'path'), true), 'linked_by_export_html' => array() !== $ownerStylesheetLinked, 'active_in_theme_stylesheets' => in_array($ownerAssetPath, $activeThemeStylesheets, true)),
+    'noncontrol_css_scope_probe' => array('selector' => '.mt-8', 'rule' => $nonControlRule, 'matches_export_footer_outside_control_group' => $footerOutsideControlGroup, 'active_theme_css_contains_rule' => str_contains($activeThemeCss, $nonControlRule), 'active_asset_paths_with_rule' => array_column($nonControlRuleInActiveThemeCss, 'path')),
+    'linked_stylesheet_asset_paths' => $linkedStylesheetAssetPaths,
+    'active_theme_stylesheet_paths' => $activeThemeStylesheets,
     'export_metadata_runtime_hash' => $artifact['provenance']['source_metadata']['runtime_declarations'][0]['payload']['ownership']['runtime_script_sha256'] ?? null,
     'reimport_plan_runtime_hash' => $compile->toWordPressSitePlanView()['wordpress_site_plan']['runtime_declarations'][0]['payload']['ownership']['runtime_script_sha256'] ?? null,
     'reimport_block_name' => $restoredBlock['blockName'] ?? null,
