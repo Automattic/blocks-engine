@@ -79,6 +79,13 @@ $assert(array() === $whole->fallbacks, 'the canonical source-owned three-button 
 $linkedTheme = $whole->sourceReports['compiled_site']['theme'] ?? array();
 $assert(in_array('assets/site.css', $linkedTheme['stylesheets'] ?? array(), true)
     && str_contains($linkedTheme['static_css'] ?? '', '.outside-control{position:fixed;top:17px}'), 'a stylesheet linked by the raw HTML remains active, including its unrelated visible non-control rule.');
+$linkedAssetArtifact = $artifact;
+$linkedAssetArtifact['files']['assets/site.css'] = array('path' => 'assets/site.css', 'content' => $stylesheet, 'kind' => 'asset', 'mime_type' => 'text/css', 'role' => 'stylesheet', 'intent' => 'style');
+$linkedAssetResult = (new ArtifactCompiler())->compile($linkedAssetArtifact);
+$linkedAsset = current(array_filter($linkedAssetResult->assets, static fn (array $asset): bool => 'assets/site.css' === ($asset['path'] ?? null))) ?: array();
+$assert(in_array('assets/site.css', $linkedAssetResult->sourceReports['compiled_site']['theme']['stylesheets'] ?? array(), true)
+    && 'stylesheet' === ($linkedAsset['role'] ?? null)
+    && 'style' === ($linkedAsset['intent'] ?? null), 'a linked CSS file encoded as an asset by an exporter keeps its active stylesheet role and intent.');
 $unlinkedCssArtifact = $artifact;
 $unlinkedCssArtifact['files'][$sourcePath] = str_replace('<link rel="stylesheet" href="assets/site.css">', '', $html);
 $unlinkedCssResult = (new ArtifactCompiler())->compile($unlinkedCssArtifact);
