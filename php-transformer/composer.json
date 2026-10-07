@@ -159,6 +159,7 @@
       "php tests/unit/compact-linked-icon-text-row.php",
       "php tests/unit/card-fragment-author-rule.php",
       "php tests/unit/artifact-normalizer-idempotence.php",
+      "php tests/unit/asset-target-case-collision.php",
       "php tests/unit/staged-transport.php",
       "php tests/unit/wordpress-site-plan-composer.php",
       "php tests/unit/wordpress-site-plan-stylesheet-order.php",
