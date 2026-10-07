@@ -5770,6 +5770,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             || array() !== $this->structureSignals($element, array())
             || $this->hasRenderableEmptyBlockBox($element)
             || $this->hasStaticPseudoElementRule($element)
+            // Conditional author paint/geometry proves a visual boundary too.
+            // Keep its source identity so the retained stylesheet can own when
+            // it renders; do not flatten those facts into unconditional attrs.
+            || $this->hasRenderableEmptyBoxAtAnyViewport($element)
         ) {
             return true;
         }
@@ -5830,6 +5834,22 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
             if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    private function hasRenderableEmptyBoxAtAnyViewport(DOMElement $element): bool
+    {
+        foreach ( $this->emptyVisualTopologyEvidence($element) as $evidence ) {
+            $declarations = $evidence['declarations'];
+            if ( $this->hasVisibleEmptyVisualPaint($declarations, $element) ) {
+                return true;
+            }
+            foreach ( array( 'height', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ) as $property ) {
+                if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
+                    return true;
+                }
             }
         }
         return false;
@@ -6202,7 +6222,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @param array<string, string> $declarations */
     private function hasVisibleEmptyVisualPaint(array $declarations, ?DOMElement $element = null): bool
     {
-        foreach ( array( 'background', 'background-color', 'box-shadow', 'outline' ) as $property ) {
+        foreach ( array( 'background', 'background-color', 'background-image', 'box-shadow', 'outline' ) as $property ) {
             if ( isset($declarations[$property]) && $this->sourceElementClassifier->isVisibleEmptyVisualPaint($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
             }
