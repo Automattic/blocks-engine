@@ -15,6 +15,9 @@ if ($baseline = getenv('BODY_CONTEXT_BASELINE_SRC')) spl_autoload_register(stati
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 if ('1' !== getenv('BODY_CONTEXT_DISPOSABLE')) throw new RuntimeException('An explicit disposable runtime is required.');
+if ($url = getenv('BODY_CONTEXT_WP_URL')) {
+    if (rtrim($url, '/') !== rtrim(home_url(), '/') || rtrim($url, '/') !== rtrim(site_url(), '/')) throw new RuntimeException('The disposable HTTP document root and configured WordPress URLs differ.');
+}
 $fixture = json_decode(file_get_contents(getenv('BODY_CONTEXT_PLAN')), true, 512, JSON_THROW_ON_ERROR);
 $slug = 'document-body-context';
 $root = get_theme_root() . '/' . $slug;

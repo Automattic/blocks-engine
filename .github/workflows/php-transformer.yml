@@ -188,6 +188,8 @@ jobs:
           SITE="$RUNNER_TEMP/document-context-http/site"
           php "$WP_CLI" --path="$SITE" core download --version=7.0.4
           php "$WP_CLI" --path="$SITE" config create --dbname=wordpress_root_context_test --dbuser=root --dbpass='' --dbhost=127.0.0.1:3306
+          php "$WP_CLI" --path="$SITE" config set WP_HOME "$BODY_CONTEXT_WP_URL"
+          php "$WP_CLI" --path="$SITE" config set WP_SITEURL "$BODY_CONTEXT_WP_URL"
           php "$WP_CLI" --path="$SITE" db create
           php "$WP_CLI" --path="$SITE" core install --url="$BODY_CONTEXT_WP_URL" --title=Root-context-proof --admin_user="$BODY_CONTEXT_USER" --admin_password="$BODY_CONTEXT_PASSWORD" --admin_email=fixture@example.test --skip-email
           BODY_CONTEXT_WORDPRESS_BOOTSTRAP='' php tests/contract/document-body-context.php
