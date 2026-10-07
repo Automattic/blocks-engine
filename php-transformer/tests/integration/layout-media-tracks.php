@@ -1,8 +1,8 @@
 <?php
 declare(strict_types=1);
 
-// Run with WP-CLI eval-file in a disposable WordPress site. BE_ARTIFACT_PATH
-// is a writable evidence directory. No production or host site is required.
+// Run with WP-CLI eval 'require "/path/to/layout-media-tracks.php";' in a
+// disposable site. BE_ARTIFACT_PATH is an existing writable evidence directory.
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
