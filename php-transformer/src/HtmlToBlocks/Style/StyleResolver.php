@@ -519,7 +519,7 @@ final class StyleResolver implements ElementPresentationResolver
      * @param array<string, string> $declarations
      * @return array<string, string>
      */
-    private function classOwnedResponsiveDeclarations(DOMElement $element, array $declarations): array
+    public function classOwnedResponsiveDeclarations(DOMElement $element, array $declarations): array
     {
         if (array() === $declarations || array() === $this->context->sourceStyles()->conditionalRules()) {
             return $declarations;

@@ -199,7 +199,13 @@ final class GeneratedBlockStyleProjector
         // button controls in the editor and on the frontend.
         if ( $sourceControl instanceof DOMElement ) {
             $sourceDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($sourceControl));
-            $sourceStructuralDeclarations = $this->styleResolver->structuralPresentationDeclarations($sourceControl);
+            $sourceStructuralDeclarations = $this->styleResolver->classOwnedResponsiveDeclarations(
+                $sourceControl,
+                $this->styleResolver->structuralPresentationDeclarations($sourceControl)
+            );
+            // The square-corner fallback is also a radius declaration. It must
+            // not recreate a base value when authored conditions own that family.
+            $ownsRadius = isset($this->styleResolver->classOwnedResponsiveDeclarations($sourceControl, array('border-radius' => '0'))['border-radius']);
             // Native button attributes preserve only uniform border values. Keep
             // authored side shorthands on the generated link rule so `var()`
             // values retain their width, style, and color after conversion.
@@ -296,7 +302,7 @@ final class GeneratedBlockStyleProjector
                     $declarations[] = $property . ':' . $value . '!important';
                 }
             }
-            if ( ( 'a' === strtolower($sourceControl->tagName) || '0' === CssValueInspector::comparable((string) ($sourceDeclarations['border-width'] ?? '')) ) && '' === trim((string) ($style['border']['radius'] ?? '')) ) {
+            if ( $ownsRadius && ( 'a' === strtolower($sourceControl->tagName) || '0' === CssValueInspector::comparable((string) ($sourceDeclarations['border-width'] ?? '')) ) && '' === trim((string) ($style['border']['radius'] ?? '')) ) {
                 $hasCornerRadius = $hasLogicalCorners;
                 foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius', 'border-start-start-radius', 'border-start-end-radius', 'border-end-start-radius', 'border-end-end-radius' ) as $property ) {
                     if ( '' !== trim((string) ($sourceStructuralDeclarations[$property] ?? '')) ) {
