@@ -765,11 +765,6 @@ final class AuthorStyleRuleProjector
         if ( '100%' !== strtolower(CssValueInspector::withoutImportant($height)) ) {
             return $body;
         }
-        // Conditional positioning is not part of the unconditional source cascade.
-        $position = strtolower(CssValueInspector::withoutImportant((string) ($declarations['position'] ?? '')));
-        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
-            return $body;
-        }
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors ) {
             return $body;
@@ -813,8 +808,7 @@ final class AuthorStyleRuleProjector
         if ( in_array(strtolower($element->tagName), array( 'canvas', 'embed', 'iframe', 'img', 'input', 'object', 'picture', 'svg', 'video' ), true) ) {
             return false;
         }
-        $elementStyle = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( in_array(strtolower(CssValueInspector::withoutImportant((string) ($elementStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+        if ( $this->isPositionedUnderConditions($element, $conditions) ) {
             return false;
         }
         if ( $this->receivesDefiniteBlockSize($element) || $this->percentageHeightFillsStretchedItem($element) ) {
@@ -823,7 +817,7 @@ final class AuthorStyleRuleProjector
         $ancestor = $element->parentNode;
         while ( $ancestor instanceof DOMElement && $ancestor !== $authorStyles->sourceBody() ) {
             $style = $this->styleResolver->structuralPresentationDeclarations($ancestor);
-            if ( in_array(strtolower(CssValueInspector::withoutImportant((string) ($style['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+            if ( $this->isPositionedUnderConditions($ancestor, $conditions) ) {
                 return false;
             }
             $ancestorHeight = strtolower(CssValueInspector::withoutImportant((string) ($style['height'] ?? '')));
@@ -861,11 +855,40 @@ final class AuthorStyleRuleProjector
         if ( array() === $held || isset($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['height']) ) {
             return false;
         }
-        $height = $this->styleResolver->declaredPresentation($element, 'height')->resolvedValueWhere(
-            static fn (array $stack): bool => array() === array_diff(self::restatableConditions($stack), $held)
-        );
+        $height = $this->presentationValueUnderConditions($element, 'height', $conditions);
 
         return $this->isDefiniteBlockSize($this->styleResolver->resolveStructuralCssVariablesInValue($height, $element));
+    }
+
+    /** @param list<string> $conditions */
+    private function isPositionedUnderConditions(DOMElement $element, array $conditions): bool
+    {
+        $position = $this->presentationValueUnderConditions($element, 'position', $conditions);
+        return in_array(CssValueInspector::comparable($position), array( 'absolute', 'fixed' ), true);
+    }
+
+    /**
+     * Resolve only author declarations guaranteed by this rule's condition
+     * domain, using the same ordered declaration set as definite-height proof.
+     * Position is not inherited: a parent's declaration cannot position a child.
+     * Inline declarations retain their ordinary cascade/importance priority.
+     *
+     * @param list<string> $conditions
+     */
+    private function presentationValueUnderConditions(DOMElement $element, string $property, array $conditions): string
+    {
+        $held = self::restatableConditions($conditions);
+        $value = $this->styleResolver->declaredPresentation($element, $property)->resolvedValueWhere(
+            static fn (array $stack): bool => array() === array_diff(self::restatableConditions($stack), $held)
+        );
+        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        if ( isset($inline[$property]) && CssCascade::wins(
+            array( 'important' => CssValueInspector::isImportant($inline[$property]), 'inline' => true, 'specificity' => 0, 'order' => 1 ),
+            array( 'important' => CssValueInspector::isImportant($value), 'inline' => false, 'specificity' => 0, 'order' => 0 )
+        ) ) {
+            return $inline[$property];
+        }
+        return $value;
     }
 
     /**
