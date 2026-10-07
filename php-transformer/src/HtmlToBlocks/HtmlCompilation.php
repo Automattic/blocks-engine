@@ -1063,7 +1063,29 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->svgMaterializer,
                 $this->session,
                 fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
-                fn (): string => $this->capturedRootTheme
+                fn (): string => $this->capturedRootTheme,
+                function (DOMElement $element): array {
+                    $presentation = $this->styleResolver->presentationAttributes($element);
+                    $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+                    $mapped = $this->styleResolver->styleAttributeMapper()->map($inline);
+                    $css = (string) ($this->styleResolver->styleAttributeMapper()->serialize($mapped['style'] ?? array())['style'] ?? '');
+                    $declarations = $this->styleResolver->cssDeclarations($css);
+                    foreach ( array('display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'gap', 'row-gap', 'column-gap', 'grid-template-columns', 'grid-template-rows') as $layoutProperty ) {
+                        if ( isset($inline[$layoutProperty]) ) $declarations[$layoutProperty] = $inline[$layoutProperty];
+                    }
+                    foreach ( array('width', 'min-width', 'max-width', 'height', 'min-height', 'max-height') as $dimension ) {
+                        $value = trim((string) ($inline[$dimension] ?? ''));
+                        $safeLength = CssValueInspector::isAbsoluteLength($value)
+                            || 1 === preg_match('/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)%$/', $value)
+                            || (preg_match('/^(?:calc|min|max|clamp|var)\s*\(/i', $value) && CssValueSplitter::hasBalancedParens($value));
+                        if ( '' !== $value && $safeLength && ! preg_match('/(?:url\s*\(|expression\s*\(|javascript\s*:)/i', $value) ) $declarations[$dimension] = $value;
+                    }
+                    return array(
+                        'className' => (string) ($presentation['className'] ?? ''),
+                        'style' => $declarations,
+                        'layout' => is_array($presentation['layout'] ?? null) ? $presentation['layout'] : array(),
+                    );
+                }
             ),
             new CopyToClipboardConverter($this->session),
             $this->formDispatcher,
@@ -1474,6 +1496,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->runtimeBehavior()->installRuntimeScriptMetadata($this->runtimeIslands->runtimeScriptMetadataFromOptions($options));
         $this->runtimeBehavior()->installRuntimeProjectionScriptAssets(
             is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
+        );
+        $this->runtimeBehavior()->installThemePreferenceOwnership(
+            is_array($options['theme_preference_ownership'] ?? null) ? $options['theme_preference_ownership'] : array()
         );
         $this->projectedSelectorBindings = array();
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
