@@ -129,6 +129,13 @@ final class TableClassificationPolicy
      * there is no header, no caption, and no cell that shares a row with
      * another visible cell - so a full-width cell is a row rather than a merge
      * that only a spanning grid could express.
+     *
+     * The grid width is the widest row counted the way HTML counts it, by
+     * `colspan`, not by cells. A page header laid out as a table has one
+     * `colspan="4"` cell per row and no row with two cells; the colspan is the
+     * only thing that made it a spanning table. A one-column table without
+     * any colspan has a grid width of one and stays with data-table
+     * classification.
      */
     public function isMetadataLayoutTable(DOMElement $table): bool
     {
@@ -141,7 +148,10 @@ final class TableClassificationPolicy
             return false;
         }
 
-        $columns = array() === $signals['column_counts'] ? 0 : max($signals['column_counts']);
+        $columns = 0;
+        foreach ( $this->rowsForTable($table) as $row ) {
+            $columns = max($columns, $this->rowGridWidth($row));
+        }
         if ( 2 > $columns ) {
             return false;
         }
@@ -296,6 +306,20 @@ final class TableClassificationPolicy
         }
 
         return $cells;
+    }
+
+    /**
+     * The number of grid columns one row occupies: the sum of its cells'
+     * `colspan` values, each at least one.
+     */
+    private function rowGridWidth(DOMElement $row): int
+    {
+        $width = 0;
+        foreach ( $this->cellsForRow($row) as $cell ) {
+            $width += max(1, (int) $cell->getAttribute('colspan'));
+        }
+
+        return $width;
     }
 
     private function belongsToTable(DOMElement $element, DOMElement $table): bool

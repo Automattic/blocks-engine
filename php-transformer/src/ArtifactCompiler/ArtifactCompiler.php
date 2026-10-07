@@ -4345,6 +4345,7 @@ final class ArtifactCompiler
         $assets = array();
         $unsupportedStylesheets = $this->unsupportedStylesheetPaths($entryHtml, $entryPath);
         $documentLinkMedia = $this->documentLinkMedia($files);
+        $caseDistinctTargets = $this->caseDistinctTargetPaths($files);
         foreach ( $files as $file ) {
             if ( $entryPath === $file['path'] || $this->isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
                 continue;
@@ -4352,7 +4353,7 @@ final class ArtifactCompiler
             $asset = array(
                 'source'           => $file['source'] ?? 'artifact',
                 'path'             => $file['path'],
-                'target_path'      => $file['path'],
+                'target_path'      => $caseDistinctTargets[$file['path']] ?? $file['path'],
                 'kind'             => $file['kind'],
                 'bytes'            => $file['bytes'],
                 'media_type'       => $file['mime_type'],
@@ -4495,6 +4496,48 @@ final class ArtifactCompiler
     private function isMaterializedHtmlDocument(array $file): bool
     {
         return 'html' === ($file['kind'] ?? '') && ($this->isLinkableDocument($file) || $this->isTemplatePartFile($file));
+    }
+
+    /**
+     * Theme asset targets follow the site plan's case-insensitive collision
+     * policy: two captured files whose paths differ only by letter case would
+     * land in one file on a case-insensitive filesystem, so the plan rejects
+     * them. Give every later spelling in such a group a numbered target
+     * (`photo-2.png`) that no other file uses in any case. The byte-order-first
+     * spelling keeps its name, so the outcome does not depend on file order.
+     * Source paths stay as captured: references resolve by exact source path,
+     * and each asset's token hashes its own target.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, string> Source path to target path, for renamed files only.
+     */
+    private function caseDistinctTargetPaths(array $files): array
+    {
+        $groups = array();
+        $reserved = array();
+        foreach ( $files as $file ) {
+            $path = (string) ($file['path'] ?? '');
+            if ( '' === $path ) {
+                continue;
+            }
+            $reserved[strtolower($path)] = true;
+            $groups[strtolower($path)][$path] = true;
+        }
+        $targets = array();
+        ksort($groups, SORT_STRING);
+        foreach ( $groups as $spellings ) {
+            if ( count($spellings) < 2 ) {
+                continue;
+            }
+            $paths = array_keys($spellings);
+            sort($paths, SORT_STRING);
+            foreach ( array_slice($paths, 1) as $path ) {
+                $target = ArtifactNormalizer::dedupePath((string) $path, $reserved, true);
+                $reserved[strtolower($target)] = true;
+                $targets[(string) $path] = $target;
+            }
+        }
+        return $targets;
     }
 
     /**

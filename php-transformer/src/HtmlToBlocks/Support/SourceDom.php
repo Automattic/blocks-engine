@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Closure;
 use DOMDocument;
 use DOMElement;
@@ -350,7 +351,9 @@ final class SourceDom
      * Mirrors Data Liberation Agent's own `--dla-mobile` convention for
      * pairing a mobile-specific identity with its desktop counterpart
      * (`dataItem-kooetu6x` / `dataItem-kooetu6x--dla-mobile`), instead of
-     * inventing a second convention for the same kind of pairing.
+     * inventing a second convention for the same kind of pairing. The
+     * convention itself lives in {@see DocumentVariantIds}, which also keeps the
+     * delivered author stylesheets pointing at the suffixed ids.
      */
     public static function documentVariantIdSuffix(DOMElement $element): string
     {
@@ -360,14 +363,9 @@ final class SourceDom
         }
 
         foreach ( preg_split('/\s+/', trim(self::attr($root, 'class'))) ?: array() as $class ) {
-            if ( 'data-liberation-mobile-document' === $class ) {
-                return '--dla-mobile';
-            }
-            if ( 'data-liberation-desktop-document' === $class || 'site-document-variant-default' === $class ) {
-                return '';
-            }
-            if ( preg_match('/^site-document-variant-([a-z][a-z0-9_-]{0,31})$/', $class, $match) && 'default' !== $match[1] ) {
-                return '--dla-' . $match[1];
+            $suffix = DocumentVariantIds::suffixForClass($class);
+            if ( null !== $suffix ) {
+                return $suffix;
             }
         }
 

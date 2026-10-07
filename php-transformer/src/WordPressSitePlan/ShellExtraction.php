@@ -820,7 +820,7 @@ final class ShellExtraction
                 $open = array_pop($stack);
                 if (!is_array($open) || empty($open['candidate'])) continue;
                 $length = $offset + strlen($token['token']) - $open['offset']; $candidateMarkup = substr($markup, $open['offset'], $length);
-                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'document_level' => empty($stack), 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])));
+                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'document_level' => empty($stack), 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])) + (array() !== ($open['backdrop_ids'] ?? array()) ? array('backdrop_ids' => $open['backdrop_ids']) : array()));
                 continue;
             }
             $name = $token['name']; $attributes = $token['attributes']; $attrs = '' === $attributes ? array() : json_decode($attributes, true);
@@ -850,11 +850,13 @@ final class ShellExtraction
             // Whether page content precedes the landmark inside its ancestors: a
             // block other than the enclosing openings started or ended before it.
             $preceded = false;
+            $backdropIds = array();
             if ($candidate && 0 < count($stack)) {
                 $between = substr($markup, $stack[0]['offset'], $offset - $stack[0]['offset']);
                 $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
+                if ($preceded) $backdropIds = self::backdropAncestorIds($markup, $stack, $offset);
             }
-            if (!$selfClosing) $stack[] = array('offset' => $offset, 'tag_name' => $tagName, 'candidate' => $candidate, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'anchor' => $anchor, 'class_name' => $className);
+            if (!$selfClosing) $stack[] = array('offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'anchor' => $anchor, 'class_name' => $className);
         }
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
         foreach ($rows as $variant => &$row) $row['variant'] = $variant; unset($row);
@@ -878,6 +880,40 @@ final class ShellExtraction
             foreach (preg_split('/\s+/', trim((string) ($ancestor['class_name'] ?? ''))) ?: array() as $class) if ('' !== $class) $classes[] = $class;
         }
         return array('ids' => array_values(array_unique($ids)), 'classes' => array_values(array_unique($classes)));
+    }
+
+    /**
+     * The ids of the ancestors that enclose page content preceding a nested
+     * landmark: the outer ancestors down to the deepest one in which a block
+     * opens before the next ancestor (or the landmark) does. In the source,
+     * those ancestors sized what preceded the chrome (a page background
+     * layer, say) to a box that also held the chrome. Ancestors below that
+     * point hold only the chrome and the content after it.
+     *
+     * @param array<int,array<string,mixed>> $stack
+     * @return list<string>
+     */
+    private static function backdropAncestorIds(string $markup, array $stack, int $offset): array
+    {
+        $deepest = -1;
+        foreach ($stack as $level => $ancestor) {
+            $start = (int) ($ancestor['inner_offset'] ?? $ancestor['offset']);
+            $end = isset($stack[$level + 1]) ? (int) $stack[$level + 1]['offset'] : $offset;
+            if (1 === preg_match('/<!--\s*\/?wp:/', substr($markup, $start, max(0, $end - $start)))) $deepest = $level;
+        }
+        $ids = array();
+        for ($level = 0; $level <= $deepest; ++$level) {
+            if (!empty($stack[$level]['candidate'])) continue;
+            $id = (string) ($stack[$level]['anchor'] ?? '');
+            if ('' === $id) {
+                foreach (preg_split('/\s+/', trim((string) ($stack[$level]['class_name'] ?? ''))) ?: array() as $class) {
+                    $id = (string) EngineMarker::editorAnchorId($class);
+                    if ('' !== $id) break;
+                }
+            }
+            if ('' !== $id) $ids[] = $id;
+        }
+        return array_values(array_unique($ids));
     }
 
     /** @param array<int,array<string,mixed>> $rows */
@@ -1463,6 +1499,7 @@ final class ShellExtraction
         $kept = array_fill_keys($dominant['indexes'], true);
         $pieces = array();
         $primaryContext = null;
+        $backdropIds = array();
         $sourceIndex = $dominant['indexes'][0];
         foreach ($variantClasses as $class) {
             $scoped = $byPage[$sourceIndex][$class];
@@ -1471,6 +1508,7 @@ final class ShellExtraction
             $inner = self::withoutCurrentNavigationState($owned ? (string) $candidate['markup'] : (string) $scoped[0]['markup']);
             if ('' === trim($inner)) return false;
             if (null === $primaryContext && 0 === self::responsiveVariantRank($class)) $primaryContext = $scoped[0]['ancestor_context'] ?? null;
+            foreach ((array) ($scoped[0]['ancestor_context']['backdrop_ids'] ?? array()) as $id) $backdropIds[(string) $id] = true;
             $pieces[$class] = self::variantVisibilityGroup($class, $inner);
         }
         if (null === $primaryContext) {
@@ -1484,7 +1522,11 @@ final class ShellExtraction
             if (null === $markup || $this->retainsResponsiveVariantLandmark($markup, $area)) return false;
             $cleaned[$index] = $markup;
         }
-        return array('pages' => $cleaned, 'markup' => implode("\n", $pieces), 'identities' => $identities, 'ancestor_context' => is_array($primaryContext) ? $primaryContext : array());
+        // The part renders every variant, so the backdrop ancestors of each
+        // variant document are detached from it.
+        $context = is_array($primaryContext) ? $primaryContext : array();
+        if (array() !== $backdropIds) $context['backdrop_ids'] = array_map('strval', array_keys($backdropIds));
+        return array('pages' => $cleaned, 'markup' => implode("\n", $pieces), 'identities' => $identities, 'ancestor_context' => $context);
     }
 
     /**

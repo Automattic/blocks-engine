@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -16,6 +17,8 @@ use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
@@ -299,7 +302,7 @@ PHP;
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
         $assets = self::projectSharedChromeStylesheets($assets, $parts, $pages, $references);
-        $assets = self::projectDetachedChromePaintOrder($assets, $parts);
+        $assets = self::projectDetachedChromePaintOrder($assets, $parts, $pages);
         $assets = self::orderPageStylesheetProjections($assets);
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
@@ -323,6 +326,7 @@ PHP;
          $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single']);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
+        $assets = self::withVariantScopedIdSelectors($assets);
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
         $assetWrites = $this->assetWrites($assets, $references);
@@ -722,6 +726,33 @@ PHP;
         return $rows;
     }
 
+    /**
+     * Keep variant-scoped author rules on the ids the page actually renders.
+     *
+     * When a captured desktop/mobile pair shares an id, the mobile copy is
+     * rendered as `<id>--dla-mobile` so the page keeps unique ids. The delivered
+     * stylesheets still address the source id (`:where(.data-liberation-mobile-document)
+     * #<id>`), so without this pass every mobile id rule misses its element.
+     * It runs after shared-chrome extraction, which reasons about the source
+     * ids, and only changes selectors scoped to a non-default document variant.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return array<int,array<string,mixed>>
+     */
+    private static function withVariantScopedIdSelectors(array $assets): array
+    {
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
+            $content = DocumentVariantIds::scopeIdSelectors($asset['content']);
+            if ($content === $asset['content']) continue;
+            $asset['content'] = $content;
+            $asset['bytes'] = strlen($content);
+            $asset['content_hash'] = self::contentHash($content);
+        }
+        unset($asset);
+        return $assets;
+    }
+
     /** @param mixed $assets @return array<int,array<string,mixed>> */
     private function assets(mixed $assets): array
     {
@@ -1014,8 +1045,23 @@ PHP;
             $current .= $char;
         }
         if ('' !== $current) $compounds[] = $current;
-        $run = 0;
+        // A capture scopes a responsive variant's rules by that variant's root
+        // (`:where(.data-liberation-mobile-document) #page-root #footer`). The
+        // variant root is not an ancestor the chrome was hoisted out of: the
+        // part carries its own variant group. Keep the scope in front of the
+        // run being re-anchored, and require it on the wrapper arm, so the
+        // rule keeps reaching only that variant's copy of the chrome.
+        $scope = array();
         foreach ($compounds as $index => $compound) {
+            if (!isset($compounds[$index + 1]) || in_array($compounds[$index + 1], array('>', '+', '~'), true)) break;
+            $variantClasses = self::responsiveVariantScopeClasses($compound);
+            if (null === $variantClasses) break;
+            $scope[] = $variantClasses;
+        }
+        $first = count($scope);
+        $run = $first;
+        foreach ($compounds as $index => $compound) {
+            if ($index < $first) continue;
             if (!isset($compounds[$index + 1]) || in_array($compounds[$index + 1], array('>', '+', '~'), true)) break;
             // The compound's positive hooks, including those the engine moved
             // into `:where()`/`:is()` when it rewrote an id for editor parity.
@@ -1032,9 +1078,33 @@ PHP;
             if (!$named) break;
             $run = $index + 1;
         }
-        if (0 === $run) return $selector;
+        if ($first === $run) return $selector;
         $wrappers = array_map(static fn (string $root): string => ':has(> #' . CssIdent::escape($root) . ')', $roots);
+        if (array() !== $scope) {
+            // The variant group is the part's own child wrapper (`.data-liberation-mobile-document > #footer`),
+            // or an ancestor of the wrapper that holds the chrome.
+            $scopeClass = implode('', array_map(static fn (string $class): string => '.' . CssIdent::escape($class), array_merge(...$scope)));
+            $wrappers = array_merge(
+                array_map(static fn (string $wrapper): string => $scopeClass . $wrapper, $wrappers),
+                array_map(static fn (string $wrapper): string => $scopeClass . ' ' . $wrapper, $wrappers)
+            );
+        }
         return ':is(' . implode(' ', array_slice($compounds, 0, $run)) . ',:where(' . implode(',', $wrappers) . ')) ' . implode(' ', array_slice($compounds, $run));
+    }
+
+    /**
+     * The responsive variant root classes a compound consists of, such as
+     * `:where(.data-liberation-mobile-document)`; null for any other compound.
+     *
+     * @return list<string>|null
+     */
+    private static function responsiveVariantScopeClasses(string $compound): ?array
+    {
+        $hooks = str_replace(array(':where(', ':is(', ')'), '', self::positiveSelector($compound));
+        if (!preg_match('/^(?:\.[_a-zA-Z][\w-]*)+$/', $hooks)) return null;
+        $classes = explode('.', ltrim($hooks, '.'));
+        foreach ($classes as $class) if (!ShellExtraction::isResponsiveVariantClass($class)) return null;
+        return $classes;
     }
 
     /**
@@ -1073,6 +1143,9 @@ PHP;
     private static function selectorHook(string $sigil, string $name): ?array
     {
         if ('#' === $sigil) return array('id', $name);
+        // A responsive variant root scopes rules to one variant; it is neither
+        // chrome nor an ancestor the chrome was hoisted out of.
+        if (ShellExtraction::isResponsiveVariantClass($name)) return null;
         $anchorId = EngineMarker::editorAnchorId($name);
         if (null !== $anchorId) return array('id', $anchorId);
         return 1 === preg_match('/^(?:wp-|blocks-engine-|has-|is-|be-)/', $name) ? null : array('class', $name);
@@ -1115,13 +1188,14 @@ PHP;
      * @param array<int,array<string,mixed>> $parts
      * @return array<int,array<string,mixed>>
      */
-    private static function projectDetachedChromePaintOrder(array $assets, array $parts): array
+    private static function projectDetachedChromePaintOrder(array $assets, array $parts, array $pages = array()): array
     {
         $rules = '';
         foreach ($parts as $part) {
             if ('shared_shell' !== ($part['placement']['kind'] ?? null) || 'header' !== ($part['area'] ?? null) || empty($part['ancestor_context']['preceded'])) continue;
             foreach (self::partRootAnchors((string) ($part['canonical_block_markup'] ?? '')) as $anchor) $rules .= ':where(#' . CssIdent::escape($anchor) . '){z-index:1}';
         }
+        $rules .= self::detachedChromeBackdropRules($parts, $assets, $pages);
         $template = null;
         foreach ($assets as $asset) {
             if ('css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) && '' !== trim($asset['content'])) {
@@ -1145,6 +1219,170 @@ PHP;
         unset($context['content_base64']);
         $assets[] = $context;
         return $assets;
+    }
+
+    /**
+     * Page content that preceded the chrome inside its layout ancestors (a
+     * page background layer) was sized, in the source, to an ancestor box that
+     * also held the chrome. That ancestor stays in post-content while the
+     * chrome renders from the template, so the backdrop now starts below the
+     * header and the band behind the chrome shows the bare canvas.
+     *
+     * In WordPress the box that spans the chrome and the content is the
+     * template root. It takes over the containing-block role of the ancestors
+     * that held the backdrop (only on the front end, where the chrome is
+     * outside them), and each chrome root stays positioned so it still paints
+     * above that backdrop, as it did inside the source ancestors. Only the
+     * ancestors every detached part left behind are moved: their source box
+     * spanned all of the chrome, as the template root does. When a part root
+     * has no anchor it cannot be kept above the backdrop, so nothing moves.
+     * Only a positioned ancestor is a containing block to hand over, and one
+     * whose own box differs from the template root's (a width cap, an inset,
+     * clipping overflow or a stacking z-index, under any media condition)
+     * keeps its role: the template root would stand in for a different box.
+     *
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     */
+    private static function detachedChromeBackdropRules(array $parts, array $assets = array(), array $pages = array()): string
+    {
+        $detached = array_values(array_filter($parts, static fn(array $part): bool => 'shared_shell' === ($part['placement']['kind'] ?? null) && is_array($part['ancestor_context'] ?? null) && in_array($part['area'] ?? null, array('header', 'footer'), true)));
+        if (array() === $detached) return '';
+        // The backdrop is what precedes the first chrome. Before a footer, the
+        // route's own content also precedes it, so a detached header decides.
+        $first = array_values(array_filter($detached, static fn(array $part): bool => 'header' === $part['area'])) ?: $detached;
+        $backdrop = array();
+        foreach ($first as $part) foreach ((array) ($part['ancestor_context']['backdrop_ids'] ?? array()) as $id) if (is_string($id) && '' !== $id) $backdrop[$id] = true;
+        if (array() === $backdrop) return '';
+        $roots = array();
+        foreach ($detached as $part) {
+            $markup = (string) ($part['canonical_block_markup'] ?? '');
+            $anchors = self::partRootAnchors($markup);
+            if (array() === $anchors) return '';
+            array_push($roots, ...$anchors);
+            // An ancestor the part never sat under did not span it in the source.
+            $enclosing = self::selectorHooks((array) ($part['ancestor_context']['classes'] ?? array()), (array) ($part['ancestor_context']['ids'] ?? array()))['id'];
+            foreach ((array) ($part['ancestor_context']['backdrop_ids'] ?? array()) as $id) if (is_string($id)) $enclosing[$id] = true;
+            foreach (array_keys($backdrop) as $id) if (!isset($enclosing[(string) $id])) unset($backdrop[$id]);
+        }
+        foreach (array_keys($backdrop) as $id) if (!self::sharesTemplateRootBox((string) $id, $assets, $pages)) unset($backdrop[$id]);
+        if (array() === $backdrop) return '';
+        $escape = static fn(string $id): string => '#' . CssIdent::escape($id);
+        return ':where(.wp-site-blocks){position:relative}'
+            . implode(',', array_map(static fn(int|string $id): string => '.wp-site-blocks ' . $escape((string) $id), array_keys($backdrop))) . '{position:static}'
+            . ':where(' . implode(',', array_map($escape, array_values(array_unique($roots)))) . '){position:relative}';
+    }
+
+    private const BOX_PROPERTIES = '/(?:^|[;{\s])(?:(?:max-)?width|z-index|overflow(?:-[xy])?|inset|top|right|bottom|left)\s*:/i';
+
+    /**
+     * Whether the element with `$id`, as rendered in a page, is positioned by
+     * an author rule or its inline style, and no rule (under any media
+     * condition) gives it a box the template root does not share: a width or
+     * max-width other than full, a non-zero inset, a z-index, or overflow
+     * other than visible. A rule the matcher cannot model counts against it,
+     * and so does an element that cannot be found.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     */
+    private static function sharesTemplateRootBox(string $id, array $assets, array $pages): bool
+    {
+        $element = null;
+        foreach ($pages as $page) {
+            $markup = (string) ($page['canonical_block_markup'] ?? '');
+            if (!str_contains($markup, 'id="' . htmlspecialchars($id, ENT_QUOTES) . '"')) continue;
+            $document = new \DOMDocument();
+            $document->loadHTML('<?xml encoding="UTF-8"><html><body><div class="wp-site-blocks"><div class="entry-content wp-block-post-content">' . $markup . '</div></div></body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+            foreach ((new \DOMXPath($document))->query('//*[@id]') ?: array() as $node) {
+                if ($node instanceof \DOMElement && $id === $node->getAttribute('id')) {
+                    $element = $node;
+                    break 2;
+                }
+            }
+        }
+        if (!$element instanceof \DOMElement) return false;
+        $inline = $element->getAttribute('style');
+        if (self::declaresDistinctBox($inline)) return false;
+        $positioned = self::declaresPosition($inline);
+        // Rules can reach the element through its id or any of its classes
+        // (an editor anchor, an inline-geometry class, an authored class).
+        $hooks = array($id);
+        foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) if ('' !== $class && 1 !== preg_match('/^(?:wp-block-group|is-layout-|wp-container-|wp-block-group-is-layout-)/', $class)) $hooks[] = $class;
+        $distinct = false;
+        $transformer = new CssStylesheetTransformer();
+        foreach ($assets as $asset) {
+            if ($distinct) break;
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            $transformer->visitStyleRules($asset['content'], static function (string $prelude, string $body) use (&$distinct, &$positioned, $element, $hooks): void {
+                if ($distinct) return;
+                $boxed = 1 === preg_match(self::BOX_PROPERTIES, $body) && self::declaresDistinctBox($body);
+                $places = !$positioned && self::declaresPosition($body);
+                if (!$boxed && !$places) return;
+                $named = false;
+                foreach ($hooks as $hook) if (str_contains($prelude, $hook)) $named = true;
+                if (!$named) return;
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
+                    $match = CssSelectorMatcher::matches($element, CssSelectorMatcher::parse(trim($selector)), true);
+                    // A selector the matcher cannot model may still apply when
+                    // its subject names the element.
+                    if ($boxed && ($match['matches'] || (!$match['supported'] && self::subjectNamesAny(trim($selector), $hooks)))) {
+                        $distinct = true;
+                        return;
+                    }
+                    if ($places && $match['matches']) $positioned = true;
+                }
+            });
+        }
+        return $positioned && !$distinct;
+    }
+
+    /**
+     * Whether a selector's rightmost compound names one of `$hooks`.
+     *
+     * @param list<string> $hooks
+     */
+    private static function subjectNamesAny(string $selector, array $hooks): bool
+    {
+        $depth = 0;
+        $start = 0;
+        $length = strlen($selector);
+        for ($i = 0; $i < $length; ++$i) {
+            $char = $selector[$i];
+            if ('(' === $char || '[' === $char) ++$depth;
+            elseif (')' === $char || ']' === $char) --$depth;
+            elseif (0 === $depth && (ctype_space($char) || '>' === $char || '+' === $char || '~' === $char)) $start = $i + 1;
+        }
+        $subject = substr($selector, $start);
+        foreach ($hooks as $hook) if (1 === preg_match('/[#.]' . preg_quote($hook, '/') . '(?![\w-])/', $subject)) return true;
+        return false;
+    }
+
+    private static function declaresPosition(string $body): bool
+    {
+        foreach (CssRuleAnalyzer::declarations($body, array('position')) as $declaration) {
+            if (1 !== preg_match('/^(?:static|initial|unset|inherit|revert|revert-layer)(?:\s*!important)?$/i', trim($declaration['value']))) return true;
+        }
+        return false;
+    }
+
+    private static function declaresDistinctBox(string $body): bool
+    {
+        if ('' === trim($body) || 1 !== preg_match(self::BOX_PROPERTIES, ';' . $body)) return false;
+        $neutral = '(?:initial|unset|inherit|revert|revert-layer)';
+        foreach (CssRuleAnalyzer::declarations($body, array('width', 'max-width', 'z-index', 'overflow', 'overflow-x', 'overflow-y', 'inset', 'top', 'right', 'bottom', 'left')) as $declaration) {
+            $value = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? ''));
+            $allowed = match ($declaration['name']) {
+                'width' => '/^(?:auto|100%|' . $neutral . ')$/',
+                'max-width' => '/^(?:none|100%|' . $neutral . ')$/',
+                'z-index' => '/^(?:auto|' . $neutral . ')$/',
+                'overflow', 'overflow-x', 'overflow-y' => '/^(?:visible|' . $neutral . ')(?:\s+visible)?$/',
+                default => '/^(?:(?:0(?:\.0+)?[a-z%]*|auto)(?:\s+|$))+$|^' . $neutral . '$/',
+            };
+            if (1 !== preg_match($allowed, $value)) return true;
+        }
+        return false;
     }
 
     /**
