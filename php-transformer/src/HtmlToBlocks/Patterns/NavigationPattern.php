@@ -151,6 +151,15 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        if ( ! in_array(strtolower($element->tagName), array('nav', 'ul', 'ol'), true)
+            && null !== SourceDom::documentVariantRoot($element)
+            && $this->hasOnlyNestedListDestinations($element)
+            && 'never' === ($navigationContext?->overlayMenu($element) ?? 'never') ) {
+            // A layout wrapper owns the occurrence's containing box, not the
+            // list. Keep it around the recursively converted native menu.
+            return null;
+        }
+
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement
                 && (('menu' === strtolower(trim(SourceDom::attr($descendant, 'aria-haspopup')))
@@ -2571,6 +2580,17 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
         return false;
+    }
+
+    private function hasOnlyNestedListDestinations(DOMElement $element): bool
+    {
+        $anchors = $element->getElementsByTagName('a');
+        foreach ( $anchors as $anchor ) {
+            if ( $anchor instanceof DOMElement && ! $this->hasListAncestor($anchor, $element) ) {
+                return false;
+            }
+        }
+        return 0 < $anchors->length;
     }
 
     /**

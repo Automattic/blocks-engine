@@ -13,6 +13,14 @@ try {
         assert.equal(await opener.count(), width <= 768 ? 1 : 0, `${width}: source branch owns opener visibility`);
         if (width <= 768) await opener.click();
         const menu = width <= 768 ? page.locator('header .is-menu-open') : page.locator('header nav.wp-block-navigation:visible');
+        if (width <= 768) {
+            await page.waitForFunction(() => {
+                const panel = document.querySelector('header .is-menu-open');
+                return panel && Math.abs(panel.getBoundingClientRect().top - panel.closest('header').getBoundingClientRect().bottom) < 2;
+            });
+            const panel = await menu.boundingBox();
+            assert.ok(panel && Math.abs(panel.x) < 2 && Math.abs(panel.width - width) < 2 && panel.height < 900, `${width}: source header-bound dropdown geometry`);
+        }
         const links = menu.locator('a.wp-block-navigation-item__content');
         const inventory = await links.allTextContents();
         assert.deepEqual(inventory, ['Services', 'Gallery', 'Instagram', 'Contact'], `${width}: visible native item inventory`);
@@ -64,7 +72,8 @@ try {
         if (!menu) throw new Error('No desktop native menu entity: ' + JSON.stringify(blocks.filter(block => block.name === 'core/navigation').map(block => block.attributes)));
         const items = wp.blocks.parse(menu.content.raw);
         items[0].attributes.label = 'Services edited once';
-        await wp.apiFetch({ path: `/wp/v2/navigation/${menu.id}`, method: 'POST', data: { content: wp.blocks.serialize(items) } });
+        wp.data.dispatch('core').editEntityRecord('postType', 'wp_navigation', menu.id, { content: wp.blocks.serialize(items) });
+        await wp.data.dispatch('core').saveEditedEntityRecord('postType', 'wp_navigation', menu.id);
         const reloaded = await wp.apiFetch({ path: `/wp/v2/navigation/${menu.id}?context=edit` });
         if (!reloaded.content.raw.includes('Services edited once')) throw new Error('Menu edit did not persist');
         return { id: menu.id, original: menu.content.raw, validMenus: menus.length };
@@ -77,7 +86,12 @@ try {
             await front.close();
         }
     } finally {
-        await editor.evaluate(async saved => wp.apiFetch({ path: `/wp/v2/navigation/${saved.id}`, method: 'POST', data: { content: saved.original } }), saved);
+        await editor.evaluate(async saved => {
+            wp.data.dispatch('core').editEntityRecord('postType', 'wp_navigation', saved.id, { content: saved.original });
+            await wp.data.dispatch('core').saveEditedEntityRecord('postType', 'wp_navigation', saved.id);
+            const restored = await wp.apiFetch({ path: `/wp/v2/navigation/${saved.id}?context=edit` });
+            if (restored.content.raw !== saved.original) throw new Error('Menu restoration did not persist');
+        }, saved);
     }
     const proof = { observations, editOnce: { entity: saved.id, routes: 2, validMenus: saved.validMenus, restored: true } };
     if (process.env.NAVIGATION_TEST_EVIDENCE) await fs.writeFile(process.env.NAVIGATION_TEST_EVIDENCE, JSON.stringify(proof, null, 2));

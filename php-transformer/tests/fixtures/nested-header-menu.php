@@ -20,7 +20,7 @@ $sections = static function (string $suffix): string {
     return $html . '</main>';
 };
 return '<!doctype html><html><head><title>Nested header menu</title><style>'
-    . 'body{margin:0;font:16px/1.5 sans-serif}header{padding:16px;background:white}.header-row,.menu-slot,.menu{display:flex;align-items:center;gap:16px}.header-row{justify-content:space-between}.panel-items{display:flex;flex-direction:column;gap:16px;padding:24px}h3{margin:0}.menu{list-style:none;margin:0;padding:0}a{color:#163c77}a[href^="https://instagram"]{transform:scale(1.2)}section{min-height:900px;padding:24px}.offscreen-links{position:absolute;left:-10000px}.site-document-variant-phone{display:none!important}'
+    . 'body{margin:0;font:16px/1.5 sans-serif}header{position:relative;padding:16px;background:white}#phone-menu{position:absolute;top:100%;left:0;right:0;background:white}.header-row,.menu-slot,.menu{display:flex;align-items:center;gap:16px}.header-row{justify-content:space-between}.panel-items{display:flex;flex-direction:column;gap:16px;padding:24px}h3{margin:0}.menu{list-style:none;margin:0;padding:0}a{color:#163c77}a[href^="https://instagram"]{transform:scale(1.2)}section{min-height:900px;padding:24px}.offscreen-links{position:absolute;left:-10000px}.site-document-variant-phone{display:none!important}'
     . '@media(max-width:768px){.site-document-variant-desktop{display:none!important}.site-document-variant-phone{display:contents!important}}'
     . '</style></head><body><div class="site-document-variant-desktop" data-dla-document-scope>' . $header('', false) . $sections('') . '</div>'
     . '<div class="site-document-variant-phone" data-dla-document-scope>' . $header('--phone', true) . $sections('--phone') . '</div></body></html>';

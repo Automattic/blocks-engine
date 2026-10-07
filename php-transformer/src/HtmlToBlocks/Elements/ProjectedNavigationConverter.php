@@ -222,9 +222,13 @@ final class ProjectedNavigationConverter implements ElementConverter
             $afterBody = substr($extra, strpos($extra, 'AFTER:') + 6);
             $extraRules .= $host . '>.wp-block-navigation__responsive-container-open::after{' . $afterBody . '}';
         }
-        if ( $always && $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle) ) {
-            $extraRules .= $this->nativeNavigationToggleDropdownCss($host, $navigation);
-            $extraRules .= $this->nativeNavigationToggleOpenControlCss($host);
+        if ( $always ) {
+            if ( $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle) ) {
+                $extraRules .= $this->nativeNavigationToggleDropdownCss($host, $navigation);
+                $extraRules .= $this->nativeNavigationToggleOpenControlCss($host);
+            } else {
+                $extraRules .= $this->nativeNavigationBoundPanelCss($host, $navigation);
+            }
         }
         if ( $always ) {
             $rule = $hostRule . $openRule . $extraRules;
@@ -407,6 +411,27 @@ final class ProjectedNavigationConverter implements ElementConverter
             . $host . '>.wp-block-navigation__responsive-container-open{display:flex!important}'
             . $host . ' .wp-block-navigation__responsive-container:not(.is-menu-open){display:none!important}'
             . '}';
+    }
+
+    private function nativeNavigationBoundPanelCss(string $host, DOMElement $navigation): string
+    {
+        $header = $navigation->parentNode;
+        while ( $header instanceof DOMElement && 'header' !== strtolower($header->tagName) ) {
+            $header = $header->parentNode;
+        }
+        if ( ! $header instanceof DOMElement ) {
+            return '';
+        }
+        $open = $host . ' .wp-block-navigation__responsive-container.is-menu-open';
+        // The source header contains the disclosure panel. Core's modal adds
+        // a viewport-sized sheet and a second padding box around that panel;
+        // retain the header edge and let the projected list own its geometry.
+        return $host . '{position:static!important}'
+            . $open . '{position:absolute!important;inset:100% 0 auto!important;width:100%!important;height:auto!important;min-height:0!important;padding:0!important}'
+            . $open . ' .wp-block-navigation__responsive-container-content{padding:0!important;align-items:stretch!important}'
+            . $open . ' .wp-block-navigation__container{width:100%!important}'
+            . $open . ' .wp-block-navigation__responsive-container-close{top:0!important}'
+            . 'html.has-modal-open:has(' . $open . '){overflow:visible!important}';
     }
 
     private function nativeNavigationToggleDropdownCss(string $host, DOMElement $navigation): string

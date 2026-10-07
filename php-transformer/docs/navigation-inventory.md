@@ -23,8 +23,8 @@ wrapper is not one menu item just because one anchor can be read outside its lis
 - A responsive document branch owns its own visibility. A projected opener that
   remains visible in that branch uses Core's always-visible overlay control,
   including at widths above Core's mobile breakpoint. Hash-anchor bars keep their
-  existing bar presentation; other controls use the native overlay and existing
-  source-panel paint/padding projection.
+  existing bar presentation; header-bound controls retain the header's containing
+  box and source-panel paint/padding projection.
 - URL-inferred current state preserves the invariant base-colour marker when
   shared extraction removes route state. Authored active-state presentation keeps
   its existing projection.
@@ -55,8 +55,9 @@ The required WordPress HTTP browser gate uses real Core rendering and
 Interactivity at 390, 768, and 1440 pixels. It opens the menu by clicking the
 rendered control, verifies the visible ordered item inventory and viewport bounds,
 clicks each fragment destination, checks the visible scrolled section, and checks
-overflow. Real Gutenberg parses and validates the menu blocks; one REST menu edit
-is saved, reloaded, observed on both frontend routes, and restored.
+overflow. Real Gutenberg parses and validates the menu blocks; one menu edit through
+the Core entity datastore is saved, reloaded, observed on both frontend routes,
+and restored exactly.
 
 This gate accepts navigation inventory and behavior. Whole-site visual parity
 remains a separate source-versus-imported runtime gate.
