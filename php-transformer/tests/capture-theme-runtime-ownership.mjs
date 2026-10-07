@@ -12,6 +12,7 @@ const modes = [
     { mode: 'system', accessible_name: 'System theme', icon: 'monitor' },
     { mode: 'dark', accessible_name: 'Dark theme', icon: 'moon' },
 ];
+const stylesheetFor = (attribute) => ':root{color-scheme:light;background:#fff}.dark{color-scheme:dark;background:#111}[data-theme="dark"]{color-scheme:dark;background:#111}.theme-choices{display:flex;gap:8px}';
 const runtimeFor = (attribute, storageKey) => {
     const rootOperation = 'class' === attribute
         ? 'root.classList.toggle("dark","dark"===resolved);'
@@ -21,7 +22,7 @@ const runtimeFor = (attribute, storageKey) => {
 const markupFor = (attribute) => {
     const root = 'class' === attribute ? 'class="dark"' : 'data-theme="dark"';
     const buttons = modes.map(({ mode, accessible_name, icon }) => `<button type="button" data-mode="${ mode }" aria-label="${ accessible_name }"><svg class="lucide lucide-${ icon }" aria-hidden="true"><path d="M1 1"></path></svg></button>`).join('');
-    return `<!doctype html><html ${ root }><head><style>:root{color-scheme:light;background:#fff}.dark{color-scheme:dark;background:#111}[data-theme="dark"]{color-scheme:dark;background:#111}.theme-choices{display:flex;gap:8px}</style></head><body><div class="theme-choices" role="group" aria-label="Color theme">${ buttons }</div><script src="/${ attribute }.js"></script></body></html>`;
+    return `<!doctype html><html ${ root }><head><style>${ stylesheetFor(attribute) }</style></head><body><div class="theme-choices" role="group" aria-label="Color theme">${ buttons }</div><script src="/${ attribute }.js"></script></body></html>`;
 };
 const server = createServer((request, response) => {
     const pathname = new URL(request.url || '/', 'http://localhost').pathname;
@@ -100,6 +101,7 @@ const capture = async (attribute, storageKey, sourcePath, lightOperation) => {
                 { storage_value: null, os_scheme: 'light', resolved: 'light', root_state: { attribute, value: null } },
                 { storage_value: null, os_scheme: 'dark', resolved: 'dark', root_state: { attribute, value: 'dark' } },
             ],
+            stylesheet_evidence: [{ path: `theme-controls/${ attribute }.css`, sha256: createHash('sha256').update(stylesheetFor(attribute)).digest('hex'), content: stylesheetFor(attribute) }],
             controls: capturedControls.map((control, index) => ({ mode: modes[index].mode, accessible_name: control.accessible_name, icon: modes[index].icon })),
             observed_transitions: transitions,
         },

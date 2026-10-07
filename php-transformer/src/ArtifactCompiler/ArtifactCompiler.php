@@ -1401,14 +1401,30 @@ final class ArtifactCompiler
             );
         }
 
+        $themePreferenceOwnership = $this->themePreferenceOwnershipForSource($runtimeDeclarations, $sourcePath);
         $stylesheetAssets = $this->stylesheetAssetsForSource($html, $sourcePath, $files);
+        $stylesheetHashes = array_fill_keys(array_map(static fn(array $asset): string => (string) ($asset['source_hash'] ?? ''), $stylesheetAssets), true);
+        foreach ($themePreferenceOwnership as $ownership) {
+            foreach ($ownership['stylesheet_evidence'] ?? array() as $evidence) {
+                if (!is_array($evidence) || !is_string($evidence['content'] ?? null) || !is_string($evidence['path'] ?? null)
+                    || !is_string($evidence['sha256'] ?? null) || isset($stylesheetHashes[$evidence['sha256']])) continue;
+                $stylesheetAssets[] = array(
+                    'path' => $evidence['path'],
+                    'source_path' => $evidence['path'],
+                    'content' => $evidence['content'],
+                    'source_hash' => $evidence['sha256'],
+                    'media' => '',
+                    'type' => 'text/css',
+                );
+                $stylesheetHashes[$evidence['sha256']] = true;
+            }
+        }
         $stylesheetPayloads = $this->linkedStylesheetPayloads($stylesheetAssets, $sourcePath, $files);
         $analysisCache = $this->cacheHtmlAnalysis
             ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
             : new HtmlTransformerAnalysisCache();
         $runtimeDomSelectors = $this->runtimeDomSelectors($html, $sourcePath, $files);
         $runtimeProjectionSelectors = $this->runtimeProjectionSelectors($html, $sourcePath, $files);
-        $themePreferenceOwnership = $this->themePreferenceOwnershipForSource($runtimeDeclarations, $sourcePath);
         $runtimeProjectionScriptAssets = $this->runtimeProjectionScriptAssetsForSource($html, $sourcePath, $files);
         foreach ($themePreferenceOwnership as $ownership) {
             $ownerPath = $ownership['runtime_script_path'] ?? null;

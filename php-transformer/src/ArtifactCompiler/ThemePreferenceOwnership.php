@@ -88,6 +88,27 @@ final class ThemePreferenceOwnership
             $defaultSchemes[$scheme] = true;
         }
 
+        $stylesheetEvidence = $ownership['stylesheet_evidence'] ?? null;
+        if (!is_array($stylesheetEvidence) || !array_is_list($stylesheetEvidence) || array() === $stylesheetEvidence || count($stylesheetEvidence) > 16) {
+            throw new InvalidArgumentException('Theme preference declaration requires bounded source stylesheet evidence.');
+        }
+        $stylesheetPaths = array();
+        $stylesheetBytes = 0;
+        foreach ($stylesheetEvidence as $stylesheet) {
+            if (!is_array($stylesheet) || !is_string($stylesheet['path'] ?? null)
+                || '' === ArtifactPath::safeRelativePath($stylesheet['path'])
+                || ArtifactPath::safeRelativePath($stylesheet['path']) !== $stylesheet['path']
+                || !is_string($stylesheet['sha256'] ?? null) || 1 !== preg_match('/^[a-f0-9]{64}$/', $stylesheet['sha256'])
+                || !is_string($stylesheet['content'] ?? null) || '' === $stylesheet['content']
+                || hash('sha256', $stylesheet['content']) !== $stylesheet['sha256']
+                || isset($stylesheetPaths[$stylesheet['path']])) {
+                throw new InvalidArgumentException('Theme preference source stylesheet evidence is malformed or stale.');
+            }
+            $stylesheetBytes += strlen($stylesheet['content']);
+            if ($stylesheetBytes > 4194304) throw new InvalidArgumentException('Theme preference source stylesheet evidence exceeds its byte budget.');
+            $stylesheetPaths[$stylesheet['path']] = true;
+        }
+
         $controls = $ownership['controls'] ?? null;
         if (!is_array($controls) || !array_is_list($controls) || 3 !== count($controls)) {
             throw new InvalidArgumentException('Theme preference declaration requires exactly three observed controls.');

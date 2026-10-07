@@ -21,6 +21,7 @@ $controls = array(
     array('mode' => 'dark', 'accessible_name' => 'Dark theme', 'icon' => 'moon'),
 );
 $rootState = static fn (string $value): array => array('attribute' => 'class', 'value' => $value);
+$stylesheet = ':root{--background:#fff}:root:not(.dark){--background:#fff}.dark{--background:#111}';
 $ownership = array(
     'schema' => ThemePreferenceOwnership::CONTRACT_SCHEMA,
     'source_path' => $sourcePath,
@@ -31,6 +32,7 @@ $ownership = array(
     'storage_key' => 'theme',
     'system_query' => '(prefers-color-scheme: dark)',
     'root' => $root,
+    'stylesheet_evidence' => array(array('path' => 'assets/site.css', 'sha256' => hash('sha256', $stylesheet), 'content' => $stylesheet)),
     'default_preference' => 'system',
     'default_observations' => array(
         array('storage_value' => null, 'os_scheme' => 'light', 'resolved' => 'light', 'root_state' => $rootState('light')),
@@ -49,7 +51,7 @@ $artifact = array(
     'entrypoint' => $sourcePath,
     'files' => array(
         $sourcePath => $html,
-        'assets/site.css' => ':root{--background:#fff}:root:not(.dark){--background:#fff}.dark{--background:#111}',
+        'assets/site.css' => $stylesheet,
         $runtimePath => $runtime,
     ),
     'runtime_declarations' => array(array(
@@ -74,6 +76,14 @@ $assert('custom/theme-toggle' === ($wholeBlock['blockName'] ?? null)
     && 'dark' === ($wholeBlock['attrs']['darkValue'] ?? null)
     && 'light' === ($wholeBlock['attrs']['lightValue'] ?? null), 'normal ArtifactCompiler input delivers the canonical source ownership declaration to source conversion.');
 $assert(array() === $whole->fallbacks, 'the canonical source-owned three-button artifact compiles with no fallback blocks.');
+$unlinkedCssArtifact = $artifact;
+unset($unlinkedCssArtifact['files']['assets/site.css']);
+$unlinkedCssArtifact['files'][$sourcePath] = str_replace('<link rel="stylesheet" href="assets/site.css">', '', $html);
+$unlinkedCssResult = (new ArtifactCompiler())->compile($unlinkedCssArtifact);
+$unlinkedCssBlock = $find($unlinkedCssResult->blocks);
+$assert('custom/theme-toggle' === ($unlinkedCssBlock['blockName'] ?? null)
+    && ($unlinkedCssBlock['attrs'] ?? null) === ($wholeBlock['attrs'] ?? false)
+    && array() === $unlinkedCssResult->fallbacks, 'declaration-bound stylesheet bytes still qualify controls when export leaves the source stylesheet asset unlinked.');
 
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);

@@ -65,7 +65,8 @@ $assert(str_contains((string) ($threeWayDefinition['view_js'] ?? ''), "context.t
 $groupSource = '<html class="dark"><body><footer><div class="theme-choices layout-row" style="display:flex;gap:8px" role="group" aria-label="Color theme" data-site-control="appearance"><button type="button" id="light-choice" class="theme-choice" aria-label="Light theme" aria-describedby="theme-help" data-choice="light" style="width:40px;min-width:32px;background-color:#123456;border-radius:4px;padding:8px 16px" onclick="unsafe()"><svg class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle></svg></button><button type="button" class="theme-choice" aria-label="System theme"><svg class="lucide lucide-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14"></rect></svg></button><button type="button" class="theme-choice" aria-label="Dark theme"><svg class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-8-8"></path></svg></button></div></footer><span id="theme-help">Select a color theme.</span></body></html>';
 $groupCss = '.dark .theme-choices .theme-choice{color:#fff}:root:not(.dark) .theme-choices .theme-choice{color:#111}';
 $groupRuntime = 'const labels=["Light theme","System theme","Dark theme"];const provider=({storageKey:key="theme"})=>{const root=document.documentElement;const read=(arg,fallback)=>localStorage.getItem(arg)||fallback;let preference=read(key,"system");const apply=value=>{root.classList.remove(...["dark"]);root.classList.add(value)};const select=value=>{apply(value);localStorage.setItem(key,value)};window.matchMedia("(prefers-color-scheme: dark)")};';
-$makeOwnership = static function (string $sourcePath, string $runtimePath, string $runtime, string $storageKey = 'theme', string $rootAttribute = 'class', string $darkValue = 'dark', string $lightValue = '', string $lightOperation = 'remove-theme-class', array $labels = array('Light theme', 'System theme', 'Dark theme')): array {
+$makeStylesheetEvidence = static fn (string $path, string $content): array => array('path' => $path, 'sha256' => hash('sha256', $content), 'content' => $content);
+$makeOwnership = static function (string $sourcePath, string $runtimePath, string $runtime, string $storageKey = 'theme', string $rootAttribute = 'class', string $darkValue = 'dark', string $lightValue = '', string $lightOperation = 'remove-theme-class', array $labels = array('Light theme', 'System theme', 'Dark theme'), array $stylesheetEvidence = array()): array {
     $rootState = static fn (string $resolved): array => array('attribute' => $rootAttribute, 'value' => 'dark' === $resolved ? $darkValue : (in_array($lightOperation, array('remove-theme-class', 'remove-attribute'), true) ? null : $lightValue));
     return array(
         'schema' => 'blocks-engine/php-transformer/theme-preference-ownership/v1',
@@ -77,6 +78,7 @@ $makeOwnership = static function (string $sourcePath, string $runtimePath, strin
         'storage_key' => $storageKey,
         'system_query' => '(prefers-color-scheme: dark)',
         'root' => array('selector' => 'html', 'attribute' => $rootAttribute, 'dark_value' => $darkValue, 'light_value' => $lightValue, 'light_operation' => $lightOperation),
+        'stylesheet_evidence' => $stylesheetEvidence,
         'default_preference' => 'system',
         'default_observations' => array(
             array('storage_value' => null, 'os_scheme' => 'light', 'resolved' => 'light', 'root_state' => array('attribute' => $rootAttribute, 'value' => in_array($lightOperation, array('remove-theme-class', 'remove-attribute'), true) ? null : $lightValue)),
@@ -95,7 +97,7 @@ $makeOwnership = static function (string $sourcePath, string $runtimePath, strin
         ),
     );
 };
-$groupOperator = $makeOwnership('theme-controls/index.html', 'js/theme.js', $groupRuntime);
+$groupOperator = $makeOwnership('theme-controls/index.html', 'js/theme.js', $groupRuntime, stylesheetEvidence: array($makeStylesheetEvidence('theme-controls/index.css', $groupCss)));
 $groupTransformOptions = array('source' => 'theme-controls/index.html', 'static_css' => $groupCss, 'runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $groupRuntime)), 'theme_preference_ownership' => array($groupOperator));
 $groupResult = (new HtmlTransformer())->transform($groupSource, $groupTransformOptions)->toArray();
 $bareRootCssGroup = (new HtmlTransformer())->transform($groupSource, array_replace($groupTransformOptions, array('static_css' => '.dark{--background:#111}:root{--background:#fff}')))->toArray();
@@ -163,7 +165,7 @@ $compoundRoot = (new HtmlTransformer())->transform($groupSource, array('static_c
 $assert(array() === $findThemeBlock($compoundRoot['blocks'] ?? array()), 'a root mutation for a non-theme class and cart storage cannot borrow a separate dark CSS state');
 $semanticNamesSource = str_replace(array('Light theme', 'System theme', 'Dark theme'), array('Light', 'System mode', 'Dark'), $groupSource);
 $semanticNamesRuntime = str_replace(array('Light theme', 'System theme', 'Dark theme'), array('Light', 'System mode', 'Dark'), $groupRuntime);
-$semanticNames = (new HtmlTransformer())->transform($semanticNamesSource, array_replace($groupTransformOptions, array('runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $semanticNamesRuntime)), 'theme_preference_ownership' => array($makeOwnership('theme-controls/index.html', 'js/theme.js', $semanticNamesRuntime, labels: array('Light', 'System mode', 'Dark'))))))->toArray();
+$semanticNames = (new HtmlTransformer())->transform($semanticNamesSource, array_replace($groupTransformOptions, array('runtime_projection_script_assets' => array(array('path' => 'js/theme.js', 'content' => $semanticNamesRuntime)), 'theme_preference_ownership' => array($makeOwnership('theme-controls/index.html', 'js/theme.js', $semanticNamesRuntime, labels: array('Light', 'System mode', 'Dark'), stylesheetEvidence: array($makeStylesheetEvidence('theme-controls/index.css', $groupCss)))))))->toArray();
 $assert(array('Light', 'System mode', 'Dark') === array_column($semanticNames['blocks'][0]['attrs']['selectionButtons'] ?? array(), 'ariaLabel'), 'semantically equivalent evidenced accessible names remain authored and editable');
 $sourceSelected = (new HtmlTransformer())->transform(str_replace('aria-label="Dark theme"', 'aria-label="Dark theme" aria-pressed="true"', $groupSource), $groupTransformOptions)->toArray();
 $sourceSelectedBlock = $findThemeBlock($sourceSelected['blocks'] ?? array());
@@ -174,7 +176,7 @@ $rootAttributeCss = ':root:not([data-theme]){color-scheme:light;background:#fff}
 $rootAttributeRuntime = 'const labels=["Light theme","System theme","Dark theme"];const root=document.documentElement;const storageKey="appearance";const value=localStorage.getItem(storageKey);root.setAttribute("data-theme","dark");root.removeAttribute("data-theme");localStorage.setItem(storageKey,value);window.matchMedia("(prefers-color-scheme: dark)");';
 $rootAttributeSourcePath = 'theme-controls/data.html';
 $rootAttributeRuntimePath = 'js/data-theme.js';
-$rootAttributeResult = (new HtmlTransformer())->transform($rootAttributeSource, array('source' => $rootAttributeSourcePath, 'static_css' => $rootAttributeCss, 'runtime_projection_script_assets' => array(array('path' => $rootAttributeRuntimePath, 'content' => $rootAttributeRuntime)), 'theme_preference_ownership' => array($makeOwnership($rootAttributeSourcePath, $rootAttributeRuntimePath, $rootAttributeRuntime, 'appearance', 'data-theme', 'dark', '', 'remove-attribute'))))->toArray();
+$rootAttributeResult = (new HtmlTransformer())->transform($rootAttributeSource, array('source' => $rootAttributeSourcePath, 'static_css' => $rootAttributeCss, 'runtime_projection_script_assets' => array(array('path' => $rootAttributeRuntimePath, 'content' => $rootAttributeRuntime)), 'theme_preference_ownership' => array($makeOwnership($rootAttributeSourcePath, $rootAttributeRuntimePath, $rootAttributeRuntime, 'appearance', 'data-theme', 'dark', '', 'remove-attribute', stylesheetEvidence: array($makeStylesheetEvidence('theme-controls/data.css', $rootAttributeCss))))))->toArray();
 $rootAttributeBlock = $findThemeBlock($rootAttributeResult['blocks'] ?? array());
 $assert('data-theme' === ($rootAttributeBlock['attrs']['rootAttribute'] ?? null)
     && 'dark' === ($rootAttributeBlock['attrs']['darkValue'] ?? null)

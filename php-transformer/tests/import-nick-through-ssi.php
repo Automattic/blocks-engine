@@ -30,6 +30,8 @@ if (preg_match('/<!--\s*wp:([a-z0-9_-]+\/theme-toggle)\b/', (string) ($nickPages
 $declarations = $result['materialization_receipt']['plan']['runtime_declarations'] ?? array();
 $themeDeclaration = current(array_filter($declarations, static fn (array $declaration): bool => 'theme_control' === ($declaration['kind'] ?? null))) ?: array();
 $ownership = $themeDeclaration['payload']['ownership'] ?? array();
+update_option('ssi_nick_theme_preference_ownership', $themeDeclaration, false);
+update_option('ssi_nick_theme_source_page_id', (int) ($nickPages[0]['id'] ?? 0), false);
 $summary = array(
     'status' => $result['materialization_receipt']['status'] ?? null,
     'theme_slug' => $result['theme_slug'] ?? '',

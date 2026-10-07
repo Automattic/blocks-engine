@@ -114,6 +114,11 @@ try {
         && asset.content.includes('document.documentElement'));
     assert.equal(owners.length, 1, 'one unchanged first-party runtime bundle contains the observed root/storage/system preference implementation');
     const owner = owners[0];
+    const stylesheetOwners = [...resources.values()].filter((asset) => 'stylesheet' === asset.resource_type
+        && /:root[^{}]*\{[^}]*--background/i.test(asset.content)
+        && /\.dark[^{}]*\{[^}]*--background/i.test(asset.content));
+    assert.equal(stylesheetOwners.length, 1, 'one unchanged first-party stylesheet owns the observed light/dark root theme facts');
+    const stylesheetOwner = stylesheetOwners[0];
     const sourceHtml = await page.content();
     const unchangedSourceFooter = await page.locator('footer').evaluate((footer) => footer.outerHTML);
     const localPaths = new Set(resources.keys());
@@ -149,6 +154,7 @@ try {
         storage_key: 'theme',
         system_query: '(prefers-color-scheme: dark)',
         root: { selector: 'html', attribute: 'class', dark_value: 'dark', light_value: 'light', light_operation: 'set-theme-class' },
+        stylesheet_evidence: [{ path: stylesheetOwner.path, sha256: stylesheetOwner.sha256, content: stylesheetOwner.content }],
         default_preference: 'system',
         default_observations: defaultObservations,
         controls: sourceControls.map((control, index) => ({ mode: modes[index], accessible_name: control.accessible_name, icon: semantics[index] })),
@@ -175,6 +181,7 @@ try {
         browser_default_observations: defaultObservations,
         storage_and_root_after_reload: await rootState(),
         runtime_asset: { path: owner.path, url: owner.url, bytes: owner.bytes, sha256: owner.sha256 },
+        stylesheet_asset: { path: stylesheetOwner.path, url: stylesheetOwner.url, bytes: stylesheetOwner.bytes, sha256: stylesheetOwner.sha256 },
         runtime_asset_call_stacks: runtimeAssetCallStacks,
         resources: [...resources.values()].map(({ path, bytes, sha256, url, resource_type }) => ({ path, bytes, sha256, url, resource_type })),
         artifact_source_sha256: createHash('sha256').update(portableHtml).digest('hex'),

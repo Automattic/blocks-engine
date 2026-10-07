@@ -84,4 +84,15 @@ nick_post_id="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").re
 nick_block_name="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).block_name)' "$evidence/nick-site/ssi-import-result.json")"
 NICK_THEME_EVIDENCE_DIR="$evidence/nick-site" THEME_ACCEPTANCE_WP_URL="http://127.0.0.1:${port}" NICK_THEME_POST_ID="$nick_post_id" NICK_THEME_BLOCK_NAME="$nick_block_name" THEME_ACCEPTANCE_USER=themeadmin THEME_ACCEPTANCE_PASSWORD=theme-password \
     run node "$root/tests/editor-nick-theme-acceptance.mjs" | tee "$evidence/nick-site/ssi-browser-result.txt"
+"${wp[@]}" eval-file /tmp/blocks-engine-php-transformer/tests/export-nick-theme-through-ssi.php | tee "$evidence/nick-site/fresh-exporter-request.json"
+docker cp "$wp_container:/var/www/html/wp-content/themes/nick-theme-restoration/ssi-export-reimport-diagnostic.json" "$evidence/nick-site/ssi-export-reimport-diagnostic.json"
+docker cp "$wp_container:/var/www/html/wp-content/themes/nick-theme-restoration/ssi-exported-artifact.json" "$evidence/nick-site/ssi-exported-artifact.json"
+exported_block_name="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).reimport_block_name || "")' "$evidence/nick-site/ssi-export-reimport-diagnostic.json")"
+reimport_control="$(node -e 'const x=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(x.reimport_block_name==="custom/theme-toggle"&&x.ssi_reimport?.companion_block_names?.includes("ssi-nick-theme-restoration-reimport/theme-toggle")&&x.ssi_reimport?.template_parts?.some(p=>p.has_theme_block)&&x.ssi_reimport?.runtime_script_sha256===x.qualified_runtime_sha256))' "$evidence/nick-site/ssi-export-reimport-diagnostic.json")"
+if [[ "$exported_block_name" != "custom/theme-toggle" || "$reimport_control" != "true" ]]; then printf 'BLOCKED: SSI theme export/reimport did not restore the source theme group into its native companion/template part; evidence retained at %s\n' "$evidence/nick-site/ssi-export-reimport-diagnostic.json" >&2; exit 1; fi
+reimport_post_id="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).ssi_reimport.page_ids[0]))' "$evidence/nick-site/ssi-export-reimport-diagnostic.json")"
+"${wp[@]}" plugin deactivate static-site-importer
+"${wp[@]}" theme activate nick-theme-restoration-reimport
+NICK_THEME_EVIDENCE_DIR="$evidence/nick-site" THEME_ACCEPTANCE_WP_URL="http://127.0.0.1:${port}" NICK_THEME_REIMPORT_POST_ID="$reimport_post_id" \
+    run node "$root/tests/frontend-nick-ssi-reimport-acceptance.mjs" | tee "$evidence/nick-site/ssi-reimport-browser-result.txt"
 printf 'Evidence retained at %s\n' "$evidence"
