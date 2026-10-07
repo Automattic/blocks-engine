@@ -210,6 +210,50 @@ $assert(
     json_encode($carrierTitle)
 );
 
+// A form builder keeps its own status copy ("Thanks for submitting!") in the
+// form and hides it until a submission succeeds. That copy is not something a
+// reader sees, so the context item says it is hidden and by which property;
+// copy the reader does see carries no such fact (#2560).
+$statusCopy = $formContext(
+    '<style>#msg{visibility:hidden !important}#err{display:none}.shown{visibility:hidden}.shown p{visibility:visible}</style>'
+    . '<main><form method="post"><input type="email" name="email"><input type="submit" value="Send">'
+    . '<div id="msg" class="rich"><p class="font_5">Thanks for submitting!</p></div>'
+    . '<div id="err"><p>Something went wrong.</p></div>'
+    . '<div class="shown"><p>We reply within a day.</p></div>'
+    . '<p class="note">Your details stay private.</p></form></main>'
+);
+$statusItems = array_column($statusCopy['context_after'] ?? array(), null, 'text');
+$assert(
+    'visibility' === ( $statusItems['Thanks for submitting!']['hidden']['property'] ?? null )
+        && 'hidden' === ( $statusItems['Thanks for submitting!']['hidden']['value'] ?? null )
+        && '#msg' === ( $statusItems['Thanks for submitting!']['hidden']['selector'] ?? null ),
+    'copy inside a visibility-hidden box records that it is hidden',
+    json_encode($statusCopy)
+);
+$assert(
+    'display' === ( $statusItems['Something went wrong.']['hidden']['property'] ?? null )
+        && 'none' === ( $statusItems['Something went wrong.']['hidden']['value'] ?? null ),
+    'copy inside a display-none box records that it is hidden',
+    json_encode($statusCopy)
+);
+$assert(
+    isset($statusItems['We reply within a day.'], $statusItems['Your details stay private.'])
+        && ! isset($statusItems['We reply within a day.']['hidden'])
+        && ! isset($statusItems['Your details stay private.']['hidden']),
+    'visible copy, including copy that re-shows itself inside a hidden box, carries no hidden fact',
+    json_encode($statusCopy)
+);
+$responsiveCopy = $formContext(
+    '<style>.wide-only{display:none}@media (min-width:768px){.wide-only{display:block}}</style>'
+    . '<main><form method="post"><input type="email" name="email"><input type="submit" value="Send">'
+    . '<p class="wide-only">Call us on weekdays.</p></form></main>'
+);
+$assert(
+    'Call us on weekdays.' === ( $responsiveCopy['context_after'][0]['text'] ?? null ) && ! isset($responsiveCopy['context_after'][0]['hidden']),
+    'copy a media query shows is not reported as hidden',
+    json_encode($responsiveCopy)
+);
+
 $unrelatedCss = '';
 for ($index = 0; $index < 8300; ++$index) {
     $unrelatedCss .= '.unrelated-' . $index . '{display:block;padding:0;font-size:12px}';

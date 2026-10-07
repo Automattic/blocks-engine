@@ -619,7 +619,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => $this->elementSelector($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
-            fn (DOMElement $element): array => $this->formContextTypography($element)
+            fn (DOMElement $element): array => $this->formContextTypography($element),
+            fn (DOMElement $element, DOMElement $boundary): ?array => $this->formContextHiddenState($element, $boundary)
         );
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
@@ -1330,6 +1331,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->typographyStyles(
             $element,
+            $this->authorStyles()->stylesheetAssets(),
+            $this->sourceStyles()->formLayoutCss()
+        );
+    }
+
+    /** @return array<string, string>|null */
+    private function formContextHiddenState(DOMElement $element, DOMElement $boundary): ?array
+    {
+        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->hiddenState(
+            $element,
+            $boundary,
             $this->authorStyles()->stylesheetAssets(),
             $this->sourceStyles()->formLayoutCss()
         );

@@ -70,6 +70,7 @@ final class FormPresentationGraphBuilder
     private bool $truncated = false;
     /** Memoized rule sets for {@see typographyStyles()}, analyzed once per transform. */
     private ?array $typographyAnalysis = null;
+    private ?array $visibilityAnalysis = null;
 
     /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker @param list<DOMElement> $scopeElements */
     public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null, private readonly array $scopeElements = array())
@@ -194,6 +195,118 @@ final class FormPresentationGraphBuilder
             null,
             $this->typographyAnalysis['customProperties']
         );
+    }
+
+    /**
+     * Whether the source hides an element unconditionally: `display: none` on it
+     * or on an ancestor below `$boundary`, or a resolved `visibility` of
+     * `hidden`/`collapse` (the nearest declaration wins, since a descendant may
+     * re-show itself). Form builders keep status copy such as a success message
+     * inside the form this way until a submission succeeds. Returns the
+     * deciding declaration, or null when the element is shown, when it is shown
+     * under any condition a rule on the chain declares (a responsive variant is
+     * not status copy), or when the bounded cascade could not be analyzed.
+     *
+     * @return array{property: string, value: string, selector: string, source_path: string}|null
+     */
+    public function hiddenState(DOMElement $element, DOMElement $boundary, array $stylesheets, string $inlineCss = ''): ?array
+    {
+        if ( null === $this->visibilityAnalysis ) {
+            $filter = array() === $this->scopeElements ? null : self::cascadeFilter($this->scopeElements);
+            $this->visibilityAnalysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array( 'display', 'visibility' ), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        }
+        if ( $this->visibilityAnalysis['truncated'] ) {
+            return null;
+        }
+        $chain = array();
+        $conditions = array();
+        for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            $facts = $this->visibilityFacts($node, $this->visibilityAnalysis['rules']);
+            $chain[] = $facts;
+            $conditions += array_fill_keys(array_keys($facts['conditional']), true);
+        }
+        $hidden = self::hiddenDecision($chain, null);
+        if ( null === $hidden ) {
+            return null;
+        }
+        // A responsive variant that shows the element makes it layout, not status copy.
+        foreach ( array_keys($conditions) as $condition ) {
+            if ( null === self::hiddenDecision($chain, (string) $condition) ) {
+                return null;
+            }
+        }
+        return $hidden;
+    }
+
+    /**
+     * @param list<array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>}> $chain
+     * @return array{property: string, value: string, selector: string, source_path: string}|null
+     */
+    private static function hiddenDecision(array $chain, ?string $condition): ?array
+    {
+        $visibility = null;
+        foreach ( $chain as $facts ) {
+            $resolved = $facts['base'];
+            if ( null !== $condition ) {
+                foreach ( $facts['conditional'][$condition] ?? array() as $property => $fact ) {
+                    CssCascade::apply($resolved, $property, $fact);
+                }
+            }
+            $display = $resolved['display'] ?? null;
+            if ( is_array($display) && 'none' === strtolower(trim((string) $display['value'])) ) {
+                return self::hiddenFact('display', 'none', $display);
+            }
+            if ( null === $visibility && is_array($resolved['visibility'] ?? null) ) {
+                $visibility = $resolved['visibility'];
+            }
+        }
+        $value = null === $visibility ? '' : strtolower(trim((string) $visibility['value']));
+        return in_array($value, array( 'hidden', 'collapse' ), true) ? self::hiddenFact('visibility', $value, $visibility) : null;
+    }
+
+    /**
+     * Winning `display`/`visibility` declarations on one element, unconditional
+     * and per condition.
+     *
+     * @return array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>}
+     */
+    private function visibilityFacts(DOMElement $element, array $rules): array
+    {
+        $properties = array( 'display', 'visibility' );
+        if ( $element->hasAttribute('style') ) {
+            $inline = $element->getAttribute('style');
+            $rules[] = array( 'inline' => true, 'selector' => '[style]', 'declarations' => CssRuleAnalyzer::declarations($inline, $properties), 'condition' => null, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'order' => PHP_INT_MAX, 'specificity' => 10000 );
+        }
+        $base = array();
+        $conditional = array();
+        foreach ( $rules as $rule ) {
+            $match = ! empty($rule['inline']) ? array( 'supported' => true, 'matches' => true ) : CssSelectorMatcher::matches($element, $rule['parsed_selector']);
+            if ( ! $match['supported'] || ! $match['matches'] ) {
+                continue;
+            }
+            $encoded = null === ( $rule['condition'] ?? null ) ? null : (string) json_encode($rule['condition']);
+            foreach ( $rule['declarations'] as $declarationOrder => $declaration ) {
+                if ( ! in_array($declaration['name'], $properties, true) ) {
+                    continue;
+                }
+                $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
+                $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
+                $fact = array( 'value' => $value, 'path' => $rule['path'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'declaration_order' => $declarationOrder, 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
+                if ( null === $encoded ) {
+                    CssCascade::apply($base, $declaration['name'], $fact);
+                } else {
+                    $conditional[$encoded] ??= array();
+                    CssCascade::apply($conditional[$encoded], $declaration['name'], $fact);
+                }
+            }
+        }
+        return array( 'base' => $base, 'conditional' => $conditional );
+    }
+
+    /** @return array{property: string, value: string, selector: string, source_path: string} */
+    private static function hiddenFact(string $property, string $value, array $fact): array
+    {
+        return array( 'property' => $property, 'value' => $value, 'selector' => (string) $fact['selector'], 'source_path' => (string) $fact['path'] );
     }
 
     /**
