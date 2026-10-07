@@ -92,6 +92,7 @@
       "php tests/contract/shared-chrome-stylesheet-scope.php",
       "php tests/contract/shared-chrome-authored-rules.php",
       "php tests/contract/shared-chrome-paint-order-root.php",
+      "php tests/contract/shared-chrome-backdrop-containing-block.php",
       "php tests/contract/shared-empty-data-carrier-geometry.php",
       "php tests/contract/generated-block-document-identity.php",
       "php tests/contract/shared-shell-entity-bindings.php",
