@@ -72,6 +72,7 @@ try {
         if (!menu) throw new Error('No desktop native menu entity: ' + JSON.stringify(blocks.filter(block => block.name === 'core/navigation').map(block => block.attributes)));
         const items = wp.blocks.parse(menu.content.raw);
         items[0].attributes.label = 'Services edited once';
+        await wp.data.resolveSelect('core').getEntityRecord('postType', 'wp_navigation', menu.id);
         wp.data.dispatch('core').editEntityRecord('postType', 'wp_navigation', menu.id, { content: wp.blocks.serialize(items) });
         await wp.data.dispatch('core').saveEditedEntityRecord('postType', 'wp_navigation', menu.id);
         const reloaded = await wp.apiFetch({ path: `/wp/v2/navigation/${menu.id}?context=edit` });
