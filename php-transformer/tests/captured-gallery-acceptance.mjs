@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
-import { chromium } from '../tools/visual-parity/node_modules/playwright/index.mjs';
+import { execFileSync } from 'node:child_process';
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || '../tools/visual-parity/node_modules/playwright/index.mjs');
 const base=process.env.BE_EDITOR_WP_URL,id=process.env.BE_EDITOR_POST_ID,evidence=process.env.BE_EDITOR_EVIDENCE_DIR;
 const browser=await chromium.launch();
 const page=await browser.newPage({locale:'en-US',viewport:{width:1440,height:900}});
@@ -49,15 +50,28 @@ try{
   await page.screenshot({path:`${evidence}/frontend-${width}.png`,fullPage:true});result.widths.push({width,initial,next,opened,previous,cycle,inlineCycle,binding,inlineDecoded:images.length,fullDecoded:fullImages.length});
  }
  assert.ok(result.widths.some(row=>row.fullDecoded===20),'The actual capture supplies at least one complete observed image lightbox');
- await page.unroute('**/*');await page.goto(`${base}/wp-login.php`,{waitUntil:'domcontentloaded'});
- await page.getByLabel('Username or Email Address').fill(process.env.BE_EDITOR_USER);await page.getByRole('textbox',{name:'Password'}).fill(process.env.BE_EDITOR_PASSWORD);await page.getByRole('button',{name:'Log In'}).click();
+  await page.unroute('**/*');
+  if(process.env.BE_EDITOR_STUDIO_PATH){
+   const auth=JSON.parse(execFileSync('studio',['wp','--path',process.env.BE_EDITOR_STUDIO_PATH,'eval','echo json_encode(["hash"=>COOKIEHASH,"auth"=>wp_generate_auth_cookie(1,time()+3600,"auth"),"logged_in"=>wp_generate_auth_cookie(1,time()+3600,"logged_in")]);'],{encoding:'utf8'}));
+   await page.context().addCookies([{name:`wordpress_${auth.hash}`,value:auth.auth,url:base},{name:`wordpress_logged_in_${auth.hash}`,value:auth.logged_in,url:base}]);
+  }else{
+   await page.goto(`${base}/wp-login.php`,{waitUntil:'domcontentloaded'});
+   await page.getByLabel('Username or Email Address').fill(process.env.BE_EDITOR_USER);await page.getByRole('textbox',{name:'Password'}).fill(process.env.BE_EDITOR_PASSWORD);await page.getByRole('button',{name:'Log In'}).click();
+  }
  await page.goto(`${base}/wp-admin/post.php?post=${id}&action=edit`,{waitUntil:'domcontentloaded'});await page.waitForFunction(()=>window.wp?.data?.select('core/block-editor')?.getBlocks().length>0);
  const read=()=>page.evaluate(()=>{const visit=blocks=>blocks.flatMap(b=>[{name:b.name,id:b.clientId,attrs:b.attributes,valid:b.isValid,registered:!!wp.blocks.getBlockType(b.name)},...visit(b.innerBlocks||[])]);return visit(wp.data.select('core/block-editor').getBlocks());});
  const before=await read();result.editor={before};
  result.editor.validation=await page.evaluate(()=>{const visit=blocks=>blocks.flatMap(b=>[{name:b.name,valid:b.isValid,children:b.innerBlocks?.length,issues:b.validationIssues,original:b.isValid?undefined:b.originalContent,generated:b.isValid?undefined:wp.blocks.getSaveContent(b.name,b.attributes,b.innerBlocks)},...visit(b.innerBlocks||[])]);return visit(wp.data.select('core/block-editor').getBlocks());});
  assert.ok(before.every(b=>b.valid&&b.registered),JSON.stringify(before.filter(b=>!b.valid||!b.registered).map(b=>({name:b.name,attrs:b.attrs}))));const images=before.filter(b=>b.name==='core/image');assert.ok(images.length>=40);
- await page.evaluate(id=>wp.data.dispatch('core/block-editor').updateBlockAttributes(id,{alt:'Edited captured gallery image'}),images[0].id);await page.evaluate(()=>wp.data.dispatch('core/editor').savePost());
+  const originalAlt=images[0].attrs.alt||'';
+  await page.evaluate(id=>wp.data.dispatch('core/block-editor').updateBlockAttributes(id,{alt:'Edited captured gallery image'}),images[0].id);await page.evaluate(()=>wp.data.dispatch('core/editor').savePost());
  await page.waitForFunction(()=>{const s=wp.data.select('core/editor');return !s.isSavingPost()&&!s.isEditedPostDirty()&&s.didPostSaveRequestSucceed();});await page.reload({waitUntil:'domcontentloaded'});await page.waitForFunction(()=>wp?.data?.select('core/block-editor')?.getBlocks().length>0);
  const after=await read();assert.ok(after.every(b=>b.valid&&b.registered));assert.equal(after.filter(b=>b.name==='core/image').length,images.length);assert.equal(after.find(b=>b.name==='core/image').attrs.alt,'Edited captured gallery image');
- const validity=await page.evaluate(()=>{const visit=blocks=>blocks.flatMap(b=>[{name:b.name,valid:wp.blocks.validateBlock(b)[0]},...visit(b.innerBlocks||[])]);return visit(wp.blocks.parse(wp.data.select('core/editor').getEditedPostContent()));});assert.ok(validity.every(b=>b.valid));result.editor={nativeImages:images.length,validity};console.log(JSON.stringify({ok:true,widths:result.widths.length,editorImages:images.length,blockedRequests:blocked}));
+  const validity=await page.evaluate(()=>{const visit=blocks=>blocks.flatMap(b=>[{name:b.name,valid:wp.blocks.validateBlock(b)[0]},...visit(b.innerBlocks||[])]);return visit(wp.blocks.parse(wp.data.select('core/editor').getEditedPostContent()));});assert.ok(validity.every(b=>b.valid));
+  if(process.env.BE_EDITOR_STUDIO_PATH){
+   await page.evaluate(({id,alt})=>wp.data.dispatch('core/block-editor').updateBlockAttributes(id,{alt}),{id:after.find(b=>b.name==='core/image').id,alt:originalAlt});
+   await page.evaluate(()=>wp.data.dispatch('core/editor').savePost());
+   await page.waitForFunction(()=>{const s=wp.data.select('core/editor');return !s.isSavingPost()&&!s.isEditedPostDirty()&&s.didPostSaveRequestSucceed();});
+  }
+  result.editor={nativeImages:images.length,validity};console.log(JSON.stringify({ok:true,widths:result.widths.length,editorImages:images.length,blockedRequests:blocked}));
 }finally{await writeFile(`${evidence}/gallery-runtime-evidence.json`,JSON.stringify(result,null,2));await writeFile(`${evidence}/browser-console.json`,JSON.stringify(errors,null,2));await browser.close();}
