@@ -28,11 +28,14 @@ final class FormControlMetadataBuilder
      * @param Closure(DOMElement): string $elementSelector
      * @param Closure(DOMElement): array<string, string>|null $typographyStyles Resolved snake_case typography
      *     facts for one element, through the form presentation graph's cascade.
+     * @param Closure(DOMElement, DOMElement): (array<string, string>|null)|null $hiddenState The declaration
+     *     that hides an element below a form boundary, if the source hides it unconditionally.
      */
     public function __construct(
         private readonly Closure $elementSelector,
         private readonly ?Closure $presentationAttributes = null,
-        private readonly ?Closure $typographyStyles = null
+        private readonly ?Closure $typographyStyles = null,
+        private readonly ?Closure $hiddenState = null
     ) {
     }
 
@@ -166,7 +169,7 @@ final class FormControlMetadataBuilder
                 continue;
             }
 
-            $item = $this->inFormContextItem($node);
+            $item = $this->inFormContextItem($node, $form);
             if ( null === $item ) {
                 continue;
             }
@@ -194,7 +197,7 @@ final class FormControlMetadataBuilder
     }
 
     /** @return array<string, mixed>|null */
-    private function inFormContextItem(DOMElement $node): ?array
+    private function inFormContextItem(DOMElement $node, DOMElement $form): ?array
     {
         $tagName = strtolower($node->tagName);
         $text = trim((string) preg_replace('/\s+/', ' ', $node->textContent ?? ''));
@@ -238,6 +241,15 @@ final class FormControlMetadataBuilder
         $styles = $this->contextTypography($node);
         if ( array() !== $styles ) {
             $item['styles'] = $styles;
+        }
+
+        // Status copy a form keeps hidden until it is submitted ("Thanks for
+        // submitting!") is not copy the reader sees. Say so, and by which
+        // declaration, so a consumer whose provider renders its own status can
+        // leave it out instead of showing it permanently.
+        $hidden = null === $this->hiddenState ? null : ($this->hiddenState)($node, $form);
+        if ( is_array($hidden) ) {
+            $item['hidden'] = $hidden;
         }
 
         return $item;

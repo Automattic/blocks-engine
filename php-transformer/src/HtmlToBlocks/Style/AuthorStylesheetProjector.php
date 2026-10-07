@@ -48,11 +48,17 @@ final class AuthorStylesheetProjector
         private readonly AuthorStyleRuleProjector $ruleBodyProjector
     ) {}
 
-    public function project(string $stylesheet, AuthorStylesheetProjectionContext $context): string
+    /**
+     * @param list<string> $outerConditions Conditions that scope the whole
+     *     stylesheet from outside its text, such as a link's media attribute.
+     *     They reach only the rule-body projections that compare against the
+     *     analyzed source cascade, which already reads the stylesheet under them.
+     */
+    public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors), $ancestors)
+            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions)
         );
     }
 
@@ -68,17 +74,18 @@ final class AuthorStylesheetProjector
         return false;
     }
 
-    /** @param list<string> $ancestors */
-    private function projectStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, array $ancestors = array()): string
+    /** @param list<string> $ancestors @param list<string> $outerConditions */
+    private function projectStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, array $ancestors = array(), array $outerConditions = array()): string
     {
         $lifted = ColorSchemeVariant::liftPrelude($prelude);
-        $css = $this->emitProjectedStyleRule($lifted['prelude'], $body, $context, $inConditional);
+        $css = $this->emitProjectedStyleRule($lifted['prelude'], $body, $context, $inConditional, array( ...$outerConditions, ...$ancestors ));
         $css .= $this->sharedBodyCanvasPaintRule($lifted['prelude'], $body, $context);
 
         return ColorSchemeVariant::wrap($css, $lifted['scheme'], $ancestors);
     }
 
-    private function emitProjectedStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
+    /** @param list<string> $conditions At-rules the rule sits inside, outermost first. */
+    private function emitProjectedStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, array $conditions = array()): string
     {
         $parts = str_contains($body, '{') ? (new CssStylesheetTransformer())->splitStyleRuleBody($body) : array();
         $hasNestedRules = array_filter($parts, static fn (array $part): bool => isset($part['prelude']));
@@ -93,14 +100,14 @@ final class AuthorStylesheetProjector
                 if ( isset($part['declarations']) ) {
                     // Splitting only contiguous runs retains declarations after
                     // a nested condition at their original cascade position.
-                    $css .= $this->emitProjectedStyleRule($prelude, $part['declarations'], $context, $inConditional);
+                    $css .= $this->emitProjectedStyleRule($prelude, $part['declarations'], $context, $inConditional, $conditions);
                 } elseif ( in_array($part['at_rule'], array('media', 'supports'), true) ) {
-                    $css .= $part['prelude'] . '{' . $this->emitProjectedStyleRule($prelude, $part['body'], $context, true) . '}';
+                    $css .= $part['prelude'] . '{' . $this->emitProjectedStyleRule($prelude, $part['body'], $context, true, array( ...$conditions, trim((string) $part['prelude']) )) . '}';
                 } else {
                     // Relative selectors and scoped/layer rules retain their
                     // original host. Only media/supports conditions can lift.
                     $nested = '' === $part['at_rule']
-                        ? $this->emitProjectedStyleRule($part['prelude'], $part['body'], $context, $inConditional)
+                        ? $this->emitProjectedStyleRule($part['prelude'], $part['body'], $context, $inConditional, $conditions)
                         : $part['prelude'] . '{' . $part['body'] . '}';
                     $css .= $this->rewriteSelectorPrelude($prelude, $context) . '{' . $nested . '}';
                 }
@@ -112,7 +119,8 @@ final class AuthorStylesheetProjector
             $body,
             $context->authorStyles,
             $context->sourceStyles,
-            $context->evidence
+            $context->evidence,
+            $conditions
         );
         $body = $projection['body'];
         $declarations = $projection['declarations'];
@@ -1559,7 +1567,7 @@ final class AuthorStylesheetProjector
             $supersededToggles = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( $this->isPreservedCodeSyntaxElement($element) ) {
+                if ( $context->selectorProjections->isRetainedSourcePath($path) || $this->isPreservedCodeSyntaxElement($element) ) {
                     $hasNonProjected = true;
                 } elseif ( $typeSubject && $context->selectorProjections->isSupersededControlPath($path) ) {
                     $supersededToggles = true;
@@ -1867,7 +1875,7 @@ final class AuthorStylesheetProjector
             $id = trim($element->getAttribute('id'));
             $parent = $element->parentNode;
             $parentMarker = $parent instanceof DOMElement && preg_match('/>\s*$/', trim($ancestry))
-                ? $context->selectorProjections->attributeMarker($parent->getNodePath() ?? '', $selector)
+                ? $context->selectorProjections->attributeMarker($parent->getNodePath() ?? '', AuthorSelectorProjectionState::parentAttributeIdentity($selector))
                 : '';
             if ( '' !== $parentMarker && preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
                 $projected[] = $scope . ':where(.' . $parentMarker . ')>:where(#' . $id . ')' . $this->selectorSpecificityShims($parsed, $context);

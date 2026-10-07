@@ -77,6 +77,9 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, array{base: string, conditional: array<string, string>}> */
     private array $responsiveTypographyRules = array();
 
+    /** @var array<string, array{base: string, conditional: array<string, string>}> */
+    private array $responsiveBlockMarginTopRules = array();
+
     /** @var array<string, array{marker: string, selector: string, conditions: list<string>, declarations: array<string, string>}> */
     private array $sourceCustomPropertyRules = array();
 
@@ -306,6 +309,12 @@ final class GeneratedSupportStylesheetState
         );
     }
 
+    /** @param array<string, string> $conditional */
+    public function registerResponsiveBlockMarginTop(string $className, string $base, array $conditional): void
+    {
+        $this->responsiveBlockMarginTopRules[$className] = array('base' => $base, 'conditional' => $conditional);
+    }
+
     /** @param list<string> $conditions @param array<string, string> $declarations */
     public function registerSourceCustomPropertyScope(string $marker, string $selector, array $conditions, array $declarations): void
     {
@@ -421,6 +430,14 @@ final class GeneratedSupportStylesheetState
             }
             foreach ($rules['conditional'] as $condition => $value) {
                 $parts[] = $condition . '{:root .' . $className . '{font-size:' . $value . '}'
+                    . str_repeat('}', substr_count($condition, '{') + 1);
+            }
+        }
+        foreach ($this->responsiveBlockMarginTopRules as $className => $rules) {
+            if (!str_contains($serializedBlocks, $className)) continue;
+            if ('' !== $rules['base']) $parts[] = ':root .' . $className . '{margin-top:' . $rules['base'] . '}';
+            foreach ($rules['conditional'] as $condition => $value) {
+                $parts[] = $condition . '{:root .' . $className . '{margin-top:' . $value . '}'
                     . str_repeat('}', substr_count($condition, '{') + 1);
             }
         }

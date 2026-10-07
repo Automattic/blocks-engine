@@ -1,7 +1,9 @@
 name: PHP Transformer
 
 on:
+  workflow_dispatch:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     paths:
       - ".github/workflows/php-transformer.yml"
       - "php-transformer/**"
@@ -159,3 +161,24 @@ jobs:
           REQUIRE_WP_TESTS: "1"
           WP_TESTS_DIR: ${{ runner.temp }}/wordpress-develop/tests/phpunit
         run: composer test:wordpress-integration
+
+  stylesheet-activation:
+    name: WordPress stylesheet activation browser regression
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: php-transformer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: "8.3"
+          tools: composer:v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: npm ci --prefix tools/visual-parity
+      - run: npx --prefix tools/visual-parity playwright install --with-deps chromium
+      - name: Verify real generated WordPress paint, selection, editor assets and save/reload
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" bash tests/integration/stylesheet-activation-docker.sh

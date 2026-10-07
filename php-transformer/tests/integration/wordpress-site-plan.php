@@ -83,6 +83,12 @@ require $themeDir . '/functions.php';
 $sourceSentence = 'What is your favorite RC track you\'ve been to? "Any" -- even the 1960s ones...';
 $assert($sourceSentence === wptexturize($sourceSentence, true), 'A generated theme renders captured punctuation exactly as the source wrote it.');
 $assert(str_contains(apply_filters('the_content', '<p>' . $sourceSentence . '</p>'), $sourceSentence), 'The content pipeline delivers decoded source punctuation unchanged.');
+$assert(false === has_action('wp_head', 'print_emoji_detection_script') && false === has_action('embed_head', 'print_emoji_detection_script'), 'The generated theme keeps native emoji on frontend and embedded source text.');
+$assert(array('wordpress', 'lists') === apply_filters('tiny_mce_plugins', array('wordpress', 'wpemoji', 'lists')), 'Editable source text keeps native emoji while retaining unrelated TinyMCE plugins.');
+// Core registers this admin callback after theme loading, before admin_init.
+add_action('admin_print_scripts', 'print_emoji_detection_script');
+do_action('admin_init');
+$assert(false === has_action('admin_print_scripts', 'print_emoji_detection_script'), 'The theme removes the late-registered admin emoji runtime before editor scripts print.');
 $editorUserId = wp_insert_user(array('user_login' => 'blocks-engine-editor-' . wp_generate_password(8, false), 'user_pass' => wp_generate_password(24), 'role' => 'administrator'));
 if (is_wp_error($editorUserId)) throw new RuntimeException($editorUserId->get_error_message());
 wp_set_current_user($editorUserId);

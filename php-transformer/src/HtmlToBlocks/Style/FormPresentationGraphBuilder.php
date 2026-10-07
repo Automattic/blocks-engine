@@ -32,7 +32,7 @@ final class FormPresentationGraphBuilder
     private const MAX_DIAGNOSTICS = 32;
     /** The text properties a label role reads from its text carrier when the label declares none itself. */
     private const TYPOGRAPHY_PROPERTIES = array(
-        'color', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height',
+        'color', 'font', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height',
     );
     /** How far a text-carrier search may walk before the search, not the cascade, gives up. */
     private const MAX_CARRIER_CANDIDATES = 256;
@@ -49,7 +49,7 @@ final class FormPresentationGraphBuilder
         'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
         'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
         'border-radius', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius',
-        'box-sizing', 'color', 'display', 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight',
+        'box-sizing', 'color', 'display', 'font', 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight',
         'height', 'letter-spacing', 'line-height', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
         // Margin carries the same logical longhands padding already reports, so a
         // source that spaces an element with `margin-inline-start` keeps that box.
@@ -70,6 +70,7 @@ final class FormPresentationGraphBuilder
     private bool $truncated = false;
     /** Memoized rule sets for {@see typographyStyles()}, analyzed once per transform. */
     private ?array $typographyAnalysis = null;
+    private ?array $visibilityAnalysis = null;
 
     /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker @param list<DOMElement> $scopeElements */
     public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null, private readonly array $scopeElements = array())
@@ -194,6 +195,118 @@ final class FormPresentationGraphBuilder
             null,
             $this->typographyAnalysis['customProperties']
         );
+    }
+
+    /**
+     * Whether the source hides an element unconditionally: `display: none` on it
+     * or on an ancestor below `$boundary`, or a resolved `visibility` of
+     * `hidden`/`collapse` (the nearest declaration wins, since a descendant may
+     * re-show itself). Form builders keep status copy such as a success message
+     * inside the form this way until a submission succeeds. Returns the
+     * deciding declaration, or null when the element is shown, when it is shown
+     * under any condition a rule on the chain declares (a responsive variant is
+     * not status copy), or when the bounded cascade could not be analyzed.
+     *
+     * @return array{property: string, value: string, selector: string, source_path: string}|null
+     */
+    public function hiddenState(DOMElement $element, DOMElement $boundary, array $stylesheets, string $inlineCss = ''): ?array
+    {
+        if ( null === $this->visibilityAnalysis ) {
+            $filter = array() === $this->scopeElements ? null : self::cascadeFilter($this->scopeElements);
+            $this->visibilityAnalysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array( 'display', 'visibility' ), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        }
+        if ( $this->visibilityAnalysis['truncated'] ) {
+            return null;
+        }
+        $chain = array();
+        $conditions = array();
+        for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            $facts = $this->visibilityFacts($node, $this->visibilityAnalysis['rules']);
+            $chain[] = $facts;
+            $conditions += array_fill_keys(array_keys($facts['conditional']), true);
+        }
+        $hidden = self::hiddenDecision($chain, null);
+        if ( null === $hidden ) {
+            return null;
+        }
+        // A responsive variant that shows the element makes it layout, not status copy.
+        foreach ( array_keys($conditions) as $condition ) {
+            if ( null === self::hiddenDecision($chain, (string) $condition) ) {
+                return null;
+            }
+        }
+        return $hidden;
+    }
+
+    /**
+     * @param list<array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>}> $chain
+     * @return array{property: string, value: string, selector: string, source_path: string}|null
+     */
+    private static function hiddenDecision(array $chain, ?string $condition): ?array
+    {
+        $visibility = null;
+        foreach ( $chain as $facts ) {
+            $resolved = $facts['base'];
+            if ( null !== $condition ) {
+                foreach ( $facts['conditional'][$condition] ?? array() as $property => $fact ) {
+                    CssCascade::apply($resolved, $property, $fact);
+                }
+            }
+            $display = $resolved['display'] ?? null;
+            if ( is_array($display) && 'none' === strtolower(trim((string) $display['value'])) ) {
+                return self::hiddenFact('display', 'none', $display);
+            }
+            if ( null === $visibility && is_array($resolved['visibility'] ?? null) ) {
+                $visibility = $resolved['visibility'];
+            }
+        }
+        $value = null === $visibility ? '' : strtolower(trim((string) $visibility['value']));
+        return in_array($value, array( 'hidden', 'collapse' ), true) ? self::hiddenFact('visibility', $value, $visibility) : null;
+    }
+
+    /**
+     * Winning `display`/`visibility` declarations on one element, unconditional
+     * and per condition.
+     *
+     * @return array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>}
+     */
+    private function visibilityFacts(DOMElement $element, array $rules): array
+    {
+        $properties = array( 'display', 'visibility' );
+        if ( $element->hasAttribute('style') ) {
+            $inline = $element->getAttribute('style');
+            $rules[] = array( 'inline' => true, 'selector' => '[style]', 'declarations' => CssRuleAnalyzer::declarations($inline, $properties), 'condition' => null, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'order' => PHP_INT_MAX, 'specificity' => 10000 );
+        }
+        $base = array();
+        $conditional = array();
+        foreach ( $rules as $rule ) {
+            $match = ! empty($rule['inline']) ? array( 'supported' => true, 'matches' => true ) : CssSelectorMatcher::matches($element, $rule['parsed_selector']);
+            if ( ! $match['supported'] || ! $match['matches'] ) {
+                continue;
+            }
+            $encoded = null === ( $rule['condition'] ?? null ) ? null : (string) json_encode($rule['condition']);
+            foreach ( $rule['declarations'] as $declarationOrder => $declaration ) {
+                if ( ! in_array($declaration['name'], $properties, true) ) {
+                    continue;
+                }
+                $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
+                $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
+                $fact = array( 'value' => $value, 'path' => $rule['path'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'declaration_order' => $declarationOrder, 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
+                if ( null === $encoded ) {
+                    CssCascade::apply($base, $declaration['name'], $fact);
+                } else {
+                    $conditional[$encoded] ??= array();
+                    CssCascade::apply($conditional[$encoded], $declaration['name'], $fact);
+                }
+            }
+        }
+        return array( 'base' => $base, 'conditional' => $conditional );
+    }
+
+    /** @return array{property: string, value: string, selector: string, source_path: string} */
+    private static function hiddenFact(string $property, string $value, array $fact): array
+    {
+        return array( 'property' => $property, 'value' => $value, 'selector' => (string) $fact['selector'], 'source_path' => (string) $fact['path'] );
     }
 
     /**
@@ -351,9 +464,12 @@ final class FormPresentationGraphBuilder
                     continue;
                 }
                 $matched = $this->matched($element, $analysis['rules']);
-                $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules']);
+                $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules'], true);
                 $provenance = $this->provenance($matched['base'], null);
                 $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
+                foreach ($matched['base'] as $property => $fact) {
+                    foreach (FormCustomPropertyResolver::conditionsChanging($fact['value'], $element, $customPropertyAnalysis['rules'], true) as $condition) $conditional[json_encode($condition)][$property] ??= $fact;
+                }
                 $carried = array();
                 $buttonCaption = 'control' === $role && 'button' === strtolower($control->tagName);
                 if ( 'label' === $role || $buttonCaption ) {
@@ -575,6 +691,9 @@ final class FormPresentationGraphBuilder
             $matched = $this->matched($element, $rules);
             $base = array_intersect_key($matched['base'], array_flip(self::TYPOGRAPHY_PROPERTIES));
             $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
+            foreach ($base as $property => $fact) {
+                foreach (FormCustomPropertyResolver::conditionsChanging($fact['value'], $element, $customPropertyRules, true) as $condition) $conditional[json_encode($condition)][$property] ??= $fact;
+            }
             foreach ( $conditional as $encoded => &$facts ) {
                 $facts = array_intersect_key($facts, array_flip(self::TYPOGRAPHY_PROPERTIES));
                 if ( array() !== $facts ) $conditions[$encoded] = true;
@@ -590,7 +709,7 @@ final class FormPresentationGraphBuilder
                     array_replace($row['base'], $row['conditional'][$encoded] ?? array()),
                     array_flip(array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys($styles)))
                 );
-                $styles += $this->styles($facts, $row['element'], $condition, $customPropertyRules);
+                $styles += $this->styles($facts, $row['element'], $condition, $customPropertyRules, null === $condition);
                 $provenance = array_merge($provenance, $this->provenance($facts, $condition));
                 $precedence += $this->precedence($facts);
             }
@@ -629,7 +748,7 @@ final class FormPresentationGraphBuilder
             return;
         }
         $parent = $control->parentNode;
-        if ( ! $parent instanceof DOMElement ) {
+        if ( ! $parent instanceof DOMElement || $parent->isSameNode($this->label($control)) ) {
             return;
         }
         $wrapper = null;
@@ -856,17 +975,35 @@ final class FormPresentationGraphBuilder
             if ( ! $match['supported'] ) { $this->diagnostics[] = 'unsupported_selector:' . $rule['selector']; continue; }
             if ( ! $match['matches'] ) continue;
             if ( $matched++ >= self::MAX_RULES_PER_ROLE ) { $this->truncated = true; $this->diagnostics[] = 'rules_per_role_limit'; break; }
-            foreach ( $rule['declarations'] as $declaration ) {
+            foreach ( $rule['declarations'] as $declarationOrder => $declaration ) {
                 if ( ! in_array($declaration['name'], self::PROPERTIES, true) ) continue;
                 $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
                 $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
-                $fact = array( 'value' => $value, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
+                $fact = array( 'value' => $value, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'declaration_order' => $declarationOrder, 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
                 $encoded = null === $rule['condition'] ? null : json_encode($rule['condition']);
                 if ( null === $encoded ) $target =& $base; else { $conditional[$encoded] ??= array(); $target =& $conditional[$encoded]; }
                 CssCascade::apply($target, $declaration['name'], $fact); unset($target);
             }
         }
+        $base = $this->fontCascade($base);
+        foreach ($conditional as &$facts) $facts = $this->fontCascade($facts, $base);
+        unset($facts);
         return array( 'base' => $base, 'conditional' => $conditional );
+    }
+
+    /** A winning font shorthand resets weaker longhands on the same source element. */
+    private function fontCascade(array $facts, array $base = array()): array
+    {
+        $font = $facts['font'] ?? $base['font'] ?? null;
+        if (!is_array($font)) return $facts;
+        if (isset($base['font']) && !CssCascade::wins($font, $base['font'])) $font = $base['font'];
+        foreach (array('font-family', 'font-size', 'font-style', 'font-variant', 'font-weight', 'line-height') as $property) {
+            if (!isset($facts[$property]) || !CssCascade::wins($font, $facts[$property])) continue;
+            // A same-rule longhand authored after the shorthand overrides it.
+            if (CssCascade::wins($facts[$property], $font) && ($font['declaration_order'] ?? 0) < ($facts[$property]['declaration_order'] ?? 0)) continue;
+            unset($facts[$property]);
+        }
+        return $facts;
     }
 
     private function effectiveConditional(array $conditional, array $base): array

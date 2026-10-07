@@ -1,0 +1,55 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-phone-only-fixed-aside-main-stays-group",
+  "description": "A page wrapper whose <aside> is a phone-only sticky bar (display:none from the tablet breakpoint up, position:fixed to the viewport bottom) next to <main> and two breakpoint spacers stays one core/group instead of becoming a row of equal core/columns.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-phone-only-fixed-aside-main-stays-group.json",
+    "notes": "Distilled from restaurant-platform page shells: .site-content > spacer-desktop + spacer-mobile + main + aside.mobi-footer--sticky. The sidebar/content name test must read each child's layout at the desktop reference viewport; an aside that is hidden and out of flow there is not a column partner."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"shell\"><div class=\"spacer-desktop\" aria-hidden=\"true\"></div><div class=\"spacer-mobile\" aria-hidden=\"true\" style=\"height:63.75px;\"></div><main class=\"shell__main\"><h1>Title</h1><p>Body</p></main><aside class=\"bar bar--sticky\"><p>Call</p></aside></div>",
+    "options": {
+      "static_css": ".shell{position:relative}.spacer-desktop{display:none}.spacer-mobile{display:none}@media (min-width: 769px){.spacer-desktop{display:block}.spacer-mobile{display:none}.bar{display:none}}.bar{width:100%}.bar.bar--sticky{position:fixed;right:0;bottom:0;left:0;z-index:30}"
+    }
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/group"
+    }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "blocks",
+      "assert": "count",
+      "count": 1
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "<!-- wp:columns"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "<!-- wp:html"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<h1 class=\"wp-block-heading\">Title</h1>"
+    }
+  ]
+}

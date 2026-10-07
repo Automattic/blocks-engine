@@ -1,7 +1,9 @@
 name: Solved Site Promotion Gate
 
 on:
+  workflow_dispatch:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     paths:
       - '.github/workflows/solved-fixture-regression.yml'
       - 'php-transformer/**'

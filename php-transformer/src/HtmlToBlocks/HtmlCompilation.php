@@ -619,7 +619,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => $this->elementSelector($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
-            fn (DOMElement $element): array => $this->formContextTypography($element)
+            fn (DOMElement $element): array => $this->formContextTypography($element),
+            fn (DOMElement $element, DOMElement $boundary): ?array => $this->formContextHiddenState($element, $boundary)
         );
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
@@ -1335,6 +1336,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
+    /** @return array<string, string>|null */
+    private function formContextHiddenState(DOMElement $element, DOMElement $boundary): ?array
+    {
+        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->hiddenState(
+            $element,
+            $boundary,
+            $this->authorStyles()->stylesheetAssets(),
+            $this->sourceStyles()->formLayoutCss()
+        );
+    }
+
     private function layoutGeometry(): LayoutGeometryState
     {
         return $this->session->layoutGeometryState();
@@ -1880,9 +1892,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $markup = $this->runtime->serializeBlocks($blocks);
             $templatePartAttrs = $wrapperAttrs;
             unset($templatePartAttrs['tagName']);
-            $templatePartMarkup = array() === $templatePartAttrs
-                ? $innerMarkup
-                : $this->runtime->serializeBlocks(array($this->createBlock('core/group', $templatePartAttrs, $blocks[0]['innerBlocks'] ?? array())));
+            if ( array() === $templatePartAttrs ) {
+                $templatePartMarkup = $innerMarkup;
+            } else {
+                $responsiveMarginTop = $this->styleResolver->responsiveBlockMarginTopClassName($child);
+                if ( '' !== $responsiveMarginTop ) {
+                    $templatePartAttrs['className'] = SourceDom::mergeClassNames((string) ($templatePartAttrs['className'] ?? ''), $responsiveMarginTop);
+                }
+                $templatePartBlock = $this->createBlock('core/group', $templatePartAttrs, $blocks[0]['innerBlocks'] ?? array());
+                $templatePartMarkup = $this->runtime->serializeBlocks(array($templatePartBlock));
+            }
             if ( '' === trim($markup) ) {
                 continue;
             }
@@ -2362,7 +2381,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $asset['content'],
                 isset($this->sharedStylesheetPaths[$asset['path']])
                     || isset($this->sharedStylesheetPaths[$asset['source_path'] ?? '']),
-                (string) $asset['path']
+                (string) $asset['path'],
+                true,
+                (string) ($asset['media'] ?? '')
             );
             $hash = hash('sha256', $content);
             $projections[] = array(
@@ -2412,9 +2433,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $projections;
     }
 
-    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true): string
+    /**
+     * `$media` is the stylesheet's link/style media attribute. Source analysis
+     * reads the asset as `@media <media>{...}`, so projection is told the same
+     * outer condition for rules that compare against analyzed declarations.
+     */
+    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true, string $media = ''): string
     {
         $bindings = new ProjectedSelectorBindings();
+        $media = trim($media);
         $projected = $this->authorStylesheetProjector->project(
             $stylesheet,
             new AuthorStylesheetProjectionContext(
@@ -2424,7 +2451,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->transformationEvidence(),
                 $keepAuthorClassSelectors,
                 $bindings
-            )
+            ),
+            '' === $media ? array() : array( '@media ' . $media )
         );
         if ( $recordBindings ) {
             foreach ( $bindings->all() as $binding ) {
@@ -3046,7 +3074,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $sourceElement): ?float => $this->styleResolver->documentRootFontSize($sourceElement)
             ),
             new ColumnsPatternContext(
-                fn (DOMElement $sourceElement): string => $this->styleResolver->cssDeclarationString($this->styleResolver->structuralPresentationDeclarations($sourceElement))
+                fn (DOMElement $sourceElement): string => $this->styleResolver->cssDeclarationString($this->styleResolver->structuralPresentationDeclarations($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->controlSurfaceResolvedStyle($sourceElement)
             ),
             new MarkupPatternContext(
                 fn (DOMElement $sourceElement): string => SourceDom::safeFallbackHtml($sourceElement, $this->authorSelectorProjections()->tagMarkers()),
@@ -3194,6 +3223,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $prelude->block;
         }
 
+        $checkable = $this->inlineCheckableControlBlock($element);
+        if (null !== $checkable) return $checkable;
+
         if ( $this->richTextConverter->handles($tagName) ) {
             return $this->richTextConverter->convert($element, $tagName, $fallbacks)->block;
         }
@@ -3239,6 +3271,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // instead of moving its geometry onto the video element.
             return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array($video), $element);
         }
+
+        $videoPoster = $this->customVideoPosterBlock($element);
+        if (null !== $videoPoster) return $videoPoster;
 
         $mediaDispatch = $this->mediaDispatchConverter->convert($element, $tagName, $fallbacks);
         if ( $mediaDispatch->handled ) {
@@ -9964,12 +9999,41 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return true;
     }
 
-    private function hasOnlyStructuralCustomVideoHostAttributes(DOMElement $element): bool
+    /** Explicit native media plus a separate decorative poster is already a
+     * browser-owned presentation tree. Keep both source boxes around editable
+     * native media instead of requiring a script to upgrade the custom tags.
+     */
+    private function customVideoPosterBlock(DOMElement $element): ?array
+    {
+        if (!str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || !$this->isSafeTransparentCustomElement($element) || !$this->hasOnlyStructuralCustomVideoHostAttributes($element, true)) return null;
+        $children = $this->elementElementChildren($element);
+        if (2 !== count($children)) return null;
+        $video = null; $poster = null;
+        foreach ($children as $child) {
+            if ('video' === strtolower($child->tagName)) $video = $child;
+            elseif (null !== $this->imageOnlyCustomElement($child)) $poster = $child;
+            else return null;
+        }
+        if (!$video instanceof DOMElement || !$poster instanceof DOMElement || !$this->hasOnlyStructuralCustomVideoHostAttributes($poster, true)) return null;
+        $image = $this->imageOnlyCustomElement($poster);
+        if (!$image instanceof DOMElement || !$image->hasAttribute('alt') || '' !== $this->attr($image, 'alt') || 1 !== count($this->elementElementChildren($poster)) || $image->parentNode !== $poster) return null;
+        $videoBlock = $this->convertMediaElement($video);
+        $imageBlock = $this->convertImageElement($image);
+        if (null === $videoBlock || null === $imageBlock) return null;
+        $this->authorSelectorProjections()->ensureTagMarker(strtolower($element->tagName));
+        $this->authorSelectorProjections()->ensureTagMarker(strtolower($poster->tagName));
+        $posterBlock = $this->layoutShellBlockForElements(array($poster), array($imageBlock), $poster);
+        $blocks = $children[0] === $video ? array($videoBlock, $posterBlock) : array($posterBlock, $videoBlock);
+        return $this->layoutShellBlockForElements(array($element), $blocks, $element);
+    }
+
+    private function hasOnlyStructuralCustomVideoHostAttributes(DOMElement $element, bool $allowSnapshotMetadata = false): bool
     {
         foreach ( $element->attributes as $attribute ) {
-            if ( ! in_array(strtolower($attribute->name), array( 'class', 'style' ), true) ) {
-                return false;
-            }
+            $name = strtolower($attribute->name);
+            if (in_array($name, array('class', 'style'), true)) continue;
+            if ($allowSnapshotMetadata && ('id' === $name || (str_starts_with($name, 'data-') && !str_starts_with($name, 'data-wp-') && 'data-action' !== $name))) continue;
+            return false;
         }
 
         return true;
@@ -10565,7 +10629,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( array() !== SourceDom::eventMetadata($element) ) {
             return null;
         }
-        foreach ( array( 'aria-controls', 'aria-expanded', 'command', 'commandfor', 'formaction', 'popovertarget', 'popovertargetaction' ) as $name ) {
+        foreach ( array( 'aria-controls', 'aria-expanded', 'command', 'commandfor', 'form', 'formaction', 'popovertarget', 'popovertargetaction', 'data-action', 'jsaction' ) as $name ) {
             if ( $element->hasAttribute($name) ) {
                 return null;
             }
@@ -10594,6 +10658,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $pressed && ! in_array($pressed, array( 'true', 'false', 'mixed' ), true) ) {
             return null;
         }
+        $role = strtolower(trim($this->attr($element, 'role')));
+        $checked = strtolower(trim($this->attr($element, 'aria-checked')));
+        if ('' !== $role && 'checkbox' !== $role) return null;
+        if ('checkbox' === $role && (!in_array($checked, array('true', 'false'), true) || '' !== $pressed || FormControlClassifier::hasFormAncestor($element))) return null;
         $sourceAttributes = array();
         foreach ( $element->attributes ?? array() as $attribute ) {
             $name = strtolower($attribute->nodeName);
@@ -10606,11 +10674,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
         $type = FormControlClassifier::controlType($element);
         $attrs = array_filter(array(
-            'type' => in_array($type, array( 'button', 'reset', 'submit' ), true) ? $type : 'submit',
+            'type' => 'checkbox' === $role ? 'button' : (in_array($type, array( 'button', 'reset', 'submit' ), true) ? $type : 'submit'),
             'id' => $this->attr($element, 'id'),
             'name' => $this->attr($element, 'name'),
             'ariaLabel' => $this->attr($element, 'aria-label'),
             'ariaPressed' => $pressed,
+            'role' => $role,
+            'ariaChecked' => 'checkbox' === $role ? $checked : '',
+            'title' => $this->attr($element, 'title'),
+            'tabIndex' => $this->attr($element, 'tabindex'),
             'className' => $this->attr($element, 'class'),
             'style' => $this->attr($element, 'style'),
             'iconSvg' => $icon,
@@ -10626,6 +10698,68 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
+    }
+
+    /** A bounded phrasing tree with named binary SVG controls is layout plus
+     * editable text, rather than one invalid RichText run. Keep source wrappers
+     * with the existing layout shell and transparent text carriers.
+     */
+    private function inlineCheckableControlBlock(DOMElement $element): ?array
+    {
+        if (!in_array(strtolower($element->tagName), array('div', 'span', 'button'), true)) return null;
+        $buttons = 'button' === strtolower($element->tagName) ? array($element) : iterator_to_array($element->getElementsByTagName('button'));
+        if (array() === $buttons || 16 < count($buttons) || 64 < $element->getElementsByTagName('*')->length) return null;
+        foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'))) as $node) {
+            if ($this->runtimeIslands->isRuntimeDomTarget($node) || array() !== SourceDom::eventMetadata($node) || $node->hasAttribute('data-action') || $node->hasAttribute('jsaction')) return null;
+            foreach ($node->attributes as $attribute) if (str_starts_with(strtolower($attribute->name), 'data-wp-')) return null;
+        }
+        // Prove the complete tree before installing any retained selector paths.
+        $supports = function (DOMElement $node, int $depth) use (&$supports): bool {
+            if ($depth > 16) return false;
+            if ('button' === strtolower($node->tagName)) return true;
+            if (!in_array(strtolower($node->tagName), array('div', 'span'), true)) return false;
+            foreach ($this->elementElementChildren($node) as $child) {
+                if ('button' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('button')->length) {
+                    if (!$supports($child, $depth + 1)) return false;
+                } elseif (!$this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) || $this->richTextMaterializer->requiresHtmlFallback($this->outerHtml($child))) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        if (!$supports($element, 0)) return null;
+        $controls = array();
+        foreach ($buttons as $button) {
+            if ('checkbox' !== strtolower(trim($this->attr($button, 'role'))) || '' === trim($this->attr($button, 'aria-label') . $this->attr($button, 'title')) || $this->runtimeIslands->isRuntimeDomTarget($button)) return null;
+            $block = $this->authoredStateButtonBlock($button);
+            if (null === $block) return null;
+            $controls[$button->getNodePath()] = $block;
+        }
+        $build = function (DOMElement $node) use (&$build, $controls): array {
+            if (isset($controls[$node->getNodePath()])) return $controls[$node->getNodePath()];
+            $children = array(); $text = '';
+            $flush = function () use (&$children, &$text): void {
+                if ('' !== trim($text)) $children[] = $this->createBlock('core/paragraph', array('content' => $text, 'className' => self::INLINE_LAYOUT_CARRIER_CLASS));
+                $text = '';
+            };
+            foreach ($node->childNodes as $child) {
+                if ($child instanceof \DOMText) { $text .= $this->runtime->escapeHtml($child->textContent); continue; }
+                if (!$child instanceof DOMElement) continue;
+                if ('button' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('button')->length) {
+                    $flush();
+                    $children[] = $build($child);
+                } else {
+                    $content = $this->richTextMaterializer->content($child);
+                    $flush();
+                    $this->authorSelectorProjections()->markRetainedSourcePath($child->getNodePath());
+                    $children[] = $this->layoutShellBlockForElements(array($child), array($this->createBlock('core/paragraph', array('content' => $content, 'className' => self::INLINE_LAYOUT_CARRIER_CLASS))), $child);
+                }
+            }
+            $flush();
+            $this->authorSelectorProjections()->markRetainedSourcePath($node->getNodePath());
+            return $this->layoutShellBlockForElements(array($node), $children, $node);
+        };
+        return $build($element);
     }
 
     /**

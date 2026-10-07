@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use DOMElement;
 
 /** Prepares source identities needed to project author selectors onto canonical blocks. */
@@ -47,7 +48,7 @@ final class AuthorSelectorSemanticPreparer
         }
         $combinedAuthorCss = array() === $stylesheetAssets
             ? $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss)
-            : implode("\n\n", array_column($stylesheetAssets, 'content'));
+            : implode("\n\n", array_column(array_filter($stylesheetAssets, static fn(array $asset): bool => StylesheetActivation::active($asset)), 'content'));
         $authorStyles = new AuthorStyleAnalysis($html, $combinedAuthorCss, $stylesheetAssets, $sourceBody);
         $session->installAuthorStyleAnalysis($authorStyles);
         $sourceStyles = $session->sourceStyleResolutionState();
@@ -261,7 +262,7 @@ final class AuthorSelectorSemanticPreparer
                     if ( preg_match('/>\s*$/', trim($ancestry)) && $parent instanceof DOMElement ) {
                         $parentPath = $parent->getNodePath() ?? '';
                         if ( '' !== $parentPath ) {
-                            $marker = $projections->ensureAttributeMarker($parentPath, $selector);
+                            $marker = $projections->ensureAttributeMarker($parentPath, AuthorSelectorProjectionState::parentAttributeIdentity($selector));
                             $parent->setAttribute('class', SourceDom::mergeClassNames($parent->getAttribute('class'), $marker));
                         }
                     }
