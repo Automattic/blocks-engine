@@ -356,6 +356,7 @@
       "php tests/unit/reusable-component-recognition.php",
       "php tests/unit/compile-fragment-author-stylesheet.php",
       "php tests/unit/responsive-canvas-geometry.php",
+      "php tests/unit/conditional-definite-parent-percentage-height.php",
       "php tests/unit/responsive-footer-geometry.php",
       "php tests/unit/core-html-fallback-reduction.php",
       "php tests/unit/non-rendered-metadata-pruning.php",
