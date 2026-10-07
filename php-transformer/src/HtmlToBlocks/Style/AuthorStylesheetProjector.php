@@ -136,6 +136,18 @@ final class AuthorStylesheetProjector
         $imageRule = '' === $imagePrelude
             ? ''
             : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
+        if ('' !== $imagePrelude) {
+            // The generic Image bridge introduces block display and responsive
+            // shrinkage. An inline source image in an auto table must instead
+            // participate in the cell's line box and intrinsic track sizing.
+            // Carry authored leaf declarations at their original rule position.
+            $inlineSelectors = array_map(
+                static fn (string $selector): string => ':where(.blocks-engine-layout-table-cell) ' . str_replace('.wp-block-image', '.wp-block-image:where(.blocks-engine-synthetic-image-figure-inline)', $selector),
+                CssValueSplitter::splitTopLevel($imagePrelude, array(','))
+            );
+            $imageRule .= implode(',', $inlineSelectors) . '{display:' . ($declarations['display'] ?? 'inline')
+                . ';max-width:' . ($declarations['max-width'] ?? 'none') . ';vertical-align:' . ($declarations['vertical-align'] ?? 'baseline') . '}';
+        }
         $svgImageRule = '' === $svgImagePrelude
             ? ''
             : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
@@ -2143,6 +2155,18 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed */
     private function projectTableDescendantSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context): ?string
     {
+        $table = 'table' === strtolower($element->tagName) ? $element : $this->ancestorElement($element, 'table');
+        if (in_array(strtolower($element->tagName), array('table', 'tr', 'td'), true)
+            && $table instanceof DOMElement
+            && (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy())->lowersToColumns($table)
+        ) {
+            $marker = $context->selectorProjections->semanticMarker($element->getNodePath() ?? '');
+            if ('' !== $marker) {
+                // A common carrier baseline lets authored rules beat Core's
+                // block defaults without changing their relative specificity.
+                return ':root .' . $marker . $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
+            }
+        }
         if ( ! in_array(strtolower($element->tagName), array( 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th' ), true)
             || ! TableSelectorProjectionPolicy::needsStructuralProjection($parsed, $element)
         ) {
