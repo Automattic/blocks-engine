@@ -94,6 +94,7 @@
       "php tests/contract/generated-block-document-identity.php",
       "php tests/contract/shared-shell-entity-bindings.php",
       "php tests/contract/form-control-not-menu-toggle.php",
+      "php tests/contract/svg-checkable-control.php",
       "php tests/unit/canonical-zero-lengths.php",
       "php tests/contract/render-equivalent-chrome.php",
       "php tests/contract/entry-chrome-wrapper.php",

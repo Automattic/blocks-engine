@@ -62,8 +62,13 @@ try {
 		const visit = ( children ) => children.flatMap( ( block ) => [ block, ...visit( block.innerBlocks || [] ) ] );
 		return visit( window.wp.data.select( 'core/block-editor' ).getBlocks() ).some( ( block ) => block.name === 'core/image' && block.attributes.id === id );
 	}, source.second_attachment.id );
-	await canvas.locator( '[data-type="core/image"]' ).click();
-	await page.getByRole( 'button', { name: 'Link', exact: true } ).last().click();
+	await page.getByRole( 'button', { name: 'Document Overview' } ).click();
+	const listViewTab = page.getByRole( 'tab', { name: /List View/ } );
+	if ( await listViewTab.count() && 'true' !== await listViewTab.getAttribute( 'aria-selected' ) ) await listViewTab.click();
+	await writeFile( `${ evidence }/compact-row-list-view-state.json`, JSON.stringify( await page.evaluate( () => ( { bodyText: document.body.innerText.slice( 0, 5000 ), elements: [ ...document.querySelectorAll( 'button,[role],input' ) ].filter( ( node ) => node.getClientRects().length ).map( ( node ) => ( { tag: node.tagName, role: node.getAttribute( 'role' ), label: node.getAttribute( 'aria-label' ), text: node.innerText || '', placeholder: node.getAttribute( 'placeholder' ), html: node.outerHTML.slice( 0, 350 ) } ) ).slice( -50 ) } ) ), null, 2 ) + '\n' );
+	const selectedImageBlock = await page.evaluate( () => window.wp.data.select( 'core/block-editor' ).getSelectedBlock()?.name );
+	assert.equal( selectedImageBlock, 'core/image', 'the editor block navigator keeps the nested icon image selected after media replacement' );
+	await page.getByRole( 'button', { name: /link/i } ).last().click();
 	const iconLinkInput = page.locator( '#url-input-control-0' );
 	await iconLinkInput.fill( '/projects-updated' );
 	await iconLinkInput.press( 'Enter' );
@@ -74,9 +79,8 @@ try {
 	await paragraphEditor.press( 'Control+A' );
 	await paragraphEditor.pressSequentially( '248' );
 	await page.waitForFunction( ( clientId ) => window.wp.data.select( 'core/block-editor' ).getBlock( clientId )?.attributes.content?.toString().includes( '248' ), paragraph.clientId );
-	await paragraphEditor.getByText( '248', { exact: true } ).click();
 	await paragraphEditor.press( 'Control+A' );
-	await page.getByRole( 'button', { name: 'Link', exact: true } ).last().click();
+	await page.getByRole( 'button', { name: /link/i } ).last().click();
 	const editLink = page.getByRole( 'button', { name: 'Edit link', exact: true } );
 	if ( await editLink.count() ) await editLink.click();
 	const linkInput = page.locator( 'input[id^="url-input-control"], input[placeholder*="URL"], input[aria-label*="URL"], [role="textbox"][aria-label*="URL"]' ).last();

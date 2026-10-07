@@ -96,6 +96,9 @@ final class AuthorSelectorProjectionState
     /** @var array<string, true> */
     private array $inlineLayoutCarrierPaths = array();
 
+    /** @var array<string, true> Source boxes retained verbatim by a layout shell. */
+    private array $retainedSourcePaths = array();
+
     /** @var array<string, true> */
     private array $navigationItemAnchorPaths = array();
 
@@ -230,6 +233,16 @@ final class AuthorSelectorProjectionState
     public function isInlineLayoutCarrierPath(string $path): bool
     {
         return isset($this->inlineLayoutCarrierPaths[$path]);
+    }
+
+    public function markRetainedSourcePath(string $path): void
+    {
+        $this->retainedSourcePaths[$path] = true;
+    }
+
+    public function isRetainedSourcePath(string $path): bool
+    {
+        return isset($this->retainedSourcePaths[$path]);
     }
 
     /**

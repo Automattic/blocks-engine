@@ -32,6 +32,9 @@ $assert(str_contains($markup, 'blocks-engine-synthetic-anchor-undecorated'), 'or
 $wrapped = (new HtmlTransformer())->transform('<style>@layer base{a{text-decoration:inherit}}.labels{display:flex}</style><span class="labels"><a class="muted" href="/topic">Topic</a></span>')->toArray();
 $assert(str_contains($wrapped['serialized_blocks'], 'blocks-engine-synthetic-anchor-undecorated'), 'lowered inline wrappers keep anchor decoration ownership on their synthetic paragraph');
 $assert(str_contains($markup, 'wp:read-more') && str_contains($markup, 'blocks-engine-listing-overlay') && str_contains($markup, 'active-link'), 'card overlay resolves its own post permalink and title retains source interaction classes');
+$bootstrap = '';
+foreach ($plan['writes'] as $write) if ('functions.php' === ($write['target_path'] ?? '')) $bootstrap = (string) ($write['payload']['data'] ?? '');
+$assert(str_contains($bootstrap, '.editor-styles-wrapper .blocks-engine-listing-overlay{display:none}') && str_contains($bootstrap, '.editor-styles-wrapper .blocks-engine-listing-bound-meta{display:none}') && str_contains($markup, 'blocks-engine-listing-bound-meta') && str_contains($bootstrap, "'aria-hidden'") && str_contains($bootstrap, "'tabindex'"), 'editor projection withholds listing chrome and unresolved bound-meta placeholders without changing frontend link semantics');
 $css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === $asset['kind']), 'content'));
 if (!str_contains($css, '.wp-block-post-template)>:where(li)')) fwrite(STDERR, $css . "\n");
 $assert(str_contains($css, '.blocks-engine-listing-query)>:where(.wp-block-post-template)>:where(li):not(:last-child)>:where(article)') && str_contains($css, 'margin-bottom:32px'), 'source child spacing and conditional cascade replay across native transport wrappers');
