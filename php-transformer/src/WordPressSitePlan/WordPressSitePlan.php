@@ -1014,8 +1014,23 @@ PHP;
             $current .= $char;
         }
         if ('' !== $current) $compounds[] = $current;
-        $run = 0;
+        // A capture scopes a responsive variant's rules by that variant's root
+        // (`:where(.data-liberation-mobile-document) #page-root #footer`). The
+        // variant root is not an ancestor the chrome was hoisted out of: the
+        // part carries its own variant group. Keep the scope in front of the
+        // run being re-anchored, and require it on the wrapper arm, so the
+        // rule keeps reaching only that variant's copy of the chrome.
+        $scope = array();
         foreach ($compounds as $index => $compound) {
+            if (!isset($compounds[$index + 1]) || in_array($compounds[$index + 1], array('>', '+', '~'), true)) break;
+            $variantClasses = self::responsiveVariantScopeClasses($compound);
+            if (null === $variantClasses) break;
+            $scope[] = $variantClasses;
+        }
+        $first = count($scope);
+        $run = $first;
+        foreach ($compounds as $index => $compound) {
+            if ($index < $first) continue;
             if (!isset($compounds[$index + 1]) || in_array($compounds[$index + 1], array('>', '+', '~'), true)) break;
             // The compound's positive hooks, including those the engine moved
             // into `:where()`/`:is()` when it rewrote an id for editor parity.
@@ -1032,9 +1047,33 @@ PHP;
             if (!$named) break;
             $run = $index + 1;
         }
-        if (0 === $run) return $selector;
+        if ($first === $run) return $selector;
         $wrappers = array_map(static fn (string $root): string => ':has(> #' . CssIdent::escape($root) . ')', $roots);
+        if (array() !== $scope) {
+            // The variant group is the part's own child wrapper (`.data-liberation-mobile-document > #footer`),
+            // or an ancestor of the wrapper that holds the chrome.
+            $scopeClass = implode('', array_map(static fn (string $class): string => '.' . CssIdent::escape($class), array_merge(...$scope)));
+            $wrappers = array_merge(
+                array_map(static fn (string $wrapper): string => $scopeClass . $wrapper, $wrappers),
+                array_map(static fn (string $wrapper): string => $scopeClass . ' ' . $wrapper, $wrappers)
+            );
+        }
         return ':is(' . implode(' ', array_slice($compounds, 0, $run)) . ',:where(' . implode(',', $wrappers) . ')) ' . implode(' ', array_slice($compounds, $run));
+    }
+
+    /**
+     * The responsive variant root classes a compound consists of, such as
+     * `:where(.data-liberation-mobile-document)`; null for any other compound.
+     *
+     * @return list<string>|null
+     */
+    private static function responsiveVariantScopeClasses(string $compound): ?array
+    {
+        $hooks = str_replace(array(':where(', ':is(', ')'), '', self::positiveSelector($compound));
+        if (!preg_match('/^(?:\.[_a-zA-Z][\w-]*)+$/', $hooks)) return null;
+        $classes = explode('.', ltrim($hooks, '.'));
+        foreach ($classes as $class) if (!ShellExtraction::isResponsiveVariantClass($class)) return null;
+        return $classes;
     }
 
     /**
@@ -1073,6 +1112,9 @@ PHP;
     private static function selectorHook(string $sigil, string $name): ?array
     {
         if ('#' === $sigil) return array('id', $name);
+        // A responsive variant root scopes rules to one variant; it is neither
+        // chrome nor an ancestor the chrome was hoisted out of.
+        if (ShellExtraction::isResponsiveVariantClass($name)) return null;
         $anchorId = EngineMarker::editorAnchorId($name);
         if (null !== $anchorId) return array('id', $anchorId);
         return 1 === preg_match('/^(?:wp-|blocks-engine-|has-|is-|be-)/', $name) ? null : array('class', $name);
