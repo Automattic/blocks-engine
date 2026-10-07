@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredLabelBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
@@ -20,6 +21,8 @@ final class AuthoredFormControlBlockConverter
 {
     /** @var Closure(DOMElement): string */
     private readonly Closure $richTextLabelContent;
+    /** @var Closure(DOMElement): string */
+    private readonly Closure $editableLabelContent;
 
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $structuralPresentationDeclarations
@@ -29,6 +32,7 @@ final class AuthoredFormControlBlockConverter
      * @param Closure(string): string                                                                       $safeAnchor
      * @param Closure(DOMElement): ?DOMElement                                                               $projectSourceTags
      * @param Closure(DOMElement): string|null                                                                $richTextLabelContent
+     * @param Closure(DOMElement): string|null                                                                $editableLabelContent
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
@@ -40,9 +44,44 @@ final class AuthoredFormControlBlockConverter
         private readonly Runtime $runtime,
         private readonly Closure $safeAnchor,
         private readonly Closure $projectSourceTags,
-        ?Closure $richTextLabelContent = null
+        ?Closure $richTextLabelContent = null,
+        ?Closure $editableLabelContent = null
     ) {
         $this->richTextLabelContent = $richTextLabelContent ?? static fn (DOMElement $label): string => '';
+        $this->editableLabelContent = $editableLabelContent ?? $this->richTextLabelContent;
+    }
+
+    public function labelContent(DOMElement $label): string
+    {
+        $content = ($this->editableLabelContent)($label);
+        return '' !== $content ? $content : $this->runtime->escapeHtml($this->metadataBuilder->labelText($label));
+    }
+
+    /** Keep an explicit external association even when its control is outside this fragment. */
+    public function label(DOMElement $label): ?array
+    {
+        if ('label' !== strtolower($label->tagName) || '' === SourceDom::attr($label, 'for') || array() !== FormControlClassifier::controlElements($label)) {
+            return null;
+        }
+        $generator = new AuthoredLabelBlockGenerator();
+        $registry = ($this->generatedBlocks)();
+        $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
+        $projected = ($this->projectSourceTags)($label) ?? $label;
+        $attrs = array_filter(array(
+            'htmlFor' => SourceDom::attr($label, 'for'),
+            'id' => SourceDom::attr($label, 'id'),
+            'className' => SourceDom::attr($projected, 'class'),
+            'style' => SourceDom::attr($label, 'style'),
+            'content' => $this->labelContent($label),
+        ), static fn (string $value): bool => '' !== $value);
+        $markup = $generator->markup($attrs);
+        return array(
+            'blockName' => $registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME),
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array($markup),
+        );
     }
 
     /** @return array<string, mixed>|null */

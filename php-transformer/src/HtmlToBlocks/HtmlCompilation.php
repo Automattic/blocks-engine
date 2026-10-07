@@ -637,7 +637,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->runtime,
             fn (string $id): string => $this->safeAnchor($id),
             fn (DOMElement $element): ?DOMElement => $this->sourceTagProjectedClone($element),
-            fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' ))
+            fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' )),
+            fn (DOMElement $label): string => $this->editableFormLabelContent($label)
         );
         $this->projectedNavigation = new ProjectedNavigationConverter(
             $this->navigationToggleSuppressor,
@@ -5109,26 +5110,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->unwrapElement($wrapper);
         }
 
-        // Unwrap any remaining styling hooks (sibling / partial content) unless
-        // their visual style can be carried by RichText's mark format. Unknown
-        // and custom elements (`<bdt>`, `<x-note>`) are never valid RichText
-        // content, so they always become a mark carrier or are unwrapped.
-        foreach ( $this->richTextStylingHookElements($body) as $inline ) {
-            if ( 'font' === strtolower($inline->tagName) && ! $inline->hasAttributes() ) {
-                $this->unwrapElement($inline);
-                continue;
-            }
-            if ( $this->replaceRichTextStylingHookWithMark($inline) ) {
-                continue;
-            }
-            if ( 'span' === strtolower($inline->tagName) || RichTextInlineTags::isUnknownHtmlElement($inline) ) {
-                $this->unwrapElement($inline);
-            }
-        }
-
-        foreach ( $this->richTextAnchors($body) as $anchor ) {
-            $anchor->removeAttribute('style');
-        }
+        $this->normalizeRichTextStylingHooks($body);
 
         $newContent = $this->innerHtml($body);
         if ( $newContent === $content && '' === $hoistedClasses && array() === $hoistedDeclarations ) {
@@ -5153,6 +5135,42 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $attrs;
+    }
+
+    /** A label's inline hooks stay inline, rather than being hoisted onto its host. */
+    private function editableFormLabelContent(DOMElement $label): string
+    {
+        $content = $this->richTextMaterializer->content($label);
+        if ('' === $content) return '';
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if (!$body instanceof DOMElement) return $content;
+        $this->normalizeRichTextStylingHooks($body);
+        return SourceDom::innerHtml($body);
+    }
+
+    /** Use the same semantic carriers for native RichText and owned label RichText. */
+    private function normalizeRichTextStylingHooks(DOMElement $body): void
+    {
+        // Remaining styling hooks stay on RichText-safe marks, without
+        // assigning highlighted-text semantics to mechanical carriers.
+        foreach ($this->richTextStylingHookElements($body) as $inline) {
+            if ('font' === strtolower($inline->tagName) && !$inline->hasAttributes()) {
+                $this->unwrapElement($inline);
+                continue;
+            }
+            if ($this->replaceRichTextStylingHookWithMark($inline)) continue;
+            if ('span' === strtolower($inline->tagName) || RichTextInlineTags::isUnknownHtmlElement($inline)) {
+                $this->unwrapElement($inline);
+            }
+        }
+        foreach ($this->richTextAnchors($body) as $anchor) {
+            $anchor->removeAttribute('style');
+        }
     }
 
     /**
