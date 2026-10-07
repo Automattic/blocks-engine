@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 /** Recognizes captured category collections from reciprocal source-document evidence. */
 final class TaxonomyProjection
 {
-    /** @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @return array{entities:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>,pagination_source_paths:array<int,string>} */
+    /** @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @return array{entities:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>,pagination_source_paths_by_archive:array<string,array<int,string>>} */
     public static function project(array $documents, array $routes, string $sourceOrigin = ''): array
     {
         $routeBySource = array_column($routes, 'target_path', 'source_path');
@@ -24,7 +24,6 @@ final class TaxonomyProjection
 
         $entities = array();
         $diagnostics = array();
-        $paginationSources = array();
         $corroboratedBySlug = array();
         foreach ($documents as $archive) {
             $source = $archive['source_path'] ?? null;
@@ -45,6 +44,7 @@ final class TaxonomyProjection
                 if ('post' === ($listedDocument['metadata']['post_type'] ?? null)) $listed[$link['href']] = $listedDocument;
             }
             $members = array();
+            $paginationSources = array();
             $archiveDocuments = array($route => $archive);
             foreach ($documentsByRoute as $archiveRoute => $sibling) {
                 if (!preg_match('~^' . preg_quote($route, '~') . '/page/[1-9][0-9]{0,5}$~', $archiveRoute)) continue;
@@ -78,12 +78,14 @@ final class TaxonomyProjection
                     }
                 }
             }
+            $members = array_values(array_unique($members));
             if (count($members) < 2) {
                 if (array() !== $listedDocuments) $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_unproven', 'severity' => 'info', 'message' => 'A captured category collection lacked matching article return links, source labels, or multiple post members.', 'source_path' => $source, 'source_route' => $route);
                 continue;
             }
-            $corroboratedBySlug['category:' . $slug][] = array('source' => $source, 'route' => $route, 'slug' => $slug, 'heading' => $heading, 'members' => array_values(array_unique($members)), 'archive' => $archive);
+            $corroboratedBySlug['category:' . $slug][] = array('source' => $source, 'route' => $route, 'slug' => $slug, 'heading' => $heading, 'members' => $members, 'archive' => $archive, 'pagination_sources' => array_keys($paginationSources));
         }
+        $paginationSourcesByArchive = array();
         foreach ($corroboratedBySlug as $group) {
             if (1 < count($group)) {
                 foreach ($group as $candidate) $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_ambiguous_term', 'severity' => 'info', 'message' => 'More than one captured category archive claims the same term slug, so none of them can prove ownership of that term.', 'source_path' => $candidate['source'], 'source_route' => $candidate['route']);
@@ -91,6 +93,7 @@ final class TaxonomyProjection
             }
             $candidate = $group[0];
             sort($candidate['members'], SORT_STRING);
+            if (array() !== $candidate['pagination_sources']) $paginationSourcesByArchive[$candidate['source']] = $candidate['pagination_sources'];
             $entities[] = array(
                 'kind' => 'taxonomy_term', 'taxonomy' => 'category', 'slug' => $candidate['slug'], 'name' => $candidate['heading'],
                 'membership_source_paths' => $candidate['members'],
@@ -98,7 +101,7 @@ final class TaxonomyProjection
                 'evidence' => array('membership' => true, 'name' => true, 'archive' => true),
             );
         }
-        return array('entities' => $entities, 'diagnostics' => $diagnostics, 'pagination_source_paths' => array_keys($paginationSources));
+        return array('entities' => $entities, 'diagnostics' => $diagnostics, 'pagination_source_paths_by_archive' => $paginationSourcesByArchive);
     }
 
     /** A candidate must already spell the route and slug the canonical plan accepts, or the evidence stays unproven instead of failing the whole plan. */

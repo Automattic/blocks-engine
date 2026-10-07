@@ -231,12 +231,6 @@ final class WordPressSitePlan
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
         $routeMap = $this->canonicalRoutes($documents, $input->routes);
         $taxonomyProjection = TaxonomyProjection::project($documents, $routeMap, $this->sourceOrigin);
-        // Paginated category captures are evidence and presentation for the
-        // native archive, not independent WordPress pages. In particular, do
-        // not let their `/page` path create a synthetic page ancestor.
-        $paginationSources = array_fill_keys($taxonomyProjection['pagination_source_paths'], true);
-        if (array() !== $paginationSources) $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($paginationSources[$document['source_path'] ?? ''])));
-        $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations);
         $this->routeSources = array();
         $this->routeTargets = array();
         $this->routeReferenceCache = array();
@@ -249,6 +243,42 @@ final class WordPressSitePlan
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents), $this->missingMedia);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
+        // Test ownership with the same canonical listing projection used by
+        // the final plan. Pagination captures are suppressed only when their
+        // base archive can actually become a native inherited Query Loop.
+        $routeBySource = array_column($routeMap, 'target_path', 'source_path');
+        foreach ($pages as &$page) {
+            $path = $routeBySource[$page['source_path']] ?? null;
+            if (is_string($path)) $page['route'] = array('path' => $path, 'parent_path' => self::parentRoutePath($path), 'slug' => self::routeSlug($path));
+        }
+        unset($page);
+        $preflightPages = $pages;
+        $this->listingQueryContainers = array();
+        $preflightPages = $this->materializeListingQueryLoops($preflightPages, $runtimeDeclarations, $taxonomyProjection['entities']);
+        $this->listingQueryContainers = array();
+        $preflightBySource = array_column($preflightPages, null, 'source_path');
+        $projectedTaxonomyEntities = array();
+        $paginationOwnerBySource = array();
+        foreach ($taxonomyProjection['entities'] as $taxonomyEntity) {
+            $archiveSource = $taxonomyEntity['archive']['source_path'];
+            if (!str_contains((string) ($preflightBySource[$archiveSource]['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
+                $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_taxonomy_archive_query_unproven', 'severity' => 'info', 'message' => 'The captured category presentation could not be converted to an inherited native query loop.', 'source_path' => $archiveSource, 'source_route' => $taxonomyEntity['archive']['source_route']);
+                continue;
+            }
+            $projectedTaxonomyEntities[] = $taxonomyEntity;
+            foreach ($taxonomyProjection['pagination_source_paths_by_archive'][$archiveSource] ?? array() as $paginationSource) $paginationOwnerBySource[$paginationSource] = $archiveSource;
+        }
+        $taxonomyProjection['entities'] = $projectedTaxonomyEntities;
+        if (array() !== $paginationOwnerBySource) {
+            $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($paginationOwnerBySource[$document['source_path'] ?? ''])));
+            $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($paginationOwnerBySource[$page['source_path'] ?? ''])));
+            foreach ($assets as &$asset) {
+                $owner = $asset['compilation'] ?? null;
+                if ('page' === ($owner['scope'] ?? null) && isset($paginationOwnerBySource[$owner['id'] ?? ''])) $asset['compilation']['id'] = $paginationOwnerBySource[$owner['id']];
+            }
+            unset($asset);
+        }
+        $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations);
         $assets = $this->orderAssetsByDocumentStylesheetOrder($assets, $pages);
         NativeListItemFallbackReconciler::reconcileBlockDocuments(
             $data['fallbacks'],
