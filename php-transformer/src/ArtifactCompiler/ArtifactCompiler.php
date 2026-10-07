@@ -3692,7 +3692,7 @@ final class ArtifactCompiler
         }
         $titles = HtmlTagScanner::scan($html, 'title');
         $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
-        $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), 'root_attributes' => \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::fromHtml($html), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
         $head = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext::fromHtml($html, $sourcePath, $files);
         if (null !== $head) $metadata['head'] = $head;
         return $metadata;

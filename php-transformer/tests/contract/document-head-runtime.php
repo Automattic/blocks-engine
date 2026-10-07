@@ -94,6 +94,9 @@ $assert($rejects(static fn() => (new WordPressSitePlanResolver())->resolve($dyna
 // Execute the actual emitted PHP registration and template/head hook path.
 // This proves bootstrap behavior, not a claim of a full WordPress installation.
 $hooks = array(); $enqueuedStyles = array(); $enqueuedScripts = array();
+define('ABSPATH', '/wordpress/');
+define('WPINC', 'wp-includes');
+function wp_normalize_path(string $path): string { return str_replace('\\', '/', $path); }
 function add_action($name, $callback, $priority = 10, $accepted = 1): void { $GLOBALS['hooks'][$name][$priority][] = $callback; }
 function add_filter($name, $callback, $priority = 10, $accepted = 1): void { add_action($name, $callback, $priority, $accepted); }
 function remove_action($name, $callback, $priority = 10): void { foreach ($GLOBALS['hooks'][$name][$priority] ?? array() as $key => $value) if ($callback === $value) unset($GLOBALS['hooks'][$name][$priority][$key]); }

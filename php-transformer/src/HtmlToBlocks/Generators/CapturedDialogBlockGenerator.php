@@ -19,13 +19,14 @@ final class CapturedDialogBlockGenerator
             'ariaDescribedby' => array('type' => 'string', 'default' => ''),
             'className' => array('type' => 'string', 'default' => ''),
             'addCloseButton' => array('type' => 'boolean', 'default' => false),
+            'gallerySelection' => array('type' => 'array', 'default' => array()),
         );
         $editor = <<<'JS'
 ( function( blocks, blockEditor, element ) {
     var createElement = element.createElement;
     var InnerBlocks = blockEditor.InnerBlocks;
     function dialogProps( attrs ) {
-        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined };
+        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined };
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
@@ -52,7 +53,26 @@ JS;
         var triggers = ( dialog.getAttribute( 'data-blocks-engine-triggers' ) || '' ).split( /\s+/ ).map( function( id ) { return document.getElementById( id ); } ).filter( Boolean );
         if ( ! triggers.length ) return;
         dialog.dataset.blocksEngineMounted = 'true';
-        triggers.forEach( function( trigger ) { trigger.addEventListener( 'click', function( event ) { event.preventDefault(); if ( dialog.showModal ) dialog.showModal(); else dialog.setAttribute( 'open', '' ); } ); } );
+        var selection = JSON.parse( dialog.getAttribute( 'data-blocks-engine-gallery-selection' ) || '[]' );
+        triggers.forEach( function( trigger ) { trigger.addEventListener( 'click', function( event ) {
+            var binding = selection.find( function( item ) { return item.triggerId === trigger.id; } );
+            var index;
+            if ( binding ) {
+                if ( ! event.target.closest( 'img' ) ) return;
+                var root = trigger.closest( '.blocks-engine-authored-carousel' );
+                var track = root && root.querySelector( '.blocks-engine-authored-carousel__track' );
+                if ( ! track ) return;
+                var source = Array.from( track.children ).findIndex( function( slide ) { return slide.contains( event.target ); } );
+                index = binding.indices[ source ];
+                if ( ! Number.isInteger( index ) ) return;
+            }
+            event.preventDefault();
+            if ( dialog.showModal ) dialog.showModal(); else dialog.setAttribute( 'open', '' );
+            if ( binding ) {
+                var carousel = dialog.querySelector( '.blocks-engine-authored-carousel' );
+                if ( carousel ) carousel.dispatchEvent( new CustomEvent( 'blocks-engine-carousel-select', { detail: { index: index } } ) );
+            }
+        } ); } );
         dialog.addEventListener( 'click', function( event ) { if ( event.target === dialog || closeControl( event.target ) ) dialog.close ? dialog.close() : dialog.removeAttribute( 'open' ); } );
     }
     function mountAll() { document.querySelectorAll( 'dialog[data-blocks-engine-triggers]' ).forEach( mount ); }
