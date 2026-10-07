@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionContext;
@@ -27,6 +28,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         private readonly SourceBlockAttributeProjector $sourceBlockAttributeProjector,
         private readonly HtmlTransformerSession $session,
         private readonly Closure $recognizePatterns,
+        private readonly SourceBlockCreator $createBlock,
         private readonly ?Closure $isRuntimeDomTarget = null
     ) {
     }
@@ -63,10 +65,25 @@ final class ProjectedNavigationConverter implements ElementConverter
                     $nativeClassNames,
                     (string) ($block['attrs']['className'] ?? ''),
                     $this->responsiveNavigationToggleMarker($projectedNavigation),
+                    $this->responsiveNavigationOverlayMarker($projectedNavigation),
                     $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext())
                 );
                 $block['attrs']['overlayMenu'] = $this->navigationToggleSuppressor->projectedOverlayMenu($element);
-                return ConversionOutcome::handled($block);
+                // The emitted navigation occupies the opener's layout slot.
+                // Its hidden-state provenance must belong to that control,
+                // rather than to the source panel it now opens natively.
+                // An inferred, unbound glyph retains the existing duplicate
+                // reconciliation against its visible in-flow menu instead.
+                if ( ! $element->hasAttribute('aria-controls') ) {
+                    return ConversionOutcome::handled($block);
+                }
+                return ConversionOutcome::handled($this->createBlock->createBlock(
+                    'core/navigation',
+                    $block['attrs'],
+                    $block['innerBlocks'] ?? array(),
+                    $element,
+                    $projectedNavigation
+                ));
             }
         }
 
@@ -205,7 +222,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             $afterBody = substr($extra, strpos($extra, 'AFTER:') + 6);
             $extraRules .= $host . '>.wp-block-navigation__responsive-container-open::after{' . $afterBody . '}';
         }
-        if ( $always ) {
+        if ( $always && $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle) ) {
             $extraRules .= $this->nativeNavigationToggleDropdownCss($host, $navigation);
             $extraRules .= $this->nativeNavigationToggleOpenControlCss($host);
         }
@@ -246,6 +263,13 @@ final class ProjectedNavigationConverter implements ElementConverter
     {
         $background = '';
         $color = '';
+        $listPadding = array();
+        foreach ($this->styleResolver->collapsedViewportDeclarations($navigation, array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left')) as $property => $value) {
+            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $navigation);
+            if ('' !== trim($value) && !preg_match('/[{}<>;]|url\(/i', $value)) {
+                $listPadding[] = $property . ':' . $value . '!important';
+            }
+        }
         foreach ( $this->collapsedPanelChain($navigation) as $panel ) {
             $paint = $this->styleResolver->collapsedViewportDeclarations($panel, array( 'background-color', 'background', 'color' ));
             $panelColor = $this->portableCollapsedPaint($panel, (string) ( $paint['color'] ?? '' ));
@@ -266,7 +290,7 @@ final class ProjectedNavigationConverter implements ElementConverter
                 $color = $panelColor;
             }
         }
-        if ( '' === $background && '' === $color ) {
+        if ( '' === $background && '' === $color && array() === $listPadding ) {
             return '';
         }
 
@@ -277,11 +301,18 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ( '' !== $color ) {
             $declarations[] = 'color:' . $color . '!important';
         }
-        $marker = 'blocks-engine-navigation-overlay-' . substr(hash('sha256', implode(';', $declarations)), 0, 12);
+        $marker = 'blocks-engine-navigation-overlay-' . substr(hash('sha256', implode(';', $declarations) . "\0" . implode(';', $listPadding)), 0, 12);
         // A custom overlay template part styles itself; Core marks that
         // container `disable-default-overlay`, and this must not reach it.
-        $rule = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker
-            . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay){' . implode(';', $declarations) . '}';
+        $open = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker
+            . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
+        $rule = array() === $declarations ? '' : $open . '{' . implode(';', $declarations) . '}';
+        if (array() !== $listPadding) {
+            // The generic list reset removes its padding; in the open panel,
+            // this list owns the source content box again, including room for
+            // scaled icons and nested item wrappers.
+            $rule .= $open . ' .wp-block-navigation__container{' . implode(';', $listPadding) . '}';
+        }
         $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker, $rule);
 
         return $marker;
