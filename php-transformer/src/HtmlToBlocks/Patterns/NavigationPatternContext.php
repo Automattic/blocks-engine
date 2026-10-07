@@ -60,6 +60,16 @@ final class NavigationPatternContext
         $this->session?->authorSelectorProjectionState()->markNavigationItemAnchor($anchor);
     }
 
+    /**
+     * core/navigation renders a source `<li>` as a list item of its own, with
+     * the class core hard-codes on it instead of the source-type marker. Author
+     * selector projection needs to know which list items that happened to.
+     */
+    public function recordNavigationListItem(DOMElement $item, bool $rendersSourceSiblings = true): void
+    {
+        $this->session?->authorSelectorProjectionState()->markNavigationListItem($item, $rendersSourceSiblings);
+    }
+
     /** Marks a block element inside a link label that paints the label text itself. */
     public const LABEL_TYPOGRAPHY_BOX_CLASS = 'blocks-engine-label-typography';
 

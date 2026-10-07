@@ -718,6 +718,32 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function collapsedViewportAuthorDeclarations(DOMElement $element, array $properties): array
     {
+        return $this->authorDeclarationsAtViewport($element, $properties, self::MOBILE_REFERENCE_WIDTH);
+    }
+
+    /**
+     * The same author-analysis cascade as
+     * {@see collapsedViewportAuthorDeclarations()}, with conditions evaluated at
+     * the desktop reference viewport ({@see self::DESKTOP_REFERENCE_WIDTH}).
+     * Unlike the source-style collections it sees every authored property
+     * (`float`, `white-space`, `word-spacing`, …), so a caller can ask how an
+     * element lays out where the allow-list is silent. A value is the declared
+     * one, not an inherited one: a caller walks the ancestors itself.
+     *
+     * @param list<string> $properties
+     * @return array<string, string>
+     */
+    public function referenceViewportAuthorDeclarations(DOMElement $element, array $properties): array
+    {
+        return $this->authorDeclarationsAtViewport($element, $properties, self::DESKTOP_REFERENCE_WIDTH);
+    }
+
+    /**
+     * @param list<string> $properties
+     * @return array<string, string>
+     */
+    private function authorDeclarationsAtViewport(DOMElement $element, array $properties, float $viewportWidth): array
+    {
         $authorStyles = $this->context->authorStyles();
         $parsedBySelector = array();
         $rules = ( function () use ($authorStyles, &$parsedBySelector): iterable {
@@ -759,26 +785,27 @@ final class StyleResolver implements ElementPresentationResolver
             return ( $match['supported'] ?? false ) && ( $match['matches'] ?? false );
         };
 
-        return $this->collapsedViewportDeclarationsFromRules($element, $properties, $rules, $matches);
+        return $this->collapsedViewportDeclarationsFromRules($element, $properties, $rules, $matches, $viewportWidth);
     }
 
     /**
      * The shared walk behind the collapsed-viewport readers: every rule whose
-     * selector matches and whose conditions hold at the mobile reference
-     * viewport records its declarations in order, the inline style last.
+     * selector matches and whose conditions hold at the given viewport (the
+     * mobile reference unless a caller names another) records its
+     * declarations in order, the inline style last.
      *
      * @param list<string> $properties
      * @param iterable<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>, layer?:int|null}> $rules
      * @param callable(string): bool $matches Whether one selector matches the element.
      * @return array<string, string>
      */
-    private function collapsedViewportDeclarationsFromRules(DOMElement $element, array $properties, iterable $rules, callable $matches): array
+    private function collapsedViewportDeclarationsFromRules(DOMElement $element, array $properties, iterable $rules, callable $matches, float $viewportWidth = self::MOBILE_REFERENCE_WIDTH): array
     {
         $facts = array();
         $requested = array_flip($properties);
         $order = 0;
         foreach ( $rules as $rule ) {
-            if ( array() !== $rule['conditions'] && ! $this->conditionsApplyAtViewport($rule['conditions'], self::MOBILE_REFERENCE_WIDTH) ) continue;
+            if ( array() !== $rule['conditions'] && ! $this->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) ) continue;
             $specificity = null;
             foreach ( $rule['selectors'] as $selector ) {
                 if ( $matches($selector) ) {

@@ -102,6 +102,14 @@ final class AuthorSelectorProjectionState
     /** @var array<string, true> */
     private array $navigationItemAnchorPaths = array();
 
+    /**
+     * Source list items core/navigation renders as its own items, each with
+     * whether its rendered siblings are exactly its source list's items.
+     *
+     * @var array<string, bool>
+     */
+    private array $navigationListItemPaths = array();
+
     public function installAuthorStyles(AuthorStyleAnalysis $authorStyles): void
     {
         $this->authorStyles = $authorStyles;
@@ -274,6 +282,36 @@ final class AuthorSelectorProjectionState
     {
         // Hash input only (never emitted); the NUL keeps it apart from any real selector text.
         return "parent-of\0" . $selector;
+    }
+
+    /**
+     * Record a source `<li>` that core/navigation-link or core/navigation-submenu
+     * renders as `<li class="wp-block-navigation-item">`. The source-type marker
+     * other list items carry never reaches that rendered item, so a rule
+     * authored on the `li` has to address the class core puts there.
+     */
+    public function markNavigationListItem(DOMElement $item, bool $rendersSourceSiblings = true): void
+    {
+        $path = $item->getNodePath() ?? '';
+        if ( '' !== $path ) {
+            $this->navigationListItemPaths[$path] = $rendersSourceSiblings;
+        }
+    }
+
+    public function isNavigationListItemPath(string $path): bool
+    {
+        return isset($this->navigationListItemPaths[$path]);
+    }
+
+    /**
+     * Whether the rendered item's container holds exactly the items of its
+     * source list, in source order. Not so when core gathers the items of
+     * two source lists into one container: there the last item of the first
+     * list has a rendered sibling it had no source sibling for.
+     */
+    public function navigationListItemRendersSourceSiblings(string $path): bool
+    {
+        return true === ( $this->navigationListItemPaths[$path] ?? false );
     }
 
     public function ensureAttributeMarker(string $path, ?string $stableIdentity = null): string
