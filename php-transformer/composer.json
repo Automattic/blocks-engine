@@ -38,6 +38,10 @@
     "ext-mbstring": "*"
   },
   "scripts": {
+    "lint": ["@lint:php", "@lint:types"],
+    "lint:php": "phpcs --standard=phpcs.xml.dist",
+    "lint:types": "phpstan analyse --configuration=phpstan.neon.dist --no-progress --memory-limit=1G",
+    "test:lint": "php tests/contract/library-lint.php",
     "parity": "@test:parity",
     "static-parity": "php tools/static-parity/run.php",
     "live-wp-parity": "php tools/live-wp-parity/run.php",
@@ -493,7 +497,10 @@
     "sort-packages": true
   },
   "require-dev": {
+    "php-stubs/wordpress-stubs": "^7.0",
+    "phpstan/phpstan": "^2.1",
     "phpunit/phpunit": "^9.6",
+    "squizlabs/php_codesniffer": "^4.0",
     "yoast/phpunit-polyfills": "^3.0"
   }
 }

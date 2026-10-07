@@ -144,10 +144,7 @@ trait DomHelpersTrait
 
     protected function fallbackSourceTagMarker(string $tagName): string
     {
-        $markers = isset($this->sourceTagMarkers) && is_array($this->sourceTagMarkers)
-            ? $this->sourceTagMarkers
-            : array();
-        return $markers[$tagName] ?? '';
+        return '';
     }
 
     private function safeFallbackHtmlString(string $html): string

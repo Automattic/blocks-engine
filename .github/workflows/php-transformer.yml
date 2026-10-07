@@ -48,6 +48,9 @@ jobs:
       - name: Validate Composer package metadata
         run: composer validate --strict
 
+      - name: Verify library lint correctness and rejection contract
+        run: composer lint && composer test:lint
+
       - name: Run package tests
         run: composer test
 
@@ -78,6 +81,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Verify owned JavaScript correctness
+        run: npm run lint
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
