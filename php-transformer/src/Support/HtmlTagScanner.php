@@ -66,6 +66,7 @@ final class HtmlTagScanner
             if ('<!--' === substr($html, $open, 4)) {
                 $end = strpos($html, '-->', $open + 4);
                 $offset = false === $end ? $length : $end + 3;
+                if ('#comment' === $name) $tags[] = array('tag' => substr($html, $open, $offset - $open), 'attributes' => '', 'content' => '', 'offset' => $open, 'end_offset' => $offset, 'placement' => $inHead ? 'head' : 'body');
                 continue;
             }
             if (in_array($html[$open + 1] ?? '', array('!', '?'), true)) {

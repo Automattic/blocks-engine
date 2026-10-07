@@ -80,6 +80,7 @@ final class ArtifactNormalizer
         }
 
         $rawFiles = $this->rawFiles($artifact);
+        $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports);
         $reservedPaths = array();
         foreach ( $rawFiles as $file ) {
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
@@ -180,7 +181,7 @@ final class ArtifactNormalizer
                 continue;
             }
 
-            $path = $this->dedupePath($path, $seenPaths);
+            $path = self::dedupePath($path, $seenPaths);
             $seenPaths[$path] = true;
             $mimeType = $this->mimeType((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? (str_contains((string) ($file['type'] ?? ''), '/') ? $file['type'] : '')), $path);
             $kind = $this->kind((string) ($file['kind'] ?? $file['type'] ?? ''), $path, $payload['content'], $mimeType);
@@ -418,7 +419,7 @@ final class ArtifactNormalizer
             }
             // Omitted rows share the same canonical namespace as admitted rows.
             // A later duplicate becomes assets/logo-2.svg, not assets/logo.svg.
-            $path = $this->dedupePath($path, $seenPaths);
+            $path = self::dedupePath($path, $seenPaths);
             $seenPaths[$path] = true;
             $class = in_array((string) ($file['source'] ?? ''), array('inline-style', 'inline-script'), true) ? 'generated' : 'source';
             ++$byClass[$class]['count'];
@@ -578,6 +579,8 @@ final class ArtifactNormalizer
         $expanded = array();
         foreach ( $files as $file ) {
             $expanded[] = $file;
+
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
 
             if ( isset($expandedSources[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))]) ) {
                 continue;
@@ -804,6 +807,8 @@ final class ArtifactNormalizer
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
+
             if ( isset($expandedSources[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))]) ) {
                 continue;
             }
@@ -906,7 +911,7 @@ final class ArtifactNormalizer
         if (null === $contentKey || !is_string($file[$contentKey])) {
             return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('missing_file_payload', 'warning', 'An artifact file was ignored because it has no explicit text or base64 payload.', array('path' => $path))));
         }
-        $content = $this->normalizeContent($file[$contentKey]);
+        $content = !empty($file['metadata']['compilation']['resolved_html_includes']) ? $file[$contentKey] : $this->normalizeContent($file[$contentKey]);
         return array('accepted' => true, 'content' => $content, 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => strlen($content), 'diagnostics' => array());
     }
 
@@ -1066,11 +1071,17 @@ final class ArtifactNormalizer
     }
 
     /**
-     * @param array<string, bool> $seen
+     * The first free `<base>-<n><ext>` name when `$path` is already taken.
+     * `$seen` is keyed by path; with `$foldCase` both the lookup and the
+     * probes use lowercase keys, so a name is taken when any spelling of it
+     * is, as on a case-insensitive filesystem.
+     *
+     * @param array<string, mixed> $seen
      */
-    private function dedupePath(string $path, array $seen): string
+    public static function dedupePath(string $path, array $seen, bool $foldCase = false): string
     {
-        if ( ! isset($seen[$path]) ) {
+        $key = static fn(string $candidate): string => $foldCase ? strtolower($candidate) : $candidate;
+        if ( ! isset($seen[$key($path)]) ) {
             return $path;
         }
 
@@ -1078,7 +1089,7 @@ final class ArtifactNormalizer
         $base = '' === $extension ? $path : substr($path, 0, -1 - strlen($extension));
         $suffix = '' === $extension ? '' : '.' . $extension;
         $index = 2;
-        while ( isset($seen[$base . '-' . $index . $suffix]) ) {
+        while ( isset($seen[$key($base . '-' . $index . $suffix)]) ) {
             ++$index;
         }
 

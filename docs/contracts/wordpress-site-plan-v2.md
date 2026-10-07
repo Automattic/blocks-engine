@@ -187,7 +187,10 @@ and `WordPressSitePlanResolver::resolve()`.
   resolved operations verbatim rather than inferring hierarchy or front-page behavior.
 - Targets, slugs, and tokens use a case-insensitive collision policy. Producers
   retain their declared spelling, while plans reject two values that differ only by
-  case so they materialize consistently on case-insensitive filesystems.
+  case so they materialize consistently on case-insensitive filesystems. When two
+  captured files differ only by case, the compiler keeps the byte-order-first
+  spelling and gives each later spelling a numbered asset target (`photo-2.png`);
+  source paths and their references are unchanged.
 - Static browser references in markup and CSS (`src`, stylesheet `href`, `srcset`,
   `poster`, applicable `action`, `url()`, and `@import`) must be declared asset
   tokens or absolute/root-relative URLs. The canonical `functions.php` registers

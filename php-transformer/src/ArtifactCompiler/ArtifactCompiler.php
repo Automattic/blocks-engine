@@ -29,6 +29,7 @@ use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
+use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use DOMDocument;
 use DOMElement;
@@ -1708,6 +1709,7 @@ final class ArtifactCompiler
     {
         $areas = array();
         foreach ( $files as $file ) {
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
             if ( ! is_array($file) || ! $this->isTemplatePartFile($file) ) {
                 continue;
             }
@@ -1819,6 +1821,7 @@ final class ArtifactCompiler
     {
         $payloads = array();
         foreach ( $stylesheets as $stylesheet ) {
+            if (!StylesheetActivation::active($stylesheet)) continue;
             $content = (string) ($stylesheet['content'] ?? '');
             if ( '' !== trim($content) ) {
                 $payloads[] = array(
@@ -1883,6 +1886,7 @@ final class ArtifactCompiler
         $assets = array();
         $seenPaths = array();
         $inlineIndex = 0;
+        $activation = StylesheetActivation::links($html);
         $linkOccurrences = array();
         $tags = array_map(
             static fn (array $style): array => array('kind' => 'style', 'offset' => $style['offset'], 'attributes' => $style['attributes'], 'content' => $style['content']),
@@ -1924,6 +1928,7 @@ final class ArtifactCompiler
             $file = $byPath[$path] ?? null;
             if ( is_array($file) && ! isset($seenPaths[$path]) ) {
                 $assets[] = array( 'path' => $path, 'source_path' => $file['stylesheet_source_path'] ?? $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => StyleTagScanner::authorMedia((string) $tag), 'type' => $this->htmlAttribute((string) $tag, 'type') );
+                $assets[array_key_last($assets)]['stylesheet_activation'] = $activation[$tagRecord['offset']];
                 $seenPaths[$path] = true;
             }
         }
@@ -1977,6 +1982,7 @@ final class ArtifactCompiler
         }
         $occurrences = array();
         $variants = array();
+        $activation = StylesheetActivation::links($html);
         foreach ( StyleTagScanner::scanLinks($html) as $link ) {
             $tag = $link['tag'];
             if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute((string) $tag, 'rel')) || ! StyleTagScanner::isCssType($this->htmlAttribute((string) $tag, 'type')) ) {
@@ -1990,22 +1996,25 @@ final class ArtifactCompiler
             $occurrence = $occurrences[$originalPath];
             $media = $this->htmlAttribute((string) $tag, 'media');
             $type = $this->htmlAttribute((string) $tag, 'type');
+            $state = $activation[$link['offset']];
+            $variant = $media . "\0" . $type . "\0" . json_encode($state);
             if ( 1 === $occurrence ) {
                 $files[$byPath[$originalPath]]['media'] = $media;
                 if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $files[$byPath[$originalPath]]['source_media'] = StyleTagScanner::authorMedia($tag);
                 $files[$byPath[$originalPath]]['type'] = $type;
+                $files[$byPath[$originalPath]]['stylesheet_activation'] = $state;
                 $files[$byPath[$originalPath]]['stylesheet_source_path'] = $originalPath;
                 $files[$byPath[$originalPath]]['stylesheet_occurrence'] = 1;
-                $variants[$originalPath][$media . "\0" . $type] = true;
+                $variants[$originalPath][$variant] = true;
                 continue;
             }
             // Repeating one stylesheet under the same conditions applies it
             // once, exactly as a browser resolves it. Only a differing media or
-            // type makes a later reference its own participant in the cascade.
-            if ( isset($variants[$originalPath][$media . "\0" . $type]) ) {
+            // type or activation makes a later reference its own participant.
+            if ( isset($variants[$originalPath][$variant]) ) {
                 continue;
             }
-            $variants[$originalPath][$media . "\0" . $type] = true;
+            $variants[$originalPath][$variant] = true;
             $alias = $this->allocateStylesheetOccurrencePath($this->stylesheetOccurrencePath($originalPath, $occurrence), $reserved);
             $aliasFile = $files[$byPath[$originalPath]];
             $aliasFile['path'] = $alias;
@@ -2016,6 +2025,7 @@ final class ArtifactCompiler
             $aliasFile['media'] = $media;
             if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $aliasFile['source_media'] = StyleTagScanner::authorMedia($tag);
             $aliasFile['type'] = $type;
+            $aliasFile['stylesheet_activation'] = $state;
             $aliasFile['provenance']['source_path'] = $originalPath;
             $files[] = $aliasFile;
             $byPath[$alias] = count($files) - 1;
@@ -2054,6 +2064,7 @@ final class ArtifactCompiler
             if ( 'html' !== ($document['kind'] ?? null) || ! is_string($document['path'] ?? null) || ! is_string($document['content'] ?? null) ) continue;
             $documentPath = $document['path'];
             $links = StyleTagScanner::scanLinks($document['content']);
+            $activation = StylesheetActivation::links($document['content']);
             foreach ( $links as $linkIndex => $link ) {
                 $tag = $link['tag'];
                 if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute($tag, 'rel')) || ! StyleTagScanner::isCssType($this->htmlAttribute($tag, 'type')) ) continue;
@@ -2063,7 +2074,8 @@ final class ArtifactCompiler
                 $media = trim($this->htmlAttribute($tag, 'media'));
                 if ( '' === $media ) $media = trim((string) ($files[$index]['media'] ?? ''));
                 $type = trim($this->htmlAttribute($tag, 'type'));
-                $variant = $media . "\0" . $type;
+                $state = $activation[$link['offset']];
+                $variant = $media . "\0" . $type . "\0" . json_encode($state);
                 $reference = array(
                     'source_path' => $documentPath,
                     'selector' => 'link:nth-of-type(' . ($linkIndex + 1) . ')',
@@ -2086,9 +2098,10 @@ final class ArtifactCompiler
                     $files[$index]['media'] = $media;
                     if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $files[$index]['source_media'] = StyleTagScanner::authorMedia($tag);
                     $files[$index]['type'] = $type;
+                    $files[$index]['stylesheet_activation'] = $state;
                     $files[$index]['stylesheet_source_path'] = $sourcePath;
                     $files[$index]['stylesheet_occurrence'] = 1;
-                    $files[$index]['references'] = array_values(array_unique(array_merge($files[$index]['references'] ?? array(), array($reference)), SORT_REGULAR));
+                    $files[$index]['references'] = array($reference);
                     $occurrences[$sourcePath] = 1;
                     continue;
                 }
@@ -2104,6 +2117,7 @@ final class ArtifactCompiler
                 $aliasFile['media'] = $media;
                 if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $aliasFile['source_media'] = StyleTagScanner::authorMedia($tag);
                 $aliasFile['type'] = $type;
+                $aliasFile['stylesheet_activation'] = $state;
                 $aliasFile['references'] = array($reference);
                 $aliasFile['provenance']['source_path'] = $sourcePath;
                 $files[] = $aliasFile;
@@ -2387,7 +2401,9 @@ final class ArtifactCompiler
                 $chunk = $file;
                 $chunk['path'] = $paths[$index];
                 $chunk['content'] = 0 === $index ? $content : $continuationPreamble . $content;
-                unset($chunk['content_base64']);
+                // Continuations inherit activation for inference, but are loaded
+                // by the parent CSS import, not by the parent's document link.
+                unset($chunk['content_base64'], $chunk['references']);
                 $chunk['bytes'] = strlen($chunk['content']);
                 $chunk['encoding'] = 'text';
                 $chunk['binary'] = false;
@@ -3695,6 +3711,10 @@ final class ArtifactCompiler
                 continue;
             }
 
+            // Resolved component chrome is bound by ShellExtraction from each
+            // page's actual block tree, not emitted again as an unbound part.
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
+
             $slug = $this->slugFromPath($path);
             $area = $this->templatePartArea($path, (string) ($file['role'] ?? ''));
             $tagName = ShellLandmarkPolicy::templatePartTagName($path, (string) ($file['role'] ?? ''));
@@ -4077,6 +4097,8 @@ final class ArtifactCompiler
                     'kind'             => $asset['kind'] ?? '',
                     'role'             => $asset['role'] ?? '',
                     'stylesheet_placement' => $asset['stylesheet_placement'] ?? '',
+                    'stylesheet_activation' => $asset['stylesheet_activation'] ?? null,
+                    'stylesheet_source_path' => $asset['stylesheet_source_path'] ?? null,
                     'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? ($asset['stylesheet_target'] ?? 'both') : '',
                     'intent'           => $asset['intent'] ?? '',
                     'media_type'       => $asset['media_type'] ?? $asset['mime_type'] ?? '',
@@ -4330,6 +4352,7 @@ final class ArtifactCompiler
         $assets = array();
         $unsupportedStylesheets = $this->unsupportedStylesheetPaths($entryHtml, $entryPath);
         $documentLinkMedia = $this->documentLinkMedia($files);
+        $caseDistinctTargets = $this->caseDistinctTargetPaths($files);
         foreach ( $files as $file ) {
             if ( $entryPath === $file['path'] || $this->isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
                 continue;
@@ -4337,7 +4360,7 @@ final class ArtifactCompiler
             $asset = array(
                 'source'           => $file['source'] ?? 'artifact',
                 'path'             => $file['path'],
-                'target_path'      => $file['path'],
+                'target_path'      => $caseDistinctTargets[$file['path']] ?? $file['path'],
                 'kind'             => $file['kind'],
                 'bytes'            => $file['bytes'],
                 'media_type'       => $file['mime_type'],
@@ -4384,6 +4407,10 @@ final class ArtifactCompiler
             }
             if (isset($file['source_media']) && is_string($file['source_media'])) $asset['source_media'] = $file['source_media'];
             if ( 'css' === ($file['kind'] ?? null) ) {
+                if (isset($file['stylesheet_activation'])) {
+                    $asset['stylesheet_activation'] = $file['stylesheet_activation'];
+                    $asset['stylesheet_source_path'] = $file['stylesheet_source_path'];
+                }
                 if (is_array($file['metadata']['compilation'] ?? null) || '' !== ArtifactNormalizer::inlineExpansionSourcePath($file)) {
                     $asset['compilation'] = $this->fileOwnership($file);
                 }
@@ -4397,6 +4424,7 @@ final class ArtifactCompiler
                 }
             }
             $references = $this->referencesForAsset((string) $file['path'], $assetReferences);
+            if (isset($file['stylesheet_activation'], $file['references'])) $references = $file['references'];
             if ( array() !== $references ) {
                 $asset['references'] = $references;
             }
@@ -4476,6 +4504,48 @@ final class ArtifactCompiler
     private function isMaterializedHtmlDocument(array $file): bool
     {
         return 'html' === ($file['kind'] ?? '') && ($this->isLinkableDocument($file) || $this->isTemplatePartFile($file));
+    }
+
+    /**
+     * Theme asset targets follow the site plan's case-insensitive collision
+     * policy: two captured files whose paths differ only by letter case would
+     * land in one file on a case-insensitive filesystem, so the plan rejects
+     * them. Give every later spelling in such a group a numbered target
+     * (`photo-2.png`) that no other file uses in any case. The byte-order-first
+     * spelling keeps its name, so the outcome does not depend on file order.
+     * Source paths stay as captured: references resolve by exact source path,
+     * and each asset's token hashes its own target.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, string> Source path to target path, for renamed files only.
+     */
+    private function caseDistinctTargetPaths(array $files): array
+    {
+        $groups = array();
+        $reserved = array();
+        foreach ( $files as $file ) {
+            $path = (string) ($file['path'] ?? '');
+            if ( '' === $path ) {
+                continue;
+            }
+            $reserved[strtolower($path)] = true;
+            $groups[strtolower($path)][$path] = true;
+        }
+        $targets = array();
+        ksort($groups, SORT_STRING);
+        foreach ( $groups as $spellings ) {
+            if ( count($spellings) < 2 ) {
+                continue;
+            }
+            $paths = array_keys($spellings);
+            sort($paths, SORT_STRING);
+            foreach ( array_slice($paths, 1) as $path ) {
+                $target = ArtifactNormalizer::dedupePath((string) $path, $reserved, true);
+                $reserved[strtolower($target)] = true;
+                $targets[(string) $path] = $target;
+            }
+        }
+        return $targets;
     }
 
     /**

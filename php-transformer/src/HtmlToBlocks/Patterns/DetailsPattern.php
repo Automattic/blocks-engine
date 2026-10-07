@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DisclosureControlPresentation;
 use DOMElement;
 
 final class DetailsPattern implements PatternRecognizerInterface
@@ -86,7 +87,7 @@ final class DetailsPattern implements PatternRecognizerInterface
             }
         }
         if ($summary instanceof DOMElement) {
-            $summaryHtml = $this->summaryContentCarrier($summary, $summaryHtml);
+            $summaryHtml = $this->summaryContentCarrier($summary, $summaryHtml, '' !== $summaryMarker);
         }
 
         $attrs = array_merge($presentationAttributes($element), array(
@@ -105,7 +106,7 @@ final class DetailsPattern implements PatternRecognizerInterface
      * summary's classes and responsive data attributes. Keep those safe styling
      * hooks on its content rather than changing core's saved summary shape.
      */
-    private function summaryContentCarrier(DOMElement $summary, string $html): string
+    private function summaryContentCarrier(DOMElement $summary, string $html, bool $hasPresentationMarker): string
     {
         $attributes = array();
         foreach (SourceDom::htmlAttributes($summary) as $name => $value) {
@@ -115,7 +116,16 @@ final class DetailsPattern implements PatternRecognizerInterface
             }
         }
 
-        return array() === $attributes ? $html : '<span' . SourceDom::htmlAttributeString($attributes) . '>' . $html . '</span>';
+        if ( array() === $attributes ) {
+            return $html;
+        }
+        // Keep the source control's styling hooks and interactive paint on one
+        // carrier. The native summary retains its semantic/click ownership but
+        // generated presentation neutralizes its extra chrome around this box.
+        if ( $hasPresentationMarker ) {
+            $attributes['class'] = SourceDom::mergeClassNames((string) ($attributes['class'] ?? ''), DisclosureControlPresentation::SUMMARY_CONTENT_CARRIER_CLASS);
+        }
+        return '<span' . SourceDom::htmlAttributeString($attributes) . '>' . $html . '</span>';
     }
 
     /**

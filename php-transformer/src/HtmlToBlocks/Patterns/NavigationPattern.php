@@ -34,6 +34,17 @@ final class NavigationPattern implements PatternRecognizerInterface
     private const SIDEBAR_NAVIGATION_CARRIER_CLASS = 'blocks-engine-sidebar-navigation-carrier';
 
     /**
+     * Element tags that, when they appear inside a repeated link item but
+     * outside its single anchor, mark the item as a content card rather than
+     * a menu item: meta timestamps, media artwork, and interactive embeds a
+     * navigation-link label has nowhere to keep.
+     */
+    private const CARD_CONTENT_ELEMENT_TAGS = array(
+        'svg', 'img', 'picture', 'time', 'video', 'audio', 'iframe', 'canvas',
+        'table', 'form', 'button', 'input', 'select', 'textarea',
+    );
+
+    /**
      * Marks a core/navigation whose generated support CSS must be able to
      * force it visible (flex) against the author's own responsive hide/show
      * classes — every nav Core's native `overlayMenu` now controls, whether
@@ -3261,10 +3272,51 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( '' === $href || '' === $label || str_starts_with($href, '#') ) {
                 return false;
             }
+            if ( $this->itemCarriesContentOutsideAnchor($child, $anchors[0]) ) {
+                return false;
+            }
             ++$items;
         }
 
         return 3 <= $items;
+    }
+
+    /**
+     * A repeated item whose content extends past its single heading-wrapped
+     * anchor is a content card, not a menu item.
+     *
+     * The heading-link clusters this signal was written for (#1817) keep every
+     * item's visible text inside the anchor. A card stack — a speaking-history
+     * list of talk cards, each an `<article>` holding a meta row beside its
+     * linked title — carries venue labels, timestamps, and icon artwork OUTSIDE
+     * the anchor. Claiming that stack as one menu collapsed every card to its
+     * title link and destroyed the rest. Menu iconography belongs inside the
+     * anchor (the label stripper already assumes it), so artwork outside the
+     * anchor also marks a card. Declining leaves the stack to the generic
+     * group/card lowering, which preserves every part natively.
+     */
+    private function itemCarriesContentOutsideAnchor(DOMElement $item, DOMElement $anchor): bool
+    {
+        $stack = array( $item );
+        while ( null !== ( $node = array_pop($stack) ) ) {
+            foreach ( $node->childNodes as $child ) {
+                if ( $child instanceof DOMElement ) {
+                    if ( $child->isSameNode($anchor) ) {
+                        continue;
+                    }
+                    if ( in_array(strtolower($child->tagName), self::CARD_CONTENT_ELEMENT_TAGS, true) ) {
+                        return true;
+                    }
+                    $stack[] = $child;
+                    continue;
+                }
+                if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function anchorIsHeadingWrapped(DOMElement $anchor, DOMElement $boundary): bool

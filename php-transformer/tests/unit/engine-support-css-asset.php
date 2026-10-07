@@ -179,7 +179,7 @@ $afterFamilies = array(
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',
     'nativeButtonStyleRules' => '>.wp-block-button__link{box-sizing:border-box;width:max-content;max-width:100%;',
     'intrinsic native button width' => '.wp-block-buttons{width:max-content;max-width:100%}',
-    'directFlexButtonStyleRules' => '.wp-block-buttons){display:block!important;gap:0!important;min-width:0;width:100%!important}',
+    'directFlexButtonStyleRules' => '.wp-block-buttons){width:auto!important}',
     'fullWidthButtonStyleRules' => '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}',
 );
 foreach ( $beforeFamilies as $family => $needle ) {

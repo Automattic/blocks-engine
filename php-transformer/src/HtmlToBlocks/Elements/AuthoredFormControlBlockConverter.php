@@ -210,6 +210,8 @@ final class AuthoredFormControlBlockConverter
             'dataAttributes' => $preserveDataAttributes ? $this->dataAttributes($input) : array(),
             'label' => $label instanceof DOMElement ? $this->metadataBuilder->labelText($label) : '',
             'labelMarkup' => $label instanceof DOMElement ? ($this->richTextLabelContent)($label) : '',
+            'labelId' => $label instanceof DOMElement ? SourceDom::attr($label, 'id') : '',
+            'labelAfterControl' => $label instanceof DOMElement && $this->inputBeforeCaption($input, $label),
             'labelClassName' => $label instanceof DOMElement ? SourceDom::attr($label, 'class') : '',
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
@@ -222,6 +224,16 @@ final class AuthoredFormControlBlockConverter
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
+    }
+
+    private function inputBeforeCaption(DOMElement $input, DOMElement $label): bool
+    {
+        if (!$input->parentNode?->isSameNode($label)) return false;
+        foreach ($label->childNodes as $child) {
+            if ($child instanceof \DOMText && '' === trim($child->textContent)) continue;
+            return $child->isSameNode($input);
+        }
+        return false;
     }
 
     /**

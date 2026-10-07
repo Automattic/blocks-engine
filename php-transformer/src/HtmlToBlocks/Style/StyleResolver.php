@@ -1018,6 +1018,118 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Preserve layered responsive margin winners on the emitted block root.
+     * WordPress layout defaults are unlayered and therefore outrank normal
+     * author declarations retained inside a named cascade layer.
+     */
+    public function responsiveBlockMarginTopClassName(DOMElement $element): string
+    {
+        if (! $this->hasConditionalDeclarationForProperties($element, array('margin-top', 'margin'))) return '';
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        if (array_intersect_key($inline, array_flip(array('margin', 'margin-top', 'margin-block', 'margin-block-start'))) !== array()) {
+            return '';
+        }
+
+        $sequence = $this->declarationSequence($element, 'margin-top');
+        if (array() === $sequence) {
+            return '';
+        }
+        $fact = static fn (array $entry): array => array(
+            'important' => $entry['important'],
+            'inline' => false,
+            'layer' => $entry['layerRank'],
+            'specificity' => $entry['specificity'],
+            'order' => $entry['order'],
+        );
+
+        $baseWinner = null;
+        foreach ($sequence as $entry) {
+            if (array() !== $entry['queries']) continue;
+            if (null === $baseWinner || CssCascade::wins($fact($entry), $fact($baseWinner))) $baseWinner = $entry;
+        }
+        $conditionalWinners = array();
+        foreach ($sequence as $entry) {
+            if (array() === $entry['queries'] || (null !== $baseWinner && ! CssCascade::wins($fact($entry), $fact($baseWinner)))) continue;
+            $condition = implode('{', $entry['queries']);
+            $current = $conditionalWinners[$condition] ?? null;
+            if (null === $current || CssCascade::wins($fact($entry), $fact($current))) $conditionalWinners[$condition] = $entry;
+        }
+        $winners = array_merge(null === $baseWinner ? array() : array($baseWinner), array_values($conditionalWinners));
+        if (array() === $conditionalWinners || array() === array_filter($winners, static fn (array $entry): bool => null !== $entry['layerRank'])) {
+            return '';
+        }
+        foreach ($winners as $entry) {
+            if ($entry['important']) return '';
+        }
+
+        // These group-source tags have no user-agent block margin. When only
+        // a conditional author rule exists, carry that real zero baseline too,
+        // rather than letting an unlayered WordPress block default fill it in.
+        if ( null === $baseWinner && !in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section'), true) ) return '';
+        $base = null === $baseWinner ? '0px' : $this->carriedDeclarationValue($baseWinner['value']);
+        $conditional = array();
+        $orderedConditionalWinners = array();
+        foreach ($conditionalWinners as $condition => $entry) {
+            $orderedConditionalWinners[] = array(
+                'condition' => $condition,
+                'entry' => $entry,
+                'position' => count($orderedConditionalWinners),
+            );
+        }
+        usort($orderedConditionalWinners, static function (array $left, array $right) use ($fact): int {
+            $leftWins = CssCascade::wins($fact($left['entry']), $fact($right['entry']));
+            $rightWins = CssCascade::wins($fact($right['entry']), $fact($left['entry']));
+            if ($leftWins === $rightWins) {
+                return $left['position'] <=> $right['position'];
+            }
+
+            // Projected rules use one generated selector, so specificity and
+            // source order must be represented by output order when their
+            // responsive conditions overlap. Emit the source cascade loser
+            // first so the winning declaration remains last in the browser.
+            return $leftWins ? 1 : -1;
+        });
+        foreach ($orderedConditionalWinners as $winner) {
+            $condition = $winner['condition'];
+            $entry = $winner['entry'];
+            $value = $this->carriedDeclarationValue($entry['value']);
+            if ('' !== $value) $conditional[$condition] = $value;
+        }
+        if ('' === $base && array() === $conditional) return '';
+
+        $marker = 'blocks-engine-responsive-margin-top-' . substr(hash(
+            'sha256',
+            $this->geometryStructuralPath($element) . "\n" . $base . "\n" . serialize($conditional)
+        ), 0, 12);
+        $this->context->generatedSupportStyles()->registerResponsiveBlockMarginTop($marker, $base, $conditional);
+
+        return $marker;
+    }
+
+    /** @return list<array{value:string,queries:list<string>,layer:string|null,layerRank:int|null,important:bool,order:int,specificity:array<int,int>}> */
+    private function declarationSequence(DOMElement $element, string $property): array
+    {
+        $entries = array();
+        foreach ($this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $index => $rule) {
+            $declared = trim((string) ($rule['declarations'][$property] ?? ''));
+            $selector = (string) ($rule['selector'] ?? '');
+            if ('' === $declared || ! $this->matchesCssSelector($element, $selector)) continue;
+            $conditions = array_map('trim', $rule['conditions'] ?? array());
+            $entries[] = array(
+                'value' => $declared,
+                'queries' => array_values(array_filter($conditions, static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', $condition))),
+                'layer' => $rule['layer'] ?? null,
+                'layerRank' => $rule['layerRank'] ?? null,
+                'important' => CssValueInspector::isImportant($declared),
+                'order' => (int) ($rule['cascadeOrder'] ?? $index),
+                'specificity' => $this->mediaTextSelectorSpecificity($selector),
+            );
+        }
+
+        return $entries;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $rules
      * @return list<array<string, mixed>>
      */
@@ -2981,6 +3093,9 @@ final class StyleResolver implements ElementPresentationResolver
         $classes = 0;
         $elements = 0;
         foreach ($parsed['compounds'] as $compound) {
+            if ( true === ($compound['forced_zero_specificity'] ?? false) ) {
+                continue;
+            }
             $zeroSpecificity = $compound['zero_specificity'] ?? array();
             $ids += count($compound['ids'] ?? array()) - (int) ($zeroSpecificity['ids'] ?? 0);
             $classes += count($compound['classes'] ?? array()) + count($compound['attributes'] ?? array())
@@ -4441,6 +4556,28 @@ final class StyleResolver implements ElementPresentationResolver
         $cache = $this->context->sourceStyles();
         $index = $cache->ruleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
         return $cache->selectorMatchCache->styleRuleCandidates($element, $collection, $index);
+    }
+
+    /** @return list<string> Authored interaction states that paint a background on this element. */
+    public function sourceBackgroundInteractionStates(DOMElement $element): array
+    {
+        $states = array();
+        foreach ( $this->context->sourceStyles()->navigationStateRules() as $rule ) {
+            $state = strtolower((string) ($rule['state'] ?? ''));
+            if ( ! in_array($state, array('hover', 'focus', 'focus-visible', 'active'), true) ) continue;
+            if ( ! $this->matchesCssSelector($element, (string) ($rule['base_selector'] ?? '')) ) continue;
+            foreach ( array('background', 'background-color') as $property ) {
+                $value = CssValueInspector::comparable((string) ($rule['declarations'][$property] ?? ''));
+                if ( '' !== $value
+                    && ! CssValueInspector::isTransparentColor($value)
+                    && ! in_array($value, array('none', 'initial', 'inherit', 'unset', 'revert'), true)
+                ) {
+                    $states[$state] = true;
+                    break;
+                }
+            }
+        }
+        return array_keys($states);
     }
 
     /** @return array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, attributes: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} */
