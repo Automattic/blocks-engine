@@ -115,6 +115,31 @@ if ('core/details' !== ($disclosure['blockName'] ?? null) || 'Question?' !== ($d
     fwrite(STDERR, "php-transformer install proof failed DetailsPattern public disclosure API\n");
     exit(1);
 }
+$headResult = (new Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<html><head><meta name="viewport" data-selected-viewport=""><script>document.querySelector("meta[data-selected-viewport]").content="width=320";</script></head><body><h1>Installed head runtime</h1></body></html>')))->toArray();
+$headPlan = $headResult['source_reports']['wordpress_site_plan'] ?? null;
+if (!is_array($headPlan) || 'failed' === $headResult['status']) {
+    fwrite(STDERR, "php-transformer install proof failed document-head compilation\n");
+    exit(1);
+}
+$headResolved = (new Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver())->resolve($headPlan, array('theme_uri' => 'https://example.test/theme', 'require_proven_dynamic_client_assets' => true));
+$headHtml = Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext::fromPlan($headResolved, 'index.html');
+if (!str_contains($headHtml, 'data-selected-viewport=""') || !str_contains($headHtml, 'document.querySelector')) {
+    fwrite(STDERR, "php-transformer install proof failed emitted head target/script contract\n");
+    exit(1);
+}
+$bodyResult = (new Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('files' => array('index.html' => '<div class="frame host-context extra-context" data-dla-document-scope="slate" data-dla-device-document="slate"><header><div role="button" tabindex="0" aria-label="Open" data-dla-dialog-trigger="panel" aria-controls="panel"><span></span><span></span><span></span></div><div hidden id="panel" data-dla-dialog-panel="panel"><p>Panel</p></div></header><main><p>Editable</p></main></div><script>document.querySelectorAll("[data-dla-dialog-trigger]").forEach(function(control){control.addEventListener("click",function(){document.getElementById("panel").hidden=false;});});</script>')))->toArray();
+if (str_contains($bodyResult['serialized_blocks'], '<!-- wp:html') || !str_contains($bodyResult['serialized_blocks'], '/authored-button') || !str_contains($bodyResult['serialized_blocks'], '/layout-shell') || array() !== ($bodyResult['source_reports']['runtime_dependency_parity']['findings'] ?? array())) {
+    fwrite(STDERR, "php-transformer install proof failed declared body/control ownership\n");
+    exit(1);
+}
+$scopedCanvas = '<style>#canvas{min-width:1060px}[data-dla-device-document="slate"] #tile{width:123px}</style>';
+foreach (array('default', 'slate') as $profile) $scopedCanvas .= '<div data-dla-document-scope="" data-dla-device-document="' . $profile . '"><div id="canvas"><header><p>Header</p></header><main><p id="tile">Tile</p></main><footer><p>Footer</p></footer></div></div>';
+$canvasResult = (new Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('files' => array('index.html' => $scopedCanvas)))->toArray();
+$canvasCss = implode("\n", array_column($canvasResult['assets'], 'content'));
+if (!str_contains($canvasCss, 'min-width:1060px') || !str_contains($canvasCss, ':is(#tile,.blocks-engine-editor-anchor-tile)')) {
+    fwrite(STDERR, "php-transformer install proof failed declared canvas/identity projection\n");
+    exit(1);
+}
 PHP;
 
     run($proofRoot, array(PHP_BINARY, '-r', $smoke));

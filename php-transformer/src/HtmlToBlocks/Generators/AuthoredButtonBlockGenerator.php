@@ -17,6 +17,20 @@ final class AuthoredButtonBlockGenerator
 
     private const LABEL_TAGS = array('div', 'p', 'span', 'small', 'strong', 'b', 'em', 'i', 'u', 's');
 
+    public static function isRoleButton(DOMElement $element): bool
+    {
+        return in_array(strtolower($element->tagName), array('div', 'span'), true) && 'button' === strtolower(trim(SourceDom::attr($element, 'role')));
+    }
+
+    public static function canRetainRoleButton(DOMElement $element): bool
+    {
+        if (!self::isRoleButton($element)) return false;
+        foreach (array_merge(array($element), iterator_to_array($element->getElementsByTagName('*'))) as $node) {
+            if (!$node instanceof DOMElement || array() !== SourceDom::eventMetadata($node) || ($node !== $element && in_array(strtolower($node->tagName), array('a', 'button', 'form', 'input', 'select', 'textarea', 'script', 'iframe', 'canvas'), true))) return false;
+        }
+        return true;
+    }
+
     /** A bounded single-label chain keeps source selector ancestry without arbitrary HTML. */
     public static function labelWrappers(DOMElement $button): array
     {
@@ -52,6 +66,7 @@ final class AuthoredButtonBlockGenerator
             'editorScript' => 'file:./index.js',
             'viewScript' => 'file:./view.js',
             'attributes' => array(
+                'tagName' => array( 'type' => 'string', 'default' => 'button' ),
                 'type' => array( 'type' => 'string', 'default' => 'submit' ),
                 'id' => array( 'type' => 'string', 'default' => '' ),
                 'name' => array( 'type' => 'string', 'default' => '' ),
@@ -96,7 +111,8 @@ final class AuthoredButtonBlockGenerator
     function sourceAttributes( attrs ) { return ( Array.isArray( attrs.sourceAttributes ) ? attrs.sourceAttributes : [] ).filter( function( item ) { return item && isSourceAttributeName( String( item.name || '' ) ); } ).sort( function( a, b ) { return String( a.name ).localeCompare( String( b.name ) ); } ); }
     function labelWrappers( attrs ) { return ( Array.isArray( attrs.labelWrappers ) ? attrs.labelWrappers : [] ).slice( 0, 16 ).filter( function( wrapper ) { return wrapper && labelTags.indexOf( String( wrapper.tagName || '' ).toLowerCase() ) !== -1; } ); }
     function labelProps( wrapper ) { var props = {}; Object.keys( wrapper.attributes || {} ).forEach( function( name ) { if ( /^(?:class|id|style|data-(?!wp-)[a-z0-9_.:-]+)$/.test( name ) ) props[ name ] = String( wrapper.attributes[ name ] ); } ); return props; }
-    function isSourceAttributeName( name ) { return /^(?:data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/.test( name ) && name !== 'data-action' && name !== 'jsaction'; }
+    function isSourceAttributeName( name ) { return /^(?:role|tabindex|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/.test( name ) && name !== 'data-action' && name !== 'jsaction'; }
+    function rootTag( attrs ) { var tag = String( attrs.tagName || 'button' ).toLowerCase(); return [ 'div', 'span' ].indexOf( tag ) !== -1 && sourceAttributes( attrs ).some( function( item ) { return item.name === 'role' && String( item.value ).toLowerCase() === 'button'; } ) ? tag : 'button'; }
     function sourceAttributeMarkup( attrs ) { var output = ''; sourceAttributes( attrs ).forEach( function( item ) { output += ' ' + item.name + '="' + escapeAttribute( item.value ) + '"'; } ); return output; }
     function contentParts( attrs ) { return ( Array.isArray( attrs.contentParts ) ? attrs.contentParts : [] ).slice( 0, 32 ); }
     function labelMarkup( attrs ) { return labelWrappers( attrs ).reverse().reduce( function( content, wrapper ) { var tag = String( wrapper.tagName ).toLowerCase(); var props = labelProps( wrapper ); var opening = '<' + tag; Object.keys( props ).forEach( function( name ) { opening += ' ' + name + '="' + escapeAttribute( props[ name ] ) + '"'; } ); return opening + '>' + content + '</' + tag + '>'; }, escapeAttribute( attrs.text ) ); }
@@ -107,8 +123,8 @@ final class AuthoredButtonBlockGenerator
     function textFields( parts, path, fields ) { ( parts || [] ).forEach( function( part, index ) { if ( ! part ) return; var here = path.concat( index ); if ( typeof part.text === 'string' ) fields.push( { path: here, value: part.text } ); if ( Array.isArray( part.parts ) ) textFields( part.parts, here.concat( 'parts' ), fields ); } ); return fields; }
     function writeText( parts, path, value ) { var clone = JSON.parse( JSON.stringify( parts ) ); var node = clone; path.forEach( function( step, index ) { if ( index === path.length - 1 ) node[ step ].text = value; else node = node[ step ]; } ); return clone; }
     function labelElement( attrs ) { if ( contentParts( attrs ).length || safeIcon( attrs.iconSvg ) ) return createElement( element.RawHTML, null, innerMarkup( attrs ) ); return labelWrappers( attrs ).reverse().reduce( function( content, wrapper ) { var props = labelProps( wrapper ); if ( props.class !== undefined ) { props.className = props.class; delete props.class; } if ( props.style !== undefined ) props.style = styleObject( props.style ); return createElement( String( wrapper.tagName ).toLowerCase(), props, content ); }, attrs.text || '' ); }
-    function buttonProps( attrs ) { var props = { type: buttonType( attrs.type ), id: attrs.id || undefined, name: attrs.name || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-pressed': pressed( attrs.ariaPressed ) || undefined, role: checkable( attrs ) ? 'checkbox' : undefined, 'aria-checked': checkable( attrs ) ? attrs.ariaChecked : undefined, title: attrs.title || undefined, tabIndex: attrs.tabIndex || undefined, className: attrs.className || undefined, style: styleObject( attrs.style ), disabled: attrs.disabled }; sourceAttributes( attrs ).forEach( function( item ) { props[ item.name ] = String( item.value ); } ); return props; }
-    function markup( attrs ) { var output = '<button'; [ 'type', 'id', 'name', 'ariaLabel' ].forEach( function( key ) { var value = 'type' === key ? buttonType( attrs.type ) : attrs[ key ]; if ( value ) output += ' ' + ( 'ariaLabel' === key ? 'aria-label' : key ) + '="' + escapeAttribute( value ) + '"'; } ); var state = pressed( attrs.ariaPressed ); if ( state ) output += ' aria-pressed="' + state + '"'; if ( checkable( attrs ) ) output += ' role="checkbox" aria-checked="' + attrs.ariaChecked + '" data-blocks-engine-checkable="true"'; [ 'title', 'tabIndex', 'className', 'style' ].forEach( function( key ) { if ( attrs[ key ] ) output += ' ' + ( 'className' === key ? 'class' : ( 'tabIndex' === key ? 'tabindex' : key ) ) + '="' + escapeAttribute( attrs[ key ] ) + '"'; } ); output += sourceAttributeMarkup( attrs ); if ( attrs.disabled ) output += ' disabled'; output += '>' + innerMarkup( attrs ) + '</button>'; return output; }
+    function buttonProps( attrs ) { var native = rootTag( attrs ) === 'button'; var props = { type: native ? buttonType( attrs.type ) : undefined, id: attrs.id || undefined, name: attrs.name || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-pressed': pressed( attrs.ariaPressed ) || undefined, role: checkable( attrs ) ? 'checkbox' : undefined, 'aria-checked': checkable( attrs ) ? attrs.ariaChecked : undefined, title: attrs.title || undefined, tabIndex: attrs.tabIndex || undefined, className: attrs.className || undefined, style: styleObject( attrs.style ), disabled: native ? attrs.disabled : undefined }; sourceAttributes( attrs ).forEach( function( item ) { props[ item.name ] = String( item.value ); } ); return props; }
+    function markup( attrs ) { var tag = rootTag( attrs ); var output = '<' + tag; [ 'type', 'id', 'name', 'ariaLabel' ].forEach( function( key ) { if ( key === 'type' && tag !== 'button' ) return; var value = 'type' === key ? buttonType( attrs.type ) : attrs[ key ]; if ( value ) output += ' ' + ( 'ariaLabel' === key ? 'aria-label' : key ) + '="' + escapeAttribute( value ) + '"'; } ); var state = pressed( attrs.ariaPressed ); if ( state ) output += ' aria-pressed="' + state + '"'; if ( checkable( attrs ) ) output += ' role="checkbox" aria-checked="' + attrs.ariaChecked + '" data-blocks-engine-checkable="true"'; [ 'title', 'tabIndex', 'className', 'style' ].forEach( function( key ) { if ( attrs[ key ] ) output += ' ' + ( 'className' === key ? 'class' : ( 'tabIndex' === key ? 'tabindex' : key ) ) + '="' + escapeAttribute( attrs[ key ] ) + '"'; } ); output += sourceAttributeMarkup( attrs ); if ( tag === 'button' && attrs.disabled ) output += ' disabled'; output += '>' + innerMarkup( attrs ) + '</' + tag + '>'; return output; }
     function edit( props ) {
         var attrs = props.attributes;
         var fields = textFields( contentParts( attrs ), [], [] );
@@ -124,7 +140,7 @@ final class AuthoredButtonBlockGenerator
         var panel = createElement.apply( null, [ PanelBody, { title: 'Button settings' } ].concat( settings ) );
         var controlProps = buttonProps( attrs );
         if ( checkable( attrs ) ) controlProps.onClick = function() { props.setAttributes( { ariaChecked: attrs.ariaChecked === 'true' ? 'false' : 'true' } ); };
-        return createElement( element.Fragment, null, createElement( InspectorControls, null, panel ), createElement( 'button', controlProps, labelElement( attrs ) ) );
+        return createElement( element.Fragment, null, createElement( InspectorControls, null, panel ), createElement( rootTag( attrs ), controlProps, labelElement( attrs ) ) );
     }
     function save( props ) { return createElement( element.RawHTML, null, markup( props.attributes ) ); }
     blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
@@ -158,7 +174,11 @@ JS;
         if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
             $type = 'submit';
         }
-        $markup = '<button type="' . $escape($type) . '"';
+        $rootTag = strtolower((string) ($attrs['tagName'] ?? 'button'));
+        $source = $this->sourceAttributes($attrs);
+        $isRoleButton = (bool) array_filter($source, static fn(array $attribute): bool => 'role' === $attribute['name'] && 'button' === strtolower($attribute['value']));
+        if (!in_array($rootTag, array('div', 'span'), true) || !$isRoleButton) $rootTag = 'button';
+        $markup = '<' . $rootTag . ('button' === $rootTag ? ' type="' . $escape($type) . '"' : '');
         foreach ( array( 'id', 'name', 'ariaLabel' ) as $key ) {
             $value = (string) ($attrs[$key] ?? '');
             if ( '' !== $value ) {
@@ -181,13 +201,13 @@ JS;
         foreach ( $this->sourceAttributes($attrs) as $attribute ) {
             $markup .= ' ' . $attribute['name'] . '="' . $escape($attribute['value']) . '"';
         }
-        if ( ! empty($attrs['disabled']) ) {
+        if ( 'button' === $rootTag && ! empty($attrs['disabled']) ) {
             $markup .= ' disabled';
         }
 
         $parts = $this->contentPartsMarkup($attrs, $escape);
         if ( null !== $parts ) {
-            return $markup . '>' . $parts . '</button>';
+            return $markup . '>' . $parts . '</' . $rootTag . '>';
         }
 
         $label = $escape($attrs['text'] ?? '');
@@ -202,7 +222,7 @@ JS;
             }
             $label = $opening . '>' . $label . '</' . $tag . '>';
         }
-        return $markup . '>' . $this->safeIconSvg((string) ($attrs['iconSvg'] ?? '')) . $label . '</button>';
+        return $markup . '>' . $this->safeIconSvg((string) ($attrs['iconSvg'] ?? '')) . $label . '</' . $rootTag . '>';
     }
 
     /** @param array<string, mixed> $attrs @return list<array{name: string, value: string}> */
@@ -272,7 +292,7 @@ JS;
 
     public static function isSourceAttributeName(string $name): bool
     {
-        return 1 === preg_match('/^(?:data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/', $name)
+        return 1 === preg_match('/^(?:role|tabindex|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/', $name)
             && ! in_array($name, array( 'data-action', 'jsaction' ), true);
     }
 

@@ -201,6 +201,8 @@ final class AuthorStyleRuleProjector
             }
             $matchedSurface = true;
             foreach ( $matches as $element ) {
+                $scope = SourceDom::documentVariantRoot($element);
+                if ($scope instanceof DOMElement && $scope->hasAttribute('data-dla-document-scope')) return $body;
                 if ( ! $this->isWideAbsoluteMinimumWidth($this->styleResolver->resolveCssVariablesInValue($minimumWidth, $element)) ) {
                     return $body;
                 }

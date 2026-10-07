@@ -75,6 +75,9 @@ final class RuntimeDeclarations
                 if ('entity_collection' === $kind && 'forms' === $name && 'generic/forms/v1' === ($payload['schema'] ?? null)) foreach ($payload['entities'] ?? array() as $entity) if (is_array($entity) && isset($entity['presentation_graph'])) { if (!is_array($entity['presentation_graph'])) throw new InvalidArgumentException("Runtime declaration {$index} form presentation graph must be an object."); FormPresentationGraphBuilder::assertValid($entity['presentation_graph']); }
                 if ('entity_collection' === $kind && 'external_metrics' === $name && 'generic/external-metric/v1' === ($payload['schema'] ?? null)) self::assertExternalMetricPayload($payload, $index);
             }
+            if (ThemePreferenceOwnership::DECLARATION_KIND === $kind && ThemePreferenceOwnership::DECLARATION_TYPE === $name) {
+                $normalized['payload'] = ThemePreferenceOwnership::normalizePayload($normalized['payload'] ?? null, $sourcePath);
+            }
             if ('entity_collection' === $kind && !isset($normalized['type'])) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
             if ('entity_collection' === $kind && !isset($normalized['payload']['entities']) && self::RECORD_MANIFEST_SCHEMA !== ($normalized['payload']['schema'] ?? null)) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
             if ('entity_collection' === $kind && isset($normalized['payload']['entities']) && !array_is_list($normalized['payload']['entities'])) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
@@ -144,20 +147,20 @@ final class RuntimeDeclarations
         foreach ($entities as $entity) {
             if (!is_array($entity) || !is_string($entity['id'] ?? null) || !preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/', $entity['id']) || isset($seen[$entity['id']])) throw new InvalidArgumentException("Runtime declaration {$index} external metric entity identity is invalid or duplicated.");
             $seen[$entity['id']] = true;
-            if (!is_array($entity['provider'] ?? null) || 'wordpress.org' !== ($entity['provider']['id'] ?? null) || 'generic/external-metric-provider/v1' !== ($entity['provider']['schema'] ?? null) || !is_string($entity['provider']['source'] ?? null) || !in_array($entity['provider']['source'], array('plugin_information', 'plugin_download_history'), true)) throw new InvalidArgumentException("Runtime declaration {$index} external metric provider is unsupported.");
-            $source = $entity['provider']['source'];
-            $slugs = $entity['provider']['slugs'] ?? null;
-            if (!is_array($slugs) || !array_is_list($slugs) || array() === $slugs || count($slugs) > 100) throw new InvalidArgumentException("Runtime declaration {$index} external metric slugs must be a bounded non-empty list.");
-            foreach ($slugs as $slug) if (!is_string($slug) || !preg_match('/^[a-z0-9][a-z0-9-]{0,99}$/', $slug)) throw new InvalidArgumentException("Runtime declaration {$index} external metric slug is invalid.");
-            if (count($slugs) !== count(array_unique($slugs))) throw new InvalidArgumentException("Runtime declaration {$index} external metric slugs must be unique.");
+            if (array_key_exists('provider', $entity)) throw new InvalidArgumentException("Runtime declaration {$index} uses the retired provider-specific external metric shape.");
+            $source = self::assertExternalMetricSource($entity['source'] ?? null, $index);
             $metric = $entity['metric'] ?? null; $aggregation = $entity['aggregation'] ?? null;
-            $allowed = 'plugin_information' === $source
-                ? array('plugin_response_count' => array('success_count'), 'active_installs' => array('sum'), 'version' => array('identity'), 'num_ratings' => array('identity'))
-                : array('downloads_all_time' => array('sum'));
-            if (!is_string($metric) || !in_array($aggregation, $allowed[$metric] ?? array(), true) || (in_array($metric, array('version', 'num_ratings'), true) && 1 !== count($slugs))) throw new InvalidArgumentException("Runtime declaration {$index} external metric or aggregation is unsupported for its provider.");
+            if (!is_string($metric) || !preg_match('/^[A-Za-z][A-Za-z0-9._-]{0,127}$/', $metric) || !in_array($aggregation, array('identity', 'sum', 'success_count'), true)) throw new InvalidArgumentException("Runtime declaration {$index} external metric name or aggregation is invalid.");
+            $extraction = $entity['extraction'] ?? null;
+            if ('success_count' === $aggregation) {
+                if (array_key_exists('extraction', $entity)) self::assertExternalMetricExtraction($extraction, $index);
+            } else self::assertExternalMetricExtraction($extraction, $index);
+            if ('identity' === $aggregation && 1 !== count($source['resources'])) throw new InvalidArgumentException("Runtime declaration {$index} identity aggregation requires exactly one resource.");
+            if ('sum' === $aggregation && 'nonnegative_integer' !== ($extraction['value_type'] ?? null)) throw new InvalidArgumentException("Runtime declaration {$index} sum aggregation requires nonnegative integer extraction.");
+            $valueType = 'success_count' === $aggregation ? 'nonnegative_integer' : $extraction['value_type'];
             $format = $entity['format'] ?? null;
-            if (!is_array($format) || !is_string($format['locale'] ?? null) || !preg_match('/^[a-zA-Z]{2,3}(?:[-_][a-zA-Z0-9]{2,8})*$/', $format['locale']) || !is_bool($format['grouping'] ?? null) || !in_array($format['prefix'] ?? null, array('', 'v'), true) || !in_array($format['suffix'] ?? null, array('', '+'), true) || !is_int($format['decimals'] ?? null) || $format['decimals'] < 0 || $format['decimals'] > 4) throw new InvalidArgumentException("Runtime declaration {$index} external metric formatting is invalid.");
-            if (('version' === $metric) !== ('v' === $format['prefix']) || (in_array($metric, array('active_installs', 'downloads_all_time'), true) !== ('+' === $format['suffix'])) || ('version' === $metric && (true === $format['grouping'] || 0 !== $format['decimals'])) || ('num_ratings' === $metric && '+' === $format['suffix'])) throw new InvalidArgumentException("Runtime declaration {$index} external metric formatting contradicts its metric.");
+            if (!is_array($format) || array() !== array_diff(array_keys($format), array('locale', 'grouping', 'prefix', 'suffix', 'decimals')) || 5 !== count($format) || !is_string($format['locale'] ?? null) || !preg_match('/^[a-zA-Z]{2,3}(?:[-_][a-zA-Z0-9]{2,8})*$/', $format['locale']) || !is_bool($format['grouping'] ?? null) || !is_string($format['prefix'] ?? null) || strlen($format['prefix']) > 16 || preg_match('/[<>\x00-\x1f\x7f]/', $format['prefix']) || !is_string($format['suffix'] ?? null) || strlen($format['suffix']) > 16 || preg_match('/[<>\x00-\x1f\x7f]/', $format['suffix']) || !is_int($format['decimals'] ?? null) || $format['decimals'] < 0 || $format['decimals'] > 4) throw new InvalidArgumentException("Runtime declaration {$index} external metric formatting is invalid.");
+            if ('string' === $valueType && (true === $format['grouping'] || 0 !== $format['decimals'] || '' !== $format['suffix'])) throw new InvalidArgumentException("Runtime declaration {$index} string metric formatting must not group, add decimals, or append a suffix.");
             $provenance = $entity['provenance'] ?? null;
             if (!is_array($provenance) || !in_array($provenance['kind'] ?? null, array('source_corroboration', 'operator_mapping'), true)) throw new InvalidArgumentException("Runtime declaration {$index} external metric requires explicit source provenance.");
             if ('source_corroboration' === $provenance['kind']) {
@@ -172,6 +175,82 @@ final class RuntimeDeclarations
             if ('generic/block-binding/v1' !== ($binding['schema'] ?? null) || !in_array($binding['role'] ?? null, array('paragraph', 'heading'), true) || !is_string($bindingPath) || '' === ArtifactPath::safeRelativePath($bindingPath) || ArtifactPath::safeRelativePath($bindingPath) !== $bindingPath || !is_string($binding['search_block_markup'] ?? null) || '' === $binding['search_block_markup'] || !is_int($binding['occurrence'] ?? null) || $binding['occurrence'] < 1 || !is_array($binding['leaf'] ?? null) || !in_array($binding['leaf']['block'] ?? null, array('core/paragraph', 'core/heading'), true) || !in_array($binding['leaf']['attribute'] ?? null, array('content'), true) || (($binding['role'] === 'paragraph') !== ($binding['leaf']['block'] === 'core/paragraph'))) throw new InvalidArgumentException("Runtime declaration {$index} external metric native text-leaf binding is invalid.");
             self::assertExternalMetricLeafAnchor($binding['search_block_markup'], $binding['leaf']['block'], $entity['fallback']['text'], $index);
         }
+    }
+
+    /** @return array<string,mixed> */
+    private static function assertExternalMetricSource(mixed $source, int $index): array
+    {
+        $sourceKeys = array('schema', 'id', 'intent', 'request', 'resource_variables', 'resources', 'freshness');
+        if (!is_array($source) || count($source) !== count($sourceKeys) || array() !== array_diff(array_keys($source), $sourceKeys) || 'generic/external-metric-source/v1' !== ($source['schema'] ?? null) || !is_string($source['id'] ?? null) || !preg_match('/^[a-z][a-z0-9._-]{0,127}$/', $source['id']) || 'external_public_json' !== ($source['intent'] ?? null)) throw new InvalidArgumentException("Runtime declaration {$index} external metric source identity or intent is invalid.");
+        $request = $source['request'] ?? null;
+        $requestKeys = array('method', 'url_template', 'query', 'query_variables', 'headers', 'response_media_type', 'max_response_bytes', 'timeout_seconds');
+        if (!is_array($request) || count($request) !== count($requestKeys) || array() !== array_diff(array_keys($request), $requestKeys) || 'GET' !== ($request['method'] ?? null) || 'application/json' !== ($request['response_media_type'] ?? null) || !is_int($request['max_response_bytes'] ?? null) || $request['max_response_bytes'] < 1 || $request['max_response_bytes'] > 1048576 || !is_int($request['timeout_seconds'] ?? null) || $request['timeout_seconds'] < 1 || $request['timeout_seconds'] > 5) throw new InvalidArgumentException("Runtime declaration {$index} external metric request limits or media type are invalid.");
+        $urlTemplate = $request['url_template'] ?? null;
+        if (!is_string($urlTemplate) || strlen($urlTemplate) > 2048 || false !== strpbrk($urlTemplate, "\r\n\\")) throw new InvalidArgumentException("Runtime declaration {$index} external metric URL template is invalid.");
+        preg_match_all('/\{([a-z][a-z0-9_]*)\}/', $urlTemplate, $matches);
+        if (str_contains(str_replace($matches[0], '', $urlTemplate), '{') || str_contains(str_replace($matches[0], '', $urlTemplate), '}')) throw new InvalidArgumentException("Runtime declaration {$index} external metric URL template has malformed variables.");
+        $parsedTemplate = parse_url($urlTemplate);
+        $parsedUrl = parse_url(str_replace($matches[0], 'resource', $urlTemplate));
+        $host = is_array($parsedUrl) ? strtolower((string) ($parsedUrl['host'] ?? '')) : '';
+        if (!is_array($parsedTemplate) || !is_array($parsedUrl) || str_contains((string) ($parsedTemplate['host'] ?? ''), '{') || 'https' !== strtolower((string) ($parsedUrl['scheme'] ?? '')) || '' === $host || filter_var($host, FILTER_VALIDATE_IP) || !preg_match('/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $host) || isset($parsedUrl['user']) || isset($parsedUrl['pass']) || (isset($parsedUrl['port']) && 443 !== $parsedUrl['port']) || isset($parsedUrl['query']) || isset($parsedUrl['fragment'])) throw new InvalidArgumentException("Runtime declaration {$index} external metric URL must be a public HTTPS JSON resource without credentials or query syntax.");
+        $path = (string) ($parsedTemplate['path'] ?? '');
+        preg_match_all('/\{([a-z][a-z0-9_]*)\}/', $path, $pathMatches);
+        if (count($matches[1]) !== count($pathMatches[1]) || count($pathMatches[1]) > 16) throw new InvalidArgumentException("Runtime declaration {$index} external metric substitutions must occur only in the bounded URL path.");
+        foreach (explode('/', rawurldecode(str_replace($pathMatches[0], 'resource', $path))) as $segment) if (in_array($segment, array('.', '..'), true)) throw new InvalidArgumentException("Runtime declaration {$index} external metric URL path contains a dot segment.");
+        $pathVariables = array_values(array_unique($pathMatches[1]));
+        if (!is_array($request['query'] ?? null) || array_is_list($request['query']) && array() !== $request['query'] || count($request['query']) > 32) throw new InvalidArgumentException("Runtime declaration {$index} external metric fixed query parameters are invalid.");
+        foreach ($request['query'] as $name => $value) if (!is_string($name) || !preg_match('/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/', $name) || (!is_string($value) && !is_int($value) && !is_bool($value)) || strlen((string) $value) > 255 || preg_match('/[\x00-\x1f\x7f]/', (string) $value)) throw new InvalidArgumentException("Runtime declaration {$index} external metric fixed query value is invalid.");
+        $queryVariables = $request['query_variables'] ?? null;
+        if (!is_array($queryVariables) || !array_is_list($queryVariables) || count($queryVariables) > 16) throw new InvalidArgumentException("Runtime declaration {$index} external metric query variables are invalid.");
+        foreach ($queryVariables as $name) if (!is_string($name) || !preg_match('/^[a-z][a-z0-9_]{0,63}$/', $name) || in_array($name, $pathVariables, true) || array_key_exists($name, $request['query'])) throw new InvalidArgumentException("Runtime declaration {$index} external metric query variable is invalid or duplicated.");
+        if (count($queryVariables) !== count(array_unique($queryVariables))) throw new InvalidArgumentException("Runtime declaration {$index} external metric query variables must be unique.");
+        $variables = array_values(array_unique(array_merge($pathVariables, $queryVariables)));
+        sort($variables, SORT_STRING);
+        $variableSchemas = $source['resource_variables'] ?? null;
+        if (count($variables) > 32 || !is_array($variableSchemas) || (array() !== $variableSchemas && array_is_list($variableSchemas)) || count($variableSchemas) !== count($variables)) throw new InvalidArgumentException("Runtime declaration {$index} external metric resource variable schema is incomplete or over its bound.");
+        $schemaNames = array_keys($variableSchemas); sort($schemaNames, SORT_STRING);
+        if ($schemaNames !== $variables) throw new InvalidArgumentException("Runtime declaration {$index} external metric resource variable schema does not match request variables.");
+        foreach ($variableSchemas as $name => $schema) {
+            $expectedLocation = in_array($name, $pathVariables, true) ? 'path' : 'query';
+            if (!is_array($schema) || array() !== array_diff(array_keys($schema), array('location', 'min_length', 'max_length', 'allowed_characters', 'first_characters', 'last_characters', 'prohibited_values')) || !in_array(count($schema), array(5, 6, 7), true) || $expectedLocation !== ($schema['location'] ?? null) || !is_int($schema['min_length'] ?? null) || $schema['min_length'] < 1 || !is_int($schema['max_length'] ?? null) || $schema['max_length'] < $schema['min_length'] || $schema['max_length'] > 255 || !is_string($schema['allowed_characters'] ?? null) || '' === $schema['allowed_characters'] || strlen($schema['allowed_characters']) > 128 || 1 !== preg_match('/\A[\x21-\x7e]+\z/D', $schema['allowed_characters']) || strlen(count_chars($schema['allowed_characters'], 3)) !== strlen($schema['allowed_characters']) || !is_array($schema['prohibited_values'] ?? null) || !array_is_list($schema['prohibited_values']) || count($schema['prohibited_values']) > 16) throw new InvalidArgumentException("Runtime declaration {$index} external metric resource variable constraint is invalid.");
+            foreach (array('first_characters', 'last_characters') as $edge) if (array_key_exists($edge, $schema) && (!is_string($schema[$edge]) || '' === $schema[$edge] || strlen($schema[$edge]) > 128 || strlen(count_chars($schema[$edge], 3)) !== strlen($schema[$edge]) || strspn($schema[$edge], $schema['allowed_characters']) !== strlen($schema[$edge]))) throw new InvalidArgumentException("Runtime declaration {$index} external metric edge-character constraint is invalid.");
+            foreach ($schema['prohibited_values'] as $prohibited) if (!is_string($prohibited) || '' === $prohibited || strlen($prohibited) > $schema['max_length']) throw new InvalidArgumentException("Runtime declaration {$index} external metric prohibited resource value is invalid.");
+        }
+        $headers = $request['headers'] ?? null;
+        if (!is_array($headers) || array_is_list($headers) && array() !== $headers || count($headers) > 16) throw new InvalidArgumentException("Runtime declaration {$index} external metric headers are invalid.");
+        foreach ($headers as $name => $value) {
+            $lowerName = strtolower((string) $name);
+            if (!is_string($name) || !preg_match('/^[A-Za-z][A-Za-z0-9-]{0,63}$/', $name) || in_array($lowerName, array('authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'host', 'connection', 'transfer-encoding', 'content-length'), true) || !is_string($value) || strlen($value) > 255 || preg_match('/[\x00-\x1f\x7f]/', $value)) throw new InvalidArgumentException("Runtime declaration {$index} external metric header is unsafe or invalid.");
+        }
+        $accept = null; foreach ($headers as $name => $value) if (is_string($name) && 'accept' === strtolower($name)) $accept = $value;
+        if (!is_string($accept) || !str_contains(strtolower($accept), 'json')) throw new InvalidArgumentException("Runtime declaration {$index} external metric request must explicitly accept JSON.");
+        if (!is_array($source['resources'] ?? null) || !array_is_list($source['resources']) || array() === $source['resources'] || count($source['resources']) > 100) throw new InvalidArgumentException("Runtime declaration {$index} external metric resources must be a bounded non-empty list.");
+        $resourceIdentities = array();
+        foreach ($source['resources'] as $resource) {
+            $resourceKeys = is_array($resource) ? array_keys($resource) : array(); sort($resourceKeys, SORT_STRING);
+            if (!is_array($resource) || (array() !== $resource && array_is_list($resource)) || $resourceKeys !== $variables) throw new InvalidArgumentException("Runtime declaration {$index} external metric resource variables do not match its request template.");
+            $resourceIdentity = hash('sha256', self::canonicalJson($resource));
+            if (isset($resourceIdentities[$resourceIdentity])) throw new InvalidArgumentException("Runtime declaration {$index} external metric resources must be unique.");
+            $resourceIdentities[$resourceIdentity] = true;
+            foreach ($resource as $name => $value) {
+                $schema = $variableSchemas[$name];
+                if (!is_string($value) || strlen($value) < $schema['min_length'] || strlen($value) > $schema['max_length'] || strspn($value, $schema['allowed_characters']) !== strlen($value) || (isset($schema['first_characters']) && !str_contains($schema['first_characters'], $value[0])) || (isset($schema['last_characters']) && !str_contains($schema['last_characters'], $value[strlen($value) - 1])) || in_array($value, $schema['prohibited_values'], true) || preg_match('/[\x00-\x1f\x7f]/', $value) || (in_array($name, $pathVariables, true) && (str_contains($value, '/') || str_contains($value, '\\') || in_array($value, array('.', '..'), true)))) throw new InvalidArgumentException("Runtime declaration {$index} external metric resource value is invalid or unsafe.");
+            }
+        }
+        $freshness = $source['freshness'] ?? null;
+        if (!is_array($freshness) || array('max_age_seconds') !== array_keys($freshness) || !is_int($freshness['max_age_seconds'] ?? null) || $freshness['max_age_seconds'] < 60 || $freshness['max_age_seconds'] > 2592000) throw new InvalidArgumentException("Runtime declaration {$index} external metric freshness bound is invalid.");
+        return $source;
+    }
+
+    private static function assertExternalMetricExtraction(mixed $extraction, int $index): void
+    {
+        if (!is_array($extraction) || !in_array($extraction['kind'] ?? null, array('json_pointer'), true) || !is_string($extraction['pointer'] ?? null) || strlen($extraction['pointer']) > 1024 || (!str_starts_with($extraction['pointer'], '/') && '' !== $extraction['pointer']) || !in_array($extraction['value_type'] ?? null, array('nonnegative_integer', 'string'), true)) throw new InvalidArgumentException("Runtime declaration {$index} external metric extraction is invalid.");
+        $keys = array('kind', 'pointer', 'value_type');
+        if ('string' === $extraction['value_type']) $keys[] = 'max_length';
+        if (array() !== array_diff(array_keys($extraction), $keys) || count($extraction) !== count($keys) || ('string' === $extraction['value_type'] && (!is_int($extraction['max_length'] ?? null) || $extraction['max_length'] < 1 || $extraction['max_length'] > 255))) throw new InvalidArgumentException("Runtime declaration {$index} external metric extraction type descriptor is invalid.");
+        $segments = '' === $extraction['pointer'] ? array() : explode('/', substr($extraction['pointer'], 1));
+        if (count($segments) > 32) throw new InvalidArgumentException("Runtime declaration {$index} external metric JSON pointer exceeds its depth limit.");
+        foreach ($segments as $segment) if (preg_match('/~(?![01])/', $segment)) throw new InvalidArgumentException("Runtime declaration {$index} external metric JSON pointer uses invalid escaping.");
     }
 
     private static function assertExternalMetricLeafAnchor(string $markup, string $block, string $fallback, int $index): void

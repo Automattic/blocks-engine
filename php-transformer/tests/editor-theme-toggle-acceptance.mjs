@@ -6,8 +6,9 @@ import { chromium } from '../tools/visual-parity/node_modules/playwright/index.m
 const evidence = process.env.THEME_ACCEPTANCE_EVIDENCE_DIR;
 const baseUrl = process.env.THEME_ACCEPTANCE_WP_URL;
 const postId = Number(process.env.THEME_ACCEPTANCE_POST_ID);
+const attributePostId = Number(process.env.THEME_ACCEPTANCE_ATTRIBUTE_POST_ID);
 const required = [ evidence, baseUrl, process.env.THEME_ACCEPTANCE_USER, process.env.THEME_ACCEPTANCE_PASSWORD ];
-if ( required.some( ( value ) => ! value ) || ! Number.isInteger(postId) ) throw new Error('Theme acceptance environment is incomplete.');
+if ( required.some( ( value ) => ! value ) || ! Number.isInteger(postId) || ! Number.isInteger(attributePostId) ) throw new Error('Theme acceptance environment is incomplete.');
 const source = JSON.parse(await readFile(`${ evidence }/source-and-page.json`, 'utf8'));
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: 'light' });
@@ -51,6 +52,15 @@ try {
     assert.equal(await editorButtons.count(), 3);
     assert.deepEqual(await editorButtons.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label'))), ['Light theme', 'System theme', 'Dark theme']);
     const editorSelection = canvas.getByRole('button', { name: 'Light theme' });
+    assert.equal(await editorSelection.getAttribute('id'), 'light-choice');
+    assert.equal(await editorSelection.getAttribute('aria-describedby'), 'theme-help');
+    assert.equal(await editorSelection.getAttribute('data-choice'), 'light');
+    assert.equal(await editorSelection.evaluate((node) => node.style.width), '40px');
+    assert.equal(await editorSelection.evaluate((node) => node.style.minWidth), '32px');
+    assert.equal(await editorSelection.evaluate((node) => node.style.backgroundColor), 'rgb(18, 52, 86)');
+    assert.equal(await editorSelection.evaluate((node) => node.style.borderRadius), '4px');
+    assert.equal(await editorSelection.evaluate((node) => node.style.padding), '8px 16px');
+    assert.equal(await editorSelection.getAttribute('onclick'), null, 'unsafe source handlers are never copied to the editable block');
     await editorSelection.click();
     await page.waitForFunction(() => {
         const visit = (blocks) => blocks.flatMap((block) => [block, ...visit(block.innerBlocks || [])]);
@@ -69,9 +79,21 @@ try {
         const visit = (items) => items.flatMap((block) => [{ name: block.name, valid: window.wp.blocks.validateBlock(block)[0], attrs: block.attributes }, ...visit(block.innerBlocks || [])]);
         return { content, blocks: visit(blocks) };
     });
-    assert.deepEqual(validation.blocks.map((block) => block.name), ['core/group', 'core/heading', 'custom/theme-toggle']);
+    assert.deepEqual(validation.blocks.map((block) => block.name), ['core/group', 'core/heading', 'core/group', 'custom/theme-toggle', 'core/paragraph']);
     assert.ok(validation.blocks.every((block) => block.valid), 'Gutenberg validates the saved selection block after reload');
-    assert.equal(validation.blocks.find((block) => block.name === 'custom/theme-toggle').attrs.selectedMode, 'light');
+    const reloadedThemeBlock = validation.blocks.find((block) => block.name === 'custom/theme-toggle');
+    assert.equal(reloadedThemeBlock.attrs.selectedMode, 'light');
+    assert.equal(reloadedThemeBlock.attrs.selectionButtons[0].attributes.id, 'light-choice');
+    assert.equal(reloadedThemeBlock.attrs.selectionButtons[0].attributes['aria-describedby'], 'theme-help');
+    assert.equal(reloadedThemeBlock.attrs.selectionButtons[0].attributes['data-choice'], 'light');
+    assert.equal(reloadedThemeBlock.attrs.selectionButtons[0].style.width, '40px');
+    assert.equal(reloadedThemeBlock.attrs.selectionButtons[0].style['min-width'], '32px');
+    assert.equal(reloadedThemeBlock.attrs.selectionButtons[0].style['background-color'], '#123456');
+    assert.equal(reloadedThemeBlock.attrs.selectionButtons[0].style['border-radius'], '4px');
+    assert.equal(reloadedThemeBlock.attrs.selectionButtons[0].style['padding-top'], '8px');
+    assert.equal(reloadedThemeBlock.attrs.selectionButtons[0].style['padding-right'], '16px');
+    assert.equal(reloadedThemeBlock.attrs.selectionButtons[0].style['padding-bottom'], '8px');
+    assert.equal(reloadedThemeBlock.attrs.selectionButtons[0].style['padding-left'], '16px');
     await writeFile(`${ evidence }/editor-reload-validation.json`, JSON.stringify(validation, null, 2) + '\n');
 
     await page.evaluate(() => localStorage.removeItem('theme'));
@@ -79,6 +101,15 @@ try {
     await page.goto(`${ baseUrl }/?page_id=${ postId }`, { waitUntil: 'networkidle' });
     const group = page.getByRole('group', { name: 'Color theme' });
     const mode = (name) => group.getByRole('button', { name });
+    assert.equal(await mode('Light theme').getAttribute('id'), 'light-choice');
+    assert.equal(await mode('Light theme').getAttribute('aria-describedby'), 'theme-help');
+    assert.equal(await mode('Light theme').getAttribute('data-choice'), 'light');
+    assert.equal(await mode('Light theme').evaluate((node) => node.style.width), '40px');
+    assert.equal(await mode('Light theme').evaluate((node) => node.style.minWidth), '32px');
+    assert.equal(await mode('Light theme').evaluate((node) => node.style.backgroundColor), 'rgb(18, 52, 86)');
+    assert.equal(await mode('Light theme').evaluate((node) => node.style.borderRadius), '4px');
+    assert.equal(await mode('Light theme').evaluate((node) => node.style.padding), '8px 16px');
+    assert.equal(await mode('Light theme').getAttribute('onclick'), null);
     await mode('System theme').click();
     await page.waitForFunction(() => localStorage.getItem('theme') === 'system' && !document.documentElement.classList.contains('dark'));
     assert.equal(await mode('System theme').getAttribute('aria-pressed'), 'true');
@@ -99,6 +130,34 @@ try {
     await page.waitForFunction(() => localStorage.getItem('theme') === 'system');
     await page.emulateMedia({ colorScheme: 'light' });
     await page.waitForFunction(() => !document.documentElement.classList.contains('dark'));
+    await page.evaluate(() => localStorage.removeItem('appearance'));
+    await page.goto(`${ baseUrl }/?page_id=${ attributePostId }`, { waitUntil: 'networkidle' });
+    const attributeGroup = page.getByRole('group', { name: 'Color theme' });
+    await page.waitForFunction(() => !document.documentElement.hasAttribute('data-theme'));
+    await attributeGroup.getByRole('button', { name: 'System theme' }).click();
+    await page.waitForFunction(() => localStorage.getItem('appearance') === 'system' && !document.documentElement.hasAttribute('data-theme'));
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.waitForFunction(() => document.documentElement.getAttribute('data-theme') === 'dark');
+    assert.equal(await attributeGroup.getByRole('button', { name: 'System theme' }).getAttribute('aria-pressed'), 'true');
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.waitForFunction(() => !document.documentElement.hasAttribute('data-theme'));
+    await attributeGroup.getByRole('button', { name: 'Light theme' }).click();
+    await page.waitForFunction(() => localStorage.getItem('appearance') === 'light' && !document.documentElement.hasAttribute('data-theme'));
+    await page.emulateMedia({ colorScheme: 'dark' });
+    assert.equal(await page.locator('html').getAttribute('data-theme'), null, 'explicit light preserves the authored absent-data-theme representation across OS changes');
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForFunction(() => localStorage.getItem('appearance') === 'light' && !document.documentElement.hasAttribute('data-theme'));
+    await attributeGroup.getByRole('button', { name: 'Dark theme' }).click();
+    await page.waitForFunction(() => localStorage.getItem('appearance') === 'dark' && document.documentElement.getAttribute('data-theme') === 'dark');
+    await page.emulateMedia({ colorScheme: 'light' });
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark', 'explicit data-theme preference is authoritative over OS changes');
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForFunction(() => localStorage.getItem('appearance') === 'dark' && document.documentElement.getAttribute('data-theme') === 'dark');
+    await writeFile(`${ evidence }/root-attribute-interactions.json`, JSON.stringify({
+        storage: await page.evaluate(() => localStorage.getItem('appearance')),
+        rootAttribute: await page.locator('html').getAttribute('data-theme'),
+        pressed: await attributeGroup.getByRole('button').evaluateAll((nodes) => nodes.map((node) => [node.getAttribute('aria-label'), node.getAttribute('aria-pressed')])),
+    }, null, 2) + '\n');
     await writeFile(`${ evidence }/browser-interactions.json`, JSON.stringify({
         storage: await page.evaluate(() => localStorage.getItem('theme')),
         rootClass: await page.locator('html').getAttribute('class'),

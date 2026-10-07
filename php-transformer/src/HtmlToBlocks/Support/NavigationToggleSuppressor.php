@@ -157,7 +157,7 @@ final class NavigationToggleSuppressor
     private function documentVariantRoot(DOMElement $element): DOMElement
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( 1 === preg_match('/(?:^|\s)data-liberation-(?:desktop|mobile)-document(?:\s|$)/', SourceDom::attr($node, 'class')) ) {
+            if ( SourceDom::isDocumentVariantRoot($node) ) {
                 return $node;
             }
             if ( 'body' === strtolower($node->tagName) ) {

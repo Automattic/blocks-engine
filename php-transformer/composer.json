@@ -38,11 +38,16 @@
     "ext-mbstring": "*"
   },
   "scripts": {
+    "lint": ["@lint:php", "@lint:types"],
+    "lint:php": "phpcs --standard=phpcs.xml.dist",
+    "lint:types": "phpstan analyse --configuration=phpstan.neon.dist --no-progress --memory-limit=1G",
+    "test:lint": "php tests/contract/library-lint.php",
     "parity": "@test:parity",
     "static-parity": "php tools/static-parity/run.php",
     "live-wp-parity": "php tools/live-wp-parity/run.php",
     "visual:image-custom-host-promotion": "node tools/visual-parity/tests/image-custom-host-promotion.mjs",
     "visual:empty-destination-anchor": "node tools/visual-parity/tests/empty-destination-anchor.mjs",
+    "visual:conditional-empty-boundary": "node tools/visual-parity/tests/conditional-empty-visual-boundary.mjs",
     "visual:source-class-selector-ownership": "node tools/visual-parity/tests/source-class-selector-ownership.mjs",
     "visual:nested-responsive-font-size": "node tools/visual-parity/tests/nested-responsive-font-size.mjs",
     "test:structural-carousel-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-structural-carousel-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/structural-carousel-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
@@ -71,6 +76,7 @@
       "php tests/contract/wordpress-site-plan.php",
       "php tests/contract/document-body-context.php",
       "php tests/contract/inert-document-declarations.php",
+      "php tests/contract/document-head-runtime.php",
       "php tests/contract/form-source-ownership.php",
       "php tests/contract/external-metric-bindings.php",
       "php tests/contract/unresolved-navigation-links.php",
@@ -96,6 +102,7 @@
       "php tests/contract/shared-chrome-paint-order-root.php",
       "php tests/contract/shared-chrome-backdrop-containing-block.php",
       "php tests/contract/shared-empty-data-carrier-geometry.php",
+      "php tests/contract/theme-preference-ownership-artifact.php",
       "php tests/contract/generated-block-document-identity.php",
       "php tests/contract/shared-shell-entity-bindings.php",
       "php tests/contract/form-control-not-menu-toggle.php",
@@ -117,6 +124,7 @@
       "php tests/unit/runtime-declarations-streaming-hash.php",
       "php tests/unit/external-metric-declarations.php",
       "php tests/unit/runtime-script-evidence-analyzer.php",
+      "php tests/unit/declared-document-role-button.php",
       "php tests/unit/font-family-declaration-memory.php",
       "php tests/unit/asset-reference-canonicalizer-memory.php",
       "php tests/unit/srcset-parser.php",
@@ -198,6 +206,7 @@
       "php tests/unit/color-scheme-projection.php",
       "php tests/unit/background-image-extractor.php",
       "php tests/unit/empty-layout-background-carrier.php",
+      "php tests/unit/conditional-empty-visual-boundary.php",
       "php tests/unit/cover-block-factory.php",
       "php tests/unit/cover-pattern.php",
       "php tests/unit/embed-block-factory.php",
@@ -359,6 +368,7 @@
       "php tests/unit/reusable-component-recognition.php",
       "php tests/unit/compile-fragment-author-stylesheet.php",
       "php tests/unit/responsive-canvas-geometry.php",
+      "php tests/unit/declared-canvas-selector-identity.php",
       "php tests/unit/conditional-definite-parent-percentage-height.php",
       "php tests/unit/responsive-footer-geometry.php",
       "php tests/unit/core-html-fallback-reduction.php",
@@ -491,7 +501,10 @@
     "sort-packages": true
   },
   "require-dev": {
+    "php-stubs/wordpress-stubs": "^7.0",
+    "phpstan/phpstan": "^2.1",
     "phpunit/phpunit": "^9.6",
+    "squizlabs/php_codesniffer": "^4.0",
     "yoast/phpunit-polyfills": "^3.0"
   }
 }

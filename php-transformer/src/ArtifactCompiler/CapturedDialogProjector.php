@@ -402,6 +402,15 @@ final class CapturedDialogProjector
                 // that wrapper can own a menu's hierarchy and presentation.
                 $html = (string) $document->saveHTML($panel);
                 if (strlen($html) > self::MAX_DIALOG_BYTES) continue;
+                // A declared document scope owns its wired panel's ancestry,
+                // stylesheet selectors and runtime. Moving it outside that
+                // scope into a modal changes the captured document contract.
+                // Keep the bounded source wiring and let normal runtime proof
+                // validate it rather than replacing it from a second report.
+                if ($scope->hasAttribute('data-dla-document-scope') && 0 < $xpath->query('//script[@data-dla-disclosure-runtime]')->length) {
+                    array_push($adopted, ...$triggers);
+                    continue;
+                }
                 $fragment = $this->safeDialogFragment($html);
                 if (null === $fragment) continue;
                 $identity = substr(hash('sha256', $sourcePath . "\n" . $key . "\n" . $scopeIndex . "\n" . $html), 0, 16);
@@ -591,12 +600,7 @@ final class CapturedDialogProjector
 
     private function isResponsiveDocumentWrapper(DOMElement $element): bool
     {
-        foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
-            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)) {
-                return true;
-            }
-        }
-        return false;
+        return \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom::isDocumentVariantRoot($element);
     }
 
     /**

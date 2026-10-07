@@ -48,6 +48,23 @@ $files = static function (array $pages, array $statesByUrl) use ($state): array 
     return $pageRows;
 };
 
+$scopedHtml = '<html><body><div data-dla-device-document="mobile" data-dla-document-scope="mobile">'
+    . '<div id="scope-toggle" role="button" tabindex="0" aria-label="Menu" data-dla-disclosure-label="Menu" aria-haspopup="dialog" aria-controls="scope-panel" data-dla-dialog-trigger="scope-panel"><span></span><span></span><span></span></div>'
+    . '<div id="scope-panel" hidden data-dla-dialog-panel="scope-panel"><button data-dla-dialog-close="scope-panel">Close</button><p>Scoped content</p></div></div>'
+    . '<script data-dla-disclosure-runtime>document.querySelectorAll("[data-dla-dialog-trigger]").forEach(function(node){node.addEventListener("click",function(){document.getElementById(node.getAttribute("aria-controls")).hidden=false;});});</script></body></html>';
+$scopedFiles = $files(array('https://example.test/' => $scopedHtml), array('https://example.test/' => array($state(array('selector' => '#scope-toggle', 'tag' => 'div', 'label' => 'Menu', 'ariaHaspopup' => 'dialog')))));
+$scoped = $project($scopedFiles);
+$assert(0 === $scoped['projected_count'] && $scopedHtml === $scoped['files'][0]['content'], 'report hydration retains an already wired declared document panel in its source scope');
+$assert(empty($scoped['native_runtime_replacements']) && array() === $codes($scoped), 'retained scoped wiring emits no native replacement claim or unmatched-trigger finding: ' . json_encode(array('replacements' => $scoped['native_runtime_replacements'] ?? null, 'diagnostics' => $scoped['diagnostics'])));
+$scopedArtifact = array('entrypoint' => 'website/index.html', 'files' => $scopedFiles);
+$scopedCompiler = new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler();
+$scopedShared = $scopedCompiler->prepareShared($scopedArtifact);
+$scopedResult = $scopedCompiler->compose($scopedShared, $scopedCompiler->compilePreparedPages($scopedShared, $scopedCompiler->preparePages($scopedArtifact, $scopedShared)))->toArray();
+$scopedPlan = $scopedResult['source_reports']['wordpress_site_plan'];
+$scopedMarkup = implode('', array_column($scopedPlan['pages'], 'canonical_block_markup'));
+$assert(str_contains($scopedMarkup, 'role="button"') && str_contains($scopedMarkup, 'data-dla-dialog-trigger="scope-panel"') && str_contains($scopedMarkup, 'data-dla-dialog-panel="scope-panel"'), 'real staged compiler retains native trigger and panel selectors after report hydration');
+$assert(!str_contains($scopedMarkup, '<!-- wp:html ') && 'pass' === ($scopedResult['source_reports']['runtime_dependency_parity']['status'] ?? ''), 'scoped report-bearing dialog wiring has native blocks and proven runtime bindings');
+
 $bindingTrigger = array('selector' => 'body > header > nav > a:nth-of-type(2)', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'label' => 'Contact', 'dataBindings' => array('data-popupid' => 'contact'));
 $bindingHtml = '<html><body><header><nav><a href="/">Home</a><a role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a></nav></header></body></html>';
 $binding = $project($files(array('https://example.test/' => $bindingHtml), array('https://example.test/' => array($state($bindingTrigger)))));
