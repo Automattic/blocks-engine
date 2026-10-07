@@ -388,11 +388,11 @@ $assert(
 
 $responsiveImageResult = ( new HtmlTransformer() )->transform('<img src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" alt="Hero">')->toArray();
 $assert(
-    'core/image' === ($responsiveImageResult['blocks'][0]['blockName'] ?? null)
-        && ! isset($responsiveImageResult['blocks'][0]['attrs']['srcset'], $responsiveImageResult['blocks'][0]['attrs']['sizes'])
-        && ! str_contains($responsiveImageResult['serialized_blocks'] ?? '', 'srcset=')
+    'custom/responsive-media' === ($responsiveImageResult['blocks'][0]['blockName'] ?? null)
+        && str_contains($responsiveImageResult['blocks'][0]['attrs']['content'] ?? '', 'srcset="hero.jpg 1x, hero-2x.jpg 2x"')
+        && str_contains($responsiveImageResult['blocks'][0]['attrs']['content'] ?? '', 'sizes="100vw"')
         && array() === ($responsiveImageResult['fallbacks'] ?? array()),
-    'responsive img sources use their captured primary candidate in valid editable core/image markup'
+    'responsive img sources retain authored selection in the existing editable media boundary'
 );
 $customImageResult = ( new HtmlTransformer() )->transform('<media-image id="hero" class="media-frame"><img class="photo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP" data-src="hero.jpg" srcset="hero-small.jpg 340w, hero.jpg 680w" sizes="100vw" alt="Hero"></media-image>')->toArray();
 $assert(
@@ -4245,9 +4245,9 @@ $assert(str_contains((string) ($resolvedImage['serialized_blocks'] ?? ''), 'clas
 
 $resolvedRootImage = ( new HtmlTransformer() )->transform('<main><img src="/media/root-hero.jpg?size=large#hero" srcset="/media/root-hero.jpg?size=small 480w, /media/root-hero.jpg?size=large 960w" alt="Root hero"></main>', $assetMetadataOptions)->toArray();
 $resolvedRootImageAttrs = $resolvedRootImage['blocks'][0]['attrs'] ?? array();
-$assert('core/image' === ($resolvedRootImage['blocks'][0]['blockName'] ?? null), 'metadata-backed standalone responsive image remains core/image');
-$assert('https://example.test/wp-content/uploads/root-hero.jpg?size=large#hero' === ($resolvedRootImageAttrs['url'] ?? ''), 'metadata-backed root-relative image preserves its authored query and fragment suffix');
-$assert(! isset($resolvedRootImageAttrs['srcset'], $resolvedRootImageAttrs['sizes']) && ! str_contains((string) ($resolvedRootImage['serialized_blocks'] ?? ''), 'srcset=') && ! str_contains((string) ($resolvedRootImage['serialized_blocks'] ?? ''), 'sizes='), 'metadata-backed standalone responsive image does not add srcset or sizes to core/image');
+$assert('custom/responsive-media' === ($resolvedRootImage['blocks'][0]['blockName'] ?? null), 'fallback metadata does not collapse an authored source family into core/image');
+$assert(str_contains($resolvedRootImageAttrs['content'] ?? '', 'src="/media/root-hero.jpg?size=large#hero"'), 'responsive boundary preserves source identity and suffixes for asset reference binding');
+$assert(str_contains($resolvedRootImageAttrs['content'] ?? '', 'srcset="/media/root-hero.jpg?size=small 480w, /media/root-hero.jpg?size=large 960w"'), 'responsive boundary preserves every source descriptor independently of fallback metadata');
 
 $resolvedRootBackground = ( new HtmlTransformer() )->transform('<main><div style="width:640px;height:320px;background-image:url(/media/root-background.jpg?crop=wide#panel)"></div></main>', $assetMetadataOptions)->toArray();
 $resolvedRootBackgroundMarkup = (string) ($resolvedRootBackground['serialized_blocks'] ?? '');

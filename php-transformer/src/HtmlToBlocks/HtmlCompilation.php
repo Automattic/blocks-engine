@@ -9563,6 +9563,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $picture instanceof DOMElement && $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
+        // Core's image save contract has no srcset/sizes attributes. Its
+        // attachment-generated candidates cannot reproduce an authored family
+        // (including density-corrected intrinsic sizing). Keep the same bounded
+        // media carrier used for picture selection, before choosing a fallback.
+        if ( $this->sourceElementClassifier->hasResponsiveImageSources($image) ) {
+            return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
+        }
 
         $originalUrl = $this->imageSourceUrl($image);
         $url = $this->resolvedAssetImageUrl($originalUrl);
@@ -11169,7 +11176,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function hasUnsafeResponsiveImageSources(DOMElement $element): bool
     {
-        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+        foreach ( array_merge(array($element), $this->descendantElements($element)) as $candidate ) {
             if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array( 'img', 'source' ), true) ) {
                 continue;
             }
