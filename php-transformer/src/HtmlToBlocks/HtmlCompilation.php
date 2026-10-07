@@ -3148,6 +3148,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array($video), $element);
         }
 
+        $videoPoster = $this->customVideoPosterBlock($element);
+        if (null !== $videoPoster) return $videoPoster;
+
         $mediaDispatch = $this->mediaDispatchConverter->convert($element, $tagName, $fallbacks);
         if ( $mediaDispatch->handled ) {
             return $mediaDispatch->block;
@@ -9872,12 +9875,41 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return true;
     }
 
-    private function hasOnlyStructuralCustomVideoHostAttributes(DOMElement $element): bool
+    /** Explicit native media plus a separate decorative poster is already a
+     * browser-owned presentation tree. Keep both source boxes around editable
+     * native media instead of requiring a script to upgrade the custom tags.
+     */
+    private function customVideoPosterBlock(DOMElement $element): ?array
+    {
+        if (!str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || !$this->isSafeTransparentCustomElement($element) || !$this->hasOnlyStructuralCustomVideoHostAttributes($element, true)) return null;
+        $children = $this->elementElementChildren($element);
+        if (2 !== count($children)) return null;
+        $video = null; $poster = null;
+        foreach ($children as $child) {
+            if ('video' === strtolower($child->tagName)) $video = $child;
+            elseif (null !== $this->imageOnlyCustomElement($child)) $poster = $child;
+            else return null;
+        }
+        if (!$video instanceof DOMElement || !$poster instanceof DOMElement || !$this->hasOnlyStructuralCustomVideoHostAttributes($poster, true)) return null;
+        $image = $this->imageOnlyCustomElement($poster);
+        if (!$image instanceof DOMElement || !$image->hasAttribute('alt') || '' !== $this->attr($image, 'alt') || 1 !== count($this->elementElementChildren($poster)) || $image->parentNode !== $poster) return null;
+        $videoBlock = $this->convertMediaElement($video);
+        $imageBlock = $this->convertImageElement($image);
+        if (null === $videoBlock || null === $imageBlock) return null;
+        $this->authorSelectorProjections()->ensureTagMarker(strtolower($element->tagName));
+        $this->authorSelectorProjections()->ensureTagMarker(strtolower($poster->tagName));
+        $posterBlock = $this->layoutShellBlockForElements(array($poster), array($imageBlock), $poster);
+        $blocks = $children[0] === $video ? array($videoBlock, $posterBlock) : array($posterBlock, $videoBlock);
+        return $this->layoutShellBlockForElements(array($element), $blocks, $element);
+    }
+
+    private function hasOnlyStructuralCustomVideoHostAttributes(DOMElement $element, bool $allowSnapshotMetadata = false): bool
     {
         foreach ( $element->attributes as $attribute ) {
-            if ( ! in_array(strtolower($attribute->name), array( 'class', 'style' ), true) ) {
-                return false;
-            }
+            $name = strtolower($attribute->name);
+            if (in_array($name, array('class', 'style'), true)) continue;
+            if ($allowSnapshotMetadata && ('id' === $name || (str_starts_with($name, 'data-') && !str_starts_with($name, 'data-wp-') && 'data-action' !== $name))) continue;
+            return false;
         }
 
         return true;
