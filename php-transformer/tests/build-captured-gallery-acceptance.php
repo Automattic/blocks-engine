@@ -4,7 +4,7 @@ require $root . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
-$capture = defined('WP_PLUGIN_DIR') ? $root . '/tests/fixtures/captured-gallery' : ($argv[1] ?? $root . '/tests/fixtures/captured-gallery');
+$capture = defined('WP_PLUGIN_DIR') ? $root . '/' . ($args[0] ?? 'tests/fixtures/captured-gallery') : ($argv[1] ?? $root . '/tests/fixtures/captured-gallery');
 $files = array();
 foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($capture, FilesystemIterator::SKIP_DOTS)) as $file) {
     if (!$file->isFile()) continue;

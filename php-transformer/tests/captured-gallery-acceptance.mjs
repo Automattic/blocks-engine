@@ -22,25 +22,33 @@ try{
   await page.setViewportSize({width,height:900});await page.goto(`${base}/?page_id=${id}`,{waitUntil:'domcontentloaded'});
   const root=page.locator('.blocks-engine-authored-carousel').filter({visible:true}).first();await root.waitFor();
   await page.waitForFunction(()=>document.querySelector('.blocks-engine-authored-carousel__slide--active'));
-  await settled(root);const initial=await state(root);assert.equal(initial.count,20);assert.equal(initial.visible,1);assert.equal(initial.decoded,true);
-  const images=await root.locator('img').evaluateAll(async imgs=>{await Promise.all(imgs.map(img=>img.decode()));return imgs.map(img=>({src:img.src,width:img.naturalWidth,height:img.naturalHeight}));});
+  await root.scrollIntoViewIfNeeded();await settled(root);const initial=await state(root);assert.equal(initial.count,20);assert.equal(initial.visible,1);assert.equal(initial.decoded,true);
+  const images=await root.locator('img').evaluateAll(async imgs=>{imgs.forEach(img=>img.loading='eager');await Promise.all(imgs.map(img=>img.decode()));return imgs.map(img=>({src:img.src,width:img.naturalWidth,height:img.naturalHeight}));});
   assert.equal(images.length,20);assert.ok(images.every(img=>img.width>1&&img.height>1));assert.equal(new Set(images.map(img=>img.src)).size,20);
+  const inlineCycle=[];
+  for(let i=0;i<20;i++){await root.locator('[data-carousel-next]').click();await settled(root);const frame=await state(root);assert.equal(frame.index,(initial.index+i+1)%20);assert.equal(frame.visible,1);assert.equal(frame.decoded,true);assert.equal(frame.counter,`Slide ${frame.index+1} of 20`);inlineCycle.push(frame);}
+  assert.equal(new Set(inlineCycle.map(frame=>frame.src)).size,20);
   await root.locator('[data-carousel-next]').click();await settled(root);const next=await state(root);assert.equal(next.index,(initial.index+1)%20);assert.notEqual(next.src,initial.src);
+  const binding=await root.evaluate(el=>[...document.querySelectorAll('dialog[data-blocks-engine-gallery-selection]')].flatMap(dialog=>JSON.parse(dialog.getAttribute('data-blocks-engine-gallery-selection'))).find(item=>item.triggerId===el.id));
+  if(!binding){
+   await root.locator('[data-carousel-previous]').click();await settled(root);assert.equal((await state(root)).index,initial.index);
+   result.widths.push({width,initial,next,inlineCycle,inlineDecoded:images.length,lightbox:'not observed in this emitted source viewport'});
+   continue;
+  }
   await root.locator('.blocks-engine-authored-carousel__slide--active img').click();const dialog=page.locator('dialog[open]');await dialog.waitFor();
   const full=dialog.locator('.blocks-engine-authored-carousel');await settled(full);const opened=await state(full);
   assert.equal(opened.decoded,true);assert.equal(opened.count,20);
-  const selected=await root.locator('.blocks-engine-authored-carousel__slide--active img').getAttribute('alt');
-  const fullAlt=await full.locator('.blocks-engine-authored-carousel__slide--active img').getAttribute('alt');
-  assert.equal(fullAlt,selected.replace('Frame','Full'),'clicked native image opens its observed full image');
-  const fullImages=await full.locator('img').evaluateAll(async imgs=>{await Promise.all(imgs.map(img=>img.decode()));return imgs.map(img=>({src:img.src,width:img.naturalWidth,height:img.naturalHeight}));});
+  assert.equal(opened.index,binding.indices[next.index],'clicked native image opens the full image selected by the consumed observed identity mapping');
+  const fullImages=await full.locator('img').evaluateAll(async imgs=>{imgs.forEach(img=>img.loading='eager');await Promise.all(imgs.map(img=>img.decode()));return imgs.map(img=>({src:img.src,width:img.naturalWidth,height:img.naturalHeight}));});
   assert.equal(fullImages.length,20);assert.ok(fullImages.every(img=>img.width>1&&img.height>1));assert.equal(new Set(fullImages.map(img=>img.src)).size,20);
   const cycle=[];
   for(let i=0;i<20;i++){await full.locator('[data-carousel-next]').click();await settled(full);const frame=await state(full);assert.equal(frame.index,(opened.index+i+1)%20);assert.equal(frame.visible,1);assert.equal(frame.decoded,true);assert.equal(frame.counter,`Slide ${frame.index+1} of 20`);cycle.push(frame);}
   await full.locator('[data-carousel-previous]').click();await settled(full);const previous=await state(full);assert.equal(previous.index,(opened.index+19)%20);assert.notEqual(previous.src,opened.src);
   await dialog.getByRole('button',{name:/Close/}).click();assert.equal(await page.locator('dialog[open]').count(),0);
   await root.locator('[data-carousel-previous]').click();await settled(root);assert.equal((await state(root)).index,initial.index);
-  await page.screenshot({path:`${evidence}/frontend-${width}.png`,fullPage:true});result.widths.push({width,initial,next,opened,previous,cycle,inlineDecoded:images.length,fullDecoded:fullImages.length});
+  await page.screenshot({path:`${evidence}/frontend-${width}.png`,fullPage:true});result.widths.push({width,initial,next,opened,previous,cycle,inlineCycle,binding,inlineDecoded:images.length,fullDecoded:fullImages.length});
  }
+ assert.ok(result.widths.some(row=>row.fullDecoded===20),'The actual capture supplies at least one complete observed image lightbox');
  await page.unroute('**/*');await page.goto(`${base}/wp-login.php`,{waitUntil:'domcontentloaded'});
  await page.getByLabel('Username or Email Address').fill(process.env.BE_EDITOR_USER);await page.getByRole('textbox',{name:'Password'}).fill(process.env.BE_EDITOR_PASSWORD);await page.getByRole('button',{name:'Log In'}).click();
  await page.goto(`${base}/wp-admin/post.php?post=${id}&action=edit`,{waitUntil:'domcontentloaded'});await page.waitForFunction(()=>window.wp?.data?.select('core/block-editor')?.getBlocks().length>0);

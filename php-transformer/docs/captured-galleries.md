@@ -51,9 +51,19 @@ receipt, and interaction report. Then run:
 BE_EDITOR_EVIDENCE_DIR=/tmp/captured-gallery-evidence composer test:captured-gallery-browser
 ```
 
+An independently captured source can use the same gate without replacing the
+neutral fixture:
+
+```sh
+BE_EDITOR_ACCEPTANCE_INPUT=tests/fixtures/captured-gallery-actual \
+BE_EDITOR_EVIDENCE_DIR=/tmp/actual-gallery-evidence composer test:captured-gallery-browser
+```
+
 The existing disposable Docker runner owns WordPress and cleanup. The gate uses
 the complete portable artifact compiler and site-plan resolver, materializes its
 asset writes, registers the generated blocks, and verifies offline decoded
-20-image cycles, selected-image opening, both directions, close at
-390/768/1440 px, and Gutenberg edit/save/reload validation. Source visual parity
+20-image inline cycles at 390/768/1440 px, selected-image opening, both directions
+and close for each emitted observed lightbox binding, and Gutenberg
+edit/save/reload validation. At least one complete lightbox must be exercised;
+a source viewport with no observed binding is recorded as inline-only. Source visual parity
 and destination import acceptance are separate gates.
