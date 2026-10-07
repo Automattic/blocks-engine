@@ -51,8 +51,8 @@ $variableWidth = (new HtmlTransformer())->transform(
     '<style>:root{--site-width:980px}body:not(.responsive) #site-root{min-width:var(--site-width)}</style><div class="document-variant"><div id="site-root"><main><p>Content</p></main></div></div>'
 )->toArray();
 $assert(
-    str_contains($css($variableWidth), 'body:not(.responsive) #site-root{min-width:0;max-width:100%}'),
-    'nested document canvas minimum widths expressed through source custom properties receive bounded responsive geometry'
+    str_contains($css($variableWidth), 'body:not(.responsive) #site-root{min-width:var(--site-width)}'),
+    'document-state-gated minimum widths keep the authored predicate and source custom property'
 );
 
 $percentageHeight = (new HtmlTransformer())->transform(

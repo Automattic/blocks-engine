@@ -79,7 +79,6 @@ final class AuthorStylesheetProjector
     {
         $lifted = ColorSchemeVariant::liftPrelude($prelude);
         $css = $this->emitProjectedStyleRule($lifted['prelude'], $body, $context, $inConditional, array( ...$outerConditions, ...$ancestors ));
-        $css .= $this->sharedBodyCanvasPaintRule($lifted['prelude'], $body, $context);
 
         return ColorSchemeVariant::wrap($css, $lifted['scheme'], $ancestors);
     }
@@ -911,7 +910,6 @@ final class AuthorStylesheetProjector
         }
         $rewritten = array();
         foreach ( $selectors as $selector ) {
-            $selector = $this->projectSourceBodyStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] ) {
                 array_push($rewritten, ...$this->projectUnsupportedFunctionalControlSelector($selector, $context, true));
@@ -981,7 +979,6 @@ final class AuthorStylesheetProjector
         }
         $rewritten = array();
         foreach ( $selectors as $selector ) {
-            $selector = $this->projectSourceBodyStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] || $this->hasUniversalStructuralLeaf($parsed) ) {
                 continue;
@@ -1041,116 +1038,6 @@ final class AuthorStylesheetProjector
             }
         }
         return array( implode(';', $placement), implode(';', $geometry), implode(';', $inner) );
-    }
-
-    private function projectSourceBodyStateSelector(string $selector, AuthorStylesheetProjectionContext $context): string
-    {
-        $classes = $context->authorStyles->sourceBodyProjectionClasses();
-        if ( array() === $classes ) {
-            return $selector;
-        }
-        $classes = implode('|', array_map(static fn (string $class): string => preg_quote(ColorSchemeVariant::cssEscapeIdent($class), '/'), $classes));
-        $selector = preg_replace('/^\s*body(?=\.(?:' . $classes . ')(?:\b|[.#:\[]))/', '', $selector, 1) ?? $selector;
-        return $this->projectSourceBodySubjectSelector($selector, $classes, $context);
-    }
-
-    /**
-     * Body classes are projected onto root blocks so descendant selectors keep
-     * matching, but a rule whose subject is the body itself paints the canvas
-     * in the source (body backgrounds propagate behind negative z-index
-     * layers). Retarget such rules to the rendered body instead of the root
-     * blocks that carry the projected class. A plain `body` type keeps the
-     * selector recognizable to editor-style scoping.
-     */
-    private function projectSourceBodySubjectSelector(string $selector, string $classPattern, AuthorStylesheetProjectionContext $context): string
-    {
-        $parsed = $context->sourceStyles->parsedSelector($selector);
-        if ( ! ($parsed['supported'] ?? false) || null === ($parsed['rightmost_compound_span'] ?? null) ) {
-            return $selector;
-        }
-        $start = (int) $parsed['rightmost_compound_span']['start'];
-        $end = (int) $parsed['rightmost_rewrite_end'];
-        $subject = substr($selector, $start, $end - $start);
-        if ( 1 !== preg_match('/^(?:\.(?:' . $classPattern . '))+$/', $subject) ) {
-            return $selector;
-        }
-        // Matching indexes body descendants only; any match means the class is
-        // shared with a content element and the rule must keep its subject.
-        if ( array() !== $this->contentElementsSharingBodySubject($selector, $parsed, $context) ) {
-            return $selector;
-        }
-        $shims = str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', substr_count($subject, '.'));
-        return substr($selector, 0, $start) . 'body' . $shims . substr($selector, $end);
-    }
-
-    /**
-     * A capture that records responsive document variants copies the source
-     * body's classes onto each variant root so body-scoped rules keep applying
-     * inside that branch. Such a root is the body of its own document, not a
-     * content element that happens to share the class, so it must not hold a
-     * body-subject rule back from the rendered body.
-     *
-     * @param array<string, mixed> $parsed
-     * @return list<DOMElement>
-     */
-    private function contentElementsSharingBodySubject(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): array
-    {
-        return array_values(array_filter(
-            $this->matchingSourceElements($selector, $parsed, $context),
-            static fn (DOMElement $element): bool => ! SourceDom::isDocumentVariantRoot($element)
-        ));
-    }
-
-    private function sharedBodyCanvasPaintRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
-    {
-        $classes = $context->authorStyles->sourceBodyProjectionClasses();
-        if ( array() === $classes ) {
-            return '';
-        }
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors || 1 !== count($selectors) ) {
-            return '';
-        }
-        $selector = trim($selectors[0]);
-        $parsed = $context->sourceStyles->parsedSelector($selector);
-        if ( ! ($parsed['supported'] ?? false) || null === ($parsed['rightmost_compound_span'] ?? null) ) {
-            return '';
-        }
-        $start = (int) $parsed['rightmost_compound_span']['start'];
-        $end = (int) $parsed['rightmost_rewrite_end'];
-        if ( 0 !== $start ) {
-            return '';
-        }
-        $classPattern = implode('|', array_map(static fn (string $class): string => preg_quote(ColorSchemeVariant::cssEscapeIdent($class), '/'), $classes));
-        $subject = substr($selector, $start, $end - $start);
-        if ( 1 !== preg_match('/^(?:\.(?:' . $classPattern . '))+$/', $subject) ) {
-            return '';
-        }
-        if ( array() === $this->contentElementsSharingBodySubject($selector, $parsed, $context) ) {
-            return '';
-        }
-        $paint = array_intersect_key(
-            $this->styleResolver->verbatimCssDeclarations($body),
-            array_flip(array(
-                'color',
-                'background',
-                'background-color',
-                'background-image',
-                'background-position',
-                'background-size',
-                'background-repeat',
-                'background-attachment',
-                'background-origin',
-                'background-clip',
-                'background-blend-mode',
-            ))
-        );
-        $css = $this->styleResolver->cssDeclarationString($paint);
-        if ( '' === $css ) {
-            return '';
-        }
-
-        return 'body' . str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', substr_count($subject, '.')) . '{' . $css . '}';
     }
 
     /** @return array{string, string} */
@@ -1427,6 +1314,23 @@ final class AuthorStylesheetProjector
         $rewritten = array();
         foreach ( $selectors as $selector ) {
             $structuralParsed = $context->sourceStyles->parsedSelector($selector);
+            $subject = $structuralParsed['compounds'][0] ?? array();
+            if (($structuralParsed['supported'] ?? false) && 1 === count($structuralParsed['compounds'] ?? array())
+                && null === ($subject['type'] ?? null) && !($subject['universal'] ?? false)
+                && array() !== ($subject['classes'] ?? array())
+                && array() === array_merge($subject['ids'] ?? array(), $subject['attributes'] ?? array(), $subject['not'] ?? array(), $subject['any'] ?? array())
+                && null === ($subject['nth_child'] ?? null) && !($subject['first_child'] ?? false) && !($subject['last_child'] ?? false) && !($subject['root'] ?? false)
+                && null === ($structuralParsed['pseudo_state_suffix_span'] ?? null)
+                && CssSelectorMatcher::matches($context->authorStyles->sourceBody(), $structuralParsed)['matches']) {
+                $subjects = $this->matchingSourceElements($selector, $structuralParsed, $context);
+                if (array() !== $subjects && array() === array_filter($subjects, static fn(DOMElement $element): bool => !SourceDom::isDocumentVariantRoot($element))) {
+                    // Capture-created variant roots stand in for a body; they
+                    // must not turn canvas paint into an opaque content layer.
+                    // Keep the real body's state and the authored specificity.
+                    $rewritten[] = ':where(body)' . trim($selector);
+                    continue;
+                }
+            }
             if ( $structuralParsed['supported'] && $this->hasUniversalStructuralLeaf($structuralParsed) ) {
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $structuralParsed, $context);
                 continue;
@@ -1442,7 +1346,6 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $selector = $this->projectSourceAttributeNegationStateSelector($selector, $context);
-            $selector = $this->projectSourceBodyStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] ) {
                 $projectedControls = $this->projectUnsupportedFunctionalControlSelector($selector, $context, $controlWrapper);
@@ -1786,13 +1689,27 @@ final class AuthorStylesheetProjector
     private function editorDocumentRootRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        $matchesRoot = false;
+        $editorSelectors = array();
         $root = $context->authorStyles->sourceBody()->ownerDocument?->documentElement;
         foreach ($selectors ?? array() as $selector) {
             $parsed = $context->sourceStyles->parsedSelector($selector);
-            if ('body' === strtolower(trim($selector)) || ($root instanceof DOMElement && ($parsed['supported'] ?? false) && null === ($parsed['pseudo_state_suffix_span'] ?? null) && CssSelectorMatcher::matches($root, $parsed)['matches'])) $matchesRoot = true;
+            if (!($parsed['supported'] ?? false) || null !== ($parsed['pseudo_state_suffix_span'] ?? null)) continue;
+            if (1 === count($parsed['compounds'] ?? array()) && (
+                'body' === strtolower((string) ($parsed['compounds'][0]['type'] ?? ''))
+                || CssSelectorMatcher::matches($context->authorStyles->sourceBody(), $parsed)['matches']
+            )) {
+                // Keep the authored predicate and specificity. All body subject
+                // rules receive the same editor-only scope, rather than letting
+                // a lifted bare body reset beat a later body.class declaration.
+                $sourceSelector = $this->projectSourceClassSelector($selector, $context);
+                $sourceParsed = $context->sourceStyles->parsedSelector($sourceSelector);
+                $end = (int) $sourceParsed['rightmost_rewrite_end'];
+                $editorSelectors[] = ':root ' . substr($sourceSelector, 0, $end) . '.editor-styles-wrapper' . substr($sourceSelector, $end);
+            } elseif ($root instanceof DOMElement && CssSelectorMatcher::matches($root, $parsed)['matches']) {
+                $editorSelectors[] = $this->projectSourceClassSelector($selector, $context) . ' .editor-styles-wrapper';
+            }
         }
-        if (!$matchesRoot) {
+        if (array() === $editorSelectors) {
             return '';
         }
 
@@ -1812,7 +1729,7 @@ final class AuthorStylesheetProjector
             ARRAY_FILTER_USE_KEY
         );
         $css = $this->styleResolver->cssDeclarationString($declarations);
-        return '' === $css ? '' : ':root .editor-styles-wrapper{' . $css . '}';
+        return '' === $css ? '' : implode(',', $editorSelectors) . '{' . $css . '}';
     }
 
     /** @return list<string>|null */
@@ -1857,6 +1774,16 @@ final class AuthorStylesheetProjector
         $ancestry = is_array($rightmost) ? substr($selector, 0, (int) $rightmost['start']) : '';
         if ( null !== $parsed['pseudo_state_suffix_span'] || ! preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry) ) {
             return null;
+        }
+        // Document attributes survive on their actual ancestors. Flattening a
+        // route-owned predicate onto shared content would freeze one page's
+        // state into every use of that header/footer.
+        foreach (array_slice($parsed['compounds'] ?? array(), 0, -1) as $compound) {
+            if (!\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector::containsDataAttribute($compound)) continue;
+            $predicate = array_replace($parsed, array('compounds' => array($compound), 'combinators' => array()));
+            for ($root = $context->authorStyles->sourceBody(); $root instanceof DOMElement; $root = $root->parentNode) {
+                if (CssSelectorMatcher::matches($root, $predicate)['matches']) return null;
+            }
         }
         $projected = array();
         $scope = '';
