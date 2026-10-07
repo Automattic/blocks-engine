@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -323,6 +324,7 @@ PHP;
          $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single']);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
+        $assets = self::withVariantScopedIdSelectors($assets);
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
         $assetWrites = $this->assetWrites($assets, $references);
@@ -720,6 +722,33 @@ PHP;
             $rows[] = $row;
         }
         return $rows;
+    }
+
+    /**
+     * Keep variant-scoped author rules on the ids the page actually renders.
+     *
+     * When a captured desktop/mobile pair shares an id, the mobile copy is
+     * rendered as `<id>--dla-mobile` so the page keeps unique ids. The delivered
+     * stylesheets still address the source id (`:where(.data-liberation-mobile-document)
+     * #<id>`), so without this pass every mobile id rule misses its element.
+     * It runs after shared-chrome extraction, which reasons about the source
+     * ids, and only changes selectors scoped to a non-default document variant.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return array<int,array<string,mixed>>
+     */
+    private static function withVariantScopedIdSelectors(array $assets): array
+    {
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
+            $content = DocumentVariantIds::scopeIdSelectors($asset['content']);
+            if ($content === $asset['content']) continue;
+            $asset['content'] = $content;
+            $asset['bytes'] = strlen($content);
+            $asset['content_hash'] = self::contentHash($content);
+        }
+        unset($asset);
+        return $assets;
     }
 
     /** @param mixed $assets @return array<int,array<string,mixed>> */

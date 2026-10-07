@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assert = static function (bool $condition, string $message): void {
@@ -192,5 +193,55 @@ $duplicateIdResult = (new ArtifactCompiler())->compile($duplicateIdArtifact)->to
 $duplicateIdBlocks = (string) ($duplicateIdResult['serialized_blocks'] ?? '');
 $assert(1 === substr_count($duplicateIdBlocks, 'id="PAGES_CONTAINER"'), 'Only one compiled element keeps the bare shared id: duplicate ids in the final HTML break same-page anchor navigation.');
 $assert(str_contains($duplicateIdBlocks, 'id="PAGES_CONTAINER--dla-mobile"'), 'The mobile document variant copy of a shared id is suffixed so it stays unique on the page, mirroring Data Liberation Agent\'s own --dla-mobile pairing convention.');
+
+// A Data Liberation capture ships both documents in one page and scopes its
+// mobile rules by the mobile root (`:where(.data-liberation-mobile-document)
+// #id`). Once the mobile copy of a shared id is suffixed, the stylesheets the
+// page loads must still reach it: otherwise every mobile id rule silently
+// misses and the phone layout falls apart (a static full-height page
+// background pushing content off screen, lost grids and fills).
+$capturedPairArtifact = array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array(
+            'path' => 'website/index.html',
+            'content' => '<!doctype html><html><head>'
+                . '<link rel="stylesheet" href="/desktop.css" media="(min-width:768px)">'
+                . '<link rel="stylesheet" href="/mobile.css" media="(max-width:767px)">'
+                . '<style>.data-liberation-mobile-document{display:none}@media (max-width:767px){.data-liberation-desktop-document{display:none}.data-liberation-mobile-document{display:contents}}</style>'
+                . '</head><body>'
+                . '<div class="data-liberation-desktop-document"><section id="hero" class="hero"><h1>Welcome</h1><p>Desktop copy</p></section></div>'
+                . '<div class="data-liberation-mobile-document"><section id="hero" class="hero"><h1>Welcome</h1><p>Mobile copy</p></section><aside id="phone-only" class="note"><p>Phone</p></aside></div>'
+                . '</body></html>',
+        ),
+        array('path' => 'website/desktop.css', 'content' => '#hero{position:relative;padding-top:40px}'),
+        array('path' => 'website/mobile.css', 'content' => ':where(.data-liberation-mobile-document) #hero{position:absolute;padding-top:7px}:where(.data-liberation-mobile-document) #phone-only{margin-top:3px}'),
+    ),
+);
+$capturedPairResult = (new ArtifactCompiler())->compile($capturedPairArtifact)->toArray();
+$capturedPairPlan = $capturedPairResult['source_reports']['wordpress_site_plan'] ?? array();
+$capturedPairMarkup = implode("\n", array_map(static fn (array $page): string => (string) ($page['canonical_block_markup'] ?? ''), (array) ($capturedPairPlan['pages'] ?? array())));
+$capturedPairCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? null) ? (string) ($asset['content'] ?? '') : '', (array) ($capturedPairPlan['assets'] ?? array())));
+$assert(str_contains($capturedPairMarkup, 'id="hero--dla-mobile"') && str_contains($capturedPairMarkup, 'id="hero"'), 'The captured mobile copy of a shared id renders suffixed beside the desktop bare id.');
+$assert(str_contains($capturedPairCss, ':where(.data-liberation-mobile-document) :is(#hero,#hero--dla-mobile){position:absolute;padding-top:7px}'), 'A mobile-scoped id rule in a delivered stylesheet reaches the suffixed mobile copy with the source specificity.');
+$assert(1 === preg_match('/:where\(\.data-liberation-mobile-document\) :is\(#phone-only,#phone-only--dla-mobile\)[^{,]*\{margin-top:3px\}/', $capturedPairCss), 'A mobile-only id keeps matching its bare id through the same rewrite.');
+$assert(!str_contains($capturedPairCss, '#blocks-engine-specificity-id-site-0--dla-mobile'), 'Engine specificity shims are not treated as source ids.');
+$assert(str_contains($capturedPairCss, '#hero{position:relative;padding-top:40px}') && !str_contains($capturedPairCss, '#hero--dla-mobile{position:relative'), 'Desktop id rules are delivered unchanged.');
+foreach ((array) ($capturedPairPlan['assets'] ?? array()) as $asset) {
+    if ('css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null)) {
+        $assert(hash('sha256', $asset['content']) === ($asset['content_hash'] ?? null), 'A rewritten stylesheet keeps a content hash that matches its delivered payload.');
+    }
+}
+
+$scope = ':where(.data-liberation-mobile-document)';
+$assert($scope . ' div:is(#a,#a--dla-mobile).b > :is(#c,#c--dla-mobile)::before' === DocumentVariantIds::scopeIdSelector($scope . ' div#a.b > #c::before'), 'Ids keep their position next to type, class and pseudo-element parts.');
+$assert($scope . ' :has(> #x--dla-mobile)' === DocumentVariantIds::scopeIdSelector($scope . ' :has(> #x--dla-mobile)'), 'An id that already carries the variant suffix is left alone.');
+$assert($scope . ' a[href="#top"]:is(#nav,#nav--dla-mobile)' === DocumentVariantIds::scopeIdSelector($scope . ' a[href="#top"]#nav'), 'Fragments inside attribute values are not ids.');
+$assert($scope . ' :is(#a,#a--dla-mobile):not(#blocks-engine-specificity-id-site-0)' === DocumentVariantIds::scopeIdSelector($scope . ' #a:not(#blocks-engine-specificity-id-site-0)'), 'Engine specificity shim ids stay as they are.');
+$assert('#a .b' === DocumentVariantIds::scopeIdSelector('#a .b') && ':where(.data-liberation-desktop-document) #a' === DocumentVariantIds::scopeIdSelector(':where(.data-liberation-desktop-document) #a'), 'Unscoped and desktop-scoped selectors keep their bare ids.');
+$assert('#a:not(.data-liberation-mobile-document)' === DocumentVariantIds::scopeIdSelector('#a:not(.data-liberation-mobile-document)'), 'A negated variant class does not scope the selector.');
+$assert('.site-document-variant-tablet :is(#a,#a--dla-tablet)' === DocumentVariantIds::scopeIdSelector('.site-document-variant-tablet #a'), 'A named site document variant uses its own suffix.');
+$assert('@media (max-width:767px){' . $scope . ' :is(#a,#a--dla-mobile){top:0;color:#abc}}' === DocumentVariantIds::scopeIdSelectors('@media (max-width:767px){' . $scope . ' #a{top:0;color:#abc}}'), 'Nested rules are rewritten and declaration values such as hex colors are untouched.');
 
 fwrite(STDOUT, "Responsive document variant tests passed.\n");
