@@ -831,7 +831,42 @@ final class SourceElementClassifier
             SourceDom::attr($element, 'data-testid'),
         ))));
 
-        return 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slides?)(?:[^a-z0-9]|$)/', $identity);
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slides?)(?:[^a-z0-9]|$)/', $identity)
+            || $this->isHomogeneousImageSlideList($element);
+    }
+
+    /** A bounded collection of same-kind, image-bearing slide children. */
+    public function isHomogeneousImageSlideList(DOMElement $element): bool
+    {
+        $count = 0;
+        $tag = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( ! $this->isCarouselSlideChild($child) || ! $this->isImageOnlySlide($child)
+                || ($tag !== null && strtolower($child->tagName) !== $tag)
+                || '' === trim(SourceDom::attr($child->getElementsByTagName('img')->item(0), 'src'))
+            ) {
+                return false;
+            }
+            $tag = strtolower($child->tagName);
+            if ( ++$count > 100 ) {
+                return false;
+            }
+        }
+        return $count >= 2;
+    }
+
+    public function isCarouselControl(DOMElement $element, DOMElement $root): bool
+    {
+        return (in_array(strtolower($element->tagName), array('a', 'button'), true)
+            || ('button' === strtolower(trim(SourceDom::attr($element, 'role')))
+                && '' !== trim(SourceDom::attr($element, 'aria-label'))))
+            && ! $this->isExpandedCarouselState($element, $root);
     }
 
     /**
@@ -905,7 +940,10 @@ final class SourceElementClassifier
 
     public function isExpandedCarouselState(DOMElement $element, DOMElement $root): bool
     {
-        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
+        for ( $ancestor = $element; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
+            if ( $ancestor->hasAttribute('hidden') || 'true' === strtolower(trim(SourceDom::attr($ancestor, 'aria-hidden'))) ) {
+                return true;
+            }
             $identity = strtolower(implode(' ', array(
                 $ancestor->tagName,
                 SourceDom::attr($ancestor, 'class'),

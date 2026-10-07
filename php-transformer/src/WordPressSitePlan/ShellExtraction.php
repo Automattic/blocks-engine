@@ -1593,7 +1593,7 @@ final class ShellExtraction
         return null;
     }
 
-    private static function isResponsiveVariantClass(string $class): bool
+    public static function isResponsiveVariantClass(string $class): bool
     {
         return in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)
             || 1 === preg_match('/^site-document-variant-[a-z][a-z0-9_-]{0,31}$/', $class);

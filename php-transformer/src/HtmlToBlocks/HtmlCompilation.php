@@ -1880,9 +1880,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $markup = $this->runtime->serializeBlocks($blocks);
             $templatePartAttrs = $wrapperAttrs;
             unset($templatePartAttrs['tagName']);
-            $templatePartMarkup = array() === $templatePartAttrs
-                ? $innerMarkup
-                : $this->runtime->serializeBlocks(array($this->createBlock('core/group', $templatePartAttrs, $blocks[0]['innerBlocks'] ?? array())));
+            if ( array() === $templatePartAttrs ) {
+                $templatePartMarkup = $innerMarkup;
+            } else {
+                $responsiveMarginTop = $this->styleResolver->responsiveBlockMarginTopClassName($child);
+                if ( '' !== $responsiveMarginTop ) {
+                    $templatePartAttrs['className'] = SourceDom::mergeClassNames((string) ($templatePartAttrs['className'] ?? ''), $responsiveMarginTop);
+                }
+                $templatePartBlock = $this->createBlock('core/group', $templatePartAttrs, $blocks[0]['innerBlocks'] ?? array());
+                $templatePartMarkup = $this->runtime->serializeBlocks(array($templatePartBlock));
+            }
             if ( '' === trim($markup) ) {
                 continue;
             }
