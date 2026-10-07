@@ -91,6 +91,14 @@ jobs:
       - name: Run visual parity tests
         run: npm test
 
+      - name: Verify layout-table source tracks and authored responsive overrides
+        env:
+          WORDPRESS_ROOT: ${{ runner.temp }}/wordpress
+        run: |
+          curl --fail --silent --show-error https://wordpress.org/wordpress-7.0.4.tar.gz | tar -xz -C "$RUNNER_TEMP"
+          node tests/layout-media-tracks.mjs
+          BE_FIXTURE_VARIANT=responsive node tests/layout-media-tracks.mjs
+
       - name: Verify native disclosure control presentation
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/details-control-presentation-browser.mjs

@@ -701,6 +701,14 @@ final class AuthorSelectorSemanticPreparer
                 continue;
             }
             foreach ( $this->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
+                $layoutTable = 'table' === strtolower($element->tagName) ? $element : $this->ancestorElement($element, 'table');
+                if (in_array(strtolower($element->tagName), array('table', 'tr', 'td'), true)
+                    && $layoutTable instanceof DOMElement
+                    && (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy())->lowersToColumns($layoutTable)
+                ) {
+                    $projections->ensureSemanticMarker($element->getNodePath() ?? '');
+                    continue;
+                }
                 if ( ! in_array(strtolower($element->tagName), array( 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th' ), true)
                     || ! $this->context->tableSelectorNeedsStructuralProjection($parsed, $element)
                 ) {

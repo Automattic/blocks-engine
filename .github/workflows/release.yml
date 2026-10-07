@@ -82,6 +82,8 @@ jobs:
     secrets:
       HOMEBOY_APP_ID: ${{ secrets.HOMEBOY_APP_ID }}
       HOMEBOY_APP_PRIVATE_KEY: ${{ secrets.HOMEBOY_APP_PRIVATE_KEY }}
+      # The separate mirror is written with this deploy key. Its subtree remote
+      # uses SSH; the fallback GITHUB_TOKEN cannot write to that repository.
       PUBLISH_SSH_KEY: ${{ secrets.PHP_TRANSFORMER_MIRROR_DEPLOY_KEY }}
 
   figma:
