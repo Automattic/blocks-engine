@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTexta
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute;
 use Closure;
 use DOMElement;
 
@@ -60,7 +61,7 @@ final class AuthoredFormControlBlockConverter
     /** Keep an explicit external association even when its control is outside this fragment. */
     public function label(DOMElement $label): ?array
     {
-        if ('label' !== strtolower($label->tagName) || '' === SourceDom::attr($label, 'for') || array() !== FormControlClassifier::controlElements($label)) {
+        if (!FormControlClassifier::isExternalAssociatedLabel($label)) {
             return null;
         }
         $generator = new AuthoredLabelBlockGenerator();
@@ -73,7 +74,8 @@ final class AuthoredFormControlBlockConverter
             'className' => SourceDom::attr($projected, 'class'),
             'style' => SourceDom::attr($label, 'style'),
             'content' => $this->labelContent($label),
-        ), static fn (string $value): bool => '' !== $value);
+            'sourceAttributes' => SourceAttribute::staticAttributes(SourceDom::htmlAttributes($label), array_values(AuthoredLabelBlockGenerator::HOST_ATTRIBUTES)),
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
         $markup = $generator->markup($attrs);
         return array(
             'blockName' => $registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME),

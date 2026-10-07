@@ -22,6 +22,13 @@ final class FormControlClassifier
      */
     public const DATA_ENTRY_TAGS = array( 'input', 'select', 'textarea' );
 
+    /** The external label host emitted independently from its control. */
+    public static function isExternalAssociatedLabel(DOMElement $element): bool
+    {
+        return 'label' === strtolower($element->tagName) && '' !== $element->getAttribute('for')
+            && array() === self::controlElements($element);
+    }
+
     public static function isControlElement(DOMElement $element): bool
     {
         return in_array(strtolower($element->tagName), self::CONTROL_TAGS, true);
