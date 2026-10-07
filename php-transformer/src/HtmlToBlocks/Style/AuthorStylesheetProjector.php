@@ -439,18 +439,13 @@ final class AuthorStylesheetProjector
 
     private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
     {
-        $idPartition = $this->partitionPreludeByIdSpecificity($prelude, $context);
-        if ( is_array($idPartition) ) {
-            return $this->rewriteStyleRule($idPartition[0], $body, $context, $inConditional)
-                . $this->rewriteStyleRule($idPartition[1], $body, $context, $inConditional);
-        }
         $buttonPresentationPseudoPrelude = $this->buttonPresentationPseudoPrelude($prelude, $context);
         if ( '' !== $buttonPresentationPseudoPrelude ) {
             return $buttonPresentationPseudoPrelude . '{' . $body . '}';
         }
         $projectedPrelude = $this->rewriteSelectorPrelude($prelude, $context);
         $authoredBody = $body;
-        $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context, $inConditional);
+        $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context);
         $nativeButtonCompatRule = $this->nativeButtonLinkCompatRule($prelude, $authoredBody, $context);
         $nonButtonLinkRule = '';
         if ( $body !== $authoredBody ) {
@@ -563,16 +558,15 @@ final class AuthorStylesheetProjector
     /**
      * core/button defaults and support styles are emitted after carried author CSS.
      * Keep source button declarations authoritative after their selector is lowered
-     * to a generated marker, including media-query overrides. ID-themed padding
-     * already beats Gutenberg `:where` defaults, so promoting it to `!important`
-     * would invert a later stretched `padding:0!important` rule.
+     * to a generated marker. Padding preserves authored importance: responsive
+     * padding lives in these selectors, while explicit source/editor values
+     * retain their native inline priority.
      */
-    private function buttonLinkCompatDeclarations(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
+    private function buttonLinkCompatDeclarations(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         if ( ! str_contains($projectedPrelude, '.wp-block-button__link') || ! $this->projectsAnchorButtonControl($prelude, $context) ) {
             return $body;
         }
-        $preserveSourcePaddingImportance = $this->preludeHasIdSpecificity($prelude, $context);
 
         $declarations = array();
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
@@ -594,11 +588,10 @@ final class AuthorStylesheetProjector
                 $declarations[] = $declaration;
                 continue;
             }
-            // Unconditional padding stays ordinary: the button block carries the
-            // resolved padding inline, which (as in the source) outranks a plain
-            // class or element rule, so the owner's padding control keeps working.
-            // Only a conditional (media) override must beat that inline base.
-            if ( ( $preserveSourcePaddingImportance || ! $inConditional ) && ( 'padding' === $name || str_starts_with($name, 'padding-') ) ) {
+            // Conditional families remain stylesheet-owned rather than carrying
+            // an inline base. Preserve padding's authored importance so explicit
+            // source/editor padding keeps its normal priority at every width.
+            if ( 'padding' === $name || str_starts_with($name, 'padding-') ) {
                 $declarations[] = $declaration;
                 continue;
             }
@@ -636,56 +629,6 @@ final class AuthorStylesheetProjector
         }
 
         return array( implode(',', $buttonSelectors), implode(',', $otherSelectors) );
-    }
-
-    /** @return array{0: string, 1: string}|null */
-    private function partitionPreludeByIdSpecificity(string $prelude, AuthorStylesheetProjectionContext $context): ?array
-    {
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors || count($selectors) < 2 ) {
-            return null;
-        }
-        $withId = array();
-        $withoutId = array();
-        foreach ( $selectors as $selector ) {
-            if ( $this->selectorHasIdSpecificity($selector, $context) ) {
-                $withId[] = $selector;
-            } else {
-                $withoutId[] = $selector;
-            }
-        }
-        if ( array() === $withId || array() === $withoutId ) {
-            return null;
-        }
-
-        return array( implode(',', $withId), implode(',', $withoutId) );
-    }
-
-    private function preludeHasIdSpecificity(string $prelude, AuthorStylesheetProjectionContext $context): bool
-    {
-        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array( $prelude ) as $selector ) {
-            if ( $this->selectorHasIdSpecificity($selector, $context) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function selectorHasIdSpecificity(string $selector, AuthorStylesheetProjectionContext $context): bool
-    {
-        $parsed = $context->sourceStyles->parsedSelector($selector);
-        if ( $parsed['supported'] ) {
-            foreach ( $parsed['compounds'] as $compound ) {
-                if ( array() !== ( $compound['ids'] ?? array() ) ) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        return 1 === preg_match('/(?:^|[\s>+~,(])#[A-Za-z_-]/', ' ' . $selector);
     }
 
     private function projectsAnchorButtonControl(string $prelude, AuthorStylesheetProjectionContext $context): bool

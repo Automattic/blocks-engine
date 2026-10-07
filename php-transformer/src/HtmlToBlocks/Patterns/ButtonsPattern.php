@@ -204,7 +204,7 @@ final class ButtonsPattern
         $style = array();
         foreach ($anchor->getElementsByTagName('*') as $label) {
             if (!$label instanceof DOMElement || '' === $text || $this->plainText(SourceDom::innerHtml($label)) !== $text) continue;
-            $native = $this->styleResolver->nativeAttributes($buttons->resolvedStyle($label))['style'] ?? array();
+            $native = $this->styleResolver->nativeAttributes($buttons->nativePresentationStyle($label))['style'] ?? array();
             if (isset($native['typography'])) $style['typography'] = array_replace($style['typography'] ?? array(), $native['typography']);
             if (isset($native['color']['text'])) $style['color']['text'] = $native['color']['text'];
         }
@@ -471,7 +471,7 @@ final class ButtonsPattern
         // as `button { background: none }` can precede a filled button variant.
         // It is also resolved before the presentation attributes so the carrier
         // can be told which properties the native supports have already claimed.
-        $native = $this->styleResolver->nativeAttributes($resolvedStyle);
+        $native = $this->styleResolver->nativeAttributes($buttons->nativePresentationStyle($element));
         // Native core/button width owns only its canonical percentage values.
         // Other anchors and width values retain their generated geometry carrier.
         $excludedGeometry = null !== $width ? array( 'width' ) : array();
