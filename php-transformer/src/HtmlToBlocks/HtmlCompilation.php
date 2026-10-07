@@ -619,7 +619,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => $this->elementSelector($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
-            fn (DOMElement $element): array => $this->formContextTypography($element)
+            fn (DOMElement $element): array => $this->formContextTypography($element),
+            fn (DOMElement $element, DOMElement $boundary): ?array => $this->formContextHiddenState($element, $boundary)
         );
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
@@ -1330,6 +1331,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->typographyStyles(
             $element,
+            $this->authorStyles()->stylesheetAssets(),
+            $this->sourceStyles()->formLayoutCss()
+        );
+    }
+
+    /** @return array<string, string>|null */
+    private function formContextHiddenState(DOMElement $element, DOMElement $boundary): ?array
+    {
+        return ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->hiddenState(
+            $element,
+            $boundary,
             $this->authorStyles()->stylesheetAssets(),
             $this->sourceStyles()->formLayoutCss()
         );
@@ -2369,7 +2381,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $asset['content'],
                 isset($this->sharedStylesheetPaths[$asset['path']])
                     || isset($this->sharedStylesheetPaths[$asset['source_path'] ?? '']),
-                (string) $asset['path']
+                (string) $asset['path'],
+                true,
+                (string) ($asset['media'] ?? '')
             );
             $hash = hash('sha256', $content);
             $projections[] = array(
@@ -2419,9 +2433,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $projections;
     }
 
-    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true): string
+    /**
+     * `$media` is the stylesheet's link/style media attribute. Source analysis
+     * reads the asset as `@media <media>{...}`, so projection is told the same
+     * outer condition for rules that compare against analyzed declarations.
+     */
+    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true, string $media = ''): string
     {
         $bindings = new ProjectedSelectorBindings();
+        $media = trim($media);
         $projected = $this->authorStylesheetProjector->project(
             $stylesheet,
             new AuthorStylesheetProjectionContext(
@@ -2431,7 +2451,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->transformationEvidence(),
                 $keepAuthorClassSelectors,
                 $bindings
-            )
+            ),
+            '' === $media ? array() : array( '@media ' . $media )
         );
         if ( $recordBindings ) {
             foreach ( $bindings->all() as $binding ) {
