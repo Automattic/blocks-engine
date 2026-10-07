@@ -220,14 +220,14 @@ $assert(2 === count(array_unique($rootChildMarkers[0] ?? array())) && str_contai
 $documentRoot = $transform('<style>body{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65;background:url(texture.png);padding:24px}@media (max-width:600px){body{font-size:15px}}</style><main><p>Document typography</p></main>');
 $documentRootCss = $css($documentRoot);
 $documentRootEditorRule = '';
-if ( preg_match('/:root \.editor-styles-wrapper\{([^}]*)\}/', $documentRootCss, $documentRootEditorMatch) ) {
+if ( preg_match('/:root body\.editor-styles-wrapper\{([^}]*)\}/', $documentRootCss, $documentRootEditorMatch) ) {
     $documentRootEditorRule = $documentRootEditorMatch[1];
 }
 $assert(
-    str_contains($documentRootCss, 'body{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65;background:url(texture.png);padding:24px}:root .editor-styles-wrapper{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65}')
+    str_contains($documentRootCss, 'body{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65;background:url(texture.png);padding:24px}:root body.editor-styles-wrapper{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65}')
         && ! str_contains($documentRootEditorRule, 'background')
         && ! str_contains($documentRootEditorRule, 'padding')
-        && str_contains($documentRootCss, '@media (max-width:600px){body{font-size:15px}:root .editor-styles-wrapper{font-size:15px}}'),
+        && str_contains($documentRootCss, '@media (max-width:600px){body{font-size:15px}:root body.editor-styles-wrapper{font-size:15px}}'),
     'inherited document presentation targets the Gutenberg canvas root without duplicating body paint, geometry, assets, or responsive rules'
 );
 
