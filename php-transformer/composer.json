@@ -48,6 +48,7 @@
     "visual:image-custom-host-promotion": "node tools/visual-parity/tests/image-custom-host-promotion.mjs",
     "visual:empty-destination-anchor": "node tools/visual-parity/tests/empty-destination-anchor.mjs",
     "visual:conditional-empty-boundary": "node tools/visual-parity/tests/conditional-empty-visual-boundary.mjs",
+    "visual:conditional-positioned-fill": "node tools/visual-parity/tests/conditional-positioned-percentage-fill.mjs",
     "visual:source-class-selector-ownership": "node tools/visual-parity/tests/source-class-selector-ownership.mjs",
     "visual:nested-responsive-font-size": "node tools/visual-parity/tests/nested-responsive-font-size.mjs",
     "test:structural-carousel-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-structural-carousel-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/structural-carousel-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
@@ -87,6 +88,7 @@
       "php tests/contract/standalone-svg-asset.php",
       "php tests/contract/staged-artifact-compilation.php",
       "php tests/contract/staged-inline-post-chrome.php",
+      "php tests/contract/staged-inline-post-chrome-runtime-bindings.php",
       "php tests/contract/staged-whole-equivalence.php",
       "php tests/contract/stylesheet-link-media-plan.php",
       "php tests/contract/stylesheet-activation-plan.php",
@@ -120,6 +122,7 @@
       "@test:unit"
     ],
     "test:unit": [
+      "php tests/unit/conditional-native-button.php",
       "php tests/unit/form-physical-box-ownership.php",
       "php tests/unit/runtime-declarations-streaming-hash.php",
       "php tests/unit/external-metric-declarations.php",
@@ -371,6 +374,7 @@
       "php tests/unit/responsive-canvas-geometry.php",
       "php tests/unit/declared-canvas-selector-identity.php",
       "php tests/unit/conditional-definite-parent-percentage-height.php",
+      "php tests/unit/conditional-positioned-percentage-fill.php",
       "php tests/unit/responsive-footer-geometry.php",
       "php tests/unit/core-html-fallback-reduction.php",
       "php tests/unit/non-rendered-metadata-pruning.php",
