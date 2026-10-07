@@ -1122,6 +1122,7 @@ PHP;
             if ('shared_shell' !== ($part['placement']['kind'] ?? null) || 'header' !== ($part['area'] ?? null) || empty($part['ancestor_context']['preceded'])) continue;
             foreach (self::partRootAnchors((string) ($part['canonical_block_markup'] ?? '')) as $anchor) $rules .= ':where(#' . CssIdent::escape($anchor) . '){z-index:1}';
         }
+        $rules .= self::detachedChromeBackdropRules($parts);
         $template = null;
         foreach ($assets as $asset) {
             if ('css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) && '' !== trim($asset['content'])) {
@@ -1145,6 +1146,52 @@ PHP;
         unset($context['content_base64']);
         $assets[] = $context;
         return $assets;
+    }
+
+    /**
+     * Page content that preceded the chrome inside its layout ancestors (a
+     * page background layer) was sized, in the source, to an ancestor box that
+     * also held the chrome. That ancestor stays in post-content while the
+     * chrome renders from the template, so the backdrop now starts below the
+     * header and the band behind the chrome shows the bare canvas.
+     *
+     * In WordPress the box that spans the chrome and the content is the
+     * template root. It takes over the containing-block role of the ancestors
+     * that held the backdrop (only on the front end, where the chrome is
+     * outside them), and each chrome root stays positioned so it still paints
+     * above that backdrop, as it did inside the source ancestors. Only the
+     * ancestors every detached part left behind are moved: their source box
+     * spanned all of the chrome, as the template root does. When a part root
+     * has no anchor it cannot be kept above the backdrop, so nothing moves.
+     *
+     * @param array<int,array<string,mixed>> $parts
+     */
+    private static function detachedChromeBackdropRules(array $parts): string
+    {
+        $detached = array_values(array_filter($parts, static fn(array $part): bool => 'shared_shell' === ($part['placement']['kind'] ?? null) && is_array($part['ancestor_context'] ?? null) && in_array($part['area'] ?? null, array('header', 'footer'), true)));
+        if (array() === $detached) return '';
+        // The backdrop is what precedes the first chrome. Before a footer, the
+        // route's own content also precedes it, so a detached header decides.
+        $first = array_values(array_filter($detached, static fn(array $part): bool => 'header' === $part['area'])) ?: $detached;
+        $backdrop = array();
+        foreach ($first as $part) foreach ((array) ($part['ancestor_context']['backdrop_ids'] ?? array()) as $id) if (is_string($id) && '' !== $id) $backdrop[$id] = true;
+        if (array() === $backdrop) return '';
+        $roots = array();
+        foreach ($detached as $part) {
+            $markup = (string) ($part['canonical_block_markup'] ?? '');
+            $anchors = self::partRootAnchors($markup);
+            if (array() === $anchors) return '';
+            array_push($roots, ...$anchors);
+            // An ancestor the part never sat under did not span it in the source.
+            $enclosing = self::selectorHooks((array) ($part['ancestor_context']['classes'] ?? array()), (array) ($part['ancestor_context']['ids'] ?? array()))['id'];
+            foreach ((array) ($part['ancestor_context']['backdrop_ids'] ?? array()) as $id) if (is_string($id)) $enclosing[$id] = true;
+            foreach (array_keys($backdrop) as $id) if (!isset($enclosing[(string) $id])) unset($backdrop[$id]);
+        }
+        if (array() === $backdrop) return '';
+        $escape = static fn(string $id): string => '#' . CssIdent::escape($id);
+        return ':where(.wp-site-blocks){position:relative}'
+            . implode(',', array_map(static fn(int|string $id): string => '.wp-site-blocks ' . $escape((string) $id), array_keys($backdrop))) . '{position:static}'
+            . ':where(' . implode(',', array_map($escape, array_values(array_unique($roots)))) . '){position:relative}';
     }
 
     /**
