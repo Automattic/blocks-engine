@@ -123,6 +123,21 @@ $rounded = ( new ArtifactCompiler() )->compile(array( 'files' => array(
 $roundedCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $rounded['assets'] ?? array()));
 $assert(! str_contains($roundedCss, 'box-sizing:content-box'), 'border radius alone is not box chrome and does not alter source sizing');
 
+// A band sized by `height` with bottom padding is 35px shorter under the WordPress
+// border-box reset, and everything below it moves up. Height is a definite size
+// just like width.
+$contentBoxHeight = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9}</style><div class="band"><p>Copy</p></div>' ),
+) ) )->toArray();
+$contentBoxHeightCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $contentBoxHeight['assets'] ?? array()));
+$assert(str_contains($contentBoxHeightCss, '.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9;box-sizing:content-box}'), 'definite source height plus box chrome retains the initial content-box model against the WordPress block reset');
+
+$heightOnly = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.band{display:block;height:245px;overflow:hidden;background:#9b9}</style><div class="band"><p>Copy</p></div>' ),
+) ) )->toArray();
+$heightOnlyCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $heightOnly['assets'] ?? array()));
+$assert(! str_contains($heightOnlyCss, 'box-sizing:content-box'), 'a definite height without box chrome does not alter source sizing');
+
 $projectedPinnedLayer = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>#projected-pinned-layer{position:fixed;top:0}</style><link rel="stylesheet" href="site.css"><main><div class="data-liberation-mobile-document"><div id="projected-pinned-layer">Header</div><div id="projected-mobile-pinned-layer">Mobile header</div></div></main>' ),
