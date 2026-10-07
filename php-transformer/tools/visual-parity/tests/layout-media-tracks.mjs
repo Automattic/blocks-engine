@@ -76,13 +76,13 @@ try {
     await imported.close();
   }
   for (const [width, sample] of Object.entries(evidence.samples)) {
-    assert.deepEqual(sample.candidateTracks, sample.sourceTracks, `${width}px table, row and cell track topology/geometry`);
     for (let i = 0; i < sample.source.length; i++) {
       for (const dimension of ['x', 'y', 'width', 'height']) {
         assert.ok(Math.abs(sample.source[i][dimension] - sample.candidate[i][dimension]) <= 0.6,
           `${width}px ${sample.source[i].alt} ${dimension}: source=${sample.source[i][dimension]}, imported=${sample.candidate[i][dimension]}`);
       }
     }
+    assert.deepEqual(sample.candidateTracks, sample.sourceTracks, `${width}px table, row and cell track topology/geometry`);
   }
   console.log(JSON.stringify(Object.fromEntries(Object.entries(evidence.samples).map(([width, sample]) => [width, { source: sample.source, candidate: sample.candidate }]))));
 } finally {
