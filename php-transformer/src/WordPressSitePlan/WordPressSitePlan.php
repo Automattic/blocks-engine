@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
@@ -45,9 +46,16 @@ final class WordPressSitePlan
      * rewriting stays off while it is active. Static block content survives
      * texturization only because its punctuation is entity encoded; text that a
      * dynamic block decodes and prints is rewritten, so the guarantee belongs to
-     * the theme rather than to any one block.
+     * the theme rather than to any one block. Native emoji also belongs to that
+     * typography: replacing glyphs with images changes authored line boxes.
      */
-    public const SOURCE_TEXT_TYPOGRAPHY = "add_filter( 'run_wptexturize', '__return_false' );";
+    public const SOURCE_TEXT_TYPOGRAPHY = <<<'PHP'
+add_filter( 'run_wptexturize', '__return_false' );
+remove_action( 'wp_head', 'print_emoji_detection_script', 7 );
+remove_action( 'embed_head', 'print_emoji_detection_script' );
+add_action( 'admin_init', static function (): void { remove_action( 'admin_print_scripts', 'print_emoji_detection_script' ); } );
+add_filter( 'tiny_mce_plugins', static function ( array $plugins ): array { return array_values( array_diff( $plugins, array( 'wpemoji' ) ) ); } );
+PHP;
     private string $sourceOrigin = '';
     private string $sourceUrl = '';
     private const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
@@ -269,7 +277,7 @@ final class WordPressSitePlan
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
         $projector = new ThemeJsonProjection();
-        $themeProjection = $projector->project($assets);
+        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'));
         $assets = $themeProjection['assets'];
         $routes = $this->routesForPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
@@ -744,6 +752,10 @@ final class WordPressSitePlan
             if (null !== $reference && !self::referenceBackedBinaryAsset($asset)) throw new InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.');
             $transportHash = is_string($asset['content_base64'] ?? null) ? self::contentHash($asset['content_base64']) : null;
             $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) ? $asset['references'] : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'stylesheet_link_position' => is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $reference['sha256'] ?? self::contentHash($payload)), static fn(mixed $value): bool => null !== $value);
+            if (isset($asset['stylesheet_activation'])) {
+                $rows[array_key_last($rows)]['stylesheet_activation'] = $asset['stylesheet_activation'];
+                $rows[array_key_last($rows)]['stylesheet_source_path'] = $asset['stylesheet_source_path'] ?? $asset['path'];
+            }
         }
         return $rows;
     }
@@ -752,10 +764,20 @@ final class WordPressSitePlan
     private function scopeAssets(array $assets, array $pages): array
     {
         $pagesBySource = array_column($pages, null, 'source_path');
+        $stylesheetSets = array();
+        foreach ($assets as $asset) {
+            $state = $asset['stylesheet_activation'] ?? null;
+            if (is_array($state) && ('' !== $state['title'] || !$state['active'])) $stylesheetSets[$asset['stylesheet_source_path']] = true;
+        }
         foreach ($assets as &$asset) {
             $compilation = $asset['compilation'] ?? null;
-            unset($asset['compilation'], $asset['stylesheet_link_position']);
+            $stylesheetSource = $asset['stylesheet_source_path'] ?? null;
+            unset($asset['compilation'], $asset['stylesheet_link_position'], $asset['stylesheet_source_path']);
             if ('css' !== $asset['kind']) continue;
+            // A source payload can be preferred here and active or disabled on
+            // another route. Its link occurrences, rather than shared chrome
+            // ownership, determine where each activation variant is delivered.
+            if (isset($asset['stylesheet_activation'], $stylesheetSets[$stylesheetSource ?? '']) && 'page' !== ($compilation['scope'] ?? null)) $compilation = null;
             if ('shared' === ($compilation['scope'] ?? null)) {
                 $asset['scopes'] = array(array('kind' => 'global'));
                 continue;
@@ -1098,8 +1120,7 @@ final class WordPressSitePlan
         $rules = '';
         foreach ($parts as $part) {
             if ('shared_shell' !== ($part['placement']['kind'] ?? null) || 'header' !== ($part['area'] ?? null) || empty($part['ancestor_context']['preceded'])) continue;
-            $anchor = self::partRootAnchor((string) ($part['canonical_block_markup'] ?? ''));
-            if ('' !== $anchor) $rules .= ':where(#' . CssIdent::escape($anchor) . '){z-index:1}';
+            foreach (self::partRootAnchors((string) ($part['canonical_block_markup'] ?? '')) as $anchor) $rules .= ':where(#' . CssIdent::escape($anchor) . '){z-index:1}';
         }
         $template = null;
         foreach ($assets as $asset) {
@@ -1126,14 +1147,82 @@ final class WordPressSitePlan
         return $assets;
     }
 
-    private static function partRootAnchor(string $markup): string
+    /**
+     * The anchors of a shared part's root elements, never of a descendant.
+     *
+     * The root is the part's single top-level block. A viewport-partitioned
+     * part instead holds one visibility group per variant, each wrapping that
+     * variant's own root. A root without an anchor contributes nothing: an
+     * anchored descendant (a Wix header's positioned background layer, say)
+     * is a different element, and lifting it reorders the part's own layers.
+     *
+     * @return list<string>
+     */
+    private static function partRootAnchors(string $markup): array
     {
-        if (!preg_match_all('/<!--\s*wp:group\s+(\{[^>]*\})\s*-->/', $markup, $matches)) return '';
-        foreach ($matches[1] as $json) {
-            $attrs = json_decode($json, true);
-            if (is_array($attrs) && is_string($attrs['anchor'] ?? null) && '' !== $attrs['anchor']) return $attrs['anchor'];
+        $roots = self::topLevelBlocks($markup, 0, strlen($markup));
+        $partitioned = array() !== $roots && array() === array_filter($roots, static fn(array $block): bool => !self::isVariantVisibilityGroup($block['attrs']));
+        if (!$partitioned) {
+            if (1 !== count($roots)) return array();
+        } else {
+            $inner = array();
+            foreach ($roots as $group) {
+                $children = self::topLevelBlocks($markup, $group['inner_offset'], $group['inner_end']);
+                if (1 !== count($children)) return array();
+                $inner[] = $children[0];
+            }
+            $roots = $inner;
         }
-        return '';
+        $anchors = array();
+        foreach ($roots as $root) {
+            $anchor = $root['attrs']['anchor'] ?? null;
+            if (is_string($anchor) && '' !== $anchor) $anchors[$anchor] = true;
+        }
+        return array_keys($anchors);
+    }
+
+    /** @param array<string,mixed> $attrs */
+    private static function isVariantVisibilityGroup(array $attrs): bool
+    {
+        return 1 === count($attrs) && is_string($attrs['className'] ?? null) && ShellExtraction::isResponsiveVariantClass($attrs['className']);
+    }
+
+    /**
+     * Blocks whose delimiters sit directly in `$markup[$start, $end)`.
+     *
+     * @return list<array{attrs:array<string,mixed>,inner_offset:int,inner_end:int}>
+     */
+    private static function topLevelBlocks(string $markup, int $start, int $end): array
+    {
+        $segment = substr($markup, $start, $end - $start);
+        if (!preg_match_all('/<!--\s*(\/?)wp:[a-z0-9\/_-]+(?:\s+(\{.*?\}))?\s*(\/?)-->/s', $segment, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) return array();
+        $blocks = array();
+        $depth = 0;
+        $open = null;
+        foreach ($matches as $match) {
+            $closing = '/' === $match[1][0];
+            $selfClosing = '/' === ($match[3][0] ?? '');
+            if ($closing) {
+                --$depth;
+                if (0 === $depth && null !== $open) {
+                    $blocks[] = $open + array('inner_end' => $start + $match[0][1]);
+                    $open = null;
+                }
+                if ($depth < 0) return array();
+                continue;
+            }
+            if (0 === $depth) {
+                $attrs = isset($match[2][0]) && '' !== $match[2][0] && -1 !== $match[2][1] ? json_decode($match[2][0], true) : array();
+                $attrs = is_array($attrs) ? $attrs : array();
+                if ($selfClosing) {
+                    $blocks[] = array('attrs' => $attrs, 'inner_offset' => $start + $match[0][1] + strlen($match[0][0]), 'inner_end' => $start + $match[0][1] + strlen($match[0][0]));
+                    continue;
+                }
+                $open = array('attrs' => $attrs, 'inner_offset' => $start + $match[0][1] + strlen($match[0][0]));
+            }
+            if (!$selfClosing) ++$depth;
+        }
+        return 0 === $depth ? $blocks : array();
     }
 
     /**
@@ -1164,8 +1253,9 @@ final class WordPressSitePlan
             $ancestors = self::selectorHooks((array) ($part['ancestor_context']['classes'] ?? array()), (array) ($part['ancestor_context']['ids'] ?? array()));
             $context['class'] += $ancestors['class'];
             $context['id'] += $ancestors['id'];
-            $root = 'shared_shell' === ($part['placement']['kind'] ?? null) && is_array($part['ancestor_context'] ?? null) ? self::partRootAnchor($markup) : '';
-            if ('' !== $root) $detachedRoots[$root] = true;
+            if ('shared_shell' === ($part['placement']['kind'] ?? null) && is_array($part['ancestor_context'] ?? null)) {
+                foreach (self::partRootAnchors($markup) as $root) $detachedRoots[$root] = true;
+            }
         }
         // Hooks that route content also uses belong to that content too; rules
         // for them stay with the route instead of becoming global chrome rules.
@@ -1181,7 +1271,7 @@ final class WordPressSitePlan
         $projected = array();
         $emittedShared = array();
         foreach ($assets as $asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content'])) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content']) || !StylesheetActivation::active($asset) || '' !== ($asset['stylesheet_activation']['title'] ?? '')) {
                 $projected[] = $asset;
                 continue;
             }
@@ -3039,9 +3129,11 @@ final class WordPressSitePlan
         }
         $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void {";
         $importLoaded = self::importLoadedStylesheets($assets);
+        $stylesheetAttributes = array();
         foreach ($assets as $asset) {
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
             $handle = 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12);
+            if (isset($asset['stylesheet_activation'])) $stylesheetAttributes[$handle] = $asset['stylesheet_activation'];
             if ('css' === $asset['kind']) foreach ($asset['scopes'] as $scope) {
                 $condition = self::bootstrapScopeCondition($scope);
                 $media = is_string($asset['media'] ?? null) && '' !== trim($asset['media']) ? ', ' . var_export($asset['media'], true) : '';
@@ -3059,6 +3151,12 @@ final class WordPressSitePlan
             $attributes[$handle] = array_filter(array('type' => $script['type'], 'nomodule' => $script['nomodule'], 'integrity' => $script['integrity'], 'crossorigin' => $script['crossorigin'], 'referrerpolicy' => $script['referrerpolicy'], 'fetchpriority' => $script['fetchpriority'], 'async' => $script['async'] && $script['module'], 'defer' => $script['defer'] && ($script['async'] || $script['module'])), static fn(mixed $value): bool => false !== $value && null !== $value);
         }
         $lines[] = "}, 1 );";
+        if (array() !== $stylesheetAttributes) {
+            $lines[] = '$blocks_engine_stylesheet_attributes = ' . var_export($stylesheetAttributes, true) . ';';
+            $lines[] = "add_filter( 'style_loader_tag', static function ( string \$html, string \$handle ) use ( \$blocks_engine_stylesheet_attributes ): string {";
+            $lines[] = "    \$state = \$blocks_engine_stylesheet_attributes[ \$handle ] ?? null; if ( null === \$state ) return \$html; \$tag = new WP_HTML_Tag_Processor( \$html ); if ( \$tag->next_tag( 'LINK' ) ) { \$tag->set_attribute( 'rel', \$state['rel'] ); if ( '' !== \$state['title'] ) \$tag->set_attribute( 'title', \$state['title'] ); if ( \$state['disabled'] ) \$tag->set_attribute( 'disabled', true ); } return \$tag->get_updated_html();";
+            $lines[] = "}, 10, 2 );";
+        }
         $templateAssetTokens = array();
         foreach (array_merge($templates, $parts) as $document) if (str_contains((string) ($document['canonical_block_markup'] ?? ''), self::TOKEN_PREFIX)) foreach ($tokens as $token) if (is_string($token['token'] ?? null) && is_string($token['target_path'] ?? null)) $templateAssetTokens[self::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
         if (array() !== $templateAssetTokens) {
@@ -3083,7 +3181,7 @@ final class WordPressSitePlan
             $sourcePaths = is_array($part['placement']['source_paths'] ?? null) ? $part['placement']['source_paths'] : array((string) ($part['placement']['source_path'] ?? preg_replace('/#.*$/', '', (string) ($part['source_path'] ?? ''))));
             foreach ($sourcePaths as $sourcePath) if (is_string($sourcePath) && '' !== $sourcePath && '' !== (string) ($part['slug'] ?? '')) $partSlugsBySource[$sourcePath][] = (string) $part['slug'];
         }
-        foreach ($assets as $asset) if ('css' === $asset['kind'] && 'frontend' !== ($asset['stylesheet_target'] ?? 'both') && !isset($importLoaded[$asset['target_path']])) {
+        foreach ($assets as $asset) if ('css' === $asset['kind'] && StylesheetActivation::active($asset) && 'frontend' !== ($asset['stylesheet_target'] ?? 'both') && !isset($importLoaded[$asset['target_path']])) {
             $partSlugs = array();
             foreach ($asset['scopes'] as $scope) foreach ($partSlugsBySource[(string) ($scope['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
             $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['media'] ?? null, 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both')), static fn(mixed $value): bool => null !== $value);
@@ -3185,7 +3283,11 @@ final class WordPressSitePlan
         }
         $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS;
         if ($hasListingQuery) {
-            $editorCss .= self::LISTING_QUERY_CSS;
+            // Gutenberg's query-template editor can expose a core/post-meta key
+            // before its post context resolves; the frontend binding remains live.
+            $editorCss .= self::LISTING_QUERY_CSS
+                . ':root .editor-styles-wrapper .blocks-engine-listing-overlay{display:none}'
+                . ':root .editor-styles-wrapper .blocks-engine-listing-bound-meta{display:none}';
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-listing-query', false, array(), null ); wp_enqueue_style( 'blocks-engine-listing-query' ); wp_add_inline_style( 'blocks-engine-listing-query', " . var_export(self::LISTING_QUERY_CSS, true) . " ); } );";
         }
         $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export($editorCss, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
