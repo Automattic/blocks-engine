@@ -91,6 +91,40 @@ $dynamic['files']['index.html'] = str_replace('window.firstHeadState=', 'documen
 $dynamicResult = (new ArtifactCompiler())->compile($dynamic)->toArray();
 $assert($rejects(static fn() => (new WordPressSitePlanResolver())->resolve($dynamicResult['source_reports']['wordpress_site_plan'], array('theme_uri' => 'https://example.test/theme', 'require_proven_dynamic_client_assets' => true))), 'The existing dynamic-asset predicate still rejects script injection.');
 
+$sourceOwned = $artifact;
+$sourceOwned['files']['index.html'] = str_replace('</head>', '<script type="application/ld+json">{"name":"Neutral"}</script><script data-captured-runtime="true">window.capturedRuntime=true;</script></head>', $sourceOwned['files']['index.html']);
+$sourceOwnedResult = (new ArtifactCompiler())->compile($sourceOwned)->toArray();
+$sourceOwnedPage = $sourceOwnedResult['source_reports']['compiled_site']['pages'][0];
+$sourceOwnedScript = $sourceOwnedPage['document_metadata']['scripts'][3] ?? array();
+$sourceOwnedHeadScript = array_values(array_filter($sourceOwnedPage['document_metadata']['head']['elements'] ?? array(), static fn(array $row): bool => 'script' === $row['tag'] && 'true' === ($row['attributes']['data-captured-runtime'] ?? null)));
+$assert(is_string($sourceOwnedScript['url'] ?? null) && '' !== $sourceOwnedScript['url'] && ($sourceOwnedScript['url'] ?? null) === ($sourceOwnedHeadScript[0]['url'] ?? null), 'Executable inline loading metadata and source-owned head declarations bind the same normalized occurrence after inert script data.');
+$sourceOwnedShared = $compiler->prepareShared($sourceOwned);
+$sourceOwnedStaged = $compiler->compose($sourceOwnedShared, $compiler->compilePreparedPages($sourceOwnedShared, $compiler->preparePages($sourceOwned, $sourceOwnedShared)))->toArray();
+$assert($sourceOwnedResult['source_reports']['wordpress_site_plan'] === $sourceOwnedStaged['source_reports']['wordpress_site_plan'], 'Source-owned inline head bindings remain identical in staged compilation.');
+
+// Occurrence selectors are document-local: a non-entry route must resolve its
+// own normalized script, even when the entry route has the same selector.
+$multiRoute = array('entrypoint' => 'index.html', 'files' => array());
+foreach (array('index.html' => 'entry', 'other/index.html' => 'other') as $path => $value) {
+    $multiRoute['files'][$path] = '<html><head><title>' . $value . '</title><style data-scope="' . $value . '">body{color:black}</style><script type="application/ld+json">{"name":"' . $value . '"}</script><script data-captured-runtime="true">window.capturedRuntime="' . $value . '";</script></head><body><main><h1>' . $value . '</h1></main></body></html>';
+}
+$multiWhole = $compiler->compile($multiRoute)->toArray();
+$assert(isset($multiWhole['source_reports']['wordpress_site_plan']), 'Executable head scripts on non-entry routes produce a materializable plan: ' . json_encode($multiWhole['diagnostics'], JSON_THROW_ON_ERROR));
+$scriptUrls = array();
+foreach ($multiWhole['source_reports']['compiled_site']['pages'] as $page) {
+    $loading = $page['document_metadata']['scripts'][1] ?? array();
+    $headScripts = array_values(array_filter($page['document_metadata']['head']['elements'] ?? array(), static fn(array $row): bool => 'script' === $row['tag'] && 'true' === ($row['attributes']['data-captured-runtime'] ?? null)));
+    $assert(is_string($loading['url'] ?? null) && $loading['url'] === ($headScripts[0]['url'] ?? null), 'Each route binds its executable head occurrence to the same loading declaration.');
+    $scriptUrls[$page['source_path']] = $loading['url'];
+}
+$assert(2 === count(array_unique($scriptUrls)), 'Repeated occurrence selectors resolve distinct source-owned script assets across routes.');
+$roundTrip = static fn(array $value): array => json_decode(json_encode($value, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$multiShared = $roundTrip($compiler->prepareShared($multiRoute));
+$multiPrepared = $roundTrip($compiler->preparePages($multiRoute, $multiShared));
+$multiReceipts = $roundTrip($compiler->compilePreparedPages($multiShared, $multiPrepared));
+$multiStaged = $compiler->compose($multiShared, array_reverse($multiReceipts))->toArray();
+$assert($multiWhole['source_reports']['wordpress_site_plan'] === ($multiStaged['source_reports']['wordpress_site_plan'] ?? null), 'Rehydrated reversed staged receipts preserve the multi-route head script plan.');
+
 // Execute the actual emitted PHP registration and template/head hook path.
 // This proves bootstrap behavior, not a claim of a full WordPress installation.
 $hooks = array(); $enqueuedStyles = array(); $enqueuedScripts = array();

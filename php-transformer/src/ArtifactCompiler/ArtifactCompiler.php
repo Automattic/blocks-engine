@@ -3764,7 +3764,11 @@ final class ArtifactCompiler
             return $values;
         };
         $inlineScripts = array();
-        foreach ($generatedAssets as $asset) if ('inline-script' === ($asset['source'] ?? null) && is_string($asset['selector'] ?? null) && is_string($asset['path'] ?? null)) $inlineScripts[$asset['selector']] = $asset['path'];
+        // The head projection and loading metadata must resolve the same
+        // source-owned occurrence, including scripts already materialized by
+        // artifact normalization (not only scripts generated during block
+        // conversion).
+        foreach (array_merge($files, $generatedAssets) as $asset) if ('inline-script' === ($asset['source'] ?? null) && $sourcePath === ($asset['source_path'] ?? null) && is_string($asset['selector'] ?? null) && is_string($asset['path'] ?? null)) $inlineScripts[$asset['selector']] = $asset['path'];
         $meta = array(); $links = array(); $scripts = array();
         foreach (HtmlTagScanner::scan($html, 'meta') as $declaration) {
             $tag = $declaration['tag'];
