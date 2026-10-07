@@ -18,6 +18,7 @@ document.querySelectorAll('[data-dla-dialog-trigger]').forEach(function(trigger)
     var panel=scope.querySelector('[data-dla-dialog-panel]');
     trigger.addEventListener('click',function(){panel.hidden=false;trigger.setAttribute('aria-expanded','true');});
     panel.querySelector('button').addEventListener('click',function(){panel.hidden=true;trigger.setAttribute('aria-expanded','false');});
+    document.addEventListener('keydown',function(event){if(event.key==='Escape'){panel.hidden=true;trigger.setAttribute('aria-expanded','false');}});
 });
 JS;
     $applicationScript = $application ? '<script>document.querySelectorAll("[data-compute]").forEach(function(el){el.setAttribute("data-compute","ready");});var canvas=document.getElementById("paint");document.getElementById("run").addEventListener("click",function(){canvas.getContext("2d").fillRect(0,0,20,20);});</script>' : '';

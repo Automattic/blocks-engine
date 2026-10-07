@@ -20,7 +20,7 @@ foreach (array('desktop', 'mobile') as $variant) {
     $assert(!in_array('core/html', $names, true), 'A document-scope lookup and deeply nested dialog do not turn the page into core/html: ' . $variant);
     $assert(in_array('core/heading', $names, true) && in_array('core/paragraph', $names, true), 'Unrelated main/footer remain native editable blocks.');
     $assert(str_contains($result['serialized_blocks'], 'data-dla-document-scope') && str_contains($result['serialized_blocks'], 'data-dla-dialog-ancestor-unverified'), 'Document identity and unverified ancestor proof remain reviewable in emitted markup.');
-    $assert(str_contains($result['serialized_blocks'], '<dialog') && str_contains($result['serialized_blocks'], 'Captured image caption.'), 'The source-scoped popup remains a valid native dialog.');
+    $assert(str_contains($result['serialized_blocks'], 'data-dla-dialog-panel="gallery-' . $variant . '"') && str_contains($result['serialized_blocks'], 'Captured image caption.'), 'The wired popup remains editable in its declared source document scope.');
     $assert('pass' === (new Runtime())->validateBlockSerialization($result['blocks'])['status'], 'The document and popup serialize as valid editable blocks.');
 }
 $unknown = (new ArtifactCompiler())->compile($fixture('desktop', true))->toArray();

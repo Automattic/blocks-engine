@@ -11,7 +11,8 @@ require $argv[1] . '/vendor/autoload.php';
 if ('' !== $argv[2]) { $source=shell_exec('git -C ' . escapeshellarg($argv[1]) . ' show ' . escapeshellarg($argv[2] . ':php-transformer/src/HtmlToBlocks/Elements/RuntimeIslandAnalyzer.php')); eval(substr($source,5)); }
 $r=(new Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler())->compile(json_decode(stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR))->toArray();
 $views=array(); $css=implode("\\n",array_column($r['assets'],'content'));
-foreach($r['source_reports']['companion_plugin_payload']['blocks'] as $block) { if (isset($block['view_js'])) $views[]=$block['view_js']; if (isset($block['assets']['style.css'])) $css.="\\n".$block['assets']['style.css']; }
+foreach($r['assets'] as $asset) { if ('inline-script' === ($asset['source'] ?? '') && 'js' === ($asset['kind'] ?? '')) $views[]=$asset['content']; }
+foreach($r['source_reports']['companion_plugin_payload']['blocks'] ?? array() as $block) { if (isset($block['view_js'])) $views[]=$block['view_js']; if (isset($block['assets']['style.css'])) $css.="\\n".$block['assets']['style.css']; }
 echo json_encode(array('html'=>$r['serialized_blocks'],'css'=>$css,'views'=>$views));
 `, root, process.env.BLOCKS_ENGINE_TEST_BASELINE || ''], { input: JSON.stringify(artifact), encoding: 'utf8' }));
 
@@ -45,14 +46,15 @@ try {
     await trigger.click();
     const dialog = page.getByRole('dialog');
     assert.equal(await dialog.locator('p').textContent(), observed.caption);
+    assert.equal(await dialog.evaluate(node => Boolean(node.closest('[data-dla-document-scope]'))), true);
     await dialog.getByRole('button', { name: 'Close gallery', exact: true }).click();
-    assert.equal(await page.locator('dialog[open]').count(), 0);
+    assert.equal(await page.locator('[data-dla-dialog-panel]').evaluate(node => node.hidden), true);
     await trigger.click();
     await page.keyboard.press('Escape');
-    assert.equal(await page.locator('dialog[open]').count(), 0);
+    assert.equal(await page.locator('[data-dla-dialog-panel]').evaluate(node => node.hidden), true);
     assert.equal(await page.getByRole('heading', { name: 'Unrelated editable heading' }).count(), 1);
     assert.ok((await page.locator('body').textContent()).includes('Unrelated editable footer.'));
     await page.close();
   }
 } finally { await browser.close(); }
-console.log('Dialog document scopes: browser-captured popup evidence, native open/close/Escape, reviewable proof, and editable main/footer passed.');
+console.log('Dialog document scopes: browser-captured popup evidence, scoped open/close/Escape, reviewable proof, and editable main/footer passed.');
