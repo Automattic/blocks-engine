@@ -72,7 +72,9 @@ wait_for 'WordPress core files' "docker exec ${project}_wordpress test -f /var/w
 
 # Other block acceptance fixtures share this disposable runtime lifecycle.
 if [[ -n "${BE_EDITOR_ACCEPTANCE_BUILDER:-}" ]]; then
-	"${wp[@]}" eval-file "wp-content/plugins/blocks-engine-php-transformer/${BE_EDITOR_ACCEPTANCE_BUILDER}" | tee "$evidence/source-and-page.json"
+	builder_args=()
+	if [[ -n "${BE_EDITOR_ACCEPTANCE_INPUT:-}" ]]; then builder_args+=("${BE_EDITOR_ACCEPTANCE_INPUT}"); fi
+	"${wp[@]}" eval-file "wp-content/plugins/blocks-engine-php-transformer/${BE_EDITOR_ACCEPTANCE_BUILDER}" "${builder_args[@]}" | tee "$evidence/source-and-page.json"
 	post_id="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); if(!is_int($x["post_id"]??null)||$x["post_id"]<1) exit(1); echo $x["post_id"];' "$evidence/source-and-page.json")"
 	BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_POST_ID="$post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR="$evidence" run node "$root/${BE_EDITOR_ACCEPTANCE_BROWSER:?Set the corresponding browser acceptance script.}" | tee "$evidence/browser.json"
 	exit 0
