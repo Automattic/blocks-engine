@@ -59,12 +59,20 @@ final class RichTextElementConverter implements ElementConverter
         if ( null !== $withLowered ) {
             $content = $withLowered;
         }
+        // An inline icon beside heading text is RichText content once it is a
+        // materialized image object, exactly as in a paragraph. Without this
+        // step the raw `<svg>` trips the fallback gate and the whole heading
+        // becomes a core/html island.
+        $withInlineSvg  = $this->context->richTextWithMaterializedSvgImages($element, $content);
+        if ( null !== $withInlineSvg ) {
+            $content = $withInlineSvg;
+        }
 
         if ( $this->context->requiresHtmlFallback($content) ) {
             return $this->context->htmlPreservationBlock($element);
         }
 
-        if ( '' === trim($this->context->stripAllTags($content)) ) {
+        if ( '' === trim($this->context->stripAllTags($content)) && ! $this->context->containsNativeSvgImageObject($content) ) {
             return null;
         }
 
