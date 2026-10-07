@@ -48,9 +48,12 @@ $facts = array(
     $fact('downloads', $pluginDownloads(array('block-visibility')), 'downloads_all_time', array('kind' => 'json_pointer', 'pointer' => '/all_time', 'value_type' => 'nonnegative_integer'), 'sum', '20,000+', array('locale' => 'en-US', 'grouping' => true, 'prefix' => '', 'suffix' => '+', 'decimals' => 0)),
     $fact('version', $pluginInformation(array('block-visibility')), 'version', array('kind' => 'json_pointer', 'pointer' => '/version', 'value_type' => 'string', 'max_length' => 64), 'identity', 'v1.2.3', array('locale' => 'en-US', 'grouping' => false, 'prefix' => 'v', 'suffix' => '', 'decimals' => 0)),
     $fact('ratings', $pluginInformation(array('block-visibility')), 'num_ratings', array('kind' => 'json_pointer', 'pointer' => '/num_ratings', 'value_type' => 'nonnegative_integer'), 'identity', '42', array('locale' => 'en-US', 'grouping' => true, 'prefix' => '', 'suffix' => '', 'decimals' => 0)),
+    $fact('plugin-count-slug-valid', $pluginInformation(array('block-visibility', 'icon-block')), 'plugin_response_count', array('kind' => 'json_pointer', 'pointer' => '/slug', 'value_type' => 'string', 'max_length' => 100), 'success_count', '2', array('locale' => 'en-US', 'grouping' => true, 'prefix' => '', 'suffix' => '', 'decimals' => 0)),
 );
 $normalized = RuntimeDeclarations::normalizeList($declaration($facts));
-$assert(5 === count($normalized[0]['payload']['entities']), 'accepts source-proven multi-metric WordPress.org declarations');
+$assert(6 === count($normalized[0]['payload']['entities']), 'accepts source-proven WordPress.org metrics with and without typed success_count prerequisite');
+$normalizedFacts = array_column($normalized[0]['payload']['entities'], null, 'id');
+$assert(($normalizedFacts['plugin-count-slug-valid']['extraction']['pointer'] ?? null) === '/slug', 'retains typed success_count extraction as a validity prerequisite');
 $assert($normalized === RuntimeDeclarations::normalizeList($normalized), 'external metric identities and hashes round-trip canonically');
 $alphaNumeric = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 $githubSource = $source('github.repository-information', 'https://api.github.com/repos/{owner}/{repository}', array(), array(), array(
@@ -124,6 +127,8 @@ $assert($rejected($declaration(array($badGithub))), 'rejects unsupported GitHub 
 
 $bad = $facts; $bad[1]['aggregation'] = 'average';
 $assert($rejected($declaration($bad)), 'rejects unsupported aggregation operators');
+$bad = $facts; $bad[5]['extraction']['value_type'] = 'object';
+$assert($rejected($declaration($bad)), 'rejects unsupported typed success_count prerequisite');
 $bad = $facts; $bad[0]['provenance'] = array('kind' => 'captured_html');
 $assert($rejected($declaration($bad)), 'rejects capture-only claims of server-side provenance');
 $bad = $facts; $bad[2]['source']['resources'][0]['slug'] = '../outside';

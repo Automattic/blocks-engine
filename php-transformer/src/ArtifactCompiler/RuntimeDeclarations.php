@@ -150,7 +150,7 @@ final class RuntimeDeclarations
             if (!is_string($metric) || !preg_match('/^[A-Za-z][A-Za-z0-9._-]{0,127}$/', $metric) || !in_array($aggregation, array('identity', 'sum', 'success_count'), true)) throw new InvalidArgumentException("Runtime declaration {$index} external metric name or aggregation is invalid.");
             $extraction = $entity['extraction'] ?? null;
             if ('success_count' === $aggregation) {
-                if (array_key_exists('extraction', $entity)) throw new InvalidArgumentException("Runtime declaration {$index} success_count extraction must be implicit in successful JSON responses.");
+                if (array_key_exists('extraction', $entity)) self::assertExternalMetricExtraction($extraction, $index);
             } else self::assertExternalMetricExtraction($extraction, $index);
             if ('identity' === $aggregation && 1 !== count($source['resources'])) throw new InvalidArgumentException("Runtime declaration {$index} identity aggregation requires exactly one resource.");
             if ('sum' === $aggregation && 'nonnegative_integer' !== ($extraction['value_type'] ?? null)) throw new InvalidArgumentException("Runtime declaration {$index} sum aggregation requires nonnegative integer extraction.");
