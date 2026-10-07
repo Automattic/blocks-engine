@@ -262,7 +262,7 @@ final class AuthorSelectorSemanticPreparer
                     if ( preg_match('/>\s*$/', trim($ancestry)) && $parent instanceof DOMElement ) {
                         $parentPath = $parent->getNodePath() ?? '';
                         if ( '' !== $parentPath ) {
-                            $marker = $projections->ensureAttributeMarker($parentPath, $selector);
+                            $marker = $projections->ensureAttributeMarker($parentPath, AuthorSelectorProjectionState::parentAttributeIdentity($selector));
                             $parent->setAttribute('class', SourceDom::mergeClassNames($parent->getAttribute('class'), $marker));
                         }
                     }

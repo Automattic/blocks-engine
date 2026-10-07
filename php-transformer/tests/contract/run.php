@@ -847,6 +847,20 @@ $assert(! str_contains($metadataTableMarkup, '<!-- wp:html') && ! str_contains($
 $assert(1 === preg_match('/\.([a-z0-9-]*be-inline-geometry-[a-f0-9]+)\{[^}]*display:none[^}]*\}/i', $metadataTableCss), 'metadata rows the source hid stay hidden after lowering');
 $assert('pass' === ($metadataTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'a lowered caption table stays editor-valid');
 $assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a spanning cell beside visible data cells still falls back');
+// A page header laid out as a table: every row is one cell that spans the
+// declared grid, so no cell ever shares a row with another. The colspan is the
+// only thing that made it a "spanning" table; the cell count per row is one.
+$stackedHeaderTableSource = '<table class="header"><tbody><tr><td colspan="4"><h1>Site Name</h1><p>Tagline here<span>|</span></p></td></tr>'
+    . '<tr><td colspan="4"><div><a href="/blog/">blog</a> <a href="/video/">video</a></div></td></tr></tbody></table>';
+$stackedHeaderTableResult = ( new HtmlTransformer() )->transform($stackedHeaderTableSource)->toArray();
+$stackedHeaderTableMarkup = (string) ($stackedHeaderTableResult['serialized_blocks'] ?? '');
+$assert($tablePolicy->isMetadataLayoutTable($tableElement($stackedHeaderTableSource)), 'a table whose every row is one cell spanning the declared grid is not tabular data');
+$assert(! str_contains($stackedHeaderTableMarkup, '<!-- wp:html') && ! str_contains($stackedHeaderTableMarkup, '<!-- wp:table') && str_contains($stackedHeaderTableMarkup, '<!-- wp:heading') && str_contains($stackedHeaderTableMarkup, 'Tagline here') && str_contains($stackedHeaderTableMarkup, 'href="/video/"'), 'a stacked single-cell header table lowers to native blocks in source order');
+$assert('pass' === ($stackedHeaderTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'a lowered stacked header table stays editor-valid');
+$assert(! $tablePolicy->isMetadataLayoutTable($tableElement('<table><tr><td>One</td></tr><tr><td>Two</td></tr></table>')), 'a one-column table without colspan is left to data-table classification');
+$assert('core/table' === (( new HtmlTransformer() )->transform('<table><tr><td>One</td></tr><tr><td>Two</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a one-column table without colspan still becomes core/table');
+$assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><td colspan="3">One</td></tr><tr><td colspan="2">Two</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'single cells with unequal colspans are still a spanning table');
+$assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><th colspan="2">Head</th></tr><tr><td colspan="2">Body</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a header cell keeps a stacked colspan table as data');
 
 $colspanTableResult = ( new HtmlTransformer() )->transform('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>')->toArray();
 $assert('core/html' === ($colspanTableResult['blocks'][0]['blockName'] ?? null), 'colspan table falls back to core/html');
