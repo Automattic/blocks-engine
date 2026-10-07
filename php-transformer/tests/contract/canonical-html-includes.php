@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\HtmlFragmentIncludes;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\PayloadReader;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
@@ -139,4 +140,13 @@ foreach (array('depth', 'count') as $bound) {
     try { (new ArtifactNormalizer())->normalize(array('entrypoint' => 'index.html', 'files' => $files)); throw new RuntimeException('Include bound unexpectedly accepted.'); }
     catch (InvalidArgumentException $error) { $assert(str_contains($error->getMessage(), 'html_include_' . $bound . '_exceeded'), 'Depth/count bounds fail visibly.'); }
 }
+// The count bound is per page, not per artifact. A site of many ordinary pages that
+// share one part is not a pathological include graph, and used to fail on nothing but
+// its own size -- naming whichever page happened to cross the line.
+$many = array('parts/a0.html' => 'X');
+for ($i = 0; $i < HtmlFragmentIncludes::MAX_INCLUDES + 8; ++$i) $many['page' . $i . '.html'] = '<!--#include virtual="/parts/a0.html" -->';
+$resolvedMany = (new ArtifactNormalizer())->normalize(array('entrypoint' => 'page0.html', 'compiler_limits' => array('max_files' => count($many)), 'files' => $many));
+$manyContents = array_column($resolvedMany['files'], 'content', 'path');
+$assert($manyContents['page0.html'] === 'X' && $manyContents['page' . (HtmlFragmentIncludes::MAX_INCLUDES + 7) . '.html'] === 'X', 'Every page past the old artifact-wide count still resolves its include.');
+
 echo "Canonical HTML includes contract passed.\n";

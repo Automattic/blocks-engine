@@ -78,6 +78,11 @@ final class HtmlFragmentIncludes
         if (array() !== $duplicates) throw new InvalidArgumentException('html_include_duplicate_path: ' . $duplicates[0]);
         $root = self::virtualRoot($files, $entrypoints);
         $referenced = array();
+        // Per page, reset below for each one. A site-wide total would make an ordinary
+        // site of many pages fail on its own size -- 4096 pages sharing one header are
+        // 4096 expansions -- and name whichever page happened to cross the line, which
+        // says nothing about the page. Artifact-wide growth is already bounded by
+        // max_total_bytes, and per-page blowup by MAX_DEPTH and max_file_bytes.
         $count = 0;
         $total = 0;
         $resolve = function (string $path, array $stack) use (&$resolve, &$referenced, &$count, $contents, $directives, $root, $limits): string {
@@ -106,6 +111,7 @@ final class HtmlFragmentIncludes
         foreach ($files as &$file) {
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
             if (isset($contents[$path]) && array() !== $directives[$path]) {
+                $count = 0;
                 $file['content'] = $resolve($path, array());
                 if (!isset($file['metadata']['compilation'])) $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $path);
                 $file['metadata']['compilation']['resolved_html_includes'] = true;
