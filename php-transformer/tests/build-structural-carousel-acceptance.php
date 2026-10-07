@@ -4,12 +4,11 @@ require $root . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
-$fixture = require $root . '/tests/fixtures/structural-carousel.php';
-$source = $fixture();
+$source = require $root . '/tests/fixtures/captured-carousel.php';
 $result = (new HtmlTransformer())->transform('<style>' . $source['css'] . '</style>' . $source['html'])->toArray();
 $content = $result['serialized_blocks'];
-if (1 !== substr_count($content, '<!-- wp:custom/authored-carousel ') || 20 !== substr_count($content, '<!-- wp:image ')) {
-    throw new RuntimeException('Expected one structural carousel with twenty native images.');
+if ($source['carousels'] !== substr_count($content, '<!-- wp:custom/authored-carousel ') || $source['images'] !== substr_count($content, '<!-- wp:image ')) {
+    throw new RuntimeException('Expected two responsive carousels with twenty native images each.');
 }
 $definitions = $result['source_reports']['generated_blocks'];
 $css = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $result['assets']));

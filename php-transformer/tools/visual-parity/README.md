@@ -131,3 +131,27 @@ plugin registration, and editor-canvas loading remain an integration boundary.
 The test deliberately keeps that boundary small while exercising the generated
 CSS in a browser against the exact wrapper topology the compatibility layer
 owns.
+
+## Native emoji in a generated WordPress theme
+
+The opt-in `native-emoji-wordpress.mjs` regression uses a real, disposable WordPress
+site and Gutenberg editor. Provision an administrator, install the PHP package's
+Composer dependencies, and materialize the fixture through WP-CLI:
+
+```sh
+wp --path=<disposable-wordpress> eval-file <checkout>/php-transformer/tools/visual-parity/tests/native-emoji-setup.php > <site-config.json>
+BE_EMOJI_SITE=<site-config.json> \
+BE_EMOJI_USER=<administrator> BE_EMOJI_PASSWORD=<password> \
+BE_EMOJI_EVIDENCE=<report.json> \
+composer --working-dir=<checkout>/php-transformer visual:native-emoji-wordpress
+```
+
+The setup activates a generated theme and publishes the neutral fixture as its
+front page. The browser selects core's emoji-fallback branch using the cached
+support-test result, then checks native characters, authored line boxes, following
+text placement and container height at 390, 768 and 1440 pixels. It also edits an
+imported `core/paragraph` through Gutenberg, saves, reloads and checks the editor
+and frontend against the correspondingly edited source at all three widths.
+The phone frontend uses the iPhone 17 browser profile; editor canvas widths are
+controlled independently of the surrounding admin chrome. A failing comparison
+writes its evidence before exiting nonzero.

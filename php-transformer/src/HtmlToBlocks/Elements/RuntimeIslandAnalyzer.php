@@ -299,6 +299,24 @@ final class RuntimeIslandAnalyzer
 
     public function shouldPreserveDataAttributeRuntimeTarget(DOMElement $element): bool
     {
+        return $this->isDataAttributeRuntimeTarget($element) && ! $this->retainsDataAttributeRuntimeTargetInShell($element);
+    }
+
+    /**
+     * A plain container addressed through a data attribute keeps its source
+     * attributes on an editable layout-shell wrapper around native children,
+     * so no native pattern may claim it and drop the attribute. Presentation-only
+     * animation hooks are not runtime targets and keep decomposing.
+     */
+    public function retainsDataAttributeRuntimeTargetInShell(DOMElement $element): bool
+    {
+        return $this->isDataAttributeRuntimeTarget($element)
+            && $this->isRuntimeDomTarget($element)
+            && $this->canRetainRuntimeDomContractNatively($element, $this->context->generatedBlockName('layout-shell'));
+    }
+
+    private function isDataAttributeRuntimeTarget(DOMElement $element): bool
+    {
         $tagName = strtolower($element->tagName);
         if ( in_array($tagName, array( 'canvas', 'form', 'script' ), true) || FormControlClassifier::isControlElement($element) ) {
             return false;
@@ -386,13 +404,27 @@ final class RuntimeIslandAnalyzer
             ($blockName === $this->context->generatedBlockName('live-clock') && $element->hasAttribute('data-blocks-engine-live-clock'))
             || ($blockName === $this->context->generatedBlockName('motion-sequence') && $element->hasAttribute('data-blocks-engine-motion-steps'))
         )) return true;
-        if ( ! in_array($blockName, array('core/group', 'core/paragraph', 'core/heading'), true) ) {
+        $isLayoutShell = $blockName === $this->context->generatedBlockName('layout-shell');
+        if ( ! $isLayoutShell && ! in_array($blockName, array('core/group', 'core/paragraph', 'core/heading'), true) ) {
             return false;
         }
 
         // Group can serialize these semantic wrappers exactly. Generic div app
-        // surfaces retain their existing bounded-island treatment.
+        // surfaces retain their existing bounded-island treatment, unless a
+        // layout-shell carries the source attributes verbatim around editable
+        // children.
         if ('core/group' === $blockName && ! in_array(strtolower($element->tagName), array('article', 'aside', 'footer', 'header', 'main', 'section'), true)) {
+            return false;
+        }
+        // Only a container of block-level children lowers to a group the shell can
+        // wrap; empty mount points and text-only wrappers become other blocks (or
+        // stay script-populated) and cannot carry the attribute. A hidden panel is
+        // script-toggled state, so it keeps the island treatment.
+        if ( $isLayoutShell && (
+            ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true)
+            || $element->hasAttribute('hidden')
+            || ! $this->hasBlockLevelChildElement($element)
+        ) ) {
             return false;
         }
 
@@ -407,6 +439,17 @@ final class RuntimeIslandAnalyzer
         }
 
         return true;
+    }
+
+    private function hasBlockLevelChildElement(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ! $this->context->isInlineContentElement(strtolower($child->tagName)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
