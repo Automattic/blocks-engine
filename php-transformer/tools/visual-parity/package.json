@@ -10,6 +10,7 @@
     "blocks-engine-screenshot-provider": "bin/screenshot-provider.mjs"
   },
   "scripts": {
+    "test:social-context": "node tests/social-links-source-context.mjs && node tests/social-links-source-context.mjs --font-paint && node tests/social-links-source-context.mjs --font-paint --compiled",
     "lint": "node run-lint.mjs",
     "pretest": "node tests/fixed-box-ownership.mjs && node tests/conditional-native-button.mjs && node tests/semantic-heading-brand.mjs",
     "posttest": "node tests/source-class-selector-ownership.mjs && node tests/native-video-poster.mjs && node tests/dialog-document-scope.mjs",

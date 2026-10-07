@@ -8,13 +8,14 @@ final class SourceTargetProjectionState
 {
     private const MAX_CORRESPONDENCES = 100;
 
-    /** @var array<string, array{source_selector:string,target_selector:string,declarations:string}> */
+    /** @var array<string, array{source_selector:string,target_selector:string,declarations:string,conditions?:list<string>}> */
     private array $correspondences = array();
 
     /** @var array<string, string> */
     private array $rules = array();
 
-    public function record(string $sourceSelector, string $targetSelector, string $declarations): void
+    /** @param list<string> $conditions Ordered authored conditional groups. */
+    public function record(string $sourceSelector, string $targetSelector, string $declarations, array $conditions = array()): void
     {
         $sourceSelector = trim($sourceSelector);
         $targetSelector = trim($targetSelector);
@@ -24,9 +25,12 @@ final class SourceTargetProjectionState
         }
 
         $rule = $targetSelector . '{' . $declarations . '}';
+        foreach (array_reverse($conditions) as $condition) {
+            $rule = $condition . '{' . $rule . '}';
+        }
         $this->rules[$rule] = $rule;
 
-        $key = $sourceSelector . "\0" . $targetSelector . "\0" . $declarations;
+        $key = $sourceSelector . "\0" . $targetSelector . "\0" . $declarations . "\0" . implode("\n", $conditions);
         if ( isset($this->correspondences[$key]) || self::MAX_CORRESPONDENCES <= count($this->correspondences) ) {
             return;
         }
@@ -36,6 +40,7 @@ final class SourceTargetProjectionState
             'target_selector' => $targetSelector,
             'declarations' => $declarations,
         );
+        if (array() !== $conditions) $this->correspondences[$key]['conditions'] = $conditions;
     }
 
     /** @return list<string> */
@@ -44,7 +49,7 @@ final class SourceTargetProjectionState
         return array_values($this->rules);
     }
 
-    /** @return list<array{source_selector:string,target_selector:string,declarations:string}> */
+    /** @return list<array{source_selector:string,target_selector:string,declarations:string,conditions?:list<string>}> */
     public function correspondences(): array
     {
         return array_values($this->correspondences);

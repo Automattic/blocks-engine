@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use DOMElement;
 
 /** Lowers explicit social-profile clusters to the core social-links family. */
@@ -43,14 +44,19 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        return $this->recognizeCluster($element, $context, false);
+        $explicit = false;
+        for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if ($this->hasOtherSemanticOwner($ancestor)) break;
+            $explicit = $explicit || self::isExplicitSocialCluster($ancestor);
+        }
+        return $this->recognizeCluster($element, $context, $explicit);
     }
 
     private function recognizeCluster(DOMElement $element, PatternContext $context, bool $explicit): ?PatternRecognitionResult
     {
         // A source navigation landmark carries menu semantics that core/social-links
         // cannot retain; NavigationPattern owns that dynamic landmark contract.
-        if ( 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role')) ) {
+        if ( $this->hasOtherSemanticOwner($element) ) {
             return null;
         }
         $anchors = $this->anchors($element);
@@ -63,9 +69,10 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         // alignment belongs to the outer box, while responsive gap and margins
         // belong to the inner row; flattening them loses the row's CSS hooks.
         $children = $this->directChildElements($element);
-        if ( 'div' === strtolower($element->tagName)
+        if ( in_array(strtolower($element->tagName), array('div', 'section', 'span'), true)
             && 1 === count($children)
-            && 'div' === strtolower($children[0]->tagName)
+            && in_array(strtolower($children[0]->tagName), array('div', 'span'), true)
+            && $this->hasOnlyChild($element, $children[0])
         ) {
             $row = $this->recognizeCluster($children[0], $context, $explicit);
             if ( null !== $row ) {
@@ -78,11 +85,27 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             }
         }
 
+        // Descendant URLs identify social intent, not subtree ownership. A row
+        // owns only its direct links (or single-link list items). Mixed wrappers
+        // decline so the normal converter retains every editable sibling and
+        // the ancestors that own responsive layout.
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof \DOMText && '' !== trim(str_replace("\u{00a0}", ' ', $child->textContent))) return null;
+            if (!$child instanceof DOMElement) continue;
+            if ('a' === strtolower($child->tagName) && in_array($child, $anchors, true)) continue;
+            if ('li' === strtolower($child->tagName)) {
+                $itemAnchors = $this->anchors($child);
+                if (1 === count($itemAnchors) && $this->hasOnlyChild($child, $itemAnchors[0])) continue;
+            }
+            return null;
+        }
+
         $links = array();
         $linkAnchors = array();
         $showLabels = false;
         $iconOnly = true;
         $structuralItems = true;
+        $sourceRow = !in_array(strtolower($element->tagName), array('ul', 'ol'), true) && $this->hasMixedParent($element);
         foreach ( $anchors as $anchor ) {
             $url = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
             $label = trim($this->attr($anchor, 'aria-label'));
@@ -98,15 +121,17 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 && $this->isLocalPlaceholderUrl($url)
                 && null !== $service;
             if ( '' === $url || (! $this->isUsableSocialUrl($url) && ! $labeledPlaceholder) ) {
-                continue;
+                return null;
             }
             $showLabels = $showLabels || '' !== $text;
             $iconOnly = $iconOnly && '' === $text && $this->hasIcon($anchor);
             $sourceElement = $this->structuralItem($anchor, $element);
             $structuralItems = $structuralItems && ! $sourceElement->isSameNode($anchor);
             $linkAnchors[] = $anchor;
+            $linkAttrs = $context->presentationAttributes($sourceElement);
+            if ($sourceRow) $linkAttrs['className'] = trim((string) ($linkAttrs['className'] ?? '') . ' blocks-engine-social-source-item');
             $links[] = $context->createBlock('core/social-link', array_merge(
-                $context->presentationAttributes($sourceElement),
+                $linkAttrs,
                 array_filter(array(
                 'url' => $url,
                 'service' => $service ?? 'chain',
@@ -141,9 +166,43 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         if ( $structuralItems ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-source-social-item-spacing');
         }
-        return new PatternRecognitionResult(
-            $context->createBlock('core/social-links', $attrs, $links, $element)
-        );
+        if ($sourceRow) {
+            // The row's source box is a div/span, not a list. Retain that box
+            // as an editable Group; the inserted native list/items contribute
+            // no extra boxes or browser list defaults to its authored layout.
+            $nativeAttrs = array_intersect_key($attrs, array_flip(array('showLabels', 'size', 'iconColorValue', 'customIconColor')));
+            $nativeAttrs['className'] = 'blocks-engine-social-source-row' . ($iconOnly ? ' is-style-logos-only' : '');
+            $native = $context->createBlock('core/social-links', $nativeAttrs, $links);
+            return new PatternRecognitionResult($context->createBlock('core/group', $context->presentationAttributes($element), array($native), $element));
+        }
+        return new PatternRecognitionResult($context->createBlock('core/social-links', $attrs, $links, $element));
+    }
+
+    private function hasMixedParent(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if (!$parent instanceof DOMElement || in_array(strtolower($parent->tagName), array('body', 'html'), true)) return false;
+        foreach ($parent->childNodes as $sibling) {
+            if ($sibling instanceof DOMElement && !$sibling->isSameNode($element) && !in_array(strtolower($sibling->tagName), array('a', 'script', 'style'), true)) return true;
+            if ($sibling instanceof \DOMText && '' !== trim($sibling->textContent)) return true;
+        }
+        return false;
+    }
+
+    private function hasOtherSemanticOwner(DOMElement $element): bool
+    {
+        return in_array(strtolower($element->tagName), array('nav', 'form', 'label', 'button', 'fieldset'), true)
+            || in_array(strtolower($this->attr($element, 'role')), array('navigation', 'form', 'button', 'menu', 'menubar', 'listbox'), true)
+            || MenuVocabulary::containsUnconditionalMenuToken($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+    }
+
+    private function hasOnlyChild(DOMElement $element, DOMElement $child): bool
+    {
+        foreach ($element->childNodes as $node) {
+            if ($node instanceof DOMElement && !$node->isSameNode($child)) return false;
+            if ($node instanceof \DOMText && '' !== trim(str_replace("\u{00a0}", ' ', $node->textContent))) return false;
+        }
+        return $child->parentNode?->isSameNode($element) ?? false;
     }
 
     /** @param array<int,DOMElement> $anchors */
@@ -168,6 +227,16 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     {
         $identity = strtolower($element->getAttribute('class') . ' ' . $element->getAttribute('aria-label') . ' ' . $element->getAttribute('role'));
         return 1 === preg_match('/(?:^|[^a-z])socials?(?:[^a-z]|$)/', $identity);
+    }
+
+    /** Race semantic row recognition before CSS-owned layout lowering. */
+    public static function hasSocialRowCandidate(DOMElement $element): bool
+    {
+        if (self::isExplicitSocialCluster($element)) return true;
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement && in_array(strtolower($child->tagName), array('a', 'li'), true)) return true;
+        }
+        return false;
     }
 
     /** @return array<int,DOMElement> */
