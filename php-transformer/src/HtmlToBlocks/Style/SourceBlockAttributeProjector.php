@@ -125,6 +125,13 @@ final class SourceBlockAttributeProjector
             }
         }
 
+        if ( 'core/group' === $name ) {
+            $responsiveMarginTop = $this->styleResolver->responsiveBlockMarginTopClassName($sourceElement);
+            if ( '' !== $responsiveMarginTop ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $responsiveMarginTop);
+            }
+        }
+
         if ( 'core/group' === $name && ! isset($attrs['tagName']) ) {
             $semanticTag = self::semanticGroupTagName($sourceElement);
             if ( null !== $semanticTag ) {
