@@ -13,9 +13,20 @@ const source = `<style>
 <p class="text-gray-900 dark:text-gray-100">Hello</p>
 <span class="bg-white">Mark</span>
 </body>`;
-const result = JSON.parse(execFileSync('php', ['-r', 'require $argv[1] . "/vendor/autoload.php"; echo json_encode((new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform(base64_decode($argv[2]))->toArray());', root, Buffer.from(source).toString('base64')], { encoding: 'utf8' }));
+const result = JSON.parse(execFileSync('php', ['-r', 'require $argv[1] . "/vendor/autoload.php"; $source = base64_decode($argv[2]); $result = (new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform($source)->toArray(); $result["document_metadata"] = Automattic\\BlocksEngine\\PhpTransformer\\WordPressSitePlan\\DocumentRootContext::metadataFromHtml($source); echo json_encode($result);', root, Buffer.from(source).toString('base64')], { encoding: 'utf8' }));
 const css = (result.assets ?? []).filter((asset) => asset.kind === 'css').map((asset) => asset.content ?? '').join('\n');
 const html = String(result.serialized_blocks ?? '').replace(/<!--[\s\S]*?-->/g, '');
+
+// This content-only fixture supplies the canonical document context that the
+// native canvas owns; BODY paint is no longer duplicated onto an empty root.
+const setImportedContent = async (page) => {
+  await page.setContent(`<style>${css}</style>${html}`);
+  await page.evaluate((metadata) => {
+    for (const [node, attributes] of [[document.documentElement, metadata.root_attributes], [document.body, metadata.body_attributes]]) {
+      for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
+    }
+  }, result.document_metadata);
+};
 
 const readBody = (page) => page.evaluate(() => {
   const style = getComputedStyle(document.body);
@@ -30,7 +41,7 @@ try {
   await sourceLight.close();
 
   const importedLight = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
-  await importedLight.setContent(`<style>${css}</style>${html}`);
+  await setImportedContent(importedLight);
   const importLight = await readBody(importedLight);
   await importedLight.close();
 
@@ -42,7 +53,7 @@ try {
   assert.equal(importLight.backgroundImage, liveLight.backgroundImage, 'imported light background-image is unchanged');
 
   const importedDark = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
-  await importedDark.setContent(`<style>${css}</style>${html}`);
+  await setImportedContent(importedDark);
   const importDark = await readBody(importedDark);
   await importedDark.close();
 

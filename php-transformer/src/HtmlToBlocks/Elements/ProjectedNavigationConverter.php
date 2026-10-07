@@ -34,7 +34,7 @@ final class ProjectedNavigationConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
-        if ( 'button' === $tagName && $this->isRuntimeDomTarget instanceof Closure && ($this->isRuntimeDomTarget)($element) && $this->retainsRuntimeButtonBinding($element) ) {
+        if ( ('button' === $tagName || AuthoredButtonBlockGenerator::isRoleButton($element)) && $this->isRuntimeDomTarget instanceof Closure && ($this->isRuntimeDomTarget)($element) && $this->retainsRuntimeButtonBinding($element) ) {
             return ConversionOutcome::unhandled();
         }
 

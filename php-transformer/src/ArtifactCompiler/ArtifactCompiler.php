@@ -354,7 +354,7 @@ final class ArtifactCompiler
             $assets[] = $wordpressCompatAsset;
         }
         $assets = $this->deduplicateVisualAssets($assets);
-        $assets = $this->coalesceStylesheetAssets($assets);
+        $assets = $this->coalesceStylesheetAssets($assets, $normalized['files']);
         $diagnostics = array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
@@ -495,17 +495,6 @@ final class ArtifactCompiler
         if ( array() !== $entryBlocks['superseded_selectors'] ) {
             $sourceReports['superseded_selectors'] = $entryBlocks['superseded_selectors'];
         }
-        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks);
-        foreach ($sourceReports['runtime_dependency_parity']['findings'] ?? array() as $finding) {
-            if ('runtime_dependency_target_missing' !== ($finding['code'] ?? '') || 'telemetry' === ($finding['script_kind'] ?? '')) {
-                continue;
-            }
-            $diagnostics[] = $this->diagnostic('runtime_dependency_contract_failed', 'error', (string) ($finding['message'] ?? 'A required runtime DOM target is absent from generated markup.'), array_filter(array(
-                'selector' => $finding['selector'] ?? null,
-                'script_path' => $finding['script_path'] ?? null,
-                'source_path' => $finding['source_path'] ?? null,
-            ), static fn (mixed $value): bool => null !== $value && '' !== $value));
-        }
         if ( array() !== $entryBlocks['runtime_islands'] ) {
             $sourceReports['runtime_islands'] = $entryBlocks['runtime_islands'];
             if ( array() !== $runtimeIslandPackage ) {
@@ -559,7 +548,8 @@ final class ArtifactCompiler
                 'analysis_count' => !empty($reduction['inline_compilation']) ? 1 : 0,
                 'terminal_reduction_count' => 1,
             ),
-            $startedAt
+            $startedAt,
+            fn(?array $plan): array => ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks, $plan)
         );
     }
 
@@ -811,8 +801,17 @@ final class ArtifactCompiler
      * @param array<int,array<string,mixed>> $assets
      * @return array<int,array<string,mixed>>
      */
-    private function coalesceStylesheetAssets(array $assets): array
+    private function coalesceStylesheetAssets(array $assets, array $files): array
     {
+        // A stylesheet element with a declared head position is a DOM identity,
+        // not merely an adjacent CSS payload. Coalescing destroys both that
+        // target and script/style parser ordering, even when media agrees.
+        $headStyles = array();
+        foreach ($files as $file) {
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null)) continue;
+            $head = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext::fromHtml($file['content'], $file['path'], $files);
+            foreach ($head['elements'] ?? array() as $row) if ('style' === $row['tag']) $headStyles[$row['url']] = true;
+        }
         $coalesced = array();
         $run = array();
         $runKey = '';
@@ -844,7 +843,7 @@ final class ArtifactCompiler
             $runKey = '';
         };
         foreach ( $assets as $asset ) {
-            if ( ! $this->isCoalescibleStylesheetAsset($asset) ) {
+            if ( isset($headStyles[$asset['path'] ?? '']) || ! $this->isCoalescibleStylesheetAsset($asset) ) {
                 $flush();
                 $coalesced[] = $asset;
                 continue;
@@ -1909,13 +1908,13 @@ final class ArtifactCompiler
                 ++$inlineIndex;
                 $file = $inline[$inlineIndex] ?? null;
                 if ( is_array($file) && ! isset($seenPaths[$file['path']]) ) {
-                    $assets[] = array( 'path' => $file['path'], 'source_path' => $file['source_path'] ?? $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => (string) ($file['media'] ?? ''), 'type' => (string) ($file['type'] ?? '') );
+                    $assets[] = array( 'path' => $file['path'], 'source_path' => $file['source_path'] ?? $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => StyleTagScanner::authorMedia($attributes), 'type' => (string) ($file['type'] ?? '') );
                     $seenPaths[$file['path']] = true;
                 } elseif ( '' !== ($content = trim(html_entity_decode($tagRecord['content'], ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ) {
                     // Generated inline-style files can be omitted at the artifact
                     // file limit. Their source HTML was accepted independently,
                     // so retain the authored stylesheet for source analysis.
-                    $assets[] = array( 'path' => 'inline-style-' . $inlineIndex . '.css', 'source_path' => 'inline-style', 'content' => $content, 'source_hash' => hash('sha256', $content), 'media' => $this->htmlAttribute($attributes, 'media'), 'type' => $this->htmlAttribute($attributes, 'type') );
+                    $assets[] = array( 'path' => 'inline-style-' . $inlineIndex . '.css', 'source_path' => 'inline-style', 'content' => $content, 'source_hash' => hash('sha256', $content), 'media' => StyleTagScanner::authorMedia($attributes), 'type' => $this->htmlAttribute($attributes, 'type') );
                 }
                 continue;
             }
@@ -1928,7 +1927,7 @@ final class ArtifactCompiler
             $path = $occurrencePaths[$sourcePathForLink][$linkOccurrences[$sourcePathForLink]] ?? '';
             $file = $byPath[$path] ?? null;
             if ( is_array($file) && ! isset($seenPaths[$path]) ) {
-                $assets[] = array( 'path' => $path, 'source_path' => $file['stylesheet_source_path'] ?? $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => $this->htmlAttribute((string) $tag, 'media'), 'type' => $this->htmlAttribute((string) $tag, 'type') );
+                $assets[] = array( 'path' => $path, 'source_path' => $file['stylesheet_source_path'] ?? $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => StyleTagScanner::authorMedia((string) $tag), 'type' => $this->htmlAttribute((string) $tag, 'type') );
                 $assets[array_key_last($assets)]['stylesheet_activation'] = $activation[$tagRecord['offset']];
                 $seenPaths[$path] = true;
             }
@@ -2001,6 +2000,7 @@ final class ArtifactCompiler
             $variant = $media . "\0" . $type . "\0" . json_encode($state);
             if ( 1 === $occurrence ) {
                 $files[$byPath[$originalPath]]['media'] = $media;
+                if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $files[$byPath[$originalPath]]['source_media'] = StyleTagScanner::authorMedia($tag);
                 $files[$byPath[$originalPath]]['type'] = $type;
                 $files[$byPath[$originalPath]]['stylesheet_activation'] = $state;
                 $files[$byPath[$originalPath]]['stylesheet_source_path'] = $originalPath;
@@ -2023,6 +2023,7 @@ final class ArtifactCompiler
             $aliasFile['stylesheet_source_path'] = $originalPath;
             $aliasFile['stylesheet_occurrence'] = $occurrence;
             $aliasFile['media'] = $media;
+            if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $aliasFile['source_media'] = StyleTagScanner::authorMedia($tag);
             $aliasFile['type'] = $type;
             $aliasFile['stylesheet_activation'] = $state;
             $aliasFile['provenance']['source_path'] = $originalPath;
@@ -2095,6 +2096,7 @@ final class ArtifactCompiler
                 if ( ! isset($variants[$sourcePath]) ) {
                     $variants[$sourcePath][$variant] = $sourcePath;
                     $files[$index]['media'] = $media;
+                    if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $files[$index]['source_media'] = StyleTagScanner::authorMedia($tag);
                     $files[$index]['type'] = $type;
                     $files[$index]['stylesheet_activation'] = $state;
                     $files[$index]['stylesheet_source_path'] = $sourcePath;
@@ -2113,6 +2115,7 @@ final class ArtifactCompiler
                 $aliasFile['stylesheet_source_path'] = $sourcePath;
                 $aliasFile['stylesheet_occurrence'] = $occurrence;
                 $aliasFile['media'] = $media;
+                if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $aliasFile['source_media'] = StyleTagScanner::authorMedia($tag);
                 $aliasFile['type'] = $type;
                 $aliasFile['stylesheet_activation'] = $state;
                 $aliasFile['references'] = array($reference);
@@ -3689,7 +3692,10 @@ final class ArtifactCompiler
         }
         $titles = HtmlTagScanner::scan($html, 'title');
         $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
-        return array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), 'root_attributes' => \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::fromHtml($html), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        $head = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext::fromHtml($html, $sourcePath, $files);
+        if (null !== $head) $metadata['head'] = $head;
+        return $metadata;
     }
 
     /**
@@ -4097,6 +4103,7 @@ final class ArtifactCompiler
                     'intent'           => $asset['intent'] ?? '',
                     'media_type'       => $asset['media_type'] ?? $asset['mime_type'] ?? '',
                     'media'            => $asset['media'] ?? '',
+                    'source_media'     => $asset['source_media'] ?? null,
                     'mime_type'        => $asset['mime_type'] ?? '',
                     'bytes'            => $asset['bytes'] ?? 0,
                     'binary'           => $asset['binary'] ?? false,
@@ -4121,7 +4128,7 @@ final class ArtifactCompiler
                     'compilation'      => 'css' === ($asset['kind'] ?? null) ? ($asset['compilation'] ?? null) : null,
                     'stylesheet_link_position' => 'css' === ($asset['kind'] ?? null) && is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null,
                 ),
-                static fn (mixed $value, string $key): bool => ('content' === $key && is_string($value)) || (null !== $value && '' !== $value),
+                static fn (mixed $value, string $key): bool => (in_array($key, array('content', 'source_media'), true) && is_string($value)) || (null !== $value && '' !== $value),
                 ARRAY_FILTER_USE_BOTH
             ),
             $assets
@@ -4398,6 +4405,7 @@ final class ArtifactCompiler
                 // every linking page gives it, or it would apply at all widths.
                 $asset['media'] = $documentLinkMedia[$file['path']];
             }
+            if (isset($file['source_media']) && is_string($file['source_media'])) $asset['source_media'] = $file['source_media'];
             if ( 'css' === ($file['kind'] ?? null) ) {
                 if (isset($file['stylesheet_activation'])) {
                     $asset['stylesheet_activation'] = $file['stylesheet_activation'];

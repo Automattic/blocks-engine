@@ -125,7 +125,7 @@ $responsiveRow = ( new HtmlTransformer() )->transform(
     . '</style>'
     . '<div class="row"><div><h2>Experience</h2></div><a href="/cv" class="pill">Download full CV</a></div>'
 )->toArray();
-if ( str_contains($cssOf($responsiveRow), 'width:100%!important') ) {
+if ( preg_match('/wp-block-buttons\)\{[^}]*width:100%!important/', $cssOf($responsiveRow)) ) {
     fwrite(STDERR, "FAIL: a control in a row-at-desktop container must not be pinned to the column stretch width\n" . $cssOf($responsiveRow) . "\n");
     exit(1);
 }

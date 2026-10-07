@@ -49,6 +49,13 @@ final class StyleTagScanner
         return HtmlTagScanner::attributes($attributes)[strtolower($name)] ?? '';
     }
 
+    /** Authored media is distinct from a captured document's activation state. */
+    public static function authorMedia(string $tag): string
+    {
+        $attributes = HtmlTagScanner::attributes($tag);
+        return trim($attributes['data-dla-source-media'] ?? $attributes['media'] ?? '');
+    }
+
     /**
      * @return list<array{attributes:string,content:string,offset:int,end_offset:int}>
      */

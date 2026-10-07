@@ -43,6 +43,10 @@ final class WordPressSitePlanResolver
         unset($write);
         foreach (array('pages', 'template_parts') as $documents) foreach ($plan[$documents] as &$document) foreach (array('links', 'scripts') as $kind) { if (!is_array($document['document_metadata'][$kind] ?? null)) continue; foreach ($document['document_metadata'][$kind] as &$declaration) if (is_string($declaration['asset_reference'] ?? null)) $declaration['resolved_url'] = self::resolvePayload($declaration['asset_reference'], $references); }
         unset($declaration, $document);
+        foreach ($plan['pages'] as &$page) foreach ($page['document_metadata']['head']['elements'] ?? array() as $index => $element) {
+            if (isset($element['asset_reference'])) $page['document_metadata']['head']['elements'][$index]['resolved_url'] = self::resolvePayload($element['asset_reference'], $references);
+        }
+        unset($page);
         $plan['resolution'] = array('schema' => self::RESOLUTION_SCHEMA, 'theme_uri' => $themeUri, 'runtime_capabilities' => $capabilities, 'asset_publication_references' => self::publicationReferences($plan['runtime_declarations'], $plan['reference_tokens'], $plan['writes'], $themeUri), 'unsupported_optional_capabilities' => $unsupportedOptional);
         WordPressSitePlan::assertValid($plan);
         return $plan;

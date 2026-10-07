@@ -1648,14 +1648,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     private function isDocumentVariantRoot(DOMElement $element): bool
     {
-        foreach (preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className) {
-            if (str_starts_with($className, 'site-document-variant-')
-                || in_array($className, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)
-            ) {
-                return true;
-            }
-        }
-        return false;
+        return SourceDom::isDocumentVariantRoot($element);
     }
 
     /**
@@ -3100,6 +3093,9 @@ final class StyleResolver implements ElementPresentationResolver
         $classes = 0;
         $elements = 0;
         foreach ($parsed['compounds'] as $compound) {
+            if ( true === ($compound['forced_zero_specificity'] ?? false) ) {
+                continue;
+            }
             $zeroSpecificity = $compound['zero_specificity'] ?? array();
             $ids += count($compound['ids'] ?? array()) - (int) ($zeroSpecificity['ids'] ?? 0);
             $classes += count($compound['classes'] ?? array()) + count($compound['attributes'] ?? array())

@@ -256,7 +256,7 @@ final class StylesheetAnalysisComposer
                 'source_path' => 'inline-style',
                 'content' => $content,
                 'source_hash' => hash('sha256', $content),
-                'media' => StyleTagScanner::attribute($style['attributes'], 'media'),
+                'media' => StyleTagScanner::authorMedia($style['attributes']),
                 'type' => $type,
             );
         }

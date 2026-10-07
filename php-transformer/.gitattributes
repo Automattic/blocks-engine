@@ -21,6 +21,7 @@
 /tools/benchmarks/ export-ignore
 /tools/content-round-trip/ export-ignore
 /tools/corpus-diagnostics/ export-ignore
+/tools/document-head-runtime/ export-ignore
 /tools/live-wp-parity/ export-ignore
 /tools/static-parity/ export-ignore
 /tools/packagist-split/ export-ignore

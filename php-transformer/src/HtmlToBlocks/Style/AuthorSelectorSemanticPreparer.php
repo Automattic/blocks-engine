@@ -89,7 +89,6 @@ final class AuthorSelectorSemanticPreparer
         $this->discoverAuthorAttributePaths($authorSelectors, $authorStyles, $projections);
         $this->discoverAuthorRootChildPaths($authorSelectors, $authorStyles, $projections);
         $this->discoverAuthorTablePaths($authorSelectors, $authorStyles, $projections);
-        $authorStyles->setSourceBodyProjectionClasses($this->referencedSourceBodyClasses($sourceBody, $authorStyles));
         $matchCache = $authorStyles->releaseSelectorMatchCache();
         $this->analysisCache->authorSelectorClassTokenBuilds += $matchCache->classTokenBuilds;
         $this->analysisCache->authorSelectorClassTokenHits += $matchCache->classTokenHits;
@@ -126,15 +125,6 @@ final class AuthorSelectorSemanticPreparer
         return $last >= 1
             && 'body' === strtolower((string) ($compounds[$last - 1]['type'] ?? ''))
             && '>' === ($combinators[$last - 1] ?? '');
-    }
-
-    /** @return list<string> */
-    private function referencedSourceBodyClasses(DOMElement $sourceBody, AuthorStyleAnalysis $authorStyles): array
-    {
-        $classes = preg_split('/\s+/', trim($sourceBody->getAttribute('class'))) ?: array();
-        return array_values(array_filter(array_unique($classes), static function (string $class) use ($authorStyles): bool {
-            return ColorSchemeVariant::cssContainsClassSelector($authorStyles->combinedCss(), $class);
-        }));
     }
 
     /** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */

@@ -186,12 +186,23 @@ final class AuthorStyleRuleProjector
             if ( ! $parsed['supported'] ) {
                 return $body;
             }
+            // Route-owned document predicates now survive on the native root.
+            // A minimum width explicitly gated by that state is authored
+            // behavior, not an orphaned desktop shell constraint to repair.
+            foreach (array_slice($parsed['compounds'] ?? array(), 0, -1) as $compound) {
+                if (in_array(strtolower((string) ($compound['type'] ?? '')), array('html', 'body'), true)
+                    && (array() !== ($compound['classes'] ?? array()) || array() !== ($compound['ids'] ?? array())
+                        || array() !== ($compound['attributes'] ?? array()) || array() !== ($compound['not'] ?? array())
+                        || array() !== ($compound['any'] ?? array()))) return $body;
+            }
             $matches = $this->semanticPreparer->matchingSourceElements($authorStyles, $selector, $parsed);
             if ( array() === $matches ) {
                 continue;
             }
             $matchedSurface = true;
             foreach ( $matches as $element ) {
+                $scope = SourceDom::documentVariantRoot($element);
+                if ($scope instanceof DOMElement && $scope->hasAttribute('data-dla-document-scope')) return $body;
                 if ( ! $this->isWideAbsoluteMinimumWidth($this->styleResolver->resolveCssVariablesInValue($minimumWidth, $element)) ) {
                     return $body;
                 }
