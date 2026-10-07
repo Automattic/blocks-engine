@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 use DOMNode;
+use DOMText;
 
 /** Builds provider-neutral form and control metadata from source DOM. */
 final class FormControlMetadataBuilder

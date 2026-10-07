@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /**
@@ -29,8 +29,6 @@ use DOMElement;
  */
 final class SubtreeClassifier
 {
-    use DomHelpersTrait;
-
     public const BUCKET_THEME_PRESENTATION = 'theme_presentation';
     public const BUCKET_CUSTOM_BLOCK       = 'custom_block';
     public const BUCKET_CUSTOM_APPLICATION = 'custom_application';
@@ -353,10 +351,10 @@ final class SubtreeClassifier
     {
         foreach ( $elements as $element ) {
             $tag = strtolower($element->tagName);
-            if ( 'button' === $tag && 'submit' === strtolower($this->attr($element, 'type')) ) {
+            if ( 'button' === $tag && 'submit' === strtolower(SourceDom::attr($element, 'type')) ) {
                 return true;
             }
-            if ( 'input' === $tag && in_array(strtolower($this->attr($element, 'type')), array( 'submit', 'button' ), true) ) {
+            if ( 'input' === $tag && in_array(strtolower(SourceDom::attr($element, 'type')), array( 'submit', 'button' ), true) ) {
                 return true;
             }
         }
@@ -417,7 +415,7 @@ final class SubtreeClassifier
     private function hasInteractiveRole(array $elements): bool
     {
         foreach ( $elements as $element ) {
-            $role = strtolower(trim($this->attr($element, 'role')));
+            $role = strtolower(trim(SourceDom::attr($element, 'role')));
             if ( '' !== $role && in_array($role, self::INTERACTIVE_ROLES, true) ) {
                 return true;
             }
@@ -472,7 +470,7 @@ final class SubtreeClassifier
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
-            $classes = $this->classNames($child);
+            $classes = SourceDom::classNames($child);
             sort($classes);
             $signature = strtolower($child->tagName) . '|' . implode('.', $classes)
                 . '|' . implode('.', $this->headingProfile($child));
@@ -522,7 +520,7 @@ final class SubtreeClassifier
             return array_map('strtolower', $explicit);
         }
 
-        return $this->ancestorTags($element);
+        return SourceDom::ancestorTags($element);
     }
 
     private function matches(string $haystack, string $pattern): bool

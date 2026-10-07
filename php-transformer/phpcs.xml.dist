@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<ruleset name="PHP Transformer Library">
+    <description>Generic PHP correctness for the standalone transformer library and its owned harnesses.</description>
+    <arg name="extensions" value="php"/>
+    <file>src</file>
+    <file>dev</file>
+    <file>tests</file>
+    <file>tools</file>
+    <file>php-transformer.php</file>
+    <exclude-pattern>*/vendor/*</exclude-pattern>
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+
+    <rule ref="Generic.PHP.Syntax"/>
+    <rule ref="Generic.PHP.DeprecatedFunctions"/>
+    <rule ref="Generic.PHP.DisallowAlternativePHPTags"/>
+    <rule ref="Generic.PHP.DisallowShortOpenTag"/>
+    <rule ref="Generic.CodeAnalysis.UnconditionalIfStatement"/>
+    <rule ref="Generic.CodeAnalysis.UnnecessaryFinalModifier"/>
+    <rule ref="Generic.CodeAnalysis.UselessOverridingMethod"/>
+</ruleset>

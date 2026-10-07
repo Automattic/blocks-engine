@@ -1,0 +1,19 @@
+parameters:
+    level: 0
+    phpVersion: 80200
+    paths:
+        - src
+        - php-transformer.php
+    excludePaths:
+        analyse:
+            - vendor
+            - var
+        analyseAndScan:
+            - dev
+            - docs
+            - tests
+            - tools
+    scanFiles:
+        - vendor/php-stubs/wordpress-stubs/wordpress-stubs.php
+    treatPhpDocTypesAsCertain: false
+    tmpDir: var/cache/phpstan

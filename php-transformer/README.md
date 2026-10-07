@@ -10,6 +10,33 @@ This package's canonical identity is `automattic/blocks-engine-php-transformer`,
 
 For local WordPress consumers, the same directory can also be installed as a plugin. The plugin bootstrap is intentionally thin: it loads the canonical library and exposes helper functions that return the same result envelopes as the class APIs.
 
+## Library lint contract
+
+`composer lint` runs the repository-owned `phpcs.xml.dist` correctness rules
+against the library, WordPress adapter/bootstrap, and owned PHP harnesses.
+The rules check PHP syntax, deprecated functions, portable PHP opening tags,
+unconditional branches, invalid final modifiers, and useless method overrides.
+Dependencies and generated Node installation trees are outside the owned scope.
+
+The package uses its existing four-space, typed, namespaced library conventions.
+Its thin WordPress integration does not impose plugin formatting, naming, or
+request-security assumptions on the compiler. Homeboy discovers this same
+ruleset for release lint; CI runs it on every supported PHP version alongside
+`composer test:lint`, which proves that malformed PHP and deprecated calls fail
+while valid library code passes. Canonical, parity, package-install, WordPress,
+and browser checks remain the behavioral acceptance gates.
+
+`composer lint:types` also runs the repository's PHPStan level-0 symbol and
+initialization gate on shipped PHP, using WordPress API stubs for its adapters.
+Level 0 establishes the explicit foundational contract: resolvable classes,
+members and calls, valid declarations, and initialized readonly collaborators.
+PHPDoc is descriptive at untrusted-data boundaries rather than proof that an
+input already passed validation. The gate has no baseline or ignored errors.
+
+The owned JavaScript harnesses use `npm run lint --prefix tools/visual-parity`
+and `eslint.config.mjs` for parser, constructor, duplicate declaration/case,
+assignment, unreachable-code and `typeof` correctness checks.
+
 ## Boundary
 
 PHP Transformer owns reusable transformation primitives:
