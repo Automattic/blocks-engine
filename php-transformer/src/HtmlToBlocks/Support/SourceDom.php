@@ -332,6 +332,9 @@ final class SourceDom
      */
     public static function isDocumentVariantRoot(DOMElement $element): bool
     {
+        // A document scope is a declared source-body boundary, independent of
+        // presentation classes or a fixed set of device/profile names.
+        if ($element->hasAttribute('data-dla-document-scope') && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', trim(self::attr($element, 'data-dla-device-document')))) return true;
         foreach ( preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array() as $class ) {
             if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( 'data-liberation-desktop-document', 'data-liberation-mobile-document' ), true) ) {
                 return true;
@@ -368,6 +371,9 @@ final class SourceDom
                 return $suffix;
             }
         }
+
+        $declared = trim(self::attr($root, 'data-dla-device-document'));
+        if ($root->hasAttribute('data-dla-document-scope') && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $declared)) return '--dla-' . $declared;
 
         return '';
     }

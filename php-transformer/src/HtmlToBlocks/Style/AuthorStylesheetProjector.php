@@ -56,10 +56,13 @@ final class AuthorStylesheetProjector
      */
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
-        return ( new CssStylesheetTransformer() )->transformStyleRules(
+        $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
             fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions)
         );
+        $ids = ScopedAnchorSelectorProjection::identities($context->authorStyles);
+        if (array() === $ids) return $projected;
+        return (new CssStylesheetTransformer())->transformStyleRules($projected, static fn(string $selector, string $body): string => ScopedAnchorSelectorProjection::selector($selector, $ids) . '{' . $body . '}');
     }
 
     /** @param list<string> $ancestors */

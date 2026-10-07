@@ -216,6 +216,7 @@ final class ResponsiveCorrespondence
             if (null !== $variant) {
                 return $variant;
             }
+            if (array_key_exists('data-dla-document-scope', $attributes) && is_string($attributes['data-dla-device-document'] ?? null) && preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $attributes['data-dla-device-document'])) return $attributes['data-dla-device-document'];
         }
         return null;
     }

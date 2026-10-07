@@ -17,8 +17,14 @@ final class ButtonElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
-        if ( 'button' !== $tagName ) {
+        $roleButton = AuthoredButtonBlockGenerator::isRoleButton($element);
+        if ( 'button' !== $tagName && (!$roleButton || !$this->context->isRuntimeDomTarget($element)) ) {
             return ConversionOutcome::unhandled();
+        }
+
+        if ($roleButton) {
+            if (!AuthoredButtonBlockGenerator::canRetainRoleButton($element)) return ConversionOutcome::unhandled();
+            return ConversionOutcome::handled($this->context->runtimeButton($element));
         }
 
         if ( $this->context->isReplacedSearchClusterControl($element) ) {

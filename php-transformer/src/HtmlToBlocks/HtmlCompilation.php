@@ -5883,6 +5883,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $tagMarker ) {
             $classes[] = $tagMarker;
         }
+        if ($element->hasAttribute('data-dla-document-scope') && SourceDom::isDocumentVariantRoot($element)) return SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), implode(' ', $classes));
         $runtime = array();
         foreach ( $this->runtimeIslands->runtimeDomSelectorsForElement($element) as $selector ) {
             if ( str_starts_with($selector, '.') ) {
@@ -5900,6 +5901,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function preservesScriptStateWrapper(DOMElement $element): bool
     {
+        if ($element->hasAttribute('data-dla-document-scope') && SourceDom::isDocumentVariantRoot($element)) return true;
         if ( $this->isInertHiddenEmptyElement($element) ) {
             return false;
         }
@@ -8724,7 +8726,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( 'textarea' === $tagName && $this->runtimeIslands->textareaIsRuntimeWorkspaceSurface($descendant, $element) ) {
                 return true;
             }
-            if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
+            if ( in_array(strtolower(trim($this->attr($descendant, 'contenteditable'))), array('true', 'plaintext-only'), true) ) {
                 return true;
             }
         }
