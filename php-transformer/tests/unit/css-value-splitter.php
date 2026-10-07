@@ -159,6 +159,63 @@ $assert(($support['style']['shadow'] ?? '') === '0 12px 30px rgba(0,0,0,.12)' &&
 $serializedGap = $mapper->serialize($support['style']);
 $assert(str_contains($serializedGap['style'], 'gap:1.25rem'), '7f: blockGap serializes to the wrapper gap declaration');
 
+// ---------------------------------------------------------------------------
+// 8. Comments are not syntax. A `/* … */` run is one lexical unit: delimiters
+//    inside it never split, and the comment itself is dropped (it reads as a
+//    space, so `a/**/b` stays two tokens). This is what kept a disabled
+//    declaration `/*border: 5px solid red;*/` from being re-emitted as the
+//    property `/*border` with its `*/` thrown away.
+// ---------------------------------------------------------------------------
+$assert(
+    CssValueSplitter::splitTopLevel('width: 900px; /*border: 5px solid red;*/ color: red', array( ';' )) === array( 'width: 900px', 'color: red' ),
+    '8: a disabled declaration (comment with `;`) is dropped whole, not split at its `;`',
+    json_encode(CssValueSplitter::splitTopLevel('width: 900px; /*border: 5px solid red;*/ color: red', array( ';' )))
+);
+$assert(
+    CssValueSplitter::splitTopLevel('/* lead: {x}; */ width: 1px; /* mid: {y}; */ height: 2px /* tail; */', array( ';' )) === array( 'width: 1px', 'height: 2px' ),
+    '8b: comments at the start, middle and end of a block, with `:` `;` `{` `}` inside, leave only the declarations',
+    json_encode(CssValueSplitter::splitTopLevel('/* lead: {x}; */ width: 1px; /* mid: {y}; */ height: 2px /* tail; */', array( ';' )))
+);
+$assert(
+    CssValueSplitter::splitTopLevel('background: #96b79f /* url(images/bg.png) */; color: red', array( ';' )) === array( 'background: #96b79f', 'color: red' ),
+    '8c: a comment holding url() and parentheses does not change paren depth or split',
+    json_encode(CssValueSplitter::splitTopLevel('background: #96b79f /* url(images/bg.png) */; color: red', array( ';' )))
+);
+$assert(
+    CssValueSplitter::splitTopLevel('/* ** star * heavy ** */ color: red', array( ';' )) === array( 'color: red' ),
+    '8d: extra stars inside a comment do not end it early'
+);
+$assert(
+    CssValueSplitter::splitTopLevel("color: red; /* it's \"quoted\" */ margin: 0", array( ';' )) === array( 'color: red', 'margin: 0' ),
+    '8e: a quote character inside a comment does not open a string',
+    json_encode(CssValueSplitter::splitTopLevel("color: red; /* it's \"quoted\" */ margin: 0", array( ';' )))
+);
+$assert(
+    CssValueSplitter::splitTopLevel('content: "/* not a comment */"; color: red', array( ';' )) === array( 'content: "/* not a comment */"', 'color: red' ),
+    '8f: a comment-looking string stays a string'
+);
+$assert(
+    CssValueSplitter::splitTopLevel('color: red; /* unterminated ; comment', array( ';' )) === array( 'color: red' ),
+    '8g: an unterminated comment runs to the end of the input, as in a browser',
+    json_encode(CssValueSplitter::splitTopLevel('color: red; /* unterminated ; comment', array( ';' )))
+);
+$assert(
+    CssValueSplitter::splitTopLevel('/* only a comment */', array( ';' )) === array(),
+    '8h: a comment-only list has no declarations'
+);
+$assert(
+    CssValueSplitter::splitTopLevel('red/* , */blue, green', array( ',' )) === array( 'red blue', 'green' ),
+    '8i: a comma hidden in a comment is not a separator; the comment reads as one space',
+    json_encode(CssValueSplitter::splitTopLevel('red/* , */blue, green', array( ',' )))
+);
+$assert(
+    CssValueSplitter::splitTopLevelWhitespace('1px/**/solid /* c */ red') === array( '1px', 'solid', 'red' ),
+    '8j: comments separate tokens in a whitespace split and never become tokens',
+    json_encode(CssValueSplitter::splitTopLevelWhitespace('1px/**/solid /* c */ red'))
+);
+$assert(CssValueSplitter::hasBalancedParens('calc(100% - 2px) /* (sidebar */'), '8k: a paren inside a comment does not unbalance a value');
+$assert(! CssValueSplitter::hasBalancedParens('rgba(1, /* ) */ 2'), '8l: a close paren inside a comment does not balance a truncated value');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssValueSplitter unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
@@ -753,7 +754,7 @@ final class ArtifactNormalizer
         }
 
         $spacing = array();
-        foreach ( explode(';', $style) as $declaration ) {
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
             $parts = explode(':', $declaration, 2);
             if ( 2 !== count($parts) ) {
                 continue;

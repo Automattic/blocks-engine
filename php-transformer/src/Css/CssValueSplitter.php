@@ -15,7 +15,11 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  * which is what produces "unexpected or invalid content" and mangled spacing.
  *
  * Every method here only treats a delimiter as a separator when it appears at
- * paren depth 0 and outside quotes or escapes, so CSS tokens stay whole.
+ * paren depth 0 and outside quotes, escapes, and comments, so CSS tokens stay
+ * whole. A comment is one lexical unit whatever it holds: splitting
+ * `/*border: 5px solid red;*\/` at its `;` turned the first half into the
+ * property `/*border` and threw the `*\/` away, so every emitted sheet that
+ * re-serialized the rule commented out everything up to the next `*\/`.
  */
 final class CssValueSplitter
 {
@@ -92,6 +96,13 @@ final class CssValueSplitter
                 continue;
             }
 
+            // CSS tokenization discards a comment, so it never reaches a
+            // segment; it reads as one space so `a/**/b` stays two tokens.
+            if ( '/' === $char && '*' === ( $input[ $index + 1 ] ?? '' ) ) {
+                $index = self::commentEnd($input, $index);
+                $char  = ' ';
+            }
+
             if ( '(' === $char ) {
                 ++$depth;
             } elseif ( ')' === $char && $depth > 0 ) {
@@ -150,6 +161,11 @@ final class CssValueSplitter
                 continue;
             }
 
+            if ( '/' === $char && '*' === ( $value[ $index + 1 ] ?? '' ) ) {
+                $index = self::commentEnd($value, $index);
+                continue;
+            }
+
             if ( '(' === $char ) {
                 ++$depth;
             } elseif ( ')' === $char ) {
@@ -161,5 +177,16 @@ final class CssValueSplitter
         }
 
         return 0 === $depth;
+    }
+
+    /**
+     * Offset of the last byte of the comment opened at $offset. An unterminated
+     * comment runs to the end of the input, as it does in a browser.
+     */
+    private static function commentEnd(string $input, int $offset): int
+    {
+        $close = strpos($input, '*/', $offset + 2);
+
+        return false === $close ? strlen($input) - 1 : $close + 1;
     }
 }
