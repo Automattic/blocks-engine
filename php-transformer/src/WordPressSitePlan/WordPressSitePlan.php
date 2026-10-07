@@ -1120,8 +1120,7 @@ PHP;
         $rules = '';
         foreach ($parts as $part) {
             if ('shared_shell' !== ($part['placement']['kind'] ?? null) || 'header' !== ($part['area'] ?? null) || empty($part['ancestor_context']['preceded'])) continue;
-            $anchor = self::partRootAnchor((string) ($part['canonical_block_markup'] ?? ''));
-            if ('' !== $anchor) $rules .= ':where(#' . CssIdent::escape($anchor) . '){z-index:1}';
+            foreach (self::partRootAnchors((string) ($part['canonical_block_markup'] ?? '')) as $anchor) $rules .= ':where(#' . CssIdent::escape($anchor) . '){z-index:1}';
         }
         $template = null;
         foreach ($assets as $asset) {
@@ -1148,14 +1147,82 @@ PHP;
         return $assets;
     }
 
-    private static function partRootAnchor(string $markup): string
+    /**
+     * The anchors of a shared part's root elements, never of a descendant.
+     *
+     * The root is the part's single top-level block. A viewport-partitioned
+     * part instead holds one visibility group per variant, each wrapping that
+     * variant's own root. A root without an anchor contributes nothing: an
+     * anchored descendant (a Wix header's positioned background layer, say)
+     * is a different element, and lifting it reorders the part's own layers.
+     *
+     * @return list<string>
+     */
+    private static function partRootAnchors(string $markup): array
     {
-        if (!preg_match_all('/<!--\s*wp:group\s+(\{[^>]*\})\s*-->/', $markup, $matches)) return '';
-        foreach ($matches[1] as $json) {
-            $attrs = json_decode($json, true);
-            if (is_array($attrs) && is_string($attrs['anchor'] ?? null) && '' !== $attrs['anchor']) return $attrs['anchor'];
+        $roots = self::topLevelBlocks($markup, 0, strlen($markup));
+        $partitioned = array() !== $roots && array() === array_filter($roots, static fn(array $block): bool => !self::isVariantVisibilityGroup($block['attrs']));
+        if (!$partitioned) {
+            if (1 !== count($roots)) return array();
+        } else {
+            $inner = array();
+            foreach ($roots as $group) {
+                $children = self::topLevelBlocks($markup, $group['inner_offset'], $group['inner_end']);
+                if (1 !== count($children)) return array();
+                $inner[] = $children[0];
+            }
+            $roots = $inner;
         }
-        return '';
+        $anchors = array();
+        foreach ($roots as $root) {
+            $anchor = $root['attrs']['anchor'] ?? null;
+            if (is_string($anchor) && '' !== $anchor) $anchors[$anchor] = true;
+        }
+        return array_keys($anchors);
+    }
+
+    /** @param array<string,mixed> $attrs */
+    private static function isVariantVisibilityGroup(array $attrs): bool
+    {
+        return 1 === count($attrs) && is_string($attrs['className'] ?? null) && ShellExtraction::isResponsiveVariantClass($attrs['className']);
+    }
+
+    /**
+     * Blocks whose delimiters sit directly in `$markup[$start, $end)`.
+     *
+     * @return list<array{attrs:array<string,mixed>,inner_offset:int,inner_end:int}>
+     */
+    private static function topLevelBlocks(string $markup, int $start, int $end): array
+    {
+        $segment = substr($markup, $start, $end - $start);
+        if (!preg_match_all('/<!--\s*(\/?)wp:[a-z0-9\/_-]+(?:\s+(\{.*?\}))?\s*(\/?)-->/s', $segment, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) return array();
+        $blocks = array();
+        $depth = 0;
+        $open = null;
+        foreach ($matches as $match) {
+            $closing = '/' === $match[1][0];
+            $selfClosing = '/' === ($match[3][0] ?? '');
+            if ($closing) {
+                --$depth;
+                if (0 === $depth && null !== $open) {
+                    $blocks[] = $open + array('inner_end' => $start + $match[0][1]);
+                    $open = null;
+                }
+                if ($depth < 0) return array();
+                continue;
+            }
+            if (0 === $depth) {
+                $attrs = isset($match[2][0]) && '' !== $match[2][0] && -1 !== $match[2][1] ? json_decode($match[2][0], true) : array();
+                $attrs = is_array($attrs) ? $attrs : array();
+                if ($selfClosing) {
+                    $blocks[] = array('attrs' => $attrs, 'inner_offset' => $start + $match[0][1] + strlen($match[0][0]), 'inner_end' => $start + $match[0][1] + strlen($match[0][0]));
+                    continue;
+                }
+                $open = array('attrs' => $attrs, 'inner_offset' => $start + $match[0][1] + strlen($match[0][0]));
+            }
+            if (!$selfClosing) ++$depth;
+        }
+        return 0 === $depth ? $blocks : array();
     }
 
     /**
@@ -1186,8 +1253,9 @@ PHP;
             $ancestors = self::selectorHooks((array) ($part['ancestor_context']['classes'] ?? array()), (array) ($part['ancestor_context']['ids'] ?? array()));
             $context['class'] += $ancestors['class'];
             $context['id'] += $ancestors['id'];
-            $root = 'shared_shell' === ($part['placement']['kind'] ?? null) && is_array($part['ancestor_context'] ?? null) ? self::partRootAnchor($markup) : '';
-            if ('' !== $root) $detachedRoots[$root] = true;
+            if ('shared_shell' === ($part['placement']['kind'] ?? null) && is_array($part['ancestor_context'] ?? null)) {
+                foreach (self::partRootAnchors($markup) as $root) $detachedRoots[$root] = true;
+            }
         }
         // Hooks that route content also uses belong to that content too; rules
         // for them stay with the route instead of becoming global chrome rules.
