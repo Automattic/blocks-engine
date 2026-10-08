@@ -53,6 +53,7 @@ final class CapturedDialogConverter implements ElementConverter
             'presentation' => 'dropdown' === SourceDom::attr($element, 'data-blocks-engine-presentation') ? 'dropdown' : '',
             'addCloseButton' => 'true' === SourceDom::attr($element, 'data-blocks-engine-add-close'),
             'gallerySelection' => json_decode(SourceDom::attr($element, 'data-blocks-engine-gallery-selection'), true) ?: array(),
+            'ancestorState' => json_decode(SourceDom::attr($element, 'data-blocks-engine-ancestor-state'), true) ?: array(),
         ), static fn(mixed $value): bool => false !== $value && '' !== $value && array() !== $value);
         $children = ($this->convertChildren)($element, $fallbacks);
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -62,6 +63,7 @@ final class CapturedDialogConverter implements ElementConverter
         }
         if (isset($attrs['triggerIds'])) $opening .= ' data-blocks-engine-triggers="' . $escape(implode(' ', $attrs['triggerIds'])) . '"';
         if (isset($attrs['gallerySelection'])) $opening .= ' data-blocks-engine-gallery-selection="' . $escape(json_encode($attrs['gallerySelection'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)) . '"';
+        if (isset($attrs['ancestorState'])) $opening .= ' data-blocks-engine-ancestor-state="' . $escape(json_encode($attrs['ancestorState'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)) . '"';
         $opening .= '>';
         if (! empty($attrs['addCloseButton'])) $opening .= '<button type="button" data-blocks-engine-dialog-close="true" aria-label="Close">Close</button>';
         $innerContent = array($opening);

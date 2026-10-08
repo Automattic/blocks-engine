@@ -57,6 +57,43 @@ $assert(! str_contains((string) ($placed['serialized_blocks'] ?? ''), 'data-bloc
 $modal = $compile(null);
 $assert(! str_contains((string) ($modal['serialized_blocks'] ?? ''), 'data-blocks-engine-presentation'), 'a dialog without a dropdown presentation is left alone');
 
+// A capture can instead wire the panel in place beside its trigger and mark it
+// `dla-dropdown`. That adopted panel is the same dropdown, and the producer's
+// recorded open-state change on the header travels with the dialog.
+$ancestorState = array(array('selector' => 'body > header', 'tag' => 'header', 'depth' => 2, 'closed' => array('class' => 'top bg-transparent'), 'opened' => array('class' => 'top bg-dark')));
+$compileWired = static function (string $panelClass, string $ancestorJson): array {
+    $trigger = '<button type="button" aria-label="Toggle menu" data-dla-dialog-ancestor-state="' . htmlspecialchars($ancestorJson, ENT_QUOTES) . '" data-dla-disclosure-label="Toggle menu" data-dla-dialog-trigger="dla-dialog-0" aria-controls="dla-dialog-0" aria-expanded="false" aria-haspopup="menu">Menu</button>';
+    $panel = '<div class="' . $panelClass . '" hidden id="dla-dialog-0" data-dla-dialog-panel="dla-dialog-0"><div><a href="/one">One</a></div><div><a href="/two">Two</a></div></div>';
+    $html = '<html><body><header class="top bg-transparent"><div>' . $trigger . '</div>' . $panel . '</header><main><p>Body</p></main></body></html>';
+    return (new ArtifactCompiler())->compile(array(
+        'site' => array('name' => 'Wired Site', 'slug' => 'wired-site'),
+        'entrypoint' => 'website/index.html',
+        'files' => array(
+            array('path' => 'website/index.html', 'content' => $html),
+            array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
+            array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array(
+                'sourceUrl' => 'https://example.test/',
+                'states' => array(array(
+                    'status' => 'captured',
+                    'trigger' => array('selector' => 'body > header > div > button', 'tag' => 'button', 'ariaHaspopup' => 'menu', 'label' => 'Toggle menu', 'dataBindings' => array()),
+                    'dialog' => array('html' => '<div><a href="/one">One</a></div>', 'htmlBytes' => strlen('<div><a href="/one">One</a></div>'), 'htmlTruncated' => false, 'presentation' => 'dropdown'),
+                )),
+            ))), JSON_UNESCAPED_SLASHES)),
+        ),
+    ))->toArray();
+};
+$wired = (string) ($compileWired('px-5 dla-dialog dla-dropdown', json_encode($ancestorState))['serialized_blocks'] ?? '');
+$assert(1 === preg_match('/<dialog[^>]*data-blocks-engine-presentation="dropdown"/', $wired), 'an in-place wired dla-dropdown panel keeps its dropdown presentation', $wired);
+$assert(str_contains($wired, '"ancestorState":[{"tag":"header","closed":{"class":"top bg-transparent"},"opened":{"class":"top bg-dark"}}]'), 'the recorded ancestor open state is saved on the dialog block without source-DOM paths', $wired);
+$assert(1 === preg_match('/<dialog[^>]*data-blocks-engine-ancestor-state="\[\{&quot;tag&quot;:&quot;header&quot;/', $wired), 'the dialog markup carries the ancestor open state for the view script', $wired);
+$wiredModal = (string) ($compileWired('dla-dialog', '[]')['serialized_blocks'] ?? '');
+$assert(str_contains($wiredModal, '<dialog') && ! str_contains($wiredModal, 'data-blocks-engine-presentation') && ! str_contains($wiredModal, 'ancestor-state'), 'a wired modal panel without the dropdown marker or ancestor state is left alone', $wiredModal);
+$unsafe = $ancestorState;
+$unsafe[0]['opened'] = array('onclick' => 'alert(1)');
+$unsafe[0]['closed'] = array('onclick' => '');
+$wiredUnsafe = (string) ($compileWired('dla-dialog dla-dropdown', json_encode($unsafe))['serialized_blocks'] ?? '');
+$assert(! str_contains($wiredUnsafe, 'ancestor') && ! str_contains($wiredUnsafe, 'onclick'), 'ancestor state outside class, style and hidden is dropped, not replayed', $wiredUnsafe);
+
 $definition = (new CapturedDialogBlockGenerator())->definition('site/captured-dialog');
 $css = (string) ($definition['assets']['style.css'] ?? '');
 $assert('file:./style.css' === ($definition['block_json']['style'] ?? null), 'the dialog block ships a stylesheet');
@@ -69,6 +106,9 @@ $assert(1 === preg_match('/:where\(dialog\[data-blocks-engine-presentation="drop
 $view = (string) ($definition['view_js'] ?? '');
 $assert(str_contains($view, '--blocks-engine-dropdown-background') && str_contains($view, 'backgroundColor'), 'the view script resolves the background from the trigger ancestors', $view);
 $assert(str_contains($view, '--blocks-engine-dropdown-top'), 'the view script places the panel under the header', $view);
+$assert(str_contains($view, 'data-blocks-engine-ancestor-state') && str_contains($view, "addEventListener( 'close'"), 'the view script replays the ancestor open state and restores it on close', $view);
+$assert(str_contains($view, 'maskedDeclarations') && str_contains($view, 'CSS.escape'), 'inline block paint that masks a replayed open class is lifted while open and restored on close', $view);
+$assert(str_contains($view, 'getKeyframes') && str_contains($css, 'backdrop-filter:var(--blocks-engine-dropdown-backdrop'), 'the panel takes the settled paint and backdrop of its painted ancestor', $css);
 
 if (0 !== $failures) {
     exit(1);

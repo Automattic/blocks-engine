@@ -228,10 +228,7 @@ final class CapturedDialogProjector
                 }
                 $triggerIds[] = $triggerId;
             }
-            $dialogElement = $this->appendProjectedDialog($document, $fragment, $triggerIds, $identity);
-            // A menu panel that does not place itself drops under its header. Its
-            // paint usually lives on that header, so the dialog block resolves it.
-            if ('dropdown' === strtolower(trim((string) ($dialog['presentation'] ?? ''))) && ! $fragment['self_positioned']) $dialogElement->setAttribute('data-blocks-engine-presentation', 'dropdown');
+            $dialogElement = $this->appendProjectedDialog($document, $fragment, $triggers, $triggerIds, $identity, 'dropdown' === strtolower(trim((string) ($dialog['presentation'] ?? ''))));
             $this->consumeMatchedCloseHelper($document, $triggers, $dialogElement);
             ++$projected;
         }
@@ -345,10 +342,11 @@ final class CapturedDialogProjector
     }
 
     /**
-     * @param array{nodes:array<int, \DOMNode>, class:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool} $fragment
+     * @param array{nodes:array<int, \DOMNode>, class:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool} $fragment
+     * @param array<int, DOMElement> $triggers
      * @param array<int, string> $triggerIds
      */
-    private function appendProjectedDialog(DOMDocument $document, array $fragment, array $triggerIds, string $identity): DOMElement
+    private function appendProjectedDialog(DOMDocument $document, array $fragment, array $triggers, array $triggerIds, string $identity, bool $dropdown): DOMElement
     {
         $dialogId = 'blocks-engine-dialog-' . $identity;
         $dialogElement = $document->createElement('dialog');
@@ -356,6 +354,11 @@ final class CapturedDialogProjector
         $dialogElement->setAttribute('data-blocks-engine-captured-dialog', 'true');
         $dialogElement->setAttribute('data-blocks-engine-triggers', implode(' ', $triggerIds));
         if (is_string($fragment['class']) && '' !== $fragment['class']) $dialogElement->setAttribute('class', $fragment['class']);
+        // A menu panel that does not place itself drops under its header. Its
+        // paint usually lives on that header, so the dialog block resolves it.
+        if ($dropdown && ! $fragment['self_positioned']) $dialogElement->setAttribute('data-blocks-engine-presentation', 'dropdown');
+        $ancestorState = $this->triggerAncestorState($triggers);
+        if (array() !== $ancestorState) $dialogElement->setAttribute('data-blocks-engine-ancestor-state', json_encode($ancestorState, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
         if (is_string($fragment['aria_label']) && '' !== $fragment['aria_label']) $dialogElement->setAttribute('aria-label', $fragment['aria_label']);
         if (is_string($fragment['aria_labelledby']) && '' !== $fragment['aria_labelledby']) $dialogElement->setAttribute('aria-labelledby', $fragment['aria_labelledby']);
         if (is_string($fragment['aria_describedby']) && '' !== $fragment['aria_describedby']) $dialogElement->setAttribute('aria-describedby', $fragment['aria_describedby']);
@@ -365,6 +368,39 @@ final class CapturedDialogProjector
         }
         ($document->getElementsByTagName('body')->item(0) ?? $document->documentElement)?->appendChild($dialogElement);
         return $dialogElement;
+    }
+
+    /**
+     * Source-proven open/closed changes the producer recorded on a trigger's
+     * ancestors (for example a header that paints itself only while its menu
+     * is open). Keep a bounded, attribute-limited copy so the dialog can replay
+     * them; anything outside that shape is dropped rather than guessed.
+     *
+     * @param array<int, DOMElement> $triggers
+     * @return array<int, array{tag:string, closed:array<string, string|null>, opened:array<string, string|null>}>
+     */
+    private function triggerAncestorState(array $triggers): array
+    {
+        foreach ($triggers as $trigger) {
+            $bindings = json_decode($trigger->getAttribute('data-dla-dialog-ancestor-state'), true);
+            if (! is_array($bindings) || array() === $bindings || count($bindings) > 8) continue;
+            $state = array();
+            foreach ($bindings as $binding) {
+                $tag = is_array($binding) ? strtolower((string) ($binding['tag'] ?? '')) : '';
+                if (1 !== preg_match('/^[a-z][a-z0-9-]{0,31}$/', $tag) || ! is_array($binding['closed'] ?? null) || ! is_array($binding['opened'] ?? null)) continue 2;
+                $sides = array();
+                foreach (array('closed', 'opened') as $side) {
+                    foreach ($binding[$side] as $name => $value) {
+                        if (! in_array($name, array('class', 'style', 'hidden'), true) || (null !== $value && ! is_string($value)) || strlen((string) $value) > 2048) continue 3;
+                        $sides[$side][$name] = $value;
+                    }
+                }
+                if (array_keys($sides['closed'] ?? array()) !== array_keys($sides['opened'] ?? array()) || array() === ($sides['closed'] ?? array())) continue 2;
+                $state[] = array('tag' => $tag, 'closed' => $sides['closed'], 'opened' => $sides['opened']);
+            }
+            if (array() !== $state) return $state;
+        }
+        return array();
     }
 
     /**
@@ -429,7 +465,9 @@ final class CapturedDialogProjector
                     $triggerIds[] = $triggerId;
                     $menu = $menu || 'menu' === strtolower(trim($trigger->getAttribute('aria-haspopup')));
                 }
-                $dialog = $this->appendProjectedDialog($document, $fragment, $triggerIds, $identity);
+                // The producer marks an in-place dropdown panel with `dla-dropdown`.
+                $dropdown = in_array('dla-dropdown', preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), true);
+                $dialog = $this->appendProjectedDialog($document, $fragment, $triggers, $triggerIds, $identity, $dropdown);
                 $selection = json_decode($panel->getAttribute('data-blocks-engine-gallery-selection'), true);
                 if (is_array($selection) && array() !== $selection) {
                     $dialog->setAttribute('data-blocks-engine-gallery-selection', json_encode(array_map(static fn(string $id): array => array('triggerId' => $id, 'indices' => $selection), $triggerIds), JSON_THROW_ON_ERROR));
