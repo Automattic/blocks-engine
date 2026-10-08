@@ -62,4 +62,17 @@ $wrapped = $transform('<label class="wrapping">Email<input type="email" style="w
 $assert(!str_contains($wrapped['serialized_blocks'], 'authored-label'), 'wrapping control stays in the existing authored-input contract');
 $assert('core/paragraph' === $wrapped['blocks'][0]['blockName'] && 'Email' === $wrapped['blocks'][0]['attrs']['content'], 'wrapping label retains the established readable-control lowering');
 
+// A standalone field styled only inside a media query or a device-gated
+// stylesheet is still an authored control: it keeps its entry box, not a
+// readable paragraph whose text and line box replace the field's height.
+foreach (array(
+    'media query' => '<style>@media (min-width: 1px){.find{height:40px;padding:8px;border:1px solid #999}}</style>',
+    'gated stylesheet' => '<style media="not all">.find{height:40px;padding:8px;border:1px solid #999}</style>',
+) as $case => $style) {
+    $field = (new ArtifactCompiler())->compile(array('files' => array(
+        'index.html' => '<!doctype html><html><head>' . $style . '</head><body><section><div class="bar"><input class="find" type="text" placeholder="Looking for something?"></div></section></body></html>',
+    )))->toArray();
+    $assert(str_contains($field['serialized_blocks'], '<input type="text" placeholder="Looking for something?" class="find">') && !str_contains($field['serialized_blocks'], 'Looking for something?: '), 'conditionally styled standalone field stays an authored input (' . $case . ')');
+}
+
 echo "Associated label regression: $count passed\n";

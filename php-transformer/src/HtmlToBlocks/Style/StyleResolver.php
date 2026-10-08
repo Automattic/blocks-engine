@@ -1488,6 +1488,27 @@ final class StyleResolver implements ElementPresentationResolver
         return $property !== $family && isset($inline[$family]);
     }
 
+    /**
+     * Declarations the source stylesheet authors for an element, in any
+     * condition: the resting cascade, or else every matched conditional rule.
+     * A control styled only inside a media query or a device-gated stylesheet
+     * is still an authored control, not an unstyled one.
+     *
+     * @return array<string, string>
+     */
+    public function authoredPresentationDeclarations(DOMElement $element): array
+    {
+        $declarations = $this->structuralPresentationDeclarations($element);
+        if ( array() !== $declarations ) {
+            return $declarations;
+        }
+        foreach ( $this->rulesInCascadeOrder(iterator_to_array($this->matchingStyleRules($element, 'conditional'), false)) as $rule ) {
+            $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
+        }
+
+        return $declarations;
+    }
+
     public function hasConditionalStyleFamily(DOMElement $element, string $family): bool
     {
         foreach ( $this->matchingStyleRules($element, 'conditional') as $rule ) {
@@ -4723,7 +4744,7 @@ final class StyleResolver implements ElementPresentationResolver
      * `.btn-primary:hover{background:#f0ac22}` rule no longer overrides the correct
      * resting `.btn-primary` declarations on the element.
      */
-    private function selectorCarriesPseudoState(string $selector): bool
+    public static function selectorCarriesPseudoState(string $selector): bool
     {
         return 1 === preg_match('/:{1,2}(?:hover|focus-visible|focus-within|focus|active|visited|before|after)\b/i', $selector);
     }

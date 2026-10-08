@@ -629,7 +629,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector);
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
-            fn (DOMElement $element): array => $this->styleResolver->structuralPresentationDeclarations($element),
+            fn (DOMElement $element): array => $this->styleResolver->authoredPresentationDeclarations($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             $this,
             fn (): GeneratedBlockRegistry => $this->generatedBlocks(),

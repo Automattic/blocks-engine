@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -19,14 +20,31 @@ final class AuthorStyleRuleProjector
     /** Bounded ancestor walk for stretch-derived percentage-height resolution. */
     private const MAX_STRETCH_ANCESTOR_DEPTH = 12;
 
+    /** Declared sizes that make a box's border box depend on its box model. */
+    private const BOX_SIZE_PROPERTIES = array( 'width', 'height' );
+
+    /** Declared padding and border widths that grow a content-box box. */
+    private const BOX_CHROME_PROPERTIES = array(
+        'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+        'padding-block', 'padding-block-start', 'padding-block-end', 'padding-inline', 'padding-inline-start', 'padding-inline-end',
+        'border', 'border-width', 'border-top', 'border-right', 'border-bottom', 'border-left',
+        'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+        'border-block', 'border-block-width', 'border-block-start', 'border-block-end', 'border-block-start-width', 'border-block-end-width',
+        'border-inline', 'border-inline-width', 'border-inline-start', 'border-inline-end', 'border-inline-start-width', 'border-inline-end-width',
+    );
+
     /** @var WeakMap<AuthorStyleAnalysis, bool> */
     private WeakMap $universalBorderBoxResets;
+
+    /** @var WeakMap<AuthorStyleAnalysis, array<string, list<array{declarations: array<string, string>, conditions: list<string>, specificity: list<int>, order: int}>>> */
+    private WeakMap $boxModelFacts;
 
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer
     ) {
         $this->universalBorderBoxResets = new WeakMap();
+        $this->boxModelFacts = new WeakMap();
     }
 
     public function project(
@@ -54,7 +72,7 @@ final class AuthorStyleRuleProjector
         $declarations = $this->styleResolver->verbatimCssDeclarations($body);
         $this->acceptProjectedBody($body, $declarations, $this->projectResponsiveCanvasMinimumWidth($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence));
         $this->acceptProjectedBody($body, $declarations, $this->projectAutoSizedStructuralPercentageHeight($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence, $conditions));
-        $this->acceptProjectedBody($body, $declarations, $this->projectSourceContentBoxSizing($prelude, $body, $declarations, $authorStyles, $sourceStyles));
+        $this->acceptProjectedBody($body, $declarations, $this->projectSourceContentBoxSizing($prelude, $body, $declarations, $authorStyles, $sourceStyles, $conditions));
         $this->acceptProjectedBody($body, $declarations, $this->projectIntrinsicGridRowTracks($prelude, $body, $declarations, $authorStyles, $sourceStyles));
         return array('body' => $body, 'declarations' => $declarations);
     }
@@ -69,29 +87,22 @@ final class AuthorStyleRuleProjector
         $declarations = $this->styleResolver->verbatimCssDeclarations($body);
     }
 
-    /** @param array<string, string> $declarations */
-    private function projectSourceContentBoxSizing(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles): string
+    /**
+     * @param array<string, string> $declarations
+     * @param list<string>          $conditions At-rules the rule sits inside, outermost first.
+     */
+    private function projectSourceContentBoxSizing(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles, array $conditions = array()): string
     {
         // A box sized on either axis is 2×(padding+border) smaller under the
         // WordPress border-box reset; a `height` band loses its bottom padding
-        // just as a `width` column loses its side padding.
-        $sized = ( isset($declarations['width']) && CssValueInspector::hasDefiniteWidth('width:' . $declarations['width']) )
-            || ( isset($declarations['height']) && CssValueInspector::hasDefiniteHeight('height:' . $declarations['height']) );
-        if ( isset($declarations['box-sizing']) || ! $sized ) {
-            return $body;
-        }
-
-        $hasBoxChrome = false;
-        foreach ( $declarations as $property => $value ) {
-            $isBorderWidth = 1 === preg_match('/^border(?:-(?:top|right|bottom|left|block(?:-(?:start|end))?|inline(?:-(?:start|end))?))?(?:-width)?$/', $property);
-            if ( ( 'padding' === $property || str_starts_with($property, 'padding-') || $isBorderWidth )
-                && CssValueInspector::isNonZero($value)
-            ) {
-                $hasBoxChrome = true;
-                break;
-            }
-        }
-        if ( ! $hasBoxChrome ) {
+        // just as a `width` column loses its side padding. The size and the
+        // chrome often come from different rules (an id rule sizes a component
+        // while a shared class pads it), so every rule contributing either half
+        // restates the content-box model once the matched element's cascade,
+        // within this rule's condition domain, carries the other half.
+        $ruleSized = self::declaresDefiniteBoxSize($declarations);
+        $ruleChrome = self::declaresBoxChrome($declarations);
+        if ( isset($declarations['box-sizing']) || ( ! $ruleSized && ! $ruleChrome ) ) {
             return $body;
         }
 
@@ -99,30 +110,163 @@ final class AuthorStyleRuleProjector
         if ( null === $selectors || $this->authorStylesUseUniversalBorderBoxReset($authorStyles) ) {
             return $body;
         }
-        $matched = false;
+        $affected = false;
         foreach ( $selectors as $selector ) {
             $parsed = $sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] ) {
                 return $body;
             }
             foreach ( $this->semanticPreparer->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
-                $matched = true;
                 if ( 'a' === strtolower($element->tagName)
                     || FormControlClassifier::isControlElement($element)
                     || 'button' === strtolower(trim($element->getAttribute('role')))
                 ) {
                     return $body;
                 }
-                $resolved = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['box-sizing'] ?? ''));
+                $box = $this->cascadedBoxModel($authorStyles, $element, $conditions);
+                $resolved = CssValueInspector::comparable((string) ($box['box-sizing'] ?? ''));
                 if ( ! in_array($resolved, array( '', 'content-box', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
                     return $body;
                 }
+                $affected = $affected || (
+                    ( $ruleSized || self::declaresDefiniteBoxSize($box) )
+                    && ( $ruleChrome || self::declaresBoxChrome($box) )
+                );
             }
         }
-        if ( ! $matched ) {
+        if ( ! $affected ) {
             return $body;
         }
         return $body . ( str_ends_with(rtrim($body), ';') ? '' : ';' ) . 'box-sizing:content-box';
+    }
+
+    /**
+     * The element's cascaded box-model declarations wherever a rule under
+     * `$conditions` applies: author declarations whose condition stack holds
+     * within that domain (a device-gated stylesheet or media block), plus the
+     * inline style. Read from the author rules themselves, which keep
+     * `box-sizing` and every border/padding longhand the resting style
+     * collections do not classify.
+     *
+     * @param list<string> $conditions
+     * @return array<string, string>
+     */
+    private function cascadedBoxModel(AuthorStyleAnalysis $authorStyles, DOMElement $element, array $conditions): array
+    {
+        $held = self::restatableConditions($conditions);
+        $facts = array();
+        foreach ( $this->boxModelFacts($authorStyles)[ (string) $element->getNodePath() ] ?? array() as $fact ) {
+            if ( array() !== array_diff($fact['conditions'], $held) ) {
+                continue;
+            }
+            foreach ( $fact['declarations'] as $property => $value ) {
+                CssCascade::apply($facts, (string) $property, array( 'value' => $value, 'important' => CssValueInspector::isImportant($value), 'inline' => false, 'specificity' => $fact['specificity'], 'order' => $fact['order'] ));
+            }
+        }
+        $inline = array_intersect_key($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')), self::boxModelProperties());
+        foreach ( $inline as $property => $value ) {
+            CssCascade::apply($facts, (string) $property, array( 'value' => $value, 'important' => CssValueInspector::isImportant($value), 'inline' => true, 'specificity' => array( 0, 0, 0 ), 'order' => PHP_INT_MAX ));
+        }
+
+        $resolved = array();
+        foreach ( $facts as $property => $fact ) {
+            // A shorthand that wins the cascade resets the longhands it covers.
+            foreach ( self::boxModelShorthands($property) as $shorthand ) {
+                if ( isset($facts[ $shorthand ]) && CssCascade::wins($facts[ $shorthand ], $fact) ) {
+                    continue 2;
+                }
+            }
+            $resolved[ $property ] = (string) $fact['value'];
+        }
+        return $resolved;
+    }
+
+    /**
+     * Box-model declarations of every author rule, indexed by the source
+     * element each selector matches, built once per author style analysis.
+     *
+     * @return array<string, list<array{declarations: array<string, string>, conditions: list<string>, specificity: list<int>, order: int}>>
+     */
+    private function boxModelFacts(AuthorStyleAnalysis $authorStyles): array
+    {
+        if ( isset($this->boxModelFacts[ $authorStyles ]) ) {
+            return $this->boxModelFacts[ $authorStyles ];
+        }
+        $index = array();
+        foreach ( $authorStyles->styleRules() as $rule ) {
+            $declarations = array_intersect_key(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(), self::boxModelProperties());
+            if ( array() === $declarations ) {
+                continue;
+            }
+            $conditions = self::restatableConditions(array_map(
+                static fn (mixed $condition): string => (string) preg_replace('#/\*.*?\*/#s', '', (string) $condition),
+                is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array()
+            ));
+            foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
+                $selector = (string) ($record['selector'] ?? '');
+                $parsed = is_array($record['parsed'] ?? null) ? $record['parsed'] : array();
+                if ( '' === $selector || ! ($parsed['supported'] ?? false) || StyleResolver::selectorCarriesPseudoState($selector) ) {
+                    continue;
+                }
+                $fact = array(
+                    'declarations' => $declarations,
+                    'conditions' => $conditions,
+                    'specificity' => array_values(CssSelectorMatcher::specificityCounts($parsed)),
+                    'order' => (int) ($rule['order'] ?? 0),
+                );
+                foreach ( $this->semanticPreparer->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
+                    $index[ (string) $element->getNodePath() ][] = $fact;
+                }
+            }
+        }
+        return $this->boxModelFacts[ $authorStyles ] = $index;
+    }
+
+    /** @return array<string, true> */
+    private static function boxModelProperties(): array
+    {
+        return array_fill_keys(array_merge(array( 'box-sizing' ), self::BOX_SIZE_PROPERTIES, self::BOX_CHROME_PROPERTIES), true);
+    }
+
+    /** @return list<string> Shorthands whose declaration resets `$property`. */
+    private static function boxModelShorthands(string $property): array
+    {
+        if ( str_starts_with($property, 'padding-') ) {
+            return array( 'padding' );
+        }
+        if ( 1 === preg_match('/^border-(top|right|bottom|left|block|inline)(?:-(start|end))?-width$/', $property, $match) ) {
+            $side = 'border-' . $match[1] . ( isset($match[2]) && '' !== $match[2] ? '-' . $match[2] : '' );
+            return array( 'border', 'border-width', $side );
+        }
+        if ( in_array($property, array( 'border-width', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-block', 'border-inline' ), true) ) {
+            return array( 'border' );
+        }
+        if ( 1 === preg_match('/^border-(block|inline)-(start|end)$/', $property, $match) ) {
+            return array( 'border', 'border-' . $match[1] );
+        }
+        return array();
+    }
+
+    /** @param array<string, string> $declarations */
+    private static function declaresDefiniteBoxSize(array $declarations): bool
+    {
+        return ( isset($declarations['width']) && CssValueInspector::hasDefiniteWidth('width:' . $declarations['width']) )
+            || ( isset($declarations['height']) && CssValueInspector::hasDefiniteHeight('height:' . $declarations['height']) );
+    }
+
+    /** @param array<string, string> $declarations */
+    private static function declaresBoxChrome(array $declarations): bool
+    {
+        foreach ( $declarations as $property => $value ) {
+            $property = (string) $property;
+            $isBorderWidth = 1 === preg_match('/^border(?:-(?:top|right|bottom|left|block(?:-(?:start|end))?|inline(?:-(?:start|end))?))?(?:-width)?$/', $property);
+            if ( ( 'padding' === $property || str_starts_with($property, 'padding-') || $isBorderWidth )
+                && CssValueInspector::isNonZero($value)
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function authorStylesUseUniversalBorderBoxReset(AuthorStyleAnalysis $authorStyles): bool
