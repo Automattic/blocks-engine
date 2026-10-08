@@ -1507,6 +1507,11 @@ final class NavigationStyleProjector
                     continue;
                 }
                 $content = '.wp-block-navigation-item.' . $class . '>.wp-block-navigation-item__content';
+                if (isset($attrs['metadata']['blocksEngineNavigationAnchor'])) {
+                    $content = '.wp-block-navigation-item.' . $class . ' .wp-block-navigation-item__content';
+                    $declarations = preg_replace('/(?:^|;)(?:display|font-size|line-height|color):[^;]*/', '', $declarations) ?? $declarations;
+                    $rules[$class . ':label'] = $content . '>.wp-block-navigation-item__label{font-size:0;line-height:0}';
+                }
                 $rules[$class] = $content . '{' . $declarations . '}';
             }
         }

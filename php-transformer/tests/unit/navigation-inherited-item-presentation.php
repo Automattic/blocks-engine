@@ -84,8 +84,8 @@ $shared = $css(
     . '</ul></nav>'
 );
 $assert(
-    str_contains($shared, '.wp-block-navigation.menu.navbar .wp-block-navigation-item__content{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}'),
-    'presentation every item shares is still recovered onto the native navigation item',
+    str_contains($shared, 'blocks-engine-navigation-box-') && str_contains($shared, '{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}'),
+    'shared inherited presentation remains on each retained native source box',
     $shared
 );
 
@@ -111,9 +111,10 @@ $resetSelector = 1 === preg_match('/([^{}]+)\{font:inherit\}/', $itemCss, $reset
 // marker never reaches a navigation item), so it can actually win in the browser.
 $assert(
     str_starts_with($authorItemSelector, '.menu :where(.wp-block-navigation-item)')
-        && str_contains($itemCss, '.wp-block-navigation.menu .wp-block-navigation-item__content{font-family:Almarai;font-size:22px}')
-        && 2 === substr_count((string) ($itemType['serialized_blocks'] ?? ''), '"fontSize":"22px"'),
-    'authored list-item typography and shared link presentation survive navigation projection',
+        && str_contains($itemCss, '{font-size:22px;font-family:Almarai}')
+        && 0 === substr_count((string) ($itemType['serialized_blocks'] ?? ''), '"fontSize":"22px"')
+        && !str_contains($itemCss, '.wp-block-navigation.menu .wp-block-navigation-item__content{font-family:Almarai;font-size:22px}'),
+    'authored list-item typography remains stylesheet-owned without freezing the inherited anchor font',
     $itemCss
 );
 $assert(

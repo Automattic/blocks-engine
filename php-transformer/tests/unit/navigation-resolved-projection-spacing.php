@@ -18,6 +18,7 @@ $navigation = $blocks[0] ?? array();
 $links = $navigation['innerBlocks'] ?? array();
 $labels = array_column(array_map(static fn(array $block): array => is_array($block['attrs'] ?? null) ? $block['attrs'] : array(), $links), 'label');
 $projections = $result['source_reports']['html']['source_target_projections'] ?? array();
+$projections = array_values(array_filter($projections, static fn(array $projection): bool => '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container' === ($projection['target_selector'] ?? '')));
 
 if ('core/navigation' !== ($navigation['blockName'] ?? '')
     || array('Home', 'About', 'Contact') !== $labels

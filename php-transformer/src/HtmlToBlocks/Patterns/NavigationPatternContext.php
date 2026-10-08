@@ -229,6 +229,118 @@ final class NavigationPatternContext
         return $marker;
     }
 
+    /** The source anchor remains a distinct CSS subject inside Core's item. */
+    public function navigationAnchorSubjectMarker(DOMElement $anchor, ?DOMElement $item = null): string
+    {
+        if (!$this->session instanceof HtmlTransformerSession || !$this->styleResolver instanceof StyleResolver
+            || $this->isRuntimeDomTarget($anchor)
+        ) return '';
+        $presented = $this->hasNavigationSubjectPresentation($anchor) || ($item instanceof DOMElement && $this->hasNavigationSubjectPresentation($item));
+        for ($node = $anchor->parentNode; !$presented && $node instanceof DOMElement && $item instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
+            $presented = $this->hasNavigationSubjectPresentation($node);
+        }
+        if (!$presented) return '';
+        $marker = $this->navigationSubjectMarker($anchor, 'anchor');
+        $this->session->authorSelectorProjectionState()->installNavigationSubject($anchor->getNodePath() ?? '', '.wp-block-navigation .wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)');
+        // Core's synthesized content stacking can change antialiased surface
+        // paint on an anchor that is a flex item. Restore the source initial
+        // value below every projected author rule and explicit inline value.
+        $this->sourceTargetProjection?->record(SourceDom::elementSelector($anchor), '.wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)', 'z-index:auto');
+        return $marker;
+    }
+
+    private function hasNavigationSubjectPresentation(DOMElement $element): bool
+    {
+        if ('' !== trim($element->getAttribute('style'))) return true;
+        foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
+            if (array() === $rule['declarations']) continue;
+            foreach ($rule['selectors'] as $selector) {
+                $text = (string) ($selector['selector'] ?? '');
+                $suffix = $selector['parsed']['pseudo_state_suffix_span'] ?? null;
+                if (is_array($suffix)) $text = substr($text, 0, (int) $suffix['start']);
+                if ('' !== $text && $this->styleResolver->matchesCssSelector($element, $text)) return true;
+            }
+        }
+        return false;
+    }
+
+    public function navigationItemSubjectMarker(DOMElement $item): string
+    {
+        if (!$this->session instanceof HtmlTransformerSession) return '';
+        $marker = $this->navigationSubjectMarker($item, 'item');
+        $this->session->authorSelectorProjectionState()->installNavigationSubject($item->getNodePath() ?? '', '.wp-block-navigation .wp-block-navigation-item.' . $marker);
+        return $marker;
+    }
+
+    /** @return list<array{tag: string, marker: string, style: string, className: string}> */
+    public function navigationAnchorBoxes(DOMElement $anchor, DOMElement $item): array
+    {
+        if (!$this->session instanceof HtmlTransformerSession) return array();
+        $boxes = array();
+        for ($node = $anchor->parentNode; $node instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
+            if (!in_array(strtolower($node->tagName), array('div', 'span'), true)) return array();
+            $children = array();
+            foreach ($node->childNodes as $child) {
+                if ($child instanceof DOMElement) $children[] = $child;
+                elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) return array();
+            }
+            if (1 !== count($children)) return array();
+            $marker = $this->navigationSubjectMarker($node, 'box');
+            $boxes[] = array('tag' => strtolower($node->tagName), 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->labelPresentationMarkers($node))));
+        }
+        $node = $anchor->parentNode;
+        foreach ($boxes as $box) {
+            $this->session->authorSelectorProjectionState()->installNavigationSubject($node->getNodePath() ?? '', '.wp-block-navigation .wp-block-navigation-item .' . $box['marker']);
+            $node = $node->parentNode;
+        }
+        return array_reverse($boxes);
+    }
+
+    /** Equivalent menu occurrences share identity, while different source cascades do not. */
+    private function navigationSubjectMarker(DOMElement $element, string $kind): string
+    {
+        $rules = array();
+        foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
+            foreach ($rule['selectors'] as $selector) {
+                $text = (string) ($selector['selector'] ?? '');
+                if ('' !== $text && $this->styleResolver->matchesCssSelector($element, $text)) {
+                    $rules[] = array($text, $rule['declarations'], $rule['conditions'] ?? array());
+                }
+            }
+        }
+        $position = 0;
+        for ($sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling) {
+            if ($sibling instanceof DOMElement) ++$position;
+        }
+        $identity = array(strtolower($element->tagName), $element->getAttribute('id'), $element->getAttribute('class'), $element->getAttribute('style'), $element->getAttribute('href'), $position, $rules);
+        return $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity));
+    }
+
+    /** Preserve a single passive icon as artwork inside Core's native anchor. */
+    public function navigationAnchorArtwork(DOMElement $anchor): string
+    {
+        if (!$this->session instanceof HtmlTransformerSession || !$this->svgMaterializer instanceof SvgMaterializer || '' !== trim($anchor->textContent ?? '')) return '';
+        $children = array_values(array_filter(iterator_to_array($anchor->childNodes), static fn($node): bool => $node instanceof DOMElement));
+        if (1 !== count($children) || 'svg' !== strtolower($children[0]->tagName)) return '';
+        $svg = $children[0];
+        if (!SvgMaterializer::isPassiveSvgMarkup($svg) || !SourceDom::svgHasDrawableContent($svg)) return '';
+        $nodes = array($svg);
+        foreach ($svg->getElementsByTagName('*') as $node) {
+            if (!in_array(strtolower($node->tagName), array('g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon'), true)) return '';
+            $nodes[] = $node;
+        }
+        $subjects = array();
+        foreach ($nodes as $node) {
+            $marker = $this->navigationSubjectMarker($node, 'artwork');
+            $subjects[] = array($node->getNodePath() ?? '', $marker);
+            $node->setAttribute('class', SourceDom::mergeClassNames($node->getAttribute('class'), $marker));
+        }
+        $markup = $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->sanitizeInlineSvgMarkup($svg));
+        if ('' === $markup || !SourceDom::isSafeSvgContent($markup)) return '';
+        foreach ($subjects as [$path, $marker]) $this->session->authorSelectorProjectionState()->installNavigationSubject($path, '.wp-block-navigation .wp-block-navigation-item .' . $marker);
+        return $markup;
+    }
+
     /** Core's item can interrupt an anchor's authored or safely inherited line-height. */
     public function navigationAnchorLineHeightMarker(array $anchorAttrs, DOMElement $anchor, DOMElement $sourceItem): string
     {
@@ -535,6 +647,7 @@ final class NavigationPatternContext
         // `font` first: builders commonly state menu type as the shorthand, and
         // a longhand found further out should not silently outrank it.
         foreach ( array( 'font', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
+            if ($this->nativeNavigationParentOwnsPresentation($anchors, $navigation, $property)) continue;
             $value = $this->sharedNavigationItemPresentationValue($anchors, $navigation, $property);
             // The source component resolves this formula against its own width.
             // Replaying it on Core's replacement anchor changes that reference
@@ -556,6 +669,31 @@ final class NavigationPatternContext
 
         $selector = '.wp-block-navigation' . CssIdent::compoundClassSelector($authorClasses) . ' .wp-block-navigation-item__content';
         $this->sourceTargetProjection->record(SourceDom::elementSelector($navigation), $selector, implode(';', $declarations));
+    }
+
+    /** A retained item/wrapper owns its inherited presentation, including state and query changes. */
+    private function nativeNavigationParentOwnsPresentation(array $anchors, DOMElement $navigation, string $property): bool
+    {
+        if (!$this->session instanceof HtmlTransformerSession || !$this->styleResolver instanceof StyleResolver) return false;
+        $properties = 'font' === $property ? array('font', 'font-family', 'font-size', 'font-weight', 'font-style') : array($property);
+        if (str_starts_with($property, 'font-')) $properties[] = 'font';
+        foreach ($anchors as $anchor) {
+            for ($node = $anchor->parentNode; $node instanceof DOMElement && !$node->isSameNode($navigation); $node = $node->parentNode) {
+                if ('' === $this->session->authorSelectorProjectionState()->navigationSubject($node->getNodePath() ?? '')) continue;
+                foreach ($this->styleResolver->cssDeclarations($node->getAttribute('style')) as $name => $value) {
+                    if (in_array($name, $properties, true) && !in_array(strtolower(trim($value)), array('inherit', 'unset', 'revert', 'revert-layer'), true)) return true;
+                }
+                foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
+                    $owned = array_filter(array_intersect_key($rule['declarations'], array_flip($properties)), static fn(string $value): bool => !in_array(strtolower(CssValueInspector::withoutImportant($value)), array('inherit', 'unset', 'revert', 'revert-layer'), true));
+                    if (array() === $owned) continue;
+                    foreach ($rule['selectors'] as $selector) {
+                        $text = (string) ($selector['selector'] ?? '');
+                        if (!preg_match('/::?(?:before|after)\b/i', $text) && $this->styleResolver->matchesCssSelector($node, $text)) return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**

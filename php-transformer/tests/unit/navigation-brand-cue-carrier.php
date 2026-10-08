@@ -36,6 +36,8 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 
 $failures = 0;
 $passes = 0;
@@ -51,6 +53,31 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $transform = static fn (string $html): array => ( new HtmlTransformer() )->transform($html, array())->toArray();
+
+// Compare the cascade on the source and the native dynamic-link proxy rather
+// than asserting a retired compatibility selector or its generated LI resets.
+$nativePresentation = static function (string $source, array $result, string $label, array $properties): array {
+    $rows = array();
+    foreach (array($source, StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($result['serialized_blocks'])) as $index => $html) {
+        $dom = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        libxml_clear_errors(); libxml_use_internal_errors($previous);
+        $anchor = null;
+        foreach ($dom->getElementsByTagName('a') as $candidate) if (trim($candidate->textContent ?? '') === $label) { $anchor = $candidate; break; }
+        if (!$anchor instanceof DOMElement) throw new RuntimeException('Missing source/native anchor ' . $label);
+        $css = 0 === $index ? '' : implode("\n", array_column($result['assets'] ?? array(), 'content'));
+        $rows[] = (new StaticCssCascade($dom, $css))->resolve($anchor, $properties, array());
+    }
+    return $rows;
+};
+$sourceAnchorMarker = static function (array $result, string $class) use (&$findBlocks): string {
+    foreach ($findBlocks($result['blocks'] ?? array(), 'core/navigation-link') as $link) {
+        $classes = preg_split('/\s+/', trim((string) ($link['attrs']['metadata']['blocksEngineNavigationAnchor']['className'] ?? ''))) ?: array();
+        if (in_array($class, $classes, true) && preg_match('/blocks-engine-navigation-anchor-[a-f0-9]{12}-\d+/', $link['attrs']['className'] ?? '', $match)) return $match[0];
+    }
+    return '';
+};
 
 /** @param array<int, array<string, mixed>> $blocks */
 $findBlocks = static function (array $blocks, string $name) use (&$findBlocks): array {
@@ -208,7 +235,7 @@ $sidebar = $transform(
 );
 $sidebarCss = implode("\n", array_column($sidebar['assets'] ?? array(), 'content'));
 $assert(
-    str_contains($sidebarCss, '.menu{width:202px}')
+    str_contains($sidebarCss, '{width:202px}')
         && str_contains($sidebarCss, '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__responsive-container>.wp-block-navigation__responsive-container-content>.wp-block-navigation__container{display:block!important}')
         && ! str_contains($sidebarCss, 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content'),
     'a non-carrier navigation group keeps its authored full-width vertical menu and block list instead of forced intrinsic sizing',
@@ -365,7 +392,9 @@ $ctaCss = implode("\n", array_map(
     is_array($ctaResult['assets'] ?? null) ? $ctaResult['assets'] : array()
 ));
 
-$contentSelector = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.nav-cta>.wp-block-navigation-item__content';
+$ctaMarker = $sourceAnchorMarker($ctaResult, 'nav-cta');
+$contentSelector = '';
+if (preg_match('/(:root \.wp-block-navigation \.wp-block-navigation-item\.' . preg_quote($ctaMarker, '/') . '[^{]+)\{background:#FFD400/', $ctaCss, $match)) $contentSelector = $match[1];
 
 $assert(
     str_contains($ctaCss, $contentSelector . '{'),
@@ -399,9 +428,8 @@ $assert(
 // re-pointing. The class moves to the navigation item, so the source selector
 // cannot match core's rendered anchor by itself.
 $assert(
-    str_contains($ctaCss, $contentSelector . ':hover{color:#224466}')
-        && ! str_contains($ctaCss, $contentSelector . ':hover{background:'),
-    'navigation interaction remapping carries only link colour',
+    1 === preg_match('/' . preg_quote($ctaMarker, '/') . '[^{]*:hover\{background:#fff;color:#224466\}/', $ctaCss),
+    'navigation subject projection retains the complete authored hover surface',
     substr($ctaCss, -300)
 );
 
@@ -678,9 +706,9 @@ $utilityHoverCss = implode("\n", array_map(
     is_array($utilityHover['assets'] ?? null) ? $utilityHover['assets'] : array()
 ));
 $assert(
-    str_contains($utilityHoverCss, '@media (hover:hover){.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.hover\\:text-foreground>.wp-block-navigation-item__content:hover{color:#111}}')
-        && str_contains($utilityHoverCss, '@media (hover:hover){.wp-block-navigation:not(.blocks-engine-list-navigation) .wp-block-navigation-item.hover\\:text-foreground>.wp-block-navigation-item__content:hover{color:#111}}')
-        && (bool) preg_match('/\.wp-block-navigation-item__content:not\(:hover\)(?::not\(:focus\))?\{color:#777\}/', $utilityHoverCss)
+    str_contains($utilityHoverCss, '@media (hover:hover){@layer utilities{')
+        && 1 === preg_match('/' . preg_quote($sourceAnchorMarker($utilityHover, 'hover:text-foreground'), '/') . '[^{]*:hover\{color:#111\}/', $utilityHoverCss)
+        && 1 === preg_match('/' . preg_quote($sourceAnchorMarker($utilityHover, 'text-muted-foreground'), '/') . '[^{]*\{color:#777\}/', $utilityHoverCss)
         && str_contains($utilityHoverCss, 'transition:color 150ms'),
     'escaped utility hover paint reaches the native anchor without freezing its resting color or dropping its transition',
     substr($utilityHoverCss, -1100)
@@ -780,16 +808,14 @@ $surfaceHeader =
 $surfaceResult = $transform($surfaceHeader);
 $surfaceSupportCss = implode("\n", array_map(
     static fn (array $asset): string => 'css' === ($asset['kind'] ?? '')
-        && 'after-author' === ($asset['stylesheet_placement'] ?? '')
         ? (string) ($asset['content'] ?? '')
         : '',
     is_array($surfaceResult['assets'] ?? null) ? $surfaceResult['assets'] : array()
 ));
 
-$mappedBody = static function (string $css, string $class): string {
-    $selector = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
-        . $class . '>.wp-block-navigation-item__content';
-    if ( preg_match('/' . preg_quote($selector, '/') . '\{([^}]*)\}/', $css, $match) ) {
+$mappedBody = static function (string $css, string $class) use ($sourceAnchorMarker, $surfaceResult): string {
+    $marker = $sourceAnchorMarker($surfaceResult, $class);
+    if ( '' !== $marker && preg_match('/' . preg_quote($marker, '/') . '[^{]*\{([^}]*)\}/', $css, $match) ) {
         return $match[1];
     }
     return '';
@@ -814,9 +840,7 @@ $assert(
 
 $bareItemBody = $mappedItemBody($surfaceSupportCss, 'bare-cta');
 $assert(
-    str_contains($bareItemBody, 'background:revert')
-        && str_contains($bareItemBody, 'padding:revert')
-        && str_contains($bareItemBody, 'border:revert'),
+    '' === $bareItemBody && array() === array_filter($findBlocks($surfaceResult['blocks'], 'core/navigation-link'), static fn(array $link): bool => 1 === preg_match('/(?:^|\s)bare-cta(?:\s|$)/', $link['attrs']['className'] ?? '')),
     'a bare anchor class does not paint a second generated item box',
     'body=' . $bareItemBody
 );
@@ -857,35 +881,22 @@ $losingHeader =
 $losingResult = $transform($losingHeader);
 $losingSupportCss = implode("\n", array_map(
     static fn (array $asset): string => 'css' === ($asset['kind'] ?? '')
-        && 'after-author' === ($asset['stylesheet_placement'] ?? '')
         ? (string) ($asset['content'] ?? '')
         : '',
     is_array($losingResult['assets'] ?? null) ? $losingResult['assets'] : array()
 ));
-$losingBody = $mappedBody($losingSupportCss, 'nav-cta');
+$losingStyles = $nativePresentation($losingHeader, $losingResult, 'Book a Session', array('background', 'border', 'border-bottom', 'font-family', 'font-weight', 'font-size', 'letter-spacing', 'text-transform', 'color', 'padding'));
+$losingBody = json_encode($losingStyles[1]);
 
 $assert(
-    str_contains($losingBody, 'background:#22E1FF')
-        && str_contains($losingBody, 'border-top-width:2px')
-        && str_contains($losingBody, 'border-top-style:solid')
-        && str_contains($losingBody, 'border-top-color:#22E1FF')
-        && str_contains($losingBody, 'border-right-color:#22E1FF')
-        && str_contains($losingBody, 'border-left-color:#22E1FF')
-        && ! str_contains($losingBody, 'border-bottom-')
-        && ! str_contains($losingBody, 'border:2px'),
-    'an anchor-carried bare rule keeps uncontested surface declarations',
+    $losingStyles[0] === $losingStyles[1] && '2px solid #22E1FF' === ($losingStyles[1]['border'] ?? '') && '2px solid transparent' === ($losingStyles[1]['border-bottom'] ?? ''),
+    'the native anchor keeps the complete source cascade including independently winning border sides',
     'body=' . $losingBody
 );
 
 $assert(
-    ! str_contains($losingBody, 'font-family:')
-        && ! str_contains($losingBody, 'font-weight:')
-        && ! str_contains($losingBody, 'font-size:')
-        && ! str_contains($losingBody, 'letter-spacing:')
-        && ! str_contains($losingBody, 'text-transform:')
-        && 1 !== preg_match('/(?:^|;)color:/', $losingBody)
-        && ! str_contains($losingBody, 'padding:'),
-    'a mapped bare rule drops declarations that lose on the authored source anchor',
+    'Inter' === ($losingStyles[1]['font-family'] ?? '') && '#fff' === ($losingStyles[1]['color'] ?? '') && '.35rem 0' === ($losingStyles[1]['padding'] ?? ''),
+    'source specificity wins over later losing anchor declarations',
     'body=' . $losingBody
 );
 
@@ -895,18 +906,13 @@ if ( preg_match('/' . preg_quote($losingItemSelector, '/') . '\\{([^}]*)\\}/', $
     $losingItemBody = $losingItemMatch[1];
 }
 $assert(
-    str_contains($losingItemBody, 'padding:revert')
-        && str_contains($losingItemBody, 'background:revert')
-        && str_contains($losingItemBody, 'border:revert'),
+    '' === $losingItemBody && array() === array_filter($findBlocks($losingResult['blocks'], 'core/navigation-link'), static fn(array $link): bool => 1 === preg_match('/(?:^|\s)nav-cta(?:\s|$)/', $link['attrs']['className'] ?? '')),
     'a bare anchor class restores the generated item to the source li box',
     'body=' . $losingItemBody
 );
 
 $assert(
-    str_contains($losingBody, 'background:#22E1FF')
-        && str_contains($losingBody, 'border-top-color:#22E1FF')
-        && str_contains($losingBody, 'border-right-color:#22E1FF')
-        && str_contains($losingBody, 'border-left-color:#22E1FF'),
+    '#22E1FF' === ($losingStyles[1]['background'] ?? '') && '2px solid #22E1FF' === ($losingStyles[1]['border'] ?? ''),
     'item reset leaves winning CTA surface declarations projected onto the anchor',
     'body=' . $losingItemBody
 );
@@ -925,15 +931,16 @@ $descendantClassResult = $transform(
 );
 $descendantClassCss = implode("\n", array_column($descendantClassResult['assets'] ?? array(), 'content'));
 $descendantItemSelector = '.site .header .menu .wp-block-navigation-item.menu-link';
+$descendantSource = '<style>.site .header .menu{display:flex}.menu a{padding:13px 20px}.site .header .menu .menu-link{padding-left:4px;padding-right:4px}.secondary .menu-link{padding-left:12px}.footer .menu-link{padding-left:99px}</style><div class="site"><header class="header"><nav class="menu"><ul><li><a class="menu-link" href="/">Home</a></li><li><a class="menu-link" href="/services">Services</a></li></ul></nav></header><nav class="secondary"><ul><li><a class="menu-link" href="/help">Help</a></li></ul></nav></div>';
+$homePadding = $nativePresentation($descendantSource, $descendantClassResult, 'Home', array('padding-top', 'padding-left', 'padding-right'));
+$helpPadding = $nativePresentation($descendantSource, $descendantClassResult, 'Help', array('padding-left'));
 $assert(
-    str_contains($descendantClassCss, $descendantItemSelector . '>.wp-block-navigation-item__content{padding-left:4px;padding-right:4px}')
-        && str_contains($descendantClassCss, $descendantItemSelector . '{padding-left:revert;padding-right:revert}'),
+    $homePadding[0] === $homePadding[1] && '4px' === ($homePadding[1]['padding-left'] ?? '') && '4px' === ($homePadding[1]['padding-right'] ?? ''),
     'a scoped class rule retains link padding on the native anchor without adding padding to its new item wrapper',
     $descendantClassCss
 );
 $assert(
-    str_contains($descendantClassCss, '.secondary .wp-block-navigation-item.menu-link>.wp-block-navigation-item__content{padding-left:12px}')
-        && ! str_contains($descendantClassCss, '.footer .wp-block-navigation-item.menu-link')
+    $helpPadding[0] === $helpPadding[1] && '12px' === ($helpPadding[1]['padding-left'] ?? '')
         && 'pass' === ($descendantClassResult['source_reports']['wp_block_validity']['status'] ?? ''),
     'scoped anchor projection keeps unrelated source contexts out and preserves valid native navigation'
 );

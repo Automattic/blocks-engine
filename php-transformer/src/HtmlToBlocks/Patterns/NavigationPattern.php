@@ -1992,7 +1992,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         // core/navigation-link has nowhere to store the artwork that name
         // described. Carry an opaque marker so the recovered source icon can be
         // projected onto the rendered item without leaving native navigation.
-        $linkAttrs = $this->withClassName($linkAttrs, $navigationContext?->linkIconMarker($anchor) ?? '');
+        $artwork = isset($linkAttrs['metadata']['blocksEngineNavigationAnchor']) ? ($navigationContext?->navigationAnchorArtwork($anchor) ?? '') : '';
+        if ('' !== $artwork) $linkAttrs['metadata']['blocksEngineNavigationAnchor']['svg'] = $artwork;
+        else $linkAttrs = $this->withClassName($linkAttrs, $navigationContext?->linkIconMarker($anchor) ?? '');
 
         return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
     }
@@ -2226,8 +2228,23 @@ final class NavigationPattern implements PatternRecognizerInterface
             || (null !== $navigationContext && $navigationContext->targetsCurrentDocument($anchor->getAttribute('href')));
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
+        $subjectMarker = $item->isSameNode($anchor) || null !== $submenuContainer || $hasAuthoredCurrentState ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
+        if ('' !== $subjectMarker) {
+            $anchorClassName = (string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class'));
+            // Stylesheet declarations stay on their source subject. Only explicit
+            // source item supports remain inline; class-owned values must retain
+            // the authored conditional cascade rather than freeze on Core's LI.
+            unset($itemAttrs['style'], $itemAttrs['textColor'], $itemAttrs['backgroundColor'], $itemAttrs['fontSize']);
+            $anchorAttrs = array();
+            $itemAttrs['metadata']['blocksEngineNavigationAnchor'] = array('style' => $anchor->getAttribute('style'), 'className' => $anchorClassName);
+            if ('' !== trim($anchor->getAttribute('id'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['id'] = $anchor->getAttribute('id');
+            if ('' !== trim($item->getAttribute('style'))) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['itemStyle'] = $item->getAttribute('style');
+            $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item);
+            if (array() !== $boxes) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['boxes'] = $boxes;
+            $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $navigationContext->navigationItemSubjectMarker($item));
+        }
         $submenuAttrs = $submenuContainer instanceof DOMElement ? $this->withoutCoreNavigationClasses($presentationAttributes($submenuContainer)) : array();
-        $sourceAnchor = trim($anchor->getAttribute('id'));
+        $sourceAnchor = '' === $subjectMarker ? trim($anchor->getAttribute('id')) : '';
         if ( '' === $sourceAnchor ) {
             $sourceAnchor = trim($item->getAttribute('id'));
         }
@@ -2244,7 +2261,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         $itemClasses = preg_split('/\s+/', trim((string) ($itemAttrs['className'] ?? ''))) ?: array();
         $anchorClasses = preg_split('/\s+/', trim((string) ($anchorAttrs['className'] ?? ''))) ?: array();
-        $classes = array_values(array_unique(array_filter(array_merge($itemClasses, $anchorClasses))));
+        $classes = array_values(array_unique(array_filter(array_merge($itemClasses, $anchorClasses, array($subjectMarker)))));
         if ( array() === $classes ) {
             unset($itemAttrs['className']);
         } else {
@@ -2253,7 +2270,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $itemAttrs['className'] = implode(' ', $classes);
         }
         $itemAttrs = array_replace_recursive($itemAttrs, $this->navigationAnchorTextAttributes($anchorAttrs, 'a' === strtolower($item?->tagName ?? 'a')));
-        if ( null !== $navigationContext ) {
+        if ( null !== $navigationContext && '' === $subjectMarker ) {
             $lineHeightMarker = $navigationContext->navigationAnchorLineHeightMarker($anchorAttrs, $anchor, $item);
             if ('' !== $lineHeightMarker) {
                 $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $lineHeightMarker);
@@ -2285,7 +2302,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
-        if ( null !== $navigationContext ) {
+        if ( null !== $navigationContext && '' === $subjectMarker ) {
             $boxMarker = $navigationContext->navigationLinkBoxMarker(
                 $anchor,
                 $item->isSameNode($anchor) ? null : $item
