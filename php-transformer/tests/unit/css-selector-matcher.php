@@ -374,6 +374,11 @@ $assert(0 === $specificityOf(':where(#a .b > c)'), 'ids and types inside the wra
 $assert(10 === $specificityOf(':where(.a).b'), 'a trailing compound keeps the normal reading');
 $assert(10 === $specificityOf(':where(.a) .b'), 'a following compound keeps the normal reading');
 
+$neutralNative = CssSelectorMatcher::parse(':root :where(.space-y-8>:not(:last-child)):not(.unused-weight):not(never-rendered)');
+$assert($neutralNative['supported'], 'a complex neutral native path can carry external specificity shims');
+$assert(21 === CssSelectorMatcher::specificity($neutralNative), 'only the native scope and external class/type shims contribute weight');
+$assert(CssSelectorMatcher::matches($spacingItem('first'), $neutralNative)['matches'] && !CssSelectorMatcher::matches($spacingItem('last'), $neutralNative)['matches'], 'external specificity shims preserve the wrapped source relationship');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssSelectorMatcher unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

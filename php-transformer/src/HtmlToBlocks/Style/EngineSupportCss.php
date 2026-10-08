@@ -295,11 +295,16 @@ final class EngineSupportCss
             $parts[] = '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}'
                 // The generated item's font reset must yield to source item
                 // typography, including low-specificity list selectors. Keep
-                // the display repair strong enough to beat core's item display.
-                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item}'
+                // the display baseline at Core's weight, not above authored rules.
+                . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item}'
                 . "\n" . ':where(.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link){font:inherit}'
-                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}'
-                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}';
+                . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item__content{display:inline}'
+                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}';
+            // The navigation host owns the source list's layout box. Core's
+            // duplicate list is transport only; retaining a second flex box
+            // would change source inline/block item packing. Overlay lists keep
+            // Core's responsive interaction layout.
+            $parts[] = '.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation)>.wp-block-navigation__container{display:contents!important}';
         }
 
         return $parts;

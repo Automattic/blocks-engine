@@ -241,11 +241,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $label instanceof DOMElement
             ? $this->nestedLabeledNavigationAttributes($element, $presentationAttributes)
             : $this->navigationContainerAttributes($navigationSource, $presentationAttributes);
-        $navigationAttrs = $this->withResolvedNonFlexNavigationLayout($navigationAttrs, $element, $navigationContext);
-        $navigationAttrs = $this->withResolvedVerticalNavigationOrientation($navigationAttrs, $element, $navigationContext);
-        $navigationAttrs = $this->withCollapsedItemBand($navigationAttrs, $element, $navigationContext);
-        if ( $splitLandmarkOwnership ) {
-            // A semantic source list is a vertical stack. Persist that intent on
+        $navigationAttrs = $this->withResolvedNonFlexNavigationLayout($navigationAttrs, $navigationSource, $navigationContext);
+        $navigationAttrs = $this->withResolvedVerticalNavigationOrientation($navigationAttrs, $navigationSource, $navigationContext);
+        $navigationAttrs = $this->withCollapsedItemBand($navigationAttrs, $navigationSource, $navigationContext);
+        if ( $splitLandmarkOwnership && $navigationContext?->isOutOfFlow($element) ) {
+            // A positioned rail's semantic source list is a stack. Persist that intent on
             // core/navigation so responsive artifact assembly cannot discard it.
             $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
         }
@@ -307,7 +307,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // than written onto the block, so documents that share this shell keep
         // identical markup and continue to collapse into one template part.
         $authorClasses = $this->authorClassNames((string) ($navigationAttrs['className'] ?? ''));
-        $navigationContext?->recordInheritedPresentation($element, $authorClasses);
+        $navigationContext?->recordInheritedPresentation($navigationSource, $authorClasses, ! $this->hasDirectListItemCorrespondence($listSource));
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $defaultTextColorClass = $this->defaultNavigationTextColorClass($links);
             if ( '' !== $defaultTextColorClass ) {
@@ -319,9 +319,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
         }
 
-        $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $element, $navigationContext);
+        $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $navigationSource, $navigationContext);
         $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($navigationSource) ?? '');
-        $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $element);
+        $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $navigationSource);
         // WordPress copies the emitted block's classes onto its inner list. Key
         // the container reset on the source's own classes; a class-less source
         // is reached only through the engine's markers, which join the className
@@ -413,7 +413,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $links[] = $context->createBlock('core/navigation-link', array_filter(array(
                 'label' => SourceDom::innerHtmlWithProjectedMarkers(
                     $anchor,
-                    static fn (DOMElement $labelElement): array => $context->navigationContext()?->labelPresentationMarkers($labelElement) ?? array()
+                    static fn (DOMElement $labelElement): array => $context->navigationContext()?->sourcePresentationMarkers($labelElement) ?? array()
                 ),
                 'url' => SourceDom::safeNavigationUrl(SourceDom::attr($anchor, 'href')),
                 'kind' => 'custom',
@@ -1318,9 +1318,10 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
-     * Core repeats a navigation block's class list on generated descendants. An
-     * out-of-flow landmark therefore needs its own host; otherwise fixed rail
-     * geometry is applied to both the rail and the replacement list.
+     * Core repeats a navigation block's class list on generated descendants.
+     * Distinct authored display boxes and out-of-flow landmarks need their own
+     * host; otherwise the list's inline formatting or rail placement also acts
+     * on the landmark that contains it.
      */
     private function shouldSplitLandmarkOwnership(DOMElement $element, ?DOMElement $listSource, ?NavigationPatternContext $navigationContext): bool
     {
@@ -1332,10 +1333,23 @@ final class NavigationPattern implements PatternRecognizerInterface
             return false;
         }
 
-        return 1 === preg_match(
-            '/(?:^|;)\s*position\s*:\s*(?:fixed|absolute|sticky)\b/i',
-            $navigationContext->resolvedStyle($element)
-        );
+        return $navigationContext->hasDistinctDisplayBoxes($element, $listSource)
+            || $navigationContext->isOutOfFlow($element);
+    }
+
+    /** A list's direct items keep the authored anchor cascade in the stylesheet. */
+    private function hasDirectListItemCorrespondence(?DOMElement $list): bool
+    {
+        if ( ! $list instanceof DOMElement ) {
+            return false;
+        }
+        foreach ( $list->getElementsByTagName('a') as $anchor ) {
+            $item = $anchor->parentNode;
+            if ( ! $item instanceof DOMElement || 'li' !== strtolower($item->tagName) || ! $item->parentNode?->isSameNode($list) ) {
+                return false;
+            }
+        }
+        return $list->getElementsByTagName('a')->length > 0;
     }
 
     /**
@@ -2149,7 +2163,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $markered = SourceDom::innerHtmlWithProjectedMarkers(
             $anchor,
             static fn (DOMElement $element): array => array_merge(
-                $navigationContext->labelPresentationMarkers($element),
+                $navigationContext->sourcePresentationMarkers($element),
                 $navigationContext->ownsLabelTypography($element) ? array( NavigationPatternContext::LABEL_TYPOGRAPHY_BOX_CLASS ) : array()
             )
         );
@@ -2247,6 +2261,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $itemClasses = preg_split('/\s+/', trim((string) ($itemAttrs['className'] ?? ''))) ?: array();
         $anchorClasses = preg_split('/\s+/', trim((string) ($anchorAttrs['className'] ?? ''))) ?: array();
         $classes = array_values(array_unique(array_filter(array_merge($itemClasses, $anchorClasses))));
+        if ( ! $item->isSameNode($anchor) && null !== $navigationContext ) {
+            $classes = array_values(array_unique(array_merge($classes, $navigationContext->sourcePresentationMarkers($item))));
+        }
         if ( array() === $classes ) {
             unset($itemAttrs['className']);
         } else {

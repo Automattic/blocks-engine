@@ -355,7 +355,18 @@ final class AuthorSelectorSemanticPreparer
         // original attribute selector behind is incorrect once editable block
         // serialization drops that presentation-only data attribute.
         $marker = $authorStyles->allocateStableMarker('attribute-state', $stateOwnerSelectorText);
-        foreach ( $authorStyles->selectorCandidates($candidateSelector) as $element ) {
+        $candidates = $authorStyles->selectorCandidates($candidateSelector);
+        // Candidate pools index body descendants only, so a state owned by the
+        // document root is never evaluated: the projected `:root:not(.marker)`
+        // would address a marker no route ever materializes. The root itself
+        // carries the state (`data-launched` on `<html>`), so it joins the
+        // evaluation and receives the marker exactly when the positive
+        // predicate matches it.
+        $documentRoot = $authorStyles->sourceBody()->ownerDocument?->documentElement;
+        if ( $documentRoot instanceof DOMElement && ! in_array($documentRoot, $candidates, true) ) {
+            $candidates[] = $documentRoot;
+        }
+        foreach ( $candidates as $element ) {
             if ( ! CssSelectorMatcher::matches($element, $candidateSelector, true, $authorStyles->selectorMatchCache())['matches'] ) {
                 continue;
             }

@@ -34,12 +34,12 @@ final class NavigationPatternContext
     }
 
     /**
-     * Author-selector markers the projected stylesheet targets for an element
-     * that will be inlined into a navigation item's `label` attribute.
+     * Author-selector identities carried by a native navigation part, including
+     * a retained label or a source list item replaced by Core's item.
      *
      * @return list<string>
      */
-    public function labelPresentationMarkers(DOMElement $element): array
+    public function sourcePresentationMarkers(DOMElement $element): array
     {
         $projections = $this->session?->authorSelectorProjectionState();
         if (null === $projections) return array();
@@ -314,6 +314,42 @@ final class NavigationPatternContext
         return $this->styleResolver?->resolvedConditionalDisplay($element) ?? '';
     }
 
+    /** Compare the authored display contracts, including breakpoints outside the reference viewport. */
+    public function hasDistinctDisplayBoxes(DOMElement $landmark, DOMElement $list): bool
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) {
+            return false;
+        }
+        $landmarkDisplay = $this->styleResolver->declaredPresentation($landmark, 'display');
+        $listDisplay = $this->styleResolver->declaredPresentation($list, 'display');
+        // An unstyled block landmark can still fold a block-level flex/grid
+        // list. An inline list changes that outer formatting contract.
+        $usesDefaults = $landmarkDisplay->isEmpty() || $listDisplay->isEmpty();
+        $outer = $usesDefaults
+            ? static fn(string $display): string => in_array($display, array('block', 'flex', 'grid', 'flow-root'), true) ? 'block' : $display
+            : static fn(string $display): string => $display;
+        $landmarkBase = $this->styleResolver->resolveCssVariablesInValue($landmarkDisplay->base(), $landmark) ?: $this->styleResolver->defaultTagDisplay($landmark);
+        $listBase = $this->styleResolver->resolveCssVariablesInValue($listDisplay->base(), $list) ?: $this->styleResolver->defaultTagDisplay($list);
+        $landmarkConditions = $landmarkDisplay->conditional();
+        $listConditions = $listDisplay->conditional();
+        if ($usesDefaults) {
+            // Visibility alone belongs to the existing overlay state projection,
+            // not to a new landmark box around the native responsive control.
+            if ('none' === $landmarkBase) $landmarkBase = $this->styleResolver->defaultTagDisplay($landmark);
+            if ('none' === $listBase) $listBase = $this->styleResolver->defaultTagDisplay($list);
+            $visibleBox = static fn(string $display): bool => 'none' !== $display;
+            $landmarkConditions = array_filter($landmarkConditions, $visibleBox);
+            $listConditions = array_filter($listConditions, $visibleBox);
+        }
+        return $outer($landmarkBase) !== $outer($listBase)
+            || array_map($outer, $landmarkConditions) !== array_map($outer, $listConditions);
+    }
+
+    public function isOutOfFlow(DOMElement $element): bool
+    {
+        return 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute|sticky)\b/i', $this->resolvedStyle($element));
+    }
+
     /**
      * Whether the element is hidden once its authored cascade — inline, static,
      * AND media/feature-conditional rules that apply at the desktop reference
@@ -475,9 +511,11 @@ final class NavigationPatternContext
      *
      * @param array<int, string> $authorClasses Classes already present on the block.
      */
-    public function recordInheritedPresentation(DOMElement $element, array $authorClasses): void
+    public function recordInheritedPresentation(DOMElement $element, array $authorClasses, bool $recoverItemPresentation = true): void
     {
-        $this->recordInheritedNavigationPresentation($element, $authorClasses);
+        if ($recoverItemPresentation) {
+            $this->recordInheritedNavigationPresentation($element, $authorClasses);
+        }
     }
 
     /** Record unsupported source residue on the native element replacing it. */

@@ -285,7 +285,7 @@ final class BlockFactory
             if ( ! preg_match('/<(?:span|mark|b|strong|i|em)\b/i', $content) ) {
                 $content = htmlspecialchars($content, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
-            return '<pre class="wp-block-code"><code>' . $content . '</code></pre>';
+            return '<pre' . $this->blockSupportAttrs($attrs, 'wp-block-code') . '><code>' . $content . '</code></pre>';
         }
 
         if ( 'core/math' === $name ) {
