@@ -115,11 +115,6 @@ final class RuntimeIslandAnalyzer
 
     public function shouldPreserveRuntimeAppShell(DOMElement $element): bool
     {
-        // This generated boundary stands in for a responsive source document,
-        // not a source application. Runtime owners below it remain independent.
-        if ( $this->isDeclaredDocumentScope($element) ) {
-            return false;
-        }
         if ( ! $this->context->runtimeSelectors()->hasRuntimeTargets() ) {
             return false;
         }
@@ -134,18 +129,6 @@ final class RuntimeIslandAnalyzer
         }
 
         $signals = $this->runtimeAppShellSignals($element);
-        $documentScope = SourceDom::documentVariantRoot($element);
-        if ( $documentScope instanceof DOMElement
-            && $this->isDeclaredDocumentScope($documentScope)
-            && ! in_array('app_root_token', $signals, true)
-            && ! $this->isRuntimeDomTarget($element)
-            && 'application' !== strtolower(trim(SourceDom::attr($element, 'role')))
-        ) {
-            // An unrelated workspace descendant does not own every static
-            // ancestor in the exported document. Its source owner is visited
-            // independently and retains its runtime diagnostics below.
-            return false;
-        }
         if ( in_array($tagName, array( 'body', 'main' ), true) && ! in_array('app_root_token', $signals, true) ) {
             return false;
         }
@@ -523,12 +506,6 @@ final class RuntimeIslandAnalyzer
             return false;
         }
 
-        // Scope lookups must retain this identity around editable children,
-        // including controls, without promoting the entire page to raw HTML.
-        if ( $isLayoutShell && $this->isDeclaredDocumentScope($element) ) {
-            return true;
-        }
-
         if (array_intersect($this->runtimeAppShellSignals($element), array('app_root_token', 'workspace_surface'))) {
             return false;
         }
@@ -540,11 +517,6 @@ final class RuntimeIslandAnalyzer
         }
 
         return true;
-    }
-
-    private function isDeclaredDocumentScope(DOMElement $element): bool
-    {
-        return SourceDom::isDocumentVariantRoot($element) && $element->hasAttribute('data-dla-document-scope');
     }
 
     private function hasBlockLevelChildElement(DOMElement $element): bool
