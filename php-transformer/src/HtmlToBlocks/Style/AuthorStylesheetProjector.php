@@ -27,6 +27,9 @@ final class AuthorStylesheetProjector
      */
     public const SUPERSEDED_MENU_TOGGLE_CLASS = 'blocks-engine-superseded-menu-toggle';
 
+    /** Properties that decide whether the source drew a space between inline menu items. */
+    private const NAVIGATION_ITEM_SPACE_PROPERTIES = array( 'display', 'float', 'position', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'letter-spacing', 'word-spacing', 'white-space', 'white-space-collapse' );
+
     /**
      * Core's replacement for a dropped menu toggle, excluded from a type rule
      * the toggle shared with source elements that survive conversion.
@@ -152,8 +155,9 @@ final class AuthorStylesheetProjector
             ? ''
             : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context);
+        $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
-            $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $svgImageRule . $editorDocumentRootRule;
+            $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
 
             return $this->withEditorProjectionRules($css, $prelude, $body);
         }
@@ -166,7 +170,8 @@ final class AuthorStylesheetProjector
             . $this->marginSelectorPrelude($prelude, $context) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
             . $imageRule
             . $svgImageRule
-            . $editorDocumentRootRule;
+            . $editorDocumentRootRule
+            . $navigationItemSpaceRule;
 
         return $this->withEditorProjectionRules($css, $prelude, $body);
     }
@@ -1502,6 +1507,16 @@ final class AuthorStylesheetProjector
                     continue;
                 }
             }
+            // Every match is a source list item core renders as a navigation
+            // item of its own. The source-type marker never reaches that
+            // rendered item, so the subject moves onto core's item class.
+            if ( $this->matchesOnlyNavigationListItems($matches, $context) ) {
+                $itemSelector = $this->projectNavigationListItemSelector($selector, $parsed, $context);
+                if ( null !== $itemSelector ) {
+                    $rewritten[] = $itemSelector;
+                    continue;
+                }
+            }
 
             $controls = array();
             $linkOwnedControls = array();
@@ -2149,6 +2164,13 @@ final class AuthorStylesheetProjector
     private function rewriteSourceTagTypes(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, string $rightmostInsertion = '', array $replacements = array()): string
     {
         foreach ( $parsed['type_spans'] as $typeSpan ) {
+            // A caller that already replaced the compound holding this type has
+            // decided where that type goes; the marker must not take it back.
+            foreach ( $replacements as $replacementStart => $replacement ) {
+                if ( (int) $typeSpan['start'] >= (int) $replacementStart && (int) $typeSpan['start'] < (int) $replacement['end'] ) {
+                    continue 2;
+                }
+            }
             $marker = $context->selectorProjections->tagMarker((string) $typeSpan['name']);
             if ( '' !== $marker ) {
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => ':where(.' . $marker . ')' . $this->typeSpecificityShim($context) );
@@ -2727,6 +2749,289 @@ final class AuthorStylesheetProjector
         }
 
         return array() !== $matches;
+    }
+
+    /** @param list<DOMElement> $matches */
+    private function matchesOnlyNavigationListItems(array $matches, AuthorStylesheetProjectionContext $context): bool
+    {
+        foreach ( $matches as $element ) {
+            if ( ! $context->selectorProjections->isNavigationListItemPath($element->getNodePath() ?? '') ) {
+                return false;
+            }
+        }
+
+        return array() !== $matches;
+    }
+
+    /**
+     * core/navigation-link and core/navigation-submenu render a source `<li>` as
+     * `<li class="wp-block-navigation-item">`, carrying the source item's
+     * classes and id but not the source-type marker other list items receive.
+     * A rule authored on the item (`#menu li{display:inline;padding-right:15px}`)
+     * therefore matched nothing in WordPress, and the menu lost the spacing the
+     * item's own box provided. Move the subject onto a zero-specificity item
+     * wrapper; classes, ids and structural pseudo-classes come along, the `li`
+     * type keeps its specificity through the type shim, and a trailing dynamic
+     * state stays on the item, which is the same element it described.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function projectNavigationListItemSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    {
+        $span = $parsed['rightmost_compound_span'] ?? null;
+        if ( ! is_array($span) ) {
+            return null;
+        }
+        $start = (int) $span['start'];
+        $end = (int) $span['end'];
+        $bodyEnd = $end;
+        $trailingState = '';
+        $suffix = $parsed['pseudo_state_suffix_span'] ?? null;
+        if ( is_array($suffix) ) {
+            if ( (int) $suffix['end'] !== $end ) {
+                return null;
+            }
+            $bodyEnd = (int) $suffix['start'];
+            $trailingState = substr($selector, $bodyEnd, $end - $bodyEnd);
+        }
+        $typeLength = 0;
+        foreach ( $parsed['type_spans'] as $typeSpan ) {
+            if ( (int) $typeSpan['start'] >= $start ) {
+                if ( 'li' !== strtolower((string) $typeSpan['name']) ) {
+                    return null;
+                }
+                $typeLength = (int) $typeSpan['end'] - (int) $typeSpan['start'];
+            }
+        }
+        $split = $this->splitNavigationItemCompound(substr($selector, $start, $bodyEnd - $start));
+        if ( null === $split ) {
+            return null;
+        }
+        $rest = $split['rest'];
+        if ( $typeLength > 0 ) {
+            $rest = substr($rest, $typeLength);
+        } elseif ( str_starts_with($rest, '*') ) {
+            $rest = substr($rest, 1);
+        }
+        // Anything the rendered item does not carry (an `[href]`-like attribute)
+        // leaves the authored selector alone.
+        if ( '' !== $rest ) {
+            return null;
+        }
+        $subject = ':where(.wp-block-navigation-item)' . $split['item'] . $split['structural']
+            . ( $typeLength > 0 ? $this->typeSpecificityShim($context) : '' )
+            . $trailingState;
+        return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
+            $start => array( 'end' => $end, 'value' => $subject ),
+        ));
+    }
+
+    /**
+     * Give back the space between inline menu items that core's flex row drops.
+     *
+     * Inline-level list items share one line box with the whitespace between
+     * `</li>` and `<li>`, which renders as one space of the list's font. core
+     * renders the items as flex items with nothing between them, so every item
+     * moved one space towards the start of the row, cumulatively (about 4px per
+     * item in a 12px menu). The space comes back as a no-break space after
+     * every rendered item but the last: it has the advance of a space but does
+     * not collapse at the end of the item, and because it trails the item it
+     * never starts a wrapped line, as in the source.
+     *
+     * The rule follows the authored rule that makes the items inline: the same
+     * projected item selector, emitted inside the same at-rules, with the same
+     * importance. It is added only where the source really had the space —
+     * {@see sourceItemsAreSpaceSeparated()}.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function navigationItemSpaceRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $display = (string) ( $declarations['display'] ?? '' );
+        if ( ! $this->isInlineLevelDisplay($display) ) {
+            return '';
+        }
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return '';
+        }
+        $carriers = array();
+        foreach ( $selectors as $selector ) {
+            $selector = trim($selector);
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] || null !== ( $parsed['pseudo_state_suffix_span'] ?? null ) ) {
+                continue;
+            }
+            $matches = $this->matchingSourceElements($selector, $parsed, $context);
+            if ( ! $this->matchesOnlyNavigationListItems($matches, $context) ) {
+                continue;
+            }
+            $item = $this->projectNavigationListItemSelector($selector, $parsed, $context);
+            // Only where the authored rule itself landed on the rendered item.
+            if ( null === $item || trim($this->rewriteSelectorPreludeOnce($selector, $context)) !== $item ) {
+                continue;
+            }
+            if ( $this->sourceItemsAreSpaceSeparated($matches, $context) && ! $this->authorsItemAfterContent($matches, $context) ) {
+                $carriers[] = $item . ':not(:last-child)::after';
+            }
+        }
+        if ( array() === $carriers ) {
+            return '';
+        }
+
+        return implode(',', $carriers) . '{content:"\\a0"' . ( CssValueInspector::isImportant($display) ? '!important' : '' ) . '}';
+    }
+
+    /** One spelling for the initial value, so a reset restating it compares equal to no statement. */
+    private static function effectiveFontValue(string $property, string $value): string
+    {
+        return match ( true ) {
+            'font-weight' === $property => array( '' => '400', 'normal' => '400', 'bold' => '700' )[$value] ?? $value,
+            in_array($property, array( 'font-style', 'letter-spacing', 'word-spacing' ), true) && ( '' === $value || CssValueInspector::isZeroLength($value) ) => 'normal',
+            default => $value,
+        };
+    }
+
+    /**
+     * Whether an authored rule already generates `::after` content on one of
+     * the items (`#menu li:after{content:"|"}`). That rule stays live on the
+     * rendered item, and the space must not replace its content.
+     *
+     * @param list<DOMElement> $items
+     */
+    private function authorsItemAfterContent(array $items, AuthorStylesheetProjectionContext $context): bool
+    {
+        foreach ( $context->authorStyles->styleRules() as $rule ) {
+            foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
+                $selector = trim((string) ( $record['selector'] ?? '' ));
+                if ( 1 !== preg_match('/^(.+?)::?after$/i', $selector, $subject) ) {
+                    continue;
+                }
+                foreach ( $items as $item ) {
+                    if ( $this->styleResolver->matchesCssSelector($item, $subject[1]) ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function isInlineLevelDisplay(string $display): bool
+    {
+        $keywords = preg_split('/\s+/', CssValueInspector::comparable($display)) ?: array();
+
+        return ( 1 === count($keywords) && 1 === preg_match('/^inline(?:-[a-z-]+)?$/', $keywords[0]) )
+            || ( 1 < count($keywords) && in_array('inline', $keywords, true) );
+    }
+
+    /**
+     * Whether the source rendered one collapsible space between each matched
+     * item and the next, and nothing else. True when, at the desktop
+     * reference viewport:
+     *
+     * - each item is a recorded navigation item whose rendered siblings are its
+     *   source siblings, and every element child of its list is matched, so
+     *   the rendered `:not(:last-child)` is exactly "has a next source item";
+     * - the items are separated only by whitespace (and comments), with some
+     *   whitespace between every pair — `</li><li>` has no space to give back;
+     * - each item is inline-level: not floated or taken out of flow, both of
+     *   which blockify it;
+     * - the list lays out inline content (not flex or grid, which blockify the
+     *   items and drop the whitespace) and collapses whitespace;
+     * - the item's font matches the list's: the source space takes the list's
+     *   font, the generated one takes the item's. This also rules out the
+     *   usual gap removal, `font-size:0` on the list with a size on the item.
+     *
+     * @param list<DOMElement> $items
+     */
+    private function sourceItemsAreSpaceSeparated(array $items, AuthorStylesheetProjectionContext $context): bool
+    {
+        $declared = array();
+        $own = function (DOMElement $element) use (&$declared): array {
+            return $declared[$element->getNodePath() ?? ''] ??= array_map(
+                static fn (string $value): string => CssValueInspector::comparable($value),
+                $this->styleResolver->referenceViewportAuthorDeclarations($element, self::NAVIGATION_ITEM_SPACE_PROPERTIES)
+            );
+        };
+        // The first stated value up the ancestors. A value that restates the
+        // parent's (`inherit`, or a reset's `font-size:100%`) is no statement.
+        $inherited = static function (DOMElement $element, string $property) use ($own): string {
+            for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+                $value = $own($node)[$property] ?? '';
+                if ( '' !== $value
+                    && ! in_array($value, array( 'inherit', 'unset' ), true)
+                    && ! ( 'font-size' === $property && 1 === preg_match('/^(?:100(?:\.0+)?%|1(?:\.0+)?em)$/', $value) )
+                ) {
+                    return $value;
+                }
+            }
+            return '';
+        };
+
+        $matched = array();
+        foreach ( $items as $item ) {
+            $matched[$item->getNodePath() ?? ''] = true;
+        }
+        $lists = array();
+        foreach ( $items as $item ) {
+            $list = $item->parentNode;
+            if ( ! $list instanceof DOMElement || ! $context->selectorProjections->navigationListItemRendersSourceSiblings($item->getNodePath() ?? '') ) {
+                return false;
+            }
+            $itemDeclarations = $own($item);
+            if ( ! $this->isInlineLevelDisplay($itemDeclarations['display'] ?? '')
+                || ! in_array($itemDeclarations['float'] ?? '', array( '', 'none' ), true)
+                || in_array($itemDeclarations['position'] ?? '', array( 'absolute', 'fixed' ), true)
+            ) {
+                return false;
+            }
+            foreach ( array( 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'letter-spacing', 'word-spacing' ) as $property ) {
+                if ( self::effectiveFontValue($property, $inherited($item, $property)) !== self::effectiveFontValue($property, $inherited($list, $property)) ) {
+                    return false;
+                }
+            }
+            $lists[$list->getNodePath() ?? ''] = $list;
+        }
+
+        $spaced = false;
+        foreach ( $lists as $list ) {
+            if ( 1 === preg_match('/flex|grid|box|contents|none/', $own($list)['display'] ?? '')
+                || ! in_array($inherited($list, 'white-space'), array( '', 'normal', 'nowrap' ), true)
+                || ! in_array($inherited($list, 'white-space-collapse'), array( '', 'collapse' ), true)
+            ) {
+                return false;
+            }
+            $previous = false;
+            $whitespace = '';
+            foreach ( $list->childNodes as $node ) {
+                if ( $node instanceof DOMElement ) {
+                    if ( ! isset($matched[$node->getNodePath() ?? '']) ) {
+                        return false;
+                    }
+                    if ( $previous ) {
+                        if ( '' === $whitespace ) {
+                            return false;
+                        }
+                        $spaced = true;
+                    }
+                    $previous = true;
+                    $whitespace = '';
+                } elseif ( XML_TEXT_NODE === $node->nodeType ) {
+                    // Collapsible whitespace only; a no-break space or visible
+                    // text between items is content of its own.
+                    if ( 1 !== preg_match('/^[ \t\n\r\f]*$/', (string) $node->nodeValue) ) {
+                        return false;
+                    }
+                    $whitespace .= (string) $node->nodeValue;
+                } elseif ( XML_COMMENT_NODE !== $node->nodeType ) {
+                    return false;
+                }
+            }
+        }
+
+        return $spaced;
     }
 
     /** @param array<string, mixed> $parsed */

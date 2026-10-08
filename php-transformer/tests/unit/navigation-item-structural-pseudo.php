@@ -209,10 +209,13 @@ $assert(
     1 === count($listAnchor) && str_ends_with($listAnchor[0], ' a:last-child') && ! str_contains($listAnchor[0], '.wp-block-navigation-item'),
     'li a:last-child is not rewritten when the anchor already sits in a source list item: ' . json_encode($listAnchor)
 );
+// The source `<li>` is rendered as core's own item, which carries core's item
+// class and not the source-type marker, so a rule on the item itself follows
+// it there (its structural pseudo-class included).
 $listGap = $selectorsDeclaring($listRules, 'margin-right:12px');
 $assert(
-    1 === count($listGap) && str_contains($listGap[0], ':not(:last-child)') && ! str_contains($listGap[0], '.wp-block-navigation-item'),
-    'li:not(:last-child) is not rewritten: ' . json_encode($listGap)
+    1 === count($listGap) && str_contains($listGap[0], ':where(.wp-block-navigation-item):not(:last-child)') && ! str_contains($listGap[0], 'blocks-engine-source-li'),
+    'li:not(:last-child) moves onto the rendered navigation item: ' . json_encode($listGap)
 );
 
 // --- Abandoned menu: the pattern builds a link, then gives the container up. ---
