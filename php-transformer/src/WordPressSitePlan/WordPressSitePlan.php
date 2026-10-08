@@ -2426,6 +2426,15 @@ PHP;
             $sources[$source] = true;
             }
         }
+        // The front page has no route segment, but WordPress still needs a
+        // physical slug. Reserve captured routes and their generated ancestors
+        // before choosing that fallback, so /home keeps its own native page.
+        if (isset($byRoute['/'])) {
+            $root = &$pages[$byRoute['/']];
+            $fallbackPath = '/' . $root['slug'];
+            if (isset($byRoute[$fallbackPath])) $root['slug'] = self::routeSlug(self::disambiguatedRoutePath($fallbackPath, $byRoute));
+            unset($root);
+        }
         foreach ($pages as &$page) { if ('post' === ($page['post_type'] ?? null)) { $page['parent_source_path'] = ''; continue; } $parent = $page['route']['parent_path']; if ('/' !== $parent && 'page' !== ($pages[$byRoute[$parent]]['post_type'] ?? null)) throw new InvalidArgumentException('WordPress site plan page hierarchy cannot inherit a post route.'); $page['parent_source_path'] = '/' === $parent ? '' : $pages[$byRoute[$parent]]['source_path']; }
         unset($page);
         usort($pages, static fn(array $left, array $right): int => substr_count($left['route']['path'], '/') <=> substr_count($right['route']['path'], '/') ?: strcmp($left['route']['path'], $right['route']['path']));
