@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
@@ -292,8 +293,19 @@ final class ButtonsPattern
 
     private function buttonText(DOMElement $element, string $html, ButtonPatternContext $buttons): string
     {
-        $html = preg_replace('/<img\b[^>]*\balt\s*=\s*(["\'])(.*?)\1[^>]*>/is', '$2', $html) ?? $html;
-        $html = preg_replace('/<img\b[^>]*>/is', '', $html) ?? $html;
+        // Source images collapse to their text alternative. An image that is
+        // this engine's own materialized inline SVG is already the label's
+        // native form, exactly as the transform that produced it emitted it.
+        $html = preg_replace_callback(
+            '/<img\b[^>]*>/is',
+            static function (array $match): string {
+                if ( preg_match('/\bsrc\s*=\s*(["\'])(.*?)\1/is', $match[0], $src) && AssetMaterializationState::isInlineSvgAssetReference(html_entity_decode($src[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')) ) {
+                    return $match[0];
+                }
+                return preg_match('/\balt\s*=\s*(["\'])(.*?)\1/is', $match[0], $alt) ? $alt[2] : '';
+            },
+            $html
+        ) ?? $html;
         $html = $buttons->materializeSvgImages($element, $html) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
         $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;

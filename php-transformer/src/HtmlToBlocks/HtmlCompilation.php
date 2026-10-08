@@ -181,6 +181,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\OwnSaveShapeInverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
@@ -466,8 +467,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * the browser's link colour would replace the source colour; the projected
      * rule makes that anchor inherit its host block's colour instead.
      */
-    private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = 'blocks-engine-propagated-link-color';
-    public const PROPAGATED_LINK_CARRIER_CLASS = 'blocks-engine-propagated-link';
+    private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = SourceBlockAttributeProjector::PROPAGATED_LINK_COLOR_CLASS;
+    public const PROPAGATED_LINK_CARRIER_CLASS = SourceBlockAttributeProjector::PROPAGATED_LINK_CLASS;
 
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
@@ -1587,6 +1588,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // conversion and keeps every downstream pass — style matching, selector
         // projection, rich-text materialization — from ever observing it.
         $this->pruneNonRenderedMetadataElements($body);
+        // Saved block markup re-enters as source; invert save shapes that moved
+        // source identity onto synthesized wrappers before anything reads them.
+        OwnSaveShapeInverter::invert($body);
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         // Remove wrapper-convention custom elements before author selectors are
@@ -3950,6 +3954,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $preserveInlineLayoutLeaf = ! empty($attrs['preserveInlineLayoutLeaf']);
         unset($attrs['preserveInlineLayoutLeaf']);
+        // RichText has no comment nodes: the editor drops them on its first
+        // save, and a re-ingested paragraph never carries them. Source comments
+        // (framework text-split markers such as React's `<!-- -->`) are not
+        // content, so no RichText value keeps them.
+        if ( in_array($name, array( 'core/paragraph', 'core/heading' ), true) && str_contains((string) ($attrs['content'] ?? ''), '<!--') ) {
+            $attrs['content'] = preg_replace('/<!--.*?-->/s', '', (string) $attrs['content']) ?? $attrs['content'];
+        }
         // Set by cssOwnedGroupAttributes() when the container is a CSS-owned
         // layout element whose direct-child topology changed during
         // conversion. applyIntrinsicVisualMediaHeight() below synthesizes its

@@ -437,6 +437,7 @@
       "php tests/unit/list-element-converters.php",
       "php tests/unit/svg-element-converter.php",
       "php tests/unit/filtered-svg-materialization.php",
+      "php tests/unit/own-output-round-trip.php",
       "php tests/unit/svg-materialized-paint-cascade.php",
       "php tests/unit/svg-inherited-color-reset.php",
       "php tests/unit/materialized-svg-custom-property-carry.php",
