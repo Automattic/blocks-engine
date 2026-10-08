@@ -28,12 +28,21 @@ $cases = array(
     'buttons with more than eight author classes' => '<div><a class="btn inline-flex items-center gap-2 rounded-full border px-5 py-2 text-sm font-semibold" href="/go/">Go</a></div>',
     'framework text-split comments in RichText' => '<div class="row"><span class="eyebrow">Brand Identity<!-- --> <span class="star">*</span></span><span class="eyebrow">Two</span></div>',
     'card links propagated into their content' => '<div class="grid"><a class="card" href="/work/one/"><div class="p-6"><span class="eyebrow">Brand</span><h3>One</h3></div></a></div>',
+    'accordion headings built from disclosure toggles' => '<div class="faq"><div class="item"><h2><button type="button" aria-expanded="false" class="flex w-full justify-between"><span class="q">What do you do?</span><span class="icon"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M5 12h14"></path></svg></span></button></h2></div><div class="item"><h2><button type="button" aria-expanded="false" class="flex w-full justify-between"><span class="q">Second?</span><span class="icon"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M5 12h14"></path></svg></span></button></h2></div></div>',
     'wrappers preserved for source-only data attributes' => '<div class="grid"><div class="reveal" data-visible="true"><div class="card"><h3>One</h3><p>Body</p></div></div><div class="reveal" data-visible="true"><div class="card"><h3>Two</h3><p>Body</p></div></div></div>',
 );
+
+$savedMarkupOnly = array( 'accordion headings built from disclosure toggles' );
 
 foreach ($cases as $name => $source) {
     $first = $transform($source);
     $second = $transform($savedHtml($first));
+    // An accordion keeps its source icon payload in block metadata, which saved
+    // markup cannot carry; its fixed point is the saved markup itself.
+    if (in_array($name, $savedMarkupOnly, true)) {
+        $first = $savedHtml($first);
+        $second = $savedHtml($second);
+    }
     $assert($first === $second, 'Transforming the saved markup of ' . $name . ' is a fixed point.', "first:  {$first}\nsecond: {$second}");
 }
 

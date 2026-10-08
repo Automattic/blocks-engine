@@ -15,7 +15,7 @@ final class FormDispatchContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array{block: array<string, mixed>, slot: array<string, mixed>} $compose
      * @param Closure(DOMElement, ?array<string, mixed>, ?array<string, mixed>): array<string, mixed> $buildFallbackFinding
      * @param Closure(DOMElement, ?array<string, mixed>): void $recordForm
-     * @param Closure(DOMElement, bool): ?array<string, mixed> $buildReadableFormBlock
+     * @param Closure(DOMElement, bool, array<int, array<string, mixed>>&): ?array<string, mixed> $buildReadableFormBlock
      * @param Closure(DOMElement): bool $requiresPreservation
      * @param Closure(DOMElement): array<string, mixed> $htmlPreservationBlock
      * @param Closure(DOMElement): bool $isPseudoForm
@@ -71,9 +71,9 @@ final class FormDispatchContext
     }
 
     /** @return array<string, mixed>|null */
-    public function buildReadableFormBlock(DOMElement $element, bool $allowFormEvents = false): ?array
+    public function buildReadableFormBlock(DOMElement $element, bool $allowFormEvents = false, array &$fallbacks = array()): ?array
     {
-        return ($this->buildReadableFormBlock)($element, $allowFormEvents);
+        return ($this->buildReadableFormBlock)($element, $allowFormEvents, $fallbacks);
     }
 
     public function requiresPreservation(DOMElement $element): bool
