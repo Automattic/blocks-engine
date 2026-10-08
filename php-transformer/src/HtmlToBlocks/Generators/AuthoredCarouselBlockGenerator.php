@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -1121,7 +1122,7 @@ JS;
     private function safeInlineStyle(string $style): string
     {
         $safe = array();
-        foreach (explode(';', $style) as $declaration) {
+        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
             if (1 !== preg_match('/^\s*([a-z-]+)\s*:\s*([^;{}<>]+)\s*$/i', $declaration, $matches)) {
                 continue;
             }

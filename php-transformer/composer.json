@@ -199,6 +199,7 @@
       "php tests/unit/custom-element-runtime-dependency.php",
       "php tests/unit/description-list-block.php",
       "php tests/unit/css-value-splitter.php",
+      "php tests/unit/css-comment-in-declarations.php",
       "php tests/unit/css-value-inspector.php",
       "php tests/unit/css-syntax-scanner.php",
       "php tests/unit/css-ident.php",
