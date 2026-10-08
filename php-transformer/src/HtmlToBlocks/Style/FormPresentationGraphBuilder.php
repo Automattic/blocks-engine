@@ -218,10 +218,22 @@ final class FormPresentationGraphBuilder
         if ( $this->visibilityAnalysis['truncated'] ) {
             return null;
         }
+        return $this->hiddenBelow($element, $boundary, $this->visibilityAnalysis['rules']);
+    }
+
+    /**
+     * The declaration that hides an element (or an ancestor below `$boundary`)
+     * under every condition the chain's rules declare, judged from `$rules`.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @return array{property: string, value: string, selector: string, source_path: string}|null
+     */
+    private function hiddenBelow(DOMElement $element, DOMElement $boundary, array $rules): ?array
+    {
         $chain = array();
         $conditions = array();
         for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-            $facts = $this->visibilityFacts($node, $this->visibilityAnalysis['rules']);
+            $facts = $this->visibilityFacts($node, $rules);
             $chain[] = $facts;
             $conditions += array_fill_keys(array_keys($facts['conditional']), true);
         }
@@ -915,6 +927,9 @@ final class FormPresentationGraphBuilder
         $ordinal = 0;
         foreach ( $control->getElementsByTagName('svg') as $svg ) {
             if ( ! $svg instanceof DOMElement || ! SourceDom::svgHasDrawableContent($svg) ) continue;
+            // An icon the source keeps hidden inside the control (a loading
+            // spinner shown only while the form submits) is not drawn there.
+            if ( null !== $this->hiddenBelow($svg, $control, $rules) ) continue;
             if ( count($parts) >= self::MAX_VISUAL_PARTS ) { $this->truncated = true; $this->diagnostics[] = 'visual_part_limit'; break; }
             $selector = SourceDom::elementSelector($svg);
             if ( strlen($selector) > 2048 ) { $this->diagnostics[] = 'visual_selector_limit'; continue; }

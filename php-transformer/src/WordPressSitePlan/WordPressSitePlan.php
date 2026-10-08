@@ -351,7 +351,7 @@ PHP;
          $pages = $navigation['pages'];
          $parts = $navigation['parts'];
          $menus = $navigation['menus'];
-        $articleChrome = $this->extractPostArticleChrome($pages, $parts);
+        $articleChrome = $this->extractPostArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
          $pages = $articleChrome['pages'];
           $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations, $taxonomyProjection['entities']);
           $assets = ListingQueryPresentation::project($assets, $this->listingQueryContainers);
@@ -2481,9 +2481,11 @@ PHP;
     /**
      * @param array<int,array<string,mixed>> $pages
      * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @param array<int,array<string,mixed>> $runtimeEntityRecords
      * @return array{pages:array<int,array<string,mixed>>,single:?string}
      */
-    private function extractPostArticleChrome(array $pages, array $parts): array
+    private function extractPostArticleChrome(array $pages, array $parts, array $runtimeDeclarations = array(), array $runtimeEntityRecords = array()): array
     {
         $posts = array();
         $indexes = array();
@@ -2518,6 +2520,14 @@ PHP;
             if (!$transformed['title'] || (!$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || !str_contains($transformed['template'], '<!-- wp:post-content')) {
                 return array('pages' => $pages, 'single' => null);
             }
+            // A runtime entity binding anchors one exact block of the document
+            // its declaration still owns. Factoring keeps only post-content
+            // there, so when an anchored region would move into the single
+            // template the complete articles stay page-owned rather than
+            // strand the binding on a source path that no longer renders it.
+            if ($this->postChromeFactoringStrandsBindings($post, $transformed['retained'], $runtimeDeclarations, $runtimeEntityRecords)) {
+                return array('pages' => $pages, 'single' => null);
+            }
             if (null === $single) {
                 $single = $this->replaceListingArchives($transformed['template'], $posts);
             }
@@ -2528,6 +2538,59 @@ PHP;
             $pages[$index]['content_hash'] = self::contentHash($body);
         }
         return array('pages' => $pages, 'single' => $single);
+    }
+    /**
+     * Whether factoring this post's article chrome would move a runtime entity
+     * binding's anchored region out of the document its declaration owns. The
+     * body keeps only the retained post-content ranges, so a bound region that
+     * survives in none of them would strand.
+     *
+     * @param array<string,mixed> $post
+     * @param array<int,array{offset:int,length:int}> $retained
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $records
+     */
+    private function postChromeFactoringStrandsBindings(array $post, array $retained, array $declarations, array $records): bool
+    {
+        $ranges = $this->postBoundBlockRanges($declarations, $records, $post);
+        if (array() === $ranges) return false;
+        foreach ($ranges as $range) {
+            foreach ($retained as $kept) {
+                if ($kept['offset'] <= $range['offset'] && $range['offset'] + $range['length'] <= $kept['offset'] + $kept['length']) continue 2;
+            }
+            return true;
+        }
+        return false;
+    }
+    /**
+     * Byte ranges of a post's blocks that runtime entity bindings anchor on.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $records
+     * @param array<string,mixed> $post
+     * @return list<array{offset:int,length:int}>
+     */
+    private function postBoundBlockRanges(array $declarations, array $records, array $post): array
+    {
+        $markup = (string) ($post['canonical_block_markup'] ?? '');
+        $ranges = array();
+        foreach ($declarations as $declaration) {
+            $payload = $declaration['payload'] ?? array();
+            $entities = RuntimeEntityManifest::SCHEMA === ($payload['schema'] ?? null)
+                ? RuntimeEntityManifest::resolve($payload, $records)
+                : (is_array($payload['entities'] ?? null) ? $payload['entities'] : array());
+            foreach ($entities as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
+                if (($binding['source_path'] ?? null) !== ($post['source_path'] ?? null)) continue;
+                $search = $binding['search_block_markup'] ?? null;
+                if (!is_string($search) || '' === $search) continue;
+                $position = $binding['position'] ?? null;
+                if (self::bindingPosition($position, $markup, $search)) { $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']); continue; }
+                // A manifest record keeps the position it was compiled with, which
+                // page canonicalization can shift; protect every block it may name.
+                for ($offset = strpos($markup, $search); false !== $offset; $offset = strpos($markup, $search, $offset + strlen($search))) $ranges[] = array('offset' => $offset, 'length' => strlen($search));
+            }
+        }
+        return $ranges;
     }
     /**
      * @param array<int,array<string,mixed>> $posts
@@ -2551,7 +2614,7 @@ PHP;
     /**
      * @param array<string,mixed> $post
      * @param array<string,true> $shared
-     * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool}
+     * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool,retained:array<int,array{offset:int,length:int}>}
      */
     private function transformPostChromeDocument(string $markup, array $post, string $route, array $shared): array
     {
@@ -2563,7 +2626,7 @@ PHP;
         }
         usort($top, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
         if (array() === $top) {
-            return array('template' => '', 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false);
+            return array('template' => '', 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
         }
         $template = '';
         $body = '';
@@ -2571,6 +2634,7 @@ PHP;
         $date = false;
         $sharedChrome = false;
         $content = false;
+        $retained = array();
         $cursor = 0;
         foreach ($top as $range) {
             if ($range['offset'] > $cursor) {
@@ -2583,23 +2647,24 @@ PHP;
             $date = $date || $transformed['date'];
             $sharedChrome = $sharedChrome || $transformed['shared'];
             $content = $content || $transformed['content'];
+            $retained = array_merge($retained, $transformed['retained']);
             $cursor = $range['offset'] + $range['length'];
         }
         if ($cursor < strlen($markup)) {
             $template .= substr($markup, $cursor);
         }
-        return array('template' => $template, 'body' => $body, 'title' => $title, 'date' => $date, 'shared' => $sharedChrome, 'content' => $content);
+        return array('template' => $template, 'body' => $body, 'title' => $title, 'date' => $date, 'shared' => $sharedChrome, 'content' => $content, 'retained' => $retained);
     }
     /**
      * @param array{offset:int,length:int} $range
      * @param array<string,mixed> $post
      * @param array<string,true> $shared
-     * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool}
+     * @return array{template:string,body:string,title:bool,date:bool,shared:bool,content:bool,retained:array<int,array{offset:int,length:int}>}
      */
     private function transformPostChromeRange(string $markup, array $range, array $post, string $route, array $shared): array
     {
         $slice = substr($markup, $range['offset'], $range['length']);
-        $empty = array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false);
+        $empty = array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
         $attrs = self::listingBlockAttributes($slice);
         $className = (string) ($attrs['className'] ?? '');
         $anchor = (string) ($attrs['anchor'] ?? '');
@@ -2608,27 +2673,28 @@ PHP;
         }
         $identity = ShellExtraction::identityMarkup($slice);
         if ('' !== $identity && isset($shared[$identity])) {
-            return array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => true, 'content' => false);
+            return array('template' => $slice, 'body' => '', 'title' => false, 'date' => false, 'shared' => true, 'content' => false, 'retained' => array());
         }
         $children = self::childBlockRanges($markup, $range);
         if (array() === $children) {
             $kind = $this->classifyPostChromeBlock($slice, $post, $route);
             if ('title' === $kind) {
-                return array('template' => self::postTitleMarkup($slice), 'body' => '', 'title' => true, 'date' => false, 'shared' => false, 'content' => false);
+                return array('template' => self::postTitleMarkup($slice), 'body' => '', 'title' => true, 'date' => false, 'shared' => false, 'content' => false, 'retained' => array());
             }
             if ('date' === $kind) {
-                return array('template' => self::postDateMarkup($slice), 'body' => '', 'title' => false, 'date' => true, 'shared' => false, 'content' => false);
+                return array('template' => self::postDateMarkup($slice), 'body' => '', 'title' => false, 'date' => true, 'shared' => false, 'content' => false, 'retained' => array());
             }
             if ('comments' === $kind || 'chrome' === $kind || 'share' === $kind || 'skip' === $kind) {
                 return $empty;
             }
-            return array('template' => '<!-- wp:post-content /-->', 'body' => $slice, 'title' => false, 'date' => false, 'shared' => false, 'content' => true);
+            return array('template' => '<!-- wp:post-content /-->', 'body' => $slice, 'title' => false, 'date' => false, 'shared' => false, 'content' => true, 'retained' => array(array('offset' => $range['offset'], 'length' => $range['length'])));
         }
         $foundTitle = false;
         $foundDate = false;
         $foundShared = false;
         $emittedContent = false;
         $body = '';
+        $retained = array();
         $replacements = array();
         foreach ($children as $child) {
             $transformed = $this->transformPostChromeRange($markup, $child, $post, $route, $shared);
@@ -2636,6 +2702,7 @@ PHP;
             $foundDate = $foundDate || $transformed['date'];
             $foundShared = $foundShared || $transformed['shared'];
             $body .= $transformed['body'];
+            $retained = array_merge($retained, $transformed['retained']);
             if ($transformed['content'] && $emittedContent) {
                 $replacements[] = array('offset' => $child['offset'], 'length' => $child['length'], 'markup' => '');
                 continue;
@@ -2650,7 +2717,7 @@ PHP;
             $relative = $replacement['offset'] - $range['offset'];
             $slice = substr($slice, 0, $relative) . $replacement['markup'] . substr($slice, $relative + $replacement['length']);
         }
-        return array('template' => $slice, 'body' => $body, 'title' => $foundTitle, 'date' => $foundDate, 'shared' => $foundShared, 'content' => $emittedContent);
+        return array('template' => $slice, 'body' => $body, 'title' => $foundTitle, 'date' => $foundDate, 'shared' => $foundShared, 'content' => $emittedContent, 'retained' => $retained);
     }
     /** @param array<string,mixed> $post */
     private function classifyPostChromeBlock(string $slice, array $post, string $route): string
@@ -3598,6 +3665,12 @@ PHP;
             $lines[] = "}, 10, 2 );";
         }
         $hasNavigationLink = false;
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineNavigationOpener')) {
+                $lines[] = NavigationOpenerRuntime::source();
+                break;
+            }
+        }
         foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
             $markup = (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? '');
             // Require the navigation container alongside a link, not merely the

@@ -9,6 +9,11 @@ use DOMElement;
 /** Per-transform source identities projected from author CSS selectors. */
 final class AuthorSelectorProjectionState
 {
+    /** Roles a source element plays in the core/navigation block that replaces it. */
+    public const NAVIGATION_ANCHOR = 'anchor';
+    public const NAVIGATION_ITEM = 'item';
+    public const NAVIGATION_LIST_HOST = 'list-host';
+
     private ?AuthorStyleAnalysis $authorStyles = null;
 
     /** @var array<string, string> */
@@ -81,6 +86,16 @@ final class AuthorSelectorProjectionState
     /** @var array<string, string> */
     private array $imageLinkMarkers = array();
 
+    /**
+     * Source image path => the core/image figure that now carries its class
+     * list and id. core/image saves both on the <figure>, never on the <img>,
+     * so an author subject that names the image by class or id has to follow
+     * them there.
+     *
+     * @var array<string, array{classes: list<string>, anchor: string, linked: bool}>
+     */
+    private array $imageFigures = array();
+
     /** @var array<string, string> */
     private array $tableMarkers = array();
 
@@ -99,8 +114,21 @@ final class AuthorSelectorProjectionState
     /** @var array<string, true> Source boxes retained verbatim by a layout shell. */
     private array $retainedSourcePaths = array();
 
-    /** @var array<string, true> */
-    private array $navigationItemAnchorPaths = array();
+    /**
+     * Source elements core/navigation renders as something other than
+     * themselves, by role:
+     *
+     * - NAVIGATION_ANCHOR: a direct anchor core re-parents into a list item of
+     *   its own, so its position among its source siblings belongs to that item.
+     * - NAVIGATION_ITEM: a source `<li>` core renders as `<li class="wp-block-navigation-item">`,
+     *   without the source-type marker; the flag records whether its rendered
+     *   siblings are exactly its source list's items.
+     * - NAVIGATION_LIST_HOST: a source `<ul>`/`<ol>` that is itself the element
+     *   the navigation block stands in for.
+     *
+     * @var array<string, array<string, bool>>
+     */
+    private array $navigationSourcePaths = array();
 
     public function installAuthorStyles(AuthorStyleAnalysis $authorStyles): void
     {
@@ -190,6 +218,25 @@ final class AuthorSelectorProjectionState
         return $this->imageLinkMarkers;
     }
 
+    /** Remember which figure a source image became, and what identity the figure carries. */
+    public function recordImageFigure(string $path, string $className, string $anchor, bool $linked): void
+    {
+        if ( '' === $path ) {
+            return;
+        }
+        $this->imageFigures[$path] = array(
+            'classes' => array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array(), static fn (string $class): bool => '' !== $class)),
+            'anchor' => $anchor,
+            'linked' => $linked,
+        );
+    }
+
+    /** @return array{classes: list<string>, anchor: string, linked: bool}|null */
+    public function imageFigure(string $path): ?array
+    {
+        return $this->imageFigures[$path] ?? null;
+    }
+
     public function ensureImageWrapperMarker(string $path): string
     {
         return $this->imageWrapperMarkers[$path] ??= $this->allocateMarker('semantic');
@@ -246,21 +293,20 @@ final class AuthorSelectorProjectionState
     }
 
     /**
-     * Record a source anchor that core/navigation renders inside a list item
-     * of its own, so the anchor's position among its source siblings now
-     * belongs to that item.
+     * Record a source element core/navigation renders in one of the
+     * NAVIGATION_* roles. `$rendersSourceSiblings` is read for items only.
      */
-    public function markNavigationItemAnchor(DOMElement $anchor): void
+    public function markNavigationSource(DOMElement $element, string $role, bool $rendersSourceSiblings = true): void
     {
-        $path = $anchor->getNodePath() ?? '';
+        $path = $element->getNodePath() ?? '';
         if ( '' !== $path ) {
-            $this->navigationItemAnchorPaths[$path] = true;
+            $this->navigationSourcePaths[$role][$path] = $rendersSourceSiblings;
         }
     }
 
-    public function isNavigationItemAnchorPath(string $path): bool
+    public function isNavigationSourcePath(string $path, string $role): bool
     {
-        return isset($this->navigationItemAnchorPaths[$path]);
+        return isset($this->navigationSourcePaths[$role][$path]);
     }
 
     /**
@@ -274,6 +320,17 @@ final class AuthorSelectorProjectionState
     {
         // Hash input only (never emitted); the NUL keeps it apart from any real selector text.
         return "parent-of\0" . $selector;
+    }
+
+    /**
+     * Whether the rendered item's container holds exactly the items of its
+     * source list, in source order. Not so when core gathers the items of
+     * two source lists into one container: there the last item of the first
+     * list has a rendered sibling it had no source sibling for.
+     */
+    public function navigationListItemRendersSourceSiblings(string $path): bool
+    {
+        return true === ( $this->navigationSourcePaths[self::NAVIGATION_ITEM][$path] ?? false );
     }
 
     public function ensureAttributeMarker(string $path, ?string $stableIdentity = null): string

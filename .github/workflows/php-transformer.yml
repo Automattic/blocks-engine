@@ -91,6 +91,14 @@ jobs:
       - name: Run visual parity tests
         run: npm test
 
+      - name: Verify layout-table source tracks and authored responsive overrides
+        env:
+          WORDPRESS_ROOT: ${{ runner.temp }}/wordpress
+        run: |
+          curl --fail --silent --show-error https://wordpress.org/wordpress-7.0.4.tar.gz | tar -xz -C "$RUNNER_TEMP"
+          node tests/layout-media-tracks.mjs
+          BE_FIXTURE_VARIANT=responsive node tests/layout-media-tracks.mjs
+
       - name: Verify native disclosure control presentation
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/details-control-presentation-browser.mjs
@@ -206,6 +214,21 @@ jobs:
           php "$WP_CLI" --path="$SITE" eval "require '$PWD/tests/integration/document-body-context-install.php';"
           php -S 127.0.0.1:19006 -t "$SITE" > "$RUNNER_TEMP/document-context-http/server.log" 2>&1 &
           PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/integration/document-body-context-browser.mjs
+      - name: Verify authored carousel PHP and native save control contract
+        if: matrix.php-version == '8.2'
+        working-directory: php-transformer
+        env:
+          BE_EDITOR_WP_URL: http://127.0.0.1:19006
+          BE_EDITOR_USER: fixture
+          BE_EDITOR_PASSWORD: fixture-password
+          BE_EDITOR_EVIDENCE_DIR: ${{ runner.temp }}/document-context-http
+        run: |
+          SITE="$RUNNER_TEMP/document-context-http/site"
+          WP_CLI="$RUNNER_TEMP/document-context-http/wp-cli.phar"
+          export BE_TRANSFORMER_ROOT="$PWD"
+          php "$WP_CLI" --path="$SITE" eval-file "$PWD/tests/build-carousel-control-acceptance.php" > "$BE_EDITOR_EVIDENCE_DIR/carousel-control-page.json"
+          export BE_EDITOR_POST_ID="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); echo $x["post_id"];' "$BE_EDITOR_EVIDENCE_DIR/carousel-control-page.json")"
+          node tests/carousel-control-acceptance.mjs
       - name: Retain document context runtime evidence
         if: always() && matrix.php-version == '8.2'
         uses: actions/upload-artifact@v4

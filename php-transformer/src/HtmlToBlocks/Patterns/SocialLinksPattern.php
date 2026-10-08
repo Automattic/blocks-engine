@@ -93,7 +93,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             if ( '' === $label ) {
                 $label = $text;
             }
-            $service = $this->service($url) ?? $this->serviceFromLabel($label);
+            $service = self::serviceForUrl($url) ?? $this->serviceFromLabel($label);
             $labeledPlaceholder = $explicit
                 && $this->isLocalPlaceholderUrl($url)
                 && null !== $service;
@@ -157,7 +157,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return false;
         }
         foreach ( $anchors as $anchor ) {
-            if ( null === $this->service(LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'))) ) {
+            if ( null === self::serviceForUrl(LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'))) ) {
                 return false;
             }
         }
@@ -204,7 +204,8 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         return '' !== strtolower((string) parse_url($resolved, PHP_URL_HOST));
     }
 
-    private function service(string $url): ?string
+    /** The shared social destination inventory, including icon-only menu links. */
+    public static function serviceForUrl(string $url): ?string
     {
         if ( str_starts_with(strtolower($url), 'mailto:') ) {
             return 'mail';

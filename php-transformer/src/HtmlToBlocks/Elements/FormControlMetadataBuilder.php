@@ -292,7 +292,37 @@ final class FormControlMetadataBuilder
             }
         }
 
-        return in_array($text, $claimedTexts, true);
+        // A field's own wrapper (`<p><label for="e">Email</label><input id="e"></p>`,
+        // `<p><button>Join</button></p>`) has no text of its own: everything it
+        // reads is a claimed label or a control it contains.
+        return in_array($text, $claimedTexts, true) || '' === $this->unclaimedText($node, $claimedLabels);
+    }
+
+    /**
+     * Text of an element outside the claimed labels and the controls it contains.
+     *
+     * @param array<int, DOMElement> $claimedLabels
+     */
+    private function unclaimedText(DOMElement $element, array $claimedLabels): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMText ) {
+                $text .= $child->textContent;
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || FormControlClassifier::isControlElement($child) ) {
+                continue;
+            }
+            foreach ( $claimedLabels as $label ) {
+                if ( $label->isSameNode($child) ) {
+                    continue 2;
+                }
+            }
+            $text .= $this->unclaimedText($child, $claimedLabels);
+        }
+
+        return trim((string) preg_replace('/\s+/', ' ', $text));
     }
 
     /**

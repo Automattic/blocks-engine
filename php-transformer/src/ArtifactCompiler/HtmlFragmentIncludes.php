@@ -50,6 +50,10 @@ final class HtmlFragmentIncludes
      * Only comments are replaced: surrounding bytes and fragment URLs are intact.
      * The resulting content digest is also the geometry-proof identity; evidence
      * bound to unresolved source is deliberately not promoted to resolved HTML.
+     * Include accounting is per resolved document: shared fragments are resolved
+     * once and reused, and every reuse charges the fragment's full logical
+     * expansion count, keeping the per-document bound deterministic regardless
+     * of file order or cache warmth.
      *
      * @param array<int,array<string,mixed>> $files
      * @param array<int,string> $entrypoints
@@ -78,16 +82,25 @@ final class HtmlFragmentIncludes
         if (array() !== $duplicates) throw new InvalidArgumentException('html_include_duplicate_path: ' . $duplicates[0]);
         $root = self::virtualRoot($files, $entrypoints);
         $referenced = array();
-        $count = 0;
+        $resolved = array();
         $total = 0;
-        $resolve = function (string $path, array $stack) use (&$resolve, &$referenced, &$count, $contents, $directives, $root, $limits): string {
+        $count = 0;
+        $resolve = function (string $path, array $stack) use (&$resolve, &$referenced, &$resolved, &$count, $contents, $directives, $root, $limits): array {
             if (isset($stack[$path])) throw new InvalidArgumentException('html_include_cycle: ' . $path);
             if (count($stack) >= self::MAX_DEPTH) throw new InvalidArgumentException('html_include_depth_exceeded: ' . $path);
+            if (isset($resolved[$path])) {
+                if (count($stack) + $resolved[$path]['height'] >= self::MAX_DEPTH) throw new InvalidArgumentException('html_include_depth_exceeded: ' . $path);
+                $count += $resolved[$path]['uses'];
+                if ($count > self::MAX_INCLUDES) throw new InvalidArgumentException('html_include_count_exceeded: ' . $path);
+                return $resolved[$path];
+            }
             $stack[$path] = true;
             $source = $contents[$path];
             if (strlen($source) > $limits['max_file_bytes']) throw new InvalidArgumentException('html_include_file_budget_exceeded: ' . $path);
             $result = '';
             $offset = 0;
+            $height = 0;
+            $uses = 0;
             foreach ($directives[$path] as $directive) {
                 $position = $directive['offset'];
                 $target = $root . substr($directive['virtual'], 1);
@@ -95,34 +108,44 @@ final class HtmlFragmentIncludes
                 if (++$count > self::MAX_INCLUDES) throw new InvalidArgumentException('html_include_count_exceeded: ' . $path);
                 $referenced[$target] = true;
                 $fragment = $resolve($target, $stack);
+                $uses += 1 + $fragment['uses'];
+                $height = max($height, 1 + $fragment['height']);
                 $prefix = substr($source, $offset, $position - $offset);
-                if (strlen($result) + strlen($prefix) + strlen($fragment) > $limits['max_file_bytes']) throw new InvalidArgumentException('html_include_file_budget_exceeded: ' . $path);
-                $result .= $prefix . $fragment;
+                if (strlen($result) + strlen($prefix) + strlen($fragment['content']) > $limits['max_file_bytes']) throw new InvalidArgumentException('html_include_file_budget_exceeded: ' . $path);
+                $result .= $prefix . $fragment['content'];
                 $offset = $position + $directive['length'];
             }
             if (strlen($result) + strlen($source) - $offset > $limits['max_file_bytes']) throw new InvalidArgumentException('html_include_file_budget_exceeded: ' . $path);
-            return $result . substr($source, $offset);
+            return $resolved[$path] = array('content' => $result . substr($source, $offset), 'height' => $height, 'uses' => $uses);
         };
-        foreach ($files as &$file) {
-            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
-            if (isset($contents[$path]) && array() !== $directives[$path]) {
-                $file['content'] = $resolve($path, array());
-                if (!isset($file['metadata']['compilation'])) $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $path);
-                $file['metadata']['compilation']['resolved_html_includes'] = true;
-                unset($file['content_base64'], $file['payload_reference']);
+        try {
+            foreach ($files as &$file) {
+                $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
+                if (isset($contents[$path]) && array() !== $directives[$path]) {
+                    $count = 0;
+                    $file['content'] = $resolve($path, array())['content'];
+                    if (!isset($file['metadata']['compilation'])) $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $path);
+                    $file['metadata']['compilation']['resolved_html_includes'] = true;
+                    unset($file['content_base64'], $file['payload_reference']);
+                }
+                if (!ArtifactNormalizer::isReferenceBackedBinary($file) && !isset($reports[$path])) $total += $payload($file, $path)['bytes'];
+                if ($total > $limits['max_total_bytes']) throw new InvalidArgumentException('html_include_total_budget_exceeded');
             }
-            if (!ArtifactNormalizer::isReferenceBackedBinary($file) && !isset($reports[$path])) $total += $payload($file, $path)['bytes'];
-            if ($total > $limits['max_total_bytes']) throw new InvalidArgumentException('html_include_total_budget_exceeded');
+            unset($file);
+            foreach ($files as &$file) {
+                if (!isset($referenced[$file['path']])) continue;
+                if (array() === $directives[$file['path']]) $file['content'] = $contents[$file['path']];
+                $file['metadata']['compilation'] = array('scope' => 'shared', 'included_component' => true, 'resolved_html_includes' => true);
+                // Included HTML is source data, never an additional route.
+                $file['role'] = 'template-part';
+            }
+            unset($file);
+            return $files;
+        } finally {
+            // Recursive closures capture their own reference. Break that cycle
+            // on success and failure so source and expanded payloads are freed
+            // at this call boundary, rather than a later automatic GC pass.
+            $resolve = null;
         }
-        unset($file);
-        foreach ($files as &$file) {
-            if (!isset($referenced[$file['path']])) continue;
-            if (array() === $directives[$file['path']]) $file['content'] = $contents[$file['path']];
-            $file['metadata']['compilation'] = array('scope' => 'shared', 'included_component' => true, 'resolved_html_includes' => true);
-            // Included HTML is source data, never an additional route.
-            $file['role'] = 'template-part';
-        }
-        unset($file);
-        return $files;
     }
 }

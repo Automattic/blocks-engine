@@ -644,7 +644,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->sourceBlockAttributeProjector,
             $this->session,
             fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
-            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element)
+            $this,
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
         );
         $this->patternContext = $this->createPatternContext();
         $this->commercePattern = new CommerceStructureRecognizer($this->sourceElementClassifier);
@@ -1558,6 +1560,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $body instanceof DOMElement ) {
             return $resultComposer->emptyBody($html, $provenance, $context, $startedAt, $selectorCache);
         }
+        SourceDom::removeIntegerKeyAttributes($body);
 
         if ( array() !== $sourceBodyClasses ) {
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
@@ -2539,7 +2542,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $column = $this->createBlock(
                 'core/column',
                 $this->layoutTableColumnAttributes($cell),
-                $this->convertChildren($cell, $fallbacks, true),
+                $this->layoutTableCellBlocks($cell, $fallbacks),
                 $cell
             );
             // A blank layout-table cell remains a real native column: removing it
@@ -2562,6 +2565,99 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $attrs['width'] = $width;
         }
 
+        $table = $this->ancestorElement($cell, 'table');
+        if ($table instanceof DOMElement && $this->layoutTableUsesAutoTracks($table)) {
+            $attrs = $this->layoutTablePresentationCarrier($cell, $attrs, 'cell');
+        }
+
+        return $attrs;
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks
+     * @return array<int, array<string, mixed>>
+     */
+    private function layoutTableCellBlocks(DOMElement $cell, array &$fallbacks): array
+    {
+        $blocks = $this->convertChildren($cell, $fallbacks, true);
+        // Bare cell text needs editable RichText, not a new paragraph box.
+        // Authored paragraphs retain their own margins and display contracts.
+        $bareText = array();
+        foreach ($cell->childNodes as $node) {
+            if ($node instanceof \DOMText && '' !== trim($node->textContent)) {
+                $bareText[trim($node->textContent)] = true;
+            }
+        }
+        if (0 === $cell->getElementsByTagName('p')->length && array() !== $bareText) {
+            foreach ($blocks as &$block) {
+                $text = trim(html_entity_decode(strip_tags((string) ($block['attrs']['content'] ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                if ('core/paragraph' === ($block['blockName'] ?? '') && isset($bareText[$text])) {
+                    $attrs = $block['attrs'];
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
+                    $block = $this->rebuildBlock($block, $attrs);
+                }
+            }
+            unset($block);
+        }
+        return $blocks;
+    }
+
+    private function layoutTableUsesAutoTracks(DOMElement $table): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($table);
+        return 'fixed' !== CssValueInspector::comparable((string) ($declarations['table-layout'] ?? ''));
+    }
+
+    /**
+     * Keep the source table sizing algorithm on editable native wrappers.
+     * Flex cannot share tracks across rows or honor table min-content widths.
+     * HTML presentation hints are low-specificity defaults; authored CSS still
+     * travels through the ordinary source selector / inline geometry contracts.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function layoutTablePresentationCarrier(DOMElement $element, array $attrs, string $role): array
+    {
+        $declarations = array();
+        foreach (array('width', 'height') as $dimension) {
+            $value = $this->normalizeLayoutTableTrackWidth($this->attr($element, $dimension));
+            if (null !== $value) {
+                $declarations[] = $dimension . ':' . $value;
+            }
+        }
+        if ('cell' === $role) {
+            $table = $this->ancestorElement($element, 'table');
+            $padding = $table instanceof DOMElement ? trim($this->attr($table, 'cellpadding')) : '';
+            if ('' !== $padding && is_numeric($padding)) {
+                $declarations[] = 'padding:' . $padding . 'px';
+            }
+            $align = strtolower($this->attr($element, 'align'));
+            if (in_array($align, array('left', 'center', 'right', 'justify'), true)) {
+                $declarations[] = 'text-align:' . $align;
+            }
+            $valign = strtolower($this->attr($element, 'valign'));
+            if ('' === $valign && $element->parentNode instanceof DOMElement) {
+                $valign = strtolower($this->attr($element->parentNode, 'valign'));
+            }
+            if (in_array($valign, array('top', 'middle', 'bottom', 'baseline'), true)) {
+                $declarations[] = 'vertical-align:' . $valign;
+            }
+            if ($element->hasAttribute('nowrap')) {
+                $declarations[] = 'white-space:nowrap';
+            }
+        } elseif ('table' === $role) {
+            $spacing = trim($this->attr($element, 'cellspacing'));
+            if ('' !== $spacing && is_numeric($spacing)) {
+                $declarations[] = 'border-spacing:' . $spacing . 'px';
+            }
+        }
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-layout-table-' . $role);
+        if (array() !== $declarations) {
+            $rule = '{' . implode(';', $declarations) . '}';
+            $carrier = $this->layoutGeometry()->allocateCarrier('layout-table-hints' . "\n" . $rule);
+            $this->layoutGeometry()->registerRule($carrier, '.' . $carrier . $rule);
+            $attrs['className'] .= ' ' . $carrier;
+        }
         return $attrs;
     }
 
@@ -2696,7 +2792,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function layoutTableColumnsAttributes(DOMElement $element): array
     {
         $attrs = $this->styleResolver->presentationAttributes($element);
+        // A table has no implicit phone breakpoint. Responsive source cell
+        // declarations remain projected, rather than borrowing Core's 782px.
+        $attrs['isStackedOnMobile'] = false;
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LAYOUT_TABLE_COLUMNS_CLASS);
+        $table = 'table' === strtolower($element->tagName) ? $element : $this->ancestorElement($element, 'table');
+        if ($table instanceof DOMElement && $this->layoutTableUsesAutoTracks($table)) {
+            return $this->layoutTablePresentationCarrier($element, $attrs, 'table' === strtolower($element->tagName) ? 'table' : 'row');
+        }
         $spacing = $this->layoutTableTrackSpacing($element);
         if ( null !== $spacing ) {
             $rule      = '{column-gap:' . $spacing . ';padding-inline:' . $spacing . '}';
@@ -2793,7 +2896,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $columns[] = $this->createBlock(
                     'core/column',
                     $this->layoutTableColumnAttributes($cell),
-                    $this->convertChildren($cell, $fallbacks, true),
+                    $this->layoutTableCellBlocks($cell, $fallbacks),
                     $cell
                 );
             }
@@ -2803,6 +2906,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $tableAttributes = $this->styleResolver->presentationAttributes($table);
+        if ($this->layoutTableUsesAutoTracks($table)) {
+            $tableAttributes = $this->layoutTablePresentationCarrier($table, $tableAttributes, 'table');
+        }
         if (1 === count($rows)) {
             return array() === $tableAttributes
                 ? $rows[0]
@@ -9539,6 +9645,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $block = $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
+        // core/image saves the class list and anchor on the <figure>; an author
+        // subject naming the <img> by class or id must find them there.
+        $this->session->authorSelectorProjectionState()->recordImageFigure(
+            $image->getNodePath() ?? '',
+            (string) ( $block['attrs']['className'] ?? '' ),
+            (string) ( $block['attrs']['anchor'] ?? '' ),
+            $link instanceof DOMElement
+        );
         if ( '' !== $linkAnchor ) {
             // A native image has only one anchor. Keep an existing figure/image
             // identity and the link's fragment target on separate native hosts.
@@ -11587,11 +11701,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
+        $table = $this->ancestorElement($element, 'table');
+        if ($table instanceof DOMElement && $this->tableClassificationPolicy->lowersToColumns($table) && $this->layoutTableUsesAutoTracks($table)) {
+            return true;
+        }
+
         // text-align inherits, so the alignment that governs this image can be
         // declared on any ancestor above the inline wrappers it sits in.
         $node = $element->parentNode;
         for ( $depth = 0; $depth < 8 && $node instanceof DOMElement; ++$depth ) {
             $align = $this->resolvedDeclaration($node, 'text-align');
+            if ('' === $align && in_array(strtolower($node->tagName), array('td', 'th'), true)) {
+                $align = strtolower($this->attr($node, 'align'));
+            }
             if ( '' !== $align ) {
                 return in_array($align, array( 'right', 'center', 'end' ), true);
             }

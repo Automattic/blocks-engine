@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlAttributeName;
 use Closure;
 use DOMDocument;
 use DOMElement;
@@ -421,17 +422,46 @@ final class SourceDom
     }
 
     /**
+     * Names that would be int keys are skipped, so every key is a string
+     * ({@see HtmlAttributeName}).
+     *
      * @return array<string, string>
      */
     public static function htmlAttributes(DOMElement $element): array
     {
         $attributes = array();
         foreach ( $element->attributes ?? array() as $attribute ) {
+            if ( HtmlAttributeName::isIntegerKey($attribute->nodeName) ) {
+                continue;
+            }
             $attributes[$attribute->nodeName] = $attribute->nodeValue ?? '';
         }
 
         ksort($attributes);
         return $attributes;
+    }
+
+    /**
+     * Removes attributes named like an int array key (`0`, `512`) from the
+     * subtree ({@see HtmlAttributeName}).
+     *
+     * libxml 2.14+ keeps such names and older libxml drops them, so removing
+     * them right after parsing gives the same source tree on every libxml
+     * version. No later reader, serializer or SVG asset can then see them.
+     */
+    public static function removeIntegerKeyAttributes(DOMElement $root): void
+    {
+        $removals = array();
+        foreach ( array_merge(array( $root ), iterator_to_array($root->getElementsByTagName('*'), false)) as $element ) {
+            foreach ( $element->attributes ?? array() as $attribute ) {
+                if ( HtmlAttributeName::isIntegerKey($attribute->nodeName) ) {
+                    $removals[] = $attribute;
+                }
+            }
+        }
+        foreach ( $removals as $attribute ) {
+            $attribute->ownerElement?->removeAttributeNode($attribute);
+        }
     }
 
     /**
@@ -530,6 +560,17 @@ final class SourceDom
         }
 
         return $match;
+    }
+
+    /** A heading is the whole content surface, not one part of a composite link. */
+    public static function onlyChildHeading(DOMElement $element): ?DOMElement
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 1 === preg_match('/^h[1-6]$/i', $child->tagName) ) {
+                return self::onlyChildElement($element, strtolower($child->tagName));
+            }
+        }
+        return null;
     }
 
     /**

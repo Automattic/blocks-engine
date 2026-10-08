@@ -315,6 +315,9 @@ final class CanonicalSaveShapeValidator
      */
     private function isStructuralClass(string $class, string $blockName, array $attrs): bool
     {
+        if ('core/columns' === $blockName && 'is-not-stacked-on-mobile' === $class) {
+            return false === ($attrs['isStackedOnMobile'] ?? null);
+        }
         if ( 'core/media-text' === $blockName ) {
             // State classes are structural only when the attribute core's
             // save() derives them from justifies them — an unjustified state

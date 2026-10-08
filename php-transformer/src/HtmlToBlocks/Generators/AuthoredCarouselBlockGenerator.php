@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -96,6 +97,9 @@ final class AuthoredCarouselBlockGenerator
     function normalizedAspect( value ) { return 'string' === typeof value && /^[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?$/.test( value ) ? value : ''; }
     function inlineStyle( source ) { var style = {}; ( source || '' ).split( ';' ).forEach( function( declaration ) { var separator = declaration.indexOf( ':' ); if ( separator < 1 ) return; var name = declaration.slice( 0, separator ).trim(); var value = declaration.slice( separator + 1 ).trim(); var key = name.startsWith( '--' ) ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); if ( name && value ) style[ key ] = value; } ); return style; }
     function controlStyle( source ) { var style = {}; Object.keys( source || {} ).forEach( function( name ) { var key = name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); if ( -1 !== [ 'width', 'height', 'padding', 'border', 'borderRadius', 'background', 'backgroundColor', 'color', 'font' ].indexOf( key ) ) { style[ key ] = source[ name ]; } } ); return style; }
+    // HTML whitespace is not authored artwork or a visible label. The button's
+    // aria-label supplies its name even when its source artwork is CSS-only.
+    function controlVisual( value ) { return 'string' === typeof value && ! /^[\t\n\f\r ]*$/.test( value ) ? value : ''; }
     var rootGeometryProperties = __ROOT_GEOMETRY_PROPERTIES__;
     var geometryValuePattern = new RegExp( __GEOMETRY_VALUE_PATTERN__ );
     function rootProps( attributes ) {
@@ -179,8 +183,8 @@ final class AuthoredCarouselBlockGenerator
             var dotCount = props.attributes.showDots ? normalizedCount( props.attributes.slideCount ) : 0;
             var thumbnails = normalizedThumbnails( props.attributes.thumbnails );
             var dots = Array.from( { length: dotCount }, function( _, index ) { return createElement( 'button', { key: index, type: 'button', className: 'blocks-engine-authored-carousel__dot', 'aria-label': 'Show slide ' + ( index + 1 ), 'data-carousel-index': String( index ), 'data-wp-on--click': 'actions.goTo' } ); } );
-            var previous = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__previous ' + ( props.attributes.previousControlClasses || '' ), style: controlStyle( props.attributes.previousControlPresentation ), 'data-carousel-previous': 'true', 'data-wp-on--click': 'actions.previous', 'data-wp-bind--disabled': 'state.atStart', 'aria-label': 'Previous slide', dangerouslySetInnerHTML: { __html: props.attributes.previousControlVisual || ( props.attributes.sourceControlArtwork ? 'Previous' : '' ) } } );
-            var next = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__next ' + ( props.attributes.nextControlClasses || '' ), style: controlStyle( props.attributes.nextControlPresentation ), 'data-carousel-next': 'true', 'data-wp-on--click': 'actions.next', 'data-wp-bind--disabled': 'state.atEnd', 'aria-label': 'Next slide', dangerouslySetInnerHTML: { __html: props.attributes.nextControlVisual || ( props.attributes.sourceControlArtwork ? 'Next' : '' ) } } );
+            var previous = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__previous ' + ( props.attributes.previousControlClasses || '' ), style: controlStyle( props.attributes.previousControlPresentation ), 'data-carousel-previous': 'true', 'data-wp-on--click': 'actions.previous', 'data-wp-bind--disabled': 'state.atStart', 'aria-label': 'Previous slide', dangerouslySetInnerHTML: { __html: controlVisual( props.attributes.previousControlVisual ) } } );
+            var next = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__next ' + ( props.attributes.nextControlClasses || '' ), style: controlStyle( props.attributes.nextControlPresentation ), 'data-carousel-next': 'true', 'data-wp-on--click': 'actions.next', 'data-wp-bind--disabled': 'state.atEnd', 'aria-label': 'Next slide', dangerouslySetInnerHTML: { __html: controlVisual( props.attributes.nextControlVisual ) } } );
             var controlIdentityProps = {};
             Object.keys( props.attributes.sourceControlAttributes || {} ).forEach( function( name ) { controlIdentityProps[ name ] = props.attributes.sourceControlAttributes[ name ]; } );
             var controlsProps = Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), style: 'slideshow' === props.attributes.presentation ? { position: 'absolute', inset: 0, zIndex: 4, pointerEvents: 'none', boxSizing: 'border-box', width: 'auto', height: 'auto', margin: 0, padding: 0 } : undefined }, controlIdentityProps );
@@ -646,7 +650,7 @@ JS;
                 $sourceAttributes .= ' ' . $name . '="' . htmlspecialchars($attribute->value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
             }
         }
-        return '<button type="button" class="blocks-engine-authored-carousel__' . $direction . ' ' . $boundedClasses . '"' . ('' !== $style ? ' style="' . $style . '"' : '') . $sourceAttributes . ' data-carousel-' . $direction . '="true" data-wp-on--click="' . $action . '" data-wp-bind--disabled="' . $bound . '" aria-label="' . $label . ' slide">' . $this->safeControlVisual($visual, '' === $visual ? '' : $label) . '</button>';
+        return '<button type="button" class="blocks-engine-authored-carousel__' . $direction . ' ' . $boundedClasses . '"' . ('' !== $style ? ' style="' . $style . '"' : '') . $sourceAttributes . ' data-carousel-' . $direction . '="true" data-wp-on--click="' . $action . '" data-wp-bind--disabled="' . $bound . '" aria-label="' . $label . ' slide">' . $this->safeControlVisual($visual) . '</button>';
     }
 
     /** @return array<string, mixed>|null */
@@ -1118,7 +1122,7 @@ JS;
     private function safeInlineStyle(string $style): string
     {
         $safe = array();
-        foreach (explode(';', $style) as $declaration) {
+        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
             if (1 !== preg_match('/^\s*([a-z-]+)\s*:\s*([^;{}<>]+)\s*$/i', $declaration, $matches)) {
                 continue;
             }
@@ -1331,10 +1335,11 @@ JS;
         return '<' . $tag . $attributes . '>' . $contents . '</' . $tag . '>';
     }
 
-    private function safeControlVisual(string $markup, string $fallback): string
+    private function safeControlVisual(string $markup): string
     {
-        if ('' === trim($markup)) {
-            return htmlspecialchars($fallback, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        // Match the native save contract: HTML-whitespace-only artwork is empty.
+        if (preg_match('/^[\t\n\f\r ]*$/D', $markup)) {
+            return '';
         }
         $previous = libxml_use_internal_errors(true);
         $document = new \DOMDocument('1.0', 'UTF-8');
@@ -1352,7 +1357,7 @@ JS;
         }
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
-        return '' !== $safe ? $safe : htmlspecialchars($fallback, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        return $safe;
     }
 
     /** @return array<string, string> */
