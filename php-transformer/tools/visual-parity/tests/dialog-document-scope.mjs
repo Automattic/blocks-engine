@@ -8,13 +8,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const fixture = (variant) => JSON.parse(execFileSync('php', ['-r', '$fixture=require $argv[1] . "/tests/fixtures/dialog-document-scope.php"; echo json_encode($fixture($argv[2]));', root, variant], { encoding: 'utf8' }));
 const compile = (artifact) => JSON.parse(execFileSync('php', ['-r', `
 require $argv[1] . '/vendor/autoload.php';
-if ('' !== $argv[2]) { $source=shell_exec('git -C ' . escapeshellarg($argv[1]) . ' show ' . escapeshellarg($argv[2] . ':php-transformer/src/HtmlToBlocks/Elements/RuntimeIslandAnalyzer.php')); eval(substr($source,5)); }
 $r=(new Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler())->compile(json_decode(stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR))->toArray();
 $views=array(); $css=implode("\\n",array_column($r['assets'],'content'));
 foreach($r['assets'] as $asset) { if ('inline-script' === ($asset['source'] ?? '') && 'js' === ($asset['kind'] ?? '')) $views[]=$asset['content']; }
 foreach($r['source_reports']['companion_plugin_payload']['blocks'] ?? array() as $block) { if (isset($block['view_js'])) $views[]=$block['view_js']; if (isset($block['assets']['style.css'])) $css.="\\n".$block['assets']['style.css']; }
 echo json_encode(array('html'=>$r['serialized_blocks'],'css'=>$css,'views'=>$views));
-`, root, process.env.BLOCKS_ENGINE_TEST_BASELINE || ''], { input: JSON.stringify(artifact), encoding: 'utf8' }));
+`, root], { input: JSON.stringify(artifact), encoding: 'utf8' }));
 
 const browser = await chromium.launch({ headless: true });
 try {

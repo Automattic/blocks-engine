@@ -5,7 +5,7 @@ return static function (string $variant = 'desktop', bool $application = false):
     $key = 'gallery-' . $variant;
     $trigger = '<button id="open-' . $key . '" type="button" data-dla-dialog-trigger="' . $key . '" data-dla-dialog-ancestor-unverified="ancestor-limit" aria-controls="' . $key . '" aria-expanded="false" aria-haspopup="dialog">Open gallery</button>';
     for ($depth = 0; $depth < 16; ++$depth) $trigger = '<div class="gallery-level">' . $trigger . '</div>';
-    $widget = $application ? '<div id="workspace"><section data-compute="pending"><canvas id="paint"></canvas></section><section data-compute="pending"><input id="gain"><button id="run">Draw</button></section></div>' : '';
+    $widget = $application ? '<div id="workspace"><section id="stage"><canvas id="paint"></canvas></section><section id="controls"><input id="gain"><button id="run">Draw</button></section></div>' : '';
     $observer = <<<'JS'
 document.querySelectorAll('[data-dla-native-node]').forEach(function(target){
     var scope=target.closest('[data-dla-document-scope]');
@@ -21,7 +21,10 @@ document.querySelectorAll('[data-dla-dialog-trigger]').forEach(function(trigger)
     document.addEventListener('keydown',function(event){if(event.key==='Escape'){panel.hidden=true;trigger.setAttribute('aria-expanded','false');}});
 });
 JS;
-    $applicationScript = $application ? '<script>document.querySelectorAll("[data-compute]").forEach(function(el){el.setAttribute("data-compute","ready");});var canvas=document.getElementById("paint");document.getElementById("run").addEventListener("click",function(){canvas.getContext("2d").fillRect(0,0,20,20);});</script>' : '';
+    // A genuine application declares its runtime through a script file that
+    // addresses its own surfaces by identity. Attribute-only bindings inside a
+    // declared document scope are not application evidence.
+    $applicationScript = $application ? '<script src="workspace.js"></script>' : '';
     $panel = '<div id="' . $key . '" data-dla-dialog-panel="' . $key . '" role="dialog" aria-label="Image gallery" hidden><h2>Image gallery</h2><p>Captured image caption.</p><button type="button" data-dla-dialog-close="' . $key . '" aria-label="Close gallery">Close</button></div>';
     $html = '<!doctype html><html><head><title>Scoped gallery</title><style>.gallery-level{display:block}dialog{max-width:30rem}</style></head><body>'
         . '<div class="data-liberation-' . $variant . '-document" data-dla-document-scope="">'
@@ -35,9 +38,14 @@ JS;
         'closed' => array('verified' => true),
     );
     $interactions = array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://fixture.test/gallery', 'states' => array($state))));
-    return array('entrypoint' => 'index.html', 'files' => array(
+    $files = array(
         'index.html' => $html,
         'capture-receipt.json' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://fixture.test/gallery', 'path' => 'index.html'))), JSON_THROW_ON_ERROR),
         'interaction-states.json' => json_encode($interactions, JSON_THROW_ON_ERROR),
-    ));
+    );
+    if ($application) {
+        $files['workspace.js'] = 'document.getElementById("stage").setAttribute("data-ready","true");document.getElementById("controls").setAttribute("data-ready","true");'
+            . 'var canvas=document.getElementById("paint");document.getElementById("run").addEventListener("click",function(){canvas.getContext("2d").fillRect(0,0,20,20);});';
+    }
+    return array('entrypoint' => 'index.html', 'files' => $files);
 };
