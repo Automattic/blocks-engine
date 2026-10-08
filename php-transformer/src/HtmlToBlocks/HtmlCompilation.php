@@ -4021,7 +4021,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) && $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
+        if ( $sourceElement instanceof DOMElement
+            && in_array($name, array( 'core/paragraph', 'core/heading' ), true)
+            && ! ('core/heading' === $name && SourceDom::isImageOnlyHeading($sourceElement))
+            && $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
             $materialized = $this->richTextMaterializer->contentWithMaterializedSvgImages($sourceElement, (string) ($attrs['content'] ?? ''));
             if ( null !== $materialized ) {
                 $attrs['content'] = $materialized;

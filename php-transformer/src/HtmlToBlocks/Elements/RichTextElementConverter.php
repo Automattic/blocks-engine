@@ -68,11 +68,16 @@ final class RichTextElementConverter implements ElementConverter
             $content = $withInlineSvg;
         }
 
-        if ( $this->context->requiresHtmlFallback($content) ) {
+        // A logo title (only images, each bare or inside its own link) is
+        // RichText too: Gutenberg keeps the `<img>` as its `core/image` object
+        // format inside the heading, so the heading need not become core/html.
+        $imageOnly = SourceDom::isImageOnlyHeading($element);
+
+        if ( ! $imageOnly && $this->context->requiresHtmlFallback($content) ) {
             return $this->context->htmlPreservationBlock($element);
         }
 
-        if ( '' === trim($this->context->stripAllTags($content)) && ! $this->context->containsNativeSvgImageObject($content) ) {
+        if ( ! $imageOnly && '' === trim($this->context->stripAllTags($content)) && ! $this->context->containsNativeSvgImageObject($content) ) {
             return null;
         }
 
