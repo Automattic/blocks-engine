@@ -72,10 +72,12 @@ final class AuthorStyleRuleProjector
     /** @param array<string, string> $declarations */
     private function projectSourceContentBoxSizing(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles): string
     {
-        if ( isset($declarations['box-sizing'])
-            || ! isset($declarations['width'])
-            || ! CssValueInspector::hasDefiniteWidth('width:' . $declarations['width'])
-        ) {
+        // A box sized on either axis is 2×(padding+border) smaller under the
+        // WordPress border-box reset; a `height` band loses its bottom padding
+        // just as a `width` column loses its side padding.
+        $sized = ( isset($declarations['width']) && CssValueInspector::hasDefiniteWidth('width:' . $declarations['width']) )
+            || ( isset($declarations['height']) && CssValueInspector::hasDefiniteHeight('height:' . $declarations['height']) );
+        if ( isset($declarations['box-sizing']) || ! $sized ) {
             return $body;
         }
 
