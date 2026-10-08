@@ -64,6 +64,16 @@ final class SourceBlockAttributeProjector
         ),
     );
 
+    /**
+     * Content-addressed markers whose payload (generated CSS for presentation
+     * the saved markup no longer carries) cannot be recomputed from the saved
+     * block. The disclosure toggle's source presentation is projected into
+     * the stylesheet under this marker and removed from the toggle itself.
+     */
+    private const SELF_DESCRIBING_MARKER_PREFIXES = array(
+        'core/accordion-heading' => array( 'blocks-engine-accordion-toggle-' ),
+    );
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly GeneratedBlockStyleProjector $generatedStyleProjector
@@ -113,6 +123,13 @@ final class SourceBlockAttributeProjector
         foreach ( self::SELF_DESCRIBING_MARKERS[ $name ] ?? array() as $marker ) {
             if ( SourceDom::hasClass($sourceElement, $marker) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $marker);
+            }
+        }
+        foreach ( self::SELF_DESCRIBING_MARKER_PREFIXES[ $name ] ?? array() as $prefix ) {
+            foreach ( SourceDom::classNames($sourceElement) as $class ) {
+                if ( str_starts_with($class, $prefix) ) {
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
+                }
             }
         }
         $projectionClassName = $this->sourceProjectionClassName($sourceElement, $context, (string) ($attrs['className'] ?? ''));

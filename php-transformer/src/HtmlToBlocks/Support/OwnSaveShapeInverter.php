@@ -23,9 +23,14 @@ final class OwnSaveShapeInverter
     private const BUTTONS_CLASS = 'wp-block-buttons';
     private const BUTTON_CLASS = 'wp-block-button';
     private const BUTTON_LINK_CLASS = 'wp-block-button__link';
+    private const ACCORDION_HEADING_CLASS = 'wp-block-accordion-heading';
+    private const ACCORDION_TOGGLE_CLASS = 'wp-block-accordion-heading__toggle';
+    private const ACCORDION_TOGGLE_TITLE_CLASS = 'wp-block-accordion-heading__toggle-title';
+    private const ACCORDION_TOGGLE_ICON_CLASS = 'wp-block-accordion-heading__toggle-icon';
 
     public static function invert(DOMElement $root): void
     {
+        self::invertAccordionHeadings($root);
         $containers = array();
         foreach ( $root->getElementsByTagName('div') as $element ) {
             if ( SourceDom::hasClass($element, self::BUTTONS_CLASS) ) {
@@ -41,6 +46,42 @@ final class OwnSaveShapeInverter
                 self::liftButtonWrapper($control);
             }
             self::releaseButtonsContainer($container);
+        }
+    }
+
+    /**
+     * core/accordion-heading saves its title inside a generated
+     * `__toggle-title` span beside a generated `+` icon span. Read as source,
+     * the title span is authored label content and the heading converter
+     * wraps it in a second title span. The toggle's own children are the
+     * source label, so the generated spans are removed before conversion.
+     */
+    private static function invertAccordionHeadings(DOMElement $root): void
+    {
+        $toggles = array();
+        foreach ( $root->getElementsByTagName('button') as $button ) {
+            $heading = $button->parentNode;
+            if ( SourceDom::hasClass($button, self::ACCORDION_TOGGLE_CLASS)
+                && $heading instanceof DOMElement
+                && SourceDom::hasClass($heading, self::ACCORDION_HEADING_CLASS)
+            ) {
+                $toggles[] = $button;
+            }
+        }
+        foreach ( $toggles as $toggle ) {
+            foreach ( iterator_to_array($toggle->childNodes) as $child ) {
+                if ( ! $child instanceof DOMElement || 'span' !== strtolower($child->tagName) ) {
+                    continue;
+                }
+                if ( SourceDom::hasClass($child, self::ACCORDION_TOGGLE_ICON_CLASS) ) {
+                    $toggle->removeChild($child);
+                } elseif ( SourceDom::hasClass($child, self::ACCORDION_TOGGLE_TITLE_CLASS) ) {
+                    while ( null !== $child->firstChild ) {
+                        $toggle->insertBefore($child->firstChild, $child);
+                    }
+                    $toggle->removeChild($child);
+                }
+            }
         }
     }
 
