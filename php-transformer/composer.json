@@ -77,6 +77,7 @@
       "php tests/contract/finding-contract.php",
       "php tests/contract/wordpress-site-plan.php",
       "php tests/contract/document-body-context.php",
+      "php tests/contract/projected-root-data-state.php",
       "php tests/contract/inert-document-declarations.php",
       "php tests/contract/document-head-runtime.php",
       "php tests/contract/form-source-ownership.php",

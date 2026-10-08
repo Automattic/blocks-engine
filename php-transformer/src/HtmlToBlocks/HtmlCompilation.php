@@ -1712,6 +1712,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
         $ownershipPaths = BlockCompilationOutput::editabilityOwnershipPaths($sourceProvenance);
         $generatedCarrierCss = $this->engineSupportCss();
+        // Selector projection may install engine marker classes on the analysis
+        // document root (root-owned attribute states). Only the real root
+        // registry can materialize them, so they travel with the compilation
+        // facts instead of dying with the analysis DOM.
+        $documentRootMarkers = array();
+        $analysisRoot = $document->documentElement;
+        if ( $analysisRoot instanceof DOMElement && 'html' === strtolower($analysisRoot->tagName) ) {
+            $documentRootMarkers = \Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker::all($analysisRoot->getAttribute('class'));
+        }
         $blockCompilationOutput = new BlockCompilationOutput(
             sourceProvenance: $sourceProvenance,
             editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $ownershipPaths['runtime'], $ownershipPaths['visual'], $sourceProvenance),
@@ -1727,7 +1736,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             runtimeScriptProjections: $runtimeScriptProjections,
             shellArtifacts: $shellArtifacts,
             coreHtmlFallbackEvidence: CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
-            validationOutcome: $validationOutcome
+            validationOutcome: $validationOutcome,
+            documentRootMarkers: $documentRootMarkers
         );
 
         return $resultComposer->result(array(
