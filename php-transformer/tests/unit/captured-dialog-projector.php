@@ -48,6 +48,23 @@ $files = static function (array $pages, array $statesByUrl) use ($state): array 
     return $pageRows;
 };
 
+$scopedHtml = '<html><body><div data-dla-device-document="mobile" data-dla-document-scope="mobile">'
+    . '<div id="scope-toggle" role="button" tabindex="0" aria-label="Menu" data-dla-disclosure-label="Menu" aria-haspopup="dialog" aria-controls="scope-panel" data-dla-dialog-trigger="scope-panel"><span></span><span></span><span></span></div>'
+    . '<div id="scope-panel" hidden data-dla-dialog-panel="scope-panel"><button data-dla-dialog-close="scope-panel">Close</button><p>Scoped content</p></div></div>'
+    . '<script data-dla-disclosure-runtime>document.querySelectorAll("[data-dla-dialog-trigger]").forEach(function(node){node.addEventListener("click",function(){document.getElementById(node.getAttribute("aria-controls")).hidden=false;});});</script></body></html>';
+$scopedFiles = $files(array('https://example.test/' => $scopedHtml), array('https://example.test/' => array($state(array('selector' => '#scope-toggle', 'tag' => 'div', 'label' => 'Menu', 'ariaHaspopup' => 'dialog')))));
+$scoped = $project($scopedFiles);
+$assert(0 === $scoped['projected_count'] && $scopedHtml === $scoped['files'][0]['content'], 'report hydration retains an already wired declared document panel in its source scope');
+$assert(empty($scoped['native_runtime_replacements']) && array() === $codes($scoped), 'retained scoped wiring emits no native replacement claim or unmatched-trigger finding: ' . json_encode(array('replacements' => $scoped['native_runtime_replacements'] ?? null, 'diagnostics' => $scoped['diagnostics'])));
+$scopedArtifact = array('entrypoint' => 'website/index.html', 'files' => $scopedFiles);
+$scopedCompiler = new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler();
+$scopedShared = $scopedCompiler->prepareShared($scopedArtifact);
+$scopedResult = $scopedCompiler->compose($scopedShared, $scopedCompiler->compilePreparedPages($scopedShared, $scopedCompiler->preparePages($scopedArtifact, $scopedShared)))->toArray();
+$scopedPlan = $scopedResult['source_reports']['wordpress_site_plan'];
+$scopedMarkup = implode('', array_column($scopedPlan['pages'], 'canonical_block_markup'));
+$assert(str_contains($scopedMarkup, 'role="button"') && str_contains($scopedMarkup, 'data-dla-dialog-trigger="scope-panel"') && str_contains($scopedMarkup, 'data-dla-dialog-panel="scope-panel"'), 'real staged compiler retains native trigger and panel selectors after report hydration');
+$assert(!str_contains($scopedMarkup, '<!-- wp:html ') && 'pass' === ($scopedResult['source_reports']['runtime_dependency_parity']['status'] ?? ''), 'scoped report-bearing dialog wiring has native blocks and proven runtime bindings');
+
 $bindingTrigger = array('selector' => 'body > header > nav > a:nth-of-type(2)', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'label' => 'Contact', 'dataBindings' => array('data-popupid' => 'contact'));
 $bindingHtml = '<html><body><header><nav><a href="/">Home</a><a role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a></nav></header></body></html>';
 $binding = $project($files(array('https://example.test/' => $bindingHtml), array('https://example.test/' => array($state($bindingTrigger)))));
@@ -128,6 +145,77 @@ $selectorHtml = '<html><body><div class="data-liberation-mobile-document"><div><
 $selectorTrigger = array('selector' => 'body > div > div > div:nth-of-type(2) > header > nav > div > button', 'tag' => 'button', 'ariaHaspopup' => '', 'label' => '', 'dataBindings' => array());
 $selector = $project($files(array('https://example.test/selector' => $selectorHtml), array('https://example.test/selector' => array($state($selectorTrigger)))));
 $assert(1 === ($selector['projected_count'] ?? 0), 'wrapper-normalized positional selectors match inside a responsive document');
+
+$closeRuntime = 'document.querySelector("[data-dla-dialog-close]");';
+$closeTrigger = array('selector' => 'body > header > button', 'tag' => 'button', 'ariaHaspopup' => 'dialog', 'label' => 'Menu', 'dataBindings' => array());
+$closeHtml = '<html><head><script data-dla-disclosure-runtime="true">' . $closeRuntime . '</script></head><body><header><button type="button" data-dla-dialog-trigger="dla-dialog-0" aria-haspopup="dialog" aria-label="Menu">Menu</button></header><button type="button" hidden data-dla-dialog-close="dla-dialog-0" aria-label="Close Menu">Close</button></body></html>';
+$closeRows = $files(array('https://example.test/' => $closeHtml), array('https://example.test/' => array($state($closeTrigger))));
+$closeRows[] = array('path' => 'website/index.inline-4.js', 'content' => $closeRuntime, 'source' => 'inline-script', 'source_path' => 'website/index.html');
+$close = $project($closeRows);
+$closeMarkup = (string) ($close['files'][0]['content'] ?? '');
+$assert(1 === ($close['projected_count'] ?? 0) && str_contains($closeMarkup, 'data-blocks-engine-add-close="true"'), 'a dialog without an in-panel close still gets the native close control');
+$assert(!str_contains($closeMarkup, 'data-dla-dialog-close') && !str_contains($closeMarkup, 'data-dla-disclosure-runtime'), 'a matched capture close helper and its runtime are removed');
+$assert(array() === array_values(array_filter($close['files'], static fn (array $file): bool => 'website/index.inline-4.js' === ($file['path'] ?? ''))), 'the extracted disclosure script is omitted');
+$assert('native_dialog_close_replaces_capture_close_helper' === ($close['native_runtime_replacements'][0]['reason'] ?? ''), 'replacement proof names the native dialog close');
+$siblingHtml = str_replace('</body>', '<button type="button" hidden data-dla-dialog-close="dla-dialog-9" aria-label="Close leftover">Close</button></body>', $closeHtml);
+$sibling = $project($files(array('https://example.test/' => $siblingHtml), array('https://example.test/' => array($state($closeTrigger)))));
+$siblingMarkup = (string) ($sibling['files'][0]['content'] ?? '');
+$assert(!str_contains($siblingMarkup, 'data-dla-dialog-close="dla-dialog-0"') && str_contains($siblingMarkup, 'data-dla-dialog-close="dla-dialog-9"') && str_contains($siblingMarkup, 'data-dla-disclosure-runtime'), 'an unmatched close helper stays with its runtime');
+$panelDialog = '<div><button type="button" hidden data-dla-dialog-close="dla-dialog-0">Close</button><p>Panel</p></div>';
+$panelState = array('status' => 'captured', 'trigger' => $closeTrigger, 'dialog' => array('html' => $panelDialog, 'htmlBytes' => strlen($panelDialog), 'htmlTruncated' => false));
+$panel = $project($files(array('https://example.test/' => $closeHtml), array('https://example.test/' => array($panelState))));
+$panelMarkup = (string) ($panel['files'][0]['content'] ?? '');
+$assert(1 === substr_count($panelMarkup, 'data-dla-dialog-close="dla-dialog-0"') && str_contains($panelMarkup, '<dialog') && str_contains($panelMarkup, 'data-dla-disclosure-runtime'), 'a matching close helper inside the projected dialog stays with its runtime');
+$assert(!str_contains($panelMarkup, 'data-blocks-engine-add-close'), 'an in-panel close is not duplicated by a generated close control');
+
+// A capture that already wired its dialogs in the exported document: each
+// trigger sits beside an in-place hidden panel with a hidden close helper. Both
+// the matched trigger and one whose positional selector no longer matches must
+// bind natively so the wiring runtime is retired.
+$wiredRuntime = 'document.querySelectorAll("[data-dla-dialog-trigger]");';
+$wiredPanel = static fn (string $key, string $body): string => '<div class="dla-dialog" role="dialog" aria-modal="true" hidden id="' . $key . '" data-dla-dialog-panel="' . $key . '">' . $body . '</div>';
+$wiredHtml = '<html><head><script data-dla-disclosure-runtime="true">' . $wiredRuntime . '</script></head><body><main>'
+    . '<header><button type="button" aria-label="Menu" data-dla-disclosure-label="Menu" data-dla-dialog-trigger="dla-dialog-1" aria-controls="dla-dialog-1" aria-expanded="false" aria-haspopup="menu">Menu</button>'
+    . $wiredPanel('dla-dialog-1', '<nav><a href="/a">Alpha</a></nav>') . '</header>'
+    . '<section><div><button type="button" data-dla-disclosure-label="Card title Open the record" data-dla-dialog-trigger="dla-dialog-0" aria-controls="dla-dialog-0" aria-expanded="false" aria-haspopup="dialog">Card title</button>'
+    . '<button type="button" hidden data-dla-dialog-close="dla-dialog-0" aria-label="Close Card title">Close</button>'
+    . $wiredPanel('dla-dialog-0', '<div><h2>Record details</h2></div>') . '</div></section></main></body></html>';
+$wiredStates = array(
+    $state(array('selector' => 'body > main > header > button', 'tag' => 'button', 'ariaHaspopup' => 'menu', 'label' => 'Menu', 'dataBindings' => array())),
+    array('status' => 'captured', 'trigger' => array('selector' => 'body > main > section > div:nth-of-type(3) > button', 'tag' => 'button', 'ariaHaspopup' => 'dialog', 'label' => 'Card title Open the record', 'dataBindings' => array()), 'dialog' => array('html' => '<div><h2>Record details</h2></div>', 'htmlBytes' => strlen('<div><h2>Record details</h2></div>'), 'htmlTruncated' => false)),
+);
+$wiredRows = $files(array('https://example.test/' => $wiredHtml), array('https://example.test/' => $wiredStates));
+$wiredRows[] = array('path' => 'website/index.inline-5.js', 'content' => $wiredRuntime, 'source' => 'inline-script', 'source_path' => 'website/index.html');
+$wired = $project($wiredRows);
+$wiredMarkup = (string) ($wired['files'][0]['content'] ?? '');
+$assert(2 === substr_count($wiredMarkup, '<dialog'), 'wired panels become exactly one native dialog each', $wiredMarkup);
+$assert(!str_contains($wiredMarkup, 'data-dla-dialog-panel') && !str_contains($wiredMarkup, 'data-dla-dialog-close'), 'the in-place panels and close helpers are consumed');
+$assert(str_contains($wiredMarkup, 'Record details') && str_contains($wiredMarkup, 'Alpha'), 'the panel content is preserved');
+$assert(!str_contains($wiredMarkup, 'data-dla-disclosure-runtime'), 'the wiring runtime is retired once every trigger is bound');
+$assert(array() === $codes($wired), 'no unmatched-trigger diagnostics are raised for wired triggers', implode(',', $codes($wired)));
+$assert(array() === array_values(array_filter($wired['files'], static fn (array $file): bool => 'website/index.inline-5.js' === ($file['path'] ?? ''))), 'the extracted wiring script is omitted');
+
+$sharedTrigger = static fn(string $label): string => '<button type="button" aria-label="' . $label . '" data-dla-disclosure-label="' . $label . '" data-dla-dialog-trigger="shared" aria-controls="shared" aria-haspopup="dialog">' . $label . '</button>';
+$sharedBody = $sharedTrigger('First') . $sharedTrigger('Second') . $wiredPanel('shared', '<div><p>Shared content</p></div>');
+$sharedStates = array($state(array('selector' => 'body > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'First', 'ariaHaspopup' => 'dialog', 'dataBindings' => array())));
+$shared = $project($files(array('https://example.test/' => '<html><body>' . $sharedBody . '</body></html>'), array('https://example.test/' => $sharedStates)));
+$sharedMarkup = (string) $shared['files'][0]['content'];
+preg_match('/data-blocks-engine-triggers="([^"]+)"/', $sharedMarkup, $sharedIds);
+$assert(1 === substr_count($sharedMarkup, '<dialog') && 2 === count(explode(' ', $sharedIds[1] ?? '')), 'all controls sharing one wired panel bind to one native dialog');
+
+$scopeHtml = '<html><body><div class="data-liberation-desktop-document">' . $sharedBody . '</div><div class="data-liberation-mobile-document">' . $sharedBody . '</div></body></html>';
+$scoped = $project($files(array('https://example.test/' => $scopeHtml), array('https://example.test/' => $sharedStates)));
+$scopedMarkup = (string) $scoped['files'][0]['content'];
+preg_match_all('/data-blocks-engine-triggers="([^"]+)"/', $scopedMarkup, $scopedIds);
+$boundIds = explode(' ', implode(' ', $scopedIds[1] ?? array()));
+$assert(2 === substr_count($scopedMarkup, '<dialog') && 4 === count($boundIds) && 4 === count(array_unique($boundIds)), 'responsive panels bind every scoped trigger with globally unique ids');
+$assert(!str_contains($scopedMarkup, 'data-dla-dialog-panel'), 'responsive panels are consumed in their own scopes');
+
+$menuBody = '<div><div><a href="/parent">Parent</a><div><a href="/first">First child</a><a href="/second">Second child</a></div></div><div><a href="/other">Other</a></div></div>';
+$menuHtml = '<html><body><header><button type="button" aria-haspopup="menu" aria-controls="menu" data-dla-dialog-trigger="menu" data-dla-disclosure-label="Menu">Menu</button>' . $wiredPanel('menu', $menuBody) . '</header><main><h1>Page</h1></main></body></html>';
+$menuFiles = $files(array('https://example.test/' => $menuHtml), array('https://example.test/' => array($state(array('selector' => 'body > header > button', 'tag' => 'button', 'label' => 'Menu', 'ariaHaspopup' => 'menu', 'dataBindings' => array())))));
+$compiledMenu = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $menuFiles))->toArray();
+$assert(str_contains((string) ($compiledMenu['serialized_blocks'] ?? ''), '<!-- wp:navigation-submenu'), 'wired menu adoption retains native nested submenu semantics through compilation');
 
 if (0 !== $failures) {
     fwrite(STDERR, "captured-dialog-projector failed: {$failures} failure(s), {$passes} pass(es)\n");

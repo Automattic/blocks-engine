@@ -29,7 +29,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $fallbacks = array();
         $items = array();
         foreach ( $itemElements as $child ) {
-            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggleMarker(...));
+            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggle(...));
             if ( null === $item ) {
                 return null;
             }
@@ -40,14 +40,22 @@ final class AccordionPattern implements PatternRecognizerInterface
             return null;
         }
 
+        $attributes = $presentationAttributes($element);
+        for ($node = $itemElements[0]->parentNode, $depth = 0; $node instanceof DOMElement && $depth < 8; $node = $node->parentNode, $depth++) {
+            if ('true' === strtolower(SourceDom::attr($node, 'data-dla-exclusive-disclosures'))) {
+                $attributes['autoclose'] = true;
+                break;
+            }
+            if ($node->isSameNode($element)) break;
+        }
         return new PatternRecognitionResult(
-            $createBlock('core/accordion', $presentationAttributes($element), $items, $element),
+            $createBlock('core/accordion', $attributes, $items, $element),
             $fallbacks
         );
     }
 
     /** @param list<array<string, mixed>> $fallbacks */
-    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggleMarker): ?array
+    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggle): ?array
     {
         if ( ! $this->isAccordionItemElement($item) || $this->hasRuntimeHeavyDescendant($item) ) {
             return null;
@@ -79,11 +87,15 @@ final class AccordionPattern implements PatternRecognizerInterface
 
         // core saves the toggle button with a fixed class and no others, so the
         // source trigger's own box — the vertical padding that gives every row
-        // its height — is carried on the heading as a marker instead.
+        // its height — is carried on the heading as a marker instead. A
+        // source-proved vector icon rides in block metadata: core saves a fixed
+        // `+` icon slot, and the theme renders the actual SVG into it.
+        $toggle = $control instanceof DOMElement ? $accordionToggle($control) : array('className' => '', 'iconSvg' => '');
         $headingAttrs = array_filter(array(
             'title' => $titleHtml,
             'level' => $this->headingLevel($title),
-            'className' => $control instanceof DOMElement ? $accordionToggleMarker($control) : '',
+            'className' => $toggle['className'],
+            'metadata' => '' !== $toggle['iconSvg'] ? array('blocksEngineIcon' => $toggle['iconSvg']) : '',
         ), static fn ($value): bool => '' !== $value);
 
         return $createBlock('core/accordion-item', array_filter(array_merge($presentationAttributes($item), array(
@@ -300,6 +312,14 @@ final class AccordionPattern implements PatternRecognizerInterface
     private function panelElement(DOMElement $item, DOMElement $title): ?DOMElement
     {
         $controlledId = $this->trimmedAttribute($title, 'aria-controls');
+        $parent = $title->parentNode;
+        if ( '' !== $controlledId && $parent instanceof DOMElement ) {
+            foreach ( $parent->getElementsByTagName('*') as $candidate ) {
+                if ( $candidate instanceof DOMElement && 'true' === strtolower($candidate->getAttribute('data-dla-local-disclosure')) && $candidate->getAttribute('id') === $controlledId ) {
+                    return $candidate;
+                }
+            }
+        }
         if ( '' !== $controlledId ) {
             foreach ( $item->getElementsByTagName('*') as $candidate ) {
                 if ( $candidate instanceof DOMElement && $candidate->getAttribute('id') === $controlledId ) {

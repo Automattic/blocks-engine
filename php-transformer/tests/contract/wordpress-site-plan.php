@@ -39,9 +39,143 @@ $assert(4 === count($eventEntities) && '/calendar/old' === $eventEntities['event
 $assert('2020-02-01T10:00:00-05:00' === $eventEntities['events/old.html']['start_date'] && 'Town Hall' === $eventEntities['events/old.html']['venue']['name'] && '1 Main St' === $eventEntities['events/old.html']['venue']['address']['streetAddress'] && 'https://example.test/event.jpg' === $eventEntities['events/old.html']['image'] && 'Neighbors meet for the evening.' === $eventEntities['events/old.html']['description'], 'Event fields preserve offset, description, venue and image evidence.');
 $assert(!isset($eventEntities['events/minimal.html']['venue']) && !isset($eventEntities['events/minimal.html']['image']) && 'Virtual gathering' === $eventEntities['events/minimal.html']['name'], 'Dated events without venue or image remain representable without invented optional fields.');
 $assert('/media/event-image.avif' === $eventEntities['events/portable.html']['image'], 'Portable source-local image evidence survives event declaration.');
+$eventPages = array_column($eventPlan['pages'], null, 'source_path');
+$assert('blocks-engine/whole-page-candidate/v1' === ($eventPages['events/future.html']['whole_page_candidates'][0]['schema'] ?? null) && $eventEntities['events/future.html']['id'] === $eventPages['events/future.html']['whole_page_candidates'][0]['entity_id'], 'Source-backed event detail pages carry the canonical ownership candidate without caller-added metadata.');
+$eventResolved = (new WordPressSitePlanResolver())->resolve($eventPlan, array('theme_uri' => 'https://example.test/theme'));
+$assert($eventPages['events/future.html']['whole_page_candidates'] === array_column($eventResolved['pages'], null, 'source_path')['events/future.html']['whole_page_candidates'], 'Automatically declared event ownership survives canonical resolution.');
+$homeEvent = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $eventJson($event('2032-08-01T10:00:00Z', '2032-08-01T11:00:00Z')))))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(!isset($homeEvent['pages'][0]['whole_page_candidates']), 'An Event mentioned on the homepage never authorizes provider takeover of the front page.');
+$structuredEvent = $event('2032-08-01T10:00:00Z', '2032-08-01T11:00:00Z');
+$quarantined = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main>Home</main>'),
+    array('path' => 'gathering.html', 'content' => '<main><h1>Community gathering</h1></main>', 'metadata' => array('structured_data' => array(array('type' => 'application/ld+json', 'data' => $structuredEvent)))),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(isset(array_column($quarantined['pages'], null, 'source_path')['gathering.html']['whole_page_candidates']), 'Non-executable quarantined JSON-LD metadata supplies event facts after script markup is removed.');
+$duplicates = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main>Home</main>'),
+    array('path' => 'gathering.html', 'content' => $eventJson($structuredEvent), 'metadata' => array('structured_data' => array(array('type' => 'application/ld+json', 'data' => $structuredEvent)))),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(isset(array_column($duplicates['pages'], null, 'source_path')['gathering.html']['whole_page_candidates']), 'The same structured evidence present in markup and metadata is not falsely ambiguous.');
 $eventRoutes = array_column($eventPlan['routes'], 'source_path');
 $assert(!isset($eventEntities['events/plain.html'], $eventEntities['events/broken.html'], $eventEntities['events/ambiguous.html']) && count($eventRoutes) === count(array_unique($eventRoutes)) && in_array('events/plain.html', $eventRoutes, true) && in_array('events/broken.html', $eventRoutes, true), 'Malformed, ambiguous and non-event documents remain pages without inventing event entities or duplicate route owners.');
 $assert(array() === array_filter($eventPlan['runtime_declarations'], static fn(array $row): bool => 'tickets' === ($row['type'] ?? null)), 'Event facts do not invent ticket entities.');
+$taxonomyArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/corroborated-category.php';
+$taxonomyPlan = (new ArtifactCompiler())->compile($taxonomyArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$fieldNotes = $taxonomyPlan['taxonomy_entities'][0] ?? array();
+$assert(1 === count($taxonomyPlan['taxonomy_entities']) && 'category' === ($fieldNotes['taxonomy'] ?? null) && 'Field Notes' === ($fieldNotes['name'] ?? null), 'A captured category collection is recognized from article source metadata and reciprocal category links.');
+$archivePresentation = (string) ($fieldNotes['archive']['presentation_markup'] ?? '');
+$assert(array('stories/first.html', 'stories/second.html') === ($fieldNotes['membership_source_paths'] ?? null) && '/journal/category/field-notes' === ($fieldNotes['archive']['source_route'] ?? null) && str_contains($archivePresentation, '<!-- wp:query ') && str_contains($archivePresentation, '"inherit":true') && str_contains($archivePresentation, '<!-- wp:query-pagination ') && str_contains($archivePresentation, '<!-- wp:query-no-results -->'), 'Membership retains source route identity and turns captured cards into an inherited query loop with pagination and empty state.');
+$nickIndexHtmlArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/nick-index-html-category.php';
+$nickIndexHtmlPlan = (new ArtifactCompiler())->compile($nickIndexHtmlArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$nickSpeaking = $nickIndexHtmlPlan['taxonomy_entities'][0] ?? array();
+$nickSpeakingMembers = array(
+    'website/embracing-the-power-of-blocks/index.html',
+    'website/speed-building-a-carousel-block/index.html',
+    'website/useful-resources-for-curating-the-wordpress-editing-experience/index.html',
+    'website/useful-resources-for-extending-wordpress-blocks/index.html',
+    'website/why-i-built-my-wordcamp-us-presentation-out-of-blocks/index.html',
+);
+sort($nickSpeakingMembers, SORT_STRING);
+$assert(
+    1 === count($nickIndexHtmlPlan['taxonomy_entities'] ?? array())
+    && 'speaking' === ($nickSpeaking['slug'] ?? null)
+    && '/writing/category/speaking' === ($nickSpeaking['archive']['source_route'] ?? null)
+    && $nickSpeakingMembers === ($nickSpeaking['membership_source_paths'] ?? null),
+    'The retained Nick capture href shape with explicit index.html aliases resolves through the compiled source-route table and proves exactly its five reciprocal Speaking members.'
+);
+$nickHeadLinks = array_values(array_filter($nickSpeaking['archive']['document_head']['elements'] ?? array(), static fn(array $element): bool => 'link' === ($element['tag'] ?? null) && 'stylesheet' === ($element['attributes']['rel'] ?? null)));
+$nickHeadAsset = array_values(array_filter($nickIndexHtmlPlan['assets'], static fn(array $asset): bool => 1 === count(array_filter($asset['references'] ?? array(), static fn(array $reference): bool => 'website/writing/category/speaking/index.html' === ($reference['source_path'] ?? null) && 'link:nth-of-type(1)' === ($reference['selector'] ?? null)))));
+$nickBootstrap = '';
+foreach ($nickIndexHtmlPlan['writes'] as $write) if ('functions.php' === ($write['target_path'] ?? null)) $nickBootstrap = (string) ($write['payload']['data'] ?? '');
+$assert(
+    1 === count($nickHeadLinks)
+    && 1 === count($nickHeadAsset)
+    && ($nickHeadLinks[0]['selector'] ?? null) === ($nickHeadAsset[0]['references'][0]['selector'] ?? null)
+    && ($nickHeadLinks[0]['asset_reference'] ?? null) === '{{wordpress-site-plan:asset:' . ($nickHeadAsset[0]['token'] ?? '') . '}}'
+    && !isset($nickHeadLinks[0]['url'])
+    && 'screen' === ($nickHeadLinks[0]['attributes']['media'] ?? null)
+    && 'next' === ($nickHeadLinks[0]['attributes']['data-precedence'] ?? null)
+    && in_array('website/writing/category/speaking/index.html', array_column($nickHeadAsset[0]['scopes'] ?? array(), 'source_path'), true)
+    && str_contains($nickBootstrap, "'taxonomy' => 'category'")
+    && str_contains($nickBootstrap, "'term_slug' => 'speaking'")
+    && str_contains($nickBootstrap, 'data-precedence="next"'),
+    'A proven native archive retains its ordered page-scoped source head stylesheet and the generated theme binds that head to the matching native term query.'
+);
+$paginatedTaxonomyArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/corroborated-category.php';
+$paginatedTaxonomyArtifact['files'][] = array('path' => 'archives/field-notes-page-two.html', 'content' => '<header><p>Shared header</p></header><main><h1>Field Notes</h1><article><h2><a href="/stories/third">Third story</a></h2><p>Third summary.</p></article><article><h2><a href="/stories/fourth">Fourth story</a></h2><p>Fourth summary.</p></article></main><footer><p>Shared footer</p></footer>', 'metadata' => array('route_path' => '/journal/category/field-notes/page/2'));
+foreach (array('third', 'fourth') as $story) $paginatedTaxonomyArtifact['files'][] = array('path' => 'stories/' . $story . '.html', 'content' => '<header><p>Shared header</p></header><article><h1>' . ucfirst($story) . ' story</h1><p>Full story.</p><a href="/journal/category/field-notes">Field Notes</a></article><footer><p>Shared footer</p></footer>', 'metadata' => array('post_type' => 'post'));
+$paginatedTaxonomyPlan = (new ArtifactCompiler())->compile($paginatedTaxonomyArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$paginatedTerm = $paginatedTaxonomyPlan['taxonomy_entities'][0] ?? array();
+$paginatedPageSources = array_column($paginatedTaxonomyPlan['pages'], 'source_path');
+$paginatedSourcePaths = array_column($paginatedTaxonomyPlan['source']['source_documents'] ?? array(), 'source_path');
+$assert(array('stories/first.html', 'stories/fourth.html', 'stories/second.html', 'stories/third.html') === ($paginatedTerm['membership_source_paths'] ?? null) && in_array('archives/field-notes-page-two.html', $paginatedSourcePaths, true) && !in_array('archives/field-notes-page-two.html', $paginatedPageSources, true) && !in_array('wordpress-site-plan/routes/journal/category/field-notes/page.html', $paginatedPageSources, true), 'Corroborated page-2 archive members join the base native term, retain source-document provenance, and create neither a page nor a synthetic page ancestor.');
+$ambiguousPaginatedArtifact = $paginatedTaxonomyArtifact;
+$ambiguousPaginatedArtifact['files'][] = array('path' => 'archives/other-field-notes.html', 'content' => '<header><p>Shared header</p></header><main><h1>Field Notes</h1><article><h2><a href="/stories/first">First story</a></h2><p>First summary.</p></article><article><h2><a href="/stories/second">Second story</a></h2><p>Second summary.</p></article></main><footer><p>Shared footer</p></footer>', 'metadata' => array('route_path' => '/alternate/category/field-notes'));
+foreach ($ambiguousPaginatedArtifact['files'] as &$ambiguousFile) if (is_array($ambiguousFile) && str_starts_with((string) ($ambiguousFile['path'] ?? ''), 'stories/')) $ambiguousFile['content'] = str_replace('<a href="/journal/category/field-notes">Field Notes</a>', '<a href="/journal/category/field-notes">Field Notes</a><a href="/alternate/category/field-notes">Field Notes</a>', (string) $ambiguousFile['content']);
+unset($ambiguousFile);
+$ambiguousPaginatedPlan = (new ArtifactCompiler())->compile($ambiguousPaginatedArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === $ambiguousPaginatedPlan['taxonomy_entities'] && in_array('archives/field-notes-page-two.html', array_column($ambiguousPaginatedPlan['pages'], 'source_path'), true) && 2 === count(array_filter($ambiguousPaginatedPlan['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_taxonomy_archive_ambiguous_term' === ($row['code'] ?? null))), 'Duplicate corroborated term claims retain their paginated source page and diagnostics instead of suppressing it before ambiguity rejection.');
+$insufficientPaginatedArtifact = $paginatedTaxonomyArtifact;
+foreach ($insufficientPaginatedArtifact['files'] as &$insufficientFile) if (is_array($insufficientFile)) {
+    if ('archives/field-notes.html' === ($insufficientFile['path'] ?? null)) $insufficientFile['content'] = str_replace('<article><h2><a href="/stories/second">Second story</a></h2><p>Second summary.</p></article>', '', (string) $insufficientFile['content']);
+    if ('archives/field-notes-page-two.html' === ($insufficientFile['path'] ?? null)) $insufficientFile['content'] = str_replace(array('/stories/third', '/stories/fourth'), '/stories/first', (string) $insufficientFile['content']);
+}
+unset($insufficientFile);
+$insufficientPaginatedPlan = (new ArtifactCompiler())->compile($insufficientPaginatedArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === $insufficientPaginatedPlan['taxonomy_entities'] && in_array('archives/field-notes-page-two.html', array_column($insufficientPaginatedPlan['pages'], 'source_path'), true) && in_array('wordpress_site_plan_taxonomy_archive_unproven', array_column($insufficientPaginatedPlan['diagnostics'], 'code'), true), 'Insufficient distinct reciprocal members keep the pagination source as an ordinary page with an unproven diagnostic.');
+$declinedPresentationArtifact = $paginatedTaxonomyArtifact;
+foreach ($declinedPresentationArtifact['files'] as &$declinedFile) if (is_array($declinedFile)) {
+    if ('archives/field-notes.html' === ($declinedFile['path'] ?? null)) $declinedFile['content'] = '<main><h1>Field Notes</h1><nav><a href="/stories/first">First story</a><a href="/stories/second">Second story</a></nav></main>';
+    if ('archives/field-notes-page-two.html' === ($declinedFile['path'] ?? null)) $declinedFile['content'] = '<style>.page-two-marker{color:#123456}</style><main><h1>Field Notes</h1><nav><a href="/stories/third">Third story</a><a href="/stories/fourth">Fourth story</a></nav></main>';
+}
+unset($declinedFile);
+$declinedPresentationPlan = (new ArtifactCompiler())->compile($declinedPresentationArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$declinedPageTwoHasResource = (bool) array_filter($declinedPresentationPlan['assets'], static fn(array $asset): bool => in_array('archives/field-notes-page-two.html', array_column($asset['scopes'] ?? array(), 'source_path'), true));
+$assert(array() === $declinedPresentationPlan['taxonomy_entities'] && in_array('archives/field-notes-page-two.html', array_column($declinedPresentationPlan['pages'], 'source_path'), true) && in_array('wordpress_site_plan_taxonomy_archive_query_unproven', array_column($declinedPresentationPlan['diagnostics'], 'code'), true) && $declinedPageTwoHasResource, 'A declined native query presentation keeps the paginated source page and its page-scoped CSS resource with an ownership diagnostic.');
+$taxonomyBootstrap = (string) ((array_values(array_filter($taxonomyPlan['writes'], static fn(array $write): bool => 'functions.php' === ($write['target_path'] ?? null)))[0]['payload']['data'] ?? ''));
+$assert(str_contains($taxonomyBootstrap, "index.php?category_name=field-notes") && str_contains($taxonomyBootstrap, "home_url( \$route )"), 'Generated theme retains the exact native category rewrite and source term-link mapping without changing global taxonomy bases.');
+$assert(str_contains($taxonomyBootstrap, '/page/' . WordPressSitePlan::TAXONOMY_ARCHIVE_PAGED_CAPTURE . '/?$\'') && str_contains($taxonomyBootstrap, "'index.php?category_name=field-notes&paged=\$matches[1]'"), 'The source route gains a pagination rewrite that keeps the native term query context and admits bounded positive page numbers only.');
+$assert(!str_contains($taxonomyBootstrap, 'category_base') && !str_contains($taxonomyBootstrap, 'tag_base'), 'The bootstrap never mutates global category/tag bases.');
+$categoryTemplate = array_values(array_filter($taxonomyPlan['templates'], static fn(array $template): bool => 'category-field-notes' === ($template['slug'] ?? null)))[0] ?? array();
+$sharedMarkup = implode("\n", array_column($taxonomyPlan['template_parts'], 'canonical_block_markup'));
+$assert(str_contains((string) ($categoryTemplate['canonical_block_markup'] ?? ''), 'Field Notes') && str_contains((string) ($categoryTemplate['canonical_block_markup'] ?? ''), 'wp:query') && str_contains((string) ($categoryTemplate['canonical_block_markup'] ?? ''), '"slug":"footer"') && str_contains($sharedMarkup, 'Shared footer'), 'Category-specific template retains the shared footer shell and its captured content in the shared part tree.');
+$ambiguousTaxonomyArtifact = $taxonomyArtifact;
+foreach ($ambiguousTaxonomyArtifact['files'] as &$taxonomyFile) {
+    if (is_array($taxonomyFile) && in_array($taxonomyFile['path'] ?? '', array('stories/first.html', 'stories/second.html'), true)) $taxonomyFile['content'] = '<article><h1>' . ('stories/first.html' === $taxonomyFile['path'] ? 'First story' : 'Second story') . '</h1><p>Story body.</p></article>';
+}
+unset($taxonomyFile);
+$ambiguousTaxonomyPlan = (new ArtifactCompiler())->compile($ambiguousTaxonomyArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === $ambiguousTaxonomyPlan['taxonomy_entities'] && 1 === count(array_filter($ambiguousTaxonomyPlan['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_taxonomy_archive_unproven' === ($row['code'] ?? null))), 'An archive whose articles do not link back remains explicitly unproven.');
+$unsupportedSpellingArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/corroborated-category.php';
+foreach ($unsupportedSpellingArtifact['files'] as &$spellingFile) if (is_array($spellingFile) && 'archives/field-notes.html' === ($spellingFile['path'] ?? null)) $spellingFile['metadata']['route_path'] = '/journal/category/-field-notes';
+unset($spellingFile);
+$unsupportedSpellingPlan = (new ArtifactCompiler())->compile($unsupportedSpellingArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === $unsupportedSpellingPlan['taxonomy_entities'] && 1 === count(array_filter($unsupportedSpellingPlan['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_taxonomy_archive_unsupported_spelling' === ($row['code'] ?? null))), 'A category archive whose route spelling cannot name a canonical term stays an explicit unproven diagnostic instead of constructing an entity the plan would reject.');
+$ambiguousTermArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/corroborated-category.php';
+foreach ($ambiguousTermArtifact['files'] as $index => $termFile) if (is_array($termFile)) {
+    if ('archives/field-notes.html' === ($termFile['path'] ?? null)) $termFile['metadata']['route_path'] = '/one/category/field-notes';
+    if (str_starts_with((string) ($termFile['path'] ?? ''), 'stories/')) $termFile['content'] = str_replace('<a href="/journal/category/field-notes">Field Notes</a>', '<a href="/one/category/field-notes">Field Notes</a><a href="/two/category/field-notes">Field Notes</a>', (string) $termFile['content']);
+    $ambiguousTermArtifact['files'][$index] = $termFile;
+}
+$ambiguousTermArtifact['files'][] = array('path' => 'more/field-notes.html', 'content' => '<main><h1>Field Notes</h1><article><h2><a href="/stories/first">First story</a></h2><p>First summary.</p></article><article><h2><a href="/stories/second">Second story</a></h2><p>Second summary.</p></article></main>', 'metadata' => array('route_path' => '/two/category/field-notes'));
+$ambiguousTermPlan = (new ArtifactCompiler())->compile($ambiguousTermArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === $ambiguousTermPlan['taxonomy_entities'] && 2 === count(array_filter($ambiguousTermPlan['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_taxonomy_archive_ambiguous_term' === ($row['code'] ?? null))), 'Two corroborated archives claiming one term slug both stay explicitly unproven instead of failing the whole plan.');
+$originTaxonomyFiles = static function (string $backlink, string $sourceUrl = ''): array {
+    $artifact = array('entrypoint' => 'index.html', 'files' => array(
+        'index.html' => '<main><h1>Home</h1></main>',
+        array('path' => 'archives/field-notes.html', 'content' => '<main><h1>Field Notes</h1><article><h2><a href="/stories/first">First story</a></h2><p>First summary.</p></article><article><h2><a href="/stories/second">Second story</a></h2><p>Second summary.</p></article></main>', 'metadata' => array('route_path' => '/journal/category/field-notes')),
+        array('path' => 'stories/first.html', 'content' => '<article><h1>First story</h1><p>Full first story.</p><a href="' . $backlink . '">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
+        array('path' => 'stories/second.html', 'content' => '<article><h1>Second story</h1><p>Full second story.</p><a href="' . $backlink . '">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
+    ));
+    if ('' !== $sourceUrl) $artifact['provenance'] = array('source_url' => $sourceUrl);
+    return $artifact;
+};
+$foreignBacklinkPlan = (new ArtifactCompiler())->compile($originTaxonomyFiles('https://mirror.example/journal/category/field-notes', 'https://source.example/'))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === $foreignBacklinkPlan['taxonomy_entities'] && 1 === count(array_filter($foreignBacklinkPlan['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_taxonomy_archive_unproven' === ($row['code'] ?? null))), 'An unrelated external origin cannot falsely prove local category membership through a coincidental path.');
+$sameOriginBacklinkPlan = (new ArtifactCompiler())->compile($originTaxonomyFiles('https://source.example/journal/category/field-notes', 'https://source.example/'))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(1 === count($sameOriginBacklinkPlan['taxonomy_entities']) && 'category' === ($sameOriginBacklinkPlan['taxonomy_entities'][0]['taxonomy'] ?? null), 'Absolute links on the declared source origin still corroborate local category membership.');
+$noOriginBacklinkPlan = (new ArtifactCompiler())->compile($originTaxonomyFiles('https://source.example/journal/category/field-notes'))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(array() === $noOriginBacklinkPlan['taxonomy_entities'], 'Without a declared source origin, absolute links cannot prove local category membership.');
 $throws = static function (callable $callback, string $message) use ($assert): void { try { $callback(); } catch (InvalidArgumentException) { return; } $assert(false, $message); };
 $validationFailure = static function (callable $callback) use ($assert): ValidationException { try { $callback(); } catch (ValidationException $exception) { return $exception; } $assert(false, 'Expected a contextual WordPress site plan validation failure.'); };
 $writeMap = static function (array $writes): array { $map = array(); foreach ($writes as $write) $map[$write['target_path']] = $write; return $map; };
@@ -121,7 +255,7 @@ $tokenCss = implode("\n", array_map(static fn(array $asset): string => (string) 
 $assert(!isset($tokenTheme['styles']['color']['text']) && 'var:preset|font-family|font-family-8176111-c-21' === ($tokenTheme['styles']['typography']['fontFamily'] ?? null) && 'var:preset|font-size|font-size-a-0-a-3565-c-71' === ($tokenTheme['styles']['elements']['h1']['typography']['fontSize'] ?? null) && 'var:preset|spacing|spacing-2793-cbc-214' === ($tokenTheme['styles']['spacing']['padding'] ?? null) && '72rem' === ($tokenTheme['settings']['layout']['contentSize'] ?? null), 'Global Styles project deterministic WordPress-compatible source typography, spacing, and layout presets without overriding conditional source colors.');
 $tokenSlugs = array_merge(array_column($tokenTheme['settings']['color']['palette'] ?? array(), 'slug'), array_column($tokenTheme['settings']['typography']['fontFamilies'] ?? array(), 'slug'), array_column($tokenTheme['settings']['typography']['fontSizes'] ?? array(), 'slug'), array_column($tokenTheme['settings']['spacing']['spacingSizes'] ?? array(), 'slug'));
 $assert(array() === array_values(array_filter($tokenSlugs, static fn(string $slug): bool => 1 === preg_match('/(?:\d[a-f]|[a-f]\d)/', $slug))), 'Generated preset slugs are already canonical across every projected group before WordPress emits CSS identifiers.');
-$assert(2 === count($tokenTheme['settings']['color']['palette'] ?? array()) && str_contains($tokenCss, 'body{color:#123456') && str_contains($tokenCss, ':root .editor-styles-wrapper{color:#123456') && str_contains($tokenCss, 'main{max-width:72rem}') && str_contains($tokenCss, '.card{color:#123456;transform:translateY(2px)}') && str_contains($tokenCss, '@media (max-width:600px){body{color:#abcdef}:root .editor-styles-wrapper{color:#abcdef}}'), 'Theme token projection preserves source CSS as the frontend authority and carries document-root presentation into the editor.');
+$assert(2 === count($tokenTheme['settings']['color']['palette'] ?? array()) && str_contains($tokenCss, 'body{color:#123456') && str_contains($tokenCss, ':root body.editor-styles-wrapper{color:#123456') && str_contains($tokenCss, 'main{max-width:72rem}') && str_contains($tokenCss, '.card{color:#123456;transform:translateY(2px)}') && str_contains($tokenCss, '@media (max-width:600px){body{color:#abcdef}:root body.editor-styles-wrapper{color:#abcdef}}'), 'Theme token projection preserves source CSS as the frontend authority and carries document-root presentation into the editor.');
 $assert($tokenPlan === ((new ArtifactCompiler())->compile($tokenArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? null) && str_ends_with((string) ($tokenPlan['theme']['design_token_provenance'][0]['source_path'] ?? ''), '.inline.css') && preg_match('/^[a-f0-9]{64}$/', (string) ($tokenPlan['theme']['design_token_provenance'][0]['source_hash'] ?? null)), 'Token projection and source provenance are deterministic.');
 $responsiveTypographyArtifact = array(
     'entrypoint' => 'index.html',
@@ -1347,7 +1481,7 @@ $assert(2 === substr_count((string) $duplicateBootstrap, 'https://cdn.example.te
 $malformed = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<head><link rel=stylesheet href=assets/site.css broken="unterminated><link rel=stylesheet href=assets/site.css media=""></head><body><main><h1>Malformed</h1></main><script src=assets/app.js type=module defer></script></body>', 'assets/site.css' => 'body{}', 'assets/app.js' => 'window.app=true;')))->toArray();
 $malformedPlan = $malformed['source_reports']['wordpress_site_plan'] ?? array();
 $malformedPage = $malformedPlan['pages'][0] ?? array();
-$assert(2 === count($malformedPage['document_metadata']['links'] ?? array()) && str_starts_with((string) ($malformedPage['document_metadata']['links'][1]['asset_reference'] ?? ''), WordPressSitePlan::TOKEN_PREFIX) && true === ($malformedPage['document_metadata']['scripts'][0]['module'] ?? null) && true === ($malformedPage['document_metadata']['scripts'][0]['defer'] ?? null), 'Malformed attributes retain bounded declarations while later unquoted declarations and module defer semantics remain intact.');
+$assert(1 === count($malformedPage['document_metadata']['links'] ?? array()) && str_starts_with((string) ($malformedPage['document_metadata']['links'][0]['asset_reference'] ?? ''), WordPressSitePlan::TOKEN_PREFIX) && true === ($malformedPage['document_metadata']['scripts'][0]['module'] ?? null) && true === ($malformedPage['document_metadata']['scripts'][0]['defer'] ?? null), 'Markup inside a malformed quoted value remains attribute text, while the real local link and later module defer semantics remain intact.');
 
 $rootRelative = (new ArtifactCompiler())->compile(array('entrypoint' => 'nested/index.html', 'files' => array(
     'nested/index.html' => '<!doctype html><head><link rel="stylesheet" href="/assets/site.css?theme=1#main"><script src="/assets/app.js?build=2#run"></script></head><body><img src="/assets/logo.svg?width=40#hero" srcset="/assets/logo.svg?one=1#one 1x, /assets/logo.svg?two=2#two 2x" poster="/assets/poster.jpg"><div style="background-image:url(&quot;/assets/logo.svg&quot;)"></div><a href="/application-route#anchor">Route</a><a href="#local">Local</a><a href="https://example.test/external">External</a><a href="//cdn.example.test/library.js">Protocol</a><a href="mailto:test@example.test">Mail</a><a href="tel:+15551212">Tel</a><img src="data:image/svg+xml,svg"><img src="blob:https://example.test/blob"></body>',

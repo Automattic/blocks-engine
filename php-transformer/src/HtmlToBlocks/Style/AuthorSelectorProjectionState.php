@@ -4,10 +4,16 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Closure;
+use DOMElement;
 
 /** Per-transform source identities projected from author CSS selectors. */
 final class AuthorSelectorProjectionState
 {
+    /** Roles a source element plays in the core/navigation block that replaces it. */
+    public const NAVIGATION_ANCHOR = 'anchor';
+    public const NAVIGATION_ITEM = 'item';
+    public const NAVIGATION_LIST_HOST = 'list-host';
+
     private ?AuthorStyleAnalysis $authorStyles = null;
 
     /** @var array<string, string> */
@@ -25,11 +31,24 @@ final class AuthorSelectorProjectionState
     /** @var array<string, true> */
     private array $controlPaths = array();
 
+    /**
+     * Node paths of menu toggles the transformer drops in favour of Core's
+     * native overlay control, and of everything inside them. These never reach
+     * the output, so a type selector whose only subjects sit here has nothing
+     * to address but the chrome Core renders in their place.
+     *
+     * @var array<string, true>
+     */
+    private array $supersededControlPaths = array();
+
     /** @var array<string, string> */
     private array $semanticMarkers = array();
 
     /** @var array<string, string> */
     private array $attributeMarkers = array();
+
+    /** @var array<string, array<string, string>> */
+    private array $stableAttributeMarkers = array();
 
     /** @var array<string, list<string>> */
     private array $runtimeAttributeSelectorMarkers = array();
@@ -39,6 +58,21 @@ final class AuthorSelectorProjectionState
 
     /** @var array<string, list<string>> */
     private array $attributeStateMarkers = array();
+
+    /** @var array<string, array<string, string>> Author selector => ancestor attribute condition text => state class. */
+    private array $ancestorAttributeStateConditions = array();
+
+    /** @var array<string, list<string>> Source path => class-only ancestor attribute-state markers. */
+    private array $ancestorAttributeStateMarkers = array();
+
+    /** @var array<string, array<string, true>> Holder key => visited source paths. */
+    private array $ancestorAttributeStateVisits = array();
+
+    /** @var array<string, true> Holder keys with at least one marked holder. */
+    private array $ancestorAttributeStateHolders = array();
+
+    /** @var array<string, bool> */
+    private array $scriptWrittenAttributes = array();
 
     /** @var array<string, string> */
     private array $rootChildMarkers = array();
@@ -51,6 +85,16 @@ final class AuthorSelectorProjectionState
 
     /** @var array<string, string> */
     private array $imageLinkMarkers = array();
+
+    /**
+     * Source image path => the core/image figure that now carries its class
+     * list and id. core/image saves both on the <figure>, never on the <img>,
+     * so an author subject that names the image by class or id has to follow
+     * them there.
+     *
+     * @var array<string, array{classes: list<string>, anchor: string, linked: bool}>
+     */
+    private array $imageFigures = array();
 
     /** @var array<string, string> */
     private array $tableMarkers = array();
@@ -66,6 +110,25 @@ final class AuthorSelectorProjectionState
 
     /** @var array<string, true> */
     private array $inlineLayoutCarrierPaths = array();
+
+    /** @var array<string, true> Source boxes retained verbatim by a layout shell. */
+    private array $retainedSourcePaths = array();
+
+    /**
+     * Source elements core/navigation renders as something other than
+     * themselves, by role:
+     *
+     * - NAVIGATION_ANCHOR: a direct anchor core re-parents into a list item of
+     *   its own, so its position among its source siblings belongs to that item.
+     * - NAVIGATION_ITEM: a source `<li>` core renders as `<li class="wp-block-navigation-item">`,
+     *   without the source-type marker; the flag records whether its rendered
+     *   siblings are exactly its source list's items.
+     * - NAVIGATION_LIST_HOST: a source `<ul>`/`<ol>` that is itself the element
+     *   the navigation block stands in for.
+     *
+     * @var array<string, array<string, bool>>
+     */
+    private array $navigationSourcePaths = array();
 
     public function installAuthorStyles(AuthorStyleAnalysis $authorStyles): void
     {
@@ -97,6 +160,18 @@ final class AuthorSelectorProjectionState
     public function isControlPath(string $path): bool
     {
         return isset($this->controlPaths[$path]);
+    }
+
+    public function markSupersededControlPath(string $path): void
+    {
+        if ( '' !== $path ) {
+            $this->supersededControlPaths[$path] = true;
+        }
+    }
+
+    public function isSupersededControlPath(string $path): bool
+    {
+        return isset($this->supersededControlPaths[$path]);
     }
 
     public function ensureControlMarker(string $path): string
@@ -141,6 +216,25 @@ final class AuthorSelectorProjectionState
     public function imageLinkMarkers(): array
     {
         return $this->imageLinkMarkers;
+    }
+
+    /** Remember which figure a source image became, and what identity the figure carries. */
+    public function recordImageFigure(string $path, string $className, string $anchor, bool $linked): void
+    {
+        if ( '' === $path ) {
+            return;
+        }
+        $this->imageFigures[$path] = array(
+            'classes' => array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array(), static fn (string $class): bool => '' !== $class)),
+            'anchor' => $anchor,
+            'linked' => $linked,
+        );
+    }
+
+    /** @return array{classes: list<string>, anchor: string, linked: bool}|null */
+    public function imageFigure(string $path): ?array
+    {
+        return $this->imageFigures[$path] ?? null;
     }
 
     public function ensureImageWrapperMarker(string $path): string
@@ -188,14 +282,79 @@ final class AuthorSelectorProjectionState
         return isset($this->inlineLayoutCarrierPaths[$path]);
     }
 
-    public function ensureAttributeMarker(string $path): string
+    public function markRetainedSourcePath(string $path): void
     {
+        $this->retainedSourcePaths[$path] = true;
+    }
+
+    public function isRetainedSourcePath(string $path): bool
+    {
+        return isset($this->retainedSourcePaths[$path]);
+    }
+
+    /**
+     * Record a source element core/navigation renders in one of the
+     * NAVIGATION_* roles. `$rendersSourceSiblings` is read for items only.
+     */
+    public function markNavigationSource(DOMElement $element, string $role, bool $rendersSourceSiblings = true): void
+    {
+        $path = $element->getNodePath() ?? '';
+        if ( '' !== $path ) {
+            $this->navigationSourcePaths[$role][$path] = $rendersSourceSiblings;
+        }
+    }
+
+    public function isNavigationSourcePath(string $path, string $role): bool
+    {
+        return isset($this->navigationSourcePaths[$role][$path]);
+    }
+
+    /**
+     * The stable identity for the marker a `>` attribute selector places on
+     * the subject's PARENT. It differs from the subject's identity (the bare
+     * selector), so the parent and the subject get different marker classes:
+     * the projected subject form `:where(.marker)` must not also select the
+     * parent, or the child's declarations (`width:100%`) land on the wrapper.
+     */
+    public static function parentAttributeIdentity(string $selector): string
+    {
+        // Hash input only (never emitted); the NUL keeps it apart from any real selector text.
+        return "parent-of\0" . $selector;
+    }
+
+    /**
+     * Whether the rendered item's container holds exactly the items of its
+     * source list, in source order. Not so when core gathers the items of
+     * two source lists into one container: there the last item of the first
+     * list has a rendered sibling it had no source sibling for.
+     */
+    public function navigationListItemRendersSourceSiblings(string $path): bool
+    {
+        return true === ( $this->navigationSourcePaths[self::NAVIGATION_ITEM][$path] ?? false );
+    }
+
+    public function ensureAttributeMarker(string $path, ?string $stableIdentity = null): string
+    {
+        if ( null !== $stableIdentity ) {
+            return $this->stableAttributeMarkers[$path][$stableIdentity]
+                ??= $this->allocateStableAttributeMarker($stableIdentity);
+        }
         return $this->attributeMarkers[$path] ??= $this->allocateMarker('attribute');
     }
 
-    public function attributeMarker(string $path): string
+    private function allocateStableAttributeMarker(string $identity): string
     {
-        return $this->attributeMarkers[$path] ?? '';
+        return ($this->authorStyles
+            ?? throw new \LogicException('Author styles have not been installed for selector projection.'))
+            ->allocateStableMarker('attribute', $identity);
+    }
+
+    public function attributeMarker(string $path, ?string $stableIdentity = null): string
+    {
+        if ( null !== $stableIdentity ) {
+            return $this->stableAttributeMarkers[$path][$stableIdentity] ?? '';
+        }
+        return $this->attributeMarkers[$path] ?? (array_values($this->stableAttributeMarkers[$path] ?? array())[0] ?? '');
     }
 
     /** @param list<string> $markers */
@@ -212,13 +371,16 @@ final class AuthorSelectorProjectionState
 
     public function isRuntimeAttributePath(string $path): bool
     {
-        $marker = $this->attributeMarkers[$path] ?? '';
-        if ( '' === $marker ) {
+        $pathMarkers = array_values(array_filter(array_merge(
+            array($this->attributeMarkers[$path] ?? ''),
+            array_values($this->stableAttributeMarkers[$path] ?? array())
+        )));
+        if ( array() === $pathMarkers ) {
             return false;
         }
 
-        foreach ( $this->runtimeAttributeSelectorMarkers as $markers ) {
-            if ( in_array($marker, $markers, true) ) {
+        foreach ( $this->runtimeAttributeSelectorMarkers as $runtimeMarkers ) {
+            if ( array() !== array_intersect($pathMarkers, $runtimeMarkers) ) {
                 return true;
             }
         }
@@ -242,6 +404,73 @@ final class AuthorSelectorProjectionState
         return $this->attributeNegationMarkers;
     }
 
+    /** @param array<string, string> $conditions Condition text => state class; empty records a decision not to project. */
+    public function installAncestorAttributeStateConditions(string $selector, array $conditions): void
+    {
+        $this->ancestorAttributeStateConditions[$selector] = $conditions;
+    }
+
+    public function hasAncestorAttributeStateDecision(string $selector): bool
+    {
+        return isset($this->ancestorAttributeStateConditions[$selector]);
+    }
+
+    /** @return array<string, string> */
+    public function ancestorAttributeStateConditions(string $selector): array
+    {
+        return $this->ancestorAttributeStateConditions[$selector] ?? array();
+    }
+
+    public function hasAncestorAttributeStateConditions(): bool
+    {
+        foreach ( $this->ancestorAttributeStateConditions as $conditions ) {
+            if ( array() !== $conditions ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Records a visit; false when `$path` was already walked for this holder key. */
+    public function visitAncestorAttributeStatePath(string $holderKey, string $path): bool
+    {
+        if ( isset($this->ancestorAttributeStateVisits[$holderKey][$path]) ) {
+            return false;
+        }
+        $this->ancestorAttributeStateVisits[$holderKey][$path] = true;
+        return true;
+    }
+
+    public function addAncestorAttributeStateMarker(string $path, string $marker, string $holderKey): void
+    {
+        $this->ancestorAttributeStateHolders[$holderKey] = true;
+        if ( ! in_array($marker, $this->ancestorAttributeStateMarkers[$path] ?? array(), true) ) {
+            $this->ancestorAttributeStateMarkers[$path][] = $marker;
+        }
+    }
+
+    public function hasAncestorAttributeStateHolder(string $holderKey): bool
+    {
+        return isset($this->ancestorAttributeStateHolders[$holderKey]);
+    }
+
+    /**
+     * Class-only markers: emitted on the block's className, never consulted
+     * for wrapper preservation or layout ownership.
+     *
+     * @return list<string>
+     */
+    public function ancestorAttributeStateMarkers(string $path): array
+    {
+        return $this->ancestorAttributeStateMarkers[$path] ?? array();
+    }
+
+    /** @param \Closure(): bool $resolve */
+    public function scriptWritesAttribute(string $name, \Closure $resolve): bool
+    {
+        return $this->scriptWrittenAttributes[$name] ??= $resolve();
+    }
+
     public function addAttributeStateMarker(string $path, string $marker): void
     {
         $this->attributeStateMarkers[$path][] = $marker;
@@ -251,6 +480,16 @@ final class AuthorSelectorProjectionState
     public function attributeStateMarkers(string $path): array
     {
         return $this->attributeStateMarkers[$path] ?? array();
+    }
+
+    /** @return list<string> Attribute-identity and attribute-state classes owned by selector projection. */
+    public function sourceAttributeSelectorMarkers(string $path): array
+    {
+        return array_values(array_unique(array_filter(array_merge(
+            array($this->attributeMarkers[$path] ?? ''),
+            array_values($this->stableAttributeMarkers[$path] ?? array()),
+            $this->attributeStateMarkers($path)
+        ))));
     }
 
     public function ensureRootChildMarker(string $path): string
@@ -277,7 +516,8 @@ final class AuthorSelectorProjectionState
     public function semanticMarkersForPath(string $path): array
     {
         return array_values(array_filter(array_merge(
-            array($this->semanticMarker($path), $this->attributeMarker($path)),
+            array($this->semanticMarker($path), $this->attributeMarkers[$path] ?? ''),
+            array_values($this->stableAttributeMarkers[$path] ?? array()),
             $this->attributeStateMarkers($path),
             array($this->rootChildMarker($path))
         ), static fn (string $marker): bool => '' !== $marker));

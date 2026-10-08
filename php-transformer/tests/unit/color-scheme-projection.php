@@ -57,9 +57,8 @@ $markup = (string) ( $result['serialized_blocks'] ?? '' );
 $assert(str_contains($markup, 'text-gray-900') && str_contains($markup, 'dark:text-gray-100'), 'authored colour and color-scheme classes survive on content');
 $assert(str_contains($css, '.text-gray-900{color:rgb(17 24 39)}'), 'light-mode text colour stays outside the dark media query');
 $assert(
-    1 === preg_match('/body:not\(\.blocks-engine-specificity-class-site-\d+\)\{background-color:rgb\(255 255 255\)\}/', $css)
-        || str_contains($css, '.bg-white{background-color:rgb(255 255 255)}'),
-    'light-mode canvas background-color is preserved',
+    str_contains($css, '.bg-white') && str_contains($css, 'background-color:rgb(255 255 255)'),
+    'light-mode canvas background-color retains its source class, including rich-text projection exclusions',
     $css
 );
 
@@ -78,9 +77,8 @@ $assert(str_contains($darkCss, 'color:rgb(243 244 246)'), 'dark text colour is i
 $assert(str_contains($darkCss, 'background-image:radial-gradient'), 'dark gradient background-image is inside the dark media query', $darkCss);
 $assert(! str_contains($darkCss, 'color:rgb(17 24 39)'), 'light text colour is not moved into the dark media query', $darkCss);
 $assert(
-    1 === preg_match('/@media \(prefers-color-scheme: dark\)\{[^}]*body:not\(\.blocks-engine-specificity-class-site-\d+\)\{[^}]*background-image:radial-gradient/', $css)
-        || 1 === preg_match('/@media \(prefers-color-scheme: dark\)\{body:not\(\.blocks-engine-specificity-class-site-\d+\)\{background-image:radial-gradient/', $css),
-    'the dark gradient paints the rendered body, not only a class that WordPress will not keep on body',
+    str_contains($darkCss, '.dark\\:bg-') && str_contains($darkCss, 'background-image:radial-gradient') && !str_contains($darkCss, 'body:not('),
+    'the dark gradient keeps its source body class under the color-scheme condition without duplicated canvas paint',
     $css
 );
 

@@ -21,6 +21,100 @@ final class RuntimeScriptEvidenceAnalyzer
         $this->cache = array();
     }
 
+    /** @return array<string, mixed>|null */
+    public function themePreferenceOwnership(string $script): ?array
+    {
+        if (strlen($script) > self::MAX_SCRIPT_BYTES) return null;
+
+        $rootNames = array('document');
+        if (preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*documentElement\b/', $script, $aliases)) {
+            foreach ($aliases[1] as $alias) $rootNames[] = preg_quote($alias, '/');
+        }
+        $rootNames = array_values(array_unique($rootNames));
+        $root = '(?:' . implode('|', $rootNames) . ')\s*\.\s*documentElement';
+        $aliasPattern = '(?:' . implode('|', array_slice($rootNames, 1)) . ')';
+        if (count($rootNames) > 1) $root = '(?:document\s*\.\s*documentElement|(?<![A-Za-z0-9_$])' . $aliasPattern . ')';
+        else $root = 'document\s*\.\s*documentElement';
+
+        $classValues = array();
+        $attributes = array();
+        $classMutation = false;
+        $invalidClassMutation = false;
+        $mutationPattern = '/' . $root . '\s*\.\s*classList\s*\.\s*(?:add|remove|toggle)\s*\(\s*([^)]{0,240})\)/';
+        if (preg_match_all($mutationPattern, $script, $mutations)) {
+            $classMutation = true;
+            foreach ($mutations[1] as $arguments) {
+                $hasLiteral = (bool) preg_match('/["\'][^"\']+["\']/', $arguments);
+                if (preg_match_all('/["\']([A-Za-z_-][A-Za-z0-9_-]*)["\']/', $arguments, $classes)) $classValues = array_merge($classValues, $classes[1]);
+                elseif ($hasLiteral) $invalidClassMutation = true;
+            }
+        }
+        if ($invalidClassMutation) return null;
+        $attributePattern = '/' . $root . '\s*\.\s*(?:setAttribute|removeAttribute)\s*\(\s*(["\'])([A-Za-z_:][A-Za-z0-9_.:-]*)\1(?:\s*,\s*(?:(["\'])([^"\']*)\3|[^)]{1,240}))?\s*\)/';
+        if (preg_match_all($attributePattern, $script, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $attributes[] = array('name' => $match[2], 'value' => $match[4] ?? null);
+            }
+        }
+        $rootMutation = $classMutation || array() !== $attributes;
+        if (!$rootMutation || !preg_match('/matchMedia\s*\(/', $script) || !preg_match('/prefers-color-scheme/i', $script)) return null;
+        $attributeNames = array_values(array_unique(array_column($attributes, 'name')));
+        $attributeValues = array_values(array_unique(array_filter(array_column($attributes, 'value'), static fn(mixed $value): bool => is_string($value) && '' !== $value)));
+
+        $keys = array();
+        if (preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(["\'])([^"\']+)\2/', $script, $declarations, PREG_SET_ORDER)) {
+            foreach ($declarations as $declaration) $keys[$declaration[1]][$declaration[3]] = true;
+        }
+        if (preg_match_all('/\bstorageKey\s*:\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(["\'])([^"\']+)\2/', $script, $config, PREG_SET_ORDER)) {
+            foreach ($config as $declaration) $keys[$declaration[1]][$declaration[3]] = true;
+        }
+        $storageGetters = array();
+        if (preg_match_all('/\b([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\b[^)]*\)\s*=>[\s\S]{0,1200}?localStorage\s*\.\s*getItem\s*\(\s*\2\s*\)/', $script, $getters, PREG_SET_ORDER)) {
+            foreach ($getters as $getter) $storageGetters[$getter[1]][$getter[2]] = true;
+        }
+        $readKeys = $writeKeys = array();
+        foreach (array('getItem' => &$readKeys, 'setItem' => &$writeKeys) as $method => &$found) {
+            if (preg_match_all('/\blocalStorage\s*\.\s*' . $method . '\s*\(\s*(?:(["\'])([^"\']+)\1|([A-Za-z_$][A-Za-z0-9_$]*))/', $script, $calls, PREG_SET_ORDER)) {
+                foreach ($calls as $call) {
+                    $key = isset($call[2]) && '' !== $call[2] ? $call[2] : $this->uniqueStorageKey($keys[$call[3] ?? ''] ?? array());
+                    $getterNames = array();
+                    if (null === $key && 'getItem' === $method) {
+                        foreach ($storageGetters as $functionName => $parameters) if (isset($parameters[$call[3] ?? ''])) $getterNames[] = $functionName;
+                    }
+                    if ( null === $key && 1 === count($getterNames) ) {
+                        $function = preg_quote($getterNames[0], '/');
+                        if (preg_match('/\b' . $function . '\s*\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*,/', $script, $invocation)) {
+                            $key = $this->uniqueStorageKey($keys[$invocation[1]] ?? array());
+                        } elseif (preg_match('/\b' . $function . '\s*\(\s*(["\'])([^"\']+)\1\s*,/', $script, $invocation)) {
+                            $key = $invocation[2];
+                        }
+                    }
+                    $found[] = $key;
+                }
+            }
+        }
+        unset($found);
+        $matching = array_values(array_unique(array_intersect(array_filter($readKeys), array_filter($writeKeys))));
+        if (1 !== count($matching)) return null;
+
+        return array(
+            'storageKey' => $matching[0],
+            'rootAttribute' => $classMutation ? 'class' : (1 === count($attributeNames) ? $attributeNames[0] : null),
+            'rootAttributeValue' => 1 === count($attributeValues) ? $attributeValues[0] : null,
+            'rootAttributeValues' => $attributeValues,
+            'rootAttributeRemoved' => 1 === count($attributeNames) && count($attributeValues) < count($attributes),
+            'rootClassValues' => $classValues,
+            'evidence' => array('root_owned' => true, 'os_media' => true, 'storage_read_write' => true),
+            'contract' => 'theme-preference-ownership/v1',
+        );
+    }
+
+    /** @param array<string, true> $values */
+    private function uniqueStorageKey(array $values): ?string
+    {
+        return 1 === count($values) ? (string) array_key_first($values) : null;
+    }
+
     /** @return array<string, mixed> */
     public function analyze(string $script, string $sourcePath = '', string $scriptPath = ''): array
     {
@@ -128,7 +222,15 @@ final class RuntimeScriptEvidenceAnalyzer
     private function assignedSelectors(string $script, string $use, bool $events = false): array
     {
         $found = array();
-        if (!preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector(?:All)?\s*\(\s*(["\'])(' . $this->selectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER)) return $found;
+        if (preg_match_all('/function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(\s*\)\s*\{[^{}]{0,200}?return\s+document\s*\.\s*querySelectorAll\s*\(\s*(["\'])(' . $this->selectorPattern() . ')\2\s*\)/', $script, $helpers, PREG_SET_ORDER)) {
+            foreach ($helpers as $helper) {
+                $selector = $this->canonicalSelector($helper[3]);
+                $call = preg_quote($helper[1], '/') . '\s*\(\s*\)';
+                if ($events || !preg_match('/\b' . $call . '\s*(?:' . $use . '|\.\s*forEach\b)/', $script)) continue;
+                $found[$selector] = true;
+            }
+        }
+        if (!preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector(?:All)?\s*\(\s*(["\'])(' . $this->selectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER)) return $events ? $found : array_keys($found);
         foreach ($assignments as $assignment) {
             $selector = '' !== ($assignment[3] ?? '') ? '#' . $assignment[3] : $this->canonicalSelector($assignment[5]);
             if (!preg_match_all('/\b' . preg_quote($assignment[1], '/') . '\s*' . $use . '/', $script, $matches)) continue;
@@ -160,10 +262,10 @@ final class RuntimeScriptEvidenceAnalyzer
         return true;
     }
     private function selectorPattern(): string { return RuntimeSelectorVocabulary::scriptSelectorPattern(); }
-    private function canonicalSelector(string $selector): string { $selector = trim($selector); return preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ? strtolower($match[1] ?? '') . '[' . strtolower($match[2]) . ']' : $selector; }
+    private function canonicalSelector(string $selector): string { return RuntimeSelectorVocabulary::canonicalScriptSelector($selector); }
     private function selectorKind(string $selector): string { return str_starts_with($selector, '#') ? 'id' : (str_starts_with($selector, '.') ? 'class' : (str_contains($selector, '[') ? 'attribute' : 'element')); }
     /** @return array<int, string> */
-    private function dataSelectors(string $selector): array { $out = array(); if (preg_match_all('/(?:^|[\s>+~,])([a-z][a-z0-9-]*)?\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $matches, PREG_SET_ORDER)) foreach ($matches as $match) $out[] = strtolower($match[1] ?? '') . '[' . strtolower($match[2]) . ']'; return array_values(array_unique($out)); }
+    private function dataSelectors(string $selector): array { $out = array(); if (preg_match_all('/(?:^|[\s>+~,])((?:[a-z][a-z0-9-]*)?\[data-[A-Za-z][A-Za-z0-9_-]*(?:\s*=\s*(?:"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|[^\s"\'\]]{1,80}))?\])/i', $selector, $matches)) foreach ($matches[1] as $candidate) { $canonical = RuntimeSelectorVocabulary::canonicalScriptSelector($candidate); if (str_contains($canonical, '[')) $out[] = $canonical; } return array_values(array_unique($out)); }
     /** @return array<int, string> */
     private function scopedElementSelectors(string $script, string $tag, string $use = ''): array { $out = array(); if (preg_match('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\./', $script, $roots)) if (preg_match('/\b' . preg_quote($roots[1], '/') . '\s*\.\s*querySelector\s*\(\s*(["\'])' . $tag . '\1\s*\)(?:\s*' . $use . ')?/', $script)) $out[] = $tag; return $out; }
     /** @return array<int, string> */

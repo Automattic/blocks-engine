@@ -41,7 +41,7 @@ final class PatternContext
         private readonly ?GalleryPatternContext $galleryContext = null,
         private readonly ?Closure $sourceElementStartsHidden = null,
         private readonly ?Closure $disclosureSummaryMarker = null,
-        private readonly ?Closure $accordionToggleMarker = null,
+        private readonly ?Closure $accordionToggle = null,
         private readonly ?Closure $authoredIconColor = null,
         private readonly ?Closure $assetGlyphColor = null
     ) {
@@ -54,11 +54,14 @@ final class PatternContext
      * most visibly the vertical padding that sets every row's height — has
      * nowhere to live on the block. The owning transformer registers the
      * resolved presentation and returns an opaque marker class for the heading
-     * to carry.
+     * to carry, plus any source-proved SVG icon the theme renders into core's
+     * icon slot.
+     *
+     * @return array{className: string, iconSvg: string}
      */
-    public function accordionToggleMarker(DOMElement $control): string
+    public function accordionToggle(DOMElement $control): array
     {
-        return null === $this->accordionToggleMarker ? '' : ($this->accordionToggleMarker)($control);
+        return null === $this->accordionToggle ? array('className' => '', 'iconSvg' => '') : ($this->accordionToggle)($control);
     }
 
     /**

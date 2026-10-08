@@ -226,7 +226,7 @@ final class InlineGeometry
         }
 
         $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
-        if ( in_array($position, array( 'relative', 'sticky' ), true) ) {
+        if ( in_array($position, array( 'relative', 'fixed', 'sticky' ), true) ) {
             return true;
         }
 
@@ -234,10 +234,9 @@ final class InlineGeometry
     }
 
     /**
-     * Class-owned `relative`/`absolute`/`sticky` keeps per-element inline
+     * Class-owned positioning keeps per-element inline
      * insets. Inline `position` stays on the existing inlineDeclaresPositioning
-     * path so unanchored absolute and viewport-fixed layers are not pinned
-     * through the carrier.
+     * path so unanchored absolute layers are not pinned through the carrier.
      *
      * @param array<string, string> $declarations
      */
@@ -252,7 +251,7 @@ final class InlineGeometry
             (string) (($this->structuralPresentationDeclarations)($element)['position'] ?? '')
         );
 
-        return in_array($position, array( 'relative', 'absolute', 'sticky' ), true);
+        return in_array($position, array( 'relative', 'absolute', 'fixed', 'sticky' ), true);
     }
 
     /**
@@ -305,14 +304,14 @@ final class InlineGeometry
     }
 
     /**
-     * A carrier restating ONLY an element's inline background paint.
+     * A carrier restating an element's inline background paint and alpha.
      *
      * The standard carrier above declines background properties for childless
      * elements, because a childless painted box is normally lowered to a
      * background image block by the flow-container path. An author-owned layout
      * container keeps a childless painted box as its own visual boundary
      * instead — there the inline paint is the reason the box exists, so it
-     * must ride: restate exactly the background declarations through the same
+     * must ride: restate exactly the background declarations and authored inline alpha through the same
      * generated stylesheet, tiering, and URL rewriting as the standard
      * carrier. Every other inline property is excluded, so class-owned rules
      * and the preserved className keep owning the box's geometry.
@@ -320,8 +319,8 @@ final class InlineGeometry
     public function emptyElementBackgroundCarrierClassName(DOMElement $element): string
     {
         $declarations = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
-        $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
-        if ( ! preg_match('/\burl\s*\(/i', $inlineBackground) ) {
+        $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? $declarations['background-color'] ?? '');
+        if ( '' === trim($inlineBackground) && ! array_key_exists('opacity', $declarations) ) {
             return '';
         }
 
@@ -331,7 +330,16 @@ final class InlineGeometry
             $this->namedFragmentTargetProperties()
         )));
 
-        return $this->className($element, $excludedProperties, $this->backgroundCarrierProperties());
+        $forced = array_merge($this->backgroundCarrierProperties(), array( 'background-color' ));
+        // A source inline opacity belongs to this empty painted boundary. Core
+        // background supports cannot represent alpha on that boundary without
+        // also applying it to content, so keep the authored alpha alongside
+        // its inline background paint in the same carrier.
+        if (array_key_exists('opacity', $declarations)) {
+            $forced[] = 'opacity';
+        }
+
+        return $this->className($element, $excludedProperties, $forced);
     }
 
     /**
@@ -350,6 +358,12 @@ final class InlineGeometry
             ? $this->mediaTextInlineCascadeDeclarations(SourceDom::attr($element, 'style'))
             : ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
         $declarations = ($this->stripFrozenHiddenState)($element, $declarations);
+        if (in_array('opacity', $forcedProperties, true)) {
+            $inlineDeclarations = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
+            if (array_key_exists('opacity', $inlineDeclarations)) {
+                $declarations['opacity'] = $inlineDeclarations['opacity'];
+            }
+        }
         $geometry = array();
         $properties = $this->geometryProperties();
         if ( $this->isNamedFragmentTarget($element) ) {
@@ -384,10 +398,6 @@ final class InlineGeometry
         if ('hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''))) {
             $properties[] = 'visibility';
         }
-        // A viewport-fixed layer is deliberately not pinned (see
-        // inlineDeclaresPositioning()), so it stays in flow. The source box never
-        // occupied flow, so its fixed dimensions must not either; the layer keeps
-        // only its own content's size instead of reserving source space.
         $collapsedHeight = CssValueInspector::comparable((string) ($declarations['height'] ?? $declarations['max-height'] ?? ''));
         if (
             1 === preg_match('/^0(?:px|em|rem|%|vh|vw)?$/', $collapsedHeight)
@@ -402,12 +412,6 @@ final class InlineGeometry
             $properties = array_merge($properties, $this->backgroundCarrierProperties());
         }
         $carried = array_values(array_unique(array_merge($properties, $forcedProperties)));
-        if ( 'fixed' === CssValueInspector::comparable((string) ($declarations['position'] ?? '')) ) {
-            // A viewport-fixed layer is deliberately not pinned (see
-            // inlineDeclaresPositioning()), so it stays in flow. Its source box
-            // never occupied flow, so no carrier may reserve those dimensions.
-            $carried = array_values(array_diff($carried, array( 'width', 'height', 'min-width', 'min-height' )));
-        }
         foreach ($carried as $property) {
             if (in_array($property, $excludedProperties, true)) {
                 continue;
@@ -530,6 +534,20 @@ final class InlineGeometry
         }
         if ( array() !== $importantDeclarations ) {
             $rules[] = '.' . $className . '{' . implode(';', $importantDeclarations) . '}';
+        }
+        if ('video' === strtolower($element->tagName) && isset($geometry['object-fit'], $geometry['width'], $geometry['height'])) {
+            // core/video places the source box carrier on a new figure. Its
+            // native video must fill that box and inherit the carried crop;
+            // the injected figure contributes no browser-default margin.
+            $rules[] = ':where(figure.' . $className . '){margin:0}';
+            $rules[] = '.' . $className . '>video{display:block;width:100%;height:100%;object-fit:inherit;object-position:inherit}';
+        }
+        if ( 'fixed' === CssValueInspector::comparable(
+            (string) (($this->structuralPresentationDeclarations)($element)['position'] ?? '')
+        ) ) {
+            // Preserve the source box on the frontend. In the editor, keep it
+            // in the canvas flow so viewport chrome cannot cover editable blocks.
+            $rules[] = ':root .editor-styles-wrapper .' . $className . '{position:relative !important;inset:auto !important;z-index:auto !important}';
         }
         $float = strtolower(CssValueInspector::comparable((string) ($geometry['float'] ?? '')));
         if ( in_array($float, array( 'left', 'right' ), true) ) {

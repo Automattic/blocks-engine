@@ -62,6 +62,8 @@ final class ResponsiveCounterpartEditorModule
         if ( label ) { return label; }
         ( attributes && attributes.wrappers || [] ).some( function( wrapper ) {
             label = variantLabelFrom( wrapper && wrapper.attributes && wrapper.attributes.class );
+            var source = wrapper && wrapper.attributes || {};
+            if ( ! label && Object.prototype.hasOwnProperty.call( source, 'data-dla-document-scope' ) && /^[a-z][a-z0-9_-]{0,63}$/.test( String( source['data-dla-device-document'] || '' ) ) ) label = source['data-dla-device-document'];
             return Boolean( label );
         } );
         return label;

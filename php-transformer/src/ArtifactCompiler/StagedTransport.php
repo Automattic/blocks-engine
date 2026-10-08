@@ -216,9 +216,7 @@ trait StagedTransport
         $initialTransformCount = $stageCompiler->htmlDocumentTransformCount;
         if (!$sharedPlanVerified) $this->assertSharedPlan($sharedPlan);
         $this->assertPagePlan($pagePlan, $sharedPlan);
-        $sharedArtifact = isset($sharedPlan['shared_reduction'])
-            ? array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)))
-            : $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
+        $sharedArtifact = array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)));
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
         $pageLayoutGeometryProof = is_array($pagePlan['layout_geometry_proof'] ?? null) ? $pagePlan['layout_geometry_proof'] : array();
         foreach ($pageArtifact['files'] as &$pageFile) {
@@ -262,7 +260,8 @@ trait StagedTransport
                 $documentFiles,
                 $path === $entryPath ? 'artifact-entry' : 'artifact-document',
                 (string) ($sharedPlan['analysis']['block_namespace'] ?? ''),
-                true
+                true,
+                is_array($pagePlan['artifact']['runtime_declarations'] ?? null) ? $pagePlan['artifact']['runtime_declarations'] : array()
             );
         }
         ksort($compiledDocuments, SORT_STRING);
@@ -276,23 +275,10 @@ trait StagedTransport
         }
         // A receipt owns every page-derived input required by final reduction.
         // Text is hydrated here; binary references deliberately stay portable.
-        $pagePlan['receipt_schema'] = isset($sharedPlan['shared_reduction'])
-            ? ($pagePlan['compiler_options']['compiled_page_schema'] ?? self::COMPACT_RECEIPT_SCHEMA)
-            : self::PAGE_RECEIPT_SCHEMA;
-        if (self::COMPACT_RECEIPT_SCHEMA === $pagePlan['receipt_schema']) $pagePlan['artifact'] = $pageArtifact;
+        $pagePlan['receipt_schema'] = self::COMPACT_RECEIPT_SCHEMA;
+        $pagePlan['artifact'] = $pageArtifact;
         $pagePlan['compiled_documents'] = $compiledDocuments;
         $pagePlan['owned_document_paths'] = array_keys($compiledDocuments);
-        if (!isset($sharedPlan['shared_reduction'])) {
-            $pagePlan['work'] = array(
-                'compiled_document_count' => count($compiledDocuments),
-                'html_document_transform_count' => $stageCompiler->htmlDocumentTransformCount - $initialTransformCount,
-                'normalization_count' => 0,
-                'analysis_count' => 0,
-                'compile_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
-            );
-            $pagePlan['digest'] = $this->planDigest($this->pagePlanDigestInput($pagePlan));
-            return $pagePlan;
-        }
         $pagePlan['shared_reduction_digest'] = $sharedPlan['shared_reduction_digest'];
         $pagePlan['terminal_reduction'] = $stageCompiler->collectPageReduction(
             $pagePlan,
@@ -303,9 +289,7 @@ trait StagedTransport
             $files,
             $entryPath
         );
-        if (self::COMPACT_RECEIPT_SCHEMA === $pagePlan['receipt_schema']) {
-            unset($pagePlan['terminal_reduction']['files'], $pagePlan['terminal_reduction']['entry_blocks']);
-        }
+        unset($pagePlan['terminal_reduction']['files'], $pagePlan['terminal_reduction']['entry_blocks']);
         // Final reduction reads a non-entry document through its serialized
         // markup and precomputed editability report; its parsed block tree is
         // the largest per-page payload and composition never reads it. Only
@@ -415,8 +399,7 @@ trait StagedTransport
             }
             if (!isset($sharedPlan['shared_reduction'])) throw new \InvalidArgumentException('Compiled terminal receipts require the digest-bound shared reduction supplied by their shared plan.');
             $reduction = $pagePlan['terminal_reduction'] ?? null;
-            $isCompactReceipt = self::COMPACT_RECEIPT_SCHEMA === ($pagePlan['receipt_schema'] ?? null);
-            $pageFiles = $isCompactReceipt ? ($pagePlan['artifact']['files'] ?? null) : ($reduction['files'] ?? null);
+            $pageFiles = $pagePlan['artifact']['files'] ?? null;
             if (!is_array($reduction) || !is_array($pageFiles) || !is_array($reduction['source_documents'] ?? null) || !is_array($reduction['component_facts'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
             if (($pagePlan['shared_reduction_digest'] ?? null) !== ($sharedPlan['shared_reduction_digest'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt is bound to another shared reduction.');
             $pageArtifact = array('files' => $pageFiles);
@@ -435,11 +418,8 @@ trait StagedTransport
                 }
                 $compiledDocuments[$path] = $document;
             }
-            if ($isCompactReceipt) {
-                $reduction['files'] = $pageFiles;
-                $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
-                $reduction['entry_blocks'] = $pagePlan['compiled_documents'][$entryPath] ?? null;
-            }
+            $reduction['files'] = $pageFiles;
+            $reduction['entry_blocks'] = $pagePlan['compiled_documents'][(string) ($sharedPlan['analysis']['entry_path'] ?? '')] ?? null;
             $reductions[] = $reduction;
             $this->reportProgress($onProgress, 'compose_pages', count($reductions), $pageTotal);
         }
@@ -588,12 +568,17 @@ trait StagedTransport
         // meaning as inline compilation before ownership partitions are made.
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $capturedDialogsProjection = (new CapturedDialogProjector())->project($normalized['files']);
-        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($capturedDialogsProjection['files']);
+        $collectionsProjection = (new CapturedCollectionProjector())->project($capturedDialogsProjection['files']);
+        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($collectionsProjection['files'], $collectionsProjection['consumed_selectable_bindings'] ?? array());
         $choiceGroupsProjection = (new CapturedChoiceGroupProjector())->project($selectableSetsProjection['files']);
         $scrollStatesProjection = (new ScrollStateProjector())->project($choiceGroupsProjection['files']);
         $capturedDialogs = array(
-            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
+            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $collectionsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
             'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
+            'native_runtime_replacements' => array_merge(
+                $capturedDialogsProjection['native_runtime_replacements'] ?? array(),
+                $collectionsProjection['superseded_runtime_scripts'] ?? array()
+            ),
         );
         if (0 < $selectableSetsProjection['projected_count']) {
             $capturedDialogs['projected_selectable_set_count'] = $selectableSetsProjection['projected_count'];
@@ -624,7 +609,7 @@ trait StagedTransport
             $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
             $fileScope = is_array($ownership) && is_string($ownership['scope'] ?? null)
                 ? $ownership['scope']
-                : (in_array($extension, array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared');
+                : (HtmlFragmentIncludes::isComponentPath($path) ? 'shared' : (in_array($extension, array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared'));
             $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
             if ('page' === $fileScope) $pages[$filePageId][] = $file;
             else $shared[] = $file;
@@ -655,6 +640,7 @@ trait StagedTransport
             'captured_dialogs' => array(
                 'diagnostics' => $capturedDialogs['diagnostics'],
                 'projected_count' => $capturedDialogs['projected_count'],
+                'native_runtime_replacements' => $capturedDialogs['native_runtime_replacements'] ?? array(),
             ),
         );
     }
@@ -724,7 +710,7 @@ trait StagedTransport
             if (!is_array($file)) continue;
             $path = is_string($file['path'] ?? null) ? $file['path'] : (is_string($key) ? $key : '');
             $ownership = $file['metadata']['compilation'] ?? null;
-            $fileScope = is_array($ownership) && is_string($ownership['scope'] ?? null) ? $ownership['scope'] : (in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared');
+            $fileScope = is_array($ownership) && is_string($ownership['scope'] ?? null) ? $ownership['scope'] : (HtmlFragmentIncludes::isComponentPath($path) ? 'shared' : (in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared'));
             $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
             // Shared preparation establishes the digest-bound canonical source
             // catalog. Page workers subsequently hydrate only their page plus
@@ -740,6 +726,32 @@ trait StagedTransport
                 }
             }
             $hydratedArtifact['files'][] = $file;
+        }
+        // Includes can name any local HTML fragment, not just a parts/ filename.
+        // Follow only dependencies of hydrated owned/shared text; unrelated page
+        // payloads stay closed. Digest verification remains readPayload's job.
+        $includeRoot = HtmlFragmentIncludes::virtualRoot($hydratedArtifact['files'], array_values(array_filter(array_merge(
+            array($artifact['entrypoint'] ?? $artifact['entry'] ?? $artifact['main'] ?? ''),
+            is_array($artifact['entrypoints'] ?? null) ? $artifact['entrypoints'] : array()
+        ), static fn($path): bool => is_string($path) && '' !== $path)));
+        $byPath = array();
+        foreach ($hydratedArtifact['files'] as $index => $file) $byPath[$file['path']] = $index;
+        $queue = array_keys($byPath);
+        $scanned = array();
+        for ($index = 0; $index < count($queue); ++$index) {
+            $path = $queue[$index];
+            $file = $hydratedArtifact['files'][$byPath[$path]];
+            if (isset($scanned[$path]) || !preg_match('/\.html?$/i', $path) || !is_string($file['content'] ?? null)) continue;
+            $scanned[$path] = true;
+            foreach (HtmlFragmentIncludes::directives($file['content'], $path) as $directive) {
+                $target = $includeRoot . substr($directive['virtual'], 1);
+                if (!isset($byPath[$target])) continue;
+                $targetIndex = $byPath[$target];
+                if (!isset($hydratedArtifact['files'][$targetIndex]['payload_reference'])) continue;
+                $hydratedArtifact['files'][$targetIndex]['content'] = $this->readPayload($this->payloadReference($hydratedArtifact['files'][$targetIndex]['payload_reference']), $payloadReader);
+                unset($hydratedArtifact['files'][$targetIndex]['payload_reference']);
+                $queue[] = $target;
+            }
         }
         // Reference-backed callers receive the same whole-artifact
         // normalization and captured-dialog projection as inline callers.
@@ -918,12 +930,10 @@ trait StagedTransport
         if (!is_array($sharedPlan['artifact'] ?? null) || !is_array($sharedPlan['artifact']['files'] ?? null)) {
             throw new \InvalidArgumentException('A staged shared plan requires its serialized artifact payload.');
         }
-        if (isset($sharedPlan['shared_reduction'])) {
-            $filesSource = $sharedPlan['shared_reduction']['files_source'] ?? null;
-            $hasFiles = is_array($sharedPlan['shared_reduction']['files'] ?? null) || 'artifact' === $filesSource;
-            if (!$hasFiles || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
-                throw new \InvalidArgumentException('A staged shared plan contains an invalid shared reduction digest.');
-            }
+        $filesSource = $sharedPlan['shared_reduction']['files_source'] ?? null;
+        $hasFiles = is_array($sharedPlan['shared_reduction']['files'] ?? null) || 'artifact' === $filesSource;
+        if (!$hasFiles || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
+            throw new \InvalidArgumentException('A staged shared plan requires a valid digest-bound shared reduction.');
         }
         if (!$this->compatibleReceiptOptions($sharedPlan['compiler_options'] ?? null)) {
             throw new \InvalidArgumentException('A staged shared plan was prepared with incompatible compiler options.');
@@ -959,7 +969,7 @@ trait StagedTransport
         if (!$this->compatibleReceiptOptions($pagePlan['compiler_options'] ?? null) || ($pagePlan['output_schema'] ?? null) !== TransformerResult::SCHEMA) {
             throw new \InvalidArgumentException('A staged page plan was prepared with incompatible compiler options or output schema.');
         }
-        if (isset($pagePlan['compiled_documents']) && !in_array(($pagePlan['receipt_schema'] ?? null), array(self::PAGE_RECEIPT_SCHEMA, self::COMPILED_RECEIPT_SCHEMA, self::COMPACT_RECEIPT_SCHEMA), true)) {
+        if (isset($pagePlan['compiled_documents']) && !in_array(($pagePlan['receipt_schema'] ?? null), array(self::COMPACT_RECEIPT_SCHEMA), true)) {
             throw new \InvalidArgumentException('A compiled page plan requires the compiled page receipt schema.');
         }
         $this->assertPlanDigest(
@@ -1011,14 +1021,12 @@ trait StagedTransport
     /** @param mixed $options */
     private function compatibleReceiptOptions(mixed $options): bool
     {
-        return $options === $this->receiptCompilerOptions()
-            || $options === array('compiled_page_schema' => self::COMPILED_RECEIPT_SCHEMA, 'output_schema' => TransformerResult::SCHEMA)
-            || $options === array('compiled_page_schema' => self::PAGE_RECEIPT_SCHEMA, 'output_schema' => TransformerResult::SCHEMA);
+        return $options === $this->receiptCompilerOptions();
     }
 
     private function isTerminalReceiptSchema(mixed $schema): bool
     {
-        return in_array($schema, array(self::COMPILED_RECEIPT_SCHEMA, self::COMPACT_RECEIPT_SCHEMA), true);
+        return self::COMPACT_RECEIPT_SCHEMA === $schema;
     }
 
     /** @param array<string,mixed> $normalized @return array<string,mixed> */

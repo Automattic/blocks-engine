@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlAttributeName;
 use Closure;
 use DOMDocument;
 use DOMElement;
@@ -162,7 +163,9 @@ final class WrapperCoalescer
         }
         $attributes = array();
         foreach ( $element->attributes ?? array() as $attribute ) {
-            $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
+            if ( ! HtmlAttributeName::isIntegerKey($attribute->nodeName) ) {
+                $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
+            }
         }
         if (!$this->sourceElementClassifier->isLayoutShellSerializableStyle((string) ($attributes['style'] ?? ''))) {
             return null;
@@ -260,6 +263,11 @@ final class WrapperCoalescer
     private function eligibilityDisqualifications(DOMElement $element, array $childBlock, ?array $proof, bool $fullWidthTransparentShell, bool $redundantNestedLayout): array
     {
         return array(
+            // A saved core/group boundary is a coalescing decision already made:
+            // its save shape no longer carries the source signals (data
+            // attributes, an anchor tag) that kept it, so re-deciding from the
+            // saved markup would fold a wrapper the first transform preserved.
+            array('saved_group_boundary', fn (): bool => SourceDom::hasClass($element, 'wp-block-group')),
             array('unrepresentable_wrapper_tag', fn (): bool => ! $this->wrapperTagIsRepresentableOnChild($element, $childBlock)),
             array('unsupported_child_block_name', fn (): bool => ! in_array($childBlock['blockName'] ?? null, array( 'core/group', 'core/image' ), true)),
             array('full_width_shell_requires_group_child', fn (): bool => $fullWidthTransparentShell && 'core/group' !== ($childBlock['blockName'] ?? null)),

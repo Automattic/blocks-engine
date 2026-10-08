@@ -76,6 +76,11 @@ $compiledPage = $singleResult['source_reports']['compiled_site']['pages'][0] ?? 
 $assert('entry_shell' === ($compiledHeader['placement']['kind'] ?? null) && !str_contains($compiledHeader['block_markup'] ?? '', '"tagName":"header"') && !str_contains($compiledHeader['block_markup'] ?? '', '<header') && str_contains($compiledHeader['block_markup'] ?? '', '"className":"solo"') && str_contains($compiledHeader['block_markup'] ?? '', '"anchor":"solo-shell"') && str_contains($compiledHeader['block_markup'] ?? '', 'border-top:2px solid #111') && str_contains($compiledHeader['block_markup'] ?? '', 'Solo') && 1 === substr_count($compiledPage['block_markup'] ?? '', 'Solo</p>'), 'The compiled-site compatibility report retains exactly one entry shell until the plan accepts extraction.');
 $assert(str_contains($singleHeader['canonical_block_markup'] ?? '', '"className":"solo"') && str_contains($singleHeader['canonical_block_markup'] ?? '', '"anchor":"solo-shell"') && str_contains($singleHeader['canonical_block_markup'] ?? '', 'border-top:2px solid #111') && str_contains($singleHeader['canonical_block_markup'] ?? '', 'Solo') && !str_contains($singleHeader['canonical_block_markup'] ?? '', '"tagName":"header"') && !str_contains($singleHeader['canonical_block_markup'] ?? '', '<header'), 'The canonical plan retains source presentation without nesting a header landmark inside the template-part wrapper.');
 
+$responsiveFooter = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><style>@layer utilities{.mt-8{margin-top:32px}@media(min-width:48rem){.md\\:mt-16{margin-top:64px}}}</style></head><body><main>Home</main><footer class="mt-8 md:mt-16"><p>Colophon</p></footer></body></html>')))->toArray()['source_reports']['wordpress_site_plan'];
+$responsiveFooterPart = array_values(array_filter($responsiveFooter['template_parts'] ?? array(), static fn(array $part): bool => 'footer' === ($part['area'] ?? null)))[0] ?? array();
+$responsiveFooterMarkup = (string) ($responsiveFooterPart['canonical_block_markup'] ?? '');
+$assert(1 === preg_match('/blocks-engine-responsive-margin-top-[0-9a-f]{12}/', $responsiveFooterMarkup, $responsiveFooterMarker) && substr_count($responsiveFooterMarkup, $responsiveFooterMarker[0]) >= 2 && !str_contains($responsiveFooterMarkup, '"tagName":"footer"') && !str_contains($responsiveFooterMarkup, '<footer'), 'The extracted template-part root retains a rendered responsive margin class without nesting the source landmark.');
+
 // CSS-owned wrappers must continue to contain their shared editable shell parts.
 $nestedViewportHtml = '<!doctype html><html><head><style>.viewport-shell{display:flex;flex-direction:column;height:100vh}.viewport-shell main{flex:1}</style></head><body><div class="viewport-shell"><header class="site-header"><h1>Brand</h1></header><main><p>Middle</p></main><section><p>Details</p></section><footer class="site-footer"><p>Colophon</p></footer></div></body></html>';
 $nestedViewportPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $nestedViewportHtml)))->toArray()['source_reports']['wordpress_site_plan'];
@@ -1008,5 +1013,23 @@ $assert(array() !== $foldedFooterPart && str_contains($foldedFooterPart['canonic
 foreach ($foldedFooterResult['source_reports']['compiled_site']['pages'] as $page) $assert(str_contains($page['block_markup'], '"anchor":"page-footer"') && str_contains($page['block_markup'], '"tagName":"footer"'), "{$page['source_path']} keeps its footer as a group block rather than a folded layout-shell wrapper.");
 foreach ($pages($foldedFooterPlan) as $source => $row) $assert(!str_contains($row['canonical_block_markup'] ?? '', 'Shared colophon.') && str_contains($row['canonical_block_markup'] ?? '', 'site-root'), "{$source} hands its footer to the shared part and keeps its own wrappers.");
 WordPressSitePlan::assertValid($foldedFooterPlan);
+
+// Chrome that only the entry page renders (the other routes are bare legal
+// pages) still becomes header and footer template parts for the front page.
+$entryOnlyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<!doctype html><html><body><div id="root"><div class="app"><header id="entry-head" class="entry-head" style="border-top:2px solid #111"><nav><a href="#top">Brand</a><a href="#story">Story</a><a href="notes/index.html">Notes</a></nav></header><main><h1>Entry home</h1><p>Entry body copy.</p></main><footer id="entry-foot" class="entry-foot" style="border-top:1px solid #333"><p>Entry footer copy.</p></footer></div></div></body></html>',
+    'notes/index.html' => '<!doctype html><html><body><div id="root"><section><h2>Notes</h2><p>Bare notes page.</p></section></div></body></html>',
+    'legal/index.html' => '<!doctype html><html><body><div id="root"><section><h2>Legal</h2><p>Bare legal page.</p></section></div></body></html>',
+)))->toArray();
+$entryOnlyPlan = $entryOnlyResult['source_reports']['wordpress_site_plan'];
+$entryOnlyPages = $pages($entryOnlyPlan);
+$entryOnlyParts = array_values(array_filter($entryOnlyPlan['template_parts'], static fn(array $part): bool => in_array($part['area'] ?? null, array('header', 'footer'), true)));
+$assert(2 === count($entryOnlyParts), 'Entry-only header and footer chrome becomes two template parts.');
+$assert(2 === count(array_filter($entryOnlyParts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null))), 'The entry page is nested in a root wrapper, so both parts are bound at their source position.');
+$entryPageMarkup = $entryOnlyPages['index.html']['canonical_block_markup'] ?? '';
+$assert(str_contains($entryPageMarkup, '"slug":"header"') && str_contains($entryPageMarkup, '"slug":"footer"') && str_contains($entryPageMarkup, 'Entry body copy.') && !str_contains($entryPageMarkup, 'Entry footer copy.') && !str_contains($entryPageMarkup, 'Brand'), 'The entry page references the header and footer parts and keeps only the main content.');
+foreach ($entryOnlyParts as $part) $assert(str_contains($part['canonical_block_markup'] ?? '', 'entry-head') || str_contains($part['canonical_block_markup'] ?? '', 'Entry footer copy.'), 'Each extracted part holds the chrome that left the page.');
+foreach (array('notes/index.html', 'legal/index.html') as $barePath) $assert(!str_contains($entryOnlyPages[$barePath]['canonical_block_markup'] ?? '', 'wp:template-part'), "{$barePath} does not get chrome it never had.");
+WordPressSitePlan::assertValid($entryOnlyPlan);
 
 fwrite(STDOUT, "shared-shell-plan contract passed\n");

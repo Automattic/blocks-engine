@@ -16,4 +16,7 @@ interface ButtonLinkLeftovers
      * @return array<string, mixed>|null
      */
     public function convertLinkWrapperGroup(DOMElement $anchor, array &$fallbacks): ?array;
+
+    /** @return array<string, mixed>|null */
+    public function linkedResponsiveContentBlockFromAnchor(DOMElement $anchor): ?array;
 }

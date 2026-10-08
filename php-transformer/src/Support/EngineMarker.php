@@ -4,13 +4,14 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
 /**
- * The one definition of document-scoped engine marker classes.
+ * The one definition of engine marker classes.
  *
  * `AuthorStyleAnalysis::allocateMarker()` hands out classes shaped
  * `blocks-engine-<kind>-<document seed>-<counter>`. The seed is derived from the
  * compiled document, so the same element compiled in two documents (two routes,
  * or the whole-artifact and staged compilation paths) carries different
- * markers. Anything that compares output across documents must ignore them.
+ * markers. Attribute-state markers can also use a stable seed derived from a
+ * source predicate shared across document projections.
  *
  * Consumers previously each kept their own list of kinds, and the lists drifted:
  * shell identity missed `semantic`, so identical chrome compiled per page never

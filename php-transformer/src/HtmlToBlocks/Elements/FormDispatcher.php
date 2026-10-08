@@ -46,7 +46,7 @@ final class FormDispatcher
             }
         }
 
-        $readableFormBlock = $this->context->buildReadableFormBlock($element);
+        $readableFormBlock = $this->context->buildReadableFormBlock($element, false, $fallbacks);
         if ( null !== $readableFormBlock && ! $this->context->requiresPreservation($element) ) {
             if ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) {
                 $fallbacks[] = $this->context->buildFallbackFinding($element, $readableFormBlock);
@@ -63,7 +63,7 @@ final class FormDispatcher
             return $preservationBlock;
         }
 
-        $readableFormBlock = $this->context->buildReadableFormBlock($element, true);
+        $readableFormBlock = $this->context->buildReadableFormBlock($element, true, $fallbacks);
         $this->context->recordForm($element, $readableFormBlock);
 
         // Surface a finding so consumers can map the preserved controls onto a provider.

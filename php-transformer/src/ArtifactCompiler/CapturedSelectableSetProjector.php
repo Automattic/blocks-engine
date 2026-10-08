@@ -15,6 +15,12 @@ final class CapturedSelectableSetProjector
     private const REPORT_SCHEMA = 'data-liberation/captured-interactions/v1';
     private const RECEIPT_SCHEMA = 'data-liberation/capture-receipt/v1';
     private const KIND = 'selectable-set';
+    public const ACTIVE_TAB_ATTRIBUTE = 'data-blocks-engine-active-tab';
+    public const FLOW_ATTRIBUTE = 'data-blocks-engine-tabs-flow';
+    public const TRIGGER_ATTRIBUTE = 'data-blocks-engine-tab-trigger';
+    public const LABEL_ATTRIBUTE = 'data-blocks-engine-tab-label';
+    public const FLOW_INLINE = 'inline';
+    public const FLOW_LIST_LAST = 'list-last';
     private const MAX_PAGES = 128;
     private const MAX_SETS_PER_PAGE = 8;
     private const MAX_MEMBERS_PER_SET = 32;
@@ -29,7 +35,7 @@ final class CapturedSelectableSetProjector
      * @param array<int, array<string, mixed>> $files
      * @return array{files:array<int, array<string, mixed>>, diagnostics:array<int, array<string, mixed>>, projected_count:int}
      */
-    public function project(array $files): array
+    public function project(array $files, array $consumedBindings = array()): array
     {
         $files = (new CapturedCollectionFilterProjector())->project($files);
         $diagnostics = array();
@@ -100,7 +106,7 @@ final class CapturedSelectableSetProjector
                 continue;
             }
 
-            $projection = $this->projectPage((string) $files[$index]['content'], $sets, $path);
+            $projection = $this->projectPage((string) $files[$index]['content'], $sets, $path, is_array($consumedBindings[$path] ?? null) ? $consumedBindings[$path] : array());
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
             if (0 < $projection['projected_count']) {
                 $files[$index]['content'] = $projection['html'];
@@ -122,9 +128,16 @@ final class CapturedSelectableSetProjector
         $sets = array();
         $statusCounts = array('captured' => 0, 'click-failed' => 0, 'no-dialog' => 0);
         $recorded = 0;
+        // Per set: every member index capture reported on (any status) and the declared size.
+        $probed = array();
         foreach ($states as $state) {
             if (! is_array($state) || self::KIND !== ($state['kind'] ?? null)) {
                 continue;
+            }
+            if (is_array($state['set'] ?? null) && is_string($state['set']['selector'] ?? null) && is_int($state['set']['index'] ?? null)) {
+                $probedSelector = trim($state['set']['selector']);
+                $probed[$probedSelector]['size'] = is_int($state['set']['size'] ?? null) ? $state['set']['size'] : 0;
+                $probed[$probedSelector]['indexes'][$state['set']['index']] = true;
             }
             $status = is_string($state['status'] ?? null) ? $state['status'] : '';
             ++$recorded;
@@ -165,6 +178,7 @@ final class CapturedSelectableSetProjector
                 continue;
             }
             $sets[$setSelector]['members'][$index] = array(
+                'index' => $index,
                 'label' => $this->memberLabel($state, $index),
                 'html' => $sanitized,
                 'tag' => is_string($state['trigger']['tag'] ?? null) ? strtolower($state['trigger']['tag']) : '',
@@ -215,6 +229,8 @@ final class CapturedSelectableSetProjector
                 continue;
             }
             $set['members'] = $members;
+            $set['size'] = (int) ($probed[$key]['size'] ?? 0);
+            $set['probed'] = array_keys($probed[$key]['indexes'] ?? array());
             $bounded[$key] = $set;
         }
 
@@ -225,7 +241,7 @@ final class CapturedSelectableSetProjector
      * @param array<string, array{selector:string, region_selector:string, members:array<int, array{label:string, html:string, tag:string, selector:string}>}> $sets
      * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int}
      */
-    private function projectPage(string $html, array $sets, string $sourcePath): array
+    private function projectPage(string $html, array $sets, string $sourcePath, array $consumedBindings = array()): array
     {
         $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
@@ -240,6 +256,10 @@ final class CapturedSelectableSetProjector
         $projected = 0;
         foreach ($sets as $set) {
             $identity = substr(hash('sha256', $sourcePath . "\n" . $set['selector']), 0, 16);
+            if ($this->consumedByNativeCollection($set, $consumedBindings)) {
+                $diagnostics[] = $this->diagnostic('captured_selectable_set_consumed_by_collection', 'info', 'A selectable set was not projected because its category triggers and dialog region were already bound by a completed native collection.', array('source_path' => $sourcePath, 'selector' => $set['region_selector']));
+                continue;
+            }
             $regions = $this->findRegions($document, $set['region_selector']);
             if ('ambiguous' === $regions['status']) {
                 $diagnostics[] = $this->diagnostic('captured_selectable_set_region_ambiguous', 'warning', 'A captured selectable-set region matched multiple source elements in the same route or responsive document scope.', array('source_path' => $sourcePath, 'selector' => $set['region_selector']));
@@ -259,15 +279,18 @@ final class CapturedSelectableSetProjector
             }
             $members = $this->withSourceLabels($document, $set['members']);
             $hideTabList = ! $this->hasDistinctVisibleTriggerRow($members);
+            $applied = false;
             foreach ($targets as $scopeIndex => $region) {
-                if ('true' === $region->getAttribute('data-blocks-engine-collection-target')) {
+                if ($region->hasAttribute('data-blocks-engine-collection-target') || $this->insideNativeCollection($region)) {
                     continue;
                 }
                 $rowIdentity = $identity . '-' . ($scopeIndex + 1);
                 $triggerRow = $hideTabList ? null : $this->triggerRowForRegion($region, $members, $set['selector']);
-                $this->fillRegion($document, $region, $members, $rowIdentity, $hideTabList, $triggerRow);
+                $regionMembers = $this->withInitialMember($document, $region, $set, $members);
+                $this->fillRegion($document, $region, $regionMembers['members'], $rowIdentity, $hideTabList, $triggerRow, $regionMembers['active']);
+                $applied = true;
             }
-            ++$projected;
+            if ($applied) ++$projected;
         }
 
         $output = $document->saveHTML();
@@ -278,7 +301,7 @@ final class CapturedSelectableSetProjector
     /**
      * @param array<int, array{label:string, html:string, tag:string, selector:string}> $members
      */
-    private function fillRegion(DOMDocument $document, DOMElement $region, array $members, string $identity, bool $hideTabList, ?DOMElement $triggerRow): void
+    private function fillRegion(DOMDocument $document, DOMElement $region, array $members, string $identity, bool $hideTabList, ?DOMElement $triggerRow, int $active = 0): void
     {
         $rowClass = $triggerRow instanceof DOMElement ? trim($triggerRow->getAttribute('class')) : '';
         $rowStyle = $triggerRow instanceof DOMElement ? trim($triggerRow->getAttribute('style')) : '';
@@ -287,6 +310,13 @@ final class CapturedSelectableSetProjector
         }
         $region->setAttribute('data-blocks-engine-captured-selectable-set', 'true');
         $region->setAttribute('data-tabs', '');
+        if ($active > 0) {
+            $region->setAttribute(self::ACTIVE_TAB_ATTRIBUTE, (string) $active);
+        }
+        $flow = $triggerRow instanceof DOMElement ? $this->flowWithTriggerRow($region, $triggerRow) : '';
+        if ('' !== $flow) {
+            $region->setAttribute(self::FLOW_ATTRIBUTE, $flow);
+        }
         $tabList = $document->createElement('div');
         $tabList->setAttribute('role', 'tablist');
         $tabList->setAttribute('aria-label', 'Items');
@@ -312,8 +342,15 @@ final class CapturedSelectableSetProjector
             $button->setAttribute('role', 'tab');
             $button->setAttribute('id', $tabId);
             $button->setAttribute('aria-controls', $panelId);
-            $button->setAttribute('aria-selected', 0 === $index ? 'true' : 'false');
-            $button->appendChild($document->createTextNode($member['label']));
+            $button->setAttribute('aria-selected', $active === $index ? 'true' : 'false');
+            $markup = $triggerRow instanceof DOMElement && ($member['element'] ?? null) instanceof DOMElement ? $this->labelMarkup($document, $member['element']) : null;
+            if ($markup instanceof \DOMDocumentFragment) {
+                $button->setAttribute(self::LABEL_ATTRIBUTE, $member['label']);
+                $button->appendChild($markup);
+                $member['element']->setAttribute(self::TRIGGER_ATTRIBUTE, $identity);
+            } else {
+                $button->appendChild($document->createTextNode($member['label']));
+            }
             $tabList->appendChild($button);
         }
         $region->appendChild($tabList);
@@ -332,6 +369,183 @@ final class CapturedSelectableSetProjector
     /**
      * @return array{status:'matched'|'unmatched'|'ambiguous', elements:array<int, DOMElement>}
      */
+    /**
+     * A set is consumed only when a completed native collection bound every
+     * member trigger and the dialog region. A partial or unrelated group stays.
+     *
+     * @param array{selector:string, region_selector:string, members:array<int, array{label:string, html:string, tag:string, selector:string}>} $set
+     * @param array<int, array{target:string, categories:array<int, string>}> $bindings
+     */
+    private function consumedByNativeCollection(array $set, array $bindings): bool
+    {
+        $triggers = array();
+        foreach ($set['members'] as $member) {
+            $selector = trim((string) ($member['selector'] ?? ''));
+            if ('' === $selector) return false;
+            $triggers[$selector] = true;
+        }
+        if (array() === $triggers) return false;
+        $dialog = trim((string) ($set['region_selector'] ?? ''));
+        if ('' === $dialog) return false;
+        foreach ($bindings as $binding) {
+            if (!is_array($binding)) continue;
+            $categories = array();
+            foreach ($binding['categories'] ?? array() as $selector) {
+                if (is_string($selector) && '' !== trim($selector)) $categories[trim($selector)] = true;
+            }
+            $target = trim((string) ($binding['target'] ?? ''));
+            if ('' === $target || $categories !== $triggers) continue;
+            if ($dialog === $target) return true;
+            // The other responsive copy uses the same category trigger identities
+            // and a sibling region selector. Assembly no longer matches either
+            // original path, so both copies of this one group are consumed.
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * The tabs wrapper stands in for the shared region, and the tab-list stands
+     * in for the trigger row. When the two were siblings, the wrapper must not
+     * add a box between them and their parent, or the parent's grid/flex layout
+     * would see one child where the source had two.
+     */
+    private function flowWithTriggerRow(DOMElement $region, DOMElement $triggerRow): string
+    {
+        $parent = $region->parentNode;
+        if (! $parent instanceof DOMElement || ! $triggerRow->parentNode instanceof DOMElement || ! $parent->isSameNode($triggerRow->parentNode)) {
+            return '';
+        }
+        $children = array();
+        foreach ($parent->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $children[] = $child;
+            }
+        }
+        if (2 !== count($children)) {
+            return '';
+        }
+
+        return $children[0]->isSameNode($region) ? self::FLOW_LIST_LAST : self::FLOW_INLINE;
+    }
+
+    /**
+     * Capture does not click the member that is already active, so its state
+     * is the region's own initial content. When exactly one member of a set
+     * was never probed, source selection or the region's leading heading must
+     * corroborate that member: a spent probing budget also leaves gaps.
+     *
+     * @param array{selector:string, size?:int, probed?:array<int, int>} $set
+     * @param array<int, array{index?:int, label:string, html:string, tag:string, selector:string}> $members
+     * @return array{members:array<int, array{index?:int, label:string, html:string, tag:string, selector:string}>, active:int}
+     */
+    private function withInitialMember(DOMDocument $document, DOMElement $region, array $set, array $members): array
+    {
+        $unchanged = array('members' => $members, 'active' => 0);
+        $size = (int) ($set['size'] ?? 0);
+        if ($size < 2 || $size > self::MAX_MEMBERS_PER_SET) {
+            return $unchanged;
+        }
+        $missing = array_values(array_diff(range(0, $size - 1), (array) ($set['probed'] ?? array())));
+        if (1 !== count($missing)) {
+            return $unchanged;
+        }
+        $element = $this->setMemberTrigger($region, $set['selector'], $missing[0]);
+        if (! $element instanceof DOMElement || ! $this->initialMemberIsProven($region, $element, $set)) {
+            return $unchanged;
+        }
+        $label = $element instanceof DOMElement ? $this->labelFromTriggerElement($element) : '';
+        $html = $document->saveHTML($region);
+        $html = is_string($html) ? $this->safeRegionHtml($html) : null;
+        if ('' === $label || null === $html || '' === trim($html) || strlen($html) > self::MAX_REGION_BYTES) {
+            return $unchanged;
+        }
+        $members[] = array('index' => $missing[0], 'label' => $label, 'html' => $html, 'tag' => '', 'selector' => '', 'element' => $element);
+        usort($members, static fn(array $a, array $b): int => ($a['index'] ?? 0) <=> ($b['index'] ?? 0));
+        foreach ($members as $position => $member) {
+            if ($missing[0] === ($member['index'] ?? null)) {
+                return array('members' => $members, 'active' => $position);
+            }
+        }
+
+        return $unchanged;
+    }
+
+    /** @param array{selector:string, size?:int} $set */
+    private function initialMemberIsProven(DOMElement $region, DOMElement $trigger, array $set): bool
+    {
+        foreach (array('aria-selected', 'aria-pressed', 'aria-checked') as $attribute) {
+            if ($trigger->hasAttribute($attribute)) {
+                return 'true' === strtolower(trim($trigger->getAttribute($attribute)));
+            }
+        }
+        $state = strtolower(trim($trigger->getAttribute('data-state')));
+        if (in_array($state, array('active', 'inactive'), true)) {
+            return 'active' === $state;
+        }
+        $heading = '';
+        foreach ($region->getElementsByTagName('*') as $element) {
+            if (1 === preg_match('/^h[1-6]$/i', $element->tagName)) {
+                $heading = strtolower(trim(preg_replace('/\s+/u', ' ', $element->textContent ?? '') ?? ''));
+                break;
+            }
+        }
+        if (strlen($heading) < 3) return false;
+        // Structured trigger labels retain their number/title/tag runs. The
+        // leading panel heading must name exactly this one source member.
+        $matchesHeading = function (DOMElement $element) use ($heading): bool {
+            $parts = array_merge($this->labelParts($element), array($this->labelFromTriggerElement($element)));
+            foreach ($parts as $part) {
+                $part = strtolower(trim(preg_replace('/^\d+\s+/', '', $part) ?? $part));
+                if ($heading === $part) return true;
+            }
+            return false;
+        };
+        if (! $matchesHeading($trigger)) return false;
+        for ($index = 0; $index < (int) ($set['size'] ?? 0); ++$index) {
+            $other = $this->setMemberTrigger($region, $set['selector'], $index);
+            if ($other instanceof DOMElement && ! $other->isSameNode($trigger) && $matchesHeading($other)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function setMemberTrigger(DOMElement $region, string $setSelector, int $index): ?DOMElement
+    {
+        $matched = $this->selectorMatches($this->scopeRoot($region), $setSelector);
+        if (1 !== count($matched)) {
+            return null;
+        }
+        $position = 0;
+        foreach ($matched[0]->childNodes as $child) {
+            if (! $child instanceof DOMElement) {
+                continue;
+            }
+            if ($position++ !== $index) {
+                continue;
+            }
+            foreach (array('button', 'a') as $tag) {
+                $trigger = $child->getElementsByTagName($tag)->item(0);
+                if ($trigger instanceof DOMElement) {
+                    return $trigger;
+                }
+            }
+
+            return $child;
+        }
+
+        return null;
+    }
+
+    private function insideNativeCollection(DOMElement $region): bool
+    {
+        for ($node = $region; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
+            if ($node->hasAttribute('data-blocks-engine-collection-root') || $node->hasAttribute('data-blocks-engine-collection-target')) return true;
+        }
+        return false;
+    }
+
     private function findRegions(DOMDocument $document, string $selector): array
     {
         if ('' === $selector) {
@@ -383,9 +597,48 @@ final class CapturedSelectableSetProjector
         return false;
     }
 
+    /**
+     * Capture names an element that has a unique id by that id alone, with the
+     * id CSS-escaped (`#radix-\:r1\:-content`). Returns the unescaped id, or
+     * null when the selector is not a lone id selector.
+     */
+    private function bareIdSelector(string $selector): ?string
+    {
+        if (1 !== preg_match('/^#((?:[A-Za-z0-9_-]|[^\x00-\x7F]|\\\\(?:[0-9a-fA-F]{1,6} ?|[^0-9a-fA-F\r\n\f]))+)$/u', $selector, $matches)) {
+            return null;
+        }
+        $id = preg_replace_callback(
+            '/\\\\(?:([0-9a-fA-F]{1,6}) ?|(.))/su',
+            static fn(array $escape): string => '' !== ($escape[1] ?? '') ? (string) mb_chr(min((int) hexdec($escape[1]), 0x10FFFF), 'UTF-8') : $escape[2],
+            $matches[1]
+        );
+
+        return is_string($id) && '' !== $id ? $id : null;
+    }
+
+    /** @return array<int, DOMElement> */
+    private function descendantsWithId(DOMElement $scope, string $id): array
+    {
+        $found = array();
+        if ($scope->getAttribute('id') === $id) {
+            $found[] = $scope;
+        }
+        foreach ($scope->getElementsByTagName('*') as $element) {
+            if ($element instanceof DOMElement && $element->getAttribute('id') === $id) {
+                $found[] = $element;
+            }
+        }
+
+        return $found;
+    }
+
     /** @return array<int, DOMElement> */
     private function selectorMatches(DOMElement $scope, string $selector): array
     {
+        $id = $this->bareIdSelector($selector);
+        if (null !== $id) {
+            return $this->descendantsWithId($scope, $id);
+        }
         if ('' === $selector || str_contains($selector, ',') || ! str_contains($selector, '>')) {
             return array();
         }
@@ -469,6 +722,7 @@ final class CapturedSelectableSetProjector
             if ('' !== $label) {
                 $members[$index]['label'] = $label;
             }
+            $members[$index]['element'] = $element;
         }
 
         return $members;
@@ -489,6 +743,39 @@ final class CapturedSelectableSetProjector
         return null;
     }
 
+    /**
+     * The trigger's inner structure (number, title, tag boxes) as spans that
+     * keep only their class, so the source's own styles keep laying them out.
+     * Null when the trigger is plain text.
+     */
+    private function labelMarkup(DOMDocument $document, DOMElement $trigger): ?\DOMDocumentFragment
+    {
+        $fragment = $document->createDocumentFragment();
+        $structured = false;
+        $copy = function (\DOMNode $from, \DOMNode $into) use (&$copy, $document, &$structured): void {
+            foreach ($from->childNodes as $child) {
+                if (XML_TEXT_NODE === $child->nodeType) {
+                    $into->appendChild($document->createTextNode($child->textContent ?? ''));
+                    continue;
+                }
+                if (! $child instanceof DOMElement || in_array(strtolower($child->tagName), array('script', 'style', 'desc'), true)) {
+                    continue;
+                }
+                $span = $document->createElement('span');
+                $class = trim(preg_replace('/\s+/', ' ', $child->getAttribute('class')) ?? '');
+                if ('' !== $class && 1 === preg_match('/^[A-Za-z0-9_\s:\/\[\].%#,()-]+$/', $class)) {
+                    $span->setAttribute('class', $class);
+                }
+                $structured = true;
+                $into->appendChild($span);
+                $copy($child, $span);
+            }
+        };
+        $copy($trigger, $fragment);
+
+        return $structured ? $fragment : null;
+    }
+
     private function labelFromTriggerElement(DOMElement $element): string
     {
         $named = trim($element->getAttribute('aria-label'));
@@ -507,8 +794,19 @@ final class CapturedSelectableSetProjector
     private function labelParts(DOMElement $element): array
     {
         $parts = array();
+        // Text split by comment nodes (framework hydration markers) is one run,
+        // not separate words.
+        $run = '';
+        $flush = static function () use (&$parts, &$run): void {
+            $text = trim(preg_replace('/\s+/', ' ', $run) ?? '');
+            if ('' !== $text) {
+                $parts[] = $text;
+            }
+            $run = '';
+        };
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) {
+                $flush();
                 if (in_array(strtolower($child->tagName), array('script', 'style', 'desc'), true)) {
                     continue;
                 }
@@ -516,12 +814,10 @@ final class CapturedSelectableSetProjector
                 continue;
             }
             if (XML_TEXT_NODE === $child->nodeType) {
-                $text = trim(preg_replace('/\s+/', ' ', $child->textContent ?? '') ?? '');
-                if ('' !== $text) {
-                    $parts[] = $text;
-                }
+                $run .= $child->textContent ?? '';
             }
         }
+        $flush();
 
         return $parts;
     }

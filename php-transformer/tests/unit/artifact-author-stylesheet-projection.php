@@ -123,6 +123,21 @@ $rounded = ( new ArtifactCompiler() )->compile(array( 'files' => array(
 $roundedCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $rounded['assets'] ?? array()));
 $assert(! str_contains($roundedCss, 'box-sizing:content-box'), 'border radius alone is not box chrome and does not alter source sizing');
 
+// A band sized by `height` with bottom padding is 35px shorter under the WordPress
+// border-box reset, and everything below it moves up. Height is a definite size
+// just like width.
+$contentBoxHeight = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9}</style><div class="band"><p>Copy</p></div>' ),
+) ) )->toArray();
+$contentBoxHeightCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $contentBoxHeight['assets'] ?? array()));
+$assert(str_contains($contentBoxHeightCss, '.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9;box-sizing:content-box}'), 'definite source height plus box chrome retains the initial content-box model against the WordPress block reset');
+
+$heightOnly = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.band{display:block;height:245px;overflow:hidden;background:#9b9}</style><div class="band"><p>Copy</p></div>' ),
+) ) )->toArray();
+$heightOnlyCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $heightOnly['assets'] ?? array()));
+$assert(! str_contains($heightOnlyCss, 'box-sizing:content-box'), 'a definite height without box chrome does not alter source sizing');
+
 $projectedPinnedLayer = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>#projected-pinned-layer{position:fixed;top:0}</style><link rel="stylesheet" href="site.css"><main><div class="data-liberation-mobile-document"><div id="projected-pinned-layer">Header</div><div id="projected-mobile-pinned-layer">Mobile header</div></div></main>' ),
@@ -394,7 +409,7 @@ $sharedSettledCss = (string) ($sharedSettledAssets['shared.css']['content'] ?? '
 preg_match_all('/#animated[^,{]*\{animation:fade/', $sharedSettledCss, $sharedSettledSelectors);
 preg_match_all('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', implode('', $sharedSettledSelectors[0] ?? array()), $sharedSettledMarkerMatches);
 $sharedSettledMarkers = array_fill_keys($sharedSettledMarkerMatches[0] ?? array(), true);
-$assert(3 === count($sharedSettledMarkers) && array() !== ($sharedSettledSelectors[0] ?? array()) && array() === array_filter($sharedSettledSelectors[0], static fn(string $selector): bool => array() !== array_filter(array_keys($sharedSettledMarkers), static fn(string $marker): bool => !str_contains($selector, ':not(.' . $marker . ')'))), 'Shared state gates exclude every page-specific settled marker across stylesheet paths so one route projection cannot reactivate another route animation.');
+$assert(1 === count($sharedSettledMarkers) && array() !== ($sharedSettledSelectors[0] ?? array()) && array() === array_filter($sharedSettledSelectors[0], static fn(string $selector): bool => array() !== array_filter(array_keys($sharedSettledMarkers), static fn(string $marker): bool => !str_contains($selector, ':not(.' . $marker . ')'))), 'shared state gates use a stable source-predicate marker across stylesheet paths so equivalent negated selectors deduplicate without reviving settled animations');
 
 $multiPageRuntime = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
@@ -510,8 +525,8 @@ $responsiveGrid = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="cards.css"><header class="shared">Shared header</header><main><ul class="cards" data-count="2"><li>One</li><li>Two</li></ul></main>' ),
-        array( 'path' => 'people.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="cards.css"><header class="shared">Shared header</header><main><ul class="cards" data-count="4" style="grid-gap:100px 100px"><li><img src="one.jpg" alt="One"></li><li>Two</li><li>Three</li><li>Four</li></ul></main>' ),
-        array( 'path' => 'cards.css', 'kind' => 'css', 'content' => '.shared{color:#456}.cards{display:grid;gap:20px;grid-template-columns:1fr}.cards:not([data-count="1"]){grid-template-columns:repeat(2,1fr)}@media(min-width:768px){.cards[data-count="4"]{grid-template-columns:repeat(3,1fr)}}@media(min-width:1100px){.cards[data-count="4"]{grid-template-columns:repeat(4,1fr)}}@media(max-width:600px){.cards[data-count="4"]{grid-template-columns:1fr}}' ),
+        array( 'path' => 'people.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="cards.css"><header class="shared" data-owner="people">Shared header</header><main><ul class="cards" data-count="4" style="grid-gap:100px 100px"><li><img src="one.jpg" alt="One"></li><li>Two</li><li>Three</li><li>Four</li></ul></main>' ),
+        array( 'path' => 'cards.css', 'kind' => 'css', 'content' => '.shared{color:#456}.shared[data-owner="people"]{color:red}.cards{display:grid;gap:20px;grid-template-columns:1fr}.cards:not([data-count="1"]){grid-template-columns:repeat(2,1fr)}@media(min-width:768px){.cards[data-count="4"]{grid-template-columns:repeat(3,1fr)}}@media(min-width:1100px){.cards[data-count="4"]{grid-template-columns:repeat(4,1fr)}}@media(max-width:600px){.cards[data-count="4"]{grid-template-columns:1fr}}' ),
         array( 'path' => 'one.jpg', 'kind' => 'image', 'content' => 'image-bytes' ),
     ),
 ) )->toArray();
@@ -541,7 +556,7 @@ $orderedGridStyles = ( new ReflectionMethod(\Automattic\BlocksEngine\PhpTransfor
 ));
 $orderedGridSources = array_column($orderedGridStyles, 'source_path');
 $assert(array('unrelated.css', $gridSource, $gridSource . '.shared-chrome', $gridPage, $gridPage . '.shared-chrome') === $orderedGridSources, 'a linked shared stylesheet stays before its page-scoped winner after chrome factoring without moving unrelated CSS');
-$assert('' !== $gridMarker && str_contains($gridPageCss, 'grid-template-columns:repeat(4,1fr)') && str_contains($gridPageCss, '@media(max-width:600px)') && str_contains($gridBaseCss, 'grid-template-columns:repeat(2,1fr)'), 'desktop and mobile grid variants retain their authored media conditions against the shared fallback');
+$assert('' !== $gridMarker && str_contains($gridPageCss, 'grid-template-columns:repeat(4,1fr)') && str_contains($gridPageCss, '@media(max-width:600px)') && str_contains($gridBaseCss, 'grid-template-columns:repeat(2,1fr)') && ! str_contains($gridPageCss, 'grid-template-columns:repeat(2,1fr)'), 'page projection retains its own responsive grid winners without replaying an unrelated shared two-column fallback after them');
 $assert(str_contains(implode("\n", array_column($gridAssets, 'content')), 'grid-gap:100px 100px') && str_contains($gridMarkup, 'be-inline-geometry-'), 'the editable grid keeps its inline-authored legacy gap through the existing layout carrier');
 $assert(str_contains($gridMarkup, 'blocks-engine-css-owned-grid') && str_contains($gridMarkup, $gridMarker) && 'pass' === ( new Runtime() )->validateBlockSerialization($gridMarkup)['status'], 'the attribute-selected four-card grid remains a valid editable Group document');
 $gridDocument = new DOMDocument();
@@ -646,9 +661,14 @@ $dataMeshGridMarkup = (string) ($dataMeshGrid['serialized_blocks'] ?? '');
 $dataMeshGridCss = implode("\n", array_column($dataMeshGrid['assets'] ?? array(), 'content'));
 preg_match('/\b(blocks-engine-attribute-[a-f0-9-]+)\b/', $dataMeshGridMarkup, $dataMeshGridMarker);
 $dataMeshGridMarker = $dataMeshGridMarker[1] ?? '';
+$dataMeshGridChildMarker = '';
+if ( preg_match('/:where\(\.(blocks-engine-attribute-[a-f0-9-]+)\)>:where\(#service-one\)/', $dataMeshGridCss, $dataMeshGridChildMarkerMatch) ) {
+    $dataMeshGridChildMarker = $dataMeshGridChildMarkerMatch[1];
+}
 $assert(
     '' !== $dataMeshGridMarker
-        && str_contains($dataMeshGridCss, ':where(.' . $dataMeshGridMarker . ')>:where(#service-one)')
+        && '' !== $dataMeshGridChildMarker
+        && str_contains($dataMeshGridMarkup, $dataMeshGridChildMarker)
         && str_contains($dataMeshGridCss, '@media(max-width:600px){:where(.' . $dataMeshGridMarker . ')')
         && ! str_contains($dataMeshGridCss, '[data-mesh-id="services-gridContainer"]'),
     'artifact stylesheet projection retains a data-addressed grid root and its direct-child combinator through the responsive cascade'
@@ -671,19 +691,23 @@ $dataMeshPositionedGrid = ( new ArtifactCompiler() )->compile(array(
 ) )->toArray();
 $dataMeshPositionedGridMarkup = (string) ($dataMeshPositionedGrid['serialized_blocks'] ?? '');
 $dataMeshPositionedGridCss = implode("\n", array_column($dataMeshPositionedGrid['assets'] ?? array(), 'content'));
-$dataMeshPositionedGridMarker = '';
-if ( preg_match('/\b(blocks-engine-attribute-[a-f0-9-]+)\b/', $dataMeshPositionedGridMarkup, $dataMeshPositionedGridMarkerMatch) ) {
-    $dataMeshPositionedGridMarker = $dataMeshPositionedGridMarkerMatch[1];
+$dataMeshPositionedCopyMarker = '';
+$dataMeshPositionedStrategyMarker = '';
+if ( preg_match('/:where\(\.(blocks-engine-attribute-[a-f0-9-]+)\)>:where\(#svc-copy\)/', $dataMeshPositionedGridCss, $dataMeshPositionedCopyMarkerMatch) ) {
+    $dataMeshPositionedCopyMarker = $dataMeshPositionedCopyMarkerMatch[1];
+}
+if ( preg_match('/:where\(\.(blocks-engine-attribute-[a-f0-9-]+)\)>:where\(#svc-strategy\)/', $dataMeshPositionedGridCss, $dataMeshPositionedStrategyMarkerMatch) ) {
+    $dataMeshPositionedStrategyMarker = $dataMeshPositionedStrategyMarkerMatch[1];
 }
 $assert(
-    '' !== $dataMeshPositionedGridMarker
-        && str_contains($dataMeshPositionedGridMarkup, $dataMeshPositionedGridMarker)
-        && (bool) preg_match('/:where\(\.' . $dataMeshPositionedGridMarker . '\)>:where\(#svc-copy\)/', $dataMeshPositionedGridCss)
-        && (bool) preg_match('/:where\(\.' . $dataMeshPositionedGridMarker . '\)>:where\(#svc-strategy\)/', $dataMeshPositionedGridCss)
+    '' !== $dataMeshPositionedCopyMarker
+        && '' !== $dataMeshPositionedStrategyMarker
+        && str_contains($dataMeshPositionedGridMarkup, $dataMeshPositionedCopyMarker)
+        && str_contains($dataMeshPositionedGridMarkup, $dataMeshPositionedStrategyMarker)
         && str_contains($dataMeshPositionedGridCss, 'grid-area:1 / 1 / 2 / 2')
         && str_contains($dataMeshPositionedGridCss, 'grid-area:10 / 1 / 11 / 2')
         && str_contains($dataMeshPositionedGridCss, 'grid-template-columns:100%')
-        && (bool) preg_match('/@media\(max-width:980px\)\{[^@]*:where\(\.' . $dataMeshPositionedGridMarker . '\)/', $dataMeshPositionedGridCss),
+        && (bool) preg_match('/@media\(max-width:980px\)\{[^@]*:where\(\.blocks-engine-attribute-[a-f0-9-]+\)/', $dataMeshPositionedGridCss),
     'artifact stylesheet projection keeps a data-identified, positioned-child grid computing through the paired interact-element selector family'
 );
 

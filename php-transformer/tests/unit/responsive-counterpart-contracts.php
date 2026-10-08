@@ -94,7 +94,12 @@ $assert(3 === ($contracts['metrics']['declared_count'] ?? 0), '1: declared_count
 $hero = $byToken['be-responsive-counterpart-' . substr(hash('sha256', "mobile\0hero-title"), 0, 12)] ?? array();
 $assert(array('kind' => 'text', 'attribute' => 'content', 'source_id' => 'hero-title') === array_intersect_key($hero, array('kind' => true, 'attribute' => true, 'source_id' => true)), '1: hero pair is a text correspondence derived from its source id', json_encode($hero));
 $assert('core/heading' === ($hero['variants']['default']['block_name'] ?? '') && 'core/heading' === ($hero['variants']['mobile']['block_name'] ?? ''), '1: hero contract carries both variant block names');
-$assert('hero-title' === ($hero['variants']['default']['anchor'] ?? '') && 'hero-title' === ($hero['variants']['mobile']['anchor'] ?? ''), '1: both sides persist their stable source anchor');
+// Both sides share the same source id, which would otherwise collide as a
+// duplicate HTML id once both variants compile into the same page: the
+// default side keeps the bare id, and the mobile side's copy is disambiguated
+// with the same suffix Data Liberation Agent itself uses to pair a
+// mobile-specific identity with its desktop counterpart.
+$assert('hero-title' === ($hero['variants']['default']['anchor'] ?? '') && 'hero-title--dla-mobile' === ($hero['variants']['mobile']['anchor'] ?? ''), '1: both sides persist their stable source anchor, disambiguated so it stays unique on the page');
 $assert('blocks.0' === ($hero['variants']['default']['block_path'] ?? '') || str_starts_with((string) ($hero['variants']['default']['block_path'] ?? ''), 'blocks.'), '1: default side resolves under the default variant root');
 $assert(str_starts_with((string) ($hero['variants']['mobile']['block_path'] ?? 'missing'), 'blocks.'), '1: mobile side resolves a concrete block path');
 

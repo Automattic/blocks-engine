@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use DOMElement;
 
 /** Per-transform author stylesheet inputs, source indexes, and selector state. */
@@ -44,8 +45,8 @@ final class AuthorStyleAnalysis
     private readonly string $specificityShim;
     private readonly string $classSpecificityShim;
     private readonly string $idSpecificityShim;
-    /** @var list<string> */
-    private array $sourceBodyProjectionClasses = array();
+    /** @var array<string, string> */
+    private array $sourceClassMarkers = array();
 
     /** @param list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> $stylesheetAssets */
     public function __construct(string $html, string $combinedCss, array $stylesheetAssets, DOMElement $sourceBody)
@@ -105,13 +106,19 @@ final class AuthorStyleAnalysis
     public function sourceElementsByClass(string $class): array { return $this->sourceElementsByClass[$class] ?? array(); }
     /** @return list<string> */
     public function sourceElementIds(): array { return array_keys($this->sourceElementsById); }
+    /** @return list<DOMElement> */
+    public function sourceElementsById(string $id): array { return $this->sourceElementsById[$id] ?? array(); }
     public function specificityShim(): string { return $this->specificityShim; }
     public function classSpecificityShim(): string { return $this->classSpecificityShim; }
     public function idSpecificityShim(): string { return $this->idSpecificityShim; }
-    /** @return list<string> */
-    public function sourceBodyProjectionClasses(): array { return $this->sourceBodyProjectionClasses; }
-    /** @param list<string> $classes */
-    public function setSourceBodyProjectionClasses(array $classes): void { $this->sourceBodyProjectionClasses = $classes; }
+    /** A source-only identity for a class that Core can synthesize independently. */
+    public function sourceClassMarker(string $class): string
+    {
+        if ( ! SourceClassIdentity::needsMarker($class) ) {
+            return '';
+        }
+        return $this->sourceClassMarkers[$class] ??= SourceClassIdentity::marker($class);
+    }
     /** @param list<array<string, mixed>> $rules */
     public function installStyleRules(array $rules): void
     {
@@ -132,6 +139,19 @@ final class AuthorStyleAnalysis
         }
         do {
             $marker = 'blocks-engine-' . $kind . '-' . $this->markerSeed . '-' . $this->markerCounter++;
+        } while ( str_contains($this->markerCollisionTexts[0], $marker) || str_contains($this->markerCollisionTexts[1], $marker) );
+        return $marker;
+    }
+
+    public function allocateStableMarker(string $kind, string $identity): string
+    {
+        if ( ! EngineMarker::isDeclaredKind($kind) ) {
+            throw new \InvalidArgumentException("Undeclared engine marker kind: {$kind}.");
+        }
+        $seed = substr(hash('sha256', $identity), 0, 12);
+        $counter = 0;
+        do {
+            $marker = 'blocks-engine-' . $kind . '-' . $seed . '-' . $counter++;
         } while ( str_contains($this->markerCollisionTexts[0], $marker) || str_contains($this->markerCollisionTexts[1], $marker) );
         return $marker;
     }

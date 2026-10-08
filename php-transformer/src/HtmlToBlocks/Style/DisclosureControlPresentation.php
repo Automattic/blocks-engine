@@ -24,6 +24,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
  */
 final class DisclosureControlPresentation
 {
+    public const SUMMARY_CONTENT_CARRIER_CLASS = 'blocks-engine-summary-content-carrier';
+
     public function __construct(
         private readonly StyleResolver $styles,
         private readonly GeneratedSupportStylesheetState $support,
@@ -43,10 +45,16 @@ final class DisclosureControlPresentation
      * Delivered as CSS keyed on a marker the heading carries, not as markup:
      * adding attributes to the toggle would diverge from core's save shape and
      * invalidate the block.
+     *
+     * A source-proved vector icon is returned alongside the marker. The heading
+     * carries it as block metadata so the theme renders the actual SVG into
+     * core's icon slot; its saved markup stays core's exact shape.
+     *
+     * @return array{className: string, iconSvg: string}
      */
-    public function accordionToggleMarker(DOMElement $control): string
+    public function accordionToggle(DOMElement $control): array
     {
-        return $this->disclosureControlMarker($control, 'blocks-engine-accordion-toggle-');
+        return $this->disclosureControlPresentation($control, 'blocks-engine-accordion-toggle-');
     }
 
     /**
@@ -63,7 +71,7 @@ final class DisclosureControlPresentation
      */
     public function disclosureSummaryMarker(DOMElement $summary): string
     {
-        return $this->disclosureControlMarker($summary, 'blocks-engine-disclosure-summary-');
+        return $this->disclosureControlPresentation($summary, 'blocks-engine-disclosure-summary-')['className'];
     }
 
     /**
@@ -74,12 +82,24 @@ final class DisclosureControlPresentation
      * by a responsive utility states its visibility only inside a media
      * condition — flattening that to the reference viewport's value would show
      * a small-screen control on every screen.
+     *
+     * @return array{className: string, iconSvg: string}
      */
-    private function disclosureControlMarker(DOMElement $control, string $prefix): string
+    private function disclosureControlPresentation(DOMElement $control, string $prefix): array
     {
         $conditionalDisplay = $this->styles->conditionalDisplayRules($control);
-        $css = $this->disclosureControlCarriedCss($control, array() !== $conditionalDisplay);
-        $conditionalPresentation = $this->conditionalPresentation($control);
+        $isSummary = str_starts_with($prefix, 'blocks-engine-disclosure-summary-');
+        $hasContentCarrier = $isSummary && $this->summaryHasContentCarrier($control);
+        $css = $this->disclosureControlCarriedCss(
+            $control,
+            array() !== $conditionalDisplay,
+            $isSummary,
+            $isSummary && ! $hasContentCarrier
+        );
+        $carrierCss = $hasContentCarrier
+            ? $this->disclosureControlCarriedCss($control, array() !== $conditionalDisplay, true, true)
+            : '';
+        $conditionalPresentation = $this->conditionalPresentation($control, $isSummary);
         $titleCss = str_starts_with($prefix, 'blocks-engine-accordion-toggle-')
             ? $this->styles->cssDeclarationString($this->disclosureSummaryLabelTypography($control)) : '';
         if ( '' !== $titleCss && in_array($this->styles->resolvedPresentationDeclarations($control)['display'] ?? '', array('flex', 'inline-flex'), true) ) {
@@ -88,17 +108,20 @@ final class DisclosureControlPresentation
             $titleCss .= ';display:contents';
         }
         $icon = str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ? $this->accordionIcon($control) : array();
-        if ( '' === $css && array() === $conditionalDisplay && array() === $conditionalPresentation && array() === $icon ) {
-            return '';
+        if ( '' === $css && '' === $carrierCss && array() === $conditionalDisplay && array() === $conditionalPresentation && array() === $icon ) {
+            return array('className' => '', 'iconSvg' => '');
         }
 
-        $marker = $prefix . substr(hash('sha256', $css . '|' . serialize($conditionalDisplay) . '|' . serialize($conditionalPresentation) . '|' . $titleCss . '|' . serialize($icon)), 0, 12);
+        $marker = $prefix . substr(hash('sha256', $css . '|' . $carrierCss . '|' . serialize($conditionalDisplay) . '|' . serialize($conditionalPresentation) . '|' . $titleCss . '|' . serialize($icon)), 0, 12);
         if ( '' !== $css ) {
             if ( str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ) {
                 $this->support->registerAccordionTogglePresentation($marker, $css);
             } else {
                 $this->support->registerDisclosureSummaryPresentation($marker, $css);
             }
+        }
+        if ( '' !== $carrierCss ) {
+            $this->support->registerDisclosureSummaryContentCarrierPresentation($marker, $carrierCss);
         }
         if ( array() !== $conditionalDisplay ) {
             $this->support->registerDisclosureControlConditionalDisplay($marker, $conditionalDisplay);
@@ -113,10 +136,10 @@ final class DisclosureControlPresentation
             $this->support->registerAccordionTitlePresentation($marker, $titleCss);
         }
         if ( array() !== $icon ) {
-            $this->support->registerAccordionIconPresentation($marker, $icon);
+            $this->support->registerAccordionIconPresentation($marker, array_diff_key($icon, array('svg' => true)));
         }
 
-        return $marker;
+        return array('className' => $marker, 'iconSvg' => $icon['svg'] ?? '');
     }
 
     /** Core owns the icon span; carry observed passive SVG artwork through CSS.
@@ -130,6 +153,10 @@ final class DisclosureControlPresentation
         if ( null === $this->svgMarkup || 1 !== $icons->length ) return array();
         $svg = $icons->item(0);
         if ( ! $svg instanceof DOMElement || ! SourceDom::svgHasDrawableContent($svg) ) return array();
+        foreach (array('class', 'style') as $attribute) {
+            if ($svg->hasAttribute('data-dla-disclosure-closed-' . $attribute)
+                && $svg->getAttribute($attribute) !== $svg->getAttribute('data-dla-disclosure-closed-' . $attribute)) return array();
+        }
         $declarations = $this->styles->resolvedPresentationDeclarations($svg);
         $dimensions = array();
         foreach ( array('width', 'height') as $property ) {
@@ -149,17 +176,20 @@ final class DisclosureControlPresentation
             $inline = array_merge($inline, $paint);
         }
         $clone->setAttribute('style', $this->styles->cssDeclarationString($inline));
+        // Producer state annotations describe the capture, not the artwork.
+        foreach ( iterator_to_array($clone->attributes) as $attribute ) {
+            if ( str_starts_with($attribute->nodeName, 'data-dla-') ) $clone->removeAttribute($attribute->nodeName);
+        }
         $markup = ($this->svgMarkup)($clone);
         if ( ! SourceDom::isSafeSvgContent($markup) ) return array();
         $base = $this->styles->cssDeclarationString($dimensions)
             . ';display:inline-block;flex-shrink:0;font-size:0;line-height:0;transform:none;rotate:none'
             . ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '");background-repeat:no-repeat;background-position:center;background-size:contain';
-        $stateCss = fn (DOMElement $element): string => implode(';', array_map(
-            fn (string $property): string => $property . ':' . $this->styles->resolveCssVariablesInValue(
-                (string) ($this->styles->matchedCascadedDeclarations($element)[$property] ?? 'none'), $element
-            ), array('transform', 'rotate')
+        $stateCss = fn (array $values): string => $this->styles->cssDeclarationString(array_merge(
+            array('transform' => 'none', 'rotate' => 'none'),
+            array_intersect_key($values, array_flip(array('transform', 'rotate', 'transform-origin', 'translate', 'scale', 'opacity', 'transition-property', 'transition-duration', 'transition-timing-function', 'transition-delay')))
         ));
-        $closed = $stateCss($svg);
+        $closed = $this->styles->resolvedSourceStateDeclarations($svg);
         $expanded = $svg->cloneNode(true);
         if ( ! $expanded instanceof DOMElement ) return array();
         foreach ( array('class', 'style') as $attribute ) {
@@ -167,17 +197,28 @@ final class DisclosureControlPresentation
                 $expanded->setAttribute($attribute, $svg->getAttribute('data-dla-disclosure-open-' . $attribute));
             }
         }
-        // Resolve the observed state with its ancestor scope, on a detached
-        // tree so the original DOM and its path-keyed cascade cache stay intact.
-        // Source-only custom properties cannot reach the generated icon span.
-        $scope = $expanded;
-        for ( $ancestor = $svg->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $parent = $ancestor->cloneNode(false);
-            $parent->appendChild($scope);
-            $scope = $parent;
+        // A detached state clone loses the source ancestors that author rules
+        // address. The native-identity selector cache already distinguishes
+        // replacement nodes; reuse it with the clone connected in that slot.
+        $parent = $svg->parentNode;
+        if (null === $parent) return array();
+        $parent->replaceChild($expanded, $svg);
+        try {
+            $open = $this->styles->resolvedSourceStateDeclarations($expanded);
+        } finally {
+            $parent->replaceChild($svg, $expanded);
         }
-        $open = $stateCss($expanded);
-        return array('closed' => $base . ';' . $closed, 'open' => $open);
+        // The background artwork is the editor's rendering; the frontend renders
+        // the actual SVG into the slot, which carries the state transform itself.
+        // Rasterizing the vector before transforming it measurably changes its
+        // antialiased paint, so the live vector owns the observed motion.
+        return array(
+            'closed' => $base . ';' . $stateCss($closed),
+            'open' => $stateCss($open),
+            'vector_closed' => 'display:block;width:100%;height:100%;' . $stateCss($closed),
+            'vector_open' => $stateCss($open),
+            'svg' => $markup,
+        );
     }
 
     /**
@@ -186,7 +227,7 @@ final class DisclosureControlPresentation
      * Both core/details and core/accordion-heading save a bare trigger element,
      * so the source control's own presentation has to be restated as CSS.
      */
-    private function disclosureControlCarriedCss(DOMElement $control, bool $displayIsConditional = false): string
+    private function disclosureControlCarriedCss(DOMElement $control, bool $displayIsConditional = false, bool $carrySummaryLayout = false, bool $preserveReferenceDisplay = false): string
     {
         $summary = $control;
         $declarations = $this->styles->safeVisualDeclarations(
@@ -203,6 +244,9 @@ final class DisclosureControlPresentation
             ),
             ARRAY_FILTER_USE_KEY
         );
+        if ( $carrySummaryLayout ) {
+            $carried = array_merge($carried, array_intersect_key($declarations, array_flip(array('gap', 'row-gap', 'column-gap', 'flex-direction', 'flex-wrap'))));
+        }
         // The label the source painted keeps its classes but loses the toggle
         // ancestor those rules were written against. Its type is inheritable, so
         // restating it on the summary reaches the label again, and any rule the
@@ -224,19 +268,36 @@ final class DisclosureControlPresentation
         // unconditionally would outrank the author's own responsive rule, which
         // is layered, and show a small-screen control on every screen.
         if ( $displayIsConditional ) {
-            unset($carried['display']);
+            if ( ! $preserveReferenceDisplay ) {
+                unset($carried['display']);
+            }
         }
 
         return $this->styles->cssDeclarationString($carried);
     }
 
+    private function summaryHasContentCarrier(DOMElement $summary): bool
+    {
+        foreach ( SourceDom::htmlAttributes($summary) as $name => $_value ) {
+            $name = strtolower($name);
+            if ( in_array($name, array('class', 'style', 'title'), true) || str_starts_with($name, 'data-') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @return array<string, string> */
-    private function conditionalPresentation(DOMElement $control): array
+    private function conditionalPresentation(DOMElement $control, bool $carrySummaryLayout = false): array
     {
         $rules = array();
         // These are the same visual families the bare core trigger cannot
         // retain. Preserve viewport conditions instead of baking a scalar box.
         $properties = array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'font-family', 'font-size', 'font-weight', 'line-height', 'min-height', 'min-width', 'height', 'width', 'color', 'background-color', 'border-radius', 'align-items', 'justify-content');
+        if ( $carrySummaryLayout ) {
+            $properties = array_merge($properties, array('gap', 'row-gap', 'column-gap', 'flex-direction', 'flex-wrap'));
+        }
         foreach ( $properties as $property ) {
             foreach ( $this->styles->declaredPresentation($control, $property)->conditional() as $condition => $value ) {
                 $declarations = $this->styles->safeVisualDeclarations(array($property => $this->styles->resolveCssVariablesInValue($value, $control)));

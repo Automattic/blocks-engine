@@ -49,7 +49,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
             SourceDom::htmlAttributes(...),
             $media->resolveImageUrl(...),
             $context->createBlock(...),
-            $media->coverStyle(...)
+            $media->coverStyle(...),
+            $media->documentRootFontSize(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -64,9 +65,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
      * @param callable(DOMElement): array<string, string> $htmlAttributes
      * @param callable(string): string $resolveAssetUrl
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
-     * @param callable(DOMElement): string $fullPresentationStyle Same source CoverPattern reads background/position
-     *        facts from — a superset of $mergedPresentationStyle's gate-only allow list. Needed here only to see
-     *        `position`, which mediaTextStyle's allow list omits.
+     * @param callable(DOMElement): string $fullPresentationStyle Superset of the gate-only media style, including
+     *        `position` (the same source CoverPattern reads background/position facts from).
+     * @param callable(DOMElement): ?float $documentRootFontSize CSS root size used to resolve rem dimensions.
      * @return array<string, mixed>|null
      */
     public function match(
@@ -79,7 +80,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
         callable $htmlAttributes,
         callable $resolveAssetUrl,
         callable $createBlock,
-        callable $fullPresentationStyle
+        callable $fullPresentationStyle,
+        callable $documentRootFontSize
     ): ?array {
         $elementChildren = $this->strictElementChildren($element);
         if ( null === $elementChildren || 2 !== count($elementChildren) ) {
@@ -190,7 +192,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
                     return null;
                 }
             }
-            $mediaStyle = $mergedPresentationStyle($resolution['media']);
+            $mediaStyle = $fullPresentationStyle($resolution['media']);
+            $rootFontSize = $documentRootFontSize($element);
         } catch ( \Throwable ) {
             return null;
         }
@@ -198,7 +201,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
         // A small, explicitly sized image beside short text is an icon lockup,
         // not a two-pane media/text section. Let normal group lowering retain
         // the authored row so both the image and text stay editable.
-        if ( 'img' === $mediaType && $this->isCompactIconTextPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle) ) {
+        if ( 'img' === $mediaType && $this->isCompactIconTextPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle, $rootFontSize) ) {
             return null;
         }
 
@@ -590,12 +593,14 @@ final class MediaTextPattern implements PatternRecognizerInterface
         return false;
     }
 
-    private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle): bool
+    private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle, ?float $rootFontSize): bool
     {
-        if ( ! preg_match('/^(?:h[1-6]|p|span)$/', strtolower($text->tagName)) ) {
+        $simpleText = preg_match('/^(?:h[1-6]|p|span)$/', strtolower($text->tagName));
+        if ( ! $simpleText && ! $this->hasCompactPortraitPresentation($mediaStyle) ) {
             return false;
         }
 
+        $declarations = $this->styleDeclarations($mediaStyle);
         $width = $this->compactHtmlDimension($this->attr($media, 'width'));
         $height = $this->compactHtmlDimension($this->attr($media, 'height'));
         if ( null !== $width
@@ -605,23 +610,41 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return true;
         }
 
-        $declarations = $this->styleDeclarations($mediaStyle);
-        $width = $this->compactPixelDimension($this->normalizedCssValue((string) ($declarations['width'] ?? '')));
+        $width = $this->compactPixelDimension($this->normalizedCssValue((string) ($declarations['width'] ?? '')), $rootFontSize);
         $heightValue = strtolower($this->normalizedCssValue((string) ($declarations['height'] ?? 'auto')));
-        $height = $this->compactPixelDimension($heightValue);
+        $height = $this->compactPixelDimension($heightValue, $rootFontSize);
 
-        return null !== $width
+        $compact = null !== $width
             && 64 >= $width
             && ( 'auto' === $heightValue || ( null !== $height && 64 >= $height ) );
+        return $compact && ( $simpleText || ( null !== $height && 64 >= $height ) );
     }
 
-    private function compactPixelDimension(string $value): ?float
+    private function hasCompactPortraitPresentation(string $mediaStyle): bool
     {
-        if ( ! preg_match('/^\s*(\d+(?:\.\d+)?)\s*px\s*$/i', $value, $matches) ) {
+        $declarations = $this->styleDeclarations($mediaStyle);
+        $objectFit = strtolower($this->normalizedCssValue((string) ($declarations['object-fit'] ?? '')));
+        $borderRadius = strtolower($this->normalizedCssValue((string) ($declarations['border-radius'] ?? '')));
+        return 'cover' === $objectFit || '' !== $borderRadius;
+    }
+
+    private function compactPixelDimension(string $value, ?float $rootFontSize): ?float
+    {
+        if ( ! preg_match('/^\s*(\d+(?:\.\d+)?)\s*(px|rem)\s*$/i', $value, $matches) ) {
             return null;
         }
 
         $dimension = (float) $matches[1];
+        // Captured utility stylesheets commonly express fixed dimensions in
+        // rem (`w-12`/`h-12` -> 3rem). Only compare those to the compact-media
+        // pixel threshold when the source root size is known.
+        if ( 'rem' === strtolower($matches[2]) ) {
+            if ( null === $rootFontSize ) {
+                return null;
+            }
+            $dimension *= $rootFontSize;
+        }
+
         return 0 < $dimension ? $dimension : null;
     }
 

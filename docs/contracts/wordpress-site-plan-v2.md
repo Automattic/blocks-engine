@@ -153,6 +153,21 @@ and `WordPressSitePlanResolver::resolve()`.
   `provenance.source_url` site, or becomes `#` when no source URL is recorded; each
   such link is reported once as a `wordpress_site_plan_unresolved_navigation_link`
   warning in `diagnostics` rather than failing the plan.
+  A head `link` declaration must name a captured asset or an explicit URL. One
+  that names neither costs that declaration and not the plan when it carries no
+  subresource: an unresolved feed, resource hint, manifest, vendor, oEmbed
+  discovery (`alternate` with a `+oembed` media type) or server-side protocol
+  endpoint (`pingback`, `EditURI`, `wlwmanifest`, `hub`, `webmention`, OpenID)
+  link is omitted from the materialized head and reported once per distinct
+  declaration as a `wordpress_site_plan_omitted_link_declaration` warning in
+  `diagnostics`, naming the relation, the href, the page it was first seen on
+  and how many pages carried it. A relation set that also names a rendered
+  resource is not one of these and still fails closed, as does any unresolved
+  rendering-critical link such as `stylesheet` or `icon`. These warnings live on
+  the plan's own `diagnostics`; they are not envelope diagnostics and so do not
+  appear in `source_reports.wordpress_site_plan_diagnostics`. The list is
+  bounded, after which one `reason: truncated` row carries the number of
+  remaining distinct declarations.
   The plan rejects traversal, encoded-separator, and unsafe route identities. Two
   documents deriving one route cost those two documents and not the plan: the first
   in document order keeps the route, later ones take a deterministic `-2`, `-3`
@@ -172,7 +187,10 @@ and `WordPressSitePlanResolver::resolve()`.
   resolved operations verbatim rather than inferring hierarchy or front-page behavior.
 - Targets, slugs, and tokens use a case-insensitive collision policy. Producers
   retain their declared spelling, while plans reject two values that differ only by
-  case so they materialize consistently on case-insensitive filesystems.
+  case so they materialize consistently on case-insensitive filesystems. When two
+  captured files differ only by case, the compiler keeps the byte-order-first
+  spelling and gives each later spelling a numbered asset target (`photo-2.png`);
+  source paths and their references are unchanged.
 - Static browser references in markup and CSS (`src`, stylesheet `href`, `srcset`,
   `poster`, applicable `action`, `url()`, and `@import`) must be declared asset
   tokens or absolute/root-relative URLs. The canonical `functions.php` registers

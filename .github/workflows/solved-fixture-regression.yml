@@ -1,7 +1,9 @@
 name: Solved Site Promotion Gate
 
 on:
+  workflow_dispatch:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     paths:
       - '.github/workflows/solved-fixture-regression.yml'
       - 'php-transformer/**'
@@ -18,8 +20,8 @@ permissions:
 
 jobs:
   solved-site-promotion:
-    uses: Automattic/static-site-importer/.github/workflows/solved-site-promotion.yml@ed8ed849f515c7fd08ac66959373e9378e273d98
+    uses: Automattic/static-site-importer/.github/workflows/solved-site-promotion.yml@c46706f62cc2160afaee4d3faab551500a01d325
     with:
-      static-site-importer-sha: ed8ed849f515c7fd08ac66959373e9378e273d98
+      static-site-importer-sha: c46706f62cc2160afaee4d3faab551500a01d325
       blocks-engine-sha: ${{ github.event.pull_request.head.sha || github.sha }}
       blocks-engine-repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}

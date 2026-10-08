@@ -56,7 +56,7 @@
             }
         },
         {
-            "path": "blocks.0.innerBlocks.2",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0",
             "name": "custom/authored-textarea"
         },
         {
