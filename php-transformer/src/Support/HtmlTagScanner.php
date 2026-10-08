@@ -49,7 +49,7 @@ final class HtmlTagScanner
                     $value = substr($tag, $start, $offset - $start);
                 }
             }
-            if (!isset($attributes[$name])) $attributes[$name] = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if (!isset($attributes[$name]) && !HtmlAttributeName::isIntegerKey($name)) $attributes[$name] = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }
         return $attributes;
     }

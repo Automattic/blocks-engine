@@ -46,6 +46,9 @@ materialization. Ordinary descriptive metadata retains its existing routing.
   so enqueue aliases can hand ownership to the actual emitted head element.
   Non-subresource document relationships, such as canonical links, resolve through
   the existing route map; stylesheet and preload URLs remain asset references.
+- A link URL that is a `data:` URL, such as an inline SVG favicon, carries its own
+  bytes. It has no write to bind, so the row keeps the URL as written, bounded to
+  one MiB. Scripts keep the script-loading contract.
 - The theme bootstrap selects the route by reconciliation identity (with existing
   front-page/page-route fallback), installs the head emitter after template
   selection and emits at `wp_head` priority `-1`. A declared unique viewport

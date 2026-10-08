@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DeclaredPresentation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -329,6 +330,11 @@ final class NavigationToggleSuppressor
             foreach ( $target->getElementsByTagName('*') as $candidate ) {
                 if ( $candidate instanceof DOMElement && $this->isAssociatedNavigationTarget($candidate) ) {
                     if ( $inner instanceof DOMElement ) {
+                        // A nested item/cluster is part of the containing menu,
+                        // not a second independently controlled occurrence.
+                        if ( SourceDom::elementContains($inner, $candidate) ) {
+                            continue;
+                        }
                         return null;
                     }
                     $inner = $candidate;
@@ -763,8 +769,9 @@ final class NavigationToggleSuppressor
         }
 
         $isButton = 'button' === $tagName;
-        $isButtonRoleAnchor = 'a' === $tagName && 'button' === strtolower(SourceDom::attr($element, 'role'));
-        if ( ! $isButton && ! $isButtonRoleAnchor ) {
+        $isRoleButton = ('a' === $tagName && 'button' === strtolower(SourceDom::attr($element, 'role')))
+            || AuthoredButtonBlockGenerator::isRoleButton($element);
+        if ( ! $isButton && ! $isRoleButton ) {
             return false;
         }
 
@@ -1500,6 +1507,12 @@ final class NavigationToggleSuppressor
      */
     public function projectedOverlayMenu(DOMElement $control): string
     {
+        // The enclosing document branch already owns its viewport visibility.
+        // A control visible throughout that branch must keep its opener above
+        // Core's fixed mobile breakpoint as well.
+        if ( null !== SourceDom::documentVariantRoot($control) && ! $this->isHiddenAtDefaultViewport($control) ) {
+            return 'always';
+        }
         if ( ! $this->isHashAnchorMenuProjection($control) ) {
             return 'mobile';
         }
@@ -1682,7 +1695,7 @@ final class NavigationToggleSuppressor
     private function isHiddenAtDefaultViewport(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
+            if ( SourceDom::isDocumentVariantRoot($node) || in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
                 break;
             }
             if ( $this->sourceElementIsHidden($node) ) {

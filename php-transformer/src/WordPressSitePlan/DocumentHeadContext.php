@@ -88,7 +88,11 @@ final class DocumentHeadContext
             if ('meta' !== $row['tag']) {
                 $reference = $row['asset_reference'] ?? $row['url'] ?? null;
                 $route = 'link' === $row['tag'] && self::isRouteLink($row['attributes']) && is_string($reference) && preg_match('~^/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*)?(?:[?#].*)?$~', $reference);
-                if (!is_string($reference) || '' === $reference || ($canonical && !$route && !str_starts_with($reference, WordPressSitePlan::TOKEN_PREFIX) && !preg_match('~^(?:https?:)?//~i', $reference))) throw new InvalidArgumentException('Document head ' . $row['tag'] . ' asset is not bound to a declared write or external URL: ' . substr((string) $reference, 0, 160));
+                // A data: URL carries its own bytes, so a link has no write to bind.
+                // Scripts keep the script-loading contract, which requires a write or HTTP(S) URL.
+                $embedded = 'link' === $row['tag'] && is_string($reference) && 1 === preg_match('~^data:~i', $reference);
+                if ($canonical && $embedded && strlen($reference) > 1048576) throw new InvalidArgumentException('Document head data URL exceeds its budget.');
+                if (!is_string($reference) || '' === $reference || ($canonical && !$route && !$embedded && !str_starts_with($reference, WordPressSitePlan::TOKEN_PREFIX) && !preg_match('~^(?:https?:)?//~i', $reference))) throw new InvalidArgumentException('Document head ' . $row['tag'] . ' asset is not bound to a declared write or external URL: ' . substr((string) $reference, 0, 160));
                 if ('style' === $row['tag'] && $canonical && !isset($row['asset_reference'])) throw new InvalidArgumentException('Document head style must bind a canonical stylesheet write.');
             }
         }

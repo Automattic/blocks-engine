@@ -2009,10 +2009,20 @@ final class ShellExtraction
             if (!$current && !$semanticIdentity) return $match[0];
             $isLink = 'navigation' !== $match[1];
             $peerClasses = is_array($peer) ? (preg_split('/\s+/', trim((string) ($peer['className'] ?? ''))) ?: array()) : array();
-            $classes = array_values(array_filter($classes, static function (string $class) use ($current, $semanticIdentity, $stateCarrierCounts, $peerClasses): bool {
+            // Recognition carries both markers only when current state was
+            // inferred from the URL and the same colour remains the base value.
+            // Removing route state must retain that invariant presentation.
+            $invariantColors = array();
+            foreach ($classes as $class) {
+                if (preg_match('/^blocks-engine-navigation-link-color-([a-f0-9]{64})$/', $class, $color)
+                    && in_array('blocks-engine-navigation-current-color-' . $color[1], $classes, true)) {
+                    $invariantColors[$class] = true;
+                }
+            }
+            $classes = array_values(array_filter($classes, static function (string $class) use ($current, $semanticIdentity, $stateCarrierCounts, $peerClasses, $invariantColors): bool {
                 if ($current && self::isCurrentPageClass($class, $peerClasses)) return false;
                 if (($current || $semanticIdentity) && preg_match('/^blocks-engine-navigation-current-color-[a-f0-9]{64}$/', $class)) return false;
-                if ($current && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class)) return false;
+                if ($current && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class) && !isset($invariantColors[$class])) return false;
                 if ($semanticIdentity && $current && 1 === ($stateCarrierCounts[$class] ?? 0)) return false;
                 if ($semanticIdentity && $current && preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class)) return false;
                 return true;

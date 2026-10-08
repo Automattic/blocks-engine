@@ -125,6 +125,24 @@ $multiReceipts = $roundTrip($compiler->compilePreparedPages($multiShared, $multi
 $multiStaged = $compiler->compose($multiShared, array_reverse($multiReceipts))->toArray();
 $assert($multiWhole['source_reports']['wordpress_site_plan'] === ($multiStaged['source_reports']['wordpress_site_plan'] ?? null), 'Rehydrated reversed staged receipts preserve the multi-route head script plan.');
 
+// A data: URL carries its own bytes. A head link that uses one has no write
+// to bind, so it keeps the URL as written instead of failing the plan.
+$dataIcon = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%23123456'/%3E%3C/svg%3E";
+$dataLink = $artifact;
+$dataLink['files']['index.html'] = str_replace('<meta charset="utf-8">', '<meta charset="utf-8"><link rel="icon" href="' . $dataIcon . '">', $dataLink['files']['index.html']);
+$dataLinkResult = (new ArtifactCompiler())->compile($dataLink)->toArray();
+$dataLinkErrors = array_values(array_filter($dataLinkResult['diagnostics'], static fn(array $row): bool => 'error' === ($row['severity'] ?? '')));
+$assert(array() === $dataLinkErrors && isset($dataLinkResult['source_reports']['wordpress_site_plan']), 'A head data: link produces a materializable plan: ' . json_encode($dataLinkErrors, JSON_UNESCAPED_SLASHES));
+$dataLinkPlan = (new WordPressSitePlanResolver())->resolve($dataLinkResult['source_reports']['wordpress_site_plan'], array('theme_uri' => 'https://example.test/theme', 'require_proven_dynamic_client_assets' => true));
+$dataLinkHead = DocumentHeadContext::fromPlan($dataLinkPlan, 'index.html');
+$assert(str_starts_with($dataLinkHead, '<meta charset="utf-8">' . "\n" . '<link rel="icon" href="' . htmlspecialchars($dataIcon, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '">' . "\n"), 'A head data: link keeps its source position and exact URL.');
+$oversized = array('schema' => DocumentHeadContext::SCHEMA, 'elements' => array(array('tag' => 'link', 'attributes' => array('rel' => 'icon'), 'url' => 'data:,' . str_repeat('a', 1048576), 'selector' => 'link:nth-of-type(1)')));
+$assert($rejects(static fn() => DocumentHeadContext::assertValid($oversized)), 'A head data: link stays within the inline data budget.');
+$unboundLink = $artifact;
+$unboundLink['files']['index.html'] = str_replace('<meta charset="utf-8">', '<meta charset="utf-8"><link rel="icon" href="missing-icon.png">', $unboundLink['files']['index.html']);
+$unboundLinkResult = (new ArtifactCompiler())->compile($unboundLink)->toArray();
+$assert(!isset($unboundLinkResult['source_reports']['wordpress_site_plan']) && in_array('wordpress_site_plan_not_self_contained', array_column($unboundLinkResult['diagnostics'], 'code'), true), 'A local head link without a declared write still fails closed.');
+
 // Execute the actual emitted PHP registration and template/head hook path.
 // This proves bootstrap behavior, not a claim of a full WordPress installation.
 $hooks = array(); $enqueuedStyles = array(); $enqueuedScripts = array();
