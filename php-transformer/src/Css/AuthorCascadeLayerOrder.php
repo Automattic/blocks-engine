@@ -19,20 +19,20 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
  * editor styles — that registration reverses the author's intended order and
  * the author's own reset layer starts beating its utilities.
  *
- * Emitting the author's order as a leading statement pins the order in every
- * context, so the frontend and the editor resolve the same cascade.
+ * A wholly named order can be pinned with a leading statement. Anonymous block
+ * or import layers own unnameable positions: a partial named bootstrap would
+ * reorder those positions, so their original authored stream establishes order.
  */
 final class AuthorCascadeLayerOrder
 {
     /** Bounds the emitted statement against pathological input. */
     private const MAX_LAYERS = 64;
 
-    /** The leading `@layer` statement for a stylesheet, or `''` when it uses no named layers. */
+    /** A complete named order, or '' when anonymous positions cannot be named. */
     public function statement(string $stylesheet): string
     {
-        $names = $this->names($stylesheet);
-
-        return array() === $names ? '' : '@layer ' . implode(',', $names) . ';';
+        $order = $this->layerOrder($stylesheet);
+        return $order['anonymous'] || array() === $order['names'] ? '' : '@layer ' . implode(',', $order['names']) . ';';
     }
 
     /**
@@ -45,6 +45,12 @@ final class AuthorCascadeLayerOrder
      * @return list<string>
      */
     public function names(string $stylesheet): array
+    {
+        return $this->layerOrder($stylesheet)['names'];
+    }
+
+    /** @return array{names:list<string>, anonymous:bool} */
+    private function layerOrder(string $stylesheet): array
     {
         $css = preg_replace('#/\*.*?\*/#s', '', $stylesheet) ?? $stylesheet;
         $length = strlen($css);
@@ -60,6 +66,7 @@ final class AuthorCascadeLayerOrder
         $state = CssSyntaxScanner::state();
         $depth = 0;
         $names = array();
+        $anonymous = false;
         $cursor = 0;
 
         while ($cursor < $length) {
@@ -78,7 +85,9 @@ final class AuthorCascadeLayerOrder
                 }
                 if (0 === $depth && '@' === $character && 0 === substr_compare($css, '@layer', $cursor, 6, true)) {
                     $span = strcspn($css, '{;', $cursor);
-                    foreach ($this->preludeNames(substr($css, $cursor + 6, $span - 6)) as $name) {
+                    $prelude = substr($css, $cursor + 6, $span - 6);
+                    $anonymous = $anonymous || '' === trim($prelude);
+                    foreach ($this->preludeNames($prelude) as $name) {
                         if (count($names) < self::MAX_LAYERS && ! in_array($name, $names, true)) {
                             $names[] = $name;
                         }
@@ -87,12 +96,32 @@ final class AuthorCascadeLayerOrder
                     $cursor += $span;
                     continue;
                 }
+                if (0 === $depth && '@' === $character && 0 === substr_compare($css, '@import', $cursor, 7, true)) {
+                    $end = $cursor;
+                    $importState = CssSyntaxScanner::state();
+                    while ($end < $length && !(CssSyntaxScanner::isTopLevel($importState) && ';' === $css[$end])) {
+                        $end = CssSyntaxScanner::consume($css, $end, $importState) ?? ($end + 1);
+                    }
+                    // The URL is one lexical token; only subsequent import
+                    // qualifiers can register a layer, never a quoted URL.
+                    $qualifiers = array_slice(CssValueSplitter::splitTopLevelWhitespace(substr($css, $cursor + 7, $end - $cursor - 7)), 1);
+                    foreach ($qualifiers as $qualifier) {
+                        if ('layer' === strtolower($qualifier)) $anonymous = true;
+                        if (preg_match('/^layer\((.*)\)$/i', $qualifier, $match)) {
+                            foreach ($this->preludeNames($match[1]) as $name) {
+                                if (count($names) < self::MAX_LAYERS && !in_array($name, $names, true)) $names[] = $name;
+                            }
+                        }
+                    }
+                    $cursor = $end;
+                    continue;
+                }
             }
 
             $cursor = CssSyntaxScanner::consume($css, $cursor, $state) ?? ($cursor + 1);
         }
 
-        return $names;
+        return array('names' => $names, 'anonymous' => $anonymous);
     }
 
     /**

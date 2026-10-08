@@ -23,8 +23,8 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     ++$failures;
     fwrite(STDERR, 'FAIL: ' . $message . ('' !== $detail ? ' - ' . $detail : '') . PHP_EOL);
 };
-$pages = static function (array $files): array {
-    $result = ( new ArtifactCompiler() )->compile(array( 'entrypoint' => 'index.html', 'files' => $files ))->toArray();
+$pages = static function (array $files, string $entrypoint = 'index.html'): array {
+    $result = ( new ArtifactCompiler() )->compile(array( 'entrypoint' => $entrypoint, 'files' => $files ))->toArray();
     $bySource = array();
     foreach ( $result['source_reports']['wordpress_site_plan']['pages'] ?? array() as $page ) {
         $bySource[(string) ($page['source_path'] ?? '')] = $page;
@@ -56,6 +56,25 @@ $assert('keyword phrase' !== ($untitled['index.html']['title'] ?? null), 'withou
 $assert('Example Site | keyword phrase' === ($untitled['index.html']['title'] ?? null), 'without a navigation label the front page keeps its document title', (string) ($untitled['index.html']['title'] ?? ''));
 $assert('home' === ($untitled['index.html']['slug'] ?? null), 'the front page slug is home even when no navigation label names it', (string) ($untitled['index.html']['slug'] ?? ''));
 $assert('About' === ($untitled['about/index.html']['title'] ?? null), 'other pages still drop the shared trailing site name', (string) ($untitled['about/index.html']['title'] ?? ''));
+
+foreach (array('', 'website/', 'site/nested/') as $root) {
+    $entry = $root . 'index.html';
+    $rootDocument = $document('Root document', '<main><p>Distinct root content</p></main>');
+    $baseline = $pages(array($entry => $rootDocument), $entry)[$entry];
+    $collision = $pages(array(
+        $entry => $rootDocument,
+        $root . 'home/index.html' => $document('Captured home document', '<main><p>Distinct home content</p></main>'),
+        $root . 'home-2/index.html' => $document('Captured fallback document', '<main><p>Reserved fallback</p></main>'),
+        $root . 'home-3/item/index.html' => $document('Nested document', '<main><p>Editable descendant</p></main>'),
+    ), $entry);
+    $assert('home-4' === $collision[$entry]['slug'], 'homepage fallback reserves captured siblings and generated ancestor slugs: ' . $root);
+    $assert('/' === $collision[$entry]['route']['path'] && 'home' === $collision[$root . 'home/index.html']['slug'] && '/home' === $collision[$root . 'home/index.html']['route']['path'], 'root and captured home retain distinct canonical routes: ' . $root);
+    foreach (array('title', 'content_hash', 'reconciliation_identity', 'canonical_block_markup') as $field) {
+        $assert($baseline[$field] === $collision[$entry][$field], 'fallback allocation preserves root ' . $field . ': ' . $root);
+    }
+    $assert('Captured home document' === $collision[$root . 'home/index.html']['title'], 'fallback allocation preserves the captured sibling title: ' . $root);
+    $assert($collision[$entry]['reconciliation_identity'] !== $collision[$root . 'home/index.html']['reconciliation_identity'], 'captured documents retain separate identities: ' . $root);
+}
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "root page title slug: {$failures} failed, {$passes} passed\n");

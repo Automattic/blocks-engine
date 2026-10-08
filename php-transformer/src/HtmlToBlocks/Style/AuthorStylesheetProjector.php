@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -1356,6 +1357,11 @@ final class AuthorStylesheetProjector
         }
         $rewritten = array();
         foreach ( $selectors as $selector ) {
+            $socialAnchor = SocialAnchorSelectorProjector::project($selector, $context);
+            if (null !== $socialAnchor) {
+                $rewritten[] = $socialAnchor;
+                continue;
+            }
             $structuralParsed = $context->sourceStyles->parsedSelector($selector);
             $subject = $structuralParsed['compounds'][0] ?? array();
             if (($structuralParsed['supported'] ?? false) && 1 === count($structuralParsed['compounds'] ?? array())
@@ -1553,7 +1559,7 @@ final class AuthorStylesheetProjector
             // the rendered `<nav>` (and on the inner list copy); the list type
             // has to address that block rather than the copy.
             if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_LIST_HOST, $context) ) {
-                $hostSelector = $this->projectNavigationListHostSelector($selector, $parsed, $context);
+                $hostSelector = $this->projectNavigationListHostSelector($selector, $parsed, $context, $matches);
                 if ( null !== $hostSelector ) {
                     $rewritten[] = $hostSelector;
                     continue;
@@ -1887,6 +1893,7 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
     private function projectSourceAttributeAncestrySelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
     {
+        if (SourceAttributeSubjects::retainsDataPredicates($parsed, $context->authorStyles)) return null;
         $rightmost = $parsed['rightmost_compound_span'] ?? null;
         $ancestry = is_array($rightmost) ? substr($selector, 0, (int) $rightmost['start']) : '';
         if ( null !== $parsed['pseudo_state_suffix_span'] || ! preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry) ) {
@@ -2474,33 +2481,12 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed */
     private function selectorSpecificityShims(array $parsed, AuthorStylesheetProjectionContext $context): string
     {
-        $shims = '';
-        foreach ( $parsed['compounds'] as $compound ) {
-            $zeroSpecificity = $compound['zero_specificity'] ?? array();
-            if ( null !== $compound['type'] && 0 === (int) ($zeroSpecificity['types'] ?? 0) ) {
-                $shims .= $this->typeSpecificityShim($context);
-            }
-            $classCount = count($compound['classes']) - (int) ($zeroSpecificity['classes'] ?? 0);
-            for ( $index = 0; $index < $classCount; ++$index ) {
-                $shims .= ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-            }
-            $attributeCount = count($compound['attributes']) - (int) ($zeroSpecificity['attributes'] ?? 0);
-            for ( $index = 0; $index < $attributeCount; ++$index ) {
-                $shims .= ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-            }
-            $idCount = count($compound['ids']) - (int) ($zeroSpecificity['ids'] ?? 0);
-            for ( $index = 0; $index < $idCount; ++$index ) {
-                $shims .= ':not(#' . $context->authorStyles->idSpecificityShim() . ')';
-            }
-            if ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) {
-                $shims .= ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-            }
-            $listSpecificity = CssSelectorMatcher::selectorListArgumentSpecificity($compound);
-            $shims .= str_repeat($this->typeSpecificityShim($context), $listSpecificity['types'])
-                . str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', $listSpecificity['classes'])
-                . str_repeat(':not(#' . $context->authorStyles->idSpecificityShim() . ')', $listSpecificity['ids']);
-        }
-        return $shims;
+        return CssSpecificityProjection::shims(
+            $parsed,
+            $context->authorStyles->specificityShim(),
+            $context->authorStyles->classSpecificityShim(),
+            $context->authorStyles->idSpecificityShim()
+        );
     }
 
     /**
@@ -2814,10 +2800,14 @@ final class AuthorStylesheetProjector
      * (gap, wrapping, alignment) still reaches the item row. The shim keeps
      * the type's specificity; classes, ids and pseudo-classes in the compound
      * stay where they are, so the usual class projection still applies.
+     * Existing semantic identities restrict the rendered match set to these
+     * source lists. A list moved into an overlay targets the inner UL only,
+     * since the native root now occupies its opener's source-control slot.
      *
      * @param array<string, mixed> $parsed
+     * @param list<DOMElement> $matches
      */
-    private function projectNavigationListHostSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    private function projectNavigationListHostSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, array $matches): ?string
     {
         $span = $parsed['rightmost_compound_span'] ?? null;
         if ( ! is_array($span) ) {
@@ -2831,10 +2821,21 @@ final class AuthorStylesheetProjector
             if ( ! in_array(strtolower((string) $typeSpan['name']), array( 'ul', 'ol' ), true) ) {
                 return null;
             }
+            // The source match set proves list ownership, not ownership of
+            // every rendered navigation. Bind to those source identities so
+            // a separate DIV opener cannot inherit a global UL box rule.
+            $identities = array();
+            foreach ($matches as $element) {
+                $marker = $context->selectorProjections->semanticMarker($element->getNodePath() ?? '');
+                if ('' === $marker) return null;
+                $root = $context->selectorProjections->navigationListOwnsRoot($element->getNodePath() ?? '') ? '' : 'ul';
+                $identities[$marker] = $root . '.wp-block-navigation.' . $marker;
+            }
+            if (array() === $identities) return null;
             return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
                 (int) $typeSpan['start'] => array(
                     'end' => (int) $typeSpan['end'],
-                    'value' => ':where(.wp-block-navigation)' . $this->typeSpecificityShim($context),
+                    'value' => ':where(' . implode(',', $identities) . ')' . $this->typeSpecificityShim($context),
                 ),
             ));
         }
@@ -2848,8 +2849,8 @@ final class AuthorStylesheetProjector
      * classes and id but not the source-type marker other list items receive.
      * A rule authored on the item (`#menu li{display:inline;padding-right:15px}`)
      * therefore matched nothing in WordPress, and the menu lost the spacing the
-     * item's own box provided. Move the subject onto a zero-specificity item
-     * wrapper; classes, ids and structural pseudo-classes come along, the `li`
+     * item's own box provided. Move the subject onto the rendered item class;
+     * classes, ids and structural pseudo-classes come along, the `li`
      * type keeps its specificity through the type shim, and a trailing dynamic
      * state stays on the item, which is the same element it described.
      *
@@ -2903,9 +2904,15 @@ final class AuthorStylesheetProjector
             // The same native-subject baseline as the independent anchor/item
             // projections, while retaining live sibling predicates and source
             // ancestry. Core defaults must not outrank typed item declarations.
-            $baseline = str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 4);
+            // The native item contributes one class of the shared four-class
+            // baseline; retain the other three without changing author order.
+            $baseline = str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 3);
         }
-        $subject = ':where(.wp-block-navigation-item)' . $split['item'] . $split['structural']
+        // The native item class is the rule's single native scope: Core styles
+        // `.wp-block-navigation .wp-block-navigation-item` (display:flex), so an
+        // authored item rule keeps its own weight plus one class, the same scope
+        // WordPressCompatCss gives every other projected native navigation part.
+        $subject = '.wp-block-navigation-item' . $split['item'] . $split['structural']
             . ( $typeLength > 0 ? $this->typeSpecificityShim($context) : '' )
             . $baseline
             . $trailingState;

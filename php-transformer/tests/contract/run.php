@@ -2442,7 +2442,7 @@ $standaloneControls = ( new HtmlTransformer() )->transform(
 $standaloneControlBlocks = $standaloneControls['blocks'][0]['innerBlocks'] ?? array();
 $assert(array() === ($standaloneControls['fallbacks'] ?? array()), 'standalone readable controls convert without unsupported-element fallback');
 $assert('core/paragraph' === ($standaloneControlBlocks[0]['blockName'] ?? ''), 'standalone non-runtime input converts to readable paragraph');
-$assert('core/paragraph' === ($standaloneControlBlocks[1]['blockName'] ?? ''), 'source select label remains a sibling editable block');
+$assert('custom/authored-label' === ($standaloneControlBlocks[1]['blockName'] ?? '') && 'product-sort' === ($standaloneControlBlocks[1]['attrs']['htmlFor'] ?? ''), 'source select label remains a sibling editable associated label');
 $assert('core/group' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'standalone static select retains the legacy structural group boundary');
 $assert('custom/authored-select' === ($standaloneControlBlocks[2]['innerBlocks'][0]['blockName'] ?? ''), 'standalone non-runtime select uses an authored-select editable native-control block inside its compatibility wrapper');
 $authoredSelectBlocks = array_values(array_filter($standaloneControls['source_reports']['generated_blocks'] ?? array(), static fn (array $block): bool => 'authored-select' === ($block['name'] ?? '')));
@@ -2451,7 +2451,7 @@ $assert(str_contains($authoredSelectCss, '.wp-block-group.blocks-engine-authored
 $assert('core/html' === ($standaloneControlBlocks[3]['blockName'] ?? ''), 'runtime-targeted select preserves native DOM output');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<option value="" selected disabled>Choose an order</option>'), 'compact select preserves selected placeholder option state');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select id="product-sort" name="products" placeholder="Sort products" class="catalog-sort">'), 'compact select preserves native id, name, placeholder, and CSS selector identity');
-$assert(1 === substr_count((string) ($standaloneControls['serialized_blocks'] ?? ''), '>Sort products</p>') && ! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<label'), 'styled select emits its source label exactly once without a duplicate custom-block label');
+$assert(1 === substr_count((string) ($standaloneControls['serialized_blocks'] ?? ''), '>Sort products</label>') && str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<label for="product-sort"'), 'styled select emits its source associated label exactly once without a duplicate wrapping label');
 $assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<!-- wp:html') || str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'only the runtime-targeted select uses core/html');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted select preserves native markup in serialized blocks');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'id="donation"'), 'readable input output preserves source id as a block anchor');
@@ -3313,7 +3313,7 @@ $assert('pass' === ($wrappedListGapNavigation['source_reports']['semantic_parity
 $assert('pass' === ($wrappedListGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), '#748 wrapper-originated navigation stays editor-valid');
 $wrappedListGapNavigationCss = implode("\n", array_column($wrappedListGapNavigation['assets'] ?? array(), 'content'));
 $assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}'), 'list-navigation restores the source flex alignment default');
-$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}'), 'list-navigation inner container follows the authored host layout without !important');
+$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation)>.wp-block-navigation__container{display:contents!important}') && str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}'), 'the non-overlay list transport is transparent while responsive navigation keeps its native layout');
 
 $outerGapNavigation = ( new HtmlTransformer() )->transform(
     '<nav style="gap:1rem"><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
@@ -3656,7 +3656,7 @@ $assert(! isset($activeNavigationColorLinks[0]['attrs']['style']['typography']['
 // container font-size/line-height rather than by the inline anchor. Keeping the
 // container typography separate preserves the source line box exactly.
 $assert(! isset($activeNavigationColorAttrs['customTextColor']) && ! isset($activeNavigationColorAttrs['style']['typography']) && str_contains((string) ($activeNavigationColorAttrs['className'] ?? ''), 'blocks-engine-list-navigation') && str_contains($activeNavigationColorCss, 'color:var(--bone)'), 'list navigation keeps source container typography separate while retaining shared color through projected CSS');
-$assert(! str_contains($activeNavigationColorCss, '.wp-block-navigation__container{gap:') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item.wp-block-navigation-link{display:list-item}') && str_contains($activeNavigationColorCss, ':where(.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link){font:inherit}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation uses native block gap while preserving source list-item and inline-anchor formatting semantics');
+$assert(! str_contains($activeNavigationColorCss, '.wp-block-navigation__container{gap:') && str_contains($activeNavigationColorCss, '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item}') && str_contains($activeNavigationColorCss, ':where(.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link){font:inherit}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation uses native block gap while preserving source list-item and inline-anchor formatting semantics');
 $assert('var(--ember)' === ($activeNavigationColorLinks[0]['attrs']['style']['typography']['textDecorationColor'] ?? ''), 'active navigation underline color carries source pseudo underline paint');
 $assert(! isset($activeNavigationColorLinks[1]['attrs']['style']['typography']['textDecorationColor']), 'inactive navigation link does not get underline color styling');
 $assert(str_contains($activeNavigationColorSerialized, '<!-- wp:navigation-link'), 'active navigation color case keeps canonical navigation-link serialization');
@@ -4403,12 +4403,12 @@ $artifactNavAnchorCss = $compiler->compile(
         ),
     )
 )->toArray();
-$artifactNavAnchorStaticCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
-$assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact static CSS replays nested nav anchor color through direct and descendant core/navigation wrappers');
-$assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content:hover, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content:hover { color:#8f5031;border-color:#8f5031 }'), 'artifact static CSS replays nested nav anchor hover color through core/navigation wrappers');
+$artifactNavAnchorStaticCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['visual_repair']['compat_css'] ?? '');
+$assert(str_contains($artifactNavAnchorStaticCss, ':where(.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content)') && str_contains($artifactNavAnchorStaticCss, ':where(.site-header .subnav .wp-block-navigation .wp-block-navigation-item__content)') && str_contains($artifactNavAnchorStaticCss, ' { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact static CSS replays nested nav anchor color through specificity-neutral direct and descendant wrappers');
+$assert(str_contains($artifactNavAnchorStaticCss, ':where(.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content)') && str_contains($artifactNavAnchorStaticCss, ':where(.site-header .subnav .wp-block-navigation .wp-block-navigation-item__content)') && str_contains($artifactNavAnchorStaticCss, ':hover { color:#8f5031;border-color:#8f5031 }'), 'artifact static CSS replays nested nav anchor hover color through specificity-neutral wrappers');
 $assert(! str_contains($artifactNavAnchorStaticCss, '.site-header.wp-block-navigation .subnav'), 'artifact static CSS does not attach core/navigation to the wrong ancestor selector');
 $artifactNavAnchorRepairCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['visual_repair']['css'] ?? '');
-$assert(str_contains($artifactNavAnchorRepairCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact visual repair CSS carries nav anchor replay for downstream theme materializers');
+$assert(str_contains($artifactNavAnchorRepairCss, ':where(.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content)') && str_contains($artifactNavAnchorRepairCss, ':where(.site-header .subnav .wp-block-navigation .wp-block-navigation-item__content)') && str_contains($artifactNavAnchorRepairCss, ' { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact visual repair CSS carries neutral nav anchor replay for downstream theme materializers');
 
 $artifactNavStructureCss = $compiler->compile(
     array(
@@ -4420,27 +4420,33 @@ $artifactNavStructureCss = $compiler->compile(
     )
 )->toArray();
 $artifactNavStructureMarkup = (string) ($artifactNavStructureCss['serialized_blocks'] ?? '');
-$artifactNavStructureStaticCss = (string) ($artifactNavStructureCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
+$artifactNavStructureStaticCss = (string) ($artifactNavStructureCss['source_reports']['compiled_site']['visual_repair']['compat_css'] ?? '');
 $assert(str_contains($artifactNavStructureMarkup, 'desktop-nav') && str_contains($artifactNavStructureMarkup, 'site-menu') && str_contains($artifactNavStructureMarkup, 'blocks-engine-list-navigation'), 'list navigation promotes source list classes onto the core navigation wrapper');
 $assert(str_contains($artifactNavStructureStaticCss, '@media screen and (min-width:1025px)'), 'artifact navigation projection preserves its authored responsive condition');
 preg_match('/blocks-engine-navigation-item-[a-f0-9]{12}-\d+/', $artifactNavStructureMarkup, $artifactNavItemSubject);
 preg_match('/blocks-engine-navigation-anchor-[a-f0-9]{12}-\d+/', $artifactNavStructureMarkup, $artifactNavAnchorSubject);
-$assert(str_contains($artifactNavStructureStaticCss, ':where(.wp-block-navigation-item)') && str_contains($artifactNavStructureStaticCss, 'display:flex;align-items:center') && str_contains($artifactNavStructureStaticCss, 'margin-right:30px'), 'artifact CSS projects source navigation item geometry onto core navigation items', $artifactNavStructureStaticCss);
-$assert(isset($artifactNavAnchorSubject[0]) && str_contains($artifactNavStructureStaticCss, '.wp-block-navigation-item.' . $artifactNavAnchorSubject[0] . ' :where(.wp-block-navigation-item__content)') && str_contains($artifactNavStructureStaticCss, '{font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px}'), 'artifact CSS projects source list anchor typography onto its distinct native anchor subject');
-$assert(str_contains($artifactNavStructureStaticCss, '.nav\\,alternate.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'gap:4px'), 'artifact navigation projection preserves escaped selector punctuation');
-$assert(str_contains($artifactNavStructureStaticCss, '[data-kind="/* promoted */"]') && str_contains($artifactNavStructureStaticCss, 'order:2'), 'artifact navigation projection preserves comment-like text inside quoted selector values');
-$artifactNavStructureCompatOffset = strpos($artifactNavStructureStaticCss, 'wp-compat: project source list navigation structure');
-$artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '' : substr($artifactNavStructureStaticCss, $artifactNavStructureCompatOffset);
+// The item geometry rule's subject is the source list item, so the author
+// projection carries it onto core's rendered item inside the authored stylesheet;
+// the route-owned compat replay reads that projected stylesheet.
 $artifactNavStructureAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactNavStructureCss['assets'] ?? array()));
+$artifactNavStructureCompatOffset = strpos($artifactNavStructureStaticCss, 'wp-compat: replay source nav anchor selectors');
+$artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '' : substr($artifactNavStructureStaticCss, $artifactNavStructureCompatOffset);
+$assert(str_contains($artifactNavStructureAssetCss, 'ul.site-menu>.wp-block-navigation-item:not(blocks-engine-specificity-site-0)') && str_contains($artifactNavStructureAssetCss, 'display:flex;align-items:center') && str_contains($artifactNavStructureAssetCss, 'margin-right:30px') && ! str_contains($artifactNavStructureCompatCss, 'margin-right:30px'), 'artifact CSS projects source navigation item geometry without a second compatibility replay', $artifactNavStructureAssetCss);
+$assert(isset($artifactNavAnchorSubject[0]) && str_contains($artifactNavStructureAssetCss, '.wp-block-navigation-item.' . $artifactNavAnchorSubject[0] . ' :where(.wp-block-navigation-item__content)') && str_contains($artifactNavStructureAssetCss, '{font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px}'), 'artifact CSS projects source list anchor typography onto its distinct native anchor subject');
+$assert(str_contains($artifactNavStructureStaticCss, '.nav\\,alternate.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'gap:4px'), 'artifact navigation projection preserves escaped selector punctuation');
+$quotedNavigationCss = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\WordPressCompatCss())->css('.desktop-nav[data-kind="/* promoted */"] a{order:2}', array(), array());
+$assert(str_contains($quotedNavigationCss, '[data-kind="/* promoted */"]') && str_contains($quotedNavigationCss, 'order:2'), 'navigation projection preserves comment-like text inside quoted selector values before semantic attribute projection');
+$artifactNavStructureCompatOffset = strpos($artifactNavStructureStaticCss, 'wp-compat: replay source nav anchor selectors');
+$artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '' : substr($artifactNavStructureStaticCss, $artifactNavStructureCompatOffset);
 $assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__container>.wp-block-navigation-item') && ! str_contains($artifactNavStructureCompatCss, 'blocks-engine-source-li-'), 'artifact navigation projection replaces non-serialized source list markers with core navigation item selectors');
 // A rule whose subject is the source list item itself is projected by the author
 // stylesheet projector onto core's rendered item (the source-type marker never
 // reaches it), so the compat layer no longer has a marker to map for it.
-$assert(1 === preg_match('/\.desktop-nav :where\(\.wp-block-navigation-item\):not\(blocks-engine-specificity-site-0\)[^{]*\{float:left\}/', $artifactNavStructureStaticCss), 'artifact navigation projection moves a list-item subject onto the rendered core navigation item', $artifactNavStructureStaticCss);
+$assert(1 === preg_match('/\.desktop-nav \.wp-block-navigation-item:not\(blocks-engine-specificity-site-0\)[^{]*\{float:left\}/', $artifactNavStructureAssetCss), 'artifact navigation projection moves a list-item subject onto the rendered core navigation item', $artifactNavStructureAssetCss);
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation-item { float:left }'), 'the compat layer does not restate the list-item rule the author projection already addresses', $artifactNavStructureCompatCss);
 $assert(str_contains($artifactNavStructureMarkup, '"overlayMenu":"never"') && ! str_contains($artifactNavStructureAssetCss, 'blocks-engine-native-responsive-navigation{display:flex!important}'), 'list navigation without an authored responsive control preserves its mobile visibility contract', $artifactNavStructureAssetCss);
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');
-$assert(str_contains($artifactNavStructureCompatCss, '.menu-ready .desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container { visibility:visible;opacity:1 }'), 'artifact navigation projection materializes the source list stable visible state for core navigation', $artifactNavStructureCompatCss);
+$assert(str_contains($artifactNavStructureCompatCss, '.menu-ready .desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container)') && str_contains($artifactNavStructureCompatCss, ' { visibility:visible;opacity:1 }'), 'artifact navigation projection materializes the source list stable visible state for core navigation', $artifactNavStructureCompatCss);
 
 $artifactResponsiveRoot = $compiler->compile(
     array(
@@ -4561,7 +4567,7 @@ $artifactHeaderRuntimeCss = $compiler->compile(
         ),
     )
 )->toArray();
-$artifactHeaderRuntimeStaticCss = (string) ($artifactHeaderRuntimeCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
+$artifactHeaderRuntimeStaticCss = (string) ($artifactHeaderRuntimeCss['source_reports']['compiled_site']['visual_repair']['compat_css'] ?? '');
 $assert(str_contains($artifactHeaderRuntimeStaticCss, '.blocks-engine-current-navigation-underline>.wp-block-navigation-item__content { text-decoration:underline }'), 'artifact CSS renders only source-authored current navigation underlines on core navigation links');
 $assert(str_contains($artifactHeaderRuntimeStaticCss, '.wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }'), 'artifact CSS protects the core search SVG from colliding source search-icon hidden states');
 
@@ -4575,19 +4581,19 @@ $artifactNavContainerCss = $compiler->compile(
         ),
     )
 )->toArray();
-$artifactNavContainerStaticCss = (string) ($artifactNavContainerCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
-$assert(str_contains($artifactNavContainerStaticCss, '.collapsed-nav.wp-block-navigation { display:none;position:absolute }'), 'artifact static CSS strengthens source navigation container state against core navigation display rules');
-$assert(str_contains($artifactNavContainerStaticCss, '.collapsed-nav.visible.wp-block-navigation { display:block!important }'), 'artifact static CSS preserves source navigation container visible state');
+$artifactNavContainerStaticCss = (string) ($artifactNavContainerCss['source_reports']['compiled_site']['visual_repair']['compat_css'] ?? '');
+$assert(str_contains($artifactNavContainerStaticCss, ':where(.collapsed-nav.wp-block-navigation)') && str_contains($artifactNavContainerStaticCss, ' { display:none;position:absolute }'), 'artifact static CSS preserves source navigation container state in the common native scope');
+$assert(str_contains($artifactNavContainerStaticCss, ':where(.collapsed-nav.visible.wp-block-navigation)') && str_contains($artifactNavContainerStaticCss, ' { display:block!important }'), 'artifact static CSS preserves source navigation container visible state');
 $assert(! str_contains($artifactNavContainerStaticCss, '.desktop-nav.wp-block-navigation'), 'artifact static CSS leaves desktop navigation display rules under their authored responsive cascade');
 $assert(! str_contains($artifactNavContainerStaticCss, '.drawer-panel.wp-block-navigation'), 'artifact navigation container replay does not rewrite unrelated drawer selectors');
 $assert(! str_contains($artifactNavContainerStaticCss, '.collapsed-nav.wp-block-navigation>ul'), 'artifact navigation container replay does not rewrite descendant targets as containers');
 $assert(str_contains($artifactNavContainerStaticCss, 'body .site-header { opacity:1!important }'), 'artifact static CSS materializes a stable root class added by source startup code');
 $artifactNavContainerRepair = $artifactNavContainerCss['source_reports']['compiled_site']['visual_repair'] ?? array();
 $artifactNavContainerRepairCss = (string) ($artifactNavContainerRepair['css'] ?? '');
-$assert(str_contains($artifactNavContainerRepairCss, '.collapsed-nav.wp-block-navigation { display:none;position:absolute }') && str_contains($artifactNavContainerRepairCss, 'body .site-header { opacity:1!important }'), 'artifact visual repair carries navigation cascade and stable startup state projections');
-$assert(str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), '.collapsed-nav.wp-block-navigation { display:none;position:absolute }') && str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), 'body .site-header { opacity:1!important }'), 'artifact visual repair exposes self-contained WordPress compatibility CSS separately from legacy repair aggregation');
+$assert(str_contains($artifactNavContainerRepairCss, ':where(.collapsed-nav.wp-block-navigation)') && str_contains($artifactNavContainerRepairCss, ' { display:none;position:absolute }') && str_contains($artifactNavContainerRepairCss, 'body .site-header { opacity:1!important }'), 'artifact visual repair carries neutral navigation cascade and stable startup state projections');
+$assert(str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), ':where(.collapsed-nav.wp-block-navigation)') && str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), ' { display:none;position:absolute }') && str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), 'body .site-header { opacity:1!important }'), 'artifact visual repair exposes self-contained WordPress compatibility CSS separately from legacy repair aggregation');
 $artifactNavContainerCompatAssets = array_values(array_filter($artifactNavContainerCss['source_reports']['compiled_site']['assets'] ?? array(), static fn (array $asset): bool => 'wordpress-compat' === ($asset['source'] ?? '')));
-$assert(1 === count($artifactNavContainerCompatAssets) && str_contains((string) ($artifactNavContainerCompatAssets[0]['content'] ?? ''), '.collapsed-nav.wp-block-navigation { display:none;position:absolute }') && str_contains((string) ($artifactNavContainerCompatAssets[0]['content'] ?? ''), 'body .site-header { opacity:1!important }'), 'artifact compiler emits self-contained WordPress compatibility CSS as an enqueued stylesheet asset');
+$assert(1 === count($artifactNavContainerCompatAssets) && str_contains((string) ($artifactNavContainerCompatAssets[0]['content'] ?? ''), ':where(.collapsed-nav.wp-block-navigation)') && str_contains((string) ($artifactNavContainerCompatAssets[0]['content'] ?? ''), ' { display:none;position:absolute }') && str_contains((string) ($artifactNavContainerCompatAssets[0]['content'] ?? ''), 'body .site-header { opacity:1!important }'), 'artifact compiler emits self-contained WordPress compatibility CSS as an enqueued stylesheet asset');
 
 $artifactGeometry = $compiler->compile(
     array(
@@ -5801,7 +5807,7 @@ $authoredInputCompanion = $authoredControlBlocks[1] ?? array();
 $assert('custom/authored-select' === ($authoredSelectCompanion['block_json']['name'] ?? null), 'authored-select companion metadata uses its canonical block name');
 $assert('custom/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
 $assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text' ) ) === ($authoredSelectCompanion['script_dependencies'] ?? null), 'authored-select companion dependency metadata survives payload compilation');
-$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-data', 'wp-element', 'wp-rich-text' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredSelectCompanion['assets']['index.js'] ?? ''), $authoredSelectRegistrations);
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredInputCompanion['assets']['index.js'] ?? ''), $authoredInputRegistrations);
 $assert(array( 'custom/authored-select' ) === ($authoredSelectRegistrations[1] ?? array()), 'authored-select companion editor script registers only its canonical block name');
@@ -6146,6 +6152,9 @@ $choiceState = static function (int $index, string $html): array {
                 array('index' => 1, 'selector' => 'body > main > form > div > button:nth-of-type(2)', 'tag' => 'button', 'value' => null),
             ),
             'transition' => array('selectedIndex' => $index, 'selected' => array(null, null), 'html' => $html, 'htmlBytes' => strlen($html), 'htmlTruncated' => false),
+            'replay' => 'activation-determined',
+            'restoration' => 'verified',
+            'coverage' => 'complete',
         ),
     );
 };
@@ -6157,7 +6166,7 @@ $choiceGroupInput = array(
         array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.com/', 'states' => array(
             $choiceState(0, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
-            $choiceState(1, '<div class="choices"><button type="button"><span>One selected</span></button><button type="button"><span>Two</span></button></div>'),
+            $choiceState(1, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
         )))), JSON_UNESCAPED_SLASHES)),
     ),
 );
@@ -6169,8 +6178,10 @@ $assert(1 === ($choiceGroupArtifact['source_reports']['captured_interactions']['
 $assert(str_contains($choiceMarkup, 'captured-choice-group-site/captured-choice-group'), 'captured choice groups serialize as an owned companion block');
 $assert(str_contains($choiceMarkup, 'One') && str_contains($choiceMarkup, 'Two'), 'choice group inner content remains in the editable block tree');
 $assert(str_contains($choiceConfig, 'observed_choice_key') && str_contains($choiceConfig, 'source_value'), 'choice behavior carries observed identity without treating it as a source scalar');
+$assert(str_contains($choiceConfig, 'bindings') && str_contains($choiceConfig, 'selectedIndex'), 'choice behavior carries bounded state bindings without replaying captured HTML');
 $assert(1 === count($choiceForms) && 1 === count($choiceForms[0]['payload']['entities'] ?? array()), 'choice-group form association reaches the generic forms collection');
 $choiceEntity = $choiceForms[0]['payload']['entities'][0] ?? array();
+$assert(array_key_exists('selected_index', $choiceEntity['choice_groups'][0]['observed_transition'] ?? array()) && null === $choiceEntity['choice_groups'][0]['observed_transition']['selected_index'], 'choice-group form metadata does not infer an initial selection from the first transition');
 $assert(array_key_exists('source_value', $choiceEntity['choice_groups'][0]['choices'][0] ?? array()) && null === $choiceEntity['choice_groups'][0]['choices'][0]['source_value'], 'generic form metadata preserves an unknown original choice value as null');
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($choiceGroupArtifact['blocks'] ?? array()), 'captured choice groups retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($choiceGroupArtifact['blocks'] ?? array())['status'] ?? ''), 'captured choice groups remain Gutenberg-valid');

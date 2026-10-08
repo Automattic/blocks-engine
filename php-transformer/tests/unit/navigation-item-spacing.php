@@ -62,7 +62,7 @@ $selectorsDeclaring = static function (array $rules, string $declaration): array
     }
     return $selectors;
 };
-$item = ':where(.wp-block-navigation-item)';
+$item = '.wp-block-navigation-item';
 
 // --- Horizontal inline menu: the item's own padding is the spacing. --------
 

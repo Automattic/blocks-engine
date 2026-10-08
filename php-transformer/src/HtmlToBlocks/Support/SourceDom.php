@@ -864,7 +864,7 @@ final class SourceDom
                     'attribute' => strtolower($name),
                 );
             }
-            if ( preg_match('/^(?:data-(?:action|on|event)|jsaction)$/i', $name) && '' !== trim($value) ) {
+            if ( \Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute::isDeclaredEventAttribute($name) && '' !== trim($value) ) {
                 $events[] = array(
                     'type'      => 'declared',
                     'attribute' => $name,

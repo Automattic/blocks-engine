@@ -235,11 +235,15 @@ final class AuthorSelectorSemanticPreparer
     {
         foreach ( $authorSelectors as $authorSelector ) {
             $parsed = $authorSelector['parsed'];
+            // Attribute-carrying native hosts and document roots remain live
+            // source subjects; a captured-state marker would freeze their CSS.
+            if (SourceAttributeSubjects::retainsDataPredicates($parsed, $authorStyles)) continue;
             $this->discoverNegatedDataAttributeState($authorSelector['selector'], $authorStyles, $projections);
             $this->discoverAncestorAttributeState($authorSelector['selector'], $authorStyles, $projections);
             $pseudoHost = CssSelectorMatcher::pseudoElementHost($authorSelector['selector']);
             $selector = $pseudoHost['selector'] ?? $authorSelector['selector'];
             $parsed = $pseudoHost['parsed'] ?? $parsed;
+            if (SourceAttributeSubjects::retainsDataPredicates($parsed, $authorStyles)) continue;
             if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
                 continue;
             }
@@ -355,7 +359,18 @@ final class AuthorSelectorSemanticPreparer
         // original attribute selector behind is incorrect once editable block
         // serialization drops that presentation-only data attribute.
         $marker = $authorStyles->allocateStableMarker('attribute-state', $stateOwnerSelectorText);
-        foreach ( $authorStyles->selectorCandidates($candidateSelector) as $element ) {
+        $candidates = $authorStyles->selectorCandidates($candidateSelector);
+        // Candidate pools index body descendants only, so a state owned by the
+        // document root is never evaluated: the projected `:root:not(.marker)`
+        // would address a marker no route ever materializes. The root itself
+        // carries the state (`data-launched` on `<html>`), so it joins the
+        // evaluation and receives the marker exactly when the positive
+        // predicate matches it.
+        $documentRoot = $authorStyles->sourceBody()->ownerDocument?->documentElement;
+        if ( $documentRoot instanceof DOMElement && ! in_array($documentRoot, $candidates, true) ) {
+            $candidates[] = $documentRoot;
+        }
+        foreach ( $candidates as $element ) {
             if ( ! CssSelectorMatcher::matches($element, $candidateSelector, true, $authorStyles->selectorMatchCache())['matches'] ) {
                 continue;
             }

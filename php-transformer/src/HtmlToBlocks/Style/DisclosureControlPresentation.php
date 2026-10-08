@@ -102,6 +102,11 @@ final class DisclosureControlPresentation
         $conditionalPresentation = $this->conditionalPresentation($control, $isSummary);
         $titleCss = str_starts_with($prefix, 'blocks-engine-accordion-toggle-')
             ? $this->styles->cssDeclarationString($this->disclosureSummaryLabelTypography($control)) : '';
+        if ( '' !== $titleCss && in_array($this->styles->resolvedPresentationDeclarations($control)['display'] ?? '', array('flex', 'inline-flex'), true) ) {
+            // The retained source label was a flex item. Core's extra title
+            // span must not turn it into inline text and change its wrapping.
+            $titleCss .= ';display:contents';
+        }
         $icon = str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ? $this->accordionIcon($control) : array();
         if ( '' === $css && '' === $carrierCss && array() === $conditionalDisplay && array() === $conditionalPresentation && array() === $icon ) {
             return array('className' => '', 'iconSvg' => '');

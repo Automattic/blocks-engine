@@ -73,7 +73,7 @@ $selectorsDeclaring = static function (array $rules, string $declaration): array
     }
     return $selectors;
 };
-$wrapper = ':where(.wp-block-navigation)';
+$wrapper = ':where(.wp-block-navigation.';
 // The shape WordPress renders for a navigation block standing in for `ul#menu`:
 // the block's classes and id sit on the `<nav>` and are copied onto the inner list.
 $rendered = new DOMDocument();
@@ -107,7 +107,7 @@ $assert(
     json_encode($placement)
 );
 $assert(
-    1 === count($placement) && str_contains($placement[0], $wrapper . ':not(blocks-engine-specificity-site-0)#menu'),
+    1 === count($placement) && str_contains($placement[0], '):not(blocks-engine-specificity-site-0)#menu'),
     'the moved type keeps its specificity through the type shim',
     json_encode($placement)
 );
@@ -152,6 +152,11 @@ $row = $transform(
 );
 $rowCss = $css($row);
 $rowRules = $rules($rowCss['author']);
+// The semantic identity belongs to the actual source list and is copied by
+// Core onto its host and row. Build this counterpart from emitted attributes.
+preg_match('/<!--\s*wp:navigation\s+(\{.*?\})\s*-->/s', $row['serialized_blocks'] ?? '', $rowMatch);
+$rowAttrs = json_decode($rowMatch[1] ?? '{}', true);
+foreach (array($renderedNav, $renderedRow) as $counterpart) $counterpart->setAttribute('class', $counterpart->getAttribute('class') . ' ' . ($rowAttrs['className'] ?? ''));
 $rowLayout = array_values(array_filter($rowRules, static fn (array $rule): bool => str_contains($rule['body'], 'flex-wrap:nowrap')));
 $assert(
     1 === count($rowLayout) && str_contains($rowLayout[0]['body'], 'align-items:flex-end') && str_contains($rowLayout[0]['selector'], $wrapper) && ! str_contains($rowLayout[0]['selector'], '__container'),

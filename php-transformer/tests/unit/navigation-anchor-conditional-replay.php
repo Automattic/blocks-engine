@@ -44,9 +44,18 @@ $assert(
 );
 
 // Other conditional group types carry the same replay.
-foreach ( array( '@supports (display:grid)', '@layer menu', '@container (min-width:20rem)' ) as $group ) {
+foreach ( array( '@supports (display:grid)', '@container (min-width:20rem)' ) as $group ) {
     $scoped = $anchorSection($compat('.sitenav a{color:#222}' . $group . '{.sitenav a{color:#0a7d55}}'));
     $assert(str_contains($scoped, $group) && str_contains($scoped, '#0a7d55'), $group . ' replays its nav anchor rule');
+}
+
+// Native selectors share layered declarations in their original source rule;
+// a separate painter would create a new anonymous layer when it replays one.
+foreach (array('@layer menu', '@layer') as $group) {
+    $source = $group . '{.sitenav a{color:#0a7d55!important}}';
+    $projected = (new WordPressCompatCss())->projectNavigationStylesheet($source, array());
+    $assert(str_contains($projected, $group) && str_contains($projected, 'wp-block-navigation-item__content') && substr_count($projected, '#0a7d55') === 1, $group . ' retains one shared source/native declaration in its original layer');
+    $assert(!str_contains($compat($projected), '@layer'), $group . ' is not repainted in a separate replay layer');
 }
 
 // Nested groups keep their nesting.
@@ -63,7 +72,7 @@ $listScoped = $compat(
     . '@media screen and (min-width:1025px){body.menu-ready .desktop-nav ul.site-menu>li a{font-family:Montserrat;padding-bottom:7px}}'
 );
 $assert(! str_contains($listScoped, 'li.wp-block-navigation'), 'a conditional list selector never fuses the navigation class onto the list item');
-$assert(! str_contains($anchorSection($listScoped), 'site-menu'), 'a conditional list selector is left to the structure pass');
+$assert(str_contains($listScoped, 'site-menu.wp-block-navigation .wp-block-navigation__container'), 'a conditional list selector addresses the list container in the unified source-order projection');
 
 // A group whose rules map to nothing emits no empty group.
 $unrelated = $anchorSection($compat('.card{color:#222}@media (max-width:40rem){.card{color:#333}}'));

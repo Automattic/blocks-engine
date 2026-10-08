@@ -7,11 +7,14 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredLabelBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Support\SourceAttribute;
 use Closure;
 use DOMElement;
 
@@ -20,6 +23,8 @@ final class AuthoredFormControlBlockConverter
 {
     /** @var Closure(DOMElement): string */
     private readonly Closure $richTextLabelContent;
+    /** @var Closure(DOMElement): string */
+    private readonly Closure $editableLabelContent;
 
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $structuralPresentationDeclarations
@@ -29,6 +34,7 @@ final class AuthoredFormControlBlockConverter
      * @param Closure(string): string                                                                       $safeAnchor
      * @param Closure(DOMElement): ?DOMElement                                                               $projectSourceTags
      * @param Closure(DOMElement): string|null                                                                $richTextLabelContent
+     * @param Closure(DOMElement): string|null                                                                $editableLabelContent
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
@@ -40,18 +46,56 @@ final class AuthoredFormControlBlockConverter
         private readonly Runtime $runtime,
         private readonly Closure $safeAnchor,
         private readonly Closure $projectSourceTags,
-        ?Closure $richTextLabelContent = null
+        ?Closure $richTextLabelContent = null,
+        ?Closure $editableLabelContent = null
     ) {
         $this->richTextLabelContent = $richTextLabelContent ?? static fn (DOMElement $label): string => '';
+        $this->editableLabelContent = $editableLabelContent ?? $this->richTextLabelContent;
+    }
+
+    public function labelContent(DOMElement $label): string
+    {
+        $content = ($this->editableLabelContent)($label);
+        return '' !== $content ? $content : $this->runtime->escapeHtml($this->metadataBuilder->labelText($label));
+    }
+
+    /** Keep an explicit external association even when its control is outside this fragment. */
+    public function label(DOMElement $label): ?array
+    {
+        if (!FormControlClassifier::isExternalAssociatedLabel($label)) {
+            return null;
+        }
+        $generator = new AuthoredLabelBlockGenerator();
+        $registry = ($this->generatedBlocks)();
+        $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
+        $projected = ($this->projectSourceTags)($label) ?? $label;
+        $attrs = array_filter(array(
+            'htmlFor' => SourceDom::attr($label, 'for'),
+            'id' => SourceDom::attr($label, 'id'),
+            'className' => SourceDom::attr($projected, 'class'),
+            'style' => SourceDom::attr($label, 'style'),
+            'content' => $this->labelContent($label),
+            'sourceAttributes' => SourceAttribute::staticAttributes(SourceDom::htmlAttributes($label), array_values(AuthoredLabelBlockGenerator::HOST_ATTRIBUTES)),
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
+        $markup = $generator->markup($attrs);
+        return array(
+            'blockName' => $registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME),
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array($markup),
+        );
     }
 
     /** @return array<string, mixed>|null */
     public function select(DOMElement $select, bool $forceNative = false, ?DOMElement $labelElement = null): ?array
     {
+        $state = NativeControlState::attributes($select);
+        $forceNative = $forceNative || null !== $state;
         $label = $this->metadataBuilder->readableLabel($select);
         ($this->registerEcho)($label);
         $options = $this->metadataBuilder->options($select);
-        if ( array() === $options ) {
+        if ( array() === $options && null === $state ) {
             return null;
         }
 
@@ -83,6 +127,10 @@ final class AuthoredFormControlBlockConverter
         $attrs = array_filter(array(
             'id' => SourceDom::attr($select, 'id'),
             'name' => SourceDom::attr($select, 'name'),
+            'form' => SourceDom::attr($select, 'form'),
+            'multiple' => $select->hasAttribute('multiple'),
+            'size' => SourceDom::attr($select, 'size'),
+            'dataAttributes' => null !== $state ? $this->dataAttributes($select) : array(),
             'ariaLabel' => SourceDom::attr($select, 'aria-label'),
             'placeholder' => SourceDom::attr($select, 'placeholder'),
             'className' => SourceDom::attr($select, 'class'),
@@ -96,6 +144,7 @@ final class AuthoredFormControlBlockConverter
             'required' => $select->hasAttribute('required'),
             'disabled' => $select->hasAttribute('disabled'),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
+        $attrs = array_replace($attrs, $state ?? array());
         $markup = $generator->markup($attrs);
         $controlBlock = array(
             'blockName' => $registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME),
@@ -108,7 +157,7 @@ final class AuthoredFormControlBlockConverter
         // Preserve the established structural address while source identity and
         // authored selectors remain on the native control inside this shell.
         return $this->createBlock->createBlock('core/group', array_filter(array(
-            'anchor' => ($this->safeAnchor)(SourceDom::attr($select, 'id')),
+            'anchor' => null !== $state ? '' : ($this->safeAnchor)(SourceDom::attr($select, 'id')),
             'className' => 'blocks-engine-authored-select-wrapper',
         )), array( $controlBlock ), null);
     }
@@ -184,6 +233,8 @@ final class AuthoredFormControlBlockConverter
      */
     public function input(DOMElement $input, ?DOMElement $label = null, bool $preserveDataAttributes = false, bool $forceNative = false): ?array
     {
+        $state = NativeControlState::attributes($input);
+        $forceNative = $forceNative || null !== $state;
         if ( ! $forceNative && array() === ($this->structuralPresentationDeclarations)($input) ) {
             return null;
         }
@@ -195,6 +246,7 @@ final class AuthoredFormControlBlockConverter
             'type' => FormControlClassifier::controlType($input),
             'id' => SourceDom::attr($input, 'id'),
             'name' => SourceDom::attr($input, 'name'),
+            'form' => SourceDom::attr($input, 'form'),
             'value' => SourceDom::attr($input, 'value'),
             'placeholder' => SourceDom::attr($input, 'placeholder'),
             'ariaLabel' => SourceDom::attr($input, 'aria-label'),
@@ -207,7 +259,7 @@ final class AuthoredFormControlBlockConverter
             'disabled' => $input->hasAttribute('disabled'),
             'readOnly' => $input->hasAttribute('readonly'),
             'checked' => $input->hasAttribute('checked'),
-            'dataAttributes' => $preserveDataAttributes ? $this->dataAttributes($input) : array(),
+            'dataAttributes' => $preserveDataAttributes || null !== $state ? $this->dataAttributes($input) : array(),
             'label' => $label instanceof DOMElement ? $this->metadataBuilder->labelText($label) : '',
             'labelMarkup' => $label instanceof DOMElement ? ($this->richTextLabelContent)($label) : '',
             'labelId' => $label instanceof DOMElement ? SourceDom::attr($label, 'id') : '',
@@ -215,6 +267,7 @@ final class AuthoredFormControlBlockConverter
             'labelClassName' => $label instanceof DOMElement ? SourceDom::attr($label, 'class') : '',
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
+        $attrs = array_replace($attrs, $state ?? array());
         $markup = $generator->markup($attrs);
 
         return array(
@@ -245,6 +298,8 @@ final class AuthoredFormControlBlockConverter
      */
     public function textarea(DOMElement $textarea, ?DOMElement $label = null, bool $forceNative = false): ?array
     {
+        $state = NativeControlState::attributes($textarea);
+        $forceNative = $forceNative || null !== $state;
         if ( ! $forceNative && array() === ($this->structuralPresentationDeclarations)($textarea) ) {
             return null;
         }
@@ -255,7 +310,11 @@ final class AuthoredFormControlBlockConverter
         $attrs = array_filter(array(
             'id' => SourceDom::attr($textarea, 'id'),
             'name' => SourceDom::attr($textarea, 'name'),
-            'value' => $textarea->textContent ?? '',
+            'form' => SourceDom::attr($textarea, 'form'),
+            'dataAttributes' => null !== $state ? $this->dataAttributes($textarea) : array(),
+            // libxml keeps the newline that the HTML parser drops right after
+            // `<textarea>`; the model holds the browser's default value.
+            'value' => preg_replace('/^(?:\r\n?|\n)/', '', $textarea->textContent ?? '', 1),
             'placeholder' => SourceDom::attr($textarea, 'placeholder'),
             'ariaLabel' => SourceDom::attr($textarea, 'aria-label'),
             'className' => SourceDom::attr($textarea, 'class'),
@@ -270,7 +329,8 @@ final class AuthoredFormControlBlockConverter
             'labelMarkup' => $label instanceof DOMElement ? ($this->richTextLabelContent)($label) : '',
             'labelClassName' => $label instanceof DOMElement ? SourceDom::attr($label, 'class') : '',
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
-        ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
+        $attrs = array_replace($attrs, $state ?? array());
         $markup = $generator->markup($attrs);
 
         return array(
@@ -372,7 +432,7 @@ final class AuthoredFormControlBlockConverter
         $attributes = array();
         foreach ( $input->attributes as $attribute ) {
             $name = strtolower($attribute->nodeName);
-            if ( 1 !== preg_match('/^data-(?!wp-)[a-z0-9_.:-]+$/', $name) ) {
+            if ( 1 !== preg_match('/^data-(?!wp-)[a-z0-9_.:-]+$/', $name) || in_array($name, array(NativeControlState::ATTRIBUTE, 'data-blocks-engine-control-state'), true) ) {
                 continue;
             }
             $attributes[$name] = $attribute->nodeValue ?? '';

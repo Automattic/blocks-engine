@@ -99,3 +99,26 @@ tablet SVG dimensions, margin and transform. The required Docker browser gate
 runs this fixture as well as the inventory fixture, verifying native keyboard
 open/close, closed state above 600px, routes, bounds, Gutenberg validity and one
 entity edit/restoration on two routes.
+
+## Source-list ownership through type projection
+
+A UL/OL type rule projected onto native navigation keeps the identity of its
+actual source subjects. The existing semantic-marker facility supplies those
+identities on list-owned hosts; it does not create hooks for unrelated control
+roots or lists whose wrappers remain the owner. A global `ul` rule therefore
+cannot acquire every native navigation as a new subject.
+
+The existing list-host role additionally records whether the source list owns
+the native root or has moved into an overlay. In the latter case its projected
+selector addresses Core's inner UL, while the control owns the native root.
+Query stacks, original type specificity, genuine float/width/offset placement,
+item-row layout and the existing single-copy container reset remain intact.
+
+`NAVIGATION_OWNERSHIP_TEST=1` exercises a DIV panel and a separately floated
+genuine source list under base/tablet list-margin rules. Add
+`NAVIGATION_LIST_PANEL_TEST=1` for a source UL panel. The required browser gate
+checks actual source-control coordinates and zero differing crop pixels, the
+genuine list's relative placement and conditioned margin, native keyboard and
+destination behavior, and a header navigation entity edit/restoration on two
+routes. `tests/unit/navigation-list-host-ownership.php` discriminates native
+roots, synthetic inner lists and real source-list inner overlays.

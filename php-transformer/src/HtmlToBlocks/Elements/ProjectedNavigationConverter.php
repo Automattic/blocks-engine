@@ -72,6 +72,7 @@ final class ProjectedNavigationConverter implements ElementConverter
                 );
                 $block['attrs']['overlayMenu'] = $this->navigationToggleSuppressor->projectedOverlayMenu($element);
                 $block['attrs'] = $this->withSourceOpener($block['attrs'], $projectedNavigation);
+                $this->session->authorSelectorProjectionState()->projectNavigationListIntoOverlay($projectedNavigation);
                 // The emitted navigation occupies the opener's layout slot.
                 // Its hidden-state provenance must belong to that control,
                 // rather than to the source panel it now opens natively.

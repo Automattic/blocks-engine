@@ -90,9 +90,12 @@ foreach ( $companionGenerators as $companionGenerator ) {
     $payload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), array( $companionDefinition ));
 
     $assert('file:./index.js' === ($companionDefinition['block_json']['editorScript'] ?? null), $expectedBlockName . ' editorScript is a single WordPress file reference');
-    $expectedDependencies = in_array($expectedBlockName, array( 'custom/authored-input', 'custom/authored-select' ), true)
-        ? array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text' ) )
-        : array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) );
+    $expectedDependencies = match ($expectedBlockName) {
+        // The input editor reads the block-editor store to keep one checked radio per owner.
+        'custom/authored-input' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-data', 'wp-element', 'wp-rich-text' ) ),
+        'custom/authored-select' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text' ) ),
+        default => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ),
+    };
     $assert($expectedDependencies === ($companionDefinition['script_dependencies'] ?? null), $expectedBlockName . ' declares its editor dependencies for SSI without emitting server code');
     $assert(array_reduce(array_keys($companionAssets), static fn (bool $safe, string $path): bool => $safe && $isSafeCompanionAsset($path, $companionAssets[$path]), true), $expectedBlockName . ' emits only static companion assets');
     $assert(array( $expectedBlockName ) === json_decode((string) $registered, true), $expectedBlockName . ' editor script registers after WordPress dependencies are loaded');

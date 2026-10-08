@@ -5,7 +5,11 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
+use DOMDocument;
 
 /**
  * WordPress runtime compatibility CSS projected from authored stylesheets.
@@ -14,6 +18,7 @@ final class WordPressCompatCss
 {
     /** @var array<string, string> */
     private array $cssCache = array();
+    private ?AuthorStyleAnalysis $specificityContext = null;
 
     /**
      * @param array<int, array<string, mixed>> $files
@@ -21,15 +26,39 @@ final class WordPressCompatCss
      */
     public function css(string $authoredCss, array $files, array $scriptContents): string
     {
-        $cacheKey = hash('sha256', $authoredCss);
+        $this->prepareSpecificityContext($authoredCss, $files);
+        $cacheKey = hash('sha256', $authoredCss . "\0" . $this->specificityContext->specificityShim() . "\0" . $this->specificityContext->classSpecificityShim() . "\0" . $this->specificityContext->idSpecificityShim());
         if ( array_key_exists($cacheKey, $this->cssCache) ) {
             return $this->cssCache[$cacheKey];
         }
-        return $this->cssCache[$cacheKey] = $this->navigationContainerCompatCss($authoredCss)
-            . $this->navigationStructureCompatCss($authoredCss)
-            . $this->navigationAnchorCompatCss($authoredCss)
+        return $this->cssCache[$cacheKey] = $this->navigationCompatCss($authoredCss)
             . $this->rootStartupClassCompatCss($authoredCss, $scriptContents)
             . $this->coreRuntimeCompatCss($authoredCss, $files);
+    }
+
+    /**
+     * Native correspondence shares the original rule's declaration body and
+     * layer identity. In particular an anonymous import layer cannot be reopened
+     * by a later replay stylesheet: each replay would create a different layer.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    public function projectNavigationStylesheet(string $css, array $files, bool $importedLayer = false): string
+    {
+        $this->prepareSpecificityContext($css, $files);
+        return (new CssStylesheetTransformer())->transform($css, function (string $prelude, string $body, array $ancestors) use ($importedLayer): string {
+            if (!$importedLayer && !array_filter($ancestors, static fn(string $ancestor): bool => 1 === preg_match('/^@layer\b/i', trim($ancestor)))) return $prelude;
+            $selectors = $this->navigationProjectedSelectors($prelude, $body);
+            return array() === $selectors ? $prelude : rtrim($prelude) . ', ' . implode(', ', $selectors);
+        });
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function prepareSpecificityContext(string $css, array $files): void
+    {
+        $html = implode("\n", array_map(static fn(array $file): string => 'html' === ($file['kind'] ?? '') ? (string) ($file['content'] ?? '') : '', $files));
+        $document = new DOMDocument();
+        $this->specificityContext = new AuthorStyleAnalysis($html, $css, array(), $document->createElement('body'));
     }
 
     /**
@@ -62,14 +91,14 @@ final class WordPressCompatCss
         );
     }
 
-    private function navigationAnchorCompatCss(string $css): string
+    private function navigationCompatCss(string $css): string
     {
-        $rules = $this->navigationAnchorCompatRules($css);
+        $rules = $this->navigationCompatRules($css);
         if ( array() === $rules ) {
             return '';
         }
 
-        return "\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n" . implode("\n", $rules);
+        return "\n\n/* wp-compat: replay source nav anchor selectors and structure in authored order */\n" . implode("\n", $rules);
     }
 
     /**
@@ -83,7 +112,7 @@ final class WordPressCompatCss
      *
      * @return array<int, string>
      */
-    private function navigationAnchorCompatRules(string $css): array
+    private function navigationCompatRules(string $css): array
     {
         $rules = array();
         foreach ( $this->topLevelCssRules($css, true) as $rule ) {
@@ -97,116 +126,45 @@ final class WordPressCompatCss
             }
 
             if ( str_starts_with($selectorList, '@') ) {
-                if ( ! preg_match('/^@(media|supports|container|layer)\b/i', $selectorList) ) {
+                // Layered rules already carry their native selectors in the
+                // authored stream. Replaying them would change anonymous layer
+                // identity and can invert !important layer precedence.
+                if ( ! preg_match('/^@(media|supports|container)\b/i', $selectorList) ) {
                     continue;
                 }
-                $nested = $this->navigationAnchorCompatRules($body);
+                $nested = $this->navigationCompatRules($body);
                 if ( array() !== $nested ) {
                     $rules[] = $selectorList . ' {' . implode('', $nested) . '}';
                 }
                 continue;
             }
-            if ( str_contains(strtolower($body), 'url(') ) {
-                continue;
-            }
-
-            $mappedSelectors = array();
-            foreach ( $this->splitSelectorList($selectorList) as $selector ) {
-                if ( array() !== $this->mapNavigationStructureSelector($selector, $body) ) {
-                    continue;
-                }
-                foreach ( $this->mapNavigationAnchorSelector($selector) as $mappedSelector ) {
-                    $mappedSelectors[$mappedSelector] = true;
-                }
-            }
-
+            $mappedSelectors = $this->navigationProjectedSelectors($selectorList, $body);
             if ( array() !== $mappedSelectors ) {
-                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
+                $rules[] = implode(', ', $mappedSelectors) . ' { ' . $body . ' }';
             }
         }
 
         return $rules;
     }
 
-    private function navigationStructureCompatCss(string $css): string
+    /** @return list<string> */
+    private function navigationProjectedSelectors(string $selectorList, string $body): array
     {
-        $rules = $this->navigationStructureCompatRules($css);
-        if ( array() === $rules ) {
-            return '';
-        }
-
-        return "\n\n/* wp-compat: project source list navigation structure onto core/navigation markup */\n" . implode("\n", $rules);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function navigationStructureCompatRules(string $css): array
-    {
-        $rules = array();
-        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
-            $selectorList = trim($rule['selector']);
-            $body = $rule['body'];
-            if ( '' === $body ) {
-                continue;
-            }
-
-            if ( str_starts_with($selectorList, '@') ) {
-                if ( ! preg_match('/^@(media|supports|container|layer)\b/i', $selectorList) ) {
-                    continue;
-                }
-                $nestedRules = $this->navigationStructureCompatRules($body);
-                if ( array() !== $nestedRules ) {
-                    $rules[] = $selectorList . ' {' . implode('', $nestedRules) . '}';
-                }
-                continue;
-            }
-            if ( str_contains(strtolower($body), 'url(') ) {
-                continue;
-            }
-
-            $mappedSelectors = array();
-            foreach ( $this->splitSelectorList($selectorList) as $selector ) {
-                foreach ( $this->mapNavigationStructureSelector($selector, $body) as $mappedSelector ) {
-                    $mappedSelectors[$mappedSelector] = true;
+        if (str_contains(strtolower($body), 'url(')) return array();
+        $mappedSelectors = array();
+        foreach ($this->splitSelectorList($selectorList) as $selector) {
+            if (preg_match('/(?:^|;)\s*display\s*:/i', $body)) {
+                $container = $this->mapNavigationContainerSelector($selector);
+                if (null !== $container) {
+                    $container = $this->preserveNavigationSpecificity($selector, $container);
+                    if (null !== $container) $mappedSelectors[$container] = true;
                 }
             }
-
-            if ( array() !== $mappedSelectors ) {
-                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
-            }
+            $targets = $this->mapNavigationStructureSelector($selector, $body);
+            if (array() === $targets) $targets = $this->mapNavigationAnchorSelector($selector);
+            foreach ($targets as $mappedSelector) $mappedSelectors[$mappedSelector] = true;
         }
-
-        return $rules;
-    }
-
-    private function navigationContainerCompatCss(string $css): string
-    {
-        $rules = array();
-        foreach ( $this->topLevelCssRules($css) as $rule ) {
-            $body = $rule['body'];
-            if ( '' === $body || str_contains(strtolower($body), 'url(') || ! preg_match('/(?:^|;)\s*display\s*:/i', $body) ) {
-                continue;
-            }
-
-            $mappedSelectors = array();
-            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
-                $mapped = $this->mapNavigationContainerSelector($selector);
-                if ( null !== $mapped ) {
-                    $mappedSelectors[$mapped] = true;
-                }
-            }
-
-            if ( array() !== $mappedSelectors ) {
-                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
-            }
-        }
-
-        if ( array() === $rules ) {
-            return '';
-        }
-
-        return "\n\n/* wp-compat: preserve source navigation container cascade against core/navigation */\n" . implode("\n", $rules);
+        return array_keys($mappedSelectors);
     }
 
     private function mapNavigationContainerSelector(string $selector): ?string
@@ -440,7 +398,7 @@ final class WordPressCompatCss
             $selectors[$descendantWrapper] = true;
         }
 
-        return array_keys($selectors);
+        return $this->navigationSelectorsAtSourceWeight($selector, array_keys($selectors));
     }
 
     /**
@@ -455,7 +413,7 @@ final class WordPressCompatCss
 
         $hasListMatch = preg_match('/(^|\s*[>+~]?\s*)(?:ul|ol)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=$|[\s>+~:])/', $selector, $listMatch, PREG_OFFSET_CAPTURE);
         if ( 1 !== $hasListMatch ) {
-            $hasListMatch = preg_match('/(^|\s*[>+~]?\s*)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=\s+[^,{]*blocks-engine-source-li-)/', $selector, $listMatch, PREG_OFFSET_CAPTURE);
+            $hasListMatch = preg_match('/(^|\s*[>+~]?\s*)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=\s*>?\s*(?::where\(\.blocks-engine-source-li-|li(?=$|[\s>+~:.#\[])))/', $selector, $listMatch, PREG_OFFSET_CAPTURE);
         }
         if ( 1 !== $hasListMatch ) {
             return array();
@@ -494,7 +452,7 @@ final class WordPressCompatCss
         $selectors = array();
         if ( '' === $prefix ) {
             $selectors[$scope . $runtimeTail] = true;
-            return array_keys($selectors);
+            return $this->navigationSelectorsAtSourceWeight($selector, array_keys($selectors));
         }
 
         $selectors[$prefix . ' ' . $scope . $runtimeTail] = true;
@@ -508,7 +466,36 @@ final class WordPressCompatCss
             $selectors[substr($prefix, 0, $offset) . $fused . $runtimeTail] = true;
         }
 
-        return array_keys($selectors);
+        return $this->navigationSelectorsAtSourceWeight($selector, array_keys($selectors));
+    }
+
+    /** @param list<string> $targets @return list<string> */
+    private function navigationSelectorsAtSourceWeight(string $source, array $targets): array
+    {
+        return array_values(array_filter(array_map(fn(string $target): ?string => $this->preserveNavigationSpecificity($source, $target), $targets)));
+    }
+
+    private function preserveNavigationSpecificity(string $source, string $target): ?string
+    {
+        $pseudo = CssSelectorMatcher::pseudoElementHost($source);
+        $parsed = CssSelectorMatcher::parse(null === $pseudo ? $source : $pseudo['selector']);
+        if (! $parsed['supported'] || null === $this->specificityContext) return null;
+        $suffix = null === $pseudo ? '' : $pseudo['suffix'];
+        if ('' !== $suffix) $target = substr($target, 0, -strlen($suffix));
+        $state = '';
+        if (null !== $parsed['pseudo_state_suffix_span']) {
+            $span = $parsed['pseudo_state_suffix_span'];
+            $state = substr($source, $span['start'], $span['end'] - $span['start']);
+            if (str_ends_with($target, $state)) $target = substr($target, 0, -strlen($state));
+        }
+        // One common native scope beats Core's block defaults. All families use
+        // the same scope; generated transport never adds to authored ranking.
+        return ':root :where(' . $target . ')' . CssSpecificityProjection::shims(
+            $parsed,
+            $this->specificityContext->specificityShim(),
+            $this->specificityContext->classSpecificityShim(),
+            $this->specificityContext->idSpecificityShim()
+        ) . $state . $suffix;
     }
 
     private function selectorWithoutComments(string $selector): string

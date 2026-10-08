@@ -4,7 +4,9 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
+use DOMText;
 
 /**
  * Coarse, structural classifier for source subtrees (issue #497).
@@ -56,6 +58,12 @@ final class SubtreeClassifier
      * the profile is deliberately coarse, so deep subtrees need no full walk.
      */
     private const HEADING_PROFILE_SCAN_LIMIT = 256;
+
+    /** Text blocks: a run of them is prose, which native text blocks carry. */
+    private const TEXT_BLOCK_TAGS = array( 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre' );
+
+    /** Replaced and embedded elements that render content without text. */
+    private const EMBEDDED_CONTENT_TAGS = array( 'img', 'picture', 'video', 'audio', 'svg', 'canvas', 'iframe', 'object', 'embed', 'input', 'select', 'textarea' );
 
     private const INTERACTIVE_ROLES = array(
         'tablist',
@@ -462,22 +470,110 @@ final class SubtreeClassifier
      * Headings are the landmark rather than a full content profile so that
      * genuine peers still match when they differ in incidental content, such as
      * one card carrying an icon its siblings omit.
+     *
+     * Only content-bearing children are peers. Sources emit runs of identical
+     * empty wrappers (slot placeholders, layout spacers) beside the content
+     * they frame; matching empty shells are not a collection of units a user
+     * edits, so they never make the parent repeatable.
+     *
+     * An anonymous wrapper (no class, no role) around a single element has no
+     * shape of its own, so its signature is the shape of the element it wraps.
+     * Peers in a collection also agree on whether they carry text: layout
+     * cells sharing one class, an image beside the copy it illustrates, are
+     * not peers. Peers share one shape and make up most of the content;
+     * a document flow that wraps each paragraph, figure, and button in the
+     * same bare wrapper repeats a kind or two among many, which is not a
+     * collection. Nor is a run of paragraphs or headings: prose is the
+     * content native text blocks own, however uniformly it is styled.
      */
     private function repeatableChildCount(DOMElement $element): int
     {
         $signatures = array();
+        $contentChildren = 0;
         foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
+            if ( ! $child instanceof DOMElement || ! $this->carriesContent($child) ) {
                 continue;
             }
-            $classes = SourceDom::classNames($child);
+            ++$contentChildren;
+            $shape = $this->wrappedShape($child);
+            if ( in_array(strtolower($shape->tagName), self::TEXT_BLOCK_TAGS, true) ) {
+                continue;
+            }
+            $classes = $this->authoredClassNames($shape);
             sort($classes);
-            $signature = strtolower($child->tagName) . '|' . implode('.', $classes)
-                . '|' . implode('.', $this->headingProfile($child));
+            $signature = strtolower($shape->tagName) . '|' . implode('.', $classes)
+                . '|' . implode('.', $this->headingProfile($child))
+                . '|' . ( $this->carriesText($child) ? 'text' : 'media' );
             $signatures[$signature] = ( $signatures[$signature] ?? 0 ) + 1;
         }
+        if ( empty($signatures) ) {
+            return 0;
+        }
+        $largest = max($signatures);
 
-        return empty($signatures) ? 0 : max($signatures);
+        return $largest * 2 >= $contentChildren ? $largest : 1;
+    }
+
+    /** The element that gives a child its shape, seen through anonymous single-element wrappers. */
+    private function wrappedShape(DOMElement $element): DOMElement
+    {
+        while ( array() === $this->authoredClassNames($element) && '' === trim(SourceDom::attr($element, 'role')) ) {
+            $only = null;
+            foreach ( $element->childNodes as $node ) {
+                if ( $node instanceof DOMText && '' !== trim($node->wholeText) ) {
+                    return $element;
+                }
+                if ( $node instanceof DOMElement ) {
+                    if ( null !== $only ) {
+                        return $element;
+                    }
+                    $only = $node;
+                }
+            }
+            if ( null === $only ) {
+                return $element;
+            }
+            $element = $only;
+        }
+
+        return $element;
+    }
+
+    /**
+     * Class tokens the source authored. Engine markers record per-document
+     * attribute and style state, not the shape peers share.
+     *
+     * @return array<int, string>
+     */
+    private function authoredClassNames(DOMElement $element): array
+    {
+        return array_values(array_filter(
+            SourceDom::classNames($element),
+            static fn (string $token): bool => 1 !== preg_match('/^' . EngineMarker::patternBody() . '$/D', $token)
+        ));
+    }
+
+    /** Whether a subtree renders text or embedded media of its own. */
+    private function carriesContent(DOMElement $element): bool
+    {
+        if ( $this->carriesText($element) ) {
+            return true;
+        }
+        if ( in_array(strtolower($element->tagName), self::EMBEDDED_CONTENT_TAGS, true) ) {
+            return true;
+        }
+        foreach ( self::EMBEDDED_CONTENT_TAGS as $tag ) {
+            if ( 0 < $element->getElementsByTagName($tag)->length ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function carriesText(DOMElement $element): bool
+    {
+        return '' !== trim(str_replace("\u{00A0}", ' ', $element->textContent));
     }
 
     /**

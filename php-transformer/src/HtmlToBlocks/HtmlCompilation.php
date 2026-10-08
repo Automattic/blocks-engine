@@ -18,6 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
@@ -173,6 +174,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ImageDimensionReso
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionFacts;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SocialSourceStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAnalysisComposer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAssetStage;
@@ -637,7 +639,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->runtime,
             fn (string $id): string => $this->safeAnchor($id),
             fn (DOMElement $element): ?DOMElement => $this->sourceTagProjectedClone($element),
-            fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' ))
+            fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' )),
+            fn (DOMElement $label): string => $this->editableFormLabelContent($label)
         );
         $this->projectedNavigation = new ProjectedNavigationConverter(
             $this->navigationToggleSuppressor,
@@ -1542,7 +1545,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
 
         $sourceBodyClasses = $this->documentBodyClassNames($html);
-        $normalizedHtml = $this->normalizeHtml5VoidElements($this->documentBodyHtml($this->normalizeExplicitPlaintextElements($html)));
+        $normalizedHtml = NativeControlState::withoutReplayScript(
+            $this->normalizeHtml5VoidElements($this->documentBodyHtml($this->normalizeExplicitPlaintextElements($html)))
+        );
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
         $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $normalizedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
@@ -1642,7 +1647,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             true !== ($options['skip_author_stylesheet_materialization'] ?? false),
             $serializedBlocks,
             $sourceProvenance,
-            $authorStylesheetProjections
+            $authorStylesheetProjections,
+            is_string($options['author_layer_order'] ?? null) ? $options['author_layer_order'] : null
         );
         $this->navigationStyleProjector->materializeEditorStaticStateStylesheet(
             implode("\n\n", array_column($authorStylesheetProjections, 'content'))
@@ -1712,6 +1718,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
         $ownershipPaths = BlockCompilationOutput::editabilityOwnershipPaths($sourceProvenance);
         $generatedCarrierCss = $this->engineSupportCss();
+        // Selector projection may install engine marker classes on the analysis
+        // document root (root-owned attribute states). Only the real root
+        // registry can materialize them, so they travel with the compilation
+        // facts instead of dying with the analysis DOM.
+        $documentRootMarkers = array();
+        $analysisRoot = $document->documentElement;
+        if ( $analysisRoot instanceof DOMElement && 'html' === strtolower($analysisRoot->tagName) ) {
+            $documentRootMarkers = \Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker::all($analysisRoot->getAttribute('class'));
+        }
         $blockCompilationOutput = new BlockCompilationOutput(
             sourceProvenance: $sourceProvenance,
             editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $ownershipPaths['runtime'], $ownershipPaths['visual'], $sourceProvenance),
@@ -1727,7 +1742,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             runtimeScriptProjections: $runtimeScriptProjections,
             shellArtifacts: $shellArtifacts,
             coreHtmlFallbackEvidence: CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
-            validationOutcome: $validationOutcome
+            validationOutcome: $validationOutcome,
+            documentRootMarkers: $documentRootMarkers
         );
 
         return $resultComposer->result(array(
@@ -2296,7 +2312,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @param array<int, array<string, mixed>> $sourceProvenance
      * @param list<array{path: string, content: string, bytes: int, hash: string, source_hash: string}> $authorStylesheetProjections
      */
-    private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = '', array $sourceProvenance = array(), array $authorStylesheetProjections = array()): void
+    private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = '', array $sourceProvenance = array(), array $authorStylesheetProjections = array(), ?string $sourceLayerOrder = null): void
     {
         $beforeAuthorCssParts = array();
         $authorCssParts = array();
@@ -2382,7 +2398,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // invert the author's layer order — letting an author reset layer beat
         // the author utilities that centre and pad every section. Stating the
         // author's own order ahead of any engine CSS pins it in both contexts.
-        $authorLayerOrder = ( new AuthorCascadeLayerOrder() )->statement($settleableAuthorCss);
+        // Artifact compilation has the canonical import graph. Its authoritative
+        // empty statement means anonymous source positions cannot be predeclared.
+        $authorLayerOrder = $sourceLayerOrder ?? ( new AuthorCascadeLayerOrder() )->statement($settleableAuthorCss);
         if ( '' !== $authorLayerOrder ) {
             array_unshift($beforeAuthorCssParts, $authorLayerOrder);
         }
@@ -3917,6 +3935,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     public function createBlock(string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
     {
+        if ('core/social-link' === $name && $sourceElement instanceof DOMElement) {
+            $anchor = 'a' === strtolower($sourceElement->tagName) ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
+            if ($anchor instanceof DOMElement) $this->authorSelectorProjections()->markSocialAnchor($anchor);
+        }
+        if ('core/social-link' === $name && $sourceElement instanceof DOMElement && str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item')) {
+            $anchor = 'a' === strtolower($sourceElement->tagName) ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
+            if ($anchor instanceof DOMElement) $attrs = (new SocialSourceStyleProjector($this->styleResolver))->project($attrs, $anchor, $this->authorStyles(), $this->session->sourceTargetProjectionState());
+        }
         if ( 'core/group' === $name && $sourceElement instanceof DOMElement && $this->preservesScriptStateWrapper($sourceElement) ) {
             return $this->layoutShellBlockForElements(array( $sourceElement ), $innerBlocks, $sourceElement);
         }
@@ -5099,26 +5125,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->unwrapElement($wrapper);
         }
 
-        // Unwrap any remaining styling hooks (sibling / partial content) unless
-        // their visual style can be carried by RichText's mark format. Unknown
-        // and custom elements (`<bdt>`, `<x-note>`) are never valid RichText
-        // content, so they always become a mark carrier or are unwrapped.
-        foreach ( $this->richTextStylingHookElements($body) as $inline ) {
-            if ( 'font' === strtolower($inline->tagName) && ! $inline->hasAttributes() ) {
-                $this->unwrapElement($inline);
-                continue;
-            }
-            if ( $this->replaceRichTextStylingHookWithMark($inline) ) {
-                continue;
-            }
-            if ( 'span' === strtolower($inline->tagName) || RichTextInlineTags::isUnknownHtmlElement($inline) ) {
-                $this->unwrapElement($inline);
-            }
-        }
-
-        foreach ( $this->richTextAnchors($body) as $anchor ) {
-            $anchor->removeAttribute('style');
-        }
+        $this->normalizeRichTextStylingHooks($body);
 
         $newContent = $this->innerHtml($body);
         if ( $newContent === $content && '' === $hoistedClasses && array() === $hoistedDeclarations ) {
@@ -5143,6 +5150,42 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $attrs;
+    }
+
+    /** A label's inline hooks stay inline, rather than being hoisted onto its host. */
+    private function editableFormLabelContent(DOMElement $label): string
+    {
+        $content = $this->richTextMaterializer->content($label);
+        if ('' === $content) return '';
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if (!$body instanceof DOMElement) return $content;
+        $this->normalizeRichTextStylingHooks($body);
+        return SourceDom::innerHtml($body);
+    }
+
+    /** Use the same semantic carriers for native RichText and owned label RichText. */
+    private function normalizeRichTextStylingHooks(DOMElement $body): void
+    {
+        // Remaining styling hooks stay on RichText-safe marks, without
+        // assigning highlighted-text semantics to mechanical carriers.
+        foreach ($this->richTextStylingHookElements($body) as $inline) {
+            if ('font' === strtolower($inline->tagName) && !$inline->hasAttributes()) {
+                $this->unwrapElement($inline);
+                continue;
+            }
+            if ($this->replaceRichTextStylingHookWithMark($inline)) continue;
+            if ('span' === strtolower($inline->tagName) || RichTextInlineTags::isUnknownHtmlElement($inline)) {
+                $this->unwrapElement($inline);
+            }
+        }
+        foreach ($this->richTextAnchors($body) as $anchor) {
+            $anchor->removeAttribute('style');
+        }
     }
 
     /**

@@ -11,6 +11,30 @@ try {
         await page.goto(url, { waitUntil: 'networkidle' });
         const opener = page.locator('header .wp-block-navigation__responsive-container-open:visible');
         assert.equal(await opener.count(), width <= 768 ? 1 : 0, `${width}: source branch owns opener visibility`);
+        if (process.env.NAVIGATION_OWNERSHIP_TEST) {
+            const source = await browser.newPage({ viewport: { width, height: 900 } });
+            const theme = process.env.NAVIGATION_LIST_PANEL_TEST ? 'navigation-list-panel-proof' : 'navigation-ownership-proof';
+            await source.goto(`${url}/wp-content/themes/${theme}/source-proof.html`, { waitUntil: 'load' });
+            const sourceControl = source.locator('header [role="button"]:visible');
+            assert.equal(await sourceControl.count(), width <= 768 ? 1 : 0);
+            if (width <= 768) {
+                const original = await sourceControl.boundingBox();
+                const native = await opener.boundingBox();
+                for (const property of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(original[property]-native[property])<0.05, `${width}: source-control ${property}: ${JSON.stringify({original,native})}`);
+                const clip = box => ({ x:Math.floor(box.x)-2,y:Math.floor(box.y)-2,width:Math.ceil(box.width)+4,height:Math.ceil(box.height)+4 });
+                assert.deepEqual(await page.screenshot({clip:clip(native)}), await source.screenshot({clip:clip(original)}), `${width}: source opener crop has zero differing pixels`);
+                assert.equal(await opener.evaluate(e=>getComputedStyle(e.closest('nav')).marginBottom),'0px', `${width}: list margin does not belong to DIV opener`);
+            }
+            const originalList = await source.locator('ul#placed-menu').boundingBox();
+            const nativeList = await page.locator('nav.wp-block-navigation#placed-menu').boundingBox();
+            // Placement is relative to the authored region; body section
+            // layout is an independent visual contract, not this list box.
+            originalList.y -= (await source.locator('.placement-region').boundingBox()).y;
+            nativeList.y -= (await page.locator('.placement-region').boundingBox()).y;
+            for (const property of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(originalList[property]-nativeList[property])<0.05, `${width}: genuine floated list ${property}: ${JSON.stringify({originalList,nativeList})}`);
+            assert.equal(await page.locator('nav.wp-block-navigation#placed-menu').evaluate(e=>getComputedStyle(e).marginBottom), width<600?'13px':'23px', `${width}: genuine list keeps conditioned authored margin`);
+            await source.close();
+        }
         if (width <= 768) {
             if (process.env.NAVIGATION_OPENER_TEST) {
                 const expected = width < 600 ? {size:24, margin:'16px', transform:'matrix(1.2, 0, 0, 1.2, 0, 0)'} : {size:30.8, margin:'22px', transform:'matrix(1.4, 0, 0, 1.4, 0, 0)'};
@@ -96,7 +120,7 @@ try {
             const blocks = wp.blocks.parse(row.content.raw);
             if (blocks.some(block => !block.isValid || block.name !== 'core/navigation-link')) throw new Error('Invalid/non-native menu block');
         }
-        const reference = blocks.find(block => block.name === 'core/navigation' && block.attributes.overlayMenu === 'never')?.attributes.ref;
+        const reference = blocks.find(block => block.name === 'core/navigation' && block.attributes.overlayMenu === 'never' && menus.some(menu => menu.id === block.attributes.ref && wp.blocks.parse(menu.content.raw).some(item => item.attributes.label === 'Services')))?.attributes.ref;
         const menu = menus.find(row => row.id === reference);
         if (!menu) throw new Error('No desktop native menu entity: ' + JSON.stringify(blocks.filter(block => block.name === 'core/navigation').map(block => block.attributes)));
         const items = wp.blocks.parse(menu.content.raw);
