@@ -118,27 +118,34 @@ final class HtmlFragmentIncludes
             if (strlen($result) + strlen($source) - $offset > $limits['max_file_bytes']) throw new InvalidArgumentException('html_include_file_budget_exceeded: ' . $path);
             return $resolved[$path] = array('content' => $result . substr($source, $offset), 'height' => $height, 'uses' => $uses);
         };
-        foreach ($files as &$file) {
-            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
-            if (isset($contents[$path]) && array() !== $directives[$path]) {
-                $count = 0;
-                $file['content'] = $resolve($path, array())['content'];
-                if (!isset($file['metadata']['compilation'])) $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $path);
-                $file['metadata']['compilation']['resolved_html_includes'] = true;
-                unset($file['content_base64'], $file['payload_reference']);
+        try {
+            foreach ($files as &$file) {
+                $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
+                if (isset($contents[$path]) && array() !== $directives[$path]) {
+                    $count = 0;
+                    $file['content'] = $resolve($path, array())['content'];
+                    if (!isset($file['metadata']['compilation'])) $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $path);
+                    $file['metadata']['compilation']['resolved_html_includes'] = true;
+                    unset($file['content_base64'], $file['payload_reference']);
+                }
+                if (!ArtifactNormalizer::isReferenceBackedBinary($file) && !isset($reports[$path])) $total += $payload($file, $path)['bytes'];
+                if ($total > $limits['max_total_bytes']) throw new InvalidArgumentException('html_include_total_budget_exceeded');
             }
-            if (!ArtifactNormalizer::isReferenceBackedBinary($file) && !isset($reports[$path])) $total += $payload($file, $path)['bytes'];
-            if ($total > $limits['max_total_bytes']) throw new InvalidArgumentException('html_include_total_budget_exceeded');
+            unset($file);
+            foreach ($files as &$file) {
+                if (!isset($referenced[$file['path']])) continue;
+                if (array() === $directives[$file['path']]) $file['content'] = $contents[$file['path']];
+                $file['metadata']['compilation'] = array('scope' => 'shared', 'included_component' => true, 'resolved_html_includes' => true);
+                // Included HTML is source data, never an additional route.
+                $file['role'] = 'template-part';
+            }
+            unset($file);
+            return $files;
+        } finally {
+            // Recursive closures capture their own reference. Break that cycle
+            // on success and failure so source and expanded payloads are freed
+            // at this call boundary, rather than a later automatic GC pass.
+            $resolve = null;
         }
-        unset($file);
-        foreach ($files as &$file) {
-            if (!isset($referenced[$file['path']])) continue;
-            if (array() === $directives[$file['path']]) $file['content'] = $contents[$file['path']];
-            $file['metadata']['compilation'] = array('scope' => 'shared', 'included_component' => true, 'resolved_html_includes' => true);
-            // Included HTML is source data, never an additional route.
-            $file['role'] = 'template-part';
-        }
-        unset($file);
-        return $files;
     }
 }
