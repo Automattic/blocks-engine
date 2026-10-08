@@ -71,7 +71,7 @@ final class NavigationToggleSuppressor
         }
 
         foreach ( $root->getElementsByTagName('*') as $control ) {
-            if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) || $this->isBoundCapturedDialogTrigger($control) || $this->isInsideNativeDisclosurePanel($control) ) {
+            if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) || $this->isInsideNativeDisclosurePanel($control) ) {
                 continue;
             }
             if ( ! $this->isHamburgerMenuToggleControl($control) && ! $this->isProjectableHashAnchorMenuToggle($control) ) {
@@ -92,6 +92,9 @@ final class NavigationToggleSuppressor
             }
 
             if ( $this->context->navigationProjection()->hasTargetForControl($control) ) {
+                continue;
+            }
+            if ( $this->isBoundCapturedDialogTrigger($control) ) {
                 continue;
             }
 
