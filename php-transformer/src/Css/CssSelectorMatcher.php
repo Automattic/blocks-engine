@@ -121,18 +121,24 @@ final class CssSelectorMatcher
     /** @param array<string, mixed> $selector */
     public static function specificity(array $selector): int
     {
-        if ( ! ($selector['supported'] ?? false) ) {
-            return 0;
-        }
+        $weight = self::specificityCounts($selector);
+        return 100 * $weight['ids'] + 10 * $weight['classes'] + $weight['types'];
+    }
 
-        $specificity = 0;
+    /** @param array<string, mixed> $selector @return array{ids:int,classes:int,types:int} */
+    public static function specificityCounts(array $selector, bool $includeState = true): array
+    {
+        $weight = array('ids' => 0, 'classes' => 0, 'types' => 0);
+        if ( ! ($selector['supported'] ?? false) ) {
+            return $weight;
+        }
         foreach ( $selector['compounds'] as $compound ) {
-            $specificity += self::compoundSpecificity($compound);
+            foreach (self::compoundSpecificityCounts($compound) as $kind => $count) $weight[$kind] += $count;
         }
-        if ( null !== $selector['pseudo_state_suffix_span'] ) {
-            $specificity += 10;
+        if ( $includeState && null !== ($selector['pseudo_state_suffix_span'] ?? null) ) {
+            ++$weight['classes'];
         }
-        return $specificity;
+        return $weight;
     }
 
     /**
@@ -147,14 +153,15 @@ final class CssSelectorMatcher
      * derived from.
      *
      * @param array<string, mixed> $compound
+     * @return array{ids:int,classes:int,types:int}
      */
-    private static function compoundSpecificity(array $compound): int
+    private static function compoundSpecificityCounts(array $compound): array
     {
         // Everything inside a wholly-wrapping `:where()` scores zero, including
         // the structural pseudo-classes and negations a per-simple-selector
         // discount cannot reach.
         if ( true === ( $compound['forced_zero_specificity'] ?? false ) ) {
-            return 0;
+            return array('ids' => 0, 'classes' => 0, 'types' => 0);
         }
 
         $zero = $compound['zero_specificity'] ?? array();
@@ -170,17 +177,14 @@ final class CssSelectorMatcher
             + ( $compound['resting_state_negations'] ?? 0 );
         $types = ( null === $compound['type'] ? 0 : 1 ) - (int) ( $zero['types'] ?? 0 );
 
-        $specificity = 100 * $ids + 10 * $classes + $types;
+        $weight = array('ids' => $ids, 'classes' => $classes, 'types' => $types);
         foreach ( $compound['not'] as $negated ) {
             foreach ( $negated['compounds'] as $negatedCompound ) {
-                $specificity += self::compoundSpecificity($negatedCompound);
+                foreach (self::compoundSpecificityCounts($negatedCompound) as $kind => $count) $weight[$kind] += $count;
             }
         }
-        foreach ( $compound['any'] ?? array() as $group ) {
-            $specificity += $group['specificity'];
-        }
-
-        return $specificity;
+        foreach (self::selectorListArgumentSpecificity($compound) as $kind => $count) $weight[$kind] += $count;
+        return $weight;
     }
 
     /**
@@ -193,12 +197,16 @@ final class CssSelectorMatcher
      */
     public static function selectorListArgumentSpecificity(array $compound): array
     {
-        $specificity = 0;
+        $weight = array('ids' => 0, 'classes' => 0, 'types' => 0);
         foreach ( $compound['any'] ?? array() as $group ) {
-            $specificity += $group['specificity'];
+            if (0 === $group['specificity']) continue;
+            $largest = array('ids' => 0, 'classes' => 0, 'types' => 0);
+            foreach ($group['alternatives'] as $alternative) {
+                $largest = max($largest, self::specificityCounts(array('supported' => true, 'compounds' => $alternative['compounds'])));
+            }
+            foreach ($largest as $kind => $count) $weight[$kind] += $count;
         }
-
-        return array( 'ids' => intdiv($specificity, 100), 'classes' => intdiv($specificity % 100, 10), 'types' => $specificity % 10 );
+        return $weight;
     }
 
     /**
@@ -386,6 +394,21 @@ final class CssSelectorMatcher
                         $offset = $listClosing + 1;
                         $hasSimple = true;
                         continue;
+                    }
+                    if (is_array($alternatives) && 1 === count($alternatives)) {
+                        $argument = self::parseUncached($alternatives[0]);
+                        $leaf = $argument['compounds'][0] ?? array();
+                        // A neutral native target can be a complete descendant
+                        // path, or contain nested shims. Flattening it into one
+                        // compound changes both its match and its specificity.
+                        if (($argument['supported'] ?? false) && (count($argument['compounds']) > 1 || !empty($leaf['not']) || !empty($leaf['any']) || !empty($leaf['first_child']) || !empty($leaf['last_child']) || null !== ($leaf['nth_child'] ?? null) || null !== ($leaf['nth_type'] ?? null))) {
+                            $group = self::parseSelectorListArgument($alternatives, 'where' === $lowerName);
+                            if (null === $group) return null;
+                            $compound['any'][] = $group;
+                            $offset = $listClosing + 1;
+                            $hasSimple = true;
+                            continue;
+                        }
                     }
                     $closing = strpos($source, ')', $offset + 1);
                     if ( false === $closing ) {
