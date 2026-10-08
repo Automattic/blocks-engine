@@ -30,6 +30,20 @@ foreach (array($source, str_replace('href="/index.html"', 'class="brand" href="/
 $menu = $compile('<style>.wordmark{font-size:26px}</style><header><nav><ul><li><a href="/index.html"><h3 class="wordmark">Menu heading</h3></a></li><li><a href="/about">About</a></li></ul></nav></header>');
 $assert(array() === $headings($menu['blocks'] ?? array()), 'list-owned heading links stay native navigation labels');
 $ordinary = $compile(str_replace('href="/index.html"', 'href="/topic"', $source));
-$ordinaryBrands = array_filter($headings($ordinary['blocks'] ?? array()), static fn(array $block): bool => str_contains($block['attrs']['content'] ?? '', 'Harbor Studio'));
-$assert(array() === $ordinaryBrands, 'an unbranded non-home heading link does not establish independent branding');
+$ordinaryHeadings = array_values(array_filter($headings($ordinary['blocks'] ?? array()), static fn(array $block): bool => str_contains($block['attrs']['content'] ?? '', 'Harbor Studio')));
+$assert(1 === count($ordinaryHeadings), 'an ordinary heading link outside the nested menu preserves its heading semantics');
+$assert(3 === ($ordinaryHeadings[0]['attrs']['level'] ?? null), 'an ordinary heading link preserves its source heading level');
+$assert('<a href="/topic">Harbor Studio</a>' === ($ordinaryHeadings[0]['attrs']['content'] ?? ''), 'an ordinary heading link preserves its non-home destination and text');
+$navigationItems = static function (array $blocks) use (&$navigationItems): array {
+    $result = array();
+    foreach ($blocks as $block) {
+        if (in_array($block['blockName'] ?? '', array('core/navigation-link', 'core/navigation-submenu'), true)) $result[] = $block['attrs'] ?? array();
+        array_push($result, ...$navigationItems($block['innerBlocks'] ?? array()));
+    }
+    return $result;
+};
+$items = $navigationItems($ordinary['blocks'] ?? array());
+$assert(array('Work', 'Contact') === array_column($items, 'label') && array('#work', '#contact') === array_column($items, 'url'), 'an unbranded non-home heading link does not claim menu ownership or lose the adjacent menu');
+$assert(!str_contains($ordinary['serialized_blocks'] ?? '', 'blocks-engine-brand-navigation-carrier'), 'an unbranded non-home heading link does not establish an independent brand carrier');
+$assert(0 === ($ordinary['metrics']['fallback_count'] ?? -1), 'ordinary heading link conservation introduces no HTML fallback');
 echo "Semantic heading brand: passed\n";
