@@ -27,7 +27,7 @@ final class CapturedDialogProjector
         $diagnostics = array();
         $report = $this->jsonFile($files, 'interaction-states.json');
         if (null === $report) {
-            return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
+            return $this->retireOwnedDisclosureWithoutProjection($files, array());
         }
         if (self::REPORT_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_invalid', 'warning', 'The captured interaction report has an unsupported schema or pages shape.')), 'projected_count' => 0);
@@ -36,12 +36,12 @@ final class CapturedDialogProjector
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_limit_exceeded', 'warning', 'The captured interaction report exceeded the page limit.', array('max_pages' => self::MAX_PAGES))), 'projected_count' => 0);
         }
         if (! $this->hasDialogStates($report['pages'])) {
-            return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
+            return $this->retireOwnedDisclosureWithoutProjection($files, array());
         }
 
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
         if (null === $receipt || self::RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
-            return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.')), 'projected_count' => 0);
+            return $this->retireOwnedDisclosureWithoutProjection($files, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.')));
         }
 
         $routes = array();
@@ -241,13 +241,13 @@ final class CapturedDialogProjector
                 $script->parentNode?->removeChild($script);
             }
         }
+        if ($this->hasNavigationOwnedDialogTrigger($document)) {
+            $this->consumeNavigationOwnedCloseHelpers($document);
+            $handledNavigationDropdown = true;
+        }
         if (($projected > 0 || $handledNavigationDropdown) && !$this->hasDialogCloseHelper($document) && $this->everyDialogTriggerIsBound($document)) {
-            foreach (iterator_to_array($document->getElementsByTagName('script')) as $script) {
-                if (!$script instanceof DOMElement || !$script->hasAttribute('data-dla-disclosure-runtime')) continue;
-                $body = trim($script->textContent ?? '');
-                if ('' !== $body) $retired[] = array('body' => $body, 'attribute' => 'data-dla-disclosure-runtime', 'reason' => 'native_dialog_close_replaces_capture_close_helper');
-                $script->parentNode?->removeChild($script);
-            }
+            $reason = 0 < $projected ? 'native_dialog_close_replaces_capture_close_helper' : 'native_navigation_submenu_replaces_capture_disclosure';
+            $retired = array_merge($retired, $this->removeDisclosureRuntime($document, $reason));
         }
 
         $output = $document->saveHTML();
@@ -474,9 +474,75 @@ final class CapturedDialogProjector
 
     private function isNavigationDropdownTrigger(DOMElement $trigger): bool
     {
-        $item = $trigger->parentNode;
+        return NavigationPattern::ownsCapturedSubmenuTrigger($trigger);
+    }
 
-        return $item instanceof DOMElement && null !== NavigationPattern::buttonDropdownItemParts($item);
+    private function hasNavigationOwnedDialogTrigger(DOMDocument $document): bool
+    {
+        foreach ($document->getElementsByTagName('*') as $node) {
+            if ($node instanceof DOMElement && '' !== trim($node->getAttribute('data-dla-dialog-trigger')) && $this->isNavigationDropdownTrigger($node)) return true;
+        }
+        return false;
+    }
+
+    private function consumeNavigationOwnedCloseHelpers(DOMDocument $document): void
+    {
+        foreach (iterator_to_array($document->getElementsByTagName('*')) as $node) {
+            $parent = $node->parentNode;
+            if ($node instanceof DOMElement && $parent instanceof DOMElement && $this->isNavigationDropdownTrigger($node)) {
+                $this->consumeMatchedCloseHelper($document, array($node), $parent);
+            }
+        }
+    }
+
+    /** @return array<int, array{body:string, attribute:string, reason:string}> */
+    private function removeDisclosureRuntime(DOMDocument $document, string $reason): array
+    {
+        $retired = array();
+        foreach (iterator_to_array($document->getElementsByTagName('script')) as $script) {
+            if (!$script instanceof DOMElement || !$script->hasAttribute('data-dla-disclosure-runtime')) continue;
+            $body = trim($script->textContent ?? '');
+            if ('' !== $body) $retired[] = array('body' => $body, 'attribute' => 'data-dla-disclosure-runtime', 'reason' => $reason);
+            $script->parentNode?->removeChild($script);
+        }
+        return $retired;
+    }
+
+    /**
+     * Navigation ownership is proven from in-place controls, independently of
+     * interaction probing. Non-navigation triggers still prevent retirement.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array{files:array<int, array<string, mixed>>, diagnostics:array<int, array<string, mixed>>, projected_count:int, native_runtime_replacements:array<int, array<string, string>>}
+     */
+    private function retireOwnedDisclosureWithoutProjection(array $files, array $diagnostics): array
+    {
+        $retired = array();
+        foreach ($files as $index => $file) {
+            $content = $file['content'] ?? null;
+            $path = (string) ($file['path'] ?? '');
+            if (!preg_match('/\.html?$/i', $path) || !is_string($content) || !str_contains($content, 'data-dla-disclosure-runtime') || !str_contains($content, 'data-dla-dialog-trigger')) continue;
+            $previous = libxml_use_internal_errors(true);
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            if (!$loaded || !$this->hasNavigationOwnedDialogTrigger($document) || !$this->everyDialogTriggerIsBound($document)) continue;
+            $this->consumeNavigationOwnedCloseHelpers($document);
+            if ($this->hasDialogCloseHelper($document)) continue;
+            $pageRetired = $this->removeDisclosureRuntime($document, 'native_navigation_submenu_replaces_capture_disclosure');
+            if (array() === $pageRetired) continue;
+            $html = $document->saveHTML();
+            $html = is_string($html) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $html) : null;
+            if (!is_string($html)) continue;
+            $files[$index]['content'] = $html;
+            $files[$index]['bytes'] = strlen($html);
+            $retired[$path] = $pageRetired;
+        }
+
+        $proofs = $this->omitRetiredDisclosureScripts($files, $retired);
+        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => 0, 'native_runtime_replacements' => $proofs);
     }
 
     /** @param array<int, DOMElement> $triggers */
