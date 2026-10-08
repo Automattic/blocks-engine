@@ -117,6 +117,7 @@
       "php tests/contract/navigation-entity-label-identity.php",
       "php tests/contract/footer-content-bound-blocks.php",
       "php tests/contract/viewport-hidden-document-variants.php",
+      "php tests/contract/captured-scope-runtime-bindings.php",
       "php tests/contract/product-grid-collection-anchors.php",
       "php tests/contract/header-link-cluster-navigation.php",
       "php tests/contract/empty-visual-figure.php",
