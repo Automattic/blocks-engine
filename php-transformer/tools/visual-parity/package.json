@@ -11,7 +11,7 @@
   },
   "scripts": {
     "lint": "node run-lint.mjs",
-    "pretest": "node tests/fixed-box-ownership.mjs && node tests/conditional-native-button.mjs",
+    "pretest": "node tests/fixed-box-ownership.mjs && node tests/conditional-native-button.mjs && node tests/semantic-heading-brand.mjs",
     "posttest": "node tests/source-class-selector-ownership.mjs && node tests/native-video-poster.mjs",
     "install:browsers": "playwright install chromium",
     "test:head": "node tests/document-head-runtime.mjs",

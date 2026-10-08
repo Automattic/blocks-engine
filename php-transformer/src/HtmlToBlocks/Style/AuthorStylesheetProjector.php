@@ -1195,6 +1195,86 @@ final class AuthorStylesheetProjector
         return $this->isButtonPlacementProperty($property) || isset($placementVars[$property]);
     }
 
+    /**
+     * The figure selector for an `img.x` / `img#x` subject whose image became a
+     * core/image block, or null when the subject can still reach an <img>.
+     *
+     * Only a subject that names the image by class or id is moved: a type-only
+     * `img` still matches the <img> the figure renders, and attributes stay on
+     * that <img>. The classes and id must all be on the recorded figure, so a
+     * class the figure did not keep leaves the authored selector alone.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function projectImageFigureSubjectSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context): ?string
+    {
+        if ( 'img' !== strtolower($element->tagName) ) {
+            return null;
+        }
+        $compounds = $parsed['compounds'];
+        $subject = $compounds[array_key_last($compounds)] ?? array();
+        if ( 'img' !== strtolower((string) ($subject['type'] ?? ''))
+            || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array()) )
+            || array() !== ($subject['attributes'] ?? array())
+        ) {
+            return null;
+        }
+        $path = $element->getNodePath() ?? '';
+        $figure = $context->selectorProjections->imageFigure($path);
+        // An image whose link carried an id already follows its own semantic
+        // marker onto the figure; that route also drops the link ancestry.
+        if ( null === $figure || '' !== $context->selectorProjections->imageWrapperMarker($path) ) {
+            return null;
+        }
+        foreach ( $subject['classes'] as $class ) {
+            if ( ! in_array($class, $figure['classes'], true) ) {
+                return null;
+            }
+        }
+        foreach ( $subject['ids'] as $id ) {
+            if ( $id !== $figure['anchor'] ) {
+                return null;
+            }
+        }
+        $projected = $this->projectImageSelector($selector, $parsed, $context, true);
+
+        // The link that wrapped the image now sits inside the figure. A bare
+        // `a` compound right above the subject named that link; it becomes a
+        // `:has(> a)` condition on the figure so the rule stays bound to
+        // linked images only.
+        $link = count($compounds) >= 2 ? $compounds[count($compounds) - 2] : null;
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        if ( $figure['linked']
+            && is_array($link)
+            && is_array($rightmost)
+            && 'a' === strtolower((string) ($link['type'] ?? ''))
+            && array() === $link['classes'] && array() === $link['ids'] && array() === $link['attributes']
+            && array() === ($link['not'] ?? array()) && array() === ($link['any'] ?? array())
+        ) {
+            foreach ( $parsed['type_spans'] as $typeSpan ) {
+                if ( (int) $typeSpan['compound'] !== count($compounds) - 2 ) {
+                    continue;
+                }
+                // Spans index the untrimmed selector text, so keep its
+                // surrounding whitespace where it was.
+                $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : rtrim(substr($selector, $parsed['pseudo_state_suffix_span']['start']));
+                $end = strlen(rtrim($projected));
+                $trailing = substr($projected, $end);
+                $head = substr($projected, 0, (int) $typeSpan['start']);
+                $core = substr($projected, (int) $rightmost['start'], $end - (int) $rightmost['start']);
+                if ( '' !== $suffix && str_ends_with($core, $suffix) ) {
+                    $core = substr($core, 0, -strlen($suffix));
+                } else {
+                    $suffix = '';
+                }
+                $projected = $head . $core . ':has(> a)' . $suffix . $trailing;
+                break;
+            }
+        }
+
+        return $projected;
+    }
+
     /** Keep ancestor states intact when only the image link's identity moved. */
     private function projectImageLinkIdentitySelector(string $selector, AuthorStylesheetProjectionContext $context): string
     {
@@ -1393,6 +1473,28 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $matches = $nonTableMatches;
+
+            // core/image saves the source image's classes and id on its
+            // <figure>, never on the <img>. A subject that names the image
+            // through them has nothing left to match, so it follows them to
+            // the figure: the box the image bridge already fills.
+            $figureSubjects = array();
+            $otherMatches = array();
+            foreach ( $matches as $element ) {
+                $figureSubject = $this->projectImageFigureSubjectSelector($selector, $parsed, $element, $context);
+                if ( null === $figureSubject ) {
+                    $otherMatches[] = $element;
+                } else {
+                    $figureSubjects[] = $figureSubject;
+                }
+            }
+            foreach ( array_values(array_unique($figureSubjects)) as $figureSubject ) {
+                $rewritten[] = $figureSubject;
+            }
+            if ( array() === $otherMatches ) {
+                continue;
+            }
+            $matches = $otherMatches;
 
             // Every match is a direct anchor core re-parents into a list item of
             // its own, so the subject's sibling position belongs to that item.

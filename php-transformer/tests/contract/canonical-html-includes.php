@@ -139,4 +139,83 @@ foreach (array('depth', 'count') as $bound) {
     try { (new ArtifactNormalizer())->normalize(array('entrypoint' => 'index.html', 'files' => $files)); throw new RuntimeException('Include bound unexpectedly accepted.'); }
     catch (InvalidArgumentException $error) { $assert(str_contains($error->getMessage(), 'html_include_' . $bound . '_exceeded'), 'Depth/count bounds fail visibly.'); }
 }
+$brand = "<p>Brand</p>\n";
+$brandInclude = '<!--#include virtual="/parts/brand.html" -->';
+$footerInclude = '<!--#include virtual="/parts/footer.html" -->';
+$multipage = array('entrypoint' => 'page-01.html', 'files' => array());
+foreach (range(1, 8) as $page) $multipage['files'][sprintf('page-%02d.html', $page)] = str_repeat($footerInclude, 30) . '<main>Page</main>';
+$multipage['files']['parts/footer.html'] = str_repeat($brandInclude, 30);
+$multipage['files']['parts/brand.html'] = $brand;
+$multiNormalized = (new ArtifactNormalizer())->normalize($multipage);
+$multiResolved = array_column($multiNormalized['files'], 'content', 'path');
+$multiMetadata = array_column($multiNormalized['files'], 'metadata', 'path');
+$expandedFooter = str_replace($brandInclude, $brand, $multipage['files']['parts/footer.html']);
+$assert($multiResolved['page-01.html'] === str_replace($footerInclude, $expandedFooter, str_repeat($footerInclude, 30)) . '<main>Page</main>', '930 logical uses per page and 7470 artifact-wide expand with surrounding bytes intact.');
+$assert('shared' === $multiMetadata['parts/footer.html']['compilation']['scope'] && true === $multiMetadata['parts/footer.html']['compilation']['included_component'], 'Repeatedly included fragments keep shared ownership metadata.');
+$multiPlan = $compiler->compile($multipage)->toArray()['source_reports']['wordpress_site_plan'];
+$assert(count($multiPlan['pages']) === 8, 'Every reused-fragment document remains a page.');
+$multiShared = $compiler->prepareShared($multipage);
+$multiStaged = $compiler->compose($multiShared, $compiler->compilePreparedPages($multiShared, $compiler->preparePages($multipage, $multiShared)))->toArray()['source_reports']['wordpress_site_plan'];
+$assert($multiPlan === $multiStaged, 'Whole and staged compilation agree across multi-page fragment reuse.');
+$boundary = array('entrypoint' => 'boundary-1.html', 'files' => array(
+    'boundary-1.html' => '<!--#include virtual="/parts/wide.html" -->',
+    'boundary-2.html' => '<!--#include virtual="/parts/wide.html" -->',
+    'parts/wide.html' => str_repeat('<!--#include virtual="/parts/unit.html" -->', 4095),
+    'parts/unit.html' => 'B',
+));
+$boundaryResolved = array_column((new ArtifactNormalizer())->normalize($boundary)['files'], 'content', 'path');
+$assert($boundaryResolved['boundary-1.html'] === str_repeat('B', 4095) && $boundaryResolved['boundary-2.html'] === str_repeat('B', 4095), 'Each document resolves exactly the include bound while the artifact total passes it.');
+try {
+    (new ArtifactNormalizer())->normalize(array('entrypoint' => 'index.html', 'files' => array(
+        'index.html' => str_repeat('<!--#include virtual="/parts/twin.html" -->', 4095),
+        'parts/twin.html' => '<!--#include virtual="/parts/unit-a.html" --><!--#include virtual="/parts/unit-b.html" -->',
+        'parts/unit-a.html' => 'A',
+        'parts/unit-b.html' => 'B',
+    )));
+    throw new RuntimeException('Per-document include bound unexpectedly accepted.');
+} catch (InvalidArgumentException $error) { $assert(str_contains($error->getMessage(), 'html_include_count_exceeded'), 'One document reusing fragments past the bound still fails.'); }
+$depthReuse = array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<!--#include virtual="/parts/x.html" --><!--#include virtual="/parts/g1.html" -->',
+    'parts/g1.html' => '<!--#include virtual="/parts/x.html" -->',
+    'parts/x.html' => '<!--#include virtual="/parts/y1.html" -->',
+));
+for ($i = 1; $i < 14; ++$i) $depthReuse['files']['parts/y' . $i . '.html'] = '<!--#include virtual="/parts/y' . ($i + 1) . '.html" -->';
+$depthReuse['files']['parts/y14.html'] = 'Deep';
+try { (new ArtifactNormalizer())->normalize($depthReuse); throw new RuntimeException('Depth bound unexpectedly bypassed through fragment reuse.'); }
+catch (InvalidArgumentException $error) { $assert(str_contains($error->getMessage(), 'html_include_depth_exceeded'), 'Fragment reuse through a cached traversal still honors the depth bound.'); }
+$cycleReuse = array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $brandInclude . '<!--#include virtual="/parts/loop1.html" -->',
+    'parts/brand.html' => $brand,
+    'parts/loop1.html' => '<!--#include virtual="/parts/loop2.html" -->',
+    'parts/loop2.html' => '<!--#include virtual="/parts/loop1.html" -->',
+));
+try { (new ArtifactNormalizer())->normalize($cycleReuse); throw new RuntimeException('Cycle behind a reused fragment unexpectedly accepted.'); }
+catch (InvalidArgumentException $error) { $assert(str_contains($error->getMessage(), 'html_include_cycle'), 'Cycle rejection holds behind reused fragments.'); }
+$twinInclude = '<!--#include virtual="/parts/twin.html" -->';
+$twinFiles = array('parts/twin.html' => '<!--#include virtual="/parts/unit-a.html" --><!--#include virtual="/parts/unit-b.html" -->', 'parts/unit-a.html' => 'A', 'parts/unit-b.html' => 'B');
+$twins = static fn(int $occurrences): array => array('entrypoint' => 'index.html', 'files' => array('index.html' => str_repeat($twinInclude, $occurrences)) + $twinFiles);
+$exactBound = array_column((new ArtifactNormalizer())->normalize($twins(1365))['files'], 'content', 'path');
+$assert($exactBound['index.html'] === str_repeat('AB', 1365), '1365 twin reuses cost 4095 logical uses, exactly under the bound, and expand to AB pairs.');
+try { (new ArtifactNormalizer())->normalize($twins(1366)); throw new RuntimeException('One additional twin occurrence past the bound unexpectedly accepted.'); }
+catch (InvalidArgumentException $error) { $assert(str_contains($error->getMessage(), 'html_include_count_exceeded'), 'Charging every reuse keeps a 4098-logical-use document over the bound.'); }
+foreach (array('warm-first' => array('warm.html', 'index.html'), 'reversed-order' => array('index.html', 'warm.html')) as $order => $documentOrder) {
+    $orderFiles = $twinFiles;
+    foreach ($documentOrder as $document) $orderFiles[$document] = 'index.html' === $document ? str_repeat($twinInclude, 4095) : $twinInclude;
+    try { (new ArtifactNormalizer())->normalize(array('entrypoint' => 'index.html', 'files' => $orderFiles)); throw new RuntimeException("Cache-warmed bound bypass unexpectedly accepted ($order)."); }
+    catch (InvalidArgumentException $error) { $assert(str_contains($error->getMessage(), 'html_include_count_exceeded'), "Each reuse charges the fragment's 12285 logical uses regardless of $order."); }
+}
+$multipageReversed = $multipage;
+$multipageReversed['files'] = array('parts/brand.html' => $brand, 'parts/footer.html' => $multipage['files']['parts/footer.html']) + $multipage['files'];
+$multiResolvedReversed = array_column((new ArtifactNormalizer())->normalize($multipageReversed)['files'], 'content', 'path');
+$multiResolvedSorted = $multiResolved;
+ksort($multiResolvedReversed);
+ksort($multiResolvedSorted);
+$assert($multiResolvedReversed === $multiResolvedSorted, 'Fragment-first file order resolves byte-identically to page-first order.');
+try {
+    (new ArtifactNormalizer())->normalize(array('entrypoint' => 'index.html', 'compiler_limits' => array('max_total_bytes' => 200000), 'files' => array(
+        'index.html' => str_repeat('<!--#include virtual="/parts/body.html" -->', 300),
+        'parts/body.html' => str_repeat('B', 1000),
+    )));
+    throw new RuntimeException('Expanded total byte budget unexpectedly accepted.');
+} catch (InvalidArgumentException $error) { $assert(str_contains($error->getMessage(), 'html_include_total_budget_exceeded'), 'The total byte guard charges 301000 fully expanded bytes, not 14800 unresolved source bytes.'); }
 echo "Canonical HTML includes contract passed.\n";

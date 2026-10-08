@@ -103,6 +103,25 @@ $assert(
     json_encode($plainLabel)
 );
 
+// A paragraph that only wraps a field (its label and control) or the submit
+// has no copy of its own. Its text is the label or the button text, which the
+// control manifest already carries, so it must not come back as a paragraph.
+$fieldParagraphs = $formContext(
+    '<main><form method="post">'
+    . '<p>Join our list.</p>'
+    . '<p><label for="e" class="screen-reader-text">Type your email</label><input id="e" type="email" name="email"></p>'
+    . '<p><label>Your name<br><span><input type="text" name="name"></span></label></p>'
+    . '<p><button type="submit">Join</button></p></form></main>'
+);
+$assert(
+    array( 'Join our list.' ) === array_column($fieldParagraphs['context_before'] ?? array(), 'text')
+        && array() === ( $fieldParagraphs['context_after'] ?? array() )
+        && array() === ( $fieldParagraphs['unrepresented_context'] ?? array() )
+        && empty($fieldParagraphs['interleaved_context']),
+    'a paragraph that only wraps a field or the submit is not lifted into form context',
+    json_encode($fieldParagraphs)
+);
+
 // A form title authored as a plain paragraph — no note-like class — before
 // the first control is copy the reader sees, so it is recorded, while the
 // field's own label stays with its control.

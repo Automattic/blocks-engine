@@ -95,7 +95,7 @@ $expectOverlay = static function (string $label, string $css, string $expectedDe
 };
 
 $expectNoOverlay = static function (string $label, string $css) use ($assert, $transform, $header, $toggle, $nav, $overlayMarkers): void {
-    [ $blocks, $afterAuthorCss ] = $transform($css, $header($toggle . $nav));
+    [ $blocks, $afterAuthorCss ] = $transform(str_replace('padding:20px;', '', $css), $header($toggle . $nav));
     $assert(str_contains($blocks, '"overlayMenu":"mobile"'), $label . ': navigation still emits the native mobile overlay', $blocks);
     $assert(array() === $overlayMarkers($blocks), $label . ': no overlay marker is added without source paint', $blocks);
     $assert(! str_contains($afterAuthorCss, 'blocks-engine-navigation-overlay-'), $label . ': no overlay rule is emitted without source paint', $afterAuthorCss);
@@ -139,6 +139,16 @@ $expectNoOverlay('zero-alpha panel', $collapsed('background:rgba(0,0,0,0)'));
 $expectNoOverlay('unresolved variable', $collapsed('background:var(--missing)'));
 $expectNoOverlay('image panel cannot be relocated', $collapsed('background:url(panel.png) center/cover'));
 $expectNoOverlay('inherited text colour says nothing', $collapsed('color:inherit'));
+
+// An unpainted source can still own its open list's content box. Padding must
+// survive the native list reset without manufacturing panel background/colour.
+[ $blocks, $afterAuthorCss ] = $transform($collapsed(''), $header($toggle . $nav));
+$markers = $overlayMarkers($blocks);
+$assert(1 === count($markers), 'unpainted padded panel retains its content box', $blocks);
+foreach ( $markers as $marker ) {
+    $assert(array() === $overlayRules($afterAuthorCss, $marker), 'padding does not manufacture overlay paint', $afterAuthorCss);
+    $assert(str_contains($afterAuthorCss, $marker . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay) .wp-block-navigation__container{padding:20px!important}'), 'open list retains source padding', $afterAuthorCss);
+}
 
 // Two menus with different collapsed paint get their own markers and rules.
 $twoMenus = $transform(
