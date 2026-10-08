@@ -25,7 +25,6 @@ foreach ($files as $name => [$width, $height, $red, $green, $blue]) {
     imagefill($image, 0, 0, imagecolorallocate($image, $red, $green, $blue));
     imagefilledrectangle($image, (int) ($width / 4), (int) ($height / 4), (int) ($width * 3 / 4), (int) ($height * 3 / 4), imagecolorallocate($image, 255 - $red, 255 - $green, 255 - $blue));
     imagepng($image, $theme . '/assets/' . $name);
-    imagedestroy($image);
 }
 $asset = $themeUrl . '/assets/';
 $html = '<div class="media-container"><img src="' . $asset . 'fallback.png" srcset="' . $asset . 'fallback.png 480w, ' . $asset . 'tablet.png 768w, ' . $asset . 'desktop.png 1920w" sizes="(min-width: 602px) 570px, calc(100vw - 32px)" alt="Width family"></div>'
