@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -229,8 +230,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( array() === $links ) {
             return null;
         }
-        $this->recordOneToOneDirectAnchors($links, $directAnchors, $navigationContext);
-        $this->recordNavigationListItems($listItems, $navigationContext);
 
         $label = $this->directSectionLabel($element);
         $listSource = $this->navigationListSource($element);
@@ -331,6 +330,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             array() !== $authorClasses ? $authorClasses : $this->carriedClassNames((string) ($navigation['attrs']['className'] ?? '')),
             $listSource
         );
+        $this->recordNavigationSources($links, $directAnchors, $listItems, $navigationSource, $navigationContext);
 
         if ( ! $label instanceof DOMElement ) {
             if ( $splitLandmarkOwnership ) {
@@ -666,8 +666,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( 2 > count($links) ) {
             return null;
         }
-        $this->recordOneToOneDirectAnchors($links, $directAnchors, $navigationContext);
-        $this->recordNavigationListItems($listItems, $navigationContext);
 
         // An anchor that only converts to an HTML fallback would trade a menu
         // item for raw markup; keep today's shape rather than lose the block.
@@ -810,6 +808,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
             $extraBlocks[] = $extraBlock;
         }
+        // Past the last decline: the navigation is emitted, so its sources can
+        // be recorded without leaving marks behind for output that never was.
+        $this->recordNavigationSources($links, $directAnchors, $listItems, $cluster, $navigationContext);
 
         if ( array() === $extraBlocks ) {
             return $createBlock('core/group', $carrierAttrs, $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ), $element);
@@ -2009,9 +2010,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<int, array<string, mixed>> $links
      * @param list<DOMElement> $directAnchors
      */
-    private function recordOneToOneDirectAnchors(array $links, array $directAnchors, ?NavigationPatternContext $navigationContext): void
+    private function recordOneToOneDirectAnchors(array $links, array $directAnchors, NavigationPatternContext $navigationContext): void
     {
-        if ( null === $navigationContext || array() === $directAnchors || count($links) !== count($directAnchors) ) {
+        if ( array() === $directAnchors || count($links) !== count($directAnchors) ) {
             return;
         }
         $parent = $directAnchors[0]->parentNode;
@@ -2033,21 +2034,36 @@ final class NavigationPattern implements PatternRecognizerInterface
             return;
         }
         foreach ( $directAnchors as $anchor ) {
-            $navigationContext->recordDirectNavigationLinkAnchor($anchor);
+            $navigationContext->recordNavigationSource($anchor, AuthorSelectorProjectionState::NAVIGATION_ANCHOR);
         }
     }
 
     /**
-     * Record the source list items the emitted navigation renders as items of
-     * its own, once the navigation block is really emitted.
+     * Record the source elements the emitted navigation renders as something
+     * other than themselves (see AuthorSelectorProjectionState::NAVIGATION_*),
+     * once the navigation block is certain to be emitted: re-parented direct
+     * anchors, list items rendered as core's items, and a source list that is
+     * itself the element the block stands in for.
      *
+     * @param array<int, array<string, mixed>> $links
+     * @param list<DOMElement> $directAnchors
      * @param list<DOMElement> $listItems
      */
-    private function recordNavigationListItems(array $listItems, ?NavigationPatternContext $navigationContext): void
+    private function recordNavigationSources(array $links, array $directAnchors, array $listItems, DOMElement $navigationSource, ?NavigationPatternContext $navigationContext): void
     {
         if ( null === $navigationContext ) {
             return;
         }
+        $this->recordOneToOneDirectAnchors($links, $directAnchors, $navigationContext);
+        $this->recordNavigationListItems($listItems, $navigationContext);
+        if ( in_array(strtolower($navigationSource->tagName), array( 'ul', 'ol' ), true) ) {
+            $navigationContext->recordNavigationSource($navigationSource, AuthorSelectorProjectionState::NAVIGATION_LIST_HOST);
+        }
+    }
+
+    /** @param list<DOMElement> $listItems */
+    private function recordNavigationListItems(array $listItems, NavigationPatternContext $navigationContext): void
+    {
         // core renders the items of the navigation, and those of each submenu,
         // as the children of one container: the navigation's own list, or the
         // submenu list inside the item it belongs to. When one container
@@ -2074,7 +2090,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $sourceListsByContainer[$containerOf($item)][null === $parent ? '' : ( $parent->getNodePath() ?? '' )] = true;
         }
         foreach ( $listItems as $item ) {
-            $navigationContext->recordNavigationListItem($item, 1 === count($sourceListsByContainer[$containerOf($item)]));
+            $navigationContext->recordNavigationSource($item, AuthorSelectorProjectionState::NAVIGATION_ITEM, 1 === count($sourceListsByContainer[$containerOf($item)]));
         }
     }
 

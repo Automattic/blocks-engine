@@ -310,6 +310,7 @@
       "php tests/unit/navigation-dropped-anchors.php",
       "php tests/unit/navigation-item-scoped-anchor-rules.php",
       "php tests/unit/navigation-item-spacing.php",
+      "php tests/unit/navigation-list-placement.php",
       "php tests/unit/navigation-label-tag-identity.php",
       "php tests/unit/navigation-link-box-carry.php",
       "php tests/unit/navigation-link-line-height.php",

@@ -50,24 +50,15 @@ final class NavigationPatternContext
     }
 
     /**
-     * core/navigation-link renders a direct source anchor inside a list item
-     * of its own, so the anchor's position among its source siblings moves
-     * onto that item. Author selector projection needs to know which anchors
-     * that happened to.
+     * core/navigation renders some source elements as something else: a direct
+     * anchor inside a list item of its own, a source `<li>` as core's item
+     * without the source-type marker, and a menu list as the block itself.
+     * Author selector projection needs to know which elements that happened
+     * to, by AuthorSelectorProjectionState::NAVIGATION_* role.
      */
-    public function recordDirectNavigationLinkAnchor(DOMElement $anchor): void
+    public function recordNavigationSource(DOMElement $element, string $role, bool $rendersSourceSiblings = true): void
     {
-        $this->session?->authorSelectorProjectionState()->markNavigationItemAnchor($anchor);
-    }
-
-    /**
-     * core/navigation renders a source `<li>` as a list item of its own, with
-     * the class core hard-codes on it instead of the source-type marker. Author
-     * selector projection needs to know which list items that happened to.
-     */
-    public function recordNavigationListItem(DOMElement $item, bool $rendersSourceSiblings = true): void
-    {
-        $this->session?->authorSelectorProjectionState()->markNavigationListItem($item, $rendersSourceSiblings);
+        $this->session?->authorSelectorProjectionState()->markNavigationSource($element, $role, $rendersSourceSiblings);
     }
 
     /** Marks a block element inside a link label that paints the label text itself. */

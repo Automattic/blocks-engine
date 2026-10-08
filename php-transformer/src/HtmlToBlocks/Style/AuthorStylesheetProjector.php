@@ -1500,7 +1500,7 @@ final class AuthorStylesheetProjector
             // its own, so the subject's sibling position belongs to that item.
             // Any other match, or a subject this projection cannot place, keeps
             // the authored selector exactly.
-            if ( $this->matchesOnlyNavigationItemAnchors($matches, $context) ) {
+            if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ANCHOR, $context) ) {
                 $itemSelector = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context);
                 if ( null !== $itemSelector ) {
                     $rewritten[] = $itemSelector;
@@ -1510,10 +1510,21 @@ final class AuthorStylesheetProjector
             // Every match is a source list item core renders as a navigation
             // item of its own. The source-type marker never reaches that
             // rendered item, so the subject moves onto core's item class.
-            if ( $this->matchesOnlyNavigationListItems($matches, $context) ) {
+            if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ITEM, $context) ) {
                 $itemSelector = $this->projectNavigationListItemSelector($selector, $parsed, $context);
                 if ( null !== $itemSelector ) {
                     $rewritten[] = $itemSelector;
+                    continue;
+                }
+            }
+            // Every match is a source list that is itself the element a
+            // core/navigation block stands in for. Its classes and id sit on
+            // the rendered `<nav>` (and on the inner list copy); the list type
+            // has to address that block rather than the copy.
+            if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_LIST_HOST, $context) ) {
+                $hostSelector = $this->projectNavigationListHostSelector($selector, $parsed, $context);
+                if ( null !== $hostSelector ) {
+                    $rewritten[] = $hostSelector;
                     continue;
                 }
             }
@@ -2739,11 +2750,16 @@ final class AuthorStylesheetProjector
         return '' !== $negated['item'] && '' === $negated['structural'] ? 'item' : null;
     }
 
-    /** @param list<DOMElement> $matches */
-    private function matchesOnlyNavigationItemAnchors(array $matches, AuthorStylesheetProjectionContext $context): bool
+    /**
+     * Whether every match plays the given AuthorSelectorProjectionState::NAVIGATION_*
+     * role in the navigation block that replaced it.
+     *
+     * @param list<DOMElement> $matches
+     */
+    private function matchesOnlyNavigationRole(array $matches, string $role, AuthorStylesheetProjectionContext $context): bool
     {
         foreach ( $matches as $element ) {
-            if ( ! $context->selectorProjections->isNavigationItemAnchorPath($element->getNodePath() ?? '') ) {
+            if ( ! $context->selectorProjections->isNavigationSourcePath($element->getNodePath() ?? '', $role) ) {
                 return false;
             }
         }
@@ -2751,16 +2767,48 @@ final class AuthorStylesheetProjector
         return array() !== $matches;
     }
 
-    /** @param list<DOMElement> $matches */
-    private function matchesOnlyNavigationListItems(array $matches, AuthorStylesheetProjectionContext $context): bool
+    /**
+     * A source list that is the element core/navigation stands in for renders
+     * as `<nav class="wp-block-navigation [classes]" id="[id]">` with the same
+     * classes and id copied onto the inner `<ul class="wp-block-navigation__container">`,
+     * the row that holds the items. A rule keyed by class or id reaches both,
+     * and the navigation container reset keeps the copy from being placed a
+     * second time (position, offsets, transforms, margin, padding, border).
+     * A rule qualified by the list type (`#header ul#nav{float:right;
+     * width:360px;position:relative;top:20px;gap:20px}`) reached only the
+     * inner copy: a flex item whose float is ignored and whose offsets are
+     * reset, so the menu lost its place. Replace the type with core's block
+     * class, which both elements carry, so the rule behaves exactly like its
+     * class or id form: placement lands on the block once, and row layout
+     * (gap, wrapping, alignment) still reaches the item row. The shim keeps
+     * the type's specificity; classes, ids and pseudo-classes in the compound
+     * stay where they are, so the usual class projection still applies.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function projectNavigationListHostSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
     {
-        foreach ( $matches as $element ) {
-            if ( ! $context->selectorProjections->isNavigationListItemPath($element->getNodePath() ?? '') ) {
-                return false;
-            }
+        $span = $parsed['rightmost_compound_span'] ?? null;
+        if ( ! is_array($span) ) {
+            return null;
         }
-
-        return array() !== $matches;
+        $start = (int) $span['start'];
+        foreach ( $parsed['type_spans'] as $typeSpan ) {
+            if ( (int) $typeSpan['start'] < $start ) {
+                continue;
+            }
+            if ( ! in_array(strtolower((string) $typeSpan['name']), array( 'ul', 'ol' ), true) ) {
+                return null;
+            }
+            return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
+                (int) $typeSpan['start'] => array(
+                    'end' => (int) $typeSpan['end'],
+                    'value' => ':where(.wp-block-navigation)' . $this->typeSpecificityShim($context),
+                ),
+            ));
+        }
+        // Without a type the authored compound already reaches the block.
+        return null;
     }
 
     /**
@@ -2863,7 +2911,7 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
-            if ( ! $this->matchesOnlyNavigationListItems($matches, $context) ) {
+            if ( ! $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ITEM, $context) ) {
                 continue;
             }
             $item = $this->projectNavigationListItemSelector($selector, $parsed, $context);
