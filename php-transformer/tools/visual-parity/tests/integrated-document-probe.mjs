@@ -1,23 +1,15 @@
 import fs from 'node:fs/promises';
-import http from 'node:http';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import { serveSourceRoot } from '../bin/source-root-server.mjs';
 
 const [sourceRoot, destination, output, candidateDirectory] = process.argv.slice(2);
-if (!sourceRoot || !destination || !output) throw new Error('Usage: integrated-document-probe.mjs <read-only source root> <served WP URL> <fresh output>');
+if (!sourceRoot || !destination || !output) throw new Error('Usage: integrated-document-probe.mjs <read-only source website root> <served WP route URL> <fresh output>');
 await fs.mkdir(output, { recursive: false });
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.woff': 'font/woff', '.woff2': 'font/woff2' };
-const server = http.createServer(async (request, response) => {
-  try {
-    const url = new URL(request.url, 'http://localhost');
-    const file = path.resolve(sourceRoot, '.' + decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname));
-    if (!file.startsWith(path.resolve(sourceRoot) + path.sep)) throw new Error('Outside source root');
-    response.setHeader('Content-Type', types[path.extname(file).toLowerCase()] ?? 'application/octet-stream');
-    response.end(await fs.readFile(file));
-  } catch { response.statusCode = 404; response.end(); }
-});
-await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-const source = `http://127.0.0.1:${server.address().port}/`;
+// The source root is the website root, so root-relative includes and assets
+// resolve; the measured source route is the WordPress route's path.
+const server = await serveSourceRoot(sourceRoot);
+const source = new URL(new URL(destination).pathname, server.origin).href;
 const browser = await chromium.launch({ headless: true });
 const profiles = [
   { name: 'desktop', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36', isMobile: false, hasTouch: false },
@@ -65,7 +57,8 @@ try {
         });
       }
       const errors = []; page.on('pageerror', error => errors.push(error.message));
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      if (kind === 'source' && (!response?.ok() || server.failures.length)) throw new Error(`Source document did not resolve: ${JSON.stringify(server.failures)}`);
       await page.waitForFunction(() => document.documentElement.hasAttribute('data-dla-selected-document'), { timeout: 15000 });
       await page.evaluate(() => Promise.race([document.fonts.ready, new Promise(resolve => setTimeout(resolve, 5000))]));
       await page.waitForTimeout(800);
@@ -113,4 +106,4 @@ try {
   }
   await fs.writeFile(path.join(output, 'paired.json'), JSON.stringify(all, null, 2) + '\n');
   console.log(JSON.stringify(all.map(pair => ({ profile: pair.profile, source: { inner: pair.source.innerWidth, width: pair.source.documentWidth, targets: pair.source.targets.map(node => ({ id: node.id, width: node.rect.width, minWidth: node.styles['min-width'] })), errors: pair.source.errors }, wordpress: { inner: pair.wordpress.innerWidth, width: pair.wordpress.documentWidth, targets: pair.wordpress.targets.map(node => ({ id: node.id, width: node.rect.width, minWidth: node.styles['min-width'] })), errors: pair.wordpress.errors } })), null, 2));
-} finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
+} finally { await browser.close(); await server.close(); }
