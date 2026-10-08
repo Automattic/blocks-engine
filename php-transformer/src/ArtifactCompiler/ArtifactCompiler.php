@@ -19,7 +19,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\MotionSequenc
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LiveClockBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
+use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
@@ -55,6 +57,12 @@ final class ArtifactCompiler
 
 	/** @var array<string, string> */
 	private array $themeStaticCssCache = array();
+
+    /** @var array<string, list<array<string, mixed>>> */
+    private array $stylesheetOccurrenceCache = array();
+
+    /** @var array<string, true> Source resources imported into an authored layer. */
+    private array $layeredNavigationImports = array();
 
 	private WordPressCompatCss $wordpressCompat;
 
@@ -205,6 +213,8 @@ final class ArtifactCompiler
     private function compileArtifact(array $artifact): TransformerResult
     {
 		$this->themeStaticCssCache = array();
+        $this->stylesheetOccurrenceCache = array();
+        $this->layeredNavigationImports = array();
 		$this->wordpressCompat = new WordPressCompatCss();
         $this->htmlTransformerAnalysisCache = $this->cacheHtmlAnalysis ? new HtmlTransformerAnalysisCache() : null;
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
@@ -316,6 +326,22 @@ final class ArtifactCompiler
             return $fallback;
         }, $allFallbacks);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
+        foreach ($normalized['files'] as $document) {
+            if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
+            $documentFiles = $normalized['files'];
+            foreach ($this->stylesheetAssetsForSource($document['content'], $document['path'], $documentFiles) as $stylesheet) {
+                // The canonical import walk also records which resource rules
+                // must share their importing layer rather than a replay layer.
+                $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $documentFiles);
+            }
+        }
+        foreach ($normalized['files'] as &$file) {
+            if ('css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) continue;
+            $content = $this->wordpressCompat->projectNavigationStylesheet($file['content'], $normalized['files'], isset($this->layeredNavigationImports[$file['path']]));
+            if ($content !== $file['content']) $file = $this->projectedStylesheetFile($file, $file['path'], $content);
+        }
+        unset($file);
+        $wordpressCompatAssets = $this->wordpressCompatAssetsForDocuments($normalized['files']);
         $normalized['files'] = $this->chunkProjectedStylesheets($normalized['files']);
         foreach ($normalized['files'] as $file) {
             if ($entryPath === ($file['path'] ?? null) && is_string($file['content'] ?? null)) {
@@ -329,7 +355,6 @@ final class ArtifactCompiler
             ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath),
             $runtimeScriptProjections
         );
-        $wordpressCompatAsset = $this->wordpressCompat->asset($normalized['files'], $this->themeStaticCss($normalized['files'], false), $this->allScriptContents($normalized['files']));
         $referenceReports = $this->referenceReports($normalized['files'], $entryPath);
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $entryOwnership = is_array($entry) ? $this->fileOwnership($entry) : array('scope' => 'page', 'id' => $entryPath);
@@ -351,9 +376,7 @@ final class ArtifactCompiler
         // Runtime loads the manifest in array order. Placement metadata keeps
         // engine support on its intended side of the authored stylesheets.
         $assets = array_merge($beforeAuthorAssets, $manifestAssets, $otherGeneratedAssets, $afterAuthorAssets);
-        if ( null !== $wordpressCompatAsset ) {
-            $assets[] = $wordpressCompatAsset;
-        }
+        $assets = array_merge($assets, $wordpressCompatAssets);
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets, $normalized['files']);
         $diagnostics = array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics);
@@ -1407,6 +1430,7 @@ final class ArtifactCompiler
         $themePreferenceOwnership = $this->themePreferenceOwnershipForSource($runtimeDeclarations, $sourcePath);
         $stylesheetAssets = $this->stylesheetAssetsForSource($html, $sourcePath, $files);
         $stylesheetPayloads = $this->linkedStylesheetPayloads($stylesheetAssets, $sourcePath, $files);
+        $layerOrderCss = implode("\n", array_map(fn(array $stylesheet): string => $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $files), $stylesheetAssets));
         $analysisCache = $this->cacheHtmlAnalysis
             ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
             : new HtmlTransformerAnalysisCache();
@@ -1440,6 +1464,7 @@ final class ArtifactCompiler
             'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
             'stylesheet_payloads'       => $stylesheetPayloads,
             'author_stylesheet_assets'  => $stylesheetAssets,
+            'author_layer_order'        => (new AuthorCascadeLayerOrder())->statement($layerOrderCss),
             'shared_stylesheet_paths'   => $this->sharedStylesheetPathsFromFiles($files),
             'skip_author_stylesheet_materialization' => true,
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
@@ -1877,9 +1902,6 @@ final class ArtifactCompiler
                 continue;
             }
             $paths[$file['path']] = true;
-            if ( is_string($file['stylesheet_source_path'] ?? null) && '' !== $file['stylesheet_source_path'] ) {
-                $paths[$file['stylesheet_source_path']] = true;
-            }
         }
 
         return array_keys($paths);
@@ -1894,27 +1916,35 @@ final class ArtifactCompiler
      */
     private function stylesheetAssetsForSource(string $html, string $sourcePath, array $files): array
     {
-        ++$this->stylesheetAssetDiscoveryCount;
         $byPath = array();
         $inline = array();
-        $occurrencePaths = array();
         foreach ( $files as $file ) {
-            if ( 'css' !== ($file['kind'] ?? '') || ! is_string($file['path'] ?? null) || ! is_string($file['content'] ?? null) ) {
+            if ( 'css' !== ($file['kind'] ?? '') || ! is_string($file['path'] ?? null) || ! is_string($file['content'] ?? null) || isset($file['metadata']['page_stylesheet_of']) ) {
                 continue;
             }
             $byPath[$file['path']] = $file;
             if ( 'inline-style' === ($file['source'] ?? '') && $sourcePath === ($file['source_path'] ?? '') ) {
                 $inline[(int) ($file['stylesheet_index'] ?? 0)] = $file;
             }
-            if ( is_string($file['stylesheet_source_path'] ?? null) && isset($file['stylesheet_occurrence']) ) {
-                $occurrencePaths[$file['stylesheet_source_path']][(int) $file['stylesheet_occurrence']] = $file['path'];
-            }
         }
+        $cacheKey = hash('sha256', $sourcePath . "\0" . $html);
+        if (isset($this->stylesheetOccurrenceCache[$cacheKey])) {
+            // Cache occurrence identity/order, not projected declaration bytes.
+            // The replay reads the final payload after source-selector projection.
+            return array_map(static function (array $asset) use ($byPath): array {
+                $file = $byPath[$asset['path']] ?? null;
+                if (is_array($file)) {
+                    $asset['content'] = $file['content'];
+                    $asset['source_hash'] = (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']));
+                }
+                return $asset;
+            }, $this->stylesheetOccurrenceCache[$cacheKey]);
+        }
+        ++$this->stylesheetAssetDiscoveryCount;
         $assets = array();
         $seenPaths = array();
         $inlineIndex = 0;
         $activation = StylesheetActivation::links($html);
-        $linkOccurrences = array();
         $tags = array_map(
             static fn (array $style): array => array('kind' => 'style', 'offset' => $style['offset'], 'attributes' => $style['attributes'], 'content' => $style['content']),
             StyleTagScanner::scan($html)
@@ -1950,16 +1980,105 @@ final class ArtifactCompiler
                 continue;
             }
             $sourcePathForLink = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath, $files);
-            $linkOccurrences[$sourcePathForLink] = ($linkOccurrences[$sourcePathForLink] ?? 0) + 1;
-            $path = $occurrencePaths[$sourcePathForLink][$linkOccurrences[$sourcePathForLink]] ?? '';
+            $path = $sourcePathForLink;
             $file = $byPath[$path] ?? null;
-            if ( is_array($file) && ! isset($seenPaths[$path]) ) {
-                $assets[] = array( 'path' => $path, 'source_path' => $file['stylesheet_source_path'] ?? $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => StyleTagScanner::authorMedia((string) $tag), 'type' => $this->htmlAttribute((string) $tag, 'type') );
+            if ( is_array($file) ) {
+                $assets[] = array( 'path' => $path, 'source_path' => $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => StyleTagScanner::authorMedia((string) $tag), 'type' => $this->htmlAttribute((string) $tag, 'type') );
                 $assets[array_key_last($assets)]['stylesheet_activation'] = $activation[$tagRecord['offset']];
-                $seenPaths[$path] = true;
             }
         }
+        return $this->stylesheetOccurrenceCache[$cacheKey] = $assets;
+    }
+
+    /**
+     * Replay the same occurrence stream used by source analysis, after selector
+     * projection and before chunking. File transport order is not CSS order.
+     * A page's delta belongs immediately after its source stylesheet, not after
+     * another linked stylesheet or another page's cascade.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function wordpressCompatAssetsForDocuments(array $files): array
+    {
+        $assets = array();
+        $scripts = $this->allScriptContents($files);
+        foreach ($files as $document) {
+            if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null)) continue;
+            // An included component is replayed inside each document that includes it.
+            if (!empty($document['metadata']['compilation']['included_component'])) continue;
+            $sourcePath = (string) $document['path'];
+            $ownership = $this->fileOwnership($document);
+            $documentFiles = $files;
+            $parts = array();
+            foreach ($this->stylesheetAssetsForSource($document['content'], $sourcePath, $documentFiles) as $stylesheet) {
+                $content = $this->compatibilityStylesheetContent($stylesheet['content'], $stylesheet['path'], $documentFiles);
+                foreach ($files as $file) {
+                    if (($file['metadata']['page_stylesheet_of'] ?? null) === $stylesheet['path']
+                        && $this->fileOwnership($file) === $ownership) {
+                        $content .= "\n" . $file['content'];
+                    }
+                }
+                $media = trim((string) ($stylesheet['media'] ?? ''));
+                $parts[] = '' === $media ? $content : '@media ' . $media . '{' . $content . '}';
+            }
+            $asset = $this->wordpressCompat->asset($documentFiles, implode("\n", $parts), $scripts);
+            if (null === $asset) continue;
+            // Content-identical replay can still have different route ownership.
+            // Keep the existing page-asset contract instead of promoting a
+            // partial set of consumers to an unconditionally shared cascade.
+            $asset['compilation'] = $ownership;
+            $asset['path'] = $asset['target_path'] = 'assets/css/wordpress-compat-'
+                . substr(hash('sha256', json_encode($ownership) . "\0" . $asset['content']), 0, 16) . '.css';
+            $assets[] = $asset;
+        }
         return $assets;
+    }
+
+    /**
+     * Imports participate at the importing occurrence, including their layer,
+     * supports and media conditions. This is an analysis stream only: published
+     * author files and their imports remain intact, and only mapped rules emit.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @param array<string, true> $ancestors
+     */
+    private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false): string
+    {
+        if (isset($ancestors[$path])) return '';
+        $ancestors[$path] = true;
+        if ($importedLayer) $this->layeredNavigationImports[$path] = true;
+        $split = (new CssStylesheetTransformer())->splitLeadingAtRulePreamble($css);
+        $preamble = array();
+        $byPath = array_column($files, null, 'path');
+        foreach ($split['statements'] as $statement) {
+            $clean = rtrim(trim(preg_replace('#^(?:\s|/\*.*?\*/)*#s', '', $statement) ?? $statement), ';');
+            if (!preg_match('/^@import\s+(?:url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s)]+))\s*\)|"([^"]+)"|\'([^\']+)\')(.*)$/is', $clean, $match)) {
+                $preamble[] = $statement;
+                continue;
+            }
+            $reference = $match[1] ?: ($match[2] ?: ($match[3] ?: ($match[4] ?: $match[5])));
+            $importPath = isset($byPath[$reference]) ? $reference : ArtifactPath::resolveRelativePath($reference, $path);
+            $file = $byPath[$importPath] ?? null;
+            if (!is_array($file) || 'css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) continue;
+            $conditions = CssValueSplitter::splitTopLevelWhitespace(trim($match[6]));
+            $layer = '';
+            $supports = '';
+            if (isset($conditions[0]) && preg_match('/^layer(?:\((.*)\))?$/is', $conditions[0], $condition)) {
+                $layer = '@layer' . (isset($condition[1]) ? ' ' . $condition[1] : '');
+                array_shift($conditions);
+            }
+            $content = $this->compatibilityStylesheetContent($file['content'], $importPath, $files, $ancestors, $importedLayer || '' !== $layer);
+            if (isset($conditions[0]) && preg_match('/^supports\((.*)\)$/is', $conditions[0], $condition)) {
+                $supports = '@supports ' . (preg_match('/^[\w-]+\s*:/', $condition[1]) ? '(' . $condition[1] . ')' : $condition[1]);
+                array_shift($conditions);
+            }
+            if (array() !== $conditions) $content = '@media ' . implode(' ', $conditions) . '{' . $content . '}';
+            if ('' !== $supports) $content = $supports . '{' . $content . '}';
+            if ('' !== $layer) $content = $layer . '{' . $content . '}';
+            $preamble[] = $content;
+        }
+        return implode("\n", $preamble) . $split['stylesheet'];
     }
 
     /** @param array<int, array<string, mixed>> $files */
@@ -1977,90 +2096,6 @@ final class ArtifactCompiler
     }
 
     /**
-     * Drop one document's stylesheet occurrence annotation (the records and the
-     * alias files it added) so another document can be annotated from its own
-     * links.
-     *
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, array<string, mixed>>
-     */
-    private static function withoutStylesheetOccurrenceRecords(array $files): array
-    {
-        $clean = array();
-        foreach ( $files as $file ) {
-            if ( 'stylesheet-occurrence' === ($file['source'] ?? null) ) {
-                continue;
-            }
-            unset($file['stylesheet_source_path'], $file['stylesheet_occurrence']);
-            $clean[] = $file;
-        }
-        return $clean;
-    }
-
-    /** @param array<int, array<string, mixed>> $files @return array<int, array<string, mixed>> */
-    private function withStylesheetOccurrenceAssets(string $html, string $sourcePath, array $files): array
-    {
-        $byPath = array();
-        $reserved = array();
-        foreach ( $files as $index => $file ) {
-            $path = (string) ($file['path'] ?? '');
-            $byPath[$path] = $index;
-            $reserved[$path] = true;
-        }
-        $occurrences = array();
-        $variants = array();
-        $activation = StylesheetActivation::links($html);
-        foreach ( StyleTagScanner::scanLinks($html) as $link ) {
-            $tag = $link['tag'];
-            if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute((string) $tag, 'rel')) || ! StyleTagScanner::isCssType($this->htmlAttribute((string) $tag, 'type')) ) {
-                continue;
-            }
-            $originalPath = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath, $files);
-            if ( '' === $originalPath || ! isset($byPath[$originalPath]) || 'css' !== ($files[$byPath[$originalPath]]['kind'] ?? '') ) {
-                continue;
-            }
-            $occurrences[$originalPath] = ($occurrences[$originalPath] ?? 0) + 1;
-            $occurrence = $occurrences[$originalPath];
-            $media = $this->htmlAttribute((string) $tag, 'media');
-            $type = $this->htmlAttribute((string) $tag, 'type');
-            $state = $activation[$link['offset']];
-            $variant = $media . "\0" . $type . "\0" . json_encode($state);
-            if ( 1 === $occurrence ) {
-                $files[$byPath[$originalPath]]['media'] = $media;
-                if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $files[$byPath[$originalPath]]['source_media'] = StyleTagScanner::authorMedia($tag);
-                $files[$byPath[$originalPath]]['type'] = $type;
-                $files[$byPath[$originalPath]]['stylesheet_activation'] = $state;
-                $files[$byPath[$originalPath]]['stylesheet_source_path'] = $originalPath;
-                $files[$byPath[$originalPath]]['stylesheet_occurrence'] = 1;
-                $variants[$originalPath][$variant] = true;
-                continue;
-            }
-            // Repeating one stylesheet under the same conditions applies it
-            // once, exactly as a browser resolves it. Only a differing media or
-            // type or activation makes a later reference its own participant.
-            if ( isset($variants[$originalPath][$variant]) ) {
-                continue;
-            }
-            $variants[$originalPath][$variant] = true;
-            $alias = $this->allocateStylesheetOccurrencePath($this->stylesheetOccurrencePath($originalPath, $occurrence), $reserved);
-            $aliasFile = $files[$byPath[$originalPath]];
-            $aliasFile['path'] = $alias;
-            $aliasFile['source'] = 'stylesheet-occurrence';
-            $aliasFile['source_path'] = $originalPath;
-            $aliasFile['stylesheet_source_path'] = $originalPath;
-            $aliasFile['stylesheet_occurrence'] = $occurrence;
-            $aliasFile['media'] = $media;
-            if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $aliasFile['source_media'] = StyleTagScanner::authorMedia($tag);
-            $aliasFile['type'] = $type;
-            $aliasFile['stylesheet_activation'] = $state;
-            $aliasFile['provenance']['source_path'] = $originalPath;
-            $files[] = $aliasFile;
-            $byPath[$alias] = count($files) - 1;
-        }
-        return $files;
-    }
-
-    /**
      * Carry linked stylesheet media metadata from every page into the site
      * asset set. Per-page CSS analysis sees link media directly; the global
      * WordPress asset plan is built later from file records and otherwise loses
@@ -2072,7 +2107,7 @@ final class ArtifactCompiler
      */
     private function withStylesheetMediaForDocuments(array $files): array
     {
-        $files = self::withoutStylesheetOccurrenceRecords($files);
+        $uniformMedia = $this->documentLinkMedia($files);
         $initialCount = count($files);
         $byPath = array();
         $reserved = array();
@@ -2087,6 +2122,7 @@ final class ArtifactCompiler
         $variants = array();
         /** @var array<string,int> $occurrences */
         $occurrences = array();
+
         foreach ( array_slice($files, 0, $initialCount) as $document ) {
             if ( 'html' !== ($document['kind'] ?? null) || ! is_string($document['path'] ?? null) || ! is_string($document['content'] ?? null) ) continue;
             $documentPath = $document['path'];
@@ -2098,11 +2134,8 @@ final class ArtifactCompiler
                 $sourcePath = $this->stylesheetPathFromHref($this->htmlAttribute($tag, 'href'), $documentPath, $files);
                 $index = $byPath[$sourcePath] ?? null;
                 if ( ! is_int($index) || 'css' !== ($files[$index]['kind'] ?? null) ) continue;
-                $media = trim($this->htmlAttribute($tag, 'media'));
-                if ( '' === $media ) $media = trim((string) ($files[$index]['media'] ?? ''));
-                $type = trim($this->htmlAttribute($tag, 'type'));
                 $state = $activation[$link['offset']];
-                $variant = $media . "\0" . $type . "\0" . json_encode($state);
+                $variant = json_encode($state);
                 $reference = array(
                     'source_path' => $documentPath,
                     'selector' => 'link:nth-of-type(' . ($linkIndex + 1) . ')',
@@ -2112,14 +2145,17 @@ final class ArtifactCompiler
                     'url' => $this->htmlAttribute($tag, 'href'),
                 );
                 if ( isset($variants[$sourcePath][$variant]) ) {
-                    $variantPath = $variants[$sourcePath][$variant];
-                    $variantIndex = $byPath[$variantPath] ?? null;
+                    $variantIndex = $byPath[$variants[$sourcePath][$variant]] ?? null;
                     if ( is_int($variantIndex) ) {
                         $files[$variantIndex]['references'] = array_values(array_unique(array_merge($files[$variantIndex]['references'] ?? array(), array($reference)), SORT_REGULAR));
                     }
                     continue;
                 }
-
+                // Media and type belong to link instances, never to URI aliases.
+                // Every accepted CSS link type is equivalent, so the resource
+                // records the first instance's declared type as metadata.
+                $media = $uniformMedia[$sourcePath] ?? ($files[$index]['media'] ?? '');
+                $type = $files[$index]['type'] ?? trim($this->htmlAttribute($tag, 'type'));
                 if ( ! isset($variants[$sourcePath]) ) {
                     $variants[$sourcePath][$variant] = $sourcePath;
                     $files[$index]['media'] = $media;
@@ -2133,6 +2169,9 @@ final class ArtifactCompiler
                     continue;
                 }
 
+                // A differing stylesheet-set activation is a different member of
+                // the document's stylesheet sets, delivered with its own link
+                // attributes, so it keeps its own resource.
                 $occurrence = ++$occurrences[$sourcePath];
                 $alias = $this->allocateStylesheetOccurrencePath($this->stylesheetOccurrencePath($sourcePath, $occurrence), $reserved);
                 $aliasFile = $files[$index];
@@ -2142,6 +2181,7 @@ final class ArtifactCompiler
                 $aliasFile['stylesheet_source_path'] = $sourcePath;
                 $aliasFile['stylesheet_occurrence'] = $occurrence;
                 $aliasFile['media'] = $media;
+                unset($aliasFile['source_media']);
                 if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $aliasFile['source_media'] = StyleTagScanner::authorMedia($tag);
                 $aliasFile['type'] = $type;
                 $aliasFile['stylesheet_activation'] = $state;
@@ -2624,7 +2664,7 @@ final class ArtifactCompiler
             // entry-annotated file set and would be dropped from its cascade.
             // Staged compilation annotates each page from its own source; the
             // whole-artifact driver does the same so both see one conversion.
-            $documentFiles = $this->withStylesheetOccurrenceAssets((string) ($file['content'] ?? ''), $path, self::withoutStylesheetOccurrenceRecords($files));
+            $documentFiles = $files;
             $this->indexFiles($documentFiles);
             $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $documentFiles, 'artifact-document', $generatedBlockNamespace, true, $runtimeDeclarations);
         }
@@ -2738,15 +2778,11 @@ final class ArtifactCompiler
      *
      * @param array<int, array<string, mixed>> $files
      */
-    private function themeStaticCss(array $files, bool $includeNavigationCompat = true): string
+    private function themeStaticCss(array $files): string
     {
-		$cacheKey = $includeNavigationCompat ? 'with-compat' : 'without-compat';
+		$cacheKey = 'authored';
 		if ( array_key_exists($cacheKey, $this->themeStaticCssCache) ) {
 			return $this->themeStaticCssCache[$cacheKey];
-		}
-		if ( $includeNavigationCompat ) {
-			$css = $this->themeStaticCss($files, false);
-			return $this->themeStaticCssCache[$cacheKey] = $css . $this->wordpressCompat->css($css, $files, $this->allScriptContents($files));
 		}
         $blocks = array();
         foreach ( $files as $file ) {
@@ -3887,8 +3923,7 @@ final class ArtifactCompiler
                 $css .= ('' === $css ? '' : "\n") . $asset['content'];
             }
         }
-        $staticCss = $this->themeStaticCss($files, false);
-        $navigationCompatCss = $this->wordpressCompat->css($staticCss, $files, $this->allScriptContents($files));
+        $navigationCompatCss = implode("\n", array_column(array_filter($assets, static fn(array $asset): bool => 'wordpress-compat' === ($asset['source'] ?? '')), 'content'));
         if ( '' !== $navigationCompatCss ) {
             $css .= ('' === $css ? '' : "\n") . $navigationCompatCss;
         }
@@ -4244,6 +4279,8 @@ final class ArtifactCompiler
                     'references'       => $asset['references'] ?? array(),
                     'compilation'      => 'css' === ($asset['kind'] ?? null) ? ($asset['compilation'] ?? null) : null,
                     'stylesheet_link_position' => 'css' === ($asset['kind'] ?? null) && is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null,
+                    'stylesheet_parent' => $asset['stylesheet_parent'] ?? null,
+                    'stylesheet_inline_order' => $asset['stylesheet_inline_order'] ?? null,
                 ),
                 static fn (mixed $value, string $key): bool => (in_array($key, array('content', 'source_media'), true) && is_string($value)) || (null !== $value && '' !== $value),
                 ARRAY_FILTER_USE_BOTH
@@ -4516,7 +4553,7 @@ final class ArtifactCompiler
             }
             if ( isset($file['media']) && is_scalar($file['media']) && '' !== trim((string) $file['media']) ) {
                 $asset['media'] = (string) $file['media'];
-            } elseif ( ! isset($file['stylesheet_occurrence']) && isset($documentLinkMedia[$file['path']]) ) {
+            } elseif ( isset($documentLinkMedia[$file['path']]) ) {
                 // Only the entry document annotates the site-wide file set. A
                 // stylesheet linked solely from other pages keeps the media
                 // every linking page gives it, or it would apply at all widths.
@@ -4534,6 +4571,8 @@ final class ArtifactCompiler
                 if ( is_int($file['stylesheet_link_position'] ?? null) ) {
                     $asset['stylesheet_link_position'] = $file['stylesheet_link_position'];
                 }
+                if (is_string($file['metadata']['page_stylesheet_of'] ?? null)) $asset['stylesheet_parent'] = $file['metadata']['page_stylesheet_of'];
+                if (is_int($file['stylesheet_index'] ?? null)) $asset['stylesheet_inline_order'] = $file['stylesheet_index'];
             }
             foreach ( array('defer', 'async') as $field ) {
                 if ( isset($file[$field]) ) {

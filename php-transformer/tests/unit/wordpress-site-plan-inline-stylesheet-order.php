@@ -51,8 +51,11 @@ foreach ($plan['assets'] as $asset) {
 // Enqueue targets for one route, in bootstrap order.
 $routeEnqueues = static function (string $needle) use ($bootstrap): array {
     $targets = array();
+    $inRoute = false;
     foreach (explode("\n", $bootstrap) as $line) {
-        if (str_contains($line, $needle) && str_contains($line, 'wp_enqueue_style(') && preg_match("/get_theme_file_uri\\( '([^']+)' \\)/", $line, $match)) $targets[] = $match[1];
+        if (str_starts_with($line, '    if ( ') && str_ends_with($line, ' ) {') && str_contains($line, $needle)) { $inRoute = true; continue; }
+        if ($inRoute && '    }' === $line) { $inRoute = false; continue; }
+        if ($inRoute && preg_match("/wp_enqueue_style\\( '[^']+', get_theme_file_uri\\( '([^']+)' \\)/", $line, $match)) $targets[] = $match[1];
     }
     return $targets;
 };
@@ -63,7 +66,7 @@ $position = static function (array $targets, callable $matches): int {
 $containing = static fn(string $needle): callable => static fn(string $target): bool => str_contains($contents[$target] ?? '', $needle);
 $named = static fn(string $name): callable => static fn(string $target): bool => str_ends_with($target, '/' . $name);
 
-foreach (array('home' => 'if ( is_front_page() ) wp_enqueue_style(', 'post' => "'post' === trim( get_page_uri( get_queried_object_id() ), '/'") as $route => $needle) {
+foreach (array('home' => 'if ( is_front_page() ) {', 'post' => "'post' === trim( get_page_uri( get_queried_object_id() ), '/'") as $route => $needle) {
     $targets = $routeEnqueues($needle);
     $base = $position($targets, $named('base.css'));
     $inline = $position($targets, $containing('padding:56px'));
