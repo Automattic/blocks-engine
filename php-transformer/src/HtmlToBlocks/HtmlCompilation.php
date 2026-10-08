@@ -697,7 +697,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return $this->layoutShellBlockForElements($elements, $innerBlocks, $sourceElement);
             },
             fn (): array => $this->authorStyles()->stylesheetAssets(),
-            fn (): string => $this->sourceStyles()->formLayoutCss()
+            fn (): string => $this->sourceStyles()->formLayoutCss(),
+            function (DOMElement $element, array &$fallbacks): array {
+                $block = $this->convertElement($element, $fallbacks);
+                return null === $block ? array() : array( $block );
+            }
         );
         $this->nativeGetFormBlockBuilder = new NativeGetFormBlockBuilder(
             function (DOMElement $element, array &$fallbacks): array {
@@ -751,7 +755,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (DOMElement $element, ?array $readableFormBlock): void {
                 $this->formRuntimeIslandRecorder->recordForm($element, $readableFormBlock);
             },
-            fn (DOMElement $element, bool $allowFormEvents = false): ?array => $this->readableFormBlockBuilder->build($element, $allowFormEvents),
+            function (DOMElement $element, bool $allowFormEvents, array &$fallbacks): ?array {
+                return $this->readableFormBlockBuilder->build($element, $allowFormEvents, $fallbacks);
+            },
             fn (DOMElement $element): bool => $this->formRuntimeRequirementAnalyzer->requiresPreservation($element),
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
             fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isPseudoForm($element)
