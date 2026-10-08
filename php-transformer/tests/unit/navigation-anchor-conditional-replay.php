@@ -63,7 +63,7 @@ $listScoped = $compat(
     . '@media screen and (min-width:1025px){body.menu-ready .desktop-nav ul.site-menu>li a{font-family:Montserrat;padding-bottom:7px}}'
 );
 $assert(! str_contains($listScoped, 'li.wp-block-navigation'), 'a conditional list selector never fuses the navigation class onto the list item');
-$assert(! str_contains($anchorSection($listScoped), 'site-menu'), 'a conditional list selector is left to the structure pass');
+$assert(str_contains($listScoped, 'site-menu.wp-block-navigation .wp-block-navigation__container'), 'a conditional list selector addresses the list container in the unified source-order projection');
 
 // A group whose rules map to nothing emits no empty group.
 $unrelated = $anchorSection($compat('.card{color:#222}@media (max-width:40rem){.card{color:#333}}'));

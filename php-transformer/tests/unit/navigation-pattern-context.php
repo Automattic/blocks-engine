@@ -50,7 +50,7 @@ $assert(false === $context->isHiddenAtReferenceViewport($nav), 'null style resol
 $assert(array() === $context->colorInteractionStates($nav), 'null style projector yields no color states');
 $assert('' === $context->responsiveToggleMarker($nav), 'null projected navigation yields no toggle marker');
 $assert('' === $context->linkIconMarker($anchor), 'null svg materializer yields no link icon');
-$assert(array() === $context->labelPresentationMarkers($nav), 'null session yields no label markers');
+$assert(array() === $context->sourcePresentationMarkers($nav), 'null session yields no source presentation markers');
 $assert('' === $context->underlineColor($nav, $anchor), 'null style resolver yields no underline color');
 
 $state = new SourceTargetProjectionState();
