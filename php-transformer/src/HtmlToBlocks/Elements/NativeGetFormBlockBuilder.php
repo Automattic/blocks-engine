@@ -8,7 +8,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredNativeFormBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Closure;
 use DOMElement;
 
@@ -50,7 +49,7 @@ final class NativeGetFormBlockBuilder
         $registry->register(AuthoredNativeFormBlockGenerator::class, $generator->definition($registry->namespace()));
         $attrs = array_filter(array_merge(($this->presentationAttributes)($form), array(
             'action' => SourceDom::attr($form, 'action'),
-            'method' => strtolower(trim(SourceDom::attr($form, 'method'))) ?: 'get',
+            'method' => 'get',
             'methodDeclared' => $form->hasAttribute('method'),
             'id' => SourceDom::attr($form, 'id'),
             'name' => SourceDom::attr($form, 'name'),
@@ -65,20 +64,18 @@ final class NativeGetFormBlockBuilder
 
     private function isSafeNativeGetForm(DOMElement $form): bool
     {
-        $typed = false;
-        foreach ($form->getElementsByTagName('*') as $control) if ($control instanceof DOMElement && null !== NativeControlState::attributes($control)) $typed = true;
         if ('' !== trim(SourceDom::attr($form, 'data-blocks-engine-runtime-form-owner'))) {
             return false;
         }
         $method = strtolower(trim(SourceDom::attr($form, 'method')));
-        if ( ('' !== $method && 'get' !== $method && (!$typed || !in_array($method, array('post', 'dialog'), true))) || 0 < $form->getElementsByTagName('script')->length ) {
+        if ( '' !== $method && 'get' !== $method || 0 < $form->getElementsByTagName('script')->length ) {
             return false;
         }
         $action = trim(SourceDom::attr($form, 'action'));
         // The browser's default GET is not enough evidence that a captured
         // form is a search/filter workflow. Keep unspecified forms available
         // for provider materialization, where their submission handler lives.
-        if ( '' === $method && '' === $action && !$typed ) {
+        if ( '' === $method && '' === $action ) {
             // An unnamed choice-only fragment has local native state but no
             // successful controls or source submit. Preserve that exact form;
             // assigning a provider would invent submission chrome/semantics.
@@ -96,8 +93,8 @@ final class NativeGetFormBlockBuilder
             return false;
         }
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( ! in_array(strtolower($control->tagName), $typed ? array('input', 'select', 'textarea', 'button') : array( 'input', 'select', 'button' ), true)
-                || (! FormControlClassifier::isReadableControl($control) && null === NativeControlState::attributes($control))
+            if ( ! in_array(strtolower($control->tagName), array( 'input', 'select', 'button' ), true)
+                || ! FormControlClassifier::isReadableControl($control)
                 || $control->hasAttribute('formaction')
                 || $control->hasAttribute('formmethod')
                 || ( 'button' === strtolower($control->tagName) && $this->hasAnchorAncestor($control, $form) )

@@ -312,7 +312,9 @@ final class AuthoredFormControlBlockConverter
             'name' => SourceDom::attr($textarea, 'name'),
             'form' => SourceDom::attr($textarea, 'form'),
             'dataAttributes' => null !== $state ? $this->dataAttributes($textarea) : array(),
-            'value' => $textarea->textContent ?? '',
+            // libxml keeps the newline that the HTML parser drops right after
+            // `<textarea>`; the model holds the browser's default value.
+            'value' => preg_replace('/^(?:\r\n?|\n)/', '', $textarea->textContent ?? '', 1),
             'placeholder' => SourceDom::attr($textarea, 'placeholder'),
             'ariaLabel' => SourceDom::attr($textarea, 'aria-label'),
             'className' => SourceDom::attr($textarea, 'class'),
@@ -327,7 +329,7 @@ final class AuthoredFormControlBlockConverter
             'labelMarkup' => $label instanceof DOMElement ? ($this->richTextLabelContent)($label) : '',
             'labelClassName' => $label instanceof DOMElement ? SourceDom::attr($label, 'class') : '',
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
-        ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $attrs = array_replace($attrs, $state ?? array());
         $markup = $generator->markup($attrs);
 

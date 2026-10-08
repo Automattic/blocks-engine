@@ -27,6 +27,13 @@ final class NativeControlState
         return $html;
     }
 
+    /** Validated producer facts for consumers that receive control metadata, such as form providers.
+     * @return array<string,mixed>|null */
+    public static function payload(DOMElement $control): ?array
+    {
+        return null === self::attributes($control) ? null : json_decode($control->getAttribute(self::ATTRIBUTE), true);
+    }
+
     /** @return array<string,mixed>|null */
     public static function attributes(DOMElement $control): ?array
     {
@@ -41,12 +48,15 @@ final class NativeControlState
                 || !self::keys($state, array('version', 'kind', 'type', 'value', 'defaultValue', 'checked', 'defaultChecked', 'indeterminate'))
                 || !is_string($state['value']) || !is_string($state['defaultValue']) || !is_bool($state['checked'])
                 || !is_bool($state['defaultChecked']) || !is_bool($state['indeterminate'])) return null;
-            return array('value' => $state['defaultValue'], 'checked' => $state['defaultChecked'],
-                'valueDeclared' => $control->hasAttribute('value'), 'initialValue' => $state['value'], 'initialChecked' => $state['checked'], 'indeterminate' => $state['indeterminate']);
+            $attributes = array('value' => $state['defaultValue'], 'checked' => $state['defaultChecked'],
+                'valueDeclared' => $control->hasAttribute('value'), 'indeterminate' => $state['indeterminate']);
+            // Current state the native markup already reproduces needs no payload.
+            if ($state['value'] === $state['defaultValue'] && $state['checked'] === $state['defaultChecked'] && !$state['indeterminate']) return $attributes;
+            return $attributes + array('initialValue' => $state['value'], 'initialChecked' => $state['checked']);
         }
         if ('textarea' === $tag && 'textarea' === $kind && self::keys($state, array('version', 'kind', 'value', 'defaultValue'))
             && is_string($state['value']) && is_string($state['defaultValue'])) {
-            return array('value' => $state['defaultValue'], 'initialValue' => $state['value']);
+            return $state['value'] === $state['defaultValue'] ? array('value' => $state['defaultValue']) : array('value' => $state['defaultValue'], 'initialValue' => $state['value']);
         }
         if ('select' !== $tag || 'select' !== $kind || !self::keys($state, array('version', 'kind', 'options'))
             || !is_array($state['options']) || !array_is_list($state['options'])

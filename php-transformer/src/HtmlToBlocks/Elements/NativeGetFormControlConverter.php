@@ -83,7 +83,6 @@ final class NativeGetFormControlConverter implements ElementConverter
         if ( 'input' === $tagName ) {
             return $this->authoredFormControlBlockConverter->input($element, $element->hasAttribute(NativeControlState::ATTRIBUTE) ? null : $this->formControlMetadataBuilder->associatedLabel($element), false, true);
         }
-        if ('textarea' === $tagName) return $this->authoredFormControlBlockConverter->textarea($element, $this->formControlMetadataBuilder->associatedLabel($element), true);
         if ( 'select' === $tagName ) {
             return $this->authoredFormControlBlockConverter->select($element, true, $this->formControlMetadataBuilder->associatedLabel($element));
         }

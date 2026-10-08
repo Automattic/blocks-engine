@@ -14,7 +14,7 @@ assert.ok(evidence && site && wpUrl, 'isolated WordPress path, URL and evidence 
 await mkdir(evidence, {recursive: true});
 const css = '.control-scope label{font:400 16px/24px sans-serif;color:black}.control-scope input:checked+label{font-weight:600}.control-scope input:default+label{color:red}.control-scope input:placeholder-shown{background:rgb(220,230,240)}.control-scope option{color:black}.control-scope option:default{color:red}';
 const source = `<!doctype html><meta charset="utf-8"><style>${css}</style><main class="control-scope">
-<form id="first">
+<form id="first" action="/search">
 <input id="on" type="checkbox" data-passive="choice"><label for="on" data-label="passive">Selected</label>
 <input id="off" type="checkbox" checked><label for="off">Unselected</label>
 <input id="radio-a" type="radio" name="shared" checked><label for="radio-a">Alpha</label>
@@ -22,16 +22,16 @@ const source = `<!doctype html><meta charset="utf-8"><style>${css}</style><main 
 <input id="text" value="Default β" placeholder="Value">
 <input id="empty" value="Default" placeholder="Empty" readonly>
 <input id="disabled" value="Default" disabled><input id="number" type="number" value="1">
-<input id="file" type="file"><input id="hidden" type="hidden" value="default">
+<input id="hidden" type="hidden" value="default">
 <input id="invalid" type="checkbox"><label for="invalid">Invalid payload</label>
-<textarea id="textarea" placeholder="Message">Default</textarea>
 <select id="select"><optgroup label="Group β"><option selected> Alpha β </option><option value="beta">Beta 🐴</option></optgroup><optgroup label="Group γ" disabled><option>Disabled group</option></optgroup><option value="">Empty</option></select><label for="select" data-caption="select">Select caption</label>
 <select id="multiple" multiple><option selected>A</option><option>B</option><option selected>C</option></select>
 <select id="none"><option selected>A</option><option>B</option></select>
 <button type="reset">Reset</button></form>
-<form id="second"><input id="other-radio" type="radio" name="shared" checked><label for="other-radio">Other owner</label><input id="unowned-radio" type="radio" name="shared" checked data-unowned="yes"></form>
+<input id="file" type="file" form="first"><textarea id="textarea" form="first" placeholder="Message">Default</textarea>
+<form id="second" action="/search"><input id="other-radio" type="radio" name="shared" checked><label for="other-radio">Other owner</label><input id="unowned-radio" type="radio" name="shared" checked data-unowned="yes"></form>
 <input id="external" type="checkbox" form="first"><label for="external">External owner</label>
-<form id="choice-form"><div id="choices" data-blocks-engine-choice-group="true"><input id="choice-a" type="radio" name="choice"><label for="choice-a">Choice A</label><input id="choice-b" type="radio" name="choice"><label for="choice-b">Choice B</label></div></form>
+<form id="choice-form" action="/filter"><div id="choices" data-blocks-engine-choice-group="true"><input id="choice-a" type="radio" name="choice"><label for="choice-a">Choice A</label><input id="choice-b" type="radio" name="choice"><label for="choice-b">Choice B</label></div></form>
 </main><script>
 window.sourceExecuted=true;
 document.getElementById('on').checked=true;
@@ -171,7 +171,7 @@ add_action('wp_enqueue_scripts',static function(){wp_enqueue_style('native-contr
     await writeFile(join(evidence,'immutable-codebase.json'),JSON.stringify({unchanged:true,sha256:initialHashes},null,2));
     assert.deepEqual(errors,[],'owned WordPress browser/editor code has no uncaught errors');
     await writeFile(join(evidence,'browser-errors.json'),JSON.stringify(errors));
-    await writeFile(join(evidence,'acceptance-summary.json'),JSON.stringify({pass:true,sourceShutDown:serverClosed,controls:baseline.length,widths:[390,768,1440],invalidSourcePayloads:1,invalidViewPayloads:3,resetForms:3,registeredEditorEdits:4,validBlocks,immutableCodebase:true,declaredFiles:codeFiles.length,generatedBlockNames:payload.blocks.map(block=>block.block_json.name)},null,2));
+    await writeFile(join(evidence,'acceptance-summary.json'),JSON.stringify({pass:true,sourceShutDown:serverClosed,controls:baseline.length,widths:[390,768,1440],invalidSourcePayloads:1,invalidViewPayloads:3,resetForms:3,registeredEditorEdits:5,validBlocks,immutableCodebase:true,declaredFiles:codeFiles.length,generatedBlockNames:payload.blocks.map(block=>block.block_json.name)},null,2));
     console.log('PASS: closed-source WordPress native properties/defaults/CSS/reset/label/group ownership and registered editor save/reopen');
 } finally {if(!serverClosed){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}await browser.close();}
 
@@ -197,7 +197,12 @@ async function editorProof(page,postId,cli){
             field.props.onChange(id==='on'?true:id==='select'?'a|Alpha\nb|Beta|selected':'Edited café 🐴');
             wp.data.dispatch('core/block-editor').updateBlockAttributes(block.clientId,attrs);
         }
-        return flat(wp.data.select('core/block-editor').getBlocks()).filter(block=>['on','text','textarea','select'].includes(block.attributes.id)).map(block=>({name:block.name,attrs:block.attributes}));
+        // Radio edits go through the real store so same-owner peers are cleared by the registered editor.
+        const radio=nodes.find(block=>block.attributes.id==='radio-a');
+        const radioType=wp.blocks.getBlockType(radio.name).edit({clientId:radio.clientId,name:radio.name,attributes:radio.attributes,setAttributes:next=>wp.data.dispatch('core/block-editor').updateBlockAttributes(radio.clientId,next)});
+        const findToggle=node=>{if(!node||typeof node!=='object')return null;if(node.props?.onChange&&node.props?.label==='Default checked')return node;for(const child of [].concat(node.props?.children||[])){const hit=findToggle(child);if(hit)return hit;}return null;};
+        findToggle(radioType).props.onChange(true);
+        return flat(wp.data.select('core/block-editor').getBlocks()).filter(block=>['on','text','textarea','select','radio-a','radio-b','other-radio'].includes(block.attributes.id)).map(block=>({name:block.name,attrs:block.attributes}));
     });
     await writeFile(join(evidence,'editor-changes.json'),JSON.stringify(changed,null,2));
     await page.evaluate(async()=>{await wp.data.dispatch('core/editor').savePost();});
@@ -211,12 +216,16 @@ async function editorProof(page,postId,cli){
     assert.equal(byId.on.checked,true);assert.equal(byId.on.initialChecked,true);
     for(const id of ['text','textarea']){assert.equal(byId[id].value,'Edited café 🐴');assert.equal(byId[id].initialValue,'Edited café 🐴');}
     assert.deepEqual(byId.select.options.map(option=>[option.selected,option.initialSelected]),[[false,false],[true,true]]);
+    assert.deepEqual([byId['radio-a'].checked,byId['radio-a'].initialChecked,byId['radio-b'].checked,byId['radio-b'].initialChecked],[true,true,false,false],'edited radio wins its same-owner group on reopen');
+    assert.equal(byId['other-radio'].checked,true,'radio in another form owner keeps its default');
     const persisted=cli(['post','get',String(postId),'--field=post_content']);await writeFile(join(evidence,'persisted-blocks.html'),persisted);
     await page.goto(`${wpUrl}/?page_id=${postId}`,{waitUntil:'networkidle'});
     assert.equal(await page.locator('#on').isChecked(),true);assert.equal(await page.locator('#on').evaluate(node=>node.defaultChecked),true);
     assert.equal(await page.locator('#text').inputValue(),'Edited café 🐴');assert.equal(await page.locator('#textarea').inputValue(),'Edited café 🐴');
     assert.equal(await page.locator('#select').inputValue(),'b');
+    assert.deepEqual(await page.evaluate(()=>['radio-a','radio-b','other-radio'].map(id=>[document.getElementById(id).checked,document.getElementById(id).defaultChecked])),[[true,true],[false,false],[false,true]],'edited radio wins on the frontend');
     await page.evaluate(()=>document.getElementById('first').reset());
     assert.equal(await page.locator('#on').isChecked(),true);assert.equal(await page.locator('#text').inputValue(),'Edited café 🐴');assert.equal(await page.locator('#select').inputValue(),'b');
+    assert.equal(await page.locator('#radio-a').isChecked(),true,'edited radio remains the reset default');
     return validation.length;
 }

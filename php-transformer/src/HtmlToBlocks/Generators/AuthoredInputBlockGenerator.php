@@ -50,7 +50,28 @@ __CONTROL_HELPERS__
     function edit(props){
         var attrs=props.attributes;
         function valueEdit(value){props.setAttributes({value:value,initialValue:value,valueDeclared:true});}
-        function checkedEdit(checked){props.setAttributes({checked:checked,initialChecked:checked,indeterminate:false});}
+        function checkedEdit(checked){props.setAttributes({checked:checked,initialChecked:checked,indeterminate:false});if(checked&&attrs.type==='radio')clearRadioPeers();}
+        function radioOwner(clientId,blockAttrs){
+            if(blockAttrs.form)return 'id:'+blockAttrs.form;
+            var store=window.wp.data.select('core/block-editor'),parents=store.getBlockParents(clientId)||[];
+            for(var index=parents.length-1;index>=0;index--){
+                if(!/\/authored-native-form$/.test(store.getBlockName(parents[index])||''))continue;
+                var form=store.getBlockAttributes(parents[index])||{};
+                return form.id?'id:'+form.id:'block:'+parents[index];
+            }
+            return 'document';
+        }
+        function clearRadioPeers(){
+            // A radio group has one checked control per form owner; the edited one wins.
+            if(!attrs.name||!props.clientId||!window.wp.data)return;
+            var store=window.wp.data.select('core/block-editor'),owner=radioOwner(props.clientId,attrs);
+            store.getClientIdsWithDescendants().forEach(function(clientId){
+                if(clientId===props.clientId||store.getBlockName(clientId)!=='__BLOCK_NAME__')return;
+                var peer=store.getBlockAttributes(clientId)||{};
+                if(peer.type!=='radio'||peer.name!==attrs.name||!(peer.checked||initialChecked(peer))||radioOwner(clientId,peer)!==owner)return;
+                window.wp.data.dispatch('core/block-editor').updateBlockAttributes(clientId,{checked:false,initialChecked:false,indeterminate:false});
+            });
+        }
         var input=createElement('input',Object.assign({type:attrs.type||'text',id:attrs.id||undefined,name:attrs.name||undefined,form:attrs.form||undefined,
             value:attrs.type==='file'?undefined:initialValue(attrs),checked:initialChecked(attrs),placeholder:attrs.placeholder||undefined,'aria-label':attrs.ariaLabel||undefined,
             className:attrs.className||undefined,style:styleObject(attrs.style),min:attrs.min||undefined,max:attrs.max||undefined,step:attrs.step||undefined,
@@ -103,7 +124,7 @@ JS;
     public function definition(string $namespace): array
     {
         return array('name' => self::LOCAL_NAME, 'block_json' => $this->blockJson($namespace),
-            'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text')),
+            'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-components', 'wp-data', 'wp-element', 'wp-rich-text')),
             'assets' => $this->assets($namespace), 'view_js' => AuthoredControlState::viewScript());
     }
 }

@@ -15,7 +15,10 @@ authored block attributes. Malformed/unknown facts do not drive properties.
   native form ownership. File blocks retain type `file` and never restore files.
 - Authored textarea `value` retains the exact reset default; optional
   `initialValue` retains the exact current string, including leading LF and
-  Unicode. Textarea serialization protects the HTML parser's initial-LF rule.
+  Unicode. Untyped source text drops the one leading LF the HTML parser ignores,
+  and serialization re-adds a guard LF only for a value that starts with LF.
+- Current state equal to the default (and not indeterminate) emits no payload for
+  inputs and textareas; the native markup already reproduces it.
 - Authored select's existing ordered `options[].selected` remains the default;
   optional `initialSelected` is current selection. `multiple`, optgroups,
   disabled group semantics and implicit option values are retained. Zero current
@@ -23,8 +26,11 @@ authored block attributes. Malformed/unknown facts do not drive properties.
 
 Registered editor previews use initial properties and preserve reset defaults.
 Editing a preview value/selection or an Inspector default updates the editable
-default and initial representation together. Other edits retain captured
-disagreement. Save/reopen emits state from the edited model, without a stale
+default and initial representation together. Checking a radio clears the default
+and current checked state of same-name radio blocks with the same form owner
+(`form` attribute, nearest authored-native-form, or document) through the
+block-editor store, so the edit wins on save, frontend and reopen. Other edits
+retain captured disagreement. Save/reopen emits state from the edited model, without a stale
 producer payload hidden in passive data attributes.
 
 Explicit associated labels remain independent native hosts with their source
@@ -51,11 +57,14 @@ subsequent behavior. Fresh transition nodes are initialized through the same
 codec in the existing captured-choice-group view path. Its typed `selected`
 booleans apply current checked properties, not default attributes.
 
-Native forms carrying valid baseline facts reuse the authored-native-form
-builder, preserving omitted/GET/POST/dialog methods and form IDs rather than
-losing reset/radio ownership to a readable approximation. Explicit provider-owned
-form contracts retain their owning boundary. This state contract does not
-implement an arbitrary source application's submission behavior.
+Typed state never changes form admission. A form becomes authored-native-form
+only on its submission semantics (explicit GET method or action, supported
+controls), exactly as for untyped markup. POST, dialog and unspecified forms stay
+available to provider materialization; each provider control carries its
+validated producer facts as `native_state`. Typed controls inside admitted forms,
+or outside any form (including `form=` owned controls), lower to native authored
+controls. This state contract does not implement an arbitrary source
+application's submission behavior.
 
 ## Proof and consumer boundary
 
