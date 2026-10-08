@@ -3890,7 +3890,7 @@ PHP;
         if ('global' === ($scope['kind'] ?? null)) return 'true';
         if (!empty($scope['front_page'])) return 'is_front_page()';
         if ('post' === ($scope['kind'] ?? null)) return "is_singular( 'post' ) && " . var_export($scope['reconciliation_identity'], true) . " === get_post_meta( get_queried_object_id(), '_blocks_engine_reconciliation_identity', true )";
-        return 'is_page() && ' . var_export($scope['route_path'], true) . " === trim( get_page_uri( get_queried_object_id() ), '/' )";
+        return "is_page() && ( '' !== ( \$blocks_engine_page_identity = get_post_meta( get_queried_object_id(), '_blocks_engine_reconciliation_identity', true ) ) ? " . var_export($scope['reconciliation_identity'], true) . " === \$blocks_engine_page_identity : " . var_export($scope['route_path'], true) . " === trim( get_page_uri( get_queried_object_id() ), '/' ) )";
     }
     private static function assertAssetScopes(mixed $scopes): void
     {
