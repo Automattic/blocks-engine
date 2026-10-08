@@ -76,6 +76,7 @@
       "php tests/contract/data-attribute-grid-projection.php",
       "php tests/contract/finding-contract.php",
       "php tests/contract/wordpress-site-plan.php",
+      "php tests/contract/frontend-page-identity-scope.php",
       "php tests/contract/document-body-context.php",
       "php tests/contract/inert-document-declarations.php",
       "php tests/contract/document-head-runtime.php",

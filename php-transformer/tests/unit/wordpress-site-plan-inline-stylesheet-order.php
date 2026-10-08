@@ -49,10 +49,10 @@ foreach ($plan['assets'] as $asset) {
 }
 
 // Enqueue targets for one route, in bootstrap order.
-$routeEnqueues = static function (string $condition) use ($bootstrap): array {
+$routeEnqueues = static function (string $needle) use ($bootstrap): array {
     $targets = array();
     foreach (explode("\n", $bootstrap) as $line) {
-        if (str_contains($line, 'if ( ' . $condition . ' ) wp_enqueue_style(') && preg_match("/get_theme_file_uri\\( '([^']+)' \\)/", $line, $match)) $targets[] = $match[1];
+        if (str_contains($line, $needle) && str_contains($line, 'wp_enqueue_style(') && preg_match("/get_theme_file_uri\\( '([^']+)' \\)/", $line, $match)) $targets[] = $match[1];
     }
     return $targets;
 };
@@ -63,8 +63,8 @@ $position = static function (array $targets, callable $matches): int {
 $containing = static fn(string $needle): callable => static fn(string $target): bool => str_contains($contents[$target] ?? '', $needle);
 $named = static fn(string $name): callable => static fn(string $target): bool => str_ends_with($target, '/' . $name);
 
-foreach (array('home' => 'is_front_page()', 'post' => "is_page() && 'post' === trim( get_page_uri( get_queried_object_id() ), '/' )") as $route => $condition) {
-    $targets = $routeEnqueues($condition);
+foreach (array('home' => 'if ( is_front_page() ) wp_enqueue_style(', 'post' => "'post' === trim( get_page_uri( get_queried_object_id() ), '/'") as $route => $needle) {
+    $targets = $routeEnqueues($needle);
     $base = $position($targets, $named('base.css'));
     $inline = $position($targets, $containing('padding:56px'));
     $responsive = $position($targets, $named('responsive.css'));
@@ -72,7 +72,7 @@ foreach (array('home' => 'is_front_page()', 'post' => "is_page() && 'post' === t
     $assert($base < $inline && $inline < $responsive, "{$route}: inline <style> is enqueued between the links that surround it", implode(' -> ', $targets));
 }
 
-$split = $routeEnqueues("is_page() && 'split' === trim( get_page_uri( get_queried_object_id() ), '/' )");
+$split = $routeEnqueues("'split' === trim( get_page_uri( get_queried_object_id() ), '/'");
 $before = $position($split, $containing('margin:8px'));
 $responsive = $position($split, $named('responsive.css'));
 $after = $position($split, $containing('margin:4px'));
