@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationOpenerPresentation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -29,7 +30,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         private readonly HtmlTransformerSession $session,
         private readonly Closure $recognizePatterns,
         private readonly SourceBlockCreator $createBlock,
-        private readonly ?Closure $isRuntimeDomTarget = null
+        private readonly ?Closure $isRuntimeDomTarget = null,
+        private readonly ?Closure $svgMarkup = null
     ) {
     }
 
@@ -69,6 +71,7 @@ final class ProjectedNavigationConverter implements ElementConverter
                     $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext())
                 );
                 $block['attrs']['overlayMenu'] = $this->navigationToggleSuppressor->projectedOverlayMenu($element);
+                $block['attrs'] = $this->withSourceOpener($block['attrs'], $projectedNavigation);
                 // The emitted navigation occupies the opener's layout slot.
                 // Its hidden-state provenance must belong to that control,
                 // rather than to the source panel it now opens natively.
@@ -121,6 +124,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         $sourceDeclarations = $this->styleResolver->resolvedPresentationDeclarations($toggle);
+        $presentation = new NavigationOpenerPresentation($this->styleResolver, $this->svgMarkup);
+        $source = $presentation->source($toggle);
         $declarations = array();
         $hasUsableWidth = false;
         $hasUsableHeight = false;
@@ -156,13 +161,13 @@ final class ProjectedNavigationConverter implements ElementConverter
                 $declarations[] = $property . ':' . $comparable . '!important';
             }
         }
-        if ( ! $hasUsableWidth ) {
+        if ( ! $hasUsableWidth && null === $source ) {
             $declarations[] = 'min-width:44px!important';
         }
-        if ( ! $hasUsableHeight ) {
+        if ( ! $hasUsableHeight && null === $source ) {
             $declarations[] = 'min-height:44px!important';
         }
-        if ( array() === $declarations ) {
+        if ( array() === $declarations && null === $source ) {
             return '';
         }
 
@@ -207,7 +212,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         // boundary instead; the boundary joins the marker hash so two menus
         // that differ only in where they collapse keep separate rules.
         $collapseBoundary = $always ? '' : $this->sourceCollapseBoundary($navigation, $toggle);
-        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary )), 0, 12);
+        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary )), 0, 12);
         $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.' . $marker;
         $hostRule = $host . '{' . implode(';', $this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement)) . '}';
         $openRule = $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $openDeclarations) . '}';
@@ -215,6 +220,15 @@ final class ProjectedNavigationConverter implements ElementConverter
             $openRule .= $this->nativeNavigationTogglePlacementEditorReset($host, $placement);
         }
         $extraRules = '';
+        if (null !== $source) {
+            $open = $host . '>.wp-block-navigation__responsive-container-open';
+            // Native defaults supply a different box; intrinsic source SVG
+            // sizing remains on the child, with margin/transform on the leaf
+            // button so Core's overlay does not gain a transformed ancestor.
+            $extraRules .= $open . '{min-width:0!important;min-height:0!important;padding:0!important;border:0!important;width:auto!important;height:auto!important}';
+            $extraRules .= $presentation->css($open, $source['button'], $toggle);
+            $extraRules .= $presentation->css($open . '>svg', $source['icon'], $toggle->getElementsByTagName('svg')->item(0));
+        }
         if ( str_contains($extra, 'SVG_HIDE') ) {
             $extraRules .= $host . '>.wp-block-navigation__responsive-container-open svg{display:none!important}';
         }
@@ -244,6 +258,16 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $this->session->generatedSupportStylesheetState()->registerNativeNavigationToggle($marker, $rule);
         return $marker;
+    }
+
+    /** @param array<string,mixed> $attrs @return array<string,mixed> */
+    public function withSourceOpener(array $attrs, DOMElement $navigation): array
+    {
+        $toggle = $this->navigationToggleSuppressor->navigationToggleControl($navigation);
+        if (!$toggle instanceof DOMElement) return $attrs;
+        $source = (new NavigationOpenerPresentation($this->styleResolver, $this->svgMarkup))->source($toggle);
+        if (null !== $source) $attrs['metadata'][NavigationOpenerPresentation::METADATA_KEY] = array('svg' => $source['artwork']);
+        return $attrs;
     }
 
     /**

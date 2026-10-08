@@ -3665,6 +3665,12 @@ PHP;
             $lines[] = "}, 10, 2 );";
         }
         $hasNavigationLink = false;
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineNavigationOpener')) {
+                $lines[] = NavigationOpenerRuntime::source();
+                break;
+            }
+        }
         foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
             $markup = (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? '');
             // Require the navigation container alongside a link, not merely the

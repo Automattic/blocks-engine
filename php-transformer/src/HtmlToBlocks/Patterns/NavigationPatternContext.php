@@ -402,6 +402,12 @@ final class NavigationPatternContext
         return $marker;
     }
 
+    /** @param array<string,mixed> $attrs @return array<string,mixed> */
+    public function withSourceOpener(array $attrs, DOMElement $element): array
+    {
+        return $this->projectedNavigation?->withSourceOpener($attrs, $element) ?? $attrs;
+    }
+
     /**
      * The gap the source placed between a leading icon and its label, read
      * from the nearest ancestor (up to the anchor) that declares one —

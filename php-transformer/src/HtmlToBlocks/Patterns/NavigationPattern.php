@@ -888,6 +888,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // matching nothing, regardless of whether the source menu itself was
         // list-based.
         $attrs = $this->withClassName($attrs, self::LIST_NAVIGATION_CLASS);
+        $attrs = $navigationContext?->withSourceOpener($attrs, $element) ?? $attrs;
         return $this->withClassName($attrs, $marker);
     }
 

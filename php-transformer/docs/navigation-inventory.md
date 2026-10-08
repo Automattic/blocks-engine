@@ -75,3 +75,27 @@ and restored exactly.
 
 This gate accepts navigation inventory and behavior. Whole-site visual parity
 remains a separate source-versus-imported runtime gate.
+
+## Source opener presentation
+
+Core navigation's dynamic renderer exposes built-in hamburger variants, not an
+arbitrary source SVG. A sole passive shape SVG control therefore keeps its
+original sanitized artwork in native block metadata; the generated theme's
+`render_block_core/navigation` projection replaces only Core's opener artwork.
+The button, accessibility attributes, keyboard and Interactivity events remain
+Core-owned. The original canonical block save shape remains valid.
+
+The existing toggle marker carries authored control/child-SVG correspondence:
+intrinsic SVG dimensions, margins, transforms and query-scoped box/paint facts.
+Transform is on the button leaf, preserving the overlay's containing block.
+An observed 24px visual box can be a 20px intrinsic SVG scaled by 1.2; it is not
+serialized as a guessed 24px width. Mixed text/icon, multiple icons and SVG that
+requires document context do not justify replacing native button content.
+Those negative cases retain the existing native menu path; exact presentation
+for those cases remains a separate contract.
+
+`NAVIGATION_OPENER_TEST=1` selects the neutral fixture with independently varying
+tablet SVG dimensions, margin and transform. The required Docker browser gate
+runs this fixture as well as the inventory fixture, verifying native keyboard
+open/close, closed state above 600px, routes, bounds, Gutenberg validity and one
+entity edit/restoration on two routes.

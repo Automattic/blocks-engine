@@ -788,6 +788,56 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->collapsedViewportDeclarationsFromRules($element, $properties, $rules, $matches, $viewportWidth);
     }
 
+    /** Authored control correspondence, retaining query stacks and cascade winners.
+     * Unlike the resting classification collection, author analysis includes
+     * transforms and logical margins. Values stay conditional when the source
+     * control is replaced by a native control with different markup.
+     * @param list<string> $properties
+     * @return array<string, array<string, string>> Empty key is the base rule.
+     */
+    public function authoredControlPresentation(DOMElement $element, array $properties): array
+    {
+        $groups = array('' => array());
+        $requested = array_flip($properties);
+        $author = $this->context->authorStyles();
+        $order = 0;
+        foreach ($author->styleRules() as $rule) {
+            $specificity = null;
+            foreach ($rule['selectors'] ?? array() as $record) {
+                $selector = (string) ($record['selector'] ?? '');
+                if ('' === $selector || $this->selectorCarriesPseudoState($selector)) continue;
+                $match = $author->selectorMatchCache()->matches($element, $selector, $record['parsed'] ?? array());
+                if (!($match['supported'] ?? false) || !($match['matches'] ?? false)) continue;
+                $candidate = $this->mediaTextSelectorSpecificity($selector);
+                if (null === $specificity || $candidate > $specificity) $specificity = $candidate;
+            }
+            if (null === $specificity) continue;
+            $conditions = array();
+            foreach ($rule['conditions'] ?? array() as $condition) {
+                $condition = trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition));
+                if ('' !== $condition && !preg_match('/^@layer\b/i', $condition)) $conditions[] = $condition;
+            }
+            $key = implode('{', $conditions);
+            $groups[$key] ??= array();
+            foreach ($rule['declarations'] ?? array() as $property => $value) {
+                if (!isset($requested[$property])) continue;
+                CssCascade::apply($groups[$key], $property, array('value' => $value, 'important' => CssValueInspector::isImportant($value), 'specificity' => $specificity, 'layer' => $rule['layer'] ?? null, 'order' => $order++, 'inline' => false));
+            }
+        }
+        foreach ($this->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value) {
+            if (isset($requested[$property])) CssCascade::apply($groups[''], $property, array('value' => $value, 'important' => CssValueInspector::isImportant($value), 'specificity' => array(0, 0, 0), 'layer' => null, 'order' => $order++, 'inline' => true));
+        }
+        $result = array();
+        foreach ($groups as $condition => $facts) {
+            foreach ($facts as $property => $fact) {
+                if ('' !== $condition && isset($groups[''][$property]) && !CssCascade::wins($fact, $groups[''][$property])) unset($facts[$property]);
+            }
+            uasort($facts, static fn(array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
+            $result[$condition] = array_map(static fn(array $fact): string => $fact['value'], $facts);
+        }
+        return $result;
+    }
+
     /**
      * The shared walk behind the collapsed-viewport readers: every rule whose
      * selector matches and whose conditions hold at the given viewport (the
