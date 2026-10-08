@@ -122,6 +122,7 @@
       "php tests/contract/header-link-cluster-navigation.php",
       "php tests/contract/empty-visual-figure.php",
       "php tests/contract/layout-geometry-proof.php",
+      "php tests/contract/core-code-save-supports.php",
       "@test:unit"
     ],
     "test:unit": [
