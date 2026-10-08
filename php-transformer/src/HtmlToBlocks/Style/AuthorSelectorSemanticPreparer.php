@@ -235,11 +235,15 @@ final class AuthorSelectorSemanticPreparer
     {
         foreach ( $authorSelectors as $authorSelector ) {
             $parsed = $authorSelector['parsed'];
+            // Attribute-carrying native hosts and document roots remain live
+            // source subjects; a captured-state marker would freeze their CSS.
+            if (SourceAttributeSubjects::retainsDataPredicates($parsed, $authorStyles)) continue;
             $this->discoverNegatedDataAttributeState($authorSelector['selector'], $authorStyles, $projections);
             $this->discoverAncestorAttributeState($authorSelector['selector'], $authorStyles, $projections);
             $pseudoHost = CssSelectorMatcher::pseudoElementHost($authorSelector['selector']);
             $selector = $pseudoHost['selector'] ?? $authorSelector['selector'];
             $parsed = $pseudoHost['parsed'] ?? $parsed;
+            if (SourceAttributeSubjects::retainsDataPredicates($parsed, $authorStyles)) continue;
             if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
                 continue;
             }

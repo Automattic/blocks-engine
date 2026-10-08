@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><title>Static label predicates</title><style>
+body { margin: 0; color: black; font: 14px/20px Arial; }
+.attribute-choice { display: flex; align-items: center; gap: 8px; margin: 24px; }
+.attribute-choice input { width: 16px; height: 16px; margin: 0; }
+label { display: inline-block; font-size: 14px; line-height: 20px; padding: 4px; }
+label[data-role=caption] { color: red; font-size: 20px; line-height: 24px; }
+body.caption-context label[data-role=caption] { font-weight: 600; }
+body[data-document=choices] label[data-role=caption] { text-decoration: underline; }
+label[data-role]:not([data-muted]) { letter-spacing: .5px; }
+label[data-role=helper] + input { outline: 2px solid rgb(80, 90, 100); }
+label[aria-label="Choice caption"][lang|=en][dir=ltr][title^=Choose] { border: 2px solid rgb(100, 110, 120); }
+label[data-present]::after { content: attr(data-hint); }
+label[data-state=expanded] { padding: 12px; background: rgb(220, 230, 240); }
+@media (min-width: 700px) {
+  body.caption-context label[data-role=caption][data-groups~=science] { font-size: 22px; line-height: 28px; }
+  label[data-state=expanded][data-ui|=choice] { padding: 16px; }
+}
+@media (min-width: 1100px) {
+  body.caption-context input:checked + label[data-role=caption] { color: rgb(0, 100, 50); font-size: 24px; line-height: 30px; }
+}
+</style></head><body class="caption-context" data-document="choices">
+<main>
+<div class="attribute-choice"><input type="checkbox" id="choice" checked><label for="choice" id="choice-caption" class="attribute-caption" data-role="caption" data-present="" data-hint=" +" data-state="rest" data-groups="arts science" data-ui="choice-filter" aria-label="Choice caption" aria-describedby="choice-description" lang="en-CA" dir="ltr" title="Choose &quot;Arts&quot; &amp; Science" tabindex="0" style="--caption-layout: 1">Arts and Culture</label></div>
+<div class="attribute-choice"><label for="other" id="other-caption" class="attribute-caption" data-role="helper" aria-label="Other choice" lang="en" dir="ltr" title="Other"><strong>Other</strong> choice</label><input type="checkbox" id="other"></div>
+<p id="choice-description">Choose your interests.</p>
+</main>
+</body></html>

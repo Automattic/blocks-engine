@@ -33,7 +33,6 @@ final class DocumentRootAttributes
 
     public static function isSelectorAttribute(string $name): bool
     {
-        return in_array($name, array('class', 'id', 'dir', 'lang', 'hidden'), true)
-            || 1 === preg_match('/^(?:data|aria)-[a-z0-9_-]+$/', $name);
+        return SourceAttribute::isSelectorAttribute($name);
     }
 }
