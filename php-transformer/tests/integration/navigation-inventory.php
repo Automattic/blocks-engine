@@ -16,7 +16,7 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
     'index.html' => $source,
     'other.html' => str_replace('Editable section content.', 'Second route content.', $source),
 )))->toWordPressSitePlanView()['wordpress_site_plan'];
-$theme = 'navigation-inventory-proof';
+$theme = getenv('NAVIGATION_OPENER_TEST') ? 'navigation-opener-proof' : 'navigation-inventory-proof';
 $directory = WP_CONTENT_DIR . '/themes/' . $theme;
 $resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => home_url('/wp-content/themes/' . $theme)));
 $references = array();

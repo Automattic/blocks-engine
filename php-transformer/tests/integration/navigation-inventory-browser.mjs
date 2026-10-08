@@ -16,7 +16,15 @@ try {
                 const expected = width < 600 ? {size:24, margin:'16px', transform:'matrix(1.2, 0, 0, 1.2, 0, 0)'} : {size:30.8, margin:'22px', transform:'matrix(1.4, 0, 0, 1.4, 0, 0)'};
                 const actual = await opener.evaluate(element => ({box:element.getBoundingClientRect().toJSON(),margin:getComputedStyle(element).marginLeft,transform:getComputedStyle(element).transform,color:getComputedStyle(element).color,svg:element.querySelector('svg').outerHTML,path:element.querySelector('path')?.getAttribute('d')}));
                 assert.ok(Math.abs(actual.box.width-expected.size)<0.05 && Math.abs(actual.box.height-expected.size)<0.05, `${width}: intrinsic source SVG and conditioned transform own control geometry: ${JSON.stringify(actual)}`);
-                assert.equal(actual.margin, expected.margin);
+                if (actual.margin !== expected.margin) {
+                    actual.rules = await opener.evaluate(element => {
+                        const rules=[];
+                        const walk=(list,conditions=[])=>{for(const rule of list){if(rule.selectorText){try{if(element.matches(rule.selectorText)&&/margin|transform/.test(rule.style.cssText))rules.push({selector:rule.selectorText,css:rule.style.cssText,conditions});}catch{}}else if(rule.cssRules)walk(rule.cssRules,[...conditions,rule.conditionText||'']);}};
+                        for(const sheet of document.styleSheets){try{walk(sheet.cssRules);}catch{}}
+                        return {classes:element.className,host:element.closest('nav')?.className,rules};
+                    });
+                }
+                assert.equal(actual.margin, expected.margin, `${width}: source margin correspondence: ${JSON.stringify(actual)}`);
                 assert.equal(actual.transform, expected.transform);
                 assert.equal(actual.color, 'rgb(28, 45, 62)');
                 assert.equal(actual.path, 'M2 3h16v2H2zM2 9h16v2H2zM2 15h16v2H2z', 'original source artwork replaces only Core generated icon');
@@ -79,7 +87,8 @@ try {
         const rows = await wp.apiFetch({ path: '/wp/v2/navigation?context=edit&per_page=100' });
         const flatten = blocks => blocks.flatMap(block => [block, ...flatten(block.innerBlocks || [])]);
         const parts = await wp.apiFetch({ path: '/wp/v2/template-parts?context=edit' });
-        const blocks = [...flatten(wp.data.select('core/block-editor').getBlocks()), ...parts.filter(part => part.theme === 'navigation-inventory-proof').flatMap(part => flatten(wp.blocks.parse(part.content.raw)))];
+        const themes = await wp.apiFetch({ path: '/wp/v2/themes?status=active' });
+        const blocks = [...flatten(wp.data.select('core/block-editor').getBlocks()), ...parts.filter(part => part.theme === themes[0].stylesheet).flatMap(part => flatten(wp.blocks.parse(part.content.raw)))];
         if (blocks.some(block => block.isValid === false || block.name === 'core/html' || block.name === 'core/freeform')) throw new Error('Invalid/fallback page block');
         const references = new Set(blocks.filter(block => block.name === 'core/navigation').map(block => block.attributes.ref));
         const menus = rows.filter(row => references.has(row.id));
