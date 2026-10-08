@@ -9644,6 +9644,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $block = $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
+        // core/image saves the class list and anchor on the <figure>; an author
+        // subject naming the <img> by class or id must find them there.
+        $this->session->authorSelectorProjectionState()->recordImageFigure(
+            $image->getNodePath() ?? '',
+            (string) ( $block['attrs']['className'] ?? '' ),
+            (string) ( $block['attrs']['anchor'] ?? '' ),
+            $link instanceof DOMElement
+        );
         if ( '' !== $linkAnchor ) {
             // A native image has only one anchor. Keep an existing figure/image
             // identity and the link's fragment target on separate native hosts.

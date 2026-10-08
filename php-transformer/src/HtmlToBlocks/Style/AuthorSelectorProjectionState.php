@@ -81,6 +81,16 @@ final class AuthorSelectorProjectionState
     /** @var array<string, string> */
     private array $imageLinkMarkers = array();
 
+    /**
+     * Source image path => the core/image figure that now carries its class
+     * list and id. core/image saves both on the <figure>, never on the <img>,
+     * so an author subject that names the image by class or id has to follow
+     * them there.
+     *
+     * @var array<string, array{classes: list<string>, anchor: string, linked: bool}>
+     */
+    private array $imageFigures = array();
+
     /** @var array<string, string> */
     private array $tableMarkers = array();
 
@@ -188,6 +198,25 @@ final class AuthorSelectorProjectionState
     public function imageLinkMarkers(): array
     {
         return $this->imageLinkMarkers;
+    }
+
+    /** Remember which figure a source image became, and what identity the figure carries. */
+    public function recordImageFigure(string $path, string $className, string $anchor, bool $linked): void
+    {
+        if ( '' === $path ) {
+            return;
+        }
+        $this->imageFigures[$path] = array(
+            'classes' => array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array(), static fn (string $class): bool => '' !== $class)),
+            'anchor' => $anchor,
+            'linked' => $linked,
+        );
+    }
+
+    /** @return array{classes: list<string>, anchor: string, linked: bool}|null */
+    public function imageFigure(string $path): ?array
+    {
+        return $this->imageFigures[$path] ?? null;
     }
 
     public function ensureImageWrapperMarker(string $path): string
