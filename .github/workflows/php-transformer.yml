@@ -121,6 +121,10 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/orphan-list-item-browser.mjs
 
+      - name: Verify native disclosure paint and label wrapping
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/accordion-presentation-browser.mjs
+
   wordpress-site-plan:
     name: WordPress site plan integration (PHP ${{ matrix.php-version }})
     runs-on: ubuntu-24.04
