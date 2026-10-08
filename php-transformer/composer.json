@@ -430,6 +430,7 @@
       "php tests/unit/runtime-data-target-layout-shell.php",
       "php tests/contract/dialog-document-scope.php",
       "php tests/unit/authored-select-block.php",
+      "php tests/unit/native-control-state.php",
       "php tests/unit/form-runtime-island-recorder.php",
       "php tests/unit/readable-form-control-block-converter.php",
       "php tests/unit/associated-label.php",

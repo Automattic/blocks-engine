@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
@@ -462,6 +463,11 @@ final class FormControlMetadataBuilder
         $value = SourceDom::attr($control, 'value');
         if ( '' !== $value && 'select' !== $tagName ) {
             $metadata['value'] = $value;
+        }
+        // Typed current/default facts travel with the control to a form provider.
+        $nativeState = NativeControlState::payload($control);
+        if ( null !== $nativeState ) {
+            $metadata['native_state'] = $nativeState;
         }
 
         if ( 'select' === $tagName ) {
