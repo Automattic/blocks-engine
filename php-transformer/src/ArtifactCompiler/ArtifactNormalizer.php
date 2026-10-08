@@ -4,7 +4,9 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 
 /**
@@ -79,6 +81,7 @@ final class ArtifactNormalizer
         }
 
         $rawFiles = $this->rawFiles($artifact);
+        $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports);
         $reservedPaths = array();
         foreach ( $rawFiles as $file ) {
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
@@ -179,7 +182,7 @@ final class ArtifactNormalizer
                 continue;
             }
 
-            $path = $this->dedupePath($path, $seenPaths);
+            $path = self::dedupePath($path, $seenPaths);
             $seenPaths[$path] = true;
             $mimeType = $this->mimeType((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? (str_contains((string) ($file['type'] ?? ''), '/') ? $file['type'] : '')), $path);
             $kind = $this->kind((string) ($file['kind'] ?? $file['type'] ?? ''), $path, $payload['content'], $mimeType);
@@ -233,6 +236,19 @@ final class ArtifactNormalizer
             }
             if ( is_array($file['metadata'] ?? null) ) {
                 $metadata = array();
+                if (is_array($file['metadata']['structured_data'] ?? null)) {
+                    $structured = array();
+                    $structuredBytes = 0;
+                    foreach (array_slice($file['metadata']['structured_data'], 0, 32) as $record) {
+                        if (!is_array($record) || 'application/ld+json' !== ($record['type'] ?? null) || !is_array($record['data'] ?? null)) continue;
+                        $encoded = json_encode($record['data']);
+                        if (!is_string($encoded) || strlen($encoded) > 262144 || !is_array(json_decode($encoded, true, 24))) continue;
+                        $structuredBytes += strlen($encoded);
+                        if ($structuredBytes > 262144) break;
+                        $structured[] = array('type' => 'application/ld+json', 'data' => $record['data']);
+                    }
+                    if (array() !== $structured) $metadata['structured_data'] = $structured;
+                }
                 if ( is_string($file['metadata']['route_path'] ?? null) && '' !== trim($file['metadata']['route_path']) ) {
                     $metadata['route_path'] = trim($file['metadata']['route_path']);
                 }
@@ -261,7 +277,7 @@ final class ArtifactNormalizer
                     $path
                 );
             }
-            foreach ( array('placement', 'type', 'media', 'source_path', 'selector', 'stylesheet_index', 'superseded_by') as $field ) {
+            foreach ( array('placement', 'type', 'media', 'source_media', 'source_path', 'selector', 'stylesheet_index', 'superseded_by') as $field ) {
                 if ( isset($file[$field]) && is_scalar($file[$field]) && '' !== trim((string) $file[$field]) ) {
                     $normalized[$field] = (string) $file[$field];
                 }
@@ -404,7 +420,7 @@ final class ArtifactNormalizer
             }
             // Omitted rows share the same canonical namespace as admitted rows.
             // A later duplicate becomes assets/logo-2.svg, not assets/logo.svg.
-            $path = $this->dedupePath($path, $seenPaths);
+            $path = self::dedupePath($path, $seenPaths);
             $seenPaths[$path] = true;
             $class = in_array((string) ($file['source'] ?? ''), array('inline-style', 'inline-script'), true) ? 'generated' : 'source';
             ++$byClass[$class]['count'];
@@ -565,6 +581,8 @@ final class ArtifactNormalizer
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
+
             if ( isset($expandedSources[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))]) ) {
                 continue;
             }
@@ -591,7 +609,7 @@ final class ArtifactNormalizer
                     continue;
                 }
                 $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
-                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
+                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'source_media' => array_key_exists('data-dla-source-media', \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
             // Spacing an author declares inline on <body> is page content the
             // reader sees, but the document is re-wrapped in a bare <body>
@@ -623,6 +641,7 @@ final class ArtifactNormalizer
                     'stylesheet_index' => $index + 1,
                     'stylesheet_link_position' => $style['link_position'] ?? null,
                     'media' => $style['media'],
+                    'source_media' => $style['source_media'] ?? null,
                     'type' => $style['type'],
                 ));
             }
@@ -735,7 +754,7 @@ final class ArtifactNormalizer
         }
 
         $spacing = array();
-        foreach ( explode(';', $style) as $declaration ) {
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
             $parts = explode(':', $declaration, 2);
             if ( 2 !== count($parts) ) {
                 continue;
@@ -789,19 +808,21 @@ final class ArtifactNormalizer
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
+
             if ( isset($expandedSources[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))]) ) {
                 continue;
             }
             $content = $this->payload($file, (string) ($file['path'] ?? ''))['content'];
-            if ( ! $this->isHtmlLikeFile($file) || '' === trim($content) || ! preg_match_all('@<script\b([^>]*)>(.*?)</script>@is', $content, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
+            if ( ! $this->isHtmlLikeFile($file) || '' === trim($content) ) {
                 continue;
             }
 
             $scriptIndex = 0;
-            foreach ( $matches as $match ) {
+            foreach ( HtmlTagScanner::scan($content, 'script') as $script ) {
                 ++$scriptIndex;
-                $attributes = (string) $match[1][0];
-                $body = trim((string) $match[2][0]);
+                $attributes = $script['attributes'];
+                $body = trim($script['content']);
                 if ( '' === $body || '' !== $this->htmlAttribute($attributes, 'src') || ! $this->isExecutableScriptType($this->htmlAttribute($attributes, 'type')) ) {
                     continue;
                 }
@@ -814,7 +835,7 @@ final class ArtifactNormalizer
                     'role'        => 'script',
                     'intent'      => 'behavior',
                     'source'      => 'inline-script',
-                    'placement'   => $this->scriptPlacement($content, (int) $match[0][1]),
+                    'placement'   => $script['placement'],
                     'type'        => $this->htmlAttribute($attributes, 'type'),
                     'defer'       => $this->hasBooleanAttribute($attributes, 'defer'),
                     'async'       => $this->hasBooleanAttribute($attributes, 'async'),
@@ -850,24 +871,12 @@ final class ArtifactNormalizer
 
     private function htmlAttribute(string $attributes, string $name): string
     {
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/i', $attributes, $match) ) {
-            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        }
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*([^\s>]+)/i', $attributes, $match) ) {
-            return html_entity_decode((string) $match[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        }
-        return '';
+        return HtmlTagScanner::attributes($attributes)[strtolower($name)] ?? '';
     }
 
     private function hasBooleanAttribute(string $attributes, string $name): bool
     {
-        return 1 === preg_match('/(?:^|\s)' . preg_quote($name, '/') . '(?:\s|=|$)/i', $attributes);
-    }
-
-    private function scriptPlacement(string $html, int $offset): string
-    {
-        $headClose = stripos($html, '</head>');
-        return false !== $headClose && $offset < $headClose ? 'head' : 'body';
+        return array_key_exists(strtolower($name), HtmlTagScanner::attributes($attributes));
     }
 
     /**
@@ -903,7 +912,7 @@ final class ArtifactNormalizer
         if (null === $contentKey || !is_string($file[$contentKey])) {
             return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('missing_file_payload', 'warning', 'An artifact file was ignored because it has no explicit text or base64 payload.', array('path' => $path))));
         }
-        $content = $this->normalizeContent($file[$contentKey]);
+        $content = !empty($file['metadata']['compilation']['resolved_html_includes']) ? $file[$contentKey] : $this->normalizeContent($file[$contentKey]);
         return array('accepted' => true, 'content' => $content, 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => strlen($content), 'diagnostics' => array());
     }
 
@@ -1063,11 +1072,17 @@ final class ArtifactNormalizer
     }
 
     /**
-     * @param array<string, bool> $seen
+     * The first free `<base>-<n><ext>` name when `$path` is already taken.
+     * `$seen` is keyed by path; with `$foldCase` both the lookup and the
+     * probes use lowercase keys, so a name is taken when any spelling of it
+     * is, as on a case-insensitive filesystem.
+     *
+     * @param array<string, mixed> $seen
      */
-    private function dedupePath(string $path, array $seen): string
+    public static function dedupePath(string $path, array $seen, bool $foldCase = false): string
     {
-        if ( ! isset($seen[$path]) ) {
+        $key = static fn(string $candidate): string => $foldCase ? strtolower($candidate) : $candidate;
+        if ( ! isset($seen[$key($path)]) ) {
             return $path;
         }
 
@@ -1075,7 +1090,7 @@ final class ArtifactNormalizer
         $base = '' === $extension ? $path : substr($path, 0, -1 - strlen($extension));
         $suffix = '' === $extension ? '' : '.' . $extension;
         $index = 2;
-        while ( isset($seen[$base . '-' . $index . $suffix]) ) {
+        while ( isset($seen[$key($base . '-' . $index . $suffix)]) ) {
             ++$index;
         }
 

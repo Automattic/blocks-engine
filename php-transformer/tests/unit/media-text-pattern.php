@@ -74,12 +74,12 @@ $pattern = new MediaTextPattern();
 $matchMethod = new ReflectionMethod(MediaTextPattern::class, 'match');
 $matchParameters = $matchMethod->getParameters();
 $assertSame(
-    array( 'element', 'fallbacks', 'convertChildren', 'convertElement', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock', 'fullPresentationStyle' ),
+    array( 'element', 'fallbacks', 'convertChildren', 'convertElement', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock', 'fullPresentationStyle', 'documentRootFontSize' ),
     array_map(static fn (ReflectionParameter $parameter): string => $parameter->getName(), $matchParameters),
     'match callback parameter names remain frozen.'
 );
 $assertSame(
-    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable' ),
+    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable' ),
     array_map(static fn (ReflectionParameter $parameter): string => (string) $parameter->getType(), $matchParameters),
     'match callback parameter types remain frozen.'
 );
@@ -115,7 +115,8 @@ $match = static function (
     ?callable $resolveMediaUrl = null,
     bool $throwCreate = false,
     ?callable $resolvePresentationStyle = null,
-    ?callable $resolveFullPresentationStyle = null
+    ?callable $resolveFullPresentationStyle = null,
+    ?callable $resolveRootFontSize = null
 ) use ($pattern, $htmlAttributes): ?array {
     $record = array(
         'convertCalls'         => 0,
@@ -130,6 +131,7 @@ $match = static function (
     // existing fixtures below author `position` at all, so this only
     // changes behavior where a test explicitly overrides it.
     $resolveFullPresentationStyle ??= $resolvePresentationStyle;
+    $resolveRootFontSize ??= static fn (DOMElement $sourceElement): ?float => 16.0;
 
     return $pattern->match(
         $element,
@@ -178,7 +180,8 @@ $match = static function (
                 'innerBlocks' => $innerBlocks,
             );
         },
-        $resolveFullPresentationStyle
+        $resolveFullPresentationStyle,
+        $resolveRootFontSize
     );
 };
 
@@ -234,6 +237,68 @@ $assertSame('core/paragraph', $iconLabelResult['blocks'][0]['innerBlocks'][1]['b
 
 $largeHeadingResult = $transformHtml('<section style="display:flex"><img src="feature.jpg" width="640" height="360" alt=""><h2>Feature</h2></section>');
 $assertSame('core/media-text', $largeHeadingResult['blocks'][0]['blockName'] ?? null, 'Legitimate large image plus heading remains media-text.');
+
+// Small authored portrait media is a flex item, not a media-text pane. Keep
+// it as an editable image in the source row so its geometry and crop survive.
+$portraitResult = $transformHtml('<div class="author-row" style="display:flex;align-items:center;gap:12px"><img class="portrait" src="portrait.jpg" style="width:48px;height:48px;flex-shrink:0;object-fit:cover;border-radius:9999px" alt="Author"><div><p>Neutral author attribution</p></div></div>');
+$portraitBlock = $portraitResult['blocks'][0] ?? array();
+$assertSame('core/group', $portraitBlock['blockName'] ?? null, 'Compact portrait row lowers to a group rather than media-text.');
+$assertSame('core/image', $portraitBlock['innerBlocks'][0]['blockName'] ?? null, 'Compact portrait remains a native image child.');
+$portraitMarkup = (string) ($portraitBlock['innerBlocks'][0]['innerHTML'] ?? '');
+$assertContains('width:48px', $portraitMarkup, 'Portrait keeps authored width.');
+$assertContains('height:48px', $portraitMarkup, 'Portrait keeps authored height.');
+$assertContains('object-fit:cover', $portraitMarkup, 'Portrait keeps authored crop.');
+$portraitStyles = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $portraitResult['assets'] ?? array()));
+$assertContains('border-radius:9999px', $portraitStyles, 'Portrait keeps authored shape.');
+$assertContains('flex-shrink:0', $portraitStyles, 'Portrait keeps authored flex participation.');
+$assertSame('pass', $portraitResult['source_reports']['wp_block_validity']['status'] ?? null, 'Group and image portrait lowering has a canonical Gutenberg-valid save shape.');
+
+// Captured testimonial author row shape: Tailwind's w-12/h-12 utilities
+// resolve through the stylesheet in rem units (3rem at the default 16px root).
+// The emitted output previously promoted this compact author row to the
+// media-text pane, whose native image defaults replace the circular crop.
+$authorRow = '<div class="flex items-center gap-4"><img class="w-12 h-12 rounded-full object-cover" src="portrait.jpg" alt="Alex Rivera"><div><p>Alex Rivera</p><p>Independent consultant with experience advising growing teams.</p></div></div>';
+$authorCss = '.flex{display:flex}.items-center{align-items:center}.gap-4{gap:1rem}.w-12{width:3rem}.h-12{height:3rem}.rounded-full{border-radius:9999px}.object-cover{object-fit:cover}';
+$capturedAuthorResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html class="root"><body>' . $authorRow . '</body></html>',
+    array('static_css' => $authorCss)
+)->toArray();
+$capturedAuthorBlock = $capturedAuthorResult['blocks'][0] ?? array();
+$assertSame('core/group', $capturedAuthorBlock['blockName'] ?? null, 'Captured rem-sized testimonial portrait row stays an editable group.');
+$assertSame('core/image', $capturedAuthorBlock['innerBlocks'][0]['blockName'] ?? null, 'Captured testimonial portrait remains a native image.');
+$capturedPortraitMarkup = (string) ($capturedAuthorBlock['innerBlocks'][0]['innerHTML'] ?? '');
+$assertContains('w-12 h-12 rounded-full object-cover', $capturedPortraitMarkup, 'Captured utility classes remain attached to the native portrait image.');
+$assertContains('width:3rem;height:3rem', $capturedPortraitMarkup, 'Captured rem-based portrait dimensions remain intact.');
+$capturedPortraitStyles = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $capturedAuthorResult['assets'] ?? array()));
+$assertContains('border-radius:9999px', $capturedPortraitStyles, 'Captured rounded-full utility retains portrait rounding.');
+$assertContains('object-fit:cover', $capturedPortraitStyles, 'Captured object-cover utility retains its portrait crop.');
+
+// A core/image figure adds a new flex item around a replaced source image.
+// With a landscape intrinsic ratio, that wrapper's min-content width is smaller
+// than the source image's authored 48px flex base, causing asymmetric shrink.
+// The generated wrapper stays semantically present but its layout box must not
+// participate, restoring the original image's natural flex sizing.
+$constrainedLandscapeRow = '<div class="author-row"><img width="150" height="100" class="portrait" src="portrait.jpg" alt="Jordan Lee"><div><p>Jordan Lee</p><p>Product designer</p></div></div>';
+$constrainedCss = '.author-row{display:flex;align-items:center;gap:1rem;width:158px}.portrait{width:3rem;height:3rem;object-fit:cover;border-radius:9999px}';
+$landscapeRowResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html class="root"><body>' . $constrainedLandscapeRow . '</body></html>',
+    array('static_css' => $constrainedCss)
+)->toArray();
+$landscapeRowBlock = $landscapeRowResult['blocks'][0] ?? array();
+$assertSame('core/group', $landscapeRowBlock['blockName'] ?? null, 'Constrained landscape portrait row remains a native group.');
+$landscapeImageMarkup = (string) ($landscapeRowBlock['innerBlocks'][0]['innerHTML'] ?? '');
+$assertContains('blocks-engine-synthetic-flex-image-figure', $landscapeRowBlock['innerBlocks'][0]['attrs']['className'] ?? '', 'Flex-item image figure is tagged for transparent layout participation.');
+$landscapeRowStyles = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $landscapeRowResult['assets'] ?? array()));
+$assertContains('figure.blocks-engine-synthetic-flex-image-figure){display:contents}', $landscapeRowStyles, 'Synthetic figure does not replace the source image flex item geometry.');
+$assertContains('width:3rem;height:3rem', $landscapeImageMarkup, 'Transparent figure keeps the authored image dimensions unchanged.');
+
+// A non-default root changes what 3rem means. At 24px, the same decorated
+// portrait is 72px and must remain a genuine two-pane media/text composition.
+$largeRemPortrait = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html class="root"><head></head><body>' . $authorRow . '</body></html>',
+    array('static_css' => 'html{font-size:24px}' . $authorCss)
+)->toArray();
+$assertSame('core/media-text', $largeRemPortrait['blocks'][0]['blockName'] ?? null, 'A 3rem portrait at a 24px root is not misclassified as compact.');
 
 $quoteResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><blockquote><p>Quoted</p></blockquote></section>');
 $assertSame('core/quote', $quoteResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null, 'Blockquote text side keeps core/quote identity.');

@@ -90,7 +90,6 @@ final class DiagnosticsCollector
                     'parent_reason'                   => $fallback['parent_reason'] ?? null,
                     'ancestor_reason'                 => $fallback['ancestor_reason'] ?? null,
                     'suggested_generic_repair_class' => $fallback['suggested_generic_repair_class'] ?? null,
-                    'materialization_target'          => $fallback['materialization_target'] ?? null,
                     'products'                        => $fallback['products'] ?? null,
                     'controls'                        => $fallback['controls'] ?? null,
                     'form'                            => $fallback['form'] ?? null,

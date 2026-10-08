@@ -59,12 +59,20 @@ final class RichTextElementConverter implements ElementConverter
         if ( null !== $withLowered ) {
             $content = $withLowered;
         }
+        // An inline icon beside heading text is RichText content once it is a
+        // materialized image object, exactly as in a paragraph. Without this
+        // step the raw `<svg>` trips the fallback gate and the whole heading
+        // becomes a core/html island.
+        $withInlineSvg  = $this->context->richTextWithMaterializedSvgImages($element, $content);
+        if ( null !== $withInlineSvg ) {
+            $content = $withInlineSvg;
+        }
 
         if ( $this->context->requiresHtmlFallback($content) ) {
             return $this->context->htmlPreservationBlock($element);
         }
 
-        if ( '' === trim($this->context->stripAllTags($content)) ) {
+        if ( '' === trim($this->context->stripAllTags($content)) && ! $this->context->containsNativeSvgImageObject($content) ) {
             return null;
         }
 
@@ -121,6 +129,48 @@ final class RichTextElementConverter implements ElementConverter
     }
 
     /**
+     * Lowers a paragraph made only of text and disclosure-widget spans to a
+     * group of paragraphs and `core/details`; anything else is declined.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function textWithDisclosureChildren(DOMElement $element, array &$fallbacks): ?array
+    {
+        $children = array();
+        $found = false;
+        $text = '';
+        $flush = function () use (&$children, &$text): void {
+            if ( '' !== trim($text) ) {
+                $children = array_merge($children, $this->context->convertText(trim($text)));
+            }
+            $text = '';
+        };
+        foreach ( $element->childNodes as $node ) {
+            if ( $node instanceof DOMElement && 'span' === strtolower($node->tagName) ) {
+                $local = array();
+                $details = $this->context->nativeDisclosureBlock($node, $local);
+                if ( null === $details ) {
+                    return null;
+                }
+                $flush();
+                $fallbacks = array_merge($fallbacks, $local);
+                $children[] = $details;
+                $found = true;
+            } elseif ( $node instanceof \DOMComment ) {
+                continue;
+            } elseif ( $node instanceof \DOMText ) {
+                $text .= $node->textContent;
+            } else {
+                return null;
+            }
+        }
+        $flush();
+
+        return $found ? $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element) : null;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
@@ -136,6 +186,11 @@ final class RichTextElementConverter implements ElementConverter
         $image = $this->context->imageBlockFromParagraph($element);
         if ( null !== $image ) {
             return $image;
+        }
+
+        $editableIconRow = $this->context->compactLinkedIconTextRowFromParagraph($element);
+        if ( null !== $editableIconRow ) {
+            return $editableIconRow;
         }
 
         $content         = $this->context->richTextContent($element);
@@ -161,6 +216,13 @@ final class RichTextElementConverter implements ElementConverter
             $mixedMedia = $this->context->mixedMediaLinkGroupFromParagraph($element, $fallbacks);
             if ( null !== $mixedMedia ) {
                 return $mixedMedia;
+            }
+
+            // A text run ending in a toggle + collapsed-region span is text plus a
+            // native disclosure, not an opaque HTML island.
+            $disclosure = $this->textWithDisclosureChildren($element, $fallbacks);
+            if ( null !== $disclosure ) {
+                return $disclosure;
             }
 
             return $this->context->htmlPreservationBlock($element);

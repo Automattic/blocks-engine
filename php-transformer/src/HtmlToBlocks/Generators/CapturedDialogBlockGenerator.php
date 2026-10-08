@@ -20,13 +20,14 @@ final class CapturedDialogBlockGenerator
             'className' => array('type' => 'string', 'default' => ''),
             'presentation' => array('type' => 'string', 'default' => ''),
             'addCloseButton' => array('type' => 'boolean', 'default' => false),
+            'gallerySelection' => array('type' => 'array', 'default' => array()),
         );
         $editor = <<<'JS'
 ( function( blocks, blockEditor, element ) {
     var createElement = element.createElement;
     var InnerBlocks = blockEditor.InnerBlocks;
     function dialogProps( attrs ) {
-        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined };
+        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined };
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
@@ -52,24 +53,58 @@ JS;
         dialog.style.setProperty( '--blocks-engine-dropdown-background', background || window.getComputedStyle( document.body ).backgroundColor );
         dialog.style.setProperty( '--blocks-engine-dropdown-top', Math.max( 0, Math.round( host.getBoundingClientRect().bottom ) ) + 'px' );
     }
+    // A source close control is a native button once converted, so it is
+    // recognized by its accessible name as well as the explicit marker.
+    function closeControl( target ) {
+        var control = target.closest && target.closest( '[data-blocks-engine-dialog-close],button,a,[role="button"]' );
+        if ( ! control ) return null;
+        if ( control.hasAttribute( 'data-blocks-engine-dialog-close' ) ) return control;
+        var label = ( ( control.getAttribute( 'aria-label' ) || '' ) + ' ' + ( control.getAttribute( 'title' ) || '' ) ).toLowerCase();
+        var text = ( control.textContent || '' ).trim().toLowerCase();
+        return label.indexOf( 'close' ) > -1 || [ 'close', 'x', '\u00d7' ].indexOf( text ) > -1 ? control : null;
+    }
     function mount( dialog ) {
         if ( dialog.dataset.blocksEngineMounted ) return;
         var triggers = ( dialog.getAttribute( 'data-blocks-engine-triggers' ) || '' ).split( /\s+/ ).map( function( id ) { return document.getElementById( id ); } ).filter( Boolean );
         if ( ! triggers.length ) return;
         dialog.dataset.blocksEngineMounted = 'true';
-        triggers.forEach( function( trigger ) { trigger.addEventListener( 'click', function( event ) { event.preventDefault(); if ( 'dropdown' === dialog.getAttribute( 'data-blocks-engine-presentation' ) ) placeDropdown( dialog, trigger ); if ( dialog.showModal ) dialog.showModal(); else dialog.setAttribute( 'open', '' ); } ); } );
-        dialog.addEventListener( 'click', function( event ) { if ( event.target === dialog || event.target.closest( '[data-blocks-engine-dialog-close]' ) ) dialog.close ? dialog.close() : dialog.removeAttribute( 'open' ); } );
+        var selection = JSON.parse( dialog.getAttribute( 'data-blocks-engine-gallery-selection' ) || '[]' );
+        triggers.forEach( function( trigger ) { trigger.addEventListener( 'click', function( event ) {
+            var binding = selection.find( function( item ) { return item.triggerId === trigger.id; } );
+            var index;
+            if ( binding ) {
+                if ( ! event.target.closest( 'img' ) ) return;
+                var root = trigger.closest( '.blocks-engine-authored-carousel' );
+                var track = root && root.querySelector( '.blocks-engine-authored-carousel__track' );
+                if ( ! track ) return;
+                var source = Array.from( track.children ).findIndex( function( slide ) { return slide.contains( event.target ); } );
+                index = binding.indices[ source ];
+                if ( ! Number.isInteger( index ) ) return;
+            }
+            event.preventDefault();
+            if ( 'dropdown' === dialog.getAttribute( 'data-blocks-engine-presentation' ) ) placeDropdown( dialog, trigger );
+            if ( dialog.showModal ) dialog.showModal(); else dialog.setAttribute( 'open', '' );
+            if ( binding ) {
+                var carousel = dialog.querySelector( '.blocks-engine-authored-carousel' );
+                if ( carousel ) carousel.dispatchEvent( new CustomEvent( 'blocks-engine-carousel-select', { detail: { index: index } } ) );
+            }
+        } ); } );
+        dialog.addEventListener( 'click', function( event ) { if ( event.target === dialog || closeControl( event.target ) ) dialog.close ? dialog.close() : dialog.removeAttribute( 'open' ); } );
     }
     function mountAll() { document.querySelectorAll( 'dialog[data-blocks-engine-triggers]' ).forEach( mount ); }
     if ( 'loading' === document.readyState ) document.addEventListener( 'DOMContentLoaded', mountAll ); else mountAll();
 } )();
 JS;
 
+        // A closed native dialog is out of layout. Author display utilities
+        // (`.grid`, `.flex`) on the dialog would otherwise override the user
+        // agent's `dialog:not([open]){display:none}` and render it permanently.
         // A captured menu panel carries the source's own classes, but not the
         // wrapper that painted it. Replace the user agent's white, centred,
         // black-on-white box with a full-width panel under the header. The
         // rules have no specificity, so the source classes still win.
-        $style = ':where(dialog[data-blocks-engine-presentation="dropdown"]){position:fixed;top:var(--blocks-engine-dropdown-top,0px);left:0;width:100%;max-width:none;max-height:calc(100vh - var(--blocks-engine-dropdown-top,0px));margin:0;overflow-y:auto;background-color:var(--blocks-engine-dropdown-background,Canvas);color:inherit}'
+        $style = 'dialog[data-blocks-engine-triggers]:not([open]){display:none!important}'
+            . ':where(dialog[data-blocks-engine-presentation="dropdown"]){position:fixed;top:var(--blocks-engine-dropdown-top,0px);left:0;width:100%;max-width:none;max-height:calc(100vh - var(--blocks-engine-dropdown-top,0px));margin:0;overflow-y:auto;background-color:var(--blocks-engine-dropdown-background,Canvas);color:inherit}'
             . 'dialog[data-blocks-engine-presentation="dropdown"]::backdrop{background:transparent}';
 
         return array(

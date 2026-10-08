@@ -12,17 +12,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocab
  */
 final class WordPressCompatCss
 {
-    /**
-     * Template classes WordPress adds to `<body>` via `body_class()`. A source
-     * stylesheet that styles an element of the same name collides with them.
-     *
-     * @var array<int, string>
-     */
-    private const WORDPRESS_BODY_CLASSES = array(
-        'archive', 'attachment', 'author', 'blog', 'category', 'date', 'error404',
-        'home', 'page', 'paged', 'privacy-policy', 'search', 'single', 'tag',
-    );
-
     /** @var array<string, string> */
     private array $cssCache = array();
 
@@ -40,116 +29,7 @@ final class WordPressCompatCss
             . $this->navigationStructureCompatCss($authoredCss)
             . $this->navigationAnchorCompatCss($authoredCss)
             . $this->rootStartupClassCompatCss($authoredCss, $scriptContents)
-            . $this->responsiveRootCompatCss($authoredCss)
-            . $this->bodyClassCollisionCompatCss($authoredCss)
             . $this->coreRuntimeCompatCss($authoredCss, $files);
-    }
-
-    /**
-     * WordPress stamps template classes such as `page`, `home`, and `search`
-     * onto `<body>`. A source class rule of the same name then applies to the
-     * document body as well as its own element, so a centered page frame pays
-     * its max-width and gutters twice: the inline axis narrows every line box,
-     * and the block axis adds the frame's leading and trailing space again
-     * outside the content.
-     *
-     * Neutralize only the frame properties, only on `body`, and only for the
-     * reserved names WordPress owns.
-     */
-    private function bodyClassCollisionCompatCss(string $css): string
-    {
-        $classes = array();
-        foreach ( $this->bodyClassCollisionRules($css) as $class ) {
-            $classes[$class] = true;
-        }
-        if ( array() === $classes ) {
-            return '';
-        }
-
-        $selectors = array();
-        foreach ( array_keys($classes) as $class ) {
-            $selectors[] = 'body.' . $class;
-        }
-
-        return "\n\n/* wp-compat: WordPress body template classes must not inherit source frame rules. */\n"
-            . implode(",\n", $selectors)
-            . ' { max-width:none!important;width:auto!important;padding:0!important;margin:0!important }';
-    }
-
-    /** @return array<int, string> */
-    private function bodyClassCollisionRules(string $css): array
-    {
-        $classes = array();
-        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
-            if ( str_starts_with(trim($rule['selector']), '@') ) {
-                foreach ( $this->bodyClassCollisionRules($rule['body']) as $nested ) {
-                    $classes[$nested] = true;
-                }
-                continue;
-            }
-            if ( ! preg_match('/(?:^|;)\s*(?:max-width|width|padding|padding-inline|padding-block|padding-left|padding-right|padding-top|padding-bottom|margin|margin-inline|margin-block)\s*:/i', $rule['body']) ) {
-                continue;
-            }
-            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
-                // The rule scanner keeps preceding comments on the selector.
-                $selector = trim(preg_replace('#/\*.*?\*/#s', '', $selector) ?? $selector);
-                if ( ! preg_match('/^\.([A-Za-z_][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-                    continue;
-                }
-                if ( in_array(strtolower($match[1]), self::WORDPRESS_BODY_CLASSES, true) ) {
-                    $classes[$match[1]] = true;
-                }
-            }
-        }
-
-        return array_keys($classes);
-    }
-
-    /**
-     * WordPress owns the body element, so a source body's responsive class is
-     * not available to disable a captured desktop-only root minimum width.
-     */
-    private function responsiveRootCompatCss(string $css): string
-    {
-        $rules = $this->responsiveRootCompatCssRules($css);
-        if ( array() === $rules ) {
-            return '';
-        }
-
-        return "\n\n/* wp-compat: WordPress body does not retain the source responsive root class. */\n"
-            . implode("\n", $rules);
-    }
-
-    /** @return array<int, string> */
-    private function responsiveRootCompatCssRules(string $css): array
-    {
-        $selectors = array();
-        $rules = array();
-        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
-            if ( str_starts_with($rule['selector'], '@') ) {
-                if ( preg_match('/^@(media|supports|container|layer|scope)\b/i', $rule['selector']) ) {
-                    $nested = $this->responsiveRootCompatCssRules($rule['body']);
-                    if ( array() !== $nested ) {
-                        $rules[] = $rule['selector'] . ' {' . implode('', $nested) . '}';
-                    }
-                }
-                continue;
-            }
-            if ( ! preg_match('/(?:^|;)\s*min-width\s*:\s*(?!0(?:[a-z%]+)?\s*(?:!important)?\s*(?:;|$))/i', $rule['body']) ) {
-                continue;
-            }
-            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
-                if ( preg_match('/\bbody\s*:not\(\s*\.responsive\s*\)/i', $selector) ) {
-                    $selectors[trim($selector)] = true;
-                }
-            }
-        }
-
-        if ( array() !== $selectors ) {
-            $rules[] = implode(",\n", array_keys($selectors)) . ' { min-width:0!important }';
-        }
-
-        return $rules;
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DeclaredPresentation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -69,7 +70,7 @@ final class NavigationToggleSuppressor
         }
 
         foreach ( $root->getElementsByTagName('*') as $control ) {
-            if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) || $this->isInsideNativeDisclosurePanel($control) ) {
+            if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) || $this->isBoundCapturedDialogTrigger($control) || $this->isInsideNativeDisclosurePanel($control) ) {
                 continue;
             }
             if ( ! $this->isHamburgerMenuToggleControl($control) && ! $this->isProjectableHashAnchorMenuToggle($control) ) {
@@ -157,7 +158,7 @@ final class NavigationToggleSuppressor
     private function documentVariantRoot(DOMElement $element): DOMElement
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( 1 === preg_match('/(?:^|\s)data-liberation-(?:desktop|mobile)-document(?:\s|$)/', SourceDom::attr($node, 'class')) ) {
+            if ( SourceDom::isDocumentVariantRoot($node) ) {
                 return $node;
             }
             if ( 'body' === strtolower($node->tagName) ) {
@@ -329,6 +330,11 @@ final class NavigationToggleSuppressor
             foreach ( $target->getElementsByTagName('*') as $candidate ) {
                 if ( $candidate instanceof DOMElement && $this->isAssociatedNavigationTarget($candidate) ) {
                     if ( $inner instanceof DOMElement ) {
+                        // A nested item/cluster is part of the containing menu,
+                        // not a second independently controlled occurrence.
+                        if ( SourceDom::elementContains($inner, $candidate) ) {
+                            continue;
+                        }
                         return null;
                     }
                     $inner = $candidate;
@@ -439,7 +445,7 @@ final class NavigationToggleSuppressor
      */
     public function isRedundantMenuToggleControl(DOMElement $element): bool
     {
-        if ( $this->isCapturedDialogControl($element) ) {
+        if ( $this->isCapturedDialogControl($element) || $this->isBoundCapturedDialogTrigger($element) ) {
             return false;
         }
 
@@ -548,6 +554,16 @@ final class NavigationToggleSuppressor
         return false;
     }
 
+    /**
+     * A control bound to a projected native dialog (`data-blocks-engine-triggers`
+     * names its id) owns that dialog; it is the dialog's opener, not redundant
+     * hamburger chrome a rebuilt navigation overlay supersedes.
+     */
+    private function isBoundCapturedDialogTrigger(DOMElement $element): bool
+    {
+        return SourceDom::isBoundCapturedDialogTrigger($element);
+    }
+
     /** A native disclosure with a captured dialog has its own preservation path. */
     private function isCapturedDialogControl(DOMElement $element): bool
     {
@@ -590,6 +606,30 @@ final class NavigationToggleSuppressor
         foreach ( $root->getElementsByTagName('*') as $element ) {
             if ( $element instanceof DOMElement && $this->isRedundantMenuToggleControl($element) ) {
                 $this->recordSupersededNavToggleSelectors($element);
+                $this->recordSupersededControlPaths($element);
+            }
+        }
+    }
+
+    /**
+     * Record the dropped toggle, and everything inside it, as source paths no
+     * author selector can address in the output. The author stylesheet
+     * projection keeps a type selector (`.nav button`, `.nav button svg`)
+     * whose matched source element has no projected counterpart, so once the
+     * toggle is gone the only `button`s such a rule can reach inside the
+     * converted header are the open and close buttons Core renders in its
+     * place — and the toggle's placement or desktop `display:none` would land
+     * on them. Marking the paths lets the projection bind those rules to a
+     * marker nothing carries, and exclude Core's chrome from rules the toggle
+     * shared with elements that do survive.
+     */
+    private function recordSupersededControlPaths(DOMElement $toggle): void
+    {
+        $projections = $this->context->selectorProjections();
+        $projections->markSupersededControlPath($toggle->getNodePath() ?? '');
+        foreach ( $toggle->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement ) {
+                $projections->markSupersededControlPath($descendant->getNodePath() ?? '');
             }
         }
     }
@@ -729,8 +769,9 @@ final class NavigationToggleSuppressor
         }
 
         $isButton = 'button' === $tagName;
-        $isButtonRoleAnchor = 'a' === $tagName && 'button' === strtolower(SourceDom::attr($element, 'role'));
-        if ( ! $isButton && ! $isButtonRoleAnchor ) {
+        $isRoleButton = ('a' === $tagName && 'button' === strtolower(SourceDom::attr($element, 'role')))
+            || AuthoredButtonBlockGenerator::isRoleButton($element);
+        if ( ! $isButton && ! $isRoleButton ) {
             return false;
         }
 
@@ -759,6 +800,16 @@ final class NavigationToggleSuppressor
         // it. Recognizing that shape (never a class string) lets these toggles be
         // dropped too, instead of surfacing as an empty, always-visible button.
         if ( $this->isHamburgerBarStackControl($element) ) {
+            return true;
+        }
+
+        // Icon-bars shape drawn as a character: the control's only visible
+        // content is the hamburger glyph itself (☰, or its ≡ stand-in). Sites
+        // without an icon font or SVG set type the three bars as text, so
+        // the control reads as "labelled" although nothing on screen is a
+        // word. It is the same icon the empty-span stack paints, with the
+        // same JS-only behavior the importer cannot carry.
+        if ( $this->isHamburgerGlyphControl($element) ) {
             return true;
         }
 
@@ -1007,9 +1058,36 @@ final class NavigationToggleSuppressor
     }
 
     /**
+     * Whether the control's only visible content is the hamburger glyph: the
+     * three bars typed as a character instead of drawn with spans or SVG.
+     * An image beside it, a word beside it, or a different symbol (a kebab
+     * "more" control, an ellipsis, a plus) is never matched.
+     */
+    private function isHamburgerGlyphControl(DOMElement $element): bool
+    {
+        return 0 === $element->getElementsByTagName('img')->length
+            && $this->isMenuGlyph($this->visibleMenuToggleTextContent($element));
+    }
+
+    /**
+     * Whether a text run is nothing but one pictographic menu glyph:
+     * U+2630 TRIGRAM FOR HEAVEN (☰), the hamburger as a character, or
+     * U+2261 IDENTICAL TO (≡), the stand-in used where ☰ lacked font
+     * coverage. An optional variation selector and surrounding whitespace
+     * (including no-break spaces) are allowed. Other symbols are not menu
+     * glyphs: ⋮ and … open "more"/overflow actions, and a repeated or
+     * mixed run is a label, not an icon.
+     */
+    private function isMenuGlyph(string $text): bool
+    {
+        return 1 === preg_match('/^[\s\p{Z}]*[\x{2630}\x{2261}][\x{FE0E}\x{FE0F}]?[\s\p{Z}]*$/u', $text);
+    }
+
+    /**
      * Visible text label of a control with decorative chrome (icons, empty
-     * hamburger bars) and source-hidden descendants stripped. Empty means the
-     * control shows no text label; accessible names remain separate semantics.
+     * hamburger bars, the hamburger glyph) and source-hidden descendants
+     * stripped. Empty means the control shows no text label; accessible
+     * names remain separate semantics.
      */
     private function visibleMenuToggleLabel(DOMElement $element): string
     {
@@ -1017,12 +1095,20 @@ final class NavigationToggleSuppressor
             return '';
         }
 
-        $label = '';
+        $label = $this->visibleMenuToggleTextContent($element);
+
+        return $this->isMenuGlyph($label) ? '' : $label;
+    }
+
+    /** The control's visible text, before deciding whether it is a label or an icon. */
+    private function visibleMenuToggleTextContent(DOMElement $element): string
+    {
+        $text = '';
         foreach ( $element->childNodes as $child ) {
-            $label .= $this->visibleMenuToggleText($child);
+            $text .= $this->visibleMenuToggleText($child);
         }
 
-        return trim($label);
+        return trim($text);
     }
 
     private function visibleMenuToggleText(DOMNode $node): string
@@ -1161,6 +1247,7 @@ final class NavigationToggleSuppressor
         foreach ( $document->getElementsByTagName('*') as $toggle ) {
             if ( ! $toggle instanceof DOMElement
                 || $this->isCapturedDialogControl($toggle)
+                || $this->isBoundCapturedDialogTrigger($toggle)
                 || ( ! $this->isHamburgerMenuToggleControl($toggle) && ! $this->isProjectableHashAnchorMenuToggle($toggle) )
             ) {
                 continue;
@@ -1420,6 +1507,12 @@ final class NavigationToggleSuppressor
      */
     public function projectedOverlayMenu(DOMElement $control): string
     {
+        // The enclosing document branch already owns its viewport visibility.
+        // A control visible throughout that branch must keep its opener above
+        // Core's fixed mobile breakpoint as well.
+        if ( null !== SourceDom::documentVariantRoot($control) && ! $this->isHiddenAtDefaultViewport($control) ) {
+            return 'always';
+        }
         if ( ! $this->isHashAnchorMenuProjection($control) ) {
             return 'mobile';
         }
@@ -1602,7 +1695,7 @@ final class NavigationToggleSuppressor
     private function isHiddenAtDefaultViewport(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
+            if ( SourceDom::isDocumentVariantRoot($node) || in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
                 break;
             }
             if ( $this->sourceElementIsHidden($node) ) {

@@ -6,6 +6,7 @@ require $root . '/php-transformer/vendor/autoload.php';
 require_once $root . '/figma-transformer/scripts/figma-fixture-matrix-acceptance.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $temporary = sys_get_temp_dir() . '/blocks-engine-acceptance-' . bin2hex(random_bytes(4));
 mkdir($temporary . '/evidence', 0777, true);
@@ -85,6 +86,7 @@ foreach (array('fse-pilot-build-theme', 'twenty-twenty-five-community', 'fisiost
         'entrypoint' => 'index.html',
         'files' => array('index.html' => '<main><h1>Home</h1></main>'),
     ))->toArray();
+    $sitePlanResult = $result;
     file_put_contents($sitePlan, json_encode($result['source_reports']['wordpress_site_plan']));
     $fixtures[] = array('id' => $fixtureId, 'fig' => $fig, 'site_plan' => $sitePlan, 'evidence' => $paths);
 }
@@ -182,13 +184,13 @@ $runFailure($fixtures, 'editor_validity', 'editor_validity_invalid_blocks');
 $editor['metrics']['invalid_block_count'] = 0;
 file_put_contents($fixtures[0]['evidence']['editor_validity'], json_encode($editor));
 
-$plan = json_decode((string) file_get_contents($fixtures[0]['site_plan']), true);
-$plan['pages'] = array();
-$plan['routes'] = array();
-$plan['operations'] = array();
-$plan['reporting']['source_documents'] = array();
-$plan['reporting']['metrics']['source_document_count'] = 0;
-$plan['reporting']['metrics']['block_document_count'] = 0;
+// Derive an internally coherent empty plan. Removing just its page rows would
+// leave the original route-owned document bootstrap attached to an invalid plan
+// and exercise schema rejection rather than the empty-import reason contract.
+$emptyResult = $sitePlanResult;
+$emptyResult['source_reports']['compiled_site']['pages'] = array();
+$emptyResult['source_reports']['compiled_site']['template_parts'] = array();
+$plan = (new WordPressSitePlan())->fromCompilerResult($emptyResult);
 file_put_contents($fixtures[0]['site_plan'], json_encode($plan));
 $runFailure($fixtures, 'import', 'import_empty_site_plan');
 

@@ -690,6 +690,10 @@ final class ShellExtraction
                 $clusters[$key]['identity'] = $identity;
                 $clusters[$key]['text_length'] = strlen($text);
                 $clusters[$key]['source_paths'][$document['source_path']] = true;
+                // One shared part can represent many routes, but its content
+                // is already stored once. Only distinct physical owners can
+                // justify another shared-content extraction.
+                $clusters[$key]['owners'][$document['kind'] . ':' . $document['index']] = true;
                 if ('page' === $document['kind']) $clusters[$key]['page_regions'][$document['index']][$document['region_index']] = true;
                 $clusters[$key]['documents'][$documentIndex][] = array(
                     'kind' => $document['kind'],
@@ -707,7 +711,7 @@ final class ShellExtraction
             }
         }
         unset($candidateCluster);
-        $clusters = array_filter($clusters, static fn(array $cluster): bool => empty($cluster['incomplete_responsive_regions']));
+        $clusters = array_filter($clusters, static fn(array $cluster): bool => empty($cluster['incomplete_responsive_regions']) && count($cluster['owners'] ?? array()) >= 2);
         uasort($clusters, static fn(array $left, array $right): int => count($right['source_paths'] ?? array()) <=> count($left['source_paths'] ?? array()) ?: ($right['text_length'] ?? 0) <=> ($left['text_length'] ?? 0));
         $cluster = reset($clusters);
         if (!is_array($cluster) || count($cluster['source_paths'] ?? array()) < 2) return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => array());
@@ -816,7 +820,7 @@ final class ShellExtraction
                 $open = array_pop($stack);
                 if (!is_array($open) || empty($open['candidate'])) continue;
                 $length = $offset + strlen($token['token']) - $open['offset']; $candidateMarkup = substr($markup, $open['offset'], $length);
-                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'document_level' => empty($stack), 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])));
+                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length, 'document_level' => empty($stack), 'wrapper_contract_shell' => !empty($open['wrapper_contract_shell']), 'ancestor_context' => self::ancestorContext($stack) + array('preceded' => !empty($open['preceded'])) + (array() !== ($open['backdrop_ids'] ?? array()) ? array('backdrop_ids' => $open['backdrop_ids']) : array()));
                 continue;
             }
             $name = $token['name']; $attributes = $token['attributes']; $attrs = '' === $attributes ? array() : json_decode($attributes, true);
@@ -846,11 +850,13 @@ final class ShellExtraction
             // Whether page content precedes the landmark inside its ancestors: a
             // block other than the enclosing openings started or ended before it.
             $preceded = false;
+            $backdropIds = array();
             if ($candidate && 0 < count($stack)) {
                 $between = substr($markup, $stack[0]['offset'], $offset - $stack[0]['offset']);
                 $preceded = preg_match_all('/<!--\s*wp:/', $between) > count($stack) || 0 < preg_match_all('/<!--\s*\/wp:/', $between);
+                if ($preceded) $backdropIds = self::backdropAncestorIds($markup, $stack, $offset);
             }
-            if (!$selfClosing) $stack[] = array('offset' => $offset, 'tag_name' => $tagName, 'candidate' => $candidate, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'anchor' => $anchor, 'class_name' => $className);
+            if (!$selfClosing) $stack[] = array('offset' => $offset, 'inner_offset' => $offset + strlen($token['token']), 'tag_name' => $tagName, 'candidate' => $candidate, 'wrapper_contract_shell' => $candidate && $hasShellWrapperContract && 'footer' === $area && 'footer' === $footerClass, 'preceded' => $preceded, 'backdrop_ids' => $backdropIds, 'anchor' => $anchor, 'class_name' => $className);
         }
         usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
         foreach ($rows as $variant => &$row) $row['variant'] = $variant; unset($row);
@@ -874,6 +880,40 @@ final class ShellExtraction
             foreach (preg_split('/\s+/', trim((string) ($ancestor['class_name'] ?? ''))) ?: array() as $class) if ('' !== $class) $classes[] = $class;
         }
         return array('ids' => array_values(array_unique($ids)), 'classes' => array_values(array_unique($classes)));
+    }
+
+    /**
+     * The ids of the ancestors that enclose page content preceding a nested
+     * landmark: the outer ancestors down to the deepest one in which a block
+     * opens before the next ancestor (or the landmark) does. In the source,
+     * those ancestors sized what preceded the chrome (a page background
+     * layer, say) to a box that also held the chrome. Ancestors below that
+     * point hold only the chrome and the content after it.
+     *
+     * @param array<int,array<string,mixed>> $stack
+     * @return list<string>
+     */
+    private static function backdropAncestorIds(string $markup, array $stack, int $offset): array
+    {
+        $deepest = -1;
+        foreach ($stack as $level => $ancestor) {
+            $start = (int) ($ancestor['inner_offset'] ?? $ancestor['offset']);
+            $end = isset($stack[$level + 1]) ? (int) $stack[$level + 1]['offset'] : $offset;
+            if (1 === preg_match('/<!--\s*\/?wp:/', substr($markup, $start, max(0, $end - $start)))) $deepest = $level;
+        }
+        $ids = array();
+        for ($level = 0; $level <= $deepest; ++$level) {
+            if (!empty($stack[$level]['candidate'])) continue;
+            $id = (string) ($stack[$level]['anchor'] ?? '');
+            if ('' === $id) {
+                foreach (preg_split('/\s+/', trim((string) ($stack[$level]['class_name'] ?? ''))) ?: array() as $class) {
+                    $id = (string) EngineMarker::editorAnchorId($class);
+                    if ('' !== $id) break;
+                }
+            }
+            if ('' !== $id) $ids[] = $id;
+        }
+        return array_values(array_unique($ids));
     }
 
     /** @param array<int,array<string,mixed>> $rows */
@@ -915,7 +955,12 @@ final class ShellExtraction
             $identity = array_key_first($clusters);
             $cluster = null === $identity ? null : $clusters[$identity];
             $runnerUp = array_values($clusters)[1] ?? null;
-            if (!is_array($cluster) || (count($cluster['indexes']) < count($applicable) && (count($cluster['indexes']) < 2 || (is_array($runnerUp) && count($cluster['indexes']) === count($runnerUp['indexes']))))) {
+            // A multi-route capture can carry chrome on the entry page only
+            // (single-page apps whose legal pages render bare). When no other
+            // route has any candidate for this area, nothing disagrees with
+            // the entry page, so it owns the part for the front page alone.
+            $entryOnly = is_array($cluster) && 1 === count($cluster['indexes']) && 1 < count($applicable) && !empty($pages[$cluster['indexes'][0]]['entrypoint']) && array() === array_diff_key($candidates, array($cluster['indexes'][0] => true)) && 1 === count($clusters);
+            if (!is_array($cluster) || (!$entryOnly && count($cluster['indexes']) < count($applicable) && (count($cluster['indexes']) < 2 || (is_array($runnerUp) && count($cluster['indexes']) === count($runnerUp['indexes']))))) {
                 $partitioned = $this->viewportPartitionWithoutCandidate($pages, array_keys($applicable), $area, $runtimeDeclarations);
                 if (null === $partitioned) {
                     $reason = array() === $clusters ? 'incomplete' : 'non_equivalent';
@@ -965,6 +1010,7 @@ final class ShellExtraction
                     $overrides[$slug] = $index;
                 }
             }
+            if ($entryOnly) $templateSlugs = array('front-page');
             $templateSlugs = array_values(array_unique($templateSlugs));
             $excludedTemplateSlugs = array_keys($overrides ?? array());
             $withoutShells = array();
@@ -1092,7 +1138,7 @@ final class ShellExtraction
             }
             if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, 'wordpress-site-plan/shared/' . $area . '#' . $area);
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
-            $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
+            $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
             $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $area;
             $placement = $inlineShell ? 'inline_shared_shell' : ($singlePage ? 'entry_shell' : 'shared_shell');
             if ($inlineShell) { $templateSlugs = array(); $excludedTemplateSlugs = array(); }
@@ -1211,7 +1257,7 @@ final class ShellExtraction
         foreach ($indexes as $index) {
             $pageKeys = array();
             foreach ($shellBindings[$index] ?? array() as $ref) {
-                $key = self::hoistableEntityKey($declarations[$ref['declaration']]['payload']['entities'][$ref['entity']]);
+                $key = self::hoistableEntityKey($declarations[$ref['declaration']]['payload']['entities'][$ref['entity']], (string) ($declarations[$ref['declaration']]['type'] ?? ''));
                 if (null === $key) return null;
                 $pageKeys[] = $key;
             }
@@ -1245,12 +1291,25 @@ final class ShellExtraction
     }
 
     /** @param array<string,mixed> $entity */
-    private static function hoistableEntityKey(array $entity): ?string
+    private static function hoistableEntityKey(array $entity, string $type = ''): ?string
     {
         $bindings = $entity['bindings'] ?? null;
         if (!is_array($bindings) || 1 !== count($bindings) || !empty($entity['superseded_scripts'])) return null;
         $role = (string) ($bindings[array_key_first($bindings)]['role'] ?? '');
         unset($entity['bindings'], $entity['reconciliation_identity'], $entity['fallback_identity'], $entity['replaced_fallback_identities']);
+        // External metric rows repeated in equivalent shared chrome are
+        // per-document anchors for one source fact. The first row owns the
+        // shared-part binding; route-specific IDs are transport identities, not
+        // metric semantics, so comparing them would incorrectly retain every
+        // otherwise-identical shell page.
+        if ('external_metrics' === $type && is_array($entity['source'] ?? null) && isset($entity['metric'], $entity['aggregation'], $entity['fallback'])) {
+            unset($entity['id']);
+            // Unlike ordinary source-location provenance, external metric
+            // provenance establishes why a remote fact is trustworthy.
+            // Keep its kind, repository revision and source path in the
+            // equivalence key so coalescing cannot discard a distinct mapping.
+            return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson($entity));
+        }
         return $role . "\0" . EngineMarker::withoutDocumentSeeds(RuntimeDeclarations::canonicalJson(self::withoutSourcePaths($entity)));
     }
 
@@ -1369,7 +1428,7 @@ final class ShellExtraction
         }
         foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
         unset($declaration);
-        $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
+        $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
         $sourcePath = 'wordpress-site-plan/shared/' . $area;
         $partMarkup = $absorbed['markup'];
         $ancestorContext = is_array($absorbed['ancestor_context'] ?? null) ? $absorbed['ancestor_context'] : null;
@@ -1440,6 +1499,7 @@ final class ShellExtraction
         $kept = array_fill_keys($dominant['indexes'], true);
         $pieces = array();
         $primaryContext = null;
+        $backdropIds = array();
         $sourceIndex = $dominant['indexes'][0];
         foreach ($variantClasses as $class) {
             $scoped = $byPage[$sourceIndex][$class];
@@ -1448,6 +1508,7 @@ final class ShellExtraction
             $inner = self::withoutCurrentNavigationState($owned ? (string) $candidate['markup'] : (string) $scoped[0]['markup']);
             if ('' === trim($inner)) return false;
             if (null === $primaryContext && 0 === self::responsiveVariantRank($class)) $primaryContext = $scoped[0]['ancestor_context'] ?? null;
+            foreach ((array) ($scoped[0]['ancestor_context']['backdrop_ids'] ?? array()) as $id) $backdropIds[(string) $id] = true;
             $pieces[$class] = self::variantVisibilityGroup($class, $inner);
         }
         if (null === $primaryContext) {
@@ -1461,7 +1522,11 @@ final class ShellExtraction
             if (null === $markup || $this->retainsResponsiveVariantLandmark($markup, $area)) return false;
             $cleaned[$index] = $markup;
         }
-        return array('pages' => $cleaned, 'markup' => implode("\n", $pieces), 'identities' => $identities, 'ancestor_context' => is_array($primaryContext) ? $primaryContext : array());
+        // The part renders every variant, so the backdrop ancestors of each
+        // variant document are detached from it.
+        $context = is_array($primaryContext) ? $primaryContext : array();
+        if (array() !== $backdropIds) $context['backdrop_ids'] = array_map('strval', array_keys($backdropIds));
+        return array('pages' => $cleaned, 'markup' => implode("\n", $pieces), 'identities' => $identities, 'ancestor_context' => $context);
     }
 
     /**
@@ -1570,7 +1635,7 @@ final class ShellExtraction
         return null;
     }
 
-    private static function isResponsiveVariantClass(string $class): bool
+    public static function isResponsiveVariantClass(string $class): bool
     {
         return in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)
             || 1 === preg_match('/^site-document-variant-[a-z][a-z0-9_-]{0,31}$/', $class);
@@ -1944,10 +2009,20 @@ final class ShellExtraction
             if (!$current && !$semanticIdentity) return $match[0];
             $isLink = 'navigation' !== $match[1];
             $peerClasses = is_array($peer) ? (preg_split('/\s+/', trim((string) ($peer['className'] ?? ''))) ?: array()) : array();
-            $classes = array_values(array_filter($classes, static function (string $class) use ($current, $semanticIdentity, $stateCarrierCounts, $peerClasses): bool {
+            // Recognition carries both markers only when current state was
+            // inferred from the URL and the same colour remains the base value.
+            // Removing route state must retain that invariant presentation.
+            $invariantColors = array();
+            foreach ($classes as $class) {
+                if (preg_match('/^blocks-engine-navigation-link-color-([a-f0-9]{64})$/', $class, $color)
+                    && in_array('blocks-engine-navigation-current-color-' . $color[1], $classes, true)) {
+                    $invariantColors[$class] = true;
+                }
+            }
+            $classes = array_values(array_filter($classes, static function (string $class) use ($current, $semanticIdentity, $stateCarrierCounts, $peerClasses, $invariantColors): bool {
                 if ($current && self::isCurrentPageClass($class, $peerClasses)) return false;
                 if (($current || $semanticIdentity) && preg_match('/^blocks-engine-navigation-current-color-[a-f0-9]{64}$/', $class)) return false;
-                if ($current && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class)) return false;
+                if ($current && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class) && !isset($invariantColors[$class])) return false;
                 if ($semanticIdentity && $current && 1 === ($stateCarrierCounts[$class] ?? 0)) return false;
                 if ($semanticIdentity && $current && preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class)) return false;
                 return true;

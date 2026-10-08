@@ -9,6 +9,8 @@ use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext;
 use DOMDocument;
 use DOMElement;
 
@@ -52,13 +54,16 @@ final class RuntimeDependencyParityReport
      *        as an acceptable, superseded loss rather than a materialization bug.
      * @return array<string, mixed>
      */
-    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array(), array $interactionCandidates = array(), array $supersededSelectors = array(), array $generatedBlocks = array()): array
+    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array(), array $interactionCandidates = array(), array $supersededSelectors = array(), array $generatedBlocks = array(), ?array $wordpressSitePlan = null): array
     {
         if ($this->ownsRuntimeScriptEvidenceAnalyzer) {
             $this->runtimeScriptEvidenceAnalyzer->resetCache();
         }
 
         $sourceTargets = $this->sourceTargets($sourceHtml, $sourcePath);
+        $sourceHeadTargets = $this->sourceTargets($this->headTags($sourceHtml, true), $sourcePath);
+        $sourceBodyTargets = $this->sourceTargets($sourceHtml, $sourcePath, true);
+        $headTargets = $this->htmlTargets($this->headTags(null === $wordpressSitePlan ? '' : DocumentHeadContext::fromPlan($wordpressSitePlan, $sourcePath), false));
         $generatedTargets = $this->withBlockCommentAnchorTargets(
             $this->withRuntimeIslandTargets($this->htmlTargets($generatedHtml), $runtimeIslands),
             $generatedHtml
@@ -86,7 +91,9 @@ final class RuntimeDependencyParityReport
             foreach ( $this->scriptDependencies($script, $bundleCanvasSelectors) as $dependency ) {
                 $selector = (string) $dependency['selector'];
                 $target = $sourceTargets[$selector] ?? array();
-                $exists = $this->targetExists($dependency, $generatedTargets) || $this->targetExists($dependency, $companionTargets) || $this->targetExists($dependency, $rendererTargets);
+                $headTarget = isset($sourceHeadTargets[$selector]);
+                $bodyExists = $this->targetExists($dependency, $generatedTargets) || $this->targetExists($dependency, $companionTargets) || $this->targetExists($dependency, $rendererTargets);
+                $exists = $headTarget ? ($this->targetExists($dependency, $headTargets) && (!isset($sourceBodyTargets[$selector]) || $bodyExists)) : $bodyExists;
                 $canvasApi = true === $dependency['canvas_api'] && 'canvas' === ($target['tag'] ?? '');
                 $dependencyRow = array_filter(array(
                     'source_path'       => $target['source_path'] ?? $sourcePath,
@@ -101,7 +108,7 @@ final class RuntimeDependencyParityReport
                     'canvas_api'        => $canvasApi,
                     'source_present'    => array() !== $target,
                     'generated_present' => $exists,
-                    'generated_target_evidence' => $this->generatedTargetEvidence($dependency, $companionTargets, $rendererTargets),
+                    'generated_target_evidence' => $headTarget ? ($exists ? 'declared_document_head' : '') : $this->generatedTargetEvidence($dependency, $companionTargets, $rendererTargets),
                     'disposition'       => $this->isSupersededSelector($selector, $superseded) ? self::DISPOSITION_SUPERSEDED : '',
                 ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
                 $dependencies[] = $dependencyRow;
@@ -180,6 +187,16 @@ final class RuntimeDependencyParityReport
         $report['findings'] = $findings;
 
         return $report;
+    }
+
+    /** Scan real start tags, never markup examples inside raw script/style text. */
+    private function headTags(string $html, bool $requireHeadPlacement): string
+    {
+        $tags = array();
+        foreach (array('meta', 'link', 'style', 'script', 'title', 'base') as $name) foreach (HtmlTagScanner::scan($html, $name) as $row) {
+            if (!$requireHeadPlacement || 'head' === $row['placement']) $tags[] = $row['tag'] . (in_array($name, array('style', 'script', 'title'), true) ? '</' . $name . '>' : '');
+        }
+        return implode("\n", $tags);
     }
 
     /**
@@ -535,7 +552,9 @@ final class RuntimeDependencyParityReport
     private function normalizedTargetSelector(string $target): string
     {
         $target = trim($target);
-        if ( 1 === preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*$/', $target) ) {
+        // `[data-attr]` presence selectors are included: capture-owned runtimes
+        // address absorbed panels by attribute.
+        if ( 1 === preg_match('/^(?:[#.][A-Za-z][A-Za-z0-9_-]*|\[data-[a-z0-9_-]+\])$/', $target) ) {
             return $target;
         }
 
@@ -678,12 +697,13 @@ final class RuntimeDependencyParityReport
     /**
      * @return array<string, array{tag: string, source_path: string, id?: string, class?: string, src?: string}>
      */
-    private function sourceTargets(string $html, string $sourcePath): array
+    private function sourceTargets(string $html, string $sourcePath, bool $excludeHead = false): array
     {
         $targets = array();
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $documentHtml = array() !== HtmlTagScanner::scan($html, 'html') ? $html : '<body>' . $html . '</body>';
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
         if ( ! $loaded ) {
@@ -693,6 +713,9 @@ final class RuntimeDependencyParityReport
         foreach ( $document->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) {
                 continue;
+            }
+            if ($excludeHead) {
+                for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) if ('head' === strtolower($ancestor->tagName)) continue 2;
             }
             $tag = strtolower($element->tagName);
             $src = 'script' === $tag && $element->hasAttribute('src') ? trim($element->getAttribute('src')) : '';

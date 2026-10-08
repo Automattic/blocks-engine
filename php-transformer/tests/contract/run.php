@@ -797,7 +797,7 @@ $assert(str_contains($inlineWidthTableCss, '>table>tbody>tr:nth-child(1)>td:nth-
 $assert('pass' === ($inlineWidthTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'inline-width native tables remain editor-valid');
 $paddedTableResult = ( new HtmlTransformer() )->transform('<table><tbody><tr><td style="width:50%;padding:0 15px"><div style="text-align:center"><img src="centered.jpg" alt="Centered" style="width:auto;max-width:100%"></div></td><td style="width:50%;padding:0 15px">Copy</td></tr></tbody></table>')->toArray();
 $paddedTableCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $paddedTableResult['assets'] ?? array()));
-$assert('core/columns' === ($paddedTableResult['blocks'][0]['blockName'] ?? null) && str_contains($paddedTableCss, 'width:50% !important') && str_contains((string) ($paddedTableResult['serialized_blocks'] ?? ''), 'padding-right:15px'), 'image-and-copy layout tables lower to native columns while preserving authored cell geometry');
+$assert('core/group' === ($paddedTableResult['blocks'][0]['blockName'] ?? null) && 'core/columns' === ($paddedTableResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && str_contains($paddedTableCss, 'width:50% !important') && str_contains((string) ($paddedTableResult['serialized_blocks'] ?? ''), 'padding-right:15px'), 'image-and-copy layout tables lower to native columns with a shared table sizing owner while preserving authored cell geometry');
 $assert('pass' === ($paddedTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'padded native image columns remain editor-valid');
 $legacyMediaTableResult = ( new HtmlTransformer() )->transform('<table class="portfolio-row"><tbody><tr><td style="width:50%;text-align:right"><img src="dsc-9062.jpg" alt="Portrait" style="width:466"></td><td style="width:50%"><h2>Portfolio</h2><p>Selected work.</p></td></tr></tbody></table>')->toArray();
 $legacyMediaTableMarkup = (string) ($legacyMediaTableResult['serialized_blocks'] ?? '');
@@ -830,7 +830,7 @@ $percentLayoutTableBlock = $percentLayoutTable['blocks'][0] ?? array();
 $assert('core/columns' === ($percentLayoutTableBlock['blockName'] ?? null) && 3 === count($percentLayoutTableBlock['innerBlocks'] ?? array()), 'percent-width layout tables become core/columns');
 $assert('18.5%' === ($percentLayoutTableBlock['innerBlocks'][0]['attrs']['width'] ?? null) && '63%' === ($percentLayoutTableBlock['innerBlocks'][1]['attrs']['width'] ?? null) && '18.5%' === ($percentLayoutTableBlock['innerBlocks'][2]['attrs']['width'] ?? null), 'percent-width layout tables preserve cell percentages as column widths');
 $percentLayoutTableCss = implode("\n", array_column($percentLayoutTable['assets'] ?? array(), 'content'));
-$assert(str_contains((string) ($percentLayoutTable['serialized_blocks'] ?? ''), 'blocks-engine-layout-table-columns') && str_contains($percentLayoutTableCss, '.wp-block-columns.blocks-engine-layout-table-columns{display:flex;flex-wrap:nowrap;gap:0;box-sizing:border-box}') && str_contains($percentLayoutTableCss, '.wp-block-columns.blocks-engine-layout-table-columns>.wp-block-column{box-sizing:border-box;min-width:0}'), 'layout-table columns keep a single-row flex track and include cell padding inside percent widths');
+$assert(str_contains((string) ($percentLayoutTable['serialized_blocks'] ?? ''), 'blocks-engine-layout-table-table') && str_contains($percentLayoutTableCss, '{display:table;margin:0}') && str_contains($percentLayoutTableCss, '{display:table-cell;box-sizing:content-box;word-break:normal;overflow-wrap:normal}'), 'auto layout-table columns retain native table tracks and content-box cell sizing');
 $assert('core/table' === (( new HtmlTransformer() )->transform('<table><tr><td>A</td><td>B</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'headerless tables without cell percentages remain data tables');
 $assert(! str_contains($nestedLayoutTableMarkup, '<!-- wp:html') && 'core/image' === ($nestedLayoutTableLinkedMedia['blockName'] ?? null) && '/quote' === ($nestedLayoutTableLinkedMedia['attrs']['href'] ?? null) && str_contains($nestedLayoutTableMarkup, 'src="mark.jpg"') && str_contains($nestedLayoutTableMarkup, 'Layout copy'), 'nested layout table lowering preserves native linked images and content order without HTML fallback');
 $assert('pass' === ($nestedLayoutTableResult['source_reports']['wp_block_validity']['status'] ?? null), 'nested layout table columns remain Gutenberg-valid');
@@ -847,6 +847,20 @@ $assert(! str_contains($metadataTableMarkup, '<!-- wp:html') && ! str_contains($
 $assert(1 === preg_match('/\.([a-z0-9-]*be-inline-geometry-[a-f0-9]+)\{[^}]*display:none[^}]*\}/i', $metadataTableCss), 'metadata rows the source hid stay hidden after lowering');
 $assert('pass' === ($metadataTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'a lowered caption table stays editor-valid');
 $assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a spanning cell beside visible data cells still falls back');
+// A page header laid out as a table: every row is one cell that spans the
+// declared grid, so no cell ever shares a row with another. The colspan is the
+// only thing that made it a "spanning" table; the cell count per row is one.
+$stackedHeaderTableSource = '<table class="header"><tbody><tr><td colspan="4"><h1>Site Name</h1><p>Tagline here<span>|</span></p></td></tr>'
+    . '<tr><td colspan="4"><div><a href="/blog/">blog</a> <a href="/video/">video</a></div></td></tr></tbody></table>';
+$stackedHeaderTableResult = ( new HtmlTransformer() )->transform($stackedHeaderTableSource)->toArray();
+$stackedHeaderTableMarkup = (string) ($stackedHeaderTableResult['serialized_blocks'] ?? '');
+$assert($tablePolicy->isMetadataLayoutTable($tableElement($stackedHeaderTableSource)), 'a table whose every row is one cell spanning the declared grid is not tabular data');
+$assert(! str_contains($stackedHeaderTableMarkup, '<!-- wp:html') && ! str_contains($stackedHeaderTableMarkup, '<!-- wp:table') && str_contains($stackedHeaderTableMarkup, '<!-- wp:heading') && str_contains($stackedHeaderTableMarkup, 'Tagline here') && str_contains($stackedHeaderTableMarkup, 'href="/video/"'), 'a stacked single-cell header table lowers to native blocks in source order');
+$assert('pass' === ($stackedHeaderTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'a lowered stacked header table stays editor-valid');
+$assert(! $tablePolicy->isMetadataLayoutTable($tableElement('<table><tr><td>One</td></tr><tr><td>Two</td></tr></table>')), 'a one-column table without colspan is left to data-table classification');
+$assert('core/table' === (( new HtmlTransformer() )->transform('<table><tr><td>One</td></tr><tr><td>Two</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a one-column table without colspan still becomes core/table');
+$assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><td colspan="3">One</td></tr><tr><td colspan="2">Two</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'single cells with unequal colspans are still a spanning table');
+$assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><th colspan="2">Head</th></tr><tr><td colspan="2">Body</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a header cell keeps a stacked colspan table as data');
 
 $colspanTableResult = ( new HtmlTransformer() )->transform('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>')->toArray();
 $assert('core/html' === ($colspanTableResult['blocks'][0]['blockName'] ?? null), 'colspan table falls back to core/html');
@@ -1622,6 +1636,10 @@ $conditionalVisualGraph = (new HtmlTransformer())->transform('<style>@media (max
 $assert('unknown' === ($conditionalVisualGraph['visual_parts'][0]['source_css']['state'] ?? null) && 'visual_part' === ($conditionalVisualGraph['variants'][0]['role'] ?? null) && 'max(16px,16px)' === ($conditionalVisualGraph['variants'][0]['style_patch']['width'] ?? null), 'conditional-only visual sizing remains in its responsive variant even when base CSS is unknown');
 $unknownVisualGraph = (new HtmlTransformer())->transform('<form method="post" action="#"><button type="button"><svg viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg></button><input type="tel" name="phone"></form>')->toArray()['fallbacks'][0]['presentation_graph'] ?? array();
 $assert('unknown' === ($unknownVisualGraph['visual_parts'][0]['source_css']['state'] ?? null), 'form presentation explicitly represents unknown source CSS instead of inventing visual semantics');
+$hiddenSpinnerHtml = '<form method="post" action="#"><input type="email" name="email"><button type="submit"><svg class="icon" viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg>Join<span class="spinner"><svg viewBox="0 0 24 24"><path d="M12 1a11 11 0 1 0 0 22z"/></svg></span></button></form>';
+$hiddenSpinnerGraph = (new HtmlTransformer())->transform($hiddenSpinnerHtml, array('static_css' => '.spinner{display:none}.is-loading .spinner{display:inline-block}'))->toArray()['fallbacks'][0]['presentation_graph'] ?? array();
+$responsiveSpinnerGraph = (new HtmlTransformer())->transform($hiddenSpinnerHtml, array('static_css' => '.spinner{display:none}@media (max-width:600px){.spinner{display:inline-block}}'))->toArray()['fallbacks'][0]['presentation_graph'] ?? array();
+$assert(array('control-1-svg-0') === array_column($hiddenSpinnerGraph['visual_parts'] ?? array(), 'id') && str_ends_with((string) ($hiddenSpinnerGraph['visual_parts'][0]['source_selector'] ?? ''), 'button:nth-of-type(1) > svg:nth-of-type(1)') && 2 === count($responsiveSpinnerGraph['visual_parts'] ?? array()), 'form presentation leaves out an icon the source hides inside its control under every condition (a submit loading spinner) and keeps one a responsive rule shows', json_encode(array($hiddenSpinnerGraph['visual_parts'] ?? null, count($responsiveSpinnerGraph['visual_parts'] ?? array()))));
 $invalidPresentation = $presentationGraph; $invalidPresentation['controls'][0]['control']['styles']['untrusted'] = 'value'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder::assertValid($invalidPresentation); $assert(false, 'presentation graph validation rejects unknown style properties'); } catch (\InvalidArgumentException) { $assert(true, 'presentation graph validation rejects unknown style properties'); }
 $unsafePresentation = $presentationGraph; $unsafePresentation['controls'][0]['control']['provenance'][0]['source_path'] = '../untrusted.css'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder::assertValid($unsafePresentation); $assert(false, 'presentation graph validation rejects unsafe provenance paths'); } catch (\InvalidArgumentException) { $assert(true, 'presentation graph validation rejects unsafe provenance paths'); }
 $unsafeVisualPresentation = $visualPresentationGraph; $unsafeVisualPresentation['visual_parts'][0]['markup'] = '<svg><animate attributeName="href" to="javascript:alert(1)"/></svg>'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder::assertValid($unsafeVisualPresentation); $assert(false, 'presentation graph validation rejects unsafe visual payloads'); } catch (\InvalidArgumentException) { $assert(true, 'presentation graph validation rejects unsafe visual payloads'); }
@@ -2113,7 +2131,7 @@ $flexChainButton = ( new HtmlTransformer() )->transform(
 $flexChainButtonMarkup = (string) ($flexChainButton['serialized_blocks'] ?? '');
 $flexChainButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexChainButton['assets'] ?? array()));
 $assert(str_contains($flexChainButtonMarkup, 'wp-block-buttons blocks-engine-control-') && str_contains($flexChainButtonMarkup, 'wp-block-button blocks-engine-control-'), 'direct flex-child anchor carries one generated marker across both synthetic wrappers');
-$assert(str_contains($flexChainButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'direct column flex-child anchor bridges wrapper sizing while only the synthetic inner wrapper has neutral margin');
+$assert(str_contains($flexChainButtonCss, '.wp-block-buttons){width:auto!important}') && str_contains($flexChainButtonCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'direct column flex-child anchor follows parent sizing while only the synthetic inner wrapper has neutral margin');
 $assert('pass' === ($flexChainButton['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex-child wrapper chain remains editor-valid');
 
 // A column flex parent with a keyword `align-items` (not the stretch default)
@@ -2135,7 +2153,7 @@ $assert(
     str_contains($flexChainButtonCenteredCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}')
         && str_contains($flexChainButtonCenteredCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}')
         && str_contains($flexChainButtonCenteredCss, '.wp-block-button__link){box-sizing:border-box}')
-        && ! preg_match('/\.wp-block-button(?:s)?\)\{[^}]*width:100%!important/', $flexChainButtonCenteredCss)
+        && ! preg_match('/\.wp-block-buttons\)\{[^}]*width:100%!important/', $flexChainButtonCenteredCss)
         && ! str_contains($flexChainButtonCenteredCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'),
     'a centered column flex parent does not stretch a content-sized source anchor to fill the row',
     $flexChainButtonCenteredCss
@@ -2214,7 +2232,7 @@ $responsiveFullWidthButtonCss = implode("\n", array_map(static fn (array $asset)
 $responsiveFullWidthButtonMarker = preg_match('/\bblocks-engine-control-[^\s"]+/', $responsiveFullWidthButtonMarkup, $matches) ? $matches[0] : '';
 $assert(str_contains($responsiveFullWidthButtonCss, '@media(min-width:992px)') && str_contains($responsiveFullWidthButtonCss, 'width:auto'), 'responsive full-width button retains its desktop intrinsic-width author rule');
 $assert(str_contains($responsiveFullWidthButtonMarkup, '<img src="assets/materialized-svg/') && str_contains($responsiveFullWidthButtonMarkup, '<span>Sign Up</span>'), 'responsive full-width button retains nested icon and label content');
-$assert(str_contains($responsiveFullWidthButtonCss, 'display:flex!important;align-items:center!important;justify-content:center!important;gap:8px!important') && str_contains($responsiveFullWidthButtonCss, '@media(min-width:992px)') && str_contains($responsiveFullWidthButtonCss, 'padding:8px 16px!important') && ! str_contains($responsiveFullWidthButtonCss, 'padding-top:12px!important'), 'responsive icon button keeps its authored flex row and desktop padding instead of a generated mobile padding override');
+$assert(str_contains($responsiveFullWidthButtonCss, 'display:flex!important;align-items:center!important;justify-content:center!important;gap:8px!important') && str_contains($responsiveFullWidthButtonCss, '@media(min-width:992px)') && str_contains($responsiveFullWidthButtonCss, 'padding:8px 16px') && ! str_contains($responsiveFullWidthButtonCss, 'padding:8px 16px!important') && ! str_contains($responsiveFullWidthButtonCss, 'padding-top:12px!important'), 'responsive icon button keeps its authored flex row and stylesheet-owned desktop padding without overriding editor padding');
 $assert('' !== $responsiveFullWidthButtonMarker && ! str_contains($responsiveFullWidthButtonCss, ':where(.' . $responsiveFullWidthButtonMarker . '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}'), 'responsive full-width button does not emit an unconditional generated full-width wrapper bridge');
 $assert(str_contains($responsiveFullWidthButtonMarkup, 'wp-block-buttons blocks-engine-control-') && str_contains($responsiveFullWidthButtonMarkup, 'wp-block-button blocks-engine-control-') && 'pass' === ($responsiveFullWidthButton['source_reports']['wp_block_validity']['status'] ?? ''), 'responsive full-width button keeps the canonical wrapper save shape and validity');
 
@@ -3364,9 +3382,9 @@ $bodyStateProjection = ( new HtmlTransformer() )->transform(
 )->toArray();
 $bodyStateSerialized = (string) ($bodyStateProjection['serialized_blocks'] ?? '');
 $bodyStateCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $bodyStateProjection['assets'] ?? array()));
-$assert(str_contains($bodyStateSerialized, 'wrapper fixed-shell no-header-page') && str_contains($bodyStateSerialized, 'main-wrap'), 'stylesheet-referenced body state projects onto converted root blocks');
+$assert(str_contains($bodyStateSerialized, 'wrapper') && !str_contains($bodyStateSerialized, 'fixed-shell') && !str_contains($bodyStateSerialized, 'no-header-page'), 'document body state stays separate from converted root blocks');
 $assert(str_contains($bodyStateCss, '.no-header-page .main-wrap{padding-top:80px}'), 'body-state descendant selectors continue matching beneath the projected root block state');
-$assert(str_contains($bodyStateCss, '.fixed-shell .main-wrap{background:#fff}') && ! str_contains($bodyStateCss, 'body.fixed-shell'), 'explicit body-state selectors retarget the projected root state while retaining descendant structure');
+$assert(str_contains($bodyStateCss, 'body.fixed-shell .main-wrap{background:#fff}'), 'explicit body-state selectors retain their ancestor and specificity');
 
 // Webflow-style `<body class="body">` with `.body{background}`: body paint
 // propagates to the canvas behind negative z-index layers, so it must stay on
@@ -3377,11 +3395,10 @@ $bodySubjectProjection = ( new HtmlTransformer() )->transform(
 )->toArray();
 $bodySubjectSerialized = (string) ($bodySubjectProjection['serialized_blocks'] ?? '');
 $bodySubjectCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $bodySubjectProjection['assets'] ?? array()));
-$assert(str_contains($bodySubjectSerialized, 'main-wrapper body'), 'body classes still project onto root blocks for descendant matching');
+$assert(str_contains($bodySubjectSerialized, 'main-wrapper') && !str_contains($bodySubjectSerialized, 'main-wrapper body'), 'body classes are not copied onto unrelated subjects');
 $assert(str_contains($bodySubjectCss, '.body .hero{position:relative}'), 'body-class descendant selectors keep matching beneath the projected root block');
-$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-site-\d+\)\{background-color:#f0f0f0;color:#333\}/', $bodySubjectCss), 'body-subject class rules retarget the rendered body and keep their class specificity');
-$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-site-\d+\)\{font-size:16px\}/', $bodySubjectCss), 'type-qualified body-subject class rules retarget the rendered body');
-$assert(! str_contains($bodySubjectCss, '.body{'), 'body-subject paint does not land on projected root blocks');
+$assert(str_contains($bodySubjectCss, '.body{background-color:#f0f0f0;color:#333}'), 'body-subject class rules retain their state and class specificity');
+$assert(str_contains($bodySubjectCss, 'body.body{font-size:16px}'), 'type-qualified body-subject rules retain their type specificity');
 
 $sharedBodyClassProjection = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><body class="body"><div class="card"><div class="body">Card body</div></div></body></html>',
@@ -3405,10 +3422,16 @@ $variantBodySubject = ( new HtmlTransformer() )->transform(
 $variantBodySubjectSerialized = (string) ($variantBodySubject['serialized_blocks'] ?? '');
 $variantBodySubjectCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $variantBodySubject['assets'] ?? array()));
 $assert(str_contains($variantBodySubjectSerialized, 'data-liberation-desktop-document body'), 'captured document variant roots keep the projected body class for descendant matching');
-$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-site-\d+\)\{background-color:#f0f0f0;flex-flow:column;font-family:Georgia,serif\}/', $variantBodySubjectCss), 'every body-element declaration retargets the rendered body when only document variant roots share the class');
-$assert(1 === preg_match('/@media \(max-width:479px\)\{body:not\(\.blocks-engine-specificity-class-site-\d+\)\{display:flex\}\}/', $variantBodySubjectCss), 'conditional body-subject rules retarget the rendered body alongside the rest state');
-$assert(! str_contains($variantBodySubjectCss, '.body{'), 'no body-subject paint is left to cover the negative z-index hero layers');
+$assert(str_contains($variantBodySubjectCss, ':where(body).body{background-color:#f0f0f0;flex-flow:column;font-family:Georgia,serif}'), 'synthetic document variant classes target the real body without losing state or class specificity');
+$assert(str_contains($variantBodySubjectCss, '@media (max-width:479px){:where(body).body{display:flex}}'), 'conditional variant body-subject rules retain their state');
 $assert(str_contains($variantBodySubjectCss, '.body .hero{position:relative}'), 'body-class descendant selectors keep matching inside a captured document variant');
+
+$escapedVariantBodySubject = (new HtmlTransformer())->transform(
+    '<body class="paint:canvas"><div class="data-liberation-desktop-document paint:canvas"><p>Content</p></div></body>',
+    array('static_css' => '.paint\\:canvas{background-color:#f0f0f0}')
+)->toArray();
+$escapedVariantBodyCss = implode("\n", array_column($escapedVariantBodySubject['assets'] ?? array(), 'content'));
+$assert(str_contains($escapedVariantBodyCss, ':where(body).paint\\:canvas{background-color:#f0f0f0}'), 'escaped body class subjects keep canvas ownership when copied onto synthetic document variants');
 
 $variantSharedBodyClass = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><body class="body"><div class="data-liberation-desktop-document body"><div class="card"><div class="body">Card body</div></div></div></body></html>',
@@ -3416,7 +3439,7 @@ $variantSharedBodyClass = ( new HtmlTransformer() )->transform(
 )->toArray();
 $variantSharedBodyClassCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $variantSharedBodyClass['assets'] ?? array()));
 $assert(str_contains($variantSharedBodyClassCss, '.body{padding:4px;background-color:#f0f0f0}'), 'a body class genuinely shared with content keeps its subject even beneath a document variant root');
-$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-site-\d+\)\{background-color:#f0f0f0\}/', $variantSharedBodyClassCss), 'a shared body class still paints the rendered canvas');
+$assert(!str_contains($variantSharedBodyClassCss, 'body:not('), 'a genuine shared class paints both source subjects without duplicated canvas compensation');
 
 $styledLogo = ( new HtmlTransformer() )->transform(
     '<style>#wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><a class="logo" href="/"><span id="wordmark">Brand Name</span></a>'
@@ -4408,7 +4431,11 @@ $artifactNavStructureCompatOffset = strpos($artifactNavStructureStaticCss, 'wp-c
 $artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '' : substr($artifactNavStructureStaticCss, $artifactNavStructureCompatOffset);
 $artifactNavStructureAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactNavStructureCss['assets'] ?? array()));
 $assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__container>.wp-block-navigation-item') && ! str_contains($artifactNavStructureCompatCss, 'blocks-engine-source-li-'), 'artifact navigation projection replaces non-serialized source list markers with core navigation item selectors');
-$assert(str_contains($artifactNavStructureCompatCss, '.desktop-nav.wp-block-navigation .wp-block-navigation__container .wp-block-navigation-item { float:left }'), 'artifact navigation projection maps classed navigation ancestor item selectors onto core navigation structure', $artifactNavStructureCompatCss);
+// A rule whose subject is the source list item itself is projected by the author
+// stylesheet projector onto core's rendered item (the source-type marker never
+// reaches it), so the compat layer no longer has a marker to map for it.
+$assert(str_contains($artifactNavStructureStaticCss, '.desktop-nav :where(.wp-block-navigation-item):not(blocks-engine-specificity-site-0){float:left}'), 'artifact navigation projection moves a list-item subject onto the rendered core navigation item', $artifactNavStructureStaticCss);
+$assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation-item { float:left }'), 'the compat layer does not restate the list-item rule the author projection already addresses', $artifactNavStructureCompatCss);
 $assert(str_contains($artifactNavStructureMarkup, '"overlayMenu":"never"') && ! str_contains($artifactNavStructureAssetCss, 'blocks-engine-native-responsive-navigation{display:flex!important}'), 'list navigation without an authored responsive control preserves its mobile visibility contract', $artifactNavStructureAssetCss);
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');
 $assert(str_contains($artifactNavStructureCompatCss, '.menu-ready .desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container { visibility:visible;opacity:1 }'), 'artifact navigation projection materializes the source list stable visible state for core navigation', $artifactNavStructureCompatCss);
@@ -4423,7 +4450,7 @@ $artifactResponsiveRoot = $compiler->compile(
     )
 )->toArray();
 $artifactResponsiveRootCss = (string) ($artifactResponsiveRoot['source_reports']['compiled_site']['theme']['static_css'] ?? '');
-$assert(str_contains($artifactResponsiveRootCss, 'wp-compat: WordPress body does not retain the source responsive root class.') && str_contains($artifactResponsiveRootCss, 'body:not(.responsive) #site-root { min-width:0!important }') && str_contains($artifactResponsiveRootCss, '@media (min-width: 800px) {body:not(.responsive) .desktop-root { min-width:0!important }}') && str_contains($artifactResponsiveRootCss, '@scope (body) {@supports (display:grid) {body:not(.responsive) .scoped-root { min-width:0!important }}'), 'artifact CSS clears source responsive-root desktop minimum widths when WordPress owns the body class, including nested supported conditional rules', $artifactResponsiveRootCss);
+$assert(!str_contains($artifactResponsiveRootCss, 'min-width:0!important') && !str_contains($artifactResponsiveRootCss, 'WordPress body does not retain'), 'route-owned body state makes responsive minimum-width compensation unnecessary', $artifactResponsiveRootCss);
 
 $artifactMobileNavOverlay = $compiler->compile(
     array(
@@ -5787,11 +5814,10 @@ $scriptCompanion = $compiler->compile(
     )
 )->toArray();
 $scriptPayload = $scriptCompanion['source_reports']['companion_plugin_payload'] ?? array();
-$assert(array() === ($scriptPayload['blocks'] ?? null), 'script-only companion payload does not invent a custom block');
-$assert(1 === count($scriptPayload['preserved_js'] ?? array()), 'script-only artifact emits one preserved companion script');
-$assert(str_contains((string) ($scriptPayload['preserved_js'][0]['content'] ?? ''), 'dataset.ready'), 'companion payload carries the inline script body');
-$assert('script:nth-of-type(1)' === ($scriptPayload['preserved_js'][0]['selector'] ?? ''), 'companion payload carries the source script selector');
-$assert('index.html' === ($scriptPayload['preserved_js'][0]['source_path'] ?? ''), 'companion payload carries the source document path');
+$assert(array() === ($scriptPayload['blocks'] ?? array()), 'script-only companion payload does not invent a custom block');
+$scriptOnlyPlan = $scriptCompanion['source_reports']['wordpress_site_plan'] ?? array();
+$scriptOnlyThemeScripts = array_merge(...array_map(static fn (array $page): array => $page['document_metadata']['scripts'] ?? array(), $scriptOnlyPlan['pages'] ?? array()));
+$assert(array() === ($scriptPayload['preserved_js'] ?? array()) && 1 === count($scriptOnlyThemeScripts), 'theme-declared inline script stays once in the theme and is not duplicated in the companion payload');
 
 $rootedScriptCompanion = $compiler->compile(
     array(
@@ -5971,6 +5997,51 @@ $assert(! str_contains($triggerRowMarkup, 'data-blocks-engine-tablist-row'), 'th
 $assert(! str_contains($triggerRowMarkup, '<!-- wp:button'), 'the source trigger row is replaced by the tab-list rather than kept as duplicate buttons');
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($triggerRowSelectableSet['blocks'] ?? array()), 'trigger-row selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($triggerRowSelectableSet['blocks'] ?? array())['status'] ?? ''), 'trigger-row selectable-set tabs remain Gutenberg-valid');
+
+$sideBySideActive = '<div class="panel"><h2>Gamma</h2><p>Gamma specification details</p></div>';
+$sideBySideTrigger = static fn(int $index, string $label, string $html, int $size): array => array(
+    'status' => 'captured',
+    'kind' => 'selectable-set',
+    'trigger' => array('selector' => 'body > main > div > ul > li:nth-of-type(' . ($index + 1) . ') > button', 'tag' => 'button', 'label' => $label, 'ariaHaspopup' => '', 'dataBindings' => array()),
+    'dialog' => array('selector' => 'body > main > div > div:nth-of-type(1)', 'tag' => 'div', 'html' => $html, 'htmlBytes' => strlen($html), 'htmlTruncated' => false),
+    'set' => array('selector' => 'body > main > div > ul', 'size' => $size, 'index' => $index),
+);
+// The source lays a detail region and a trigger list side by side in one grid; the
+// last member is the one active at load, so capture never clicked it.
+$sideBySideSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Side By Side Selectable Set Site', 'slug' => 'captured-side-by-side-selectable-set-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><div class="split" style="display:grid;grid-template-columns:1fr 1fr"><div>' . $sideBySideActive . '</div><ul class="items"><li><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->1</span><span class="name">Alpha</span></button></li><li style="margin-top:.5rem"><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->2</span><span class="name">Beta</span></button></li><li style="margin-top:.5rem"><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->3</span><span class="name">Gamma</span></button></li></ul></div></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(
+                    $sideBySideTrigger(0, '01Alpha', $selectableAlpha, 3),
+                    $sideBySideTrigger(1, '02Beta', $selectableBeta, 3),
+                ),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$sideBySideMarkup = (string) ($sideBySideSelectableSet['serialized_blocks'] ?? '');
+$assert(1 === preg_match('/"label":"03 Gamma"/', $sideBySideMarkup) && str_contains($sideBySideMarkup, 'Gamma specification details'), 'the member active at load keeps its content as an editable tab even though capture never clicked it');
+$assert(str_contains($sideBySideMarkup, '"label":"01 Alpha"') && ! str_contains($sideBySideMarkup, '0 1'), 'a label split by hydration comment nodes reads as one word');
+$assert(1 === preg_match('/<!-- wp:tabs \{[^}]*"activeTabIndex":2/', $sideBySideMarkup), 'the tabs block opens on the member that was active in the source');
+$assert(1 === preg_match('/<!-- wp:tabs \{[^}]*"className":"blocks-engine-tabs-flow blocks-engine-tabs-flow-list-last"/', $sideBySideMarkup), 'tabs that replaced a sibling region and trigger row add no layout box of their own');
+$sideBySideCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $sideBySideSelectableSet['assets'] ?? array()));
+$assert(1 === preg_match('/<button type="button" role="tab"><span class="num">01<\/span><span class="name">Alpha<\/span><\/button>/', $sideBySideMarkup), 'each tab keeps the trigger\'s number/title boxes as classed spans');
+$assert(1 === preg_match('/\.wp-block-tab-list\.(blocks-engine-tab-list-[a-f0-9]+)\{flex-direction:column;flex-wrap:nowrap;align-items:stretch;row-gap:\.5rem\}/', $sideBySideCss), 'a vertical source trigger list stays a vertical stack with its row gap');
+$assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\{[^}]*display:flex[^}]*border:[^}]*\}/', $sideBySideCss), 'the source trigger box styling is carried onto the tab buttons');
+$assert(str_contains($sideBySideCss, '.blocks-engine-tabs-flow{display:contents}'), 'the flow class dissolves the tabs wrapper box');
+$assert(str_contains($sideBySideCss, '.blocks-engine-tabs-flow.blocks-engine-tabs-flow-list-last>.wp-block-tab-list{order:1}'), 'a list that followed its region in the source keeps that order');
+$assert(array() === (new CanonicalSaveShapeValidator())->findings($sideBySideSelectableSet['blocks'] ?? array()), 'side-by-side selectable-set tabs retain a canonical save shape');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($sideBySideSelectableSet['blocks'] ?? array())['status'] ?? ''), 'side-by-side selectable-set tabs remain Gutenberg-valid');
 
 $regionLayoutSelectableSet = $compiler->compile(array(
     'site' => array('name' => 'Captured Region Layout Selectable Set Site', 'slug' => 'captured-region-layout-selectable-set-site'),

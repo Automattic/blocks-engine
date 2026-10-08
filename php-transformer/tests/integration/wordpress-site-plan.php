@@ -31,6 +31,9 @@ $previousPageOnFront = get_option('page_on_front');
 $previousUserId = get_current_user_id();
 $editorUserId = 0;
 $pageIds = array();
+$taxonomyThemeDir = null;
+$taxonomyTermId = 0;
+$previousPostsPerPage = (int) get_option('posts_per_page');
 $bindNavigation = static function (array $plan, string $markup) use (&$pageIds): string {
     $references = array();
     foreach ($plan['menus'] as $menu) {
@@ -83,6 +86,12 @@ require $themeDir . '/functions.php';
 $sourceSentence = 'What is your favorite RC track you\'ve been to? "Any" -- even the 1960s ones...';
 $assert($sourceSentence === wptexturize($sourceSentence, true), 'A generated theme renders captured punctuation exactly as the source wrote it.');
 $assert(str_contains(apply_filters('the_content', '<p>' . $sourceSentence . '</p>'), $sourceSentence), 'The content pipeline delivers decoded source punctuation unchanged.');
+$assert(false === has_action('wp_head', 'print_emoji_detection_script') && false === has_action('embed_head', 'print_emoji_detection_script'), 'The generated theme keeps native emoji on frontend and embedded source text.');
+$assert(array('wordpress', 'lists') === apply_filters('tiny_mce_plugins', array('wordpress', 'wpemoji', 'lists')), 'Editable source text keeps native emoji while retaining unrelated TinyMCE plugins.');
+// Core registers this admin callback after theme loading, before admin_init.
+add_action('admin_print_scripts', 'print_emoji_detection_script');
+do_action('admin_init');
+$assert(false === has_action('admin_print_scripts', 'print_emoji_detection_script'), 'The theme removes the late-registered admin emoji runtime before editor scripts print.');
 $editorUserId = wp_insert_user(array('user_login' => 'blocks-engine-editor-' . wp_generate_password(8, false), 'user_pass' => wp_generate_password(24), 'role' => 'administrator'));
 if (is_wp_error($editorUserId)) throw new RuntimeException($editorUserId->get_error_message());
 wp_set_current_user($editorUserId);
@@ -130,6 +139,7 @@ $imageUrl = $assetBase . 'logo.svg';
 $assert(is_file($cssFile) && is_file($themeDir . '/assets/assets/logo.svg') && str_contains((string) file_get_contents($cssFile), 'url("logo.svg")') && str_starts_with($cssUrl, home_url('/')) && str_starts_with($imageUrl, home_url('/')) && !str_contains($cssUrl . $imageUrl, 'build.example.test'), 'A moved active theme exposes local CSS and SVG image fetch URLs under the runtime host and subdirectory without a source-origin URL.');
 $themeJson = json_decode((string) file_get_contents($themeDir . '/theme.json'), true);
 $globalStylesheet = wp_get_global_stylesheet();
+$assert(!isset($themeJson['styles']['typography']['fontFamily']) && !isset($themeJson['styles']['spacing']['padding']), 'A stylesheet loaded by only some pages cannot set the site-wide font or padding.');
 $presetGroups = array(
     'color' => $themeJson['settings']['color']['palette'] ?? array(),
     'font-family' => $themeJson['settings']['typography']['fontFamilies'] ?? array(),
@@ -139,7 +149,18 @@ $presetGroups = array(
 foreach ($presetGroups as $group => $presets) foreach ($presets as $preset) {
     $slug = (string) ($preset['slug'] ?? '');
     $variable = '--wp--preset--' . $group . '--' . $slug;
-    $assert('' !== $slug && $slug === _wp_to_kebab_case($slug) && str_contains($globalStylesheet, $variable . ':') && str_contains($globalStylesheet, 'var(' . $variable . ')'), 'WordPress emits and resolves the generated ' . $group . ' preset without changing its slug.');
+    // Presets are editor choices, including values whose route applicability
+    // prevents setting a Global Styles default. Exercise resolution separately
+    // from the generated theme's decision to apply that value site-wide.
+    $reference = 'var:preset|' . $group . '|' . $slug;
+    $probeStyles = match ($group) {
+        'color' => array('color' => array('text' => $reference)),
+        'font-family' => array('typography' => array('fontFamily' => $reference)),
+        'font-size' => array('typography' => array('fontSize' => $reference)),
+        'spacing' => array('spacing' => array('padding' => $reference)),
+    };
+    $probe = new WP_Theme_JSON(array('version' => 3, 'settings' => $themeJson['settings'], 'styles' => $probeStyles), 'theme');
+    $assert('' !== $slug && $slug === _wp_to_kebab_case($slug) && str_contains($globalStylesheet, $variable . ':') && str_contains($probe->get_stylesheet(), 'var(' . $variable . ')'), 'WordPress emits and resolves the generated ' . $group . ' preset without changing its slug.');
 }
 $sidebarPart = current(array_filter($plan['template_parts'] ?? array(), static fn(array $part): bool => 'sidebar' === ($part['slug'] ?? null)));
 $sidebarWrite = current(array_filter($resolved['writes'] ?? array(), static fn(array $write): bool => 'templates/front-page.html' === ($write['target_path'] ?? null)));
@@ -418,9 +439,67 @@ $assert(str_contains($day1Rendered, '<a class="wp-block-navigation-item__content
 $assert(!str_contains($day1Rendered, 'aria-current="page"  href="/"'), 'Serving /day-1 does not render the front-page shared-part link as current.');
 $assert(str_contains($day13Rendered, '<a class="wp-block-navigation-item__content" aria-current="page"  href="/day-13">') && !str_contains($day13Rendered, 'aria-current="page"  href="/day-1"'), 'Serving /day-13 renders only the /day-13 shared-part navigation-link item as current, proving the near-miss /day-1 route is never mistaken for it.');
 $assert(str_contains($frontSharedRendered, '<a class="wp-block-navigation-item__content" aria-current="page"  href="/">') && !str_contains($frontSharedRendered, 'aria-current="page"  href="/day-1"') && !str_contains($frontSharedRendered, 'aria-current="page"  href="/day-13"'), 'Serving the front page renders only the "/" shared-part navigation-link item as current.');
+// #2468: captured source pagination must resolve through real WordPress
+// rewrite resolution, not only through direct WP_Query construction. A
+// disposable second theme materializes the corroborated taxonomy fixture, the
+// bootstrap's emitted rewrite rules register through init, and the actual
+// source page-2 path is resolved the way WordPress resolves a request.
+$taxonomyArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<main><h1>Home</h1></main>',
+    array('path' => 'archives/field-notes.html', 'content' => '<main><h1>Field Notes</h1><article><h2><a href="/stories/one">One</a></h2><p>One summary.</p></article><article><h2><a href="/stories/two">Two</a></h2><p>Two summary.</p></article></main>', 'metadata' => array('route_path' => '/journal/category/field-notes')),
+    array('path' => 'stories/one.html', 'content' => '<article><h1>One</h1><p>Full one.</p><a href="/journal/category/field-notes">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
+    array('path' => 'stories/two.html', 'content' => '<article><h1>Two</h1><p>Full two.</p><a href="/journal/category/field-notes">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
+)))->toArray();
+$taxonomyPlan = $taxonomyArtifact['source_reports']['wordpress_site_plan'] ?? array();
+$assert(1 === count($taxonomyPlan['taxonomy_entities'] ?? array()) && '/journal/category/field-notes' === ($taxonomyPlan['taxonomy_entities'][0]['archive']['source_route'] ?? null), 'The taxonomy fixture projects one corroborated term on its source route.');
+$taxonomyTheme = $theme . '-taxonomy';
+$taxonomyThemeDir = WP_CONTENT_DIR . '/themes/' . $taxonomyTheme;
+if (!is_dir($taxonomyThemeDir) && !mkdir($taxonomyThemeDir, 0777, true) && !is_dir($taxonomyThemeDir)) throw new RuntimeException('Could not create taxonomy proof theme directory.');
+foreach ((new WordPressSitePlanResolver())->resolve($taxonomyPlan, array('theme_uri' => home_url('/wp-content/themes/' . $taxonomyTheme)))['writes'] as $taxonomyWrite) {
+    $taxonomyWritePath = $taxonomyThemeDir . '/' . $taxonomyWrite['target_path'];
+    if (!is_dir(dirname($taxonomyWritePath)) && !mkdir(dirname($taxonomyWritePath), 0777, true) && !is_dir(dirname($taxonomyWritePath))) throw new RuntimeException('Could not create taxonomy theme write directory.');
+    if (false === file_put_contents($taxonomyWritePath, 'base64' === $taxonomyWrite['payload']['encoding'] ? base64_decode($taxonomyWrite['payload']['data'], true) : $taxonomyWrite['payload']['data'])) throw new RuntimeException('Could not write taxonomy theme file.');
+}
+wp_clean_themes_cache();
+switch_theme($taxonomyTheme);
+require $taxonomyThemeDir . '/functions.php';
+$taxonomyTerm = wp_insert_term('Field Notes', 'category', array('slug' => 'field-notes'));
+if (is_wp_error($taxonomyTerm)) throw new RuntimeException($taxonomyTerm->get_error_message());
+$taxonomyTermId = (int) $taxonomyTerm['term_id'];
+foreach (range(1, 11) as $taxonomyMemberIndex) {
+    $taxonomyMemberId = wp_insert_post(array('post_type' => 'post', 'post_status' => 'publish', 'post_title' => 'Field note ' . $taxonomyMemberIndex, 'post_content' => '<!-- wp:paragraph --><p>Field note ' . $taxonomyMemberIndex . '.</p><!-- /wp:paragraph -->'), true);
+    if (is_wp_error($taxonomyMemberId)) throw new RuntimeException($taxonomyMemberId->get_error_message());
+    $pageIds['taxonomy-member-' . $taxonomyMemberIndex] = $taxonomyMemberId;
+    wp_set_object_terms($taxonomyMemberId, array($taxonomyTermId), 'category', false);
+}
+update_option('posts_per_page', 10);
+do_action('init');
+global $wp_rewrite;
+$wp_rewrite->set_permalink_structure('/%postname%/');
+$resolveRequest = static function (string $path): array {
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+    $_SERVER['REQUEST_URI'] = $path;
+    $_SERVER['QUERY_STRING'] = '';
+    $request = new WP();
+    $request->parse_request('');
+    return $request->query_vars;
+};
+$baseRouteVars = $resolveRequest('/journal/category/field-notes/');
+$pageTwoVars = $resolveRequest('/journal/category/field-notes/page/2/');
+$zeroPageVars = $resolveRequest('/journal/category/field-notes/page/0/');
+$negativePageVars = $resolveRequest('/journal/category/field-notes/page/-2/');
+$overboundPageVars = $resolveRequest('/journal/category/field-notes/page/1000000/');
+$assert('field-notes' === ($baseRouteVars['category_name'] ?? null), 'The base source route resolves to the native category query through real rewrite resolution.');
+$assert('field-notes' === ($pageTwoVars['category_name'] ?? null) && 2 === (int) ($pageTwoVars['paged'] ?? 0), 'The captured source page-2 path resolves to the same native term query with its paged context.');
+$assert(isset($zeroPageVars['error'], $negativePageVars['error'], $overboundPageVars['error']), 'Zero, negative, and seven-digit page numbers stay outside the bounded capture and keep native 404 semantics.');
+$boundedQuery = new WP_Query(array('category_name' => 'field-notes', 'paged' => 2));
+$assert(1 === (int) $boundedQuery->post_count && 1 === preg_match('/^Field note /', (string) get_the_title($boundedQuery->posts[0] ?? null)), 'The resolved query identity reproduces the native term query at page 2 with its single remaining member.');
+wp_reset_postdata();
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);
+    if ($taxonomyTermId > 0) wp_delete_term($taxonomyTermId, 'category');
+    update_option('posts_per_page', $previousPostsPerPage);
     wp_set_current_user($previousUserId);
     if ($editorUserId > 0) {
         if (!function_exists('wp_delete_user')) require_once ABSPATH . 'wp-admin/includes/user.php';
@@ -430,5 +509,6 @@ fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
     if ('' !== $previousTheme) switch_theme($previousTheme);
     wp_clean_themes_cache();
     if (is_dir($themeDir)) { $items = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($themeDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST); foreach ($items as $item) $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname()); rmdir($themeDir); }
+    if (null !== $taxonomyThemeDir && is_dir($taxonomyThemeDir)) { $taxonomyItems = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($taxonomyThemeDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST); foreach ($taxonomyItems as $item) $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname()); rmdir($taxonomyThemeDir); }
     wp_clean_themes_cache();
 }

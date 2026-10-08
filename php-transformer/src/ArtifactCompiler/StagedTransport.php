@@ -260,7 +260,8 @@ trait StagedTransport
                 $documentFiles,
                 $path === $entryPath ? 'artifact-entry' : 'artifact-document',
                 (string) ($sharedPlan['analysis']['block_namespace'] ?? ''),
-                true
+                true,
+                is_array($pagePlan['artifact']['runtime_declarations'] ?? null) ? $pagePlan['artifact']['runtime_declarations'] : array()
             );
         }
         ksort($compiledDocuments, SORT_STRING);
@@ -608,7 +609,7 @@ trait StagedTransport
             $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
             $fileScope = is_array($ownership) && is_string($ownership['scope'] ?? null)
                 ? $ownership['scope']
-                : (in_array($extension, array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared');
+                : (HtmlFragmentIncludes::isComponentPath($path) ? 'shared' : (in_array($extension, array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared'));
             $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
             if ('page' === $fileScope) $pages[$filePageId][] = $file;
             else $shared[] = $file;
@@ -709,7 +710,7 @@ trait StagedTransport
             if (!is_array($file)) continue;
             $path = is_string($file['path'] ?? null) ? $file['path'] : (is_string($key) ? $key : '');
             $ownership = $file['metadata']['compilation'] ?? null;
-            $fileScope = is_array($ownership) && is_string($ownership['scope'] ?? null) ? $ownership['scope'] : (in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared');
+            $fileScope = is_array($ownership) && is_string($ownership['scope'] ?? null) ? $ownership['scope'] : (HtmlFragmentIncludes::isComponentPath($path) ? 'shared' : (in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared'));
             $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
             // Shared preparation establishes the digest-bound canonical source
             // catalog. Page workers subsequently hydrate only their page plus
@@ -725,6 +726,32 @@ trait StagedTransport
                 }
             }
             $hydratedArtifact['files'][] = $file;
+        }
+        // Includes can name any local HTML fragment, not just a parts/ filename.
+        // Follow only dependencies of hydrated owned/shared text; unrelated page
+        // payloads stay closed. Digest verification remains readPayload's job.
+        $includeRoot = HtmlFragmentIncludes::virtualRoot($hydratedArtifact['files'], array_values(array_filter(array_merge(
+            array($artifact['entrypoint'] ?? $artifact['entry'] ?? $artifact['main'] ?? ''),
+            is_array($artifact['entrypoints'] ?? null) ? $artifact['entrypoints'] : array()
+        ), static fn($path): bool => is_string($path) && '' !== $path)));
+        $byPath = array();
+        foreach ($hydratedArtifact['files'] as $index => $file) $byPath[$file['path']] = $index;
+        $queue = array_keys($byPath);
+        $scanned = array();
+        for ($index = 0; $index < count($queue); ++$index) {
+            $path = $queue[$index];
+            $file = $hydratedArtifact['files'][$byPath[$path]];
+            if (isset($scanned[$path]) || !preg_match('/\.html?$/i', $path) || !is_string($file['content'] ?? null)) continue;
+            $scanned[$path] = true;
+            foreach (HtmlFragmentIncludes::directives($file['content'], $path) as $directive) {
+                $target = $includeRoot . substr($directive['virtual'], 1);
+                if (!isset($byPath[$target])) continue;
+                $targetIndex = $byPath[$target];
+                if (!isset($hydratedArtifact['files'][$targetIndex]['payload_reference'])) continue;
+                $hydratedArtifact['files'][$targetIndex]['content'] = $this->readPayload($this->payloadReference($hydratedArtifact['files'][$targetIndex]['payload_reference']), $payloadReader);
+                unset($hydratedArtifact['files'][$targetIndex]['payload_reference']);
+                $queue[] = $target;
+            }
         }
         // Reference-backed callers receive the same whole-artifact
         // normalization and captured-dialog projection as inline callers.

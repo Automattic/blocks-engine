@@ -55,6 +55,29 @@ final class CssValueInspector
         return trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
     }
 
+    /**
+     * Whether a colour value paints nothing: the `transparent` keyword, a
+     * zero-alpha hex, or an `rgba()`/`hsla()` whose alpha is zero.
+     */
+    public static function isTransparentColor(string $value): bool
+    {
+        $normalized = self::comparable($value);
+        if ( '' === $normalized ) {
+            return false;
+        }
+        if ( 'transparent' === $normalized ) {
+            return true;
+        }
+
+        $compact = preg_replace('/\s+/', '', $normalized) ?? '';
+        if ( in_array($compact, array( '#0000', '#00000000' ), true) ) {
+            return true;
+        }
+
+        return 1 === preg_match('/^(?:rgba?|hsla?)\((?:[^,]+,){3}0(?:\.0+)?\)$/', $compact)
+            || 1 === preg_match('#^(?:rgba?|hsla?)\([^/]+/0(?:\.0+)?%?\)$#', $compact);
+    }
+
     public static function isImportant(string $value): bool
     {
         return 1 === preg_match('/\s*!\s*important\s*$/i', $value);

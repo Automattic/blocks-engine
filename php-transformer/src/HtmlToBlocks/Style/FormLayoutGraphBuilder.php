@@ -24,6 +24,8 @@ final class FormLayoutGraphBuilder
     private const MAX_CONDITION_DEPTH = 8;
     private const MAX_VARIANTS = 256;
     private const MAX_PROVENANCE = 16;
+    private const SOURCE_BOX_PROPERTIES = array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'position', 'top', 'right', 'bottom', 'left', 'place-self');
+    private const SOURCE_BOX_KEYS = array('margin_top', 'margin_right', 'margin_bottom', 'margin_left', 'position', 'top', 'right', 'bottom', 'left');
     private const PROPERTIES = array( 'display', 'width', 'height', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-items', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end' );
     private const LAYOUT_KEYS = array( 'display', 'width', 'height', 'min_height', 'padding', 'padding_top', 'padding_right', 'padding_bottom', 'padding_left', 'padding_block_start', 'padding_block_end', 'padding_inline_start', 'padding_inline_end', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_items', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis', 'margin_block_start', 'margin_block_end', 'margin_inline_start', 'margin_inline_end' );
     private const V1_PROPERTIES = array( 'display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
@@ -84,7 +86,7 @@ final class FormLayoutGraphBuilder
         $analysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
-            self::PROPERTIES,
+            array_merge(self::PROPERTIES, self::SOURCE_BOX_PROPERTIES),
             CssAnalysisLimits::MAX_STYLESHEET_BYTES,
             self::MAX_RULES,
             self::MAX_SELECTORS,
@@ -245,6 +247,10 @@ final class FormLayoutGraphBuilder
         $depth = $v1 ? 8 : self::MAX_DEPTH;
         $properties = $v1 ? self::V1_PROPERTIES : ($v2 ? array_diff(self::PROPERTIES, array( 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end' )) : self::PROPERTIES);
         $layoutKeys = $v1 ? self::V1_LAYOUT_KEYS : ($v2 ? array_diff(self::LAYOUT_KEYS, array( 'min_height', 'padding', 'padding_top', 'padding_right', 'padding_bottom', 'padding_left', 'padding_block_start', 'padding_block_end', 'padding_inline_start', 'padding_inline_end' )) : self::LAYOUT_KEYS);
+        if (!$v1 && !$v2) {
+            $properties = array_merge($properties, self::SOURCE_BOX_PROPERTIES);
+            $layoutKeys = array_merge($layoutKeys, self::SOURCE_BOX_KEYS);
+        }
         if ( (! $v1 && ! $v2 && 'generic/computed-layout-graph/v3' !== $schema) || 'source_css_cascade' !== ($graph['basis'] ?? null) || ! is_bool($graph['truncated'] ?? null) || ! is_array($graph['limits'] ?? null) || self::MAX_NODES !== ($graph['limits']['nodes'] ?? null) || $depth !== ($graph['limits']['depth'] ?? null) || self::MAX_RULES_PER_NODE !== ($graph['limits']['rules_per_node'] ?? null) || ! is_array($graph['nodes'] ?? null) || ! is_array($graph['variants'] ?? null) || ! is_array($graph['diagnostics'] ?? null) ) {
             throw new InvalidArgumentException('Form layout graph envelope is invalid.');
         }
@@ -525,7 +531,7 @@ final class FormLayoutGraphBuilder
     private function hoistFieldGroupSpacing(array $entries, array &$nodes, array $rules, array $customPropertyRules): void
     {
         foreach ( $entries as $entry ) {
-            if ( 'control' === $entry['kind'] || 1 !== $this->dataEntryDescendants($entries, $entry['id']) ) {
+            if ( 'control' === $entry['kind'] || 'label' === strtolower($entry['element']->tagName) || 1 !== $this->dataEntryDescendants($entries, $entry['id']) ) {
                 continue;
             }
             $spacing = $this->fieldListGap($entry['element'], $rules, $customPropertyRules);
@@ -706,7 +712,7 @@ final class FormLayoutGraphBuilder
         $base = array();
         if ( $element->hasAttribute('style') ) {
             $inline = $element->getAttribute('style');
-            foreach ( CssRuleAnalyzer::declarations($inline, self::PROPERTIES) as $declaration ) {
+            foreach ( $this->boxDeclarations(CssRuleAnalyzer::declarations($inline, array_merge(self::PROPERTIES, self::SOURCE_BOX_PROPERTIES))) as $declaration ) {
                 $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
                 $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
                 CssCascade::apply($base, $declaration['name'], array( 'value' => $value, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'selector' => '[style]', 'order' => PHP_INT_MAX, 'specificity' => PHP_INT_MAX, 'important' => $important ));
@@ -753,7 +759,7 @@ final class FormLayoutGraphBuilder
                 $this->diagnostics[] = 'rules_per_node_limit';
                 break;
             }
-            foreach ( $ruleDeclarations as $declaration ) {
+            foreach ( $this->boxDeclarations($ruleDeclarations) as $declaration ) {
                 $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
                 $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
                 $fact = array( 'value' => $value, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
@@ -780,10 +786,37 @@ final class FormLayoutGraphBuilder
     {
         $result = array();
         foreach ( $facts as $property => $fact ) {
-            $result[self::layoutKey($property)] = FormCustomPropertyResolver::resolve($fact['value'], $element, $condition, $customPropertyRules);
+            $key = in_array($property, self::SOURCE_BOX_PROPERTIES, true) ? str_replace('-', '_', $property) : self::layoutKey($property);
+            $result[$key] = FormCustomPropertyResolver::resolve($fact['value'], $element, $condition, $customPropertyRules);
         }
         ksort($result);
         return $result;
+    }
+
+    /** Expand source shorthands before the shared per-property cascade. */
+    private function boxDeclarations(array $declarations): array
+    {
+        $expanded = array();
+        foreach ($declarations as $declaration) {
+            $name = $declaration['name'];
+            if (!in_array($name, array('margin', 'place-self'), true)) {
+                $expanded[] = $declaration;
+                continue;
+            }
+            $important = preg_match('/\s*!important\s*$/i', $declaration['value']) ? ' !important' : '';
+            $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
+            $parts = CssValueSplitter::splitTopLevelWhitespace($value);
+            if ('margin' === $name && count($parts) >= 1 && count($parts) <= 4) {
+                foreach (array_combine(array('top', 'right', 'bottom', 'left'), CssValueInspector::expandBoxShorthand($value)) as $side => $part) $expanded[] = array('name' => 'margin-' . $side, 'value' => $part . $important);
+            } elseif ('place-self' === $name && count($parts) >= 1 && count($parts) <= 2) {
+                $expanded[] = array('name' => 'align-self', 'value' => $parts[0] . $important);
+                $expanded[] = array('name' => 'justify-self', 'value' => ($parts[1] ?? $parts[0]) . $important);
+            } else {
+                $this->truncated = true;
+                $this->diagnostics[] = 'unsupported_box_shorthand:' . $name;
+            }
+        }
+        return $expanded;
     }
 
     /** @param array<string, mixed> $node @param array<string, array<string, mixed>> $nodes @return array<string, string>|null */
@@ -814,6 +847,7 @@ final class FormLayoutGraphBuilder
 
     private static function layoutKey(string $property): string
     {
+        if (in_array($property, self::SOURCE_BOX_PROPERTIES, true)) return str_replace('-', '_', $property);
         return array( 'grid-template-columns' => 'columns', 'grid-template-rows' => 'rows', 'row-gap' => 'row_gap', 'column-gap' => 'column_gap', 'grid-column' => 'column', 'grid-row' => 'row', 'grid-area' => 'area', 'flex-direction' => 'direction', 'flex-wrap' => 'wrap', 'align-items' => 'align_items', 'align-content' => 'align_content', 'justify-content' => 'justify_content', 'align-self' => 'align_self', 'justify-items' => 'justify_items', 'justify-self' => 'justify_self', 'flex-grow' => 'flex_grow', 'flex-shrink' => 'flex_shrink', 'flex-basis' => 'flex_basis', 'margin-block-start' => 'margin_block_start', 'margin-block-end' => 'margin_block_end', 'margin-inline-start' => 'margin_inline_start', 'margin-inline-end' => 'margin_inline_end', 'min-height' => 'min_height', 'padding-top' => 'padding_top', 'padding-right' => 'padding_right', 'padding-bottom' => 'padding_bottom', 'padding-left' => 'padding_left', 'padding-block-start' => 'padding_block_start', 'padding-block-end' => 'padding_block_end', 'padding-inline-start' => 'padding_inline_start', 'padding-inline-end' => 'padding_inline_end' )[$property] ?? $property;
     }
 

@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 // its render_block_data filter and exercise it the way core's renderer does.
 function add_filter(string $hook, mixed $callback, int $priority = 10, int $args = 1): bool { $GLOBALS['blocks_engine_test_filters'][$hook][] = $callback; return true; }
 function add_action(string $hook, mixed $callback, int $priority = 10, int $args = 1): bool { return true; }
+function remove_action(string $hook, mixed $callback, int $priority = 10): bool { return true; }
 
 $failures = 0;
 $assert = static function (bool $condition, string $message) use (&$failures): void {

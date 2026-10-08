@@ -1,7 +1,9 @@
 name: PHP Transformer
 
 on:
+  workflow_dispatch:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     paths:
       - ".github/workflows/php-transformer.yml"
       - "php-transformer/**"
@@ -46,6 +48,9 @@ jobs:
       - name: Validate Composer package metadata
         run: composer validate --strict
 
+      - name: Verify library lint correctness and rejection contract
+        run: composer lint && composer test:lint
+
       - name: Run package tests
         run: composer test
 
@@ -77,17 +82,42 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify owned JavaScript correctness
+        run: npm run lint
+
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
       - name: Run visual parity tests
         run: npm test
 
+      - name: Verify layout-table source tracks and authored responsive overrides
+        env:
+          WORDPRESS_ROOT: ${{ runner.temp }}/wordpress
+        run: |
+          curl --fail --silent --show-error https://wordpress.org/wordpress-7.0.4.tar.gz | tar -xz -C "$RUNNER_TEMP"
+          node tests/layout-media-tracks.mjs
+          BE_FIXTURE_VARIANT=responsive node tests/layout-media-tracks.mjs
+
+      - name: Verify native disclosure control presentation
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/details-control-presentation-browser.mjs
+
       - name: Verify native collection search semantics
         working-directory: php-transformer
         run: |
           php tests/unit/collection-filter-block.php
           PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/collection-filter-browser.mjs
+          php tests/unit/runtime-dialog-trigger-button.php
+          PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/runtime-dialog-trigger-button-browser.mjs
+
+      - name: Verify native button default background neutralization
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/native-button-default-background-browser.mjs
+
+      - name: Verify orphan list-item marker and pixel preservation
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/orphan-list-item-browser.mjs
 
   wordpress-site-plan:
     name: WordPress site plan integration (PHP ${{ matrix.php-version }})
@@ -141,3 +171,91 @@ jobs:
           REQUIRE_WP_TESTS: "1"
           WP_TESTS_DIR: ${{ runner.temp }}/wordpress-develop/tests/phpunit
         run: composer test:wordpress-integration
+      - name: Setup Node for native document context proof
+        if: matrix.php-version == '8.2'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Verify native document ancestor context in Chromium
+        if: matrix.php-version == '8.2'
+        working-directory: php-transformer
+        env:
+          BODY_CONTEXT_WORDPRESS_BOOTSTRAP: ${{ runner.temp }}/wordpress-develop/tests/phpunit/includes/bootstrap.php
+          BODY_CONTEXT_ARTIFACT: ${{ runner.temp }}/document-body-context.json
+          BODY_CONTEXT_EVIDENCE: ${{ runner.temp }}/document-body-context-browser.json
+        run: |
+          npm ci --prefix tools/visual-parity
+          tools/visual-parity/node_modules/.bin/playwright install --with-deps chromium
+          php tests/contract/document-body-context.php
+          PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/contract/document-body-context-browser.mjs
+      - name: Verify disposable HTTP frontend and Gutenberg save/reload
+        if: matrix.php-version == '8.2'
+        working-directory: php-transformer
+        env:
+          BODY_CONTEXT_DISPOSABLE: "1"
+          BODY_CONTEXT_PLAN: ${{ runner.temp }}/document-context-http/plan.json
+          BODY_CONTEXT_ROUTES: ${{ runner.temp }}/document-context-http/routes.json
+          BODY_CONTEXT_EVIDENCE: ${{ runner.temp }}/document-context-http/browser.json
+          BODY_CONTEXT_WP_URL: http://127.0.0.1:19006
+          BODY_CONTEXT_USER: fixture
+          BODY_CONTEXT_PASSWORD: fixture-password
+        run: |
+          mkdir -p "$RUNNER_TEMP/document-context-http/site"
+          curl --fail --silent --show-error https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar -o "$RUNNER_TEMP/document-context-http/wp-cli.phar"
+          WP_CLI="$RUNNER_TEMP/document-context-http/wp-cli.phar"
+          SITE="$RUNNER_TEMP/document-context-http/site"
+          php "$WP_CLI" --path="$SITE" core download --version=7.0.4
+          php "$WP_CLI" --path="$SITE" config create --dbname=wordpress_root_context_test --dbuser=root --dbpass='' --dbhost=127.0.0.1:3306
+          php "$WP_CLI" --path="$SITE" config set WP_HOME "$BODY_CONTEXT_WP_URL"
+          php "$WP_CLI" --path="$SITE" config set WP_SITEURL "$BODY_CONTEXT_WP_URL"
+          php "$WP_CLI" --path="$SITE" db create
+          php "$WP_CLI" --path="$SITE" core install --url="$BODY_CONTEXT_WP_URL" --title=Root-context-proof --admin_user="$BODY_CONTEXT_USER" --admin_password="$BODY_CONTEXT_PASSWORD" --admin_email=fixture@example.test --skip-email
+          BODY_CONTEXT_WORDPRESS_BOOTSTRAP='' php tests/contract/document-body-context.php
+          php "$WP_CLI" --path="$SITE" eval "require '$PWD/tests/integration/document-body-context-install.php';"
+          php -S 127.0.0.1:19006 -t "$SITE" > "$RUNNER_TEMP/document-context-http/server.log" 2>&1 &
+          PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/integration/document-body-context-browser.mjs
+      - name: Verify authored carousel PHP and native save control contract
+        if: matrix.php-version == '8.2'
+        working-directory: php-transformer
+        env:
+          BE_EDITOR_WP_URL: http://127.0.0.1:19006
+          BE_EDITOR_USER: fixture
+          BE_EDITOR_PASSWORD: fixture-password
+          BE_EDITOR_EVIDENCE_DIR: ${{ runner.temp }}/document-context-http
+        run: |
+          SITE="$RUNNER_TEMP/document-context-http/site"
+          WP_CLI="$RUNNER_TEMP/document-context-http/wp-cli.phar"
+          export BE_TRANSFORMER_ROOT="$PWD"
+          php "$WP_CLI" --path="$SITE" eval-file "$PWD/tests/build-carousel-control-acceptance.php" > "$BE_EDITOR_EVIDENCE_DIR/carousel-control-page.json"
+          export BE_EDITOR_POST_ID="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); echo $x["post_id"];' "$BE_EDITOR_EVIDENCE_DIR/carousel-control-page.json")"
+          node tests/carousel-control-acceptance.mjs
+      - name: Retain document context runtime evidence
+        if: always() && matrix.php-version == '8.2'
+        uses: actions/upload-artifact@v4
+        with:
+          name: document-context-runtime
+          path: |
+            ${{ runner.temp }}/document-body-context*.json
+            ${{ runner.temp }}/document-context-http/*.json
+            ${{ runner.temp }}/document-context-http/server.log
+
+  stylesheet-activation:
+    name: WordPress stylesheet activation browser regression
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: php-transformer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: "8.3"
+          tools: composer:v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: npm ci --prefix tools/visual-parity
+      - run: npx --prefix tools/visual-parity playwright install --with-deps chromium
+      - name: Verify real generated WordPress paint, selection, editor assets and save/reload
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" bash tests/integration/stylesheet-activation-docker.sh

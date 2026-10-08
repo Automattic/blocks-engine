@@ -70,6 +70,11 @@ final class FallbackEmitter
     /** @var array<string, string> */
     private array $sourceTagMarkers = array();
 
+    protected function fallbackSourceTagMarker(string $tagName): string
+    {
+        return $this->sourceTagMarkers[$tagName] ?? '';
+    }
+
     private readonly SubtreeClassifier $classifier;
 
     private readonly CustomBlockGenerator $blockGenerator;

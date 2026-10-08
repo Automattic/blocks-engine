@@ -6,16 +6,16 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
 /** Internal byte scanner shared by CSS source-preserving primitives. */
 final class CssSyntaxScanner
 {
-    /** @return array{quote: string, comment: bool, parens: int, brackets: int} */
+    /** @return array{quote: string, comment: bool, url: bool, parens: int, brackets: int} */
     public static function state(): array
     {
-        return array( 'quote' => '', 'comment' => false, 'parens' => 0, 'brackets' => 0 );
+        return array( 'quote' => '', 'comment' => false, 'url' => false, 'parens' => 0, 'brackets' => 0 );
     }
 
     /**
      * Consume one CSS lexical unit and return the next byte offset.
      *
-     * @param array{quote: string, comment: bool, parens: int, brackets: int} $state
+     * @param array{quote: string, comment: bool, url: bool, parens: int, brackets: int} $state
      */
     public static function consume(string $value, int $offset, array &$state): ?int
     {
@@ -25,6 +25,19 @@ final class CssSyntaxScanner
             if ( '*' === $character && '/' === $next ) {
                 $state['comment'] = false;
                 return $offset + 2;
+            }
+            return $offset + 1;
+        }
+        if ( $state['url'] ) {
+            // An unquoted url() body is one token: comment openers, quotes and
+            // `(` inside it are literal bytes, and only an escape or the `)`
+            // that closes the token is structure.
+            if ( '\\' === $character ) {
+                return self::escapeEnd($value, $offset);
+            }
+            if ( ')' === $character ) {
+                $state['url'] = false;
+                --$state['parens'];
             }
             return $offset + 1;
         }
@@ -50,6 +63,7 @@ final class CssSyntaxScanner
         }
         if ( '(' === $character ) {
             ++$state['parens'];
+            $state['url'] = self::opensUnquotedUrl($value, $offset);
         } elseif ( ')' === $character ) {
             if ( 0 === $state['parens'] ) {
                 return null;
@@ -64,6 +78,29 @@ final class CssSyntaxScanner
             --$state['brackets'];
         }
         return $offset + 1;
+    }
+
+    /**
+     * Whether the `(` at $open starts an unquoted `url(` token. Per CSS Syntax
+     * the `url` identifier must stand alone (`myurl(` is an ordinary function)
+     * and the first non-whitespace byte after `(` must not be a quote, which
+     * would make it a `url()` function holding a string.
+     */
+    private static function opensUnquotedUrl(string $value, int $open): bool
+    {
+        if ( $open < 3 || 0 !== substr_compare($value, 'url', $open - 3, 3, true) ) {
+            return false;
+        }
+        $before = $open > 3 ? $value[ $open - 4 ] : '';
+        if ( '' !== $before && ( ctype_alnum($before) || '-' === $before || '_' === $before || '\\' === $before || ord($before) >= 0x80 ) ) {
+            return false;
+        }
+        $length = strlen($value);
+        $offset = $open + 1;
+        while ( $offset < $length && self::isCssWhitespace($value[ $offset ]) ) {
+            ++$offset;
+        }
+        return $offset >= $length || ( '"' !== $value[ $offset ] && "'" !== $value[ $offset ] );
     }
 
     public static function isCssWhitespace(string $character): bool
@@ -117,13 +154,13 @@ final class CssSyntaxScanner
         return null;
     }
 
-    /** @param array{quote: string, comment: bool, parens: int, brackets: int} $state */
+    /** @param array{quote: string, comment: bool, url: bool, parens: int, brackets: int} $state */
     public static function isTopLevel(array $state): bool
     {
         return '' === $state['quote'] && ! $state['comment'] && 0 === $state['parens'] && 0 === $state['brackets'];
     }
 
-    /** @param array{quote: string, comment: bool, parens: int, brackets: int} $state */
+    /** @param array{quote: string, comment: bool, url: bool, parens: int, brackets: int} $state */
     public static function isComplete(array $state): bool
     {
         return self::isTopLevel($state);

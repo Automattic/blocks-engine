@@ -325,7 +325,8 @@ final class BlockFactory
         }
 
         if ( 'core/columns' === $name ) {
-            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-columns') . '>', 'closing' => '</div>' );
+            $classes = 'wp-block-columns' . (false === ($attrs['isStackedOnMobile'] ?? null) ? ' is-not-stacked-on-mobile' : '');
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, $classes) . '>', 'closing' => '</div>' );
         }
 
         if ( 'core/column' === $name ) {

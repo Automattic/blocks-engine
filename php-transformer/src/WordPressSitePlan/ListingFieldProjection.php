@@ -53,6 +53,9 @@ final class ListingFieldProjection
         $document->loadHTML('<?xml encoding="UTF-8"><body>' . $source . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
         $paragraph = $document->getElementsByTagName('p')->item(0);
         if (null === $paragraph) return $source;
+        $marker = 'blocks-engine-listing-bound-meta';
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $marker);
+        $paragraph->setAttribute('class', trim($paragraph->getAttribute('class') . ' ' . $marker));
         $opening = strstr($document->saveHTML($paragraph), '>', true) . '>';
         $attrs['metadata']['bindings']['content'] = array('source' => 'core/post-meta', 'args' => array('key' => $key));
         return '<!-- wp:paragraph ' . json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' -->' . $opening . $content . '</p><!-- /wp:paragraph -->';

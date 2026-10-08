@@ -49,6 +49,19 @@ $files = static function (string $html, array $states): array {
     );
 };
 
+$initialSource = static fn(string $heading, string $extra = ''): string => '<html><body><main><div><button type="button">Alpha</button><button type="button">Beta</button><button type="button"><span>03</span><span>Gamma</span></button></div><div><h2>' . $heading . '</h2><p>Initial content</p></div>' . $extra . '</main></body></html>';
+$initialStates = array($member(0, 'Alpha', '<div><h2>Alpha</h2></div>', 'captured', false, array(), array('size' => 3)), $member(1, 'Beta', '<div><h2>Beta</h2></div>', 'captured', false, array(), array('size' => 3)));
+$initial = $project($files($initialSource('Gamma'), $initialStates));
+$assert(3 === substr_count((string) $initial['files'][0]['content'], 'role="tabpanel"'), 'initial panel heading corroborates the unprobed source member');
+$incomplete = $project($files($initialSource('Alpha'), $initialStates));
+$assert(2 === substr_count((string) $incomplete['files'][0]['content'], 'role="tabpanel"'), 'an unprobed inactive last member is not recovered after incomplete probing');
+$multiSibling = $project($files($initialSource('Gamma', '<aside>After</aside>'), $initialStates));
+$assert(!str_contains((string) $multiSibling['files'][0]['content'], 'data-blocks-engine-tabs-flow='), 'three-sibling layouts do not receive an unsupported display-contents order projection');
+foreach (array('click-failed', 'no-dialog') as $status) {
+    $reported = $project($files($initialSource('Gamma'), array_merge($initialStates, array($member(2, 'Gamma', '', $status, false, array(), array('size' => 3))))));
+    $assert(2 === substr_count((string) $reported['files'][0]['content'], 'role="tabpanel"'), 'a reported ' . $status . ' member is never recovered from the initial region');
+}
+
 $source = '<html><body><main><div><button type="button">Alpha</button><button type="button">Beta</button></div><div><p>Select an item</p></div></main></body></html>';
 $alphaHtml = '<div><h2>Alpha</h2><p>Alpha specification</p></div>';
 $betaHtml = '<div><h2>Beta</h2><p>Beta specification</p></div>';

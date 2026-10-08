@@ -98,6 +98,13 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
             $parts[] = '.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS) ) {
+            // core/image inserts a figure between a source flex/grid item and
+            // the image. Keep the wrapper in the DOM for Gutenberg, but remove
+            // its layout box so the source image retains its native replaced-
+            // element min-content and flex-shrink behavior.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS) ) {
             // The source image fills both axes of its parent. Its core/image
             // figure is an extra box; give that box the source's full inline
@@ -316,10 +323,20 @@ final class EngineSupportCss
                 . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.is-cropped>.wp-block-image img{aspect-ratio:1;height:auto;object-fit:cover;width:100%}';
         }
         if ( str_contains($serializedBlocks, self::LAYOUT_TABLE_COLUMNS_CLASS) ) {
-            $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '{display:flex;flex-wrap:nowrap;gap:0;box-sizing:border-box}'
-                . "\n" . ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column{box-sizing:border-box;min-width:0}'
+            $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . ':not(:where(.blocks-engine-layout-table-table,.blocks-engine-layout-table-row)){display:flex;flex-wrap:nowrap;gap:0;box-sizing:border-box}'
+                . "\n" . ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column:not(:where(.blocks-engine-layout-table-cell)){box-sizing:border-box;min-width:0}'
                 . "\n" . ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column[style*="flex-basis"]{flex-grow:0}'
                 . "\n" . ':where(.wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column){padding:1px}';
+            // Native wrappers retain auto table tracks, including min-content
+            // overflow and shared multi-row sizing. These are generated-markup
+            // repairs, scoped solely to positively classified layout tables.
+            $parts[] = '.wp-block-columns:where(.blocks-engine-layout-table-table),.wp-block-group:where(.blocks-engine-layout-table-table){display:table;margin:0}'
+                . "\n" . ':where(.blocks-engine-layout-table-table){border-collapse:separate;border-spacing:2px}'
+                . "\n" . '.wp-block-columns:where(.blocks-engine-layout-table-row){display:table-row;margin:0}'
+                . "\n" . '.blocks-engine-layout-table-cell{display:table-cell;box-sizing:content-box;word-break:normal;overflow-wrap:normal}'
+                . "\n" . ':where(.blocks-engine-layout-table-cell){vertical-align:middle;padding:1px}'
+                . "\n" . ':root .blocks-engine-layout-table-cell .blocks-engine-synthetic-image-figure-inline{display:contents;margin:0}'
+                . "\n" . '.blocks-engine-layout-table-cell :where(.blocks-engine-synthetic-image-figure-inline) img{display:inline;max-width:none;vertical-align:baseline}';
         }
         if ( str_contains($serializedBlocks, HtmlCompilation::PROPAGATED_LINK_CARRIER_CLASS) ) {
             // A propagated card link wraps all of the block's source children.

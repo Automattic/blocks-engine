@@ -236,6 +236,7 @@ final class StylesheetAnalysisComposer
                 continue;
             }
             $assets[] = array( 'path' => $asset['path'], 'source_path' => is_string($asset['source_path'] ?? null) ? $asset['source_path'] : $asset['path'], 'content' => $asset['content'], 'source_hash' => is_string($asset['source_hash'] ?? null) ? $asset['source_hash'] : hash('sha256', $asset['content']), 'media' => is_string($asset['media'] ?? null) ? $asset['media'] : '' );
+            if (isset($asset['stylesheet_activation'])) $assets[array_key_last($assets)]['stylesheet_activation'] = $asset['stylesheet_activation'];
         }
         return $assets;
     }
@@ -255,7 +256,7 @@ final class StylesheetAnalysisComposer
                 'source_path' => 'inline-style',
                 'content' => $content,
                 'source_hash' => hash('sha256', $content),
-                'media' => StyleTagScanner::attribute($style['attributes'], 'media'),
+                'media' => StyleTagScanner::authorMedia($style['attributes']),
                 'type' => $type,
             );
         }

@@ -15,7 +15,11 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  * which is what produces "unexpected or invalid content" and mangled spacing.
  *
  * Every method here only treats a delimiter as a separator when it appears at
- * paren depth 0 and outside quotes or escapes, so CSS tokens stay whole.
+ * paren depth 0 and outside quotes, escapes, and comments, so CSS tokens stay
+ * whole. A comment is one lexical unit whatever it holds: splitting
+ * `/*border: 5px solid red;*\/` at its `;` turned the first half into the
+ * property `/*border` and threw the `*\/` away, so every emitted sheet that
+ * re-serialized the rule commented out everything up to the next `*\/`.
  */
 final class CssValueSplitter
 {
@@ -57,6 +61,12 @@ final class CssValueSplitter
     }
 
     /**
+     * Lexing (quotes, escapes, comments, unquoted `url(` tokens, parens) is
+     * {@see CssSyntaxScanner::consume()}; this only decides where a top-level
+     * delimiter falls. A comment is discarded and reads as one space, so
+     * `a/**\/b` stays two tokens. Square brackets do not shield delimiters
+     * here, and an unmatched closer is kept as a literal byte.
+     *
      * @param array<int, string> $delimiters
      * @return array<int, string>
      */
@@ -64,42 +74,21 @@ final class CssValueSplitter
     {
         $parts  = array();
         $buffer = '';
-        $depth  = 0;
-        $quote  = null;
+        $state  = CssSyntaxScanner::state();
         $length = strlen($input);
 
-        for ( $index = 0; $index < $length; ++$index ) {
-            $char = $input[ $index ];
-            if ( '\\' === $char ) {
-                $buffer .= $char;
-                if ( $index + 1 < $length ) {
-                    $buffer .= $input[ ++$index ];
-                }
+        for ( $offset = 0; $offset < $length; ) {
+            $wasComment = $state['comment'];
+            $topLevel   = self::outsideGroups($state);
+            $next       = CssSyntaxScanner::consume($input, $offset, $state) ?? $offset + 1;
+            $piece      = $state['comment'] && ! $wasComment ? ' ' : substr($input, $offset, $next - $offset);
+            $offset     = $next;
+            if ( $wasComment ) {
                 continue;
             }
 
-            if ( null !== $quote ) {
-                $buffer .= $char;
-                if ( $quote === $char ) {
-                    $quote = null;
-                }
-                continue;
-            }
-
-            if ( '"' === $char || "'" === $char ) {
-                $quote  = $char;
-                $buffer .= $char;
-                continue;
-            }
-
-            if ( '(' === $char ) {
-                ++$depth;
-            } elseif ( ')' === $char && $depth > 0 ) {
-                --$depth;
-            }
-
-            $isDelimiter = $splitWhitespace ? '' === trim($char) : in_array($char, $delimiters, true);
-            if ( 0 === $depth && $isDelimiter ) {
+            $isDelimiter = 1 === strlen($piece) && ( $splitWhitespace ? '' === trim($piece) : in_array($piece, $delimiters, true) );
+            if ( $topLevel && $isDelimiter ) {
                 if ( ! $splitWhitespace || '' !== $buffer ) {
                     $parts[] = $buffer;
                 }
@@ -107,7 +96,7 @@ final class CssValueSplitter
                 continue;
             }
 
-            $buffer .= $char;
+            $buffer .= $piece;
         }
 
         if ( ! $splitWhitespace || '' !== $buffer ) {
@@ -125,41 +114,26 @@ final class CssValueSplitter
      */
     public static function hasBalancedParens(string $value): bool
     {
-        $depth  = 0;
-        $quote  = null;
+        $state  = CssSyntaxScanner::state();
         $length = strlen($value);
 
-        for ( $index = 0; $index < $length; ++$index ) {
-            $char = $value[ $index ];
-            if ( '\\' === $char ) {
-                if ( $index + 1 < $length ) {
-                    ++$index;
-                }
-                continue;
-            }
-
-            if ( null !== $quote ) {
-                if ( $quote === $char ) {
-                    $quote = null;
-                }
-                continue;
-            }
-
-            if ( '"' === $char || "'" === $char ) {
-                $quote = $char;
-                continue;
-            }
-
-            if ( '(' === $char ) {
-                ++$depth;
-            } elseif ( ')' === $char ) {
-                --$depth;
-                if ( $depth < 0 ) {
+        for ( $offset = 0; $offset < $length; ) {
+            $next = CssSyntaxScanner::consume($value, $offset, $state);
+            if ( null === $next ) {
+                if ( ')' === $value[ $offset ] ) {
                     return false;
                 }
+                $next = $offset + 1;
             }
+            $offset = $next;
         }
 
-        return 0 === $depth;
+        return 0 === $state['parens'];
+    }
+
+    /** @param array{quote: string, comment: bool, url: bool, parens: int, brackets: int} $state */
+    private static function outsideGroups(array $state): bool
+    {
+        return '' === $state['quote'] && ! $state['comment'] && 0 === $state['parens'];
     }
 }
