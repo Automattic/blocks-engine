@@ -112,6 +112,7 @@ try {
         editorProof={entity:saved.id,validBlocks:saved.validBlocks,reloaded:true,routes:2,restored:true};
     }finally{
         await editor.evaluate(async saved=>{
+            await wp.data.resolveSelect('core').getEntityRecord('postType','wp_navigation',saved.id);
             wp.data.dispatch('core').editEntityRecord('postType','wp_navigation',saved.id,{content:saved.original});
             await wp.data.dispatch('core').saveEditedEntityRecord('postType','wp_navigation',saved.id);
             const restored=await wp.apiFetch({path:`/wp/v2/navigation/${saved.id}?context=edit`});

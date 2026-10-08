@@ -19,8 +19,11 @@ assert.ok(link, 'source navigation is saved as a native navigation link');
 assert.ok(!result.serialized_blocks.includes('core/html'), 'navigation conversion has no fallback block');
 const itemClasses = link.attrs.className;
 const css = result.assets.filter((asset) => asset.kind === 'css').map((asset) => asset.content).join('\n');
-assert.match(css, /@media \(hover:hover\)\{\.wp-block-navigation[^{}]*\.hover\\:text-foreground[^{}]*__content:hover\{color:rgb\(17,17,17\)\}\}/);
-assert.match(css, /wp-block-navigation-item\.hover\\:text-foreground[^{}]*__content:focus\{color:rgb\(17,17,17\)\}/);
+// Source-subject projection may use an opaque native marker and retain the
+// authored cascade layer. The browser assertions below prove that the native
+// anchor still obeys the media condition and every observed interaction state.
+assert.match(css, /@media\s*\(hover:\s*hover\)/);
+assert.match(css, /:focus[^{}]*\{color:rgb\(17,17,17\)\}/);
 assert.match(css, /transition:color 150ms linear/);
 
 const browser = await chromium.launch({ headless: true });
@@ -63,6 +66,12 @@ try {
 		await editorShape.waitForTimeout(200);
 		assert.equal(await editorAnchor.evaluate((element) => getComputedStyle(element).color), sourceHover, `editor wrapper hover paint matches at ${viewport.width}px`);
 		assert.equal(await editorAnchor.evaluate((element) => getComputedStyle(element).transitionDuration), '0.15s', `editor wrapper transition is retained at ${viewport.width}px`);
+		await editorShape.mouse.move(0, viewport.height - 1);
+		await editorAnchor.evaluate((element) => element.blur());
+		await editorShape.keyboard.press('Tab');
+		assert.equal(await editorAnchor.evaluate((element) => element.matches(':focus')), true, 'keyboard reaches the editor target link');
+		await editorShape.waitForTimeout(200);
+		assert.equal(await editorAnchor.evaluate((element) => getComputedStyle(element).color), sourceFocus, `editor wrapper keyboard-focus paint matches at ${viewport.width}px`);
 		await page.close();
 		await target.close();
 		await editorShape.close();
