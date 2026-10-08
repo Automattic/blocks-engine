@@ -148,5 +148,21 @@ for ($i = 0; $i < HtmlFragmentIncludes::MAX_INCLUDES + 8; ++$i) $many['page' . $
 $resolvedMany = (new ArtifactNormalizer())->normalize(array('entrypoint' => 'page0.html', 'compiler_limits' => array('max_files' => count($many)), 'files' => $many));
 $manyContents = array_column($resolvedMany['files'], 'content', 'path');
 $assert($manyContents['page0.html'] === 'X' && $manyContents['page' . (HtmlFragmentIncludes::MAX_INCLUDES + 7) . '.html'] === 'X', 'Every page past the old artifact-wide count still resolves its include.');
+// Same class with nesting: 60 pages share a footer part that includes 80 small parts.
+// Each page is 81 expansions; only the site-wide total (about 4900) passes the bound.
+// The old total failed here and named the shared footer, not any page.
+$footerParts = array();
+for ($i = 0; $i < 80; ++$i) $footerParts['parts/f' . $i . '.html'] = '<p>F' . $i . '</p>';
+$nestedSite = array('parts/footer.html' => '<footer>' . implode('', array_map(static fn(string $path): string => '<!--#include virtual="/' . $path . '" -->', array_keys($footerParts))) . '</footer>') + $footerParts;
+for ($i = 0; $i < 60; ++$i) $nestedSite['page' . $i . '.html'] = '<main>Page ' . $i . '</main><!--#include virtual="/parts/footer.html" -->';
+$nestedSiteContents = array_column((new ArtifactNormalizer())->normalize(array('entrypoint' => 'page0.html', 'files' => $nestedSite))['files'], 'content', 'path');
+$footerResolved = '<footer>' . implode('', $footerParts) . '</footer>';
+$assert($nestedSiteContents['page0.html'] === '<main>Page 0</main>' . $footerResolved && $nestedSiteContents['page59.html'] === '<main>Page 59</main>' . $footerResolved, 'Pages sharing a nested footer resolve when only the site-wide total passes the bound.');
+// The bound still holds for one page. No file here has more than 64 directives, but the
+// page expands 64 + 64 x 64 = 4160 includes through nesting, so it must still fail.
+try {
+    (new ArtifactNormalizer())->normalize(array('entrypoint' => 'index.html', 'files' => array('index.html' => str_repeat('<!--#include virtual="/parts/b.html" -->', 64), 'parts/b.html' => str_repeat('<!--#include virtual="/parts/c.html" -->', 64), 'parts/c.html' => 'C')));
+    throw new RuntimeException('Nested include count unexpectedly accepted.');
+} catch (InvalidArgumentException $error) { $assert(str_contains($error->getMessage(), 'html_include_count_exceeded'), 'One page past the count bound through nesting still fails.'); }
 
 echo "Canonical HTML includes contract passed.\n";
