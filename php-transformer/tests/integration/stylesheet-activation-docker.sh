@@ -33,4 +33,6 @@ wp eval 'require "/engine/tests/integration/stylesheet-activation.php";' || runt
 STYLESHEET_TEST_URL="$url" node "$root/tests/integration/stylesheet-activation-browser.mjs"
 wp eval 'require "/engine/tests/integration/navigation-inventory.php";'
 NAVIGATION_TEST_URL="$url" node "$root/tests/integration/navigation-inventory-browser.mjs"
+wp eval 'putenv("NAVIGATION_OPENER_TEST=1"); require "/engine/tests/integration/navigation-inventory.php";'
+NAVIGATION_OPENER_TEST=1 NAVIGATION_TEST_URL="$url" node "$root/tests/integration/navigation-inventory-browser.mjs"
 exit "$runtime_status"

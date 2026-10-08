@@ -7,7 +7,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
-$source = require dirname(__DIR__) . '/fixtures/nested-header-menu.php';
+$source = require dirname(__DIR__) . '/fixtures/' . (getenv('NAVIGATION_OPENER_TEST') ? 'navigation-opener-presentation.php' : 'nested-header-menu.php');
 if (! username_exists('navigation-proof')) {
     $user = wp_insert_user(array('user_login' => 'navigation-proof', 'user_pass' => 'navigation-test-password', 'user_email' => 'navigation-proof@example.test', 'role' => 'administrator'));
     if (is_wp_error($user)) throw new RuntimeException($user->get_error_message());

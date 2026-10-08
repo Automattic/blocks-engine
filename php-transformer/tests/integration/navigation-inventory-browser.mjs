@@ -12,6 +12,20 @@ try {
         const opener = page.locator('header .wp-block-navigation__responsive-container-open:visible');
         assert.equal(await opener.count(), width <= 768 ? 1 : 0, `${width}: source branch owns opener visibility`);
         if (width <= 768) {
+            if (process.env.NAVIGATION_OPENER_TEST) {
+                const expected = width < 600 ? {size:24, margin:'16px', transform:'matrix(1.2, 0, 0, 1.2, 0, 0)'} : {size:30.8, margin:'22px', transform:'matrix(1.4, 0, 0, 1.4, 0, 0)'};
+                const actual = await opener.evaluate(element => ({box:element.getBoundingClientRect().toJSON(),margin:getComputedStyle(element).marginLeft,transform:getComputedStyle(element).transform,color:getComputedStyle(element).color,svg:element.querySelector('svg').outerHTML,path:element.querySelector('path')?.getAttribute('d')}));
+                assert.ok(Math.abs(actual.box.width-expected.size)<0.05 && Math.abs(actual.box.height-expected.size)<0.05, `${width}: intrinsic source SVG and conditioned transform own control geometry: ${JSON.stringify(actual)}`);
+                assert.equal(actual.margin, expected.margin);
+                assert.equal(actual.transform, expected.transform);
+                assert.equal(actual.color, 'rgb(28, 45, 62)');
+                assert.equal(actual.path, 'M2 3h16v2H2zM2 9h16v2H2zM2 15h16v2H2z', 'original source artwork replaces only Core generated icon');
+                await opener.focus();
+                await page.keyboard.press('Enter');
+                await page.waitForFunction(()=>document.querySelector('header .is-menu-open'));
+                await page.keyboard.press('Escape');
+                await page.waitForFunction(()=>!document.querySelector('header .is-menu-open'));
+            }
             const closed = page.locator('header nav.wp-block-navigation:visible .wp-block-navigation__responsive-container:not(.is-menu-open)');
             assert.equal(await closed.count(), 1, `${width}: one controlled closed panel`);
             assert.equal(await closed.evaluate(element => getComputedStyle(element).display), 'none', `${width}: closed overlay stays out of header layout above Core breakpoint too`);
