@@ -327,7 +327,7 @@ final class ArtifactCompiler
         }, $allFallbacks);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
         foreach ($normalized['files'] as $document) {
-            if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null)) continue;
+            if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null) || !empty($document['metadata']['compilation']['included_component'])) continue;
             $documentFiles = $normalized['files'];
             foreach ($this->stylesheetAssetsForSource($document['content'], $document['path'], $documentFiles) as $stylesheet) {
                 // The canonical import walk also records which resource rules
@@ -2002,6 +2002,8 @@ final class ArtifactCompiler
         $scripts = $this->allScriptContents($files);
         foreach ($files as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null)) continue;
+            // An included component is replayed inside each document that includes it.
+            if (!empty($document['metadata']['compilation']['included_component'])) continue;
             $sourcePath = (string) $document['path'];
             $ownership = $this->fileOwnership($document);
             $documentFiles = $files;
