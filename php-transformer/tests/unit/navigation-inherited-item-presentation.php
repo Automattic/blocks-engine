@@ -110,10 +110,10 @@ $resetSelector = 1 === preg_match('/([^{}]+)\{font:inherit\}/', $itemCss, $reset
 // The list-item rule is projected onto the item core renders (the source-type
 // marker never reaches a navigation item), so it can actually win in the browser.
 $assert(
-    str_starts_with($authorItemSelector, '.menu :where(.wp-block-navigation-item)')
-        && str_contains($itemCss, '.wp-block-navigation.menu .wp-block-navigation-item__content{font-family:Almarai;font-size:22px}')
+    str_starts_with($authorItemSelector, '.menu .wp-block-navigation-item')
+        && 2 === preg_match_all('/"className":"[^"]*blocks-engine-source-li-/', (string) ($itemType['serialized_blocks'] ?? ''))
         && 2 === substr_count((string) ($itemType['serialized_blocks'] ?? ''), '"fontSize":"22px"'),
-    'authored list-item typography and shared link presentation survive navigation projection',
+    'authored list-item typography reaches the native items through their retained source identity',
     $itemCss
 );
 $assert(

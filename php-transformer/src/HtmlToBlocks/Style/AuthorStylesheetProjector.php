@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -2443,33 +2444,12 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed */
     private function selectorSpecificityShims(array $parsed, AuthorStylesheetProjectionContext $context): string
     {
-        $shims = '';
-        foreach ( $parsed['compounds'] as $compound ) {
-            $zeroSpecificity = $compound['zero_specificity'] ?? array();
-            if ( null !== $compound['type'] && 0 === (int) ($zeroSpecificity['types'] ?? 0) ) {
-                $shims .= $this->typeSpecificityShim($context);
-            }
-            $classCount = count($compound['classes']) - (int) ($zeroSpecificity['classes'] ?? 0);
-            for ( $index = 0; $index < $classCount; ++$index ) {
-                $shims .= ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-            }
-            $attributeCount = count($compound['attributes']) - (int) ($zeroSpecificity['attributes'] ?? 0);
-            for ( $index = 0; $index < $attributeCount; ++$index ) {
-                $shims .= ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-            }
-            $idCount = count($compound['ids']) - (int) ($zeroSpecificity['ids'] ?? 0);
-            for ( $index = 0; $index < $idCount; ++$index ) {
-                $shims .= ':not(#' . $context->authorStyles->idSpecificityShim() . ')';
-            }
-            if ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) {
-                $shims .= ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-            }
-            $listSpecificity = CssSelectorMatcher::selectorListArgumentSpecificity($compound);
-            $shims .= str_repeat($this->typeSpecificityShim($context), $listSpecificity['types'])
-                . str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', $listSpecificity['classes'])
-                . str_repeat(':not(#' . $context->authorStyles->idSpecificityShim() . ')', $listSpecificity['ids']);
-        }
-        return $shims;
+        return CssSpecificityProjection::shims(
+            $parsed,
+            $context->authorStyles->specificityShim(),
+            $context->authorStyles->classSpecificityShim(),
+            $context->authorStyles->idSpecificityShim()
+        );
     }
 
     /**
@@ -2817,8 +2797,8 @@ final class AuthorStylesheetProjector
      * classes and id but not the source-type marker other list items receive.
      * A rule authored on the item (`#menu li{display:inline;padding-right:15px}`)
      * therefore matched nothing in WordPress, and the menu lost the spacing the
-     * item's own box provided. Move the subject onto a zero-specificity item
-     * wrapper; classes, ids and structural pseudo-classes come along, the `li`
+     * item's own box provided. Move the subject onto the rendered item class;
+     * classes, ids and structural pseudo-classes come along, the `li`
      * type keeps its specificity through the type shim, and a trailing dynamic
      * state stays on the item, which is the same element it described.
      *
@@ -2866,7 +2846,11 @@ final class AuthorStylesheetProjector
         if ( '' !== $rest ) {
             return null;
         }
-        $subject = ':where(.wp-block-navigation-item)' . $split['item'] . $split['structural']
+        // The native item class is the rule's single native scope: Core styles
+        // `.wp-block-navigation .wp-block-navigation-item` (display:flex), so an
+        // authored item rule keeps its own weight plus one class, the same scope
+        // WordPressCompatCss gives every other projected native navigation part.
+        $subject = '.wp-block-navigation-item' . $split['item'] . $split['structural']
             . ( $typeLength > 0 ? $this->typeSpecificityShim($context) : '' )
             . $trailingState;
         return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(

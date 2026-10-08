@@ -214,7 +214,7 @@ $assert(
 // it there (its structural pseudo-class included).
 $listGap = $selectorsDeclaring($listRules, 'margin-right:12px');
 $assert(
-    1 === count($listGap) && str_contains($listGap[0], ':where(.wp-block-navigation-item):not(:last-child)') && ! str_contains($listGap[0], 'blocks-engine-source-li'),
+    1 === count($listGap) && str_contains($listGap[0], ' .wp-block-navigation-item:not(:last-child)') && ! str_contains($listGap[0], 'blocks-engine-source-li'),
     'li:not(:last-child) moves onto the rendered navigation item: ' . json_encode($listGap)
 );
 

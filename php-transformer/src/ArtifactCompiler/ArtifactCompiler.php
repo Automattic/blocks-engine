@@ -413,7 +413,7 @@ final class ArtifactCompiler
         if (array() !== ($capturedDialogs['native_runtime_replacements'] ?? array())) {
             $sourceReports['native_runtime_replacements'] = $capturedDialogs['native_runtime_replacements'];
         }
-        $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
+        $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts'], is_array($entryBlocks['document_root_markers'] ?? null) ? $entryBlocks['document_root_markers'] : array());
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;
         $sourceReports['compiled_site'] = $compiledSite;
         $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($compiledSite);
@@ -1343,7 +1343,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, runtime_script_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, runtime_script_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>, document_root_markers: array<int, string>}
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = '', array $runtimeDeclarations = array()): array
     {
@@ -1370,6 +1370,7 @@ final class ArtifactCompiler
             'responsive_counterpart_contracts' => $result['responsive_counterpart_contracts'],
             'reusable_components' => $result['reusable_components'],
             'layout_geometry_proof' => $result['layout_geometry_proof'],
+            'document_root_markers' => $result['document_root_markers'],
         );
     }
 
@@ -1393,6 +1394,7 @@ final class ArtifactCompiler
                 'runtime_script_projections' => array(),
                 'shell_artifacts' => array(),
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
+                'document_root_markers' => array(),
                 'reusable_components' => array(),
                 'runtime_block_paths' => array(),
                 'visual_block_paths' => array(),
@@ -1486,6 +1488,7 @@ final class ArtifactCompiler
             'author_stylesheet_projections' => $blockCompilationOutput->authorStylesheetProjections,
             'runtime_script_projections' => $blockCompilationOutput->runtimeScriptProjections,
             'shell_artifacts' => $blockCompilationOutput->shellArtifacts,
+            'document_root_markers' => $blockCompilationOutput->documentRootMarkers,
         );
     }
 
@@ -3333,7 +3336,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $blockTypes
      * @return array<string, mixed>
      */
-    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array(), array $compiledHtmlDocuments = array(), array $inlineShellArtifacts = array()): array
+    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array(), array $compiledHtmlDocuments = array(), array $inlineShellArtifacts = array(), array $entryDocumentRootMarkers = array()): array
     {
         $pages = array();
         $assetPayloadsByPath = array();
@@ -3369,7 +3372,7 @@ final class ArtifactCompiler
             $slug = $this->slugFromPath($path, $entryPath);
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
-                ? array('serialized_blocks' => $serializedBlocks, 'assets' => array(), 'shell_artifacts' => $entryShellArtifacts)
+                ? array('serialized_blocks' => $serializedBlocks, 'assets' => array(), 'shell_artifacts' => $entryShellArtifacts, 'document_root_markers' => $entryDocumentRootMarkers)
                 : ($compiledHtmlDocuments[$path] ?? $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document', '', true));
             foreach ( $compiledBlocks['assets'] ?? array() as $generatedAsset ) {
                 if ( is_array($generatedAsset) ) {
@@ -3400,7 +3403,7 @@ final class ArtifactCompiler
                     'slug'           => $slug,
                     'title'          => $title,
                     'metadata'       => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array(), is_string($file['metadata']['post_type'] ?? null) ? array('post_type' => $file['metadata']['post_type'], 'post_type_declaration' => 'metadata:post_type') : array(), is_array($file['metadata']['template_surface'] ?? null) ? array('template_surface' => $file['metadata']['template_surface']) : array(), is_array($file['metadata']['structured_data'] ?? null) ? array('structured_data' => $file['metadata']['structured_data']) : array()),
-                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array())),
+                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array()), is_array($compiledBlocks['document_root_markers'] ?? null) ? $compiledBlocks['document_root_markers'] : array()),
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
@@ -3749,8 +3752,14 @@ final class ArtifactCompiler
         );
     }
 
-    /** @param array<int, array<string, mixed>> $files @param array<int, array<string, mixed>> $generatedAssets @return array<string, mixed> */
-    private function fullDocumentMetadata(string $html, string $sourcePath, array $files, array $generatedAssets = array()): array
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @param array<int, string> $projectedRootMarkers Engine marker classes the
+     * compilation installed on the analysis document root; the root registry
+     * must materialize them or projected `:root:not(.marker)` predicates would
+     * invert their source truth on every rendered route.
+     */
+    private function fullDocumentMetadata(string $html, string $sourcePath, array $files, array $generatedAssets = array(), array $projectedRootMarkers = array()): array
     {
         $reference = static fn(string $value): array => array('url' => $value);
         $attributes = function (string $tag, array $names): array {
@@ -3797,6 +3806,10 @@ final class ArtifactCompiler
         $titles = HtmlTagScanner::scan($html, 'title');
         $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
         $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        if ( array() !== $projectedRootMarkers ) {
+            $rootClasses = array_values(array_filter(preg_split('/\s+/', trim((string) ($metadata['root_attributes']['class'] ?? ''))) ?: array(), static fn(string $class): bool => '' !== $class));
+            $metadata['root_attributes']['class'] = implode(' ', array_unique(array_merge($rootClasses, $projectedRootMarkers)));
+        }
         $head = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext::fromHtml($html, $sourcePath, $files);
         if (null !== $head) $metadata['head'] = $head;
         return $metadata;

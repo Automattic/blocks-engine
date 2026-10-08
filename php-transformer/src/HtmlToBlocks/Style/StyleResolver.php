@@ -1827,7 +1827,7 @@ final class StyleResolver implements ElementPresentationResolver
      * a `block` fallback keeps an unrecognized tag a no-op instead of minting a
      * carrier from a guess.
      */
-    private function defaultTagDisplay(DOMElement $element): string
+    public function defaultTagDisplay(DOMElement $element): string
     {
         $defaults = array(
             'a' => 'inline', 'abbr' => 'inline', 'b' => 'inline', 'bdi' => 'inline', 'bdo' => 'inline',
