@@ -90,6 +90,12 @@ JS;
             var state = states[ String( index ) ];
             if ( ! state ) return;
             applyBindings( element, state );
+            // Bindings set attributes (default state); the captured selection
+            // owns each native checkable's current state.
+            choices( element ).forEach( function( node, index ) {
+                if ( node instanceof HTMLInputElement && ( node.type === 'checkbox' || node.type === 'radio' )
+                    && Array.isArray( state.selected ) && typeof state.selected[ index ] === 'boolean' ) node.checked = state.selected[ index ];
+            } );
             current = state;
             setSelection( element, state, data );
             if ( focus ) {
@@ -142,7 +148,7 @@ JS;
             'assets' => array(
                 'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)), $editor),
             ),
-            'view_js' => $view,
+            'view_js' => AuthoredControlState::viewScript() . "\n" . $view,
             'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element')),
         );
     }

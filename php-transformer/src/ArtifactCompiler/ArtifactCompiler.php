@@ -27,6 +27,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBui
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
@@ -3662,6 +3663,7 @@ final class ArtifactCompiler
     {
         $metadata = array();
         foreach ( HtmlTagScanner::scan($html, 'script') as $index => $script ) {
+            if (NativeControlState::isReplayScript($script['tag'])) continue;
             $tag = $script['tag'];
             $src = $this->htmlAttribute((string) $tag, 'src');
             if ( '' === $src ) {
@@ -3700,6 +3702,7 @@ final class ArtifactCompiler
         $scriptIndex = 0;
         foreach ( HtmlTagScanner::scan($html, 'script') as $script ) {
             ++$scriptIndex;
+            if (NativeControlState::isReplayScript($script['tag'])) continue;
             $src = $this->htmlAttribute($script['tag'], 'src');
             $asset = '' === $src
                 ? $this->findInlineScriptAsset($sourcePath, $scriptIndex, $files)
