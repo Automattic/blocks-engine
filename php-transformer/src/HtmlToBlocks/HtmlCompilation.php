@@ -1558,6 +1558,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $body instanceof DOMElement ) {
             return $resultComposer->emptyBody($html, $provenance, $context, $startedAt, $selectorCache);
         }
+        SourceDom::removeIntegerKeyAttributes($body);
 
         if ( array() !== $sourceBodyClasses ) {
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
