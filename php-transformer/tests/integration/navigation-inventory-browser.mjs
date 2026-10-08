@@ -11,7 +11,12 @@ try {
         await page.goto(url, { waitUntil: 'networkidle' });
         const opener = page.locator('header .wp-block-navigation__responsive-container-open:visible');
         assert.equal(await opener.count(), width <= 768 ? 1 : 0, `${width}: source branch owns opener visibility`);
-        if (width <= 768) await opener.click();
+        if (width <= 768) {
+            const closed = page.locator('header nav.wp-block-navigation:visible .wp-block-navigation__responsive-container:not(.is-menu-open)');
+            assert.equal(await closed.count(), 1, `${width}: one controlled closed panel`);
+            assert.equal(await closed.evaluate(element => getComputedStyle(element).display), 'none', `${width}: closed overlay stays out of header layout above Core breakpoint too`);
+            await opener.click();
+        }
         const menu = width <= 768 ? page.locator('header .is-menu-open') : page.locator('header nav.wp-block-navigation:visible');
         if (width <= 768) {
             await page.waitForFunction(() => {
@@ -38,6 +43,7 @@ try {
             await link.click();
             await page.waitForFunction(hash => location.hash === hash, hash);
             await page.waitForFunction(() => !document.querySelector('.is-menu-open'));
+            if (width <= 768) assert.equal(await menu.isVisible(), false, `${width}: destination click closes the panel without leaking menu content`);
             const target = page.locator(hash);
             assert.ok(await target.isVisible());
             assert.ok(Math.abs((await target.boundingBox()).y) < 2, `${width}: real link scroll reaches visible section`);

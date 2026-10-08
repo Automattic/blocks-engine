@@ -223,6 +223,10 @@ final class ProjectedNavigationConverter implements ElementConverter
             $extraRules .= $host . '>.wp-block-navigation__responsive-container-open::after{' . $afterBody . '}';
         }
         if ( $always ) {
+            // The generic list repair exposes closed containers above Core's
+            // 600px switch. This occurrence owns an always-overlay control, so
+            // its closed panel stays out of layout at every branch width.
+            $extraRules .= $host . ' .wp-block-navigation__responsive-container:not(.is-menu-open){display:none!important}';
             if ( $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle) ) {
                 $extraRules .= $this->nativeNavigationToggleDropdownCss($host, $navigation);
                 $extraRules .= $this->nativeNavigationToggleOpenControlCss($host);
