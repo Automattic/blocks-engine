@@ -1603,6 +1603,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $interactionCandidates = $this->interactionCandidates($body);
         $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
         $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
+        $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
         $this->collectGeneratedComponentCandidates($body);
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
