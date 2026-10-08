@@ -532,6 +532,17 @@ final class SourceDom
         return $match;
     }
 
+    /** A heading is the whole content surface, not one part of a composite link. */
+    public static function onlyChildHeading(DOMElement $element): ?DOMElement
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 1 === preg_match('/^h[1-6]$/i', $child->tagName) ) {
+                return self::onlyChildElement($element, strtolower($child->tagName));
+            }
+        }
+        return null;
+    }
+
     /**
      * @param array<int, string> $excludedTags
      */

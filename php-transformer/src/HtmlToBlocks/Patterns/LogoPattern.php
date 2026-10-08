@@ -88,6 +88,13 @@ final class LogoPattern implements PatternRecognizerInterface
             ), $element);
         }
 
+        // The logo cue proves branding, not inline semantics. A whole heading
+        // already has a native editable owner; the link-wrapper path preserves
+        // its level, authored selectors, and home link instead of flattening it.
+        if ( 'a' === $tagName && SourceDom::onlyChildHeading($element) instanceof DOMElement ) {
+            return null;
+        }
+
         $content = 'a' === $tagName ? $this->anchorLogoContent($element, $innerHtml($element), $materializeSvgImages) : $this->logoLabelHtml($element, $innerHtml($element), $materializeSvgImages);
         if ( '' === trim($content) ) {
             return null;

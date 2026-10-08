@@ -180,6 +180,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             return new PatternRecognitionResult($hoisted, $carrierFallbacks);
         }
 
+        // The direct brand carrier cannot erase intervening authored layout
+        // wrappers. Keep that structure on the normal native group/heading path
+        // when a home wordmark is independently owned beside the menu list.
+        if ( $this->hasIndependentHeadingBrand($element) ) {
+            return null;
+        }
+
         if ( $this->hasNavigationChrome($element) ) {
             return null;
         }
@@ -1311,6 +1318,46 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $this->hasBrandAnchorSignal($anchor);
+    }
+
+    private function hasIndependentHeadingBrand(DOMElement $element): bool
+    {
+        if ( ! in_array('header', SourceDom::ancestorTags($element), true) ) {
+            return false;
+        }
+        $lists = array();
+        foreach ( array('ul', 'ol') as $tag ) {
+            foreach ( $element->getElementsByTagName($tag) as $list ) {
+                if ( $list instanceof DOMElement && 2 <= $list->getElementsByTagName('a')->length ) {
+                    $lists[] = $list;
+                }
+            }
+        }
+        if ( array() === $lists ) {
+            return false;
+        }
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            if ( ! $anchor instanceof DOMElement || ! SourceDom::onlyChildHeading($anchor) instanceof DOMElement ) {
+                continue;
+            }
+            $href = SourceDom::safeNavigationUrl($anchor->getAttribute('href'));
+            $home = in_array($href, array('/', '/index.html', 'index.html', './index.html', './'), true)
+                || in_array('home', preg_split('/\s+/', strtolower(trim($anchor->getAttribute('rel')))) ?: array(), true);
+            if ( ! $home && ! $this->hasBrandAnchorSignal($anchor) ) {
+                continue;
+            }
+            $independent = true;
+            for ( $parent = $anchor->parentNode; $parent instanceof DOMElement && ! $parent->isSameNode($element); $parent = $parent->parentNode ) {
+                if ( in_array(strtolower($parent->tagName), array('li', 'ul', 'ol'), true) ) {
+                    $independent = false;
+                    break;
+                }
+            }
+            if ( $independent ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
