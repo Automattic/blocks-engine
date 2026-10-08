@@ -4417,9 +4417,16 @@ final class StyleResolver implements ElementPresentationResolver
             'stroke-width' => true,
             'animation' => true,
             'animation-name' => true,
-            // Passive icon state presentation crosses core-owned markup.
+            'opacity' => true,
             'transform' => true,
+            'transform-origin' => true,
             'rotate' => true,
+            'scale' => true,
+            'translate' => true,
+            'transition-property' => true,
+            'transition-duration' => true,
+            'transition-timing-function' => true,
+            'transition-delay' => true,
             // Grid-item placement: resolved for native core grid child
             // layout (Automattic/blocks-engine#2139).
             'grid-area' => true,
@@ -4872,6 +4879,15 @@ final class StyleResolver implements ElementPresentationResolver
     {
         return $this->cssDeclarations(
             $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($element), $element)
+        );
+    }
+
+    /** SVG/state presentation also needs the unfiltered paint and motion stream. */
+    public function resolvedSourceStateDeclarations(DOMElement $element): array
+    {
+        return array_merge(
+            $this->resolvedPresentationDeclarations($element),
+            $this->cssDeclarations($this->resolveCssVariablesInValue($this->resolvedCascadeStyle($element, 'cascaded-values'), $element))
         );
     }
 

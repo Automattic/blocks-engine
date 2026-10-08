@@ -422,6 +422,13 @@ final class GeneratedSupportStylesheetState
             $toggle = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle';
             $parts[] = $toggle . '>.wp-block-accordion-heading__toggle-icon{' . $states['closed'] . '}';
             $parts[] = $toggle . '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon{' . $states['open'] . '}';
+            if ( isset($states['vector_closed'], $states['vector_open']) ) {
+                // A rendered source SVG replaces the editor's background artwork
+                // and owns the state transform; the slot keeps only its box.
+                $parts[] = $toggle . '[aria-expanded]>.wp-block-accordion-heading__toggle-icon:has(>svg){background-image:none;transform:none;rotate:none;translate:none;scale:none;transition:none}';
+                $parts[] = $toggle . '>.wp-block-accordion-heading__toggle-icon>svg{' . $states['vector_closed'] . '}';
+                $parts[] = $toggle . '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon>svg{' . $states['vector_open'] . '}';
+            }
         }
         foreach ($this->navigationSpacing as $className => $declarations) {
             if (str_contains($serializedBlocks, $className)) {

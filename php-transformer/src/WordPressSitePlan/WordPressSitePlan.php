@@ -61,6 +61,34 @@ remove_action( 'embed_head', 'print_emoji_detection_script' );
 add_action( 'admin_init', static function (): void { remove_action( 'admin_print_scripts', 'print_emoji_detection_script' ); } );
 add_filter( 'tiny_mce_plugins', static function ( array $plugins ): array { return array_values( array_diff( $plugins, array( 'wpemoji' ) ) ); } );
 PHP;
+    /**
+     * core/accordion-heading saves a fixed `+` icon slot with no artwork field.
+     * A source-proved SVG rides in the heading's block metadata and is rendered
+     * into that slot here, so saved markup stays core's exact shape while the
+     * page paints the actual vector. Metadata is author-editable post content,
+     * so the markup is sanitized to passive SVG on every render.
+     */
+    public const ACCORDION_ICON_RENDERER = <<<'PHP'
+add_filter( 'render_block_core/accordion-heading', static function ( string $content, array $block ): string {
+    $svg = $block['attrs']['metadata']['blocksEngineIcon'] ?? '';
+    if ( ! is_string( $svg ) || '' === $svg ) return $content;
+    $paint = array( 'fill' => true, 'fill-rule' => true, 'clip-rule' => true, 'stroke' => true, 'stroke-width' => true, 'stroke-linecap' => true, 'stroke-linejoin' => true, 'stroke-miterlimit' => true, 'stroke-dasharray' => true, 'stroke-dashoffset' => true, 'opacity' => true, 'fill-opacity' => true, 'stroke-opacity' => true, 'transform' => true, 'class' => true, 'style' => true );
+    $shape = static fn ( array $geometry ): array => array_merge( $paint, array_fill_keys( $geometry, true ) );
+    $svg = trim( wp_kses( $svg, array(
+        'svg' => array_merge( $paint, array( 'xmlns' => true, 'width' => true, 'height' => true, 'viewbox' => true, 'preserveaspectratio' => true, 'aria-hidden' => true, 'focusable' => true, 'role' => true ) ),
+        'g' => $paint,
+        'path' => $shape( array( 'd' ) ),
+        'circle' => $shape( array( 'cx', 'cy', 'r' ) ),
+        'ellipse' => $shape( array( 'cx', 'cy', 'rx', 'ry' ) ),
+        'line' => $shape( array( 'x1', 'y1', 'x2', 'y2' ) ),
+        'polyline' => $shape( array( 'points' ) ),
+        'polygon' => $shape( array( 'points' ) ),
+        'rect' => $shape( array( 'x', 'y', 'width', 'height', 'rx', 'ry' ) ),
+    ) ) );
+    if ( ! str_starts_with( $svg, '<svg' ) ) return $content;
+    return (string) preg_replace_callback( '/(<span\b[^>]*\bwp-block-accordion-heading__toggle-icon\b[^>]*>)[^<]*(<\/span>)/', static fn ( array $match ): string => $match[1] . $svg . $match[2], $content, 1 );
+}, 10, 2 );
+PHP;
     private string $sourceOrigin = '';
     private string $sourceUrl = '';
     private const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
@@ -3567,6 +3595,9 @@ PHP;
         }
         if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineLinkClass'))) {
             $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { \$classes = \$block['attrs']['metadata']['blocksEngineLinkClass'] ?? ''; if ( ! is_string( \$classes ) || '' === \$classes ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) foreach ( preg_split( '/\\s+/', \$classes ) ?: array() as \$class ) \$tag->add_class( \$class ); return \$tag->get_updated_html(); }, 10, 2 );";
+        }
+        if (array_filter(array_merge($pages, $parts, $templates), static fn(array $document): bool => str_contains($document['canonical_block_markup'], 'blocksEngineIcon'))) {
+            $lines[] = self::ACCORDION_ICON_RENDERER;
         }
         if (array_filter($pages, static fn(array $page): bool => str_contains($page['canonical_block_markup'], 'blocks-engine-listing-overlay'))) {
             $lines[] = "add_filter( 'render_block_core/read-more', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-listing-overlay', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) { \$tag->set_attribute( 'aria-hidden', 'true' ); \$tag->set_attribute( 'tabindex', '-1' ); } return \$tag->get_updated_html(); }, 10, 2 );";
