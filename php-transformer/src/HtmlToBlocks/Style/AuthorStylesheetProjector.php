@@ -1500,7 +1500,7 @@ final class AuthorStylesheetProjector
             // its own, so the subject's sibling position belongs to that item.
             // Any other match, or a subject this projection cannot place, keeps
             // the authored selector exactly.
-            if ( $this->matchesOnlyNavigationItemAnchors($matches, $context) ) {
+            if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ANCHOR, $context) ) {
                 $itemSelector = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context);
                 if ( null !== $itemSelector ) {
                     $rewritten[] = $itemSelector;
@@ -1510,7 +1510,7 @@ final class AuthorStylesheetProjector
             // Every match is a source list item core renders as a navigation
             // item of its own. The source-type marker never reaches that
             // rendered item, so the subject moves onto core's item class.
-            if ( $this->matchesOnlyNavigationListItems($matches, $context) ) {
+            if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ITEM, $context) ) {
                 $itemSelector = $this->projectNavigationListItemSelector($selector, $parsed, $context);
                 if ( null !== $itemSelector ) {
                     $rewritten[] = $itemSelector;
@@ -1521,7 +1521,7 @@ final class AuthorStylesheetProjector
             // core/navigation block stands in for. Its classes and id sit on
             // the rendered `<nav>` (and on the inner list copy); the list type
             // has to address that block rather than the copy.
-            if ( $this->matchesOnlyNavigationListHosts($matches, $context) ) {
+            if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_LIST_HOST, $context) ) {
                 $hostSelector = $this->projectNavigationListHostSelector($selector, $parsed, $context);
                 if ( null !== $hostSelector ) {
                     $rewritten[] = $hostSelector;
@@ -2750,23 +2750,16 @@ final class AuthorStylesheetProjector
         return '' !== $negated['item'] && '' === $negated['structural'] ? 'item' : null;
     }
 
-    /** @param list<DOMElement> $matches */
-    private function matchesOnlyNavigationItemAnchors(array $matches, AuthorStylesheetProjectionContext $context): bool
+    /**
+     * Whether every match plays the given AuthorSelectorProjectionState::NAVIGATION_*
+     * role in the navigation block that replaced it.
+     *
+     * @param list<DOMElement> $matches
+     */
+    private function matchesOnlyNavigationRole(array $matches, string $role, AuthorStylesheetProjectionContext $context): bool
     {
         foreach ( $matches as $element ) {
-            if ( ! $context->selectorProjections->isNavigationItemAnchorPath($element->getNodePath() ?? '') ) {
-                return false;
-            }
-        }
-
-        return array() !== $matches;
-    }
-
-    /** @param list<DOMElement> $matches */
-    private function matchesOnlyNavigationListHosts(array $matches, AuthorStylesheetProjectionContext $context): bool
-    {
-        foreach ( $matches as $element ) {
-            if ( ! $context->selectorProjections->isNavigationListHostPath($element->getNodePath() ?? '') ) {
+            if ( ! $context->selectorProjections->isNavigationSourcePath($element->getNodePath() ?? '', $role) ) {
                 return false;
             }
         }
@@ -2777,15 +2770,19 @@ final class AuthorStylesheetProjector
     /**
      * A source list that is the element core/navigation stands in for renders
      * as `<nav class="wp-block-navigation [classes]" id="[id]">` with the same
-     * classes and id copied onto the inner `<ul class="wp-block-navigation__container">`.
-     * A rule keyed by class or id reaches both (and the engine resets the copy's
-     * placement); a rule qualified by the list type (`#header ul#nav{float:right;
-     * width:360px;position:relative;top:20px}`) reached only the inner copy — a
-     * flex item whose float is ignored and whose offsets are reset — so the
-     * menu lost its place. Replace the type with the block, excluding the copy,
-     * and keep the type's specificity through the shim. Classes, ids and
-     * pseudo-classes in the compound stay where they are, so the usual class
-     * projection still applies to them.
+     * classes and id copied onto the inner `<ul class="wp-block-navigation__container">`,
+     * the row that holds the items. A rule keyed by class or id reaches both,
+     * and the navigation container reset keeps the copy from being placed a
+     * second time (position, offsets, transforms, margin, padding, border).
+     * A rule qualified by the list type (`#header ul#nav{float:right;
+     * width:360px;position:relative;top:20px;gap:20px}`) reached only the
+     * inner copy: a flex item whose float is ignored and whose offsets are
+     * reset, so the menu lost its place. Replace the type with core's block
+     * class, which both elements carry, so the rule behaves exactly like its
+     * class or id form: placement lands on the block once, and row layout
+     * (gap, wrapping, alignment) still reaches the item row. The shim keeps
+     * the type's specificity; classes, ids and pseudo-classes in the compound
+     * stay where they are, so the usual class projection still applies.
      *
      * @param array<string, mixed> $parsed
      */
@@ -2806,24 +2803,12 @@ final class AuthorStylesheetProjector
             return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
                 (int) $typeSpan['start'] => array(
                     'end' => (int) $typeSpan['end'],
-                    'value' => ':where(.wp-block-navigation:not(.wp-block-navigation__container))' . $this->typeSpecificityShim($context),
+                    'value' => ':where(.wp-block-navigation)' . $this->typeSpecificityShim($context),
                 ),
             ));
         }
         // Without a type the authored compound already reaches the block.
         return null;
-    }
-
-    /** @param list<DOMElement> $matches */
-    private function matchesOnlyNavigationListItems(array $matches, AuthorStylesheetProjectionContext $context): bool
-    {
-        foreach ( $matches as $element ) {
-            if ( ! $context->selectorProjections->isNavigationListItemPath($element->getNodePath() ?? '') ) {
-                return false;
-            }
-        }
-
-        return array() !== $matches;
     }
 
     /**
@@ -2926,7 +2911,7 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
-            if ( ! $this->matchesOnlyNavigationListItems($matches, $context) ) {
+            if ( ! $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ITEM, $context) ) {
                 continue;
             }
             $item = $this->projectNavigationListItemSelector($selector, $parsed, $context);

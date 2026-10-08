@@ -12,11 +12,15 @@ declare(strict_types=1);
  * list type (`#header ul#nav { float:right; width:360px; position:relative;
  * top:20px }`) hits only the inner `<ul>`, which is a flex item (float is
  * ignored) whose placement the engine resets on purpose, so the menu lost its
- * place. The type now addresses the block itself.
+ * place. The type now addresses core's block class, which the `<nav>` and the
+ * inner list both carry, so the rule behaves exactly like its class or id form:
+ * placement lands on the block once (the container reset neutralises the copy)
+ * and row layout (wrapping, gap, alignment) still reaches the item row.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
@@ -69,7 +73,14 @@ $selectorsDeclaring = static function (array $rules, string $declaration): array
     }
     return $selectors;
 };
-$wrapper = ':where(.wp-block-navigation:not(.wp-block-navigation__container))';
+$wrapper = ':where(.wp-block-navigation)';
+// The shape WordPress renders for a navigation block standing in for `ul#menu`:
+// the block's classes and id sit on the `<nav>` and are copied onto the inner list.
+$rendered = new DOMDocument();
+$rendered->loadHTML('<div id="header"><nav class="blocks-engine-list-navigation wp-block-navigation" id="menu"><ul class="wp-block-navigation__container blocks-engine-list-navigation wp-block-navigation" id="menu"><li class="wp-block-navigation-item"><a href="#a">A</a></li></ul></nav></div>', LIBXML_NOERROR);
+$renderedNav = $rendered->getElementsByTagName('nav')->item(0);
+$renderedRow = $rendered->getElementsByTagName('ul')->item(0);
+$reaches = static fn (string $selector, DOMElement $element): bool => CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector))['matches'];
 
 // --- The list is the block: a float/offset rule on `ul#menu` places the block.
 
@@ -92,7 +103,7 @@ $floatedRules = $rules($floatedCss['author']);
 $placement = $selectorsDeclaring($floatedRules, 'float:right');
 $assert(
     1 === count($placement) && str_contains($placement[0], '#header ' . $wrapper) && str_contains($placement[0], '#menu') && ! str_contains($placement[0], 'ul#menu'),
-    'the `ul` type moves onto the navigation block and stays off the inner list copy',
+    'the `ul` type moves onto core\'s navigation block class',
     json_encode($placement)
 );
 $assert(
@@ -123,6 +134,51 @@ $assert(
     1 === count($linkColor) && str_contains($linkColor[0], '#header ul#menu '),
     'an anchor rule under the list keeps `ul#menu` as its ancestor compound',
     json_encode($linkColor)
+);
+
+// --- Row layout in the same type-qualified rule still reaches the item row. ----
+// The list's flex row is the inner `wp-block-navigation__container`; a rule that
+// both places the menu and lays out its items must keep doing both.
+
+$row = $transform(
+    '<style>'
+    . '#header{overflow:hidden}#header img{float:left}'
+    . '#header ul#menu{display:flex;flex-wrap:nowrap;align-items:flex-end;gap:40px;float:right;width:150px;margin:6px 0 0 20px}'
+    . '#header ul#menu li{display:inline}'
+    . '</style>'
+    . '<div id="header"><img src="/logo.png" alt="Logo" width="243" height="56">'
+    . '<ul id="menu"><li><a href="#a">Alpha</a></li><li><a href="#b">Beta</a></li><li><a href="#c">Gamma</a></li></ul></div>'
+    . '<main><p>Body copy.</p></main>'
+);
+$rowCss = $css($row);
+$rowRules = $rules($rowCss['author']);
+$rowLayout = array_values(array_filter($rowRules, static fn (array $rule): bool => str_contains($rule['body'], 'flex-wrap:nowrap')));
+$assert(
+    1 === count($rowLayout) && str_contains($rowLayout[0]['body'], 'align-items:flex-end') && str_contains($rowLayout[0]['selector'], $wrapper) && ! str_contains($rowLayout[0]['selector'], '__container'),
+    'flex-wrap and align-items stay in one rule on core\'s block class, with no container exclusion',
+    json_encode($rowLayout)
+);
+$assert(
+    1 === count($rowLayout) && $reaches($rowLayout[0]['selector'], $renderedRow),
+    'flex-wrap and align-items reach the rendered item row (the inner container)',
+    json_encode($rowLayout)
+);
+$assert(
+    1 === count($rowLayout) && $reaches($rowLayout[0]['selector'], $renderedNav),
+    'the same rule reaches the rendered navigation block',
+    json_encode($rowLayout)
+);
+$rowFloat = array_values(array_filter($rowRules, static fn (array $rule): bool => str_contains($rule['body'], 'float:right')));
+$rowMargin = array_values(array_filter($rowRules, static fn (array $rule): bool => 1 === preg_match('/(?:^|;)margin(?:-left)?:/', $rule['body'])));
+$assert(
+    1 === count($rowFloat) && 1 === count($rowMargin),
+    'float and margin are each stated by exactly one author rule',
+    json_encode(array( $rowFloat, $rowMargin ))
+);
+$assert(
+    1 === preg_match('/\.wp-block-navigation[^{},]*\s\.wp-block-navigation__container\{[^}]*margin:0!important/', $rowCss['support']),
+    'the inner list copy resets the margin, so the block is placed once',
+    $rowCss['support']
 );
 
 // --- `float:left` is symmetric, and a class-qualified list type moves too. ------

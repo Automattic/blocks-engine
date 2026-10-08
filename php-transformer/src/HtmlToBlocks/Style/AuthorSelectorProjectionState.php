@@ -9,6 +9,11 @@ use DOMElement;
 /** Per-transform source identities projected from author CSS selectors. */
 final class AuthorSelectorProjectionState
 {
+    /** Roles a source element plays in the core/navigation block that replaces it. */
+    public const NAVIGATION_ANCHOR = 'anchor';
+    public const NAVIGATION_ITEM = 'item';
+    public const NAVIGATION_LIST_HOST = 'list-host';
+
     private ?AuthorStyleAnalysis $authorStyles = null;
 
     /** @var array<string, string> */
@@ -109,19 +114,21 @@ final class AuthorSelectorProjectionState
     /** @var array<string, true> Source boxes retained verbatim by a layout shell. */
     private array $retainedSourcePaths = array();
 
-    /** @var array<string, true> */
-    private array $navigationItemAnchorPaths = array();
-
     /**
-     * Source list items core/navigation renders as its own items, each with
-     * whether its rendered siblings are exactly its source list's items.
+     * Source elements core/navigation renders as something other than
+     * themselves, by role:
      *
-     * @var array<string, bool>
+     * - NAVIGATION_ANCHOR: a direct anchor core re-parents into a list item of
+     *   its own, so its position among its source siblings belongs to that item.
+     * - NAVIGATION_ITEM: a source `<li>` core renders as `<li class="wp-block-navigation-item">`,
+     *   without the source-type marker; the flag records whether its rendered
+     *   siblings are exactly its source list's items.
+     * - NAVIGATION_LIST_HOST: a source `<ul>`/`<ol>` that is itself the element
+     *   the navigation block stands in for.
+     *
+     * @var array<string, array<string, bool>>
      */
-    private array $navigationListItemPaths = array();
-
-    /** @var array<string, true> Source lists that are the element a core/navigation block stands in for. */
-    private array $navigationListHostPaths = array();
+    private array $navigationSourcePaths = array();
 
     public function installAuthorStyles(AuthorStyleAnalysis $authorStyles): void
     {
@@ -286,21 +293,20 @@ final class AuthorSelectorProjectionState
     }
 
     /**
-     * Record a source anchor that core/navigation renders inside a list item
-     * of its own, so the anchor's position among its source siblings now
-     * belongs to that item.
+     * Record a source element core/navigation renders in one of the
+     * NAVIGATION_* roles. `$rendersSourceSiblings` is read for items only.
      */
-    public function markNavigationItemAnchor(DOMElement $anchor): void
+    public function markNavigationSource(DOMElement $element, string $role, bool $rendersSourceSiblings = true): void
     {
-        $path = $anchor->getNodePath() ?? '';
+        $path = $element->getNodePath() ?? '';
         if ( '' !== $path ) {
-            $this->navigationItemAnchorPaths[$path] = true;
+            $this->navigationSourcePaths[$role][$path] = $rendersSourceSiblings;
         }
     }
 
-    public function isNavigationItemAnchorPath(string $path): bool
+    public function isNavigationSourcePath(string $path, string $role): bool
     {
-        return isset($this->navigationItemAnchorPaths[$path]);
+        return isset($this->navigationSourcePaths[$role][$path]);
     }
 
     /**
@@ -317,25 +323,6 @@ final class AuthorSelectorProjectionState
     }
 
     /**
-     * Record a source `<li>` that core/navigation-link or core/navigation-submenu
-     * renders as `<li class="wp-block-navigation-item">`. The source-type marker
-     * other list items carry never reaches that rendered item, so a rule
-     * authored on the `li` has to address the class core puts there.
-     */
-    public function markNavigationListItem(DOMElement $item, bool $rendersSourceSiblings = true): void
-    {
-        $path = $item->getNodePath() ?? '';
-        if ( '' !== $path ) {
-            $this->navigationListItemPaths[$path] = $rendersSourceSiblings;
-        }
-    }
-
-    public function isNavigationListItemPath(string $path): bool
-    {
-        return isset($this->navigationListItemPaths[$path]);
-    }
-
-    /**
      * Whether the rendered item's container holds exactly the items of its
      * source list, in source order. Not so when core gathers the items of
      * two source lists into one container: there the last item of the first
@@ -343,26 +330,7 @@ final class AuthorSelectorProjectionState
      */
     public function navigationListItemRendersSourceSiblings(string $path): bool
     {
-        return true === ( $this->navigationListItemPaths[$path] ?? false );
-    }
-
-    /**
-     * Record a source `<ul>`/`<ol>` that is itself the element a core/navigation
-     * block replaces. WordPress renders that block as a `<nav>` carrying the
-     * list's classes and id, and copies them onto an inner `<ul>`; a selector
-     * qualified by the list type reaches only that inner copy.
-     */
-    public function markNavigationListHost(DOMElement $list): void
-    {
-        $path = $list->getNodePath() ?? '';
-        if ( '' !== $path ) {
-            $this->navigationListHostPaths[$path] = true;
-        }
-    }
-
-    public function isNavigationListHostPath(string $path): bool
-    {
-        return isset($this->navigationListHostPaths[$path]);
+        return true === ( $this->navigationSourcePaths[self::NAVIGATION_ITEM][$path] ?? false );
     }
 
     public function ensureAttributeMarker(string $path, ?string $stableIdentity = null): string
