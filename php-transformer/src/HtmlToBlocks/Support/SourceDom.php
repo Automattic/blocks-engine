@@ -1026,6 +1026,32 @@ final class SourceDom
     }
 
     /**
+     * The single image an autonomous custom element host renders, when the host
+     * contains nothing but that image (optionally inside picture/source).
+     * Such hosts are owned by the media path: promoted to core/image when the
+     * host is provably inert, otherwise kept verbatim as responsive media.
+     */
+    public static function imageOnlyCustomElement(DOMElement $element): ?DOMElement
+    {
+        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') ) {
+            return null;
+        }
+
+        $images = $element->getElementsByTagName('img');
+        if ( 1 !== $images->length || ! $images->item(0) instanceof DOMElement ) {
+            return null;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && ! in_array(strtolower($descendant->tagName), array( 'img', 'picture', 'source' ), true) ) {
+                return null;
+            }
+        }
+
+        return $images->item(0);
+    }
+
+    /**
      * Whether $container is $element or one of its ancestors. Shared DOM
      * ancestry helper; consumed by form dispatch and navigation suppression.
      */

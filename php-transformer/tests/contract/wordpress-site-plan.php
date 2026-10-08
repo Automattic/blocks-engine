@@ -65,6 +65,42 @@ $fieldNotes = $taxonomyPlan['taxonomy_entities'][0] ?? array();
 $assert(1 === count($taxonomyPlan['taxonomy_entities']) && 'category' === ($fieldNotes['taxonomy'] ?? null) && 'Field Notes' === ($fieldNotes['name'] ?? null), 'A captured category collection is recognized from article source metadata and reciprocal category links.');
 $archivePresentation = (string) ($fieldNotes['archive']['presentation_markup'] ?? '');
 $assert(array('stories/first.html', 'stories/second.html') === ($fieldNotes['membership_source_paths'] ?? null) && '/journal/category/field-notes' === ($fieldNotes['archive']['source_route'] ?? null) && str_contains($archivePresentation, '<!-- wp:query ') && str_contains($archivePresentation, '"inherit":true') && str_contains($archivePresentation, '<!-- wp:query-pagination ') && str_contains($archivePresentation, '<!-- wp:query-no-results -->'), 'Membership retains source route identity and turns captured cards into an inherited query loop with pagination and empty state.');
+$nickIndexHtmlArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/nick-index-html-category.php';
+$nickIndexHtmlPlan = (new ArtifactCompiler())->compile($nickIndexHtmlArtifact)->toArray()['source_reports']['wordpress_site_plan'];
+$nickSpeaking = $nickIndexHtmlPlan['taxonomy_entities'][0] ?? array();
+$nickSpeakingMembers = array(
+    'website/embracing-the-power-of-blocks/index.html',
+    'website/speed-building-a-carousel-block/index.html',
+    'website/useful-resources-for-curating-the-wordpress-editing-experience/index.html',
+    'website/useful-resources-for-extending-wordpress-blocks/index.html',
+    'website/why-i-built-my-wordcamp-us-presentation-out-of-blocks/index.html',
+);
+sort($nickSpeakingMembers, SORT_STRING);
+$assert(
+    1 === count($nickIndexHtmlPlan['taxonomy_entities'] ?? array())
+    && 'speaking' === ($nickSpeaking['slug'] ?? null)
+    && '/writing/category/speaking' === ($nickSpeaking['archive']['source_route'] ?? null)
+    && $nickSpeakingMembers === ($nickSpeaking['membership_source_paths'] ?? null),
+    'The retained Nick capture href shape with explicit index.html aliases resolves through the compiled source-route table and proves exactly its five reciprocal Speaking members.'
+);
+$nickHeadLinks = array_values(array_filter($nickSpeaking['archive']['document_head']['elements'] ?? array(), static fn(array $element): bool => 'link' === ($element['tag'] ?? null) && 'stylesheet' === ($element['attributes']['rel'] ?? null)));
+$nickHeadAsset = array_values(array_filter($nickIndexHtmlPlan['assets'], static fn(array $asset): bool => 1 === count(array_filter($asset['references'] ?? array(), static fn(array $reference): bool => 'website/writing/category/speaking/index.html' === ($reference['source_path'] ?? null) && 'link:nth-of-type(1)' === ($reference['selector'] ?? null)))));
+$nickBootstrap = '';
+foreach ($nickIndexHtmlPlan['writes'] as $write) if ('functions.php' === ($write['target_path'] ?? null)) $nickBootstrap = (string) ($write['payload']['data'] ?? '');
+$assert(
+    1 === count($nickHeadLinks)
+    && 1 === count($nickHeadAsset)
+    && ($nickHeadLinks[0]['selector'] ?? null) === ($nickHeadAsset[0]['references'][0]['selector'] ?? null)
+    && ($nickHeadLinks[0]['asset_reference'] ?? null) === '{{wordpress-site-plan:asset:' . ($nickHeadAsset[0]['token'] ?? '') . '}}'
+    && !isset($nickHeadLinks[0]['url'])
+    && 'screen' === ($nickHeadLinks[0]['attributes']['media'] ?? null)
+    && 'next' === ($nickHeadLinks[0]['attributes']['data-precedence'] ?? null)
+    && in_array('website/writing/category/speaking/index.html', array_column($nickHeadAsset[0]['scopes'] ?? array(), 'source_path'), true)
+    && str_contains($nickBootstrap, "'taxonomy' => 'category'")
+    && str_contains($nickBootstrap, "'term_slug' => 'speaking'")
+    && str_contains($nickBootstrap, 'data-precedence="next"'),
+    'A proven native archive retains its ordered page-scoped source head stylesheet and the generated theme binds that head to the matching native term query.'
+);
 $paginatedTaxonomyArtifact = require dirname(__DIR__) . '/fixtures/taxonomy/corroborated-category.php';
 $paginatedTaxonomyArtifact['files'][] = array('path' => 'archives/field-notes-page-two.html', 'content' => '<header><p>Shared header</p></header><main><h1>Field Notes</h1><article><h2><a href="/stories/third">Third story</a></h2><p>Third summary.</p></article><article><h2><a href="/stories/fourth">Fourth story</a></h2><p>Fourth summary.</p></article></main><footer><p>Shared footer</p></footer>', 'metadata' => array('route_path' => '/journal/category/field-notes/page/2'));
 foreach (array('third', 'fourth') as $story) $paginatedTaxonomyArtifact['files'][] = array('path' => 'stories/' . $story . '.html', 'content' => '<header><p>Shared header</p></header><article><h1>' . ucfirst($story) . ' story</h1><p>Full story.</p><a href="/journal/category/field-notes">Field Notes</a></article><footer><p>Shared footer</p></footer>', 'metadata' => array('post_type' => 'post'));

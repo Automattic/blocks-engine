@@ -32,7 +32,7 @@ final class EngineSupportCss
 
     private const SLIDESHOW_GALLERY_CLASS = 'blocks-engine-slideshow-gallery';
 
-    private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = 'blocks-engine-propagated-link-color';
+    private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = SourceBlockAttributeProjector::PROPAGATED_LINK_COLOR_CLASS;
 
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
@@ -48,6 +48,12 @@ final class EngineSupportCss
     public function beforeAuthorCss(string $serializedBlocks, string $layoutShellBlockName): array
     {
         $parts = array();
+        if ( str_contains($serializedBlocks, 'wp-block-accordion-panel') ) {
+            // Core owns the panel's hidden state. Projected source display rules
+            // describe its open box and must not expose padding or borders while
+            // Core has concealed the panel.
+            $parts[] = ':root .wp-block-accordion-panel[hidden]{display:none!important}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS) ) {
             // A paragraph is required for valid block markup, but phrasing content
             // did not have paragraph margins in the source document.

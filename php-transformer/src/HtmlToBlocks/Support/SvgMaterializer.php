@@ -418,7 +418,9 @@ final class SvgMaterializer implements SvgElementMaterializer
             'class' => (string) ($attrs['className'] ?? ''),
             'style' => $style,
         );
-        $markup = '<img' . $this->svgRichTextHtmlAttributes($imageAttributes, array( 'alt' )) . ' />';
+        // RichText serializes an inline image object as a bare void tag, the
+        // same spelling the editor saves and the DOM re-serializes on ingest.
+        $markup = '<img' . $this->svgRichTextHtmlAttributes($imageAttributes, array( 'alt' )) . '>';
 
         if ( $includeLink ) {
             $link = $this->svgImageLinkAttributes($element);
@@ -1031,7 +1033,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         return preg_replace('/<(?:title|desc)\b[^>]*>.*?<\/(?:title|desc)>/is', '', $html) ?? $html;
     }
 
-    private function ensureSvgImageNamespace(string $html): string
+    public function ensureSvgImageNamespace(string $html): string
     {
         if ( preg_match('/<svg\b[^>]*\sxmlns\s*=/i', $html) ) {
             return $html;
@@ -1349,8 +1351,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // The asset is the sanitized vector payload, not its generated source
         // selector. A content address lets every compatible instance share one
         // core/image asset while retaining its own alt text and presentation.
-        $filename = 'inline-svg-' . substr(hash('sha256', $html), 0, 16) . '.svg';
-        return $this->context->materializedAssets()->rootedPath('assets/materialized-svg/' . $filename);
+        return $this->context->materializedAssets()->inlineSvgPath($html);
     }
 
     private function sourceRelativeMaterializedSvgPath(string $path): string

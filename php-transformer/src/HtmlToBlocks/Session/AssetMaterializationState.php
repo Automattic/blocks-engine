@@ -6,8 +6,29 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 /** Per-transform source metadata and generated asset state. */
 final class AssetMaterializationState
 {
+    /** Where inline SVG payloads are materialized, relative to the asset root. */
+    public const INLINE_SVG_DIRECTORY = 'assets/materialized-svg';
+
     /** @var array<string, array<string, mixed>> */
     private array $generated = array();
+
+    /** The content-addressed asset path for one sanitized inline SVG payload. */
+    public function inlineSvgPath(string $payload): string
+    {
+        return $this->rootedPath(self::INLINE_SVG_DIRECTORY . '/inline-svg-' . substr(hash('sha256', $payload), 0, 16) . '.svg');
+    }
+
+    /**
+     * Whether a reference names an inline SVG asset this engine materialized,
+     * in this transform or a previous one. The content-addressed name is the
+     * engine's own, so re-ingested saved markup is recognized from the
+     * reference alone, exactly as the transform that produced it treated it.
+     */
+    public static function isInlineSvgAssetReference(string $source): bool
+    {
+        $path = (string) parse_url($source, PHP_URL_PATH);
+        return 1 === preg_match('@(?:^|/)' . preg_quote(self::INLINE_SVG_DIRECTORY, '@') . '/inline-svg-[a-f0-9]{16}\.svg$@', $path);
+    }
 
     /** @param array<string, array<string, mixed>> $metadata */
     public function __construct(
@@ -92,7 +113,7 @@ final class AssetMaterializationState
                 return true;
             }
         }
-        return false;
+        return self::isInlineSvgAssetReference($source);
     }
 
     /** @return array<string, mixed>|null */

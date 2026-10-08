@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -589,6 +590,18 @@ final class NavigationToggleSuppressor
         }
 
         return false;
+    }
+
+    /** Record only the trigger/panel ids owned by native submenu lowering. */
+    public function collectSupersededCapturedSubmenuSelectors(DOMElement $root): void
+    {
+        foreach ($root->getElementsByTagName('*') as $element) {
+            if (!$element instanceof DOMElement || !NavigationPattern::ownsCapturedSubmenuTrigger($element)) continue;
+            foreach (array($element->getAttribute('id'), $element->getAttribute('aria-controls'), $element->getAttribute('data-dla-dialog-trigger')) as $id) {
+                $id = ltrim(trim($id), '#');
+                if ('' !== $id && 1 === preg_match('/^[A-Za-z][A-Za-z0-9_.:-]*$/', $id)) $this->context->runtimeSelectors()->supersede('#' . $id);
+            }
+        }
     }
 
     /**

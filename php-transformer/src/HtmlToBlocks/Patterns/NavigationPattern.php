@@ -2984,6 +2984,46 @@ final class NavigationPattern implements PatternRecognizerInterface
         return null;
     }
 
+    /** Whether native submenu lowering owns this captured dialog trigger. */
+    public static function ownsCapturedSubmenuTrigger(DOMElement $trigger): bool
+    {
+        return (new self())->capturedSubmenuTrigger($trigger);
+    }
+
+    private function capturedSubmenuTrigger(DOMElement $trigger): bool
+    {
+        if ('' === trim($trigger->getAttribute('data-dla-dialog-trigger'))) return false;
+        for ($node = $trigger->parentNode, $depth = 0; $depth < 6 && $node instanceof DOMElement; $node = $node->parentNode, ++$depth) {
+            $button = $this->buttonDropdownItem($node);
+            if (null !== $button && $button['button']->isSameNode($trigger)) return true;
+            $anchor = $this->primaryNavigationAnchor($node);
+            if (!$anchor instanceof DOMElement || !$anchor->isSameNode($trigger)) continue;
+            $key = trim($trigger->getAttribute('data-dla-dialog-trigger'));
+            if ($key !== trim($trigger->getAttribute('aria-controls')) || !$this->navigationWillClaimItem($node)) continue;
+            foreach ($this->submenuContainers($node, $anchor) as $container) {
+                if ($this->elementCarriesDialogPanel($container, $key)) return true;
+            }
+        }
+        return false;
+    }
+
+    private function navigationWillClaimItem(DOMElement $item): bool
+    {
+        for ($node = $item; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
+            if ($this->claimsBeforeAuthorOwnedLayout($node) || $this->hasNavigationSignal($node)) return true;
+        }
+        return false;
+    }
+
+    private function elementCarriesDialogPanel(DOMElement $element, string $key): bool
+    {
+        if ($element->getAttribute('data-dla-dialog-panel') === $key || $element->getAttribute('id') === $key) return true;
+        foreach ($element->getElementsByTagName('*') as $descendant) {
+            if ($descendant instanceof DOMElement && ($descendant->getAttribute('data-dla-dialog-panel') === $key || $descendant->getAttribute('id') === $key)) return true;
+        }
+        return false;
+    }
+
     private function hasButtonDropdownChild(DOMElement $element): bool
     {
         foreach ( $element->childNodes as $child ) {

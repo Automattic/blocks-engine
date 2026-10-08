@@ -10,6 +10,7 @@ final class TaxonomyProjection
     public static function project(array $documents, array $routes, string $sourceOrigin = ''): array
     {
         $routeBySource = array_column($routes, 'target_path', 'source_path');
+        $routeByLinkPath = self::routeLinkAliases($routes);
         $documentsByRoute = array();
         foreach ($documents as $document) {
             $source = $document['source_path'] ?? null;
@@ -38,10 +39,11 @@ final class TaxonomyProjection
             $listedDocuments = array();
             $listed = array();
             foreach (self::links((string) ($archive['html'] ?? ''), $sourceOrigin) as $link) {
-                $listedDocument = $documentsByRoute[$link['href']] ?? null;
+                $listedRoute = $routeByLinkPath[$link['href']] ?? $link['href'];
+                $listedDocument = $documentsByRoute[$listedRoute] ?? null;
                 if (!is_array($listedDocument)) continue;
-                $listedDocuments[$link['href']] = $listedDocument;
-                if ('post' === ($listedDocument['metadata']['post_type'] ?? null)) $listed[$link['href']] = $listedDocument;
+                $listedDocuments[$listedRoute] = $listedDocument;
+                if ('post' === ($listedDocument['metadata']['post_type'] ?? null)) $listed[$listedRoute] = $listedDocument;
             }
             $members = array();
             $paginationSources = array();
@@ -54,7 +56,8 @@ final class TaxonomyProjection
                 foreach ($listed as $articleRoute => $article) {
                     $articleSource = (string) $article['source_path'];
                     foreach ($linksBySource[$articleSource] ?? array() as $link) {
-                        if ($route === $link['href'] && $heading === $link['label']) {
+                        $linkedRoute = $routeByLinkPath[$link['href']] ?? $link['href'];
+                        if ($route === $linkedRoute && $heading === $link['label']) {
                             $members[] = $articleSource;
                             break;
                         }
@@ -65,11 +68,13 @@ final class TaxonomyProjection
                     if (self::heading((string) ($sibling['html'] ?? '')) !== $heading) continue;
                     $siblingSource = (string) ($sibling['source_path'] ?? '');
                     foreach (self::links((string) ($sibling['html'] ?? ''), $sourceOrigin) as $link) {
-                        $listedDocument = $documentsByRoute[$link['href']] ?? null;
+                        $listedRoute = $routeByLinkPath[$link['href']] ?? $link['href'];
+                        $listedDocument = $documentsByRoute[$listedRoute] ?? null;
                         if (!is_array($listedDocument) || 'post' !== ($listedDocument['metadata']['post_type'] ?? null)) continue;
                         $articleSource = (string) ($listedDocument['source_path'] ?? '');
                         foreach ($linksBySource[$articleSource] ?? array() as $backlink) {
-                            if ($route === $backlink['href'] && $heading === $backlink['label']) {
+                            $backlinkRoute = $routeByLinkPath[$backlink['href']] ?? $backlink['href'];
+                            if ($route === $backlinkRoute && $heading === $backlink['label']) {
                                 $members[] = $articleSource;
                                 $paginationSources[$siblingSource] = true;
                                 break;
@@ -94,14 +99,63 @@ final class TaxonomyProjection
             $candidate = $group[0];
             sort($candidate['members'], SORT_STRING);
             if (array() !== $candidate['pagination_sources']) $paginationSourcesByArchive[$candidate['source']] = $candidate['pagination_sources'];
+            $archive = array(
+                'source_path' => $candidate['source'],
+                'source_route' => $candidate['route'],
+                'presentation_markup' => (string) ($candidate['archive']['block_markup'] ?? ''),
+                'query' => array('post_type' => 'post', 'taxonomy' => 'category', 'term' => $candidate['slug']),
+            );
             $entities[] = array(
                 'kind' => 'taxonomy_term', 'taxonomy' => 'category', 'slug' => $candidate['slug'], 'name' => $candidate['heading'],
                 'membership_source_paths' => $candidate['members'],
-                'archive' => array('source_path' => $candidate['source'], 'source_route' => $candidate['route'], 'presentation_markup' => (string) ($candidate['archive']['block_markup'] ?? ''), 'query' => array('post_type' => 'post', 'taxonomy' => 'category', 'term' => $candidate['slug'])),
+                'archive' => $archive,
                 'evidence' => array('membership' => true, 'name' => true, 'archive' => true),
             );
         }
         return array('entities' => $entities, 'diagnostics' => $diagnostics, 'pagination_source_paths_by_archive' => $paginationSourcesByArchive);
+    }
+
+    /** Resolve only aliases declared by the exact source document and canonical route tables. */
+    private static function routeLinkAliases(array $routes): array
+    {
+        $sourceRoot = null;
+        foreach ($routes as $route) {
+            if ('/' !== ($route['target_path'] ?? null) || !is_string($route['source_path'] ?? null)) continue;
+            $source = str_replace('\\', '/', $route['source_path']);
+            if ('index.html' === $source || str_ends_with($source, '/index.html')) {
+                $sourceRoot = dirname($source);
+            }
+            break;
+        }
+
+        $targetsByLink = array();
+        foreach ($routes as $route) {
+            $source = $route['source_path'] ?? null;
+            $target = $route['target_path'] ?? null;
+            if (!is_string($source) || !is_string($target) || '' === $target) continue;
+            $target = rtrim($target, '/') ?: '/';
+            $targetsByLink[$target][$target] = true;
+
+            if (null === $sourceRoot) continue;
+            $source = str_replace('\\', '/', $source);
+            if ('.' === $sourceRoot) {
+                $relativeSource = $source;
+            } else {
+                $prefix = rtrim($sourceRoot, '/') . '/';
+                if (!str_starts_with($source, $prefix)) continue;
+                $relativeSource = substr($source, strlen($prefix));
+            }
+            if ('' !== $relativeSource) {
+                $sourceAlias = '/' . ltrim($relativeSource, '/');
+                $targetsByLink[$sourceAlias][$target] = true;
+            }
+        }
+
+        $aliases = array();
+        foreach ($targetsByLink as $link => $targets) {
+            if (1 === count($targets)) $aliases[$link] = (string) array_key_first($targets);
+        }
+        return $aliases;
     }
 
     /** A candidate must already spell the route and slug the canonical plan accepts, or the evidence stays unproven instead of failing the whole plan. */

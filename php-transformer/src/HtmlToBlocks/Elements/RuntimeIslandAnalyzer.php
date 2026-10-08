@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
@@ -123,8 +124,7 @@ final class RuntimeIslandAnalyzer
             return false;
         }
 
-        $targets = $this->runtimeTargetsInSubtree($element, 4);
-        if ( count($targets) < 2 ) {
+        if ( $this->appShellRuntimeTargetCount($element, 2) < 2 ) {
             return false;
         }
 
@@ -134,6 +134,63 @@ final class RuntimeIslandAnalyzer
         }
 
         return in_array('app_root_token', $signals, true) || in_array('workspace_surface', $signals, true);
+    }
+
+    /**
+     * Runtime targets that make a subtree an application surface. A captured
+     * document scope is a rendered snapshot whose runtime is declared through
+     * attribute bindings; native owners retain those attributes element by
+     * element (authored buttons, layout shells, captured dialogs), so such a
+     * binding is not evidence that a script owns the whole subtree.
+     */
+    private function appShellRuntimeTargetCount(DOMElement $element, int $limit): int
+    {
+        $count = 0;
+        foreach ( $this->context->descendantElements($element) as $descendant ) {
+            if ( $this->isRuntimeCanvasTarget($descendant)
+                || ( $this->isRuntimeDomTarget($descendant) && ! $this->isCapturedAttributeRuntimeBinding($descendant) )
+            ) {
+                if ( ++$count >= $limit ) {
+                    break;
+                }
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * Whether a runtime DOM target inside a declared capture document scope is
+     * addressed only through attribute selectors (never by its id or classes).
+     */
+    private function isCapturedAttributeRuntimeBinding(DOMElement $element): bool
+    {
+        $root = SourceDom::documentVariantRoot($element);
+        if ( ! $root || ! $root->hasAttribute('data-dla-document-scope') ) {
+            return false;
+        }
+
+        $id = trim(SourceDom::attr($element, 'id'));
+        if ( '' !== $id && $this->context->runtimeSelectors()->hasDom('#' . $id) && ! $this->isPresentationalRuntimeSelector('#' . $id) ) {
+            return false;
+        }
+        foreach ( SourceDom::classNames($element) as $class ) {
+            if ( $this->context->runtimeSelectors()->hasDom('.' . $class) && ! $this->isPresentationalRuntimeSelector('.' . $class) ) {
+                return false;
+            }
+        }
+        foreach ( array_keys($this->context->runtimeSelectors()->domSelectors()) as $selector ) {
+            $selector = (string) $selector;
+            if ( $this->isPresentationalRuntimeSelector($selector) || ! $this->elementMatchesRuntimeSelector($element, $selector) ) {
+                continue;
+            }
+            $identity = (string) preg_replace('/\[[^\]]*\]/', '', $selector);
+            if ( ! str_contains($selector, '[') || str_contains($identity, '#') || str_contains($identity, '.') ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -301,7 +358,11 @@ final class RuntimeIslandAnalyzer
 
     public function shouldPreserveDataAttributeRuntimeTarget(DOMElement $element): bool
     {
-        return $this->isDataAttributeRuntimeTarget($element) && ! $this->retainsDataAttributeRuntimeTargetInShell($element);
+        return $this->isDataAttributeRuntimeTarget($element)
+            && ! $this->retainsDataAttributeRuntimeTargetInShell($element)
+            // An image-only custom element host belongs to the media path, which
+            // keeps a non-inert host verbatim as responsive media.
+            && null === SourceDom::imageOnlyCustomElement($element);
     }
 
     /**
@@ -407,6 +468,10 @@ final class RuntimeIslandAnalyzer
     public function canRetainRuntimeDomContractNatively(DOMElement $element, string $blockName): bool
     {
         if ($blockName === $this->context->generatedBlockName('authored-button') && AuthoredButtonBlockGenerator::isRoleButton($element)) return true;
+        // Responsive media saves the source element verbatim, so every id, class
+        // and attribute a runtime selector addresses survives on the frontend.
+        $responsiveMedia = $this->context->generatedBlockName(ResponsiveMediaBlockGenerator::LOCAL_NAME);
+        if ('' !== $responsiveMedia && $blockName === $responsiveMedia) return true;
         if ($blockName === $this->context->generatedBlockName('layout-shell') && in_array(strtolower($element->tagName), array('div', 'span', 'article', 'aside', 'header', 'footer', 'main', 'section', 'nav'), true)) {
             $root = SourceDom::documentVariantRoot($element);
             if ($root && $root->hasAttribute('data-dla-document-scope')) return true;

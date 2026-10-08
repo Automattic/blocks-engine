@@ -181,6 +181,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\OwnSaveShapeInverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
@@ -466,8 +467,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * the browser's link colour would replace the source colour; the projected
      * rule makes that anchor inherit its host block's colour instead.
      */
-    private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = 'blocks-engine-propagated-link-color';
-    public const PROPAGATED_LINK_CARRIER_CLASS = 'blocks-engine-propagated-link';
+    private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = SourceBlockAttributeProjector::PROPAGATED_LINK_COLOR_CLASS;
+    public const PROPAGATED_LINK_CARRIER_CLASS = SourceBlockAttributeProjector::PROPAGATED_LINK_CLASS;
 
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
@@ -696,7 +697,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return $this->layoutShellBlockForElements($elements, $innerBlocks, $sourceElement);
             },
             fn (): array => $this->authorStyles()->stylesheetAssets(),
-            fn (): string => $this->sourceStyles()->formLayoutCss()
+            fn (): string => $this->sourceStyles()->formLayoutCss(),
+            function (DOMElement $element, array &$fallbacks): array {
+                $block = $this->convertElement($element, $fallbacks);
+                return null === $block ? array() : array( $block );
+            }
         );
         $this->nativeGetFormBlockBuilder = new NativeGetFormBlockBuilder(
             function (DOMElement $element, array &$fallbacks): array {
@@ -750,7 +755,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (DOMElement $element, ?array $readableFormBlock): void {
                 $this->formRuntimeIslandRecorder->recordForm($element, $readableFormBlock);
             },
-            fn (DOMElement $element, bool $allowFormEvents = false): ?array => $this->readableFormBlockBuilder->build($element, $allowFormEvents),
+            function (DOMElement $element, bool $allowFormEvents, array &$fallbacks): ?array {
+                return $this->readableFormBlockBuilder->build($element, $allowFormEvents, $fallbacks);
+            },
             fn (DOMElement $element): bool => $this->formRuntimeRequirementAnalyzer->requiresPreservation($element),
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
             fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isPseudoForm($element)
@@ -1450,7 +1457,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return new DisclosureControlPresentation(
             $this->styleResolver,
             $this->generatedSupportStyles(),
-            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
+            fn (DOMElement $element): string => $this->svgMaterializer->ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
         );
     }
 
@@ -1587,6 +1594,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // conversion and keeps every downstream pass — style matching, selector
         // projection, rich-text materialization — from ever observing it.
         $this->pruneNonRenderedMetadataElements($body);
+        // Saved block markup re-enters as source; invert save shapes that moved
+        // source identity onto synthesized wrappers before anything reads them.
+        OwnSaveShapeInverter::invert($body);
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         // Remove wrapper-convention custom elements before author selectors are
@@ -1605,6 +1615,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $interactionCandidates = $this->interactionCandidates($body);
         $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
         $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
+        $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
         $this->collectGeneratedComponentCandidates($body);
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
@@ -3138,7 +3149,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
                 || $this->sourceElementStartsHidden($sourceElement),
             fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
-            fn (DOMElement $control): string => $this->disclosureControlPresentation()->accordionToggleMarker($control),
+            fn (DOMElement $control): array => $this->disclosureControlPresentation()->accordionToggle($control),
             fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
             fn (string $url): string => (string) ($this->materializedAssets()->metadataForUrl($url)['glyph_color'] ?? '')
         );
@@ -3229,7 +3240,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
                 || $this->sourceElementStartsHidden($sourceElement),
              disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
-             accordionToggleMarker: fn (DOMElement $control): string => $this->disclosureControlPresentation()->accordionToggleMarker($control),
+             accordionToggle: fn (DOMElement $control): array => $this->disclosureControlPresentation()->accordionToggle($control),
              authoredIconColor: fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
              assetGlyphColor: fn (string $url): string => (string) ($this->materializedAssets()->metadataForUrl($url)['glyph_color'] ?? '')
          );
@@ -3274,7 +3285,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $wrappedSearchBlock;
         }
 
-        $customImage = $this->imageOnlyCustomElement($element);
+        $customImage = SourceDom::imageOnlyCustomElement($element);
         if ( $customImage instanceof DOMElement ) {
             $this->imageDimensions()->fillParentImageViewportPair($customImage);
             if ( ! $this->canPromoteImageOnlyCustomElement($element, $customImage) ) {
@@ -3950,6 +3961,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $preserveInlineLayoutLeaf = ! empty($attrs['preserveInlineLayoutLeaf']);
         unset($attrs['preserveInlineLayoutLeaf']);
+        // RichText has no comment nodes: the editor drops them on its first
+        // save, and a re-ingested paragraph never carries them. Source comments
+        // (framework text-split markers such as React's `<!-- -->`) are not
+        // content, so no RichText value keeps them.
+        if ( in_array($name, array( 'core/paragraph', 'core/heading' ), true) && str_contains((string) ($attrs['content'] ?? ''), '<!--') ) {
+            $attrs['content'] = preg_replace('/<!--.*?-->/s', '', (string) $attrs['content']) ?? $attrs['content'];
+        }
         // Set by cssOwnedGroupAttributes() when the container is a CSS-owned
         // layout element whose direct-child topology changed during
         // conversion. applyIntrinsicVisualMediaHeight() below synthesizes its
@@ -9842,26 +9860,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $src;
     }
 
-    private function imageOnlyCustomElement(DOMElement $element): ?DOMElement
-    {
-        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') ) {
-            return null;
-        }
-
-        $images = $element->getElementsByTagName('img');
-        if ( 1 !== $images->length || ! $images->item(0) instanceof DOMElement ) {
-            return null;
-        }
-
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && ! in_array(strtolower($descendant->tagName), array( 'img', 'picture', 'source' ), true) ) {
-                return null;
-            }
-        }
-
-        return $images->item(0);
-    }
-
     /**
      * A core/image save is a block figure, not a custom-element host. Only erase
      * a host when its box and identity are provably inert after that substitution.
@@ -10069,11 +10067,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $video = null; $poster = null;
         foreach ($children as $child) {
             if ('video' === strtolower($child->tagName)) $video = $child;
-            elseif (null !== $this->imageOnlyCustomElement($child)) $poster = $child;
+            elseif (null !== SourceDom::imageOnlyCustomElement($child)) $poster = $child;
             else return null;
         }
         if (!$video instanceof DOMElement || !$poster instanceof DOMElement || !$this->hasOnlyStructuralCustomVideoHostAttributes($poster, true)) return null;
-        $image = $this->imageOnlyCustomElement($poster);
+        $image = SourceDom::imageOnlyCustomElement($poster);
         if (!$image instanceof DOMElement || !$image->hasAttribute('alt') || '' !== $this->attr($image, 'alt') || 1 !== count($this->elementElementChildren($poster)) || $image->parentNode !== $poster) return null;
         $videoBlock = $this->convertMediaElement($video);
         $imageBlock = $this->convertImageElement($image);
@@ -10156,7 +10154,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function imageOnlyCarrierElement(DOMElement $element): ?DOMElement
     {
-        $customImage = $this->imageOnlyCustomElement($element);
+        $customImage = SourceDom::imageOnlyCustomElement($element);
         if ( $customImage instanceof DOMElement ) {
             return $customImage;
         }
