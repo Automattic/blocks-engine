@@ -320,6 +320,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $element, $navigationContext);
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($navigationSource) ?? '');
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $element);
         // WordPress copies the emitted block's classes onto its inner list. Key
         // the container reset on the source's own classes; a class-less source
@@ -777,6 +778,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $cluster, $navigationContext);
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($cluster) ?? '');
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $cluster);
         // The cluster's classes travel onto this block and, through WordPress,
         // onto its inner list; keep what the cluster states placed once.

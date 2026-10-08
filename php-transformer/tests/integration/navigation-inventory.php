@@ -7,7 +7,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
-$source = require dirname(__DIR__) . '/fixtures/' . (getenv('NAVIGATION_OPENER_TEST') ? 'navigation-opener-presentation.php' : 'nested-header-menu.php');
+$source = require dirname(__DIR__) . '/fixtures/' . (getenv('NAVIGATION_LIST_PANEL_TEST') ? 'navigation-list-panel-ownership.php' : (getenv('NAVIGATION_OWNERSHIP_TEST') ? 'navigation-list-host-ownership.php' : (getenv('NAVIGATION_OPENER_TEST') ? 'navigation-opener-presentation.php' : 'nested-header-menu.php')));
 if (! username_exists('navigation-proof')) {
     $user = wp_insert_user(array('user_login' => 'navigation-proof', 'user_pass' => 'navigation-test-password', 'user_email' => 'navigation-proof@example.test', 'role' => 'administrator'));
     if (is_wp_error($user)) throw new RuntimeException($user->get_error_message());
@@ -16,7 +16,7 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
     'index.html' => $source,
     'other.html' => str_replace('Editable section content.', 'Second route content.', $source),
 )))->toWordPressSitePlanView()['wordpress_site_plan'];
-$theme = getenv('NAVIGATION_OPENER_TEST') ? 'navigation-opener-proof' : 'navigation-inventory-proof';
+$theme = getenv('NAVIGATION_LIST_PANEL_TEST') ? 'navigation-list-panel-proof' : (getenv('NAVIGATION_OWNERSHIP_TEST') ? 'navigation-ownership-proof' : (getenv('NAVIGATION_OPENER_TEST') ? 'navigation-opener-proof' : 'navigation-inventory-proof'));
 $directory = WP_CONTENT_DIR . '/themes/' . $theme;
 $resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => home_url('/wp-content/themes/' . $theme)));
 $references = array();
@@ -34,6 +34,7 @@ foreach ($resolved['writes'] as $write) {
     file_put_contents($path, $content);
 }
 wp_clean_themes_cache();
+if (getenv('NAVIGATION_OWNERSHIP_TEST')) file_put_contents($directory . '/source-proof.html', $source);
 switch_theme($theme);
 require $directory . '/functions.php';
 $pages = array();

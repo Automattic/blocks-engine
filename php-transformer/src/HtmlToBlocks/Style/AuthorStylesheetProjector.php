@@ -1522,7 +1522,7 @@ final class AuthorStylesheetProjector
             // the rendered `<nav>` (and on the inner list copy); the list type
             // has to address that block rather than the copy.
             if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_LIST_HOST, $context) ) {
-                $hostSelector = $this->projectNavigationListHostSelector($selector, $parsed, $context);
+                $hostSelector = $this->projectNavigationListHostSelector($selector, $parsed, $context, $matches);
                 if ( null !== $hostSelector ) {
                     $rewritten[] = $hostSelector;
                     continue;
@@ -2783,10 +2783,14 @@ final class AuthorStylesheetProjector
      * (gap, wrapping, alignment) still reaches the item row. The shim keeps
      * the type's specificity; classes, ids and pseudo-classes in the compound
      * stay where they are, so the usual class projection still applies.
+     * Existing semantic identities restrict the rendered match set to these
+     * source lists. A list moved into an overlay targets the inner UL only,
+     * since the native root now occupies its opener's source-control slot.
      *
      * @param array<string, mixed> $parsed
+     * @param list<DOMElement> $matches
      */
-    private function projectNavigationListHostSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    private function projectNavigationListHostSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, array $matches): ?string
     {
         $span = $parsed['rightmost_compound_span'] ?? null;
         if ( ! is_array($span) ) {
@@ -2800,10 +2804,21 @@ final class AuthorStylesheetProjector
             if ( ! in_array(strtolower((string) $typeSpan['name']), array( 'ul', 'ol' ), true) ) {
                 return null;
             }
+            // The source match set proves list ownership, not ownership of
+            // every rendered navigation. Bind to those source identities so
+            // a separate DIV opener cannot inherit a global UL box rule.
+            $identities = array();
+            foreach ($matches as $element) {
+                $marker = $context->selectorProjections->semanticMarker($element->getNodePath() ?? '');
+                if ('' === $marker) return null;
+                $root = $context->selectorProjections->navigationListOwnsRoot($element->getNodePath() ?? '') ? '' : 'ul';
+                $identities[$marker] = $root . '.wp-block-navigation.' . $marker;
+            }
+            if (array() === $identities) return null;
             return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
                 (int) $typeSpan['start'] => array(
                     'end' => (int) $typeSpan['end'],
-                    'value' => ':where(.wp-block-navigation)' . $this->typeSpecificityShim($context),
+                    'value' => ':where(' . implode(',', $identities) . ')' . $this->typeSpecificityShim($context),
                 ),
             ));
         }

@@ -124,7 +124,8 @@ final class AuthorSelectorProjectionState
      *   without the source-type marker; the flag records whether its rendered
      *   siblings are exactly its source list's items.
      * - NAVIGATION_LIST_HOST: a source `<ul>`/`<ol>` that is itself the element
-     *   the navigation block stands in for.
+     *   the navigation block stands in for. Its flag is false when projection
+     *   moves the list inside a control-owned native overlay instead.
      *
      * @var array<string, array<string, bool>>
      */
@@ -294,7 +295,8 @@ final class AuthorSelectorProjectionState
 
     /**
      * Record a source element core/navigation renders in one of the
-     * NAVIGATION_* roles. `$rendersSourceSiblings` is read for items only.
+     * NAVIGATION_* roles. `$rendersSourceSiblings` seeds item provenance;
+     * lists start root-owned and can subsequently move into an overlay.
      */
     public function markNavigationSource(DOMElement $element, string $role, bool $rendersSourceSiblings = true): void
     {
@@ -307,6 +309,18 @@ final class AuthorSelectorProjectionState
     public function isNavigationSourcePath(string $path, string $role): bool
     {
         return isset($this->navigationSourcePaths[$role][$path]);
+    }
+
+    /** A projected opener owns the root; the source list now owns the inner UL. */
+    public function projectNavigationListIntoOverlay(DOMElement $element): void
+    {
+        $path = $element->getNodePath() ?? '';
+        if (isset($this->navigationSourcePaths[self::NAVIGATION_LIST_HOST][$path])) $this->navigationSourcePaths[self::NAVIGATION_LIST_HOST][$path] = false;
+    }
+
+    public function navigationListOwnsRoot(string $path): bool
+    {
+        return true === ($this->navigationSourcePaths[self::NAVIGATION_LIST_HOST][$path] ?? false);
     }
 
     /**
