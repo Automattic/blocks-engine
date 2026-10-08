@@ -25,8 +25,10 @@ foreach (array('desktop', 'mobile') as $variant) {
 }
 $unknown = (new ArtifactCompiler())->compile($fixture('desktop', true))->toArray();
 $html = array_values(array_filter($flatten($unknown['blocks']), static fn(array $block): bool => 'core/html' === $block['blockName']));
-$assert(array() !== $html && !str_contains($html[0]['innerHTML'], 'Unrelated main copy.'), 'A real descendant application keeps its bounded unsupported behavior without swallowing the document.');
+$assert(1 === count($html) && str_starts_with(trim($html[0]['innerHTML']), '<div id="workspace">') && !str_contains($html[0]['innerHTML'], 'Unrelated main copy.'), 'An identity-addressed descendant application keeps one bounded block without swallowing the document.');
+$assert(in_array('core/heading', array_column($flatten($unknown['blocks']), 'blockName'), true) && str_contains($unknown['serialized_blocks'], 'Unrelated editable footer.'), 'Content beside the application remains native and editable.');
 $assert(array() !== array_filter($unknown['source_reports']['runtime_islands'] ?? array(), static fn(array $island): bool => 'app_shell' === ($island['kind'] ?? null) && '#workspace' === ($island['selector'] ?? null)), 'The application preservation diagnostic is truthful and source-owned.');
+$assert(1 === count(array_filter($unknown['source_reports']['runtime_islands'] ?? array(), static fn(array $island): bool => 'app_shell' === ($island['kind'] ?? null))), 'Only the application root is an app shell; its static document ancestors are not.');
 
 $static = $fixture();
 $static['files']['index.html'] = str_replace(array('<main>', '</main>'), array('<div id="page-frame"><main>', '</main><canvas></canvas></div>'), $static['files']['index.html']);
