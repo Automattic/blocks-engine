@@ -87,6 +87,14 @@ final class ReadableFormControlBlockConverter
         }
 
         if ( 'input' === $tagName ) {
+            // A standalone choice label remains at its source position. Its
+            // toggle target must remain native even without authored CSS.
+            $externalLabel = null === $label ? $this->metadataBuilder->associatedLabel($element) : null;
+            if ($externalLabel instanceof DOMElement
+                && in_array(FormControlClassifier::controlType($element), array('checkbox', 'radio'), true)
+                && array() === FormControlClassifier::controlElements($externalLabel)) {
+                $forceNative = true;
+            }
             $inputBlock = $this->authoredBlockConverter->input($element, $label, false, $forceNative);
             if ( null !== $inputBlock ) {
                 return $inputBlock;
@@ -159,13 +167,20 @@ final class ReadableFormControlBlockConverter
                 : null;
         }
 
-        $label = $this->metadataBuilder->labelText($element);
+        // An external label owns its own DOM position; folding it into the
+        // input would change input + label and wrapping-label selector topology.
+        $associatedLabel = $this->authoredBlockConverter->label($element);
+        if (null !== $associatedLabel) {
+            return $associatedLabel;
+        }
+
+        $label = $this->authoredBlockConverter->labelContent($element);
         if ( '' === $label ) {
-            $label = trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
+            $label = $this->runtime->escapeHtml(trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? ''));
         }
 
         return '' !== $label
-            ? $this->createBlock->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $element)
+            ? $this->createBlock->createBlock('core/paragraph', array( 'content' => $label ), array(), $element)
             : null;
     }
 

@@ -22,6 +22,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
+use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use InvalidArgumentException;
 
 /** A complete, destination-independent block-theme materialization contract. */
@@ -330,7 +331,7 @@ PHP;
             unset($asset);
         }
         $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations);
-        $assets = $this->orderAssetsByDocumentStylesheetOrder($assets, $pages);
+        $assets = $this->attachDocumentStylesheetInstances($assets, $pages);
         NativeListItemFallbackReconciler::reconcileBlockDocuments(
             $data['fallbacks'],
             array_values(array_filter(array_column($pages, 'canonical_block_markup'), 'is_string'))
@@ -382,6 +383,7 @@ PHP;
         $assets = self::projectSharedChromeStylesheets($assets, $parts, $pages, $references);
         $assets = self::projectDetachedChromePaintOrder($assets, $parts, $pages);
         $assets = self::orderPageStylesheetProjections($assets);
+        $assets = self::placeSharedStylesheetProjections($assets, $pages);
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
@@ -598,6 +600,18 @@ PHP;
         foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
             $page = $pagesBySource[$scope['source_path']] ?? null;
             if (!is_array($page) || $scope['kind'] !== ('post' === $page['post_type'] ? 'post' : 'page') || $scope['route_path'] !== trim($page['route']['path'], '/') || $scope['reconciliation_identity'] !== $page['reconciliation_identity'] || $scope['front_page'] !== ('/' === $page['route']['path'])) throw new InvalidArgumentException('A page asset scope does not match its canonical page.');
+        }
+        // A document position holds exactly one stylesheet instance, across
+        // every resource, so each route replays one unambiguous sequence.
+        $identities = array();
+        foreach ($plan['assets'] as $asset) {
+            if (isset($asset['stylesheet_instances']) && ('css' !== $asset['kind'] || !is_array($asset['stylesheet_instances']))) throw new InvalidArgumentException('Only stylesheet resources may declare ordered instances.');
+            foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
+                if (!is_array($instance) || array('source_path', 'order', 'media', 'type') !== array_keys($instance) || !isset($pagesBySource[$instance['source_path'] ?? '']) || !is_int($instance['order'] ?? null) || $instance['order'] < 0 || !is_string($instance['media'] ?? null) || !is_string($instance['type'] ?? null)) throw new InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.');
+                $identity = $instance['source_path'] . "\0" . $instance['order'];
+                if (isset($identities[$identity])) throw new InvalidArgumentException('Two stylesheet instances claim one document position.');
+                $identities[$identity] = true;
+            }
         }
         $routeSources = array(); foreach ($plan['routes'] as $route) { self::unique($routeSources, $route['source_path'], 'route source'); $page = $pagesBySource[$route['source_path']] ?? null; if (!is_array($page) || $route['target_path'] !== $page['route']['path'] || $route['target_slug'] !== $page['slug']) throw new InvalidArgumentException('WordPress site plan routes do not match canonical page routes.'); }
         if (count($routeSources) !== count($pagePaths)) throw new InvalidArgumentException('WordPress site plan must export every canonical page route.');
@@ -874,20 +888,6 @@ PHP;
             $target = 'assets/' . str_replace('\\', '/', $compiledTarget);
             if ( ! self::safePath($target) ) throw new InvalidArgumentException('Compiled site asset lacks a safe target identity.');
             $assetContent = is_string($asset['content'] ?? null) ? $asset['content'] : null;
-            $media = trim((string) ($asset['media'] ?? ''));
-            // Declared source media belongs to the ordered head element. Its
-            // serialized activation can change at parser time; embedding that
-            // state in a shared CSS payload would permanently disable it.
-            $payloadMedia = isset($asset['source_media']) && is_string($asset['source_media']) ? '' : $media;
-            if ( 'css' === ($asset['kind'] ?? '') && null !== $assetContent && '' !== $payloadMedia && 'all' !== strtolower($payloadMedia) ) {
-                // Some WordPress consumers persist a stylesheet as an asset but
-                // enqueue it without forwarding the source link's `media`
-                // attribute. Keep the condition in the stylesheet payload too,
-                // so responsive author rules cannot leak into the other
-                // responsive document variant (for example desktop-only
-                // absolute positioning collapsing the mobile carousel).
-                $assetContent = '@media ' . $payloadMedia . "{\n" . $assetContent . "\n}\n";
-            }
             $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($assetContent ?? '');
             $reference = self::payloadReference($asset['payload_reference'] ?? null);
             if (null !== $reference && !self::referenceBackedBinaryAsset($asset)) throw new InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.');
@@ -899,6 +899,13 @@ PHP;
                 $rows[array_key_last($rows)]['stylesheet_source_path'] = $asset['stylesheet_source_path'] ?? $asset['path'];
             }
         }
+        $assetsByPath = array_column($assets, null, 'path');
+        foreach ($rows as &$row) {
+            $source = $assetsByPath[$row['source_path']];
+            if (is_string($source['stylesheet_parent'] ?? null)) $row['stylesheet_parent'] = $source['stylesheet_parent'];
+            if (is_int($source['stylesheet_inline_order'] ?? null)) $row['stylesheet_inline_order'] = $source['stylesheet_inline_order'];
+        }
+        unset($row);
         return $rows;
     }
 
@@ -948,17 +955,17 @@ PHP;
     }
 
     /**
-     * The artifact's file inventory can be path-sorted independently of a
-     * document's stylesheet links. Rebuild the relative order of linked CSS
-     * assets from each compiled document before bootstrap emits enqueue calls;
-     * otherwise equal-specificity declarations can reverse their source
-     * cascade. Unlinked/generated assets retain their existing slots.
+     * A stylesheet resource owns bytes; each document link or <style> that
+     * applies it is an ordered instance with its own media/type. Record every
+     * instance (A,B,A is three) on its resource so the bootstrap can replay
+     * each document's cascade, then order the resource inventory by first
+     * instance for display only. Unlinked/generated assets keep their slots.
      *
      * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $pages
      * @return array<int,array<string,mixed>>
      */
-    private function orderAssetsByDocumentStylesheetOrder(array $assets, array $pages): array
+    private function attachDocumentStylesheetInstances(array $assets, array $pages): array
     {
         $indexesByToken = array();
         foreach ($assets as $index => $asset) {
@@ -978,8 +985,7 @@ PHP;
         }
 
         $linkedIndexes = array();
-        $edges = array();
-        $indegree = array();
+        $firstOccurrences = array();
         foreach ($pages as $page) {
             // The Nth stylesheet link sorts at 2N+1 and a <style> preceded by
             // N stylesheet links sorts at 2N, placing it before that link.
@@ -988,57 +994,30 @@ PHP;
             usort($links, static fn(array $left, array $right): int => (int) ($left['order'] ?? PHP_INT_MAX) <=> (int) ($right['order'] ?? PHP_INT_MAX));
             $stylesheetLinkPosition = 0;
             foreach ($links as $link) {
-                if (!is_array($link) || !in_array('stylesheet', preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array(), true)) continue;
+                if (!is_array($link) || !StyleTagScanner::isStylesheetRel((string) ($link['rel'] ?? '')) || !StyleTagScanner::isCssType((string) ($link['type'] ?? ''))) continue;
                 $position = $stylesheetLinkPosition++;
                 $reference = (string) ($link['asset_reference'] ?? '');
                 if (!preg_match('/^' . preg_quote(self::TOKEN_PREFIX, '/') . '(asset-[a-f0-9]{16})}}$/', $reference, $match)) continue;
                 $index = $indexesByToken[$match[1]] ?? null;
                 if (!is_int($index)) continue;
-                $sequence[] = array(2 * $position + 1, $index);
+                $sequence[] = array(2 * $position + 1, $index, (string) ($link['media'] ?? $assets[$index]['media'] ?? ''), (string) ($link['type'] ?? ''), 0);
             }
             foreach ($inlineIndexesByPage[(string) ($page['source_path'] ?? '')] ?? array() as $index) {
-                $sequence[] = array(2 * (int) $assets[$index]['stylesheet_link_position'], $index);
+                $sequence[] = array(2 * (int) $assets[$index]['stylesheet_link_position'], $index, (string) ($assets[$index]['media'] ?? ''), '', (int) ($assets[$index]['stylesheet_inline_order'] ?? $index));
             }
-            usort($sequence, static fn(array $left, array $right): int => $left[0] <=> $right[0] ?: $left[1] <=> $right[1]);
-            $ordered = array();
-            foreach ($sequence as $entry) {
+            usort($sequence, static fn(array $left, array $right): int => $left[0] <=> $right[0] ?: $left[4] <=> $right[4] ?: $left[1] <=> $right[1]);
+            foreach ($sequence as $order => $entry) {
                 $linkedIndexes[$entry[1]] = true;
-                if (!in_array($entry[1], $ordered, true)) $ordered[] = $entry[1];
-            }
-            for ($position = 1, $count = count($ordered); $position < $count; ++$position) {
-                $before = $ordered[$position - 1];
-                $after = $ordered[$position];
-                if ($before === $after || isset($edges[$before][$after])) continue;
-                $edges[$before][$after] = true;
-                $indegree[$after] = (int) ($indegree[$after] ?? 0) + 1;
-                $indegree[$before] ??= 0;
+                if (!in_array($entry[1], $firstOccurrences, true)) $firstOccurrences[] = $entry[1];
+                $assets[$entry[1]]['stylesheet_instances'][] = array('source_path' => $page['source_path'], 'order' => $order, 'media' => $entry[2], 'type' => $entry[3]);
             }
         }
-        if (count($linkedIndexes) < 2) return $assets;
-
-        $available = array();
-        foreach (array_keys($linkedIndexes) as $index) if (0 === (int) ($indegree[$index] ?? 0)) $available[] = $index;
-        sort($available, SORT_NUMERIC);
-        $orderedIndexes = array();
-        while (array() !== $available) {
-            $index = array_shift($available);
-            $orderedIndexes[] = $index;
-            foreach (array_keys($edges[$index] ?? array()) as $next) {
-                --$indegree[$next];
-                if (0 === $indegree[$next]) {
-                    $available[] = $next;
-                    sort($available, SORT_NUMERIC);
-                }
-            }
-        }
-        // Conflicting per-document sequences can occur for disjoint page scopes.
-        // Keep any cyclic remainder stable; no single global ordering can satisfy
-        // contradictory constraints, while the acyclic constraints are honored.
-        foreach (array_keys($linkedIndexes) as $index) if (!in_array($index, $orderedIndexes, true)) $orderedIndexes[] = $index;
-
+        // This is only the resource inventory's display order. Runtime order is
+        // per-document instances; no global graph can represent A,B,A or A/B
+        // on one route and B/A on another.
         $slots = array_keys($linkedIndexes);
         sort($slots, SORT_NUMERIC);
-        $orderedAssets = array_map(static fn(int $index): array => $assets[$index], $orderedIndexes);
+        $orderedAssets = array_map(static fn(int $index): array => $assets[$index], $firstOccurrences);
         foreach ($slots as $position => $slot) $assets[$slot] = $orderedAssets[$position];
 
         return array_values($assets);
@@ -1325,6 +1304,10 @@ PHP;
         $context['hash'] = hash('sha256', $rules);
         $context['content_hash'] = $context['hash'];
         $context['scopes'] = array(array('kind' => 'global'));
+        // The paint-order context is route-independent and paints after every
+        // authored stylesheet; it is not an occurrence of its template's link.
+        $context['stylesheet_placement'] = 'after-author';
+        unset($context['stylesheet_instances'], $context['stylesheet_parent'], $context['stylesheet_inline_order']);
         $context['token'] = 'asset-' . substr(hash('sha256', $context['target_path']), 0, 16);
         $context['reconciliation_identity'] = self::identity('asset', $context['source_path'], $context['target_path']);
         unset($context['content_base64']);
@@ -1669,7 +1652,11 @@ PHP;
             $sharedAsset['scopes'] = array(array('kind' => 'global'));
             $sharedAsset['token'] = 'asset-' . substr(hash('sha256', $sharedAsset['target_path']), 0, 16);
             $sharedAsset['reconciliation_identity'] = self::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
-            unset($sharedAsset['content_base64']);
+            // Global chrome is not an occurrence of the stylesheet it was lifted
+            // from; placeSharedStylesheetProjections() gives it a slot on every
+            // route, next to whichever contributing stylesheet that route applies.
+            unset($sharedAsset['content_base64'], $sharedAsset['stylesheet_instances'], $sharedAsset['stylesheet_parent'], $sharedAsset['stylesheet_inline_order']);
+            $sharedAsset['_stylesheet_projection_origins'] = array(self::stylesheetProjectionOrigin($asset));
             $asset['content'] = $route;
             $asset['bytes'] = strlen($route);
             $asset['hash'] = hash('sha256', $route);
@@ -1681,8 +1668,11 @@ PHP;
             // resolution and the enqueue contract agree; a real conflict still emits
             // both and fails uniqueness with both sources named.
             $sharedKey = strtolower((string) $sharedAsset['path']);
-            if (isset($emittedShared[$sharedKey]) && $emittedShared[$sharedKey]['content'] === $shared && $emittedShared[$sharedKey]['contract'] === self::sharedChromeContract($sharedAsset) && self::sharedChromeOriginsAgree($shared, $emittedShared[$sharedKey]['origin'], (string) $sharedAsset['reference_origin'], $references)) continue;
-            $emittedShared[$sharedKey] = array('content' => $shared, 'origin' => (string) $sharedAsset['reference_origin'], 'contract' => self::sharedChromeContract($sharedAsset));
+            if (isset($emittedShared[$sharedKey]) && $emittedShared[$sharedKey]['content'] === $shared && $emittedShared[$sharedKey]['contract'] === self::sharedChromeContract($sharedAsset) && self::sharedChromeOriginsAgree($shared, $emittedShared[$sharedKey]['origin'], (string) $sharedAsset['reference_origin'], $references)) {
+                $projected[$emittedShared[$sharedKey]['index']]['_stylesheet_projection_origins'][] = self::stylesheetProjectionOrigin($asset);
+                continue;
+            }
+            $emittedShared[$sharedKey] = array('content' => $shared, 'origin' => (string) $sharedAsset['reference_origin'], 'contract' => self::sharedChromeContract($sharedAsset), 'index' => count($projected));
             $projected[] = $sharedAsset;
         }
         return $projected;
@@ -1728,6 +1718,77 @@ PHP;
             }
         }
         return $ordered;
+    }
+
+    /**
+     * The resource whose instances position a projection lifted out of $asset:
+     * the asset itself, or the stylesheet a projected page slice joins. The
+     * slice's scopes still bound which documents apply it.
+     *
+     * @param array<string,mixed> $asset
+     * @return array{source_path:string,scopes:array<int,array<string,mixed>>}
+     */
+    private static function stylesheetProjectionOrigin(array $asset): array
+    {
+        return array('source_path' => (string) ($asset['stylesheet_parent'] ?? $asset['source_path'] ?? ''), 'scopes' => is_array($asset['scopes'] ?? null) ? $asset['scopes'] : array(array('kind' => 'global')));
+    }
+
+    /**
+     * Shared chrome rules lifted out of authored stylesheets style a template
+     * part on every route, so they keep a route-independent instance on every
+     * canonical document. On a document that applies a contributing stylesheet
+     * the projection follows that stylesheet's last instance there (its rules'
+     * winning source position); elsewhere it follows the last instance whose
+     * resource precedes it in the inventory, as the flat enqueue order did.
+     * Each document's sequence is renumbered so (source_path, order) stays
+     * unique across resources. A projection none of whose contributing
+     * stylesheets has instances keeps its inventory slot instead.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<int,array<string,mixed>>
+     */
+    private static function placeSharedStylesheetProjections(array $assets, array $pages): array
+    {
+        $sequences = array();
+        $owners = array();
+        foreach ($assets as $index => $asset) {
+            foreach ($asset['stylesheet_instances'] ?? array() as $key => $instance) {
+                $sequences[$instance['source_path']][] = array('index' => $index, 'key' => $key, 'order' => $instance['order']);
+                $owners[(string) ($asset['source_path'] ?? '')] = true;
+            }
+        }
+        $projections = array();
+        foreach ($assets as $index => $asset) {
+            if (!isset($asset['_stylesheet_projection_origins'])) continue;
+            if (array_filter($asset['_stylesheet_projection_origins'], static fn(array $origin): bool => isset($owners[$origin['source_path']]))) $projections[] = $index;
+            else unset($assets[$index]['_stylesheet_projection_origins']);
+        }
+        if (array() === $projections) return $assets;
+        $applies = static fn(array $scopes, string $document): bool => array() !== array_filter($scopes, static fn(array $scope): bool => 'global' === ($scope['kind'] ?? null) || ($scope['source_path'] ?? null) === $document);
+        foreach ($pages as $page) {
+            $document = (string) $page['source_path'];
+            $sequence = $sequences[$document] ?? array();
+            usort($sequence, static fn(array $left, array $right): int => $left['order'] <=> $right['order']);
+            foreach ($projections as $projection) {
+                $origin = $preceding = null;
+                foreach ($sequence as $position => $entry) {
+                    if ($entry['index'] < $projection) $preceding = $position;
+                    if (isset($entry['projection'])) continue;
+                    foreach ($assets[$projection]['_stylesheet_projection_origins'] as $source) {
+                        if ($source['source_path'] === ($assets[$entry['index']]['source_path'] ?? null) && $applies($source['scopes'], $document)) $origin = $position;
+                    }
+                }
+                $instance = null !== $origin ? $assets[$sequence[$origin]['index']]['stylesheet_instances'][$sequence[$origin]['key']] : null;
+                array_splice($sequence, ($origin ?? $preceding ?? -1) + 1, 0, array(array('index' => $projection, 'projection' => true, 'media' => null !== $instance ? $instance['media'] : (string) ($assets[$projection]['media'] ?? ''), 'type' => null !== $instance ? $instance['type'] : '')));
+            }
+            foreach ($sequence as $order => $entry) {
+                if (isset($entry['projection'])) $assets[$entry['index']]['stylesheet_instances'][] = array('source_path' => $document, 'order' => $order, 'media' => $entry['media'], 'type' => $entry['type']);
+                else $assets[$entry['index']]['stylesheet_instances'][$entry['key']]['order'] = $order;
+            }
+        }
+        foreach ($projections as $projection) unset($assets[$projection]['_stylesheet_projection_origins']);
+        return $assets;
     }
 
     /** @param array<string,mixed> $asset */
@@ -2425,6 +2486,15 @@ PHP;
             $byRoute[$ancestor] = count($pages) - 1;
             $sources[$source] = true;
             }
+        }
+        // The front page has no route segment, but WordPress still needs a
+        // physical slug. Reserve captured routes and their generated ancestors
+        // before choosing that fallback, so /home keeps its own native page.
+        if (isset($byRoute['/'])) {
+            $root = &$pages[$byRoute['/']];
+            $fallbackPath = '/' . $root['slug'];
+            if (isset($byRoute[$fallbackPath])) $root['slug'] = self::routeSlug(self::disambiguatedRoutePath($fallbackPath, $byRoute));
+            unset($root);
         }
         foreach ($pages as &$page) { if ('post' === ($page['post_type'] ?? null)) { $page['parent_source_path'] = ''; continue; } $parent = $page['route']['parent_path']; if ('/' !== $parent && 'page' !== ($pages[$byRoute[$parent]]['post_type'] ?? null)) throw new InvalidArgumentException('WordPress site plan page hierarchy cannot inherit a post route.'); $page['parent_source_path'] = '/' === $parent ? '' : $pages[$byRoute[$parent]]['source_path']; }
         unset($page);
@@ -3617,16 +3687,28 @@ PHP;
         $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void {";
         $importLoaded = self::importLoadedStylesheets($assets);
         $stylesheetAttributes = array();
-        foreach ($assets as $asset) {
+        $stylesheetEnqueues = self::stylesheetEnqueues($assets, $pages);
+        // Each source document's ordered stylesheet instances form one route
+        // block; a repeated resource gets one handle per instance, same URI.
+        if (array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
+        $route = null;
+        foreach ($stylesheetEnqueues as $enqueue) {
+            $asset = $enqueue['asset'];
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
-            $handle = 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12);
-            if (isset($asset['stylesheet_activation'])) $stylesheetAttributes[$handle] = $asset['stylesheet_activation'];
-            if ('css' === $asset['kind']) foreach ($asset['scopes'] as $scope) {
-                $condition = self::bootstrapScopeCondition($scope);
-                $media = is_string($asset['media'] ?? null) && '' !== trim($asset['media']) ? ', ' . var_export($asset['media'], true) : '';
-                $lines[] = "    if ( {$condition} ) wp_enqueue_style( " . var_export($handle, true) . ", get_theme_file_uri( " . var_export(self::encodedAssetUrlPath($asset['target_path']), true) . " ), array(), null{$media} );";
+            // Stylesheet-set membership travels on every instance's link.
+            if (isset($asset['stylesheet_activation'])) $stylesheetAttributes[$enqueue['handle']] = $asset['stylesheet_activation'];
+            $media = '' !== $enqueue['media'] ? ', ' . var_export($enqueue['media'], true) : '';
+            $call = "wp_enqueue_style( " . var_export($enqueue['handle'], true) . ", get_theme_file_uri( " . var_export(self::encodedAssetUrlPath($asset['target_path']), true) . " ), array(), null{$media} );";
+            if (null !== $route && ($enqueue['route'] ?? null) !== $route) { $lines[] = '    }'; $route = null; }
+            if (isset($enqueue['route'])) {
+                if (null === $route) { $route = $enqueue['route']; $lines[] = "    if ( {$enqueue['condition']} ) {"; $lines[] = '        $blocks_engine_route_styles = true;'; }
+                $lines[] = "        {$call}";
+                continue;
             }
+            $condition = empty($enqueue['fallback']) ? $enqueue['condition'] : '! $blocks_engine_route_styles';
+            $lines[] = "    if ( {$condition} ) {$call}";
         }
+        if (null !== $route) $lines[] = '    }';
         $attributes = array();
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
@@ -3668,10 +3750,12 @@ PHP;
             $sourcePaths = is_array($part['placement']['source_paths'] ?? null) ? $part['placement']['source_paths'] : array((string) ($part['placement']['source_path'] ?? preg_replace('/#.*$/', '', (string) ($part['source_path'] ?? ''))));
             foreach ($sourcePaths as $sourcePath) if (is_string($sourcePath) && '' !== $sourcePath && '' !== (string) ($part['slug'] ?? '')) $partSlugsBySource[$sourcePath][] = (string) $part['slug'];
         }
-        foreach ($assets as $asset) if ('css' === $asset['kind'] && StylesheetActivation::active($asset) && 'frontend' !== ($asset['stylesheet_target'] ?? 'both') && !isset($importLoaded[$asset['target_path']])) {
+        foreach ($stylesheetEnqueues as $enqueue) {
+            $asset = $enqueue['asset'];
+            if (!StylesheetActivation::active($asset) || 'frontend' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
             $partSlugs = array();
-            foreach ($asset['scopes'] as $scope) foreach ($partSlugsBySource[(string) ($scope['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
-            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? $asset['media'] ?? null, 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both')), static fn(mixed $value): bool => null !== $value);
+            foreach ($partSlugsBySource[(string) ($enqueue['scope']['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
+            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'handle' => $enqueue['handle'], 'content_hash' => $asset['content_hash'], 'scopes' => array($enqueue['scope']), 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['source_media'] ?? $enqueue['media'], 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both'), 'fallback' => empty($enqueue['fallback']) ? null : true), static fn(mixed $value): bool => null !== $value);
         }
         if (array() !== $editorStyles) {
             $lines[] = '$blocks_engine_presentation_styles = ' . var_export($editorStyles, true) . ';';
@@ -3693,7 +3777,17 @@ PHP;
             $lines[] = "add_action( 'enqueue_block_assets', static function () use ( \$blocks_engine_presentation_styles, \$blocks_engine_presentation_matches ): void {";
             $lines[] = "    \$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null; \$site_editor = \$screen instanceof WP_Screen && 'site-editor' === \$screen->base; if ( ! \$site_editor && ( ! \$screen instanceof WP_Screen || ! in_array( \$screen->base, array( 'post', 'post-new' ), true ) ) ) return; \$post = \$GLOBALS['post'] ?? null;";
             $lines[] = "    \$canvas = ! wp_should_load_block_editor_scripts_and_styles();";
-            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( ( \$canvas || ( empty( \$style['author_css'] ) && empty( \$style['editor_only'] ) ) ) && \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
+            // One document's canvas replays its ordered instances. The site
+            // editor and shared template parts span routes, so they load each
+            // resource/condition once instead of once per source document. Like
+            // the front end, global resources outside a route's sequence (a
+            // post no source document owns) load from their fallback entry.
+            $lines[] = "    \$route_canvas = ! \$site_editor && \$post instanceof WP_Post && 'wp_template_part' !== \$post->post_type; \$loaded = array(); \$routed = false;";
+            $lines[] = "    if ( \$route_canvas ) foreach ( \$blocks_engine_presentation_styles as \$style ) if ( empty( \$style['fallback'] ) && 'global' !== \$style['scopes'][0]['kind'] && \$blocks_engine_presentation_matches( \$style, \$post, false ) ) { \$routed = true; break; }";
+            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( ( empty( \$style['fallback'] ) || ( \$route_canvas && ! \$routed ) ) && ( \$canvas || ( empty( \$style['author_css'] ) && empty( \$style['editor_only'] ) ) ) && \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) {";
+            $lines[] = "        \$resource = \$style['target_path'] . \"\\0\" . ( \$style['media'] ?? 'all' ); if ( ! \$route_canvas && isset( \$loaded[ \$resource ] ) ) continue; \$loaded[ \$resource ] = true;";
+            $lines[] = "        wp_enqueue_style( 'blocks-engine-editor-' . \$style['handle'], get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
+            $lines[] = "    }";
             $lines[] = "} );";
         }
         // Responsive inline shells carry their own landmark. Route-specific
@@ -3856,6 +3950,84 @@ PHP;
     // back onto the materialized file. Encode every segment, preserving the
     // `/` separators.
     private static function encodedAssetUrlPath(string $path): string { return implode('/', array_map('rawurlencode', explode('/', $path))); }
+
+    /**
+     * Resource identity owns bytes; a document occurrence owns an enqueue handle.
+     * Keep generated support on its existing side of the authored sequence and
+     * join projected slices at their source occurrence, including repeated links.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<int,array<string,mixed>>
+     */
+    private static function stylesheetEnqueues(array $assets, array $pages): array
+    {
+        $pagesBySource = array_column($pages, null, 'source_path');
+        $assetsBySource = array_column($assets, null, 'source_path');
+        $before = $after = $instances = array();
+        $firstManaged = count($assets);
+        foreach ($assets as $index => $asset) if (!empty($asset['stylesheet_instances'])) $firstManaged = min($firstManaged, $index);
+        foreach ($assets as $index => $asset) {
+            if ('css' !== ($asset['kind'] ?? null)) continue;
+            $occurrences = $asset['stylesheet_instances'] ?? array();
+            $parent = $asset['stylesheet_parent'] ?? null;
+            if (array() === $occurrences && is_string($parent)) $occurrences = $assetsBySource[$parent]['stylesheet_instances'] ?? array();
+            foreach ($occurrences as $occurrence) {
+                $source = $occurrence['source_path'];
+                if (!isset($pagesBySource[$source])) continue;
+                if (!array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind'] || ($scope['source_path'] ?? null) === $source)) continue;
+                $scope = self::stylesheetPageScope($pagesBySource[$source]);
+                $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index);
+            }
+            foreach ($asset['scopes'] as $scope) {
+                if (array() !== $occurrences && 'global' !== $scope['kind']) continue;
+                // A global resource with document instances still styles
+                // WordPress-native routes (archives, search) that no source
+                // document owns; the bootstrap guards it with the route flag.
+                $fallback = array() !== $occurrences;
+                $row = array('asset' => $asset, 'scope' => $scope, 'condition' => self::bootstrapScopeCondition($scope), 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => $fallback);
+                if (!$fallback && ('before-author' === ($asset['stylesheet_placement'] ?? '') || ($index < $firstManaged && 'after-author' !== ($asset['stylesheet_placement'] ?? '') && 'wordpress-compat' !== ($asset['source'] ?? '')))) $before[] = $row;
+                else $after[] = $row;
+            }
+        }
+        $ordered = $before;
+        foreach ($instances as $rows) {
+            usort($rows, static fn(array $left, array $right): int => $left['order'] <=> $right['order'] ?: $left['resource_order'] <=> $right['resource_order']);
+            array_push($ordered, ...$rows);
+        }
+        return array_merge($ordered, $after);
+    }
+
+    /**
+     * The ordered stylesheet enqueues the generated bootstrap publishes for one
+     * canonical document's route: before-author globals, the document's
+     * instances (one handle per occurrence, shared resource URI), then
+     * after-author globals. A host that publishes plan assets without that
+     * bootstrap (a companion plugin inside an existing theme) replays this
+     * sequence instead of re-deriving it from asset fields.
+     *
+     * @param array<string,mixed> $plan
+     * @return list<array{target_path:string,handle:string,media:string,stylesheet_target:string}>
+     */
+    public static function documentStylesheets(array $plan, string $sourcePath): array
+    {
+        $assets = is_array($plan['assets'] ?? null) ? $plan['assets'] : array();
+        $importLoaded = self::importLoadedStylesheets($assets);
+        $sequence = array();
+        foreach (self::stylesheetEnqueues($assets, is_array($plan['pages'] ?? null) ? $plan['pages'] : array()) as $enqueue) {
+            $asset = $enqueue['asset'];
+            if (!empty($enqueue['fallback']) || isset($importLoaded[$asset['target_path']])) continue;
+            $owned = isset($enqueue['route']) ? $sourcePath === $enqueue['route'] : ('global' === $enqueue['scope']['kind'] || $sourcePath === ($enqueue['scope']['source_path'] ?? null));
+            if ($owned) $sequence[] = array('target_path' => (string) $asset['target_path'], 'handle' => (string) $enqueue['handle'], 'media' => (string) $enqueue['media'], 'stylesheet_target' => (string) ($asset['stylesheet_target'] ?? 'both'));
+        }
+        return $sequence;
+    }
+
+    /** @param array<string,mixed> $page @return array<string,mixed> */
+    private static function stylesheetPageScope(array $page): array
+    {
+        return array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => '/' === $page['route']['path']);
+    }
     /**
      * A stylesheet that another stylesheet loads through `@import` (a chunked
      * stylesheet's loader, or an authored import) already loads at its

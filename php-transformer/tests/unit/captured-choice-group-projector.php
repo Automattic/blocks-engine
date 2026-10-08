@@ -30,6 +30,9 @@ $state = static function (int $index, string $html, array $selected = array(null
             'group' => array('selector' => 'body > main > form > div', 'tag' => 'div', 'label' => 'Rating', 'formSelector' => 'body > main > form'),
             'choices' => array_map(static fn(int $choice): array => array('index' => $choice, 'selector' => 'body > main > form > div > button:nth-of-type(' . ($choice + 1) . ')', 'tag' => 'button', 'value' => null), range(0, 2)),
             'transition' => array('selectedIndex' => $index, 'selected' => $selected, 'html' => $html, 'htmlBytes' => strlen($html), 'htmlTruncated' => false),
+            'replay' => 'activation-determined',
+            'restoration' => 'verified',
+            'coverage' => 'complete',
         ),
     );
 };
@@ -47,6 +50,29 @@ $assert(str_contains($markup, 'data-blocks-engine-choice-group="true"'), 'projec
 $assert(str_contains($markup, 'data-blocks-engine-choice-config='), 'projected group carries bounded replay configuration');
 $assert(! str_contains($markup, 'data-dla-choice-index'), 'capture-only choice markers do not ship');
 $assert(str_contains($markup, 'fill:gold') && str_contains($markup, 'fill:none'), 'the initial transition preserves source visual state');
+
+$sourcePreserved = '<html><body><main><form><label>Rating</label><div class="choices"><button type="button">Saved source label</button><button type="button">Two</button><button type="button">Three</button></div></form></main></body></html>';
+$sourcePreservedFiles = $files;
+$sourcePreservedFiles[0]['content'] = $sourcePreserved;
+$sourcePreservedResult = (new CapturedChoiceGroupProjector())->project($sourcePreservedFiles);
+$sourcePreservedMarkup = (string) ($sourcePreservedResult['files'][0]['content'] ?? '');
+$assert(str_contains($sourcePreservedMarkup, 'Saved source label'), 'projection preserves the source DOM instead of replacing it with the first transition');
+
+$ineligible = $files;
+$ineligibleReport = json_decode((string) $ineligible[2]['content'], true);
+$ineligibleReport['pages'][0]['states'][0]['choiceGroup']['replay'] = 'unsupported';
+$ineligible[2]['content'] = json_encode($ineligibleReport, JSON_UNESCAPED_SLASHES);
+$ineligibleResult = (new CapturedChoiceGroupProjector())->project($ineligible);
+$assert(0 === ($ineligibleResult['projected_count'] ?? -1), 'unsupported producer evidence is not projected');
+$assert(str_contains(json_encode($ineligibleResult['diagnostics'] ?? array()), 'captured_choice_group_ineligible'), 'unsupported producer evidence emits an eligibility diagnostic');
+
+$contentChanging = $files;
+$contentChangingReport = json_decode((string) $contentChanging[2]['content'], true);
+$contentChangingReport['pages'][0]['states'][1]['choiceGroup']['transition']['html'] = str_replace('Choice controls', 'Changed controls', $contentChangingReport['pages'][0]['states'][1]['choiceGroup']['transition']['html']);
+$contentChangingReport['pages'][0]['states'][1]['choiceGroup']['transition']['htmlBytes'] = strlen($contentChangingReport['pages'][0]['states'][1]['choiceGroup']['transition']['html']);
+$contentChanging[2]['content'] = json_encode($contentChangingReport, JSON_UNESCAPED_SLASHES);
+$contentChangingResult = (new CapturedChoiceGroupProjector())->project($contentChanging);
+$assert(0 === ($contentChangingResult['projected_count'] ?? -1), 'content-changing transitions are not projected without editable state bindings');
 
 $incomplete = $files;
 $incomplete[2]['content'] = json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/feedback/', 'states' => array($states[0], $states[1])))), JSON_UNESCAPED_SLASHES);

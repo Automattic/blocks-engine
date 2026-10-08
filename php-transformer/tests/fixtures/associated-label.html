@@ -1,0 +1,18 @@
+<style>
+body { margin: 0; font: 15px/24px Arial; }
+.filters { display: flex; gap: 18px; margin: 30px; }
+.choice { position: relative; display: inline-flex; align-items: center; }
+.choice input { width: 16px; height: 16px; margin: 0 8px 0 0; }
+label { font-size: 14px; line-height: 20px; }
+.choice > label { display: inline-block; cursor: pointer; padding: 3px 4px; }
+.choice > input:checked + label { color: rgb(120, 20, 30); background: rgb(240, 230, 210); }
+.choice > input:checked + label::after { content: "✓"; position: absolute; top: -16px; left: 0; }
+.choice > label + input:checked { outline: 2px solid rgb(120, 20, 30); }
+.choice > label > span.caption-run { font-size: 14px; }
+@media (max-width: 500px) { .filters { display: none; } .filters.open { display: flex; } }
+@media (min-width: 1000px) { .choice > label { padding: 5px 6px; } .choice > label > span.caption-run { font-size: 16px; } }
+</style>
+<div class="filters">
+<div class="choice"><input type="checkbox" id="after" class="styled-checkbox" checked><label for="after" id="after-caption" class="caption" style="--caption-role: filter">Arts and Culture</label></div>
+<div class="choice"><label for="before" id="before-caption" class="caption"><strong>Science</strong> &amp; <span class="caption-run"><em>Health</em></span></label><input type="checkbox" id="before" class="styled-checkbox"></div>
+</div>

@@ -54,6 +54,10 @@ $assert(
 
 // An anonymous layer cannot be named, so it cannot appear in an order statement.
 $assert(array() === $names('@layer{.x{color:red}}'), 'an anonymous layer is not orderable');
+$assert('' === $statement('@layer{.x{color:blue!important}}@layer named{.x{color:red!important}}'), 'a partial named bootstrap must not move named ahead of an authored anonymous layer');
+$assert('' === $statement('@import url("c.css") layer;@layer named{.x{color:red!important}}'), 'an anonymous import position cannot be replaced with a partial named bootstrap');
+$assert('@layer imported,named;' === $statement('@import url("c.css") layer(imported);@layer named{.x{color:red}}'), 'named imports register their canonical position before later named blocks');
+$assert('@layer named;' === $statement('@import "layer";@layer named{.x{color:red}}'), 'a quoted URL is not a layer qualifier');
 $assert(
     array('utilities') === $names('@layer{.x{color:red}}@layer utilities{.y{margin:0}}'),
     'an anonymous layer does not displace a named one'

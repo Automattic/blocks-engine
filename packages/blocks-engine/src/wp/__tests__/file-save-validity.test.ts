@@ -56,7 +56,7 @@ describe('WordPress 7.1 core/file save validity', () => {
     const blocks = wp.parse(serializedBlocks as string);
 
     expect(blocks).toHaveLength(3);
-    expect(blocks[0].attributes.fileName?.toString()).toBe('<mark class="pdf-label" style="--blocks-engine-richtext-marker:label-1"><strong>Privacy</strong> policy</mark>');
+    expect(blocks[0].attributes.fileName?.toString()).toBe('<mark class="pdf-label" style="--blocks-engine-richtext-marker:label-1" role="none"><strong>Privacy</strong> policy</mark>');
     expect(blocks.map((block) => wp.validateBlock(block)[0])).toEqual([true, true, true]);
   });
 });
