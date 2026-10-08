@@ -123,6 +123,7 @@
       "@test:unit"
     ],
     "test:unit": [
+      "php tests/unit/html-fragment-includes-memory.php",
       "php tests/unit/semantic-heading-brand.php",
       "php tests/unit/conditional-native-button.php",
       "php tests/unit/form-physical-box-ownership.php",
