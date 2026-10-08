@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require dirname(__DIR__, 2) . '/vendor/autoload.php';
+require getenv('BLOCKS_ENGINE_AUTOLOAD') ?: dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
@@ -98,6 +98,45 @@ $assert(0 < $globalCount, 'Shared chrome receives a global projected stylesheet.
 $assert(!str_contains($globalCss, '.route-grid'), 'The global shared projection contains no route-owned layout rule.');
 $assert($routeScoped, 'Route-only CSS retains non-global applicability.');
 
+// Scopes alone do not prove publication: read the generated bootstrap. Each
+// route block lists its stylesheet files in enqueue order; lines outside route
+// blocks are route-independent ("true") or the no-route fallback.
+$enqueues = static function (array $plan): array {
+    $bootstrap = (string) (array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'] ?? '');
+    $frontend = (string) strstr($bootstrap, "add_action( 'wp_enqueue_scripts'");
+    $frontend = substr($frontend, 0, (int) strpos($frontend, '}, 1 );'));
+    preg_match_all('/^    if \( (.+?) \) \{\n((?:        [^\n]+\n)+)    \}$/m', $frontend, $blocks, PREG_SET_ORDER);
+    $routes = array();
+    foreach ($blocks as $block) {
+        preg_match_all("/wp_enqueue_style\\( '[^']+', get_theme_file_uri\\( '([^']+)' \\)/", $block[2], $calls);
+        $routes[$block[1]] = $calls[1];
+    }
+    preg_match_all("/^    if \\( (.+?) \\) wp_enqueue_style\\( '[^']+', get_theme_file_uri\\( '([^']+)' \\)/m", $frontend, $lines, PREG_SET_ORDER);
+    $global = array();
+    foreach ($lines as $line) $global[$line[1]][] = $line[2];
+    preg_match('/\$blocks_engine_presentation_styles = (array \(.*?\n\));\n/s', $bootstrap, $editor);
+    return array('routes' => $routes, 'global' => $global, 'editor' => isset($editor[1]) ? eval('return ' . $editor[1] . ';') : array());
+};
+$sharedTarget = (string) (array_values(array_filter(array_column($plan['assets'], 'target_path'), static fn(string $path): bool => 1 === preg_match('~/shared-chrome-[a-f0-9]{16}\.css$~', $path)))[0] ?? '');
+$assert('' !== $sharedTarget, 'The first fixture projects one shared-chrome stylesheet.');
+$published = $enqueues($plan);
+$frontCondition = 'is_front_page()';
+$aboutCondition = "is_page() && 'guides/about' === trim( get_page_uri( get_queried_object_id() ), '/' )";
+$teamCondition = "is_page() && 'guides/team' === trim( get_page_uri( get_queried_object_id() ), '/' )";
+foreach (array($frontCondition, $aboutCondition, $teamCondition) as $condition) {
+    $assert(1 === count(array_keys($published['routes'][$condition] ?? array(), $sharedTarget, true)), 'Every route publishes the shared chrome stylesheet exactly once: ' . $condition . ' ' . json_encode($published['routes'][$condition] ?? null));
+}
+$assert(count($published['routes']) === count(array_filter($published['routes'], static fn(array $files): bool => in_array($sharedTarget, $files, true))), 'No route block omits the shared chrome stylesheet, including generated hierarchy routes.');
+$assert(array($sharedTarget) === ($published['global']['! $blocks_engine_route_styles'] ?? null), 'WordPress-native routes no document owns load the shared chrome from the fallback.');
+// Cascade: the shared rules follow the route's own contributing <style>, and a
+// later authored stylesheet still follows them, as in the flat parent order.
+$assert(array('assets/index.inline.css', $sharedTarget, 'assets/route.css') === $published['routes'][$frontCondition], 'The front page keeps inline origin, shared chrome, then its later link: ' . json_encode($published['routes'][$frontCondition]));
+$assert(array('assets/guides/about.inline.css', $sharedTarget) === $published['routes'][$aboutCondition], 'A non-front route places shared chrome after its own contributing inline stylesheet: ' . json_encode($published['routes'][$aboutCondition]));
+$assert(1 === count(array_filter($plan['writes'], static fn(array $write): bool => ($write['target_path'] ?? null) === $sharedTarget)), 'The shared chrome resource is written once however many routes publish it.');
+$editorSharedScopes = array();
+foreach ($published['editor'] as $style) if ($sharedTarget === $style['target_path']) $editorSharedScopes[] = !empty($style['fallback']) ? 'fallback' : (string) ($style['scopes'][0]['source_path'] ?? $style['scopes'][0]['kind']);
+foreach (array('index.html', 'guides/about.html', 'guides/team.html', 'fallback') as $editorScope) $assert(in_array($editorScope, $editorSharedScopes, true), 'Editor canvases keep the shared chrome stylesheet for ' . $editorScope . ': ' . json_encode($editorSharedScopes));
+
 $generatedClass = array_key_first($classes);
 $classToken = is_string($generatedClass) ? ltrim($generatedClass, '.') : '';
 $classPattern = '/' . CssIdent::classSelectorRegex($classToken) . '(?![\w-])/';
@@ -190,6 +229,17 @@ $splitRemainder = implode("\n", array_map(static fn(array $asset): string => (st
 $assert(str_contains($splitRemainder, '.home-only') && str_contains($splitRemainder, '.about-only'), 'Page-owned rules stay on their source stylesheets after the shared projection is coalesced.');
 $splitWrites = array_values(array_filter($splitPlan['writes'] ?? array(), static fn(array $write): bool => ($write['target_path'] ?? null) === ($splitAsset['target_path'] ?? null)));
 $assert(1 === count($splitWrites) && 1 === preg_match('/background-image:url\(\{\{wordpress-site-plan:asset:asset-[a-f0-9]{16}\}\}\)/', (string) ($splitWrites[0]['payload']['data'] ?? '')) && !str_contains((string) ($splitWrites[0]['payload']['data'] ?? ''), 'mark.png'), 'The single shared stylesheet still tokenizes url() against a contributing reference origin.');
+
+// Both links carry the coalesced rules, so on every route they take effect at
+// the later contributing link: the shared stylesheet follows it.
+$splitPublished = $enqueues($splitPlan);
+$assert(3 === count($splitPublished['routes']), 'Each split-fixture document has one route block.');
+foreach ($splitPublished['routes'] as $condition => $files) {
+    $assert(array('assets/css/home.css', 'assets/css/about.css', $splitAsset['target_path']) === $files, 'A coalesced shared projection follows its last contributing link on ' . $condition . ': ' . json_encode($files));
+}
+$positions = array();
+foreach ($splitPlan['assets'] as $asset) foreach ($asset['stylesheet_instances'] ?? array() as $instance) $positions[] = $instance['source_path'] . "\0" . $instance['order'];
+$assert(count($positions) === count(array_unique($positions)), 'Placed projections renumber each document, so no two instances share a position.');
 
 $divergent = new ReflectionMethod(WordPressSitePlan::class, 'projectSharedChromeStylesheets');
 $divergentClass = 'blocks-engine-control-abc123def456-1';

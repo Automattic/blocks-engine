@@ -1642,7 +1642,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             true !== ($options['skip_author_stylesheet_materialization'] ?? false),
             $serializedBlocks,
             $sourceProvenance,
-            $authorStylesheetProjections
+            $authorStylesheetProjections,
+            is_string($options['author_layer_order'] ?? null) ? $options['author_layer_order'] : null
         );
         $this->navigationStyleProjector->materializeEditorStaticStateStylesheet(
             implode("\n\n", array_column($authorStylesheetProjections, 'content'))
@@ -2296,7 +2297,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @param array<int, array<string, mixed>> $sourceProvenance
      * @param list<array{path: string, content: string, bytes: int, hash: string, source_hash: string}> $authorStylesheetProjections
      */
-    private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = '', array $sourceProvenance = array(), array $authorStylesheetProjections = array()): void
+    private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = '', array $sourceProvenance = array(), array $authorStylesheetProjections = array(), ?string $sourceLayerOrder = null): void
     {
         $beforeAuthorCssParts = array();
         $authorCssParts = array();
@@ -2382,7 +2383,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // invert the author's layer order — letting an author reset layer beat
         // the author utilities that centre and pad every section. Stating the
         // author's own order ahead of any engine CSS pins it in both contexts.
-        $authorLayerOrder = ( new AuthorCascadeLayerOrder() )->statement($settleableAuthorCss);
+        // Artifact compilation has the canonical import graph. Its authoritative
+        // empty statement means anonymous source positions cannot be predeclared.
+        $authorLayerOrder = $sourceLayerOrder ?? ( new AuthorCascadeLayerOrder() )->statement($settleableAuthorCss);
         if ( '' !== $authorLayerOrder ) {
             array_unshift($beforeAuthorCssParts, $authorLayerOrder);
         }

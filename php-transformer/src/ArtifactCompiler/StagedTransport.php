@@ -227,13 +227,6 @@ trait StagedTransport
 
         $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
         $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
-        $hasSharedStylesheetOccurrences = false;
-        foreach ($sharedArtifact['files'] as $file) {
-            if (isset($file['stylesheet_occurrence'])) {
-                $hasSharedStylesheetOccurrences = true;
-                break;
-            }
-        }
 
         $compiledDocuments = array();
         foreach ($pageArtifact['files'] as $file) {
@@ -244,14 +237,9 @@ trait StagedTransport
             if ($pagePlan['page_id'] !== $stageCompiler->fileOwnership($file)['id']) {
                 continue;
             }
-            // Stylesheet occurrence records are local conversion inputs. They
-            // are rebuilt from the owned source so reference-backed shared
-            // plans remain portable without hydrating a page at preparation.
-            // A page's own stylesheets are part of its cascade, exactly as in
-            // whole-artifact compilation (see compileHtmlSourceDocuments).
-            $documentFiles = $hasSharedStylesheetOccurrences
-                ? $files
-                : $stageCompiler->withStylesheetOccurrenceAssets((string) ($file['content'] ?? ''), $path, $files);
+            // The owned document supplies ordered instances; shared files
+            // supply resource bytes, exactly as in whole compilation.
+            $documentFiles = $files;
             $stageCompiler->glyphPayloadReader = $payloadReader;
             $stageCompiler->indexFiles($documentFiles);
             $compiledDocuments[$path] = $stageCompiler->compileHtmlDocumentBlocks(
@@ -329,13 +317,6 @@ trait StagedTransport
      */
     private function collectPageReduction(array $pagePlan, array $pageArtifact, array $pageDocuments, array $compiledDocuments, ?array $entryBlocks, array $files, string $entryPath): array
     {
-        $stylesheetOccurrenceFiles = array();
-        if (is_array($entryBlocks)) {
-            $pageFilesByPath = array_column($pageArtifact['files'], null, 'path');
-            foreach ($this->withStylesheetOccurrenceAssets((string) ($pageFilesByPath[$entryPath]['content'] ?? ''), $entryPath, $files) as $file) {
-                if (isset($file['stylesheet_occurrence'])) $stylesheetOccurrenceFiles[] = $file;
-            }
-        }
         return array(
             'files' => $pageArtifact['files'],
             'normalization' => array(
@@ -346,7 +327,6 @@ trait StagedTransport
             'source_documents' => $pageDocuments,
             'owned_transformable_paths' => $this->ownedTransformablePaths($pageArtifact['files'], (string) $pagePlan['page_id']),
             'entry_blocks' => $entryBlocks,
-            'stylesheet_occurrence_files' => $stylesheetOccurrenceFiles,
             'component_facts' => $this->collectComponentFacts($pageArtifact['files'], $pageDocuments['components']),
             'block_types' => $this->detectBlockTypes($files, $pageDocuments['diagnostics']),
         );
@@ -488,7 +468,6 @@ trait StagedTransport
         $componentFacts = array($sharedReduction['component_facts']);
         $blockTypes = array();
         $entryBlocks = null;
-        $stylesheetOccurrenceFiles = array();
         foreach ($reductions as $reduction) {
             $files = array_merge($files, $reduction['files']);
             foreach ($reduction['source_documents']['documents'] as $document) $documents['documents'][] = $document;
@@ -497,22 +476,9 @@ trait StagedTransport
             $componentFacts[] = $reduction['component_facts'];
             $blockTypes = array_merge($blockTypes, $reduction['block_types'] ?? array());
             if (is_array($reduction['entry_blocks'] ?? null)) $entryBlocks = $reduction['entry_blocks'];
-            $stylesheetOccurrenceFiles = array_merge($stylesheetOccurrenceFiles, $reduction['stylesheet_occurrence_files'] ?? array());
         }
         $sourcePaths = is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array();
         $files = self::sortedBySourcePaths($files, $sourcePaths);
-        $hasSharedStylesheetOccurrences = false;
-        foreach ($sharedArtifact['files'] as $file) {
-            if (isset($file['stylesheet_occurrence'])) {
-                $hasSharedStylesheetOccurrences = true;
-                break;
-            }
-        }
-        if (!$hasSharedStylesheetOccurrences && array() !== $stylesheetOccurrenceFiles) {
-            $occurrencePaths = array_fill_keys(array_column($stylesheetOccurrenceFiles, 'path'), true);
-            $files = array_values(array_filter($files, static fn(array $file): bool => !isset($occurrencePaths[$file['path'] ?? ''])));
-            $files = self::sortedBySourcePaths(array_merge($files, $stylesheetOccurrenceFiles), $sourcePaths);
-        }
         $documents['documents'] = self::sortedBySourcePaths($documents['documents'], $sourcePaths, 'source_path');
         $documents['diagnostics'] = $this->dedupeDiagnostics(array_merge(...array_map(
             static fn(array $document): array => is_array($document['diagnostics'] ?? null) ? $document['diagnostics'] : array(),
@@ -1139,7 +1105,6 @@ trait StagedTransport
         // selected fallback HTML when no requested entrypoint exists.
         $entry = $this->entryFile($files, $partition['entrypoints']);
         $entryPath = (string) ($entry['path'] ?? '');
-        $files = $this->withStylesheetOccurrenceAssets((string) ($entry['content'] ?? ''), $entryPath, $files);
         $this->generatedAssetRoot = '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/');
         $previousReader = $this->glyphPayloadReader;
         $this->glyphPayloadReader = $payloadReader;

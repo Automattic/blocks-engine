@@ -51,8 +51,11 @@ foreach ($plan['assets'] as $asset) {
 // Enqueue targets for one route, in bootstrap order.
 $routeEnqueues = static function (string $condition) use ($bootstrap): array {
     $targets = array();
+    $inRoute = false;
     foreach (explode("\n", $bootstrap) as $line) {
-        if (str_contains($line, 'if ( ' . $condition . ' ) wp_enqueue_style(') && preg_match("/get_theme_file_uri\\( '([^']+)' \\)/", $line, $match)) $targets[] = $match[1];
+        if (str_contains($line, 'if ( ' . $condition . ' ) {')) { $inRoute = true; continue; }
+        if ($inRoute && '    }' === $line) { $inRoute = false; continue; }
+        if (($inRoute || str_contains($line, 'if ( ' . $condition . ' ) wp_enqueue_style(')) && preg_match("/wp_enqueue_style\\( '[^']+', get_theme_file_uri\\( '([^']+)' \\)/", $line, $match)) $targets[] = $match[1];
     }
     return $targets;
 };

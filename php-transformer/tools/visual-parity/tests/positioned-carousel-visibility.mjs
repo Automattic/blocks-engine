@@ -35,19 +35,20 @@ $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
 $page = $plan['pages'][0] ?? array();
 echo json_encode(array(
     'markup' => (string) ($page['canonical_block_markup'] ?? ''),
-    'css' => implode("\\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), $plan['assets'] ?? array())),
+    'styles' => array_values(array_map(static fn(array $asset): array => array('css' => (string) ($asset['content'] ?? ''), 'media' => (string) ($asset['media'] ?? 'all')), array_filter($plan['assets'] ?? array(), static fn(array $asset): bool => 'css' === $asset['kind']))),
 ));
 `, transformerRoot], { encoding: 'utf8' }));
 
 assert.match(compiled.markup, /preload-track/);
 assert.match(compiled.markup, /visible-logo/);
-assert.match(compiled.css, /@media\s*\(min-width:\s*1280px\)/);
+assert.ok(compiled.styles.some(style => /\(min-width:\s*1280px\)/.test(style.media)), 'the source stylesheet retains its link media condition');
+const styles = compiled.styles.map(style => `<style media="${style.media}">${style.css}</style>`).join('');
 
 const browser = await chromium.launch({ headless: true });
 try {
   for (const width of [390, 768, 1440]) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
-    await page.setContent(`<!doctype html><style>body{margin:0}${compiled.css}</style>${compiled.markup}`);
+    await page.setContent(`<!doctype html><style>body{margin:0}</style>${styles}${compiled.markup}`);
     const geometry = await page.evaluate(() => {
       const section = document.querySelector('#bs-4');
       const logos = [...section.querySelectorAll('.visible-logo')];
@@ -81,7 +82,7 @@ try {
   }
 
   const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  await desktop.setContent(`<!doctype html><style>body{margin:0}${compiled.css}</style>${compiled.markup}`);
+  await desktop.setContent(`<!doctype html><style>body{margin:0}</style>${styles}${compiled.markup}`);
   const desktopPosition = await desktop.locator('.logo-shell').first().evaluate((element) => getComputedStyle(element).position);
   assert.equal(desktopPosition, 'absolute', 'the desktop media condition still activates its positioned logo styling');
   await desktop.close();
