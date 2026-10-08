@@ -45,10 +45,16 @@ final class DisclosureControlPresentation
      * Delivered as CSS keyed on a marker the heading carries, not as markup:
      * adding attributes to the toggle would diverge from core's save shape and
      * invalidate the block.
+     *
+     * A source-proved vector icon is returned alongside the marker. The heading
+     * carries it as block metadata so the theme renders the actual SVG into
+     * core's icon slot; its saved markup stays core's exact shape.
+     *
+     * @return array{className: string, iconSvg: string}
      */
-    public function accordionToggleMarker(DOMElement $control): string
+    public function accordionToggle(DOMElement $control): array
     {
-        return $this->disclosureControlMarker($control, 'blocks-engine-accordion-toggle-');
+        return $this->disclosureControlPresentation($control, 'blocks-engine-accordion-toggle-');
     }
 
     /**
@@ -65,7 +71,7 @@ final class DisclosureControlPresentation
      */
     public function disclosureSummaryMarker(DOMElement $summary): string
     {
-        return $this->disclosureControlMarker($summary, 'blocks-engine-disclosure-summary-');
+        return $this->disclosureControlPresentation($summary, 'blocks-engine-disclosure-summary-')['className'];
     }
 
     /**
@@ -76,8 +82,10 @@ final class DisclosureControlPresentation
      * by a responsive utility states its visibility only inside a media
      * condition — flattening that to the reference viewport's value would show
      * a small-screen control on every screen.
+     *
+     * @return array{className: string, iconSvg: string}
      */
-    private function disclosureControlMarker(DOMElement $control, string $prefix): string
+    private function disclosureControlPresentation(DOMElement $control, string $prefix): array
     {
         $conditionalDisplay = $this->styles->conditionalDisplayRules($control);
         $isSummary = str_starts_with($prefix, 'blocks-engine-disclosure-summary-');
@@ -96,7 +104,7 @@ final class DisclosureControlPresentation
             ? $this->styles->cssDeclarationString($this->disclosureSummaryLabelTypography($control)) : '';
         $icon = str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ? $this->accordionIcon($control) : array();
         if ( '' === $css && '' === $carrierCss && array() === $conditionalDisplay && array() === $conditionalPresentation && array() === $icon ) {
-            return '';
+            return array('className' => '', 'iconSvg' => '');
         }
 
         $marker = $prefix . substr(hash('sha256', $css . '|' . $carrierCss . '|' . serialize($conditionalDisplay) . '|' . serialize($conditionalPresentation) . '|' . $titleCss . '|' . serialize($icon)), 0, 12);
@@ -123,10 +131,10 @@ final class DisclosureControlPresentation
             $this->support->registerAccordionTitlePresentation($marker, $titleCss);
         }
         if ( array() !== $icon ) {
-            $this->support->registerAccordionIconPresentation($marker, $icon);
+            $this->support->registerAccordionIconPresentation($marker, array_diff_key($icon, array('svg' => true)));
         }
 
-        return $marker;
+        return array('className' => $marker, 'iconSvg' => $icon['svg'] ?? '');
     }
 
     /** Core owns the icon span; carry observed passive SVG artwork through CSS.
@@ -163,6 +171,10 @@ final class DisclosureControlPresentation
             $inline = array_merge($inline, $paint);
         }
         $clone->setAttribute('style', $this->styles->cssDeclarationString($inline));
+        // Producer state annotations describe the capture, not the artwork.
+        foreach ( iterator_to_array($clone->attributes) as $attribute ) {
+            if ( str_starts_with($attribute->nodeName, 'data-dla-') ) $clone->removeAttribute($attribute->nodeName);
+        }
         $markup = ($this->svgMarkup)($clone);
         if ( ! SourceDom::isSafeSvgContent($markup) ) return array();
         $base = $this->styles->cssDeclarationString($dimensions)
@@ -191,7 +203,17 @@ final class DisclosureControlPresentation
         } finally {
             $parent->replaceChild($svg, $expanded);
         }
-        return array('closed' => $base . ';' . $stateCss($closed), 'open' => $stateCss($open));
+        // The background artwork is the editor's rendering; the frontend renders
+        // the actual SVG into the slot, which carries the state transform itself.
+        // Rasterizing the vector before transforming it measurably changes its
+        // antialiased paint, so the live vector owns the observed motion.
+        return array(
+            'closed' => $base . ';' . $stateCss($closed),
+            'open' => $stateCss($open),
+            'vector_closed' => 'display:block;width:100%;height:100%;' . $stateCss($closed),
+            'vector_open' => $stateCss($open),
+            'svg' => $markup,
+        );
     }
 
     /**

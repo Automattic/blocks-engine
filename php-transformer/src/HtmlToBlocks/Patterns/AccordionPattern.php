@@ -29,7 +29,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $fallbacks = array();
         $items = array();
         foreach ( $itemElements as $child ) {
-            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggleMarker(...));
+            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggle(...));
             if ( null === $item ) {
                 return null;
             }
@@ -55,7 +55,7 @@ final class AccordionPattern implements PatternRecognizerInterface
     }
 
     /** @param list<array<string, mixed>> $fallbacks */
-    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggleMarker): ?array
+    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggle): ?array
     {
         if ( ! $this->isAccordionItemElement($item) || $this->hasRuntimeHeavyDescendant($item) ) {
             return null;
@@ -87,11 +87,15 @@ final class AccordionPattern implements PatternRecognizerInterface
 
         // core saves the toggle button with a fixed class and no others, so the
         // source trigger's own box — the vertical padding that gives every row
-        // its height — is carried on the heading as a marker instead.
+        // its height — is carried on the heading as a marker instead. A
+        // source-proved vector icon rides in block metadata: core saves a fixed
+        // `+` icon slot, and the theme renders the actual SVG into it.
+        $toggle = $control instanceof DOMElement ? $accordionToggle($control) : array('className' => '', 'iconSvg' => '');
         $headingAttrs = array_filter(array(
             'title' => $titleHtml,
             'level' => $this->headingLevel($title),
-            'className' => $control instanceof DOMElement ? $accordionToggleMarker($control) : '',
+            'className' => $toggle['className'],
+            'metadata' => '' !== $toggle['iconSvg'] ? array('blocksEngineIcon' => $toggle['iconSvg']) : '',
         ), static fn ($value): bool => '' !== $value);
 
         return $createBlock('core/accordion-item', array_filter(array_merge($presentationAttributes($item), array(

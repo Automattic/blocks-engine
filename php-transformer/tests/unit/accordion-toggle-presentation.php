@@ -137,6 +137,15 @@ $assert(str_contains(rawurldecode($iconCss), 'color:#345678'), 'standalone curre
 $assert(str_contains($iconCss, 'width:18px;height:18px'), 'native icon uses source dimensions');
 $assert(str_contains($iconCss, '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon{transform:none;rotate:180deg}'), 'expanded rotation comes from observed source classes', $iconCss);
 $assert(str_contains((string) $iconResult['serialized_blocks'], '<span class="wp-block-accordion-heading__toggle-icon" aria-hidden="true">+</span>'), 'core icon save markup remains valid and unchanged');
+preg_match('/<!-- wp:accordion-heading (\{.*?\}) -->/', (string) $iconResult['serialized_blocks'], $headingComment);
+$headingAttrs = json_decode($headingComment[1] ?? 'null', true);
+$renderedIcon = (string) ($headingAttrs['metadata']['blocksEngineIcon'] ?? '');
+$assert(str_starts_with($renderedIcon, '<svg') && str_contains($renderedIcon, 'm6 9 6 6 6-6'), 'the observed vector rides in block metadata for the theme to render into core\'s slot', (string) $iconResult['serialized_blocks']);
+$assert(! str_contains($renderedIcon, 'data-dla-') && ! str_contains($renderedIcon, 'rotate'), 'rendered artwork carries neither capture annotations nor a baked state transform', $renderedIcon);
+$assert(str_contains($iconCss, '[aria-expanded]>.wp-block-accordion-heading__toggle-icon:has(>svg){background-image:none;transform:none'), 'a rendered vector replaces the background artwork and the slot stops transforming', $iconCss);
+$assert(str_contains($iconCss, '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon>svg{transform:none;rotate:180deg}'), 'the rendered vector owns the observed expanded transform', $iconCss);
+$assert('pass' === ($iconResult['source_reports']['wp_block_validity']['status'] ?? null), 'icon metadata keeps canonical Core block validity');
+$assert(str_contains(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::ACCORDION_ICON_RENDERER, "render_block_core/accordion-heading") && str_contains(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::ACCORDION_ICON_RENDERER, 'wp_kses('), 'the theme renders metadata artwork only through sanitized passive SVG');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Accordion toggle presentation: {$failures} failed, {$passes} passed\n");
