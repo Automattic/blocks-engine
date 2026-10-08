@@ -1357,6 +1357,11 @@ final class AuthorStylesheetProjector
         }
         $rewritten = array();
         foreach ( $selectors as $selector ) {
+            $socialAnchor = SocialAnchorSelectorProjector::project($selector, $context);
+            if (null !== $socialAnchor) {
+                $rewritten[] = $socialAnchor;
+                continue;
+            }
             $structuralParsed = $context->sourceStyles->parsedSelector($selector);
             $subject = $structuralParsed['compounds'][0] ?? array();
             if (($structuralParsed['supported'] ?? false) && 1 === count($structuralParsed['compounds'] ?? array())
@@ -1857,6 +1862,7 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed @param list<DOMElement> $matches @return list<string>|null */
     private function projectSourceAttributeAncestrySelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?array
     {
+        if (SourceAttributeSubjects::retainsDataPredicates($parsed, $context->authorStyles)) return null;
         $rightmost = $parsed['rightmost_compound_span'] ?? null;
         $ancestry = is_array($rightmost) ? substr($selector, 0, (int) $rightmost['start']) : '';
         if ( null !== $parsed['pseudo_state_suffix_span'] || ! preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry) ) {

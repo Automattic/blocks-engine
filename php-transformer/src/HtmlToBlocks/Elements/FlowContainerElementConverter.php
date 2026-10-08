@@ -93,7 +93,7 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        if ( SocialLinksPattern::isExplicitSocialCluster($element) ) {
+        if ( SocialLinksPattern::hasSocialRowCandidate($element) ) {
             $block = $this->context->recognizePatterns($element, $fallbacks, array( SocialLinksPattern::class ));
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);

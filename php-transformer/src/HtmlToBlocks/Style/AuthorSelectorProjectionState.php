@@ -130,6 +130,25 @@ final class AuthorSelectorProjectionState
      */
     private array $navigationSourcePaths = array();
 
+    /** @var array<string,string> Source anchor paths whose identity belongs to Core's rendered a, not li. */
+    private array $socialAnchorMarkers = array();
+
+    public function markSocialAnchor(DOMElement $anchor): string
+    {
+        $path = $anchor->getNodePath() ?? '';
+        return $this->socialAnchorMarkers[$path] = $this->ensureSemanticMarker($path);
+    }
+
+    public function socialAnchorMarker(string $path): string
+    {
+        return $this->socialAnchorMarkers[$path] ?? '';
+    }
+
+    public function hasSocialAnchors(): bool
+    {
+        return array() !== $this->socialAnchorMarkers;
+    }
+
     public function installAuthorStyles(AuthorStyleAnalysis $authorStyles): void
     {
         $this->authorStyles = $authorStyles;

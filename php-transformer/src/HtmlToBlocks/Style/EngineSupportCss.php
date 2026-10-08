@@ -54,6 +54,10 @@ final class EngineSupportCss
             // Core has concealed the panel.
             $parts[] = ':root .wp-block-accordion-panel[hidden]{display:none!important}';
         }
+        if (str_contains($serializedBlocks, 'blocks-engine-social-source-row')) {
+            $parts[] = ':root .blocks-engine-social-source-row{font-size:inherit;line-height:inherit}';
+            $parts[] = ':root .blocks-engine-social-source-row>:where(.wp-social-link)>a{line-height:inherit}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS) ) {
             // A paragraph is required for valid block markup, but phrasing content
             // did not have paragraph margins in the source document.
@@ -389,8 +393,8 @@ final class EngineSupportCss
             // cluster painted icon-font glyphs through pseudo-elements on the very
             // items core now owns, so both icons would render on each link.
             $parts[] = ':root .wp-block-social-links .wp-social-link::before,'
-                . ':root .wp-block-social-links .wp-social-link::after,'
-                . ':root .wp-block-social-links .wp-social-link>a::before,'
+                . ':root .wp-block-social-links .wp-social-link:not(:where(.blocks-engine-social-source-item))::after,'
+                . ':root .wp-block-social-links .wp-social-link:not(:where(.blocks-engine-social-source-glyph))>a::before,'
                 . ':root .wp-block-social-links .wp-social-link>a::after{content:none}';
             // The source cluster was an inline box, so its container's text
             // alignment placed it. core's list is a full-width flex row, which
@@ -402,6 +406,11 @@ final class EngineSupportCss
                 . ':root ul.wp-block-social-links.is-content-justification-center{justify-content:center}'
                 . ':root ul.wp-block-social-links.is-content-justification-right{justify-content:flex-end}'
                 . ':root ul.wp-block-social-links.is-content-justification-space-between{justify-content:space-between}';
+        }
+        if (str_contains($serializedBlocks, 'blocks-engine-social-source-row')) {
+            $parts[] = ':root ul.wp-block-social-links.blocks-engine-social-source-row,'
+                . ':root ul.wp-block-social-links.blocks-engine-social-source-row>.wp-social-link{display:contents}';
+            $parts[] = ':root ul.wp-block-social-links.blocks-engine-social-source-row>.wp-social-link{font:inherit;color:inherit}';
         }
 
         return array_map(
