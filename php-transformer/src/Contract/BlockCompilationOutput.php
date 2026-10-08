@@ -32,6 +32,7 @@ final class BlockCompilationOutput
      * @param array<int, array<string, mixed>> $runtimeScriptProjections
      * @param array<int, array<string, mixed>> $shellArtifacts
      * @param array<string, mixed> $coreHtmlFallbackEvidence
+     * @param array<int, string> $documentRootMarkers
      */
     public function __construct(
         public readonly array $sourceProvenance = array(),
@@ -48,7 +49,8 @@ final class BlockCompilationOutput
         public readonly array $runtimeScriptProjections = array(),
         public readonly array $shellArtifacts = array(),
         public readonly array $coreHtmlFallbackEvidence = array(),
-        public readonly HtmlValidationOutcome $validationOutcome = new HtmlValidationOutcome()
+        public readonly HtmlValidationOutcome $validationOutcome = new HtmlValidationOutcome(),
+        public readonly array $documentRootMarkers = array()
     ) {
         $ownershipPaths = self::editabilityOwnershipPaths($sourceProvenance);
         $this->runtimeBlockPaths = $ownershipPaths['runtime'];

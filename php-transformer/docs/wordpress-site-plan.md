@@ -134,9 +134,10 @@ ambiguous event evidence leaves the source document as an ordinary page.
 `post_type` is authoritative for materialization, so consumers create the
 declared document type rather than assuming a page. For WordPress runtime
 scopes, materializers persist each row's existing `reconciliation_identity` as
-`_blocks_engine_reconciliation_identity`; post script guards query that value.
-This distinguishes duplicate post slugs without assigning page ancestry or
-depending on a permalink structure.
+`_blocks_engine_reconciliation_identity`; post and page asset guards query that
+value. This distinguishes duplicate post slugs and materialized page slugs that
+diverge from the planned route (WordPress reserves numeric hierarchical slugs)
+without assigning page ancestry or depending on a permalink structure.
 
 Meta rows preserve `charset`, `name`, `property`, `http_equiv`, and `content`. Link rows preserve `rel`, `type`, `media`, `integrity`, `crossorigin`, `referrerpolicy`, `as`, `fetchpriority`, and `sizes`. Script rows preserve `type`, `integrity`, `crossorigin`, `referrerpolicy`, and `fetchpriority`, plus independent booleans for `async`, `defer`, `module`, and `nomodule`. Explicitly present empty values are retained as `''` so consumers can distinguish them from absent attributes, except `crossorigin`: its empty or boolean HTML state is normalized to `anonymous`, matching browser CORS semantics. `effective_loading` records browser loading semantics: `async` wins over `defer`; non-async module scripts are `defer`; other scripts are `blocking`. Inline scripts carry `source_kind: inline` and `body_hash`, not their source body.
 
@@ -146,7 +147,9 @@ Document metadata is canonical runtime input as well as reporting data. The gene
 theme scaffold registers supported local-write and external HTTP(S) script declarations
 once, preserves their normalized loading and tag attributes, and enqueues them only for
 their source scope. Entry-page declarations run on `is_front_page()`, other page
-declarations compare the queried page URI with their normalized source route path, and bound template-part declarations run
+declarations resolve the queried page by its persisted reconciliation identity
+and fall back to comparing the page URI with their normalized source route path
+when that meta is absent, and bound template-part declarations run
 as global shell scripts. The scaffold preserves declaration order through scope-local
 enqueue-hook priorities, without dependencies that would change WordPress loading strategy.
 

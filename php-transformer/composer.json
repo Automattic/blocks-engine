@@ -76,7 +76,9 @@
       "php tests/contract/data-attribute-grid-projection.php",
       "php tests/contract/finding-contract.php",
       "php tests/contract/wordpress-site-plan.php",
+      "php tests/contract/frontend-page-identity-scope.php",
       "php tests/contract/document-body-context.php",
+      "php tests/contract/projected-root-data-state.php",
       "php tests/contract/inert-document-declarations.php",
       "php tests/contract/document-head-runtime.php",
       "php tests/contract/form-source-ownership.php",
@@ -122,6 +124,7 @@
       "php tests/contract/header-link-cluster-navigation.php",
       "php tests/contract/empty-visual-figure.php",
       "php tests/contract/layout-geometry-proof.php",
+      "php tests/contract/core-code-save-supports.php",
       "@test:unit"
     ],
     "test:unit": [
