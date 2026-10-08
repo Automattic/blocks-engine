@@ -84,4 +84,10 @@ if (str_contains($unusable['serialized_blocks'], '<!-- wp:social-links') || !str
     throw new RuntimeException('A cluster must not consume an unusable sibling URL or invent its service.');
 }
 
+$ctaRow = (new HtmlTransformer())->transform('<style>.closing-links{display:flex;flex-wrap:wrap;gap:1.4rem;align-items:center}.button{display:inline-flex;padding:.88rem 1.2rem;border-radius:5px}.closing-links>a:not(.button){font-weight:750}</style>'
+    . '<section class="closing"><h2>Generate freely.</h2><p>Every import is a measurement.</p><div class="closing-links"><a class="button inverted" href="https://github.com/example/engine">Explore the engine</a><a href="https://github.com/example/importer">Importer on GitHub <span aria-hidden="true">↗</span></a></div></section>')->toArray();
+if (str_contains($ctaRow['serialized_blocks'], '<!-- wp:social-links') || !str_contains($ctaRow['serialized_blocks'], 'Explore the engine') || !str_contains($ctaRow['serialized_blocks'], 'Importer on GitHub')) {
+    throw new RuntimeException('A call-to-action row without declared social intent keeps its layout lowering even when its links point at a social host.');
+}
+
 echo "Social-links boundary tests passed\n";

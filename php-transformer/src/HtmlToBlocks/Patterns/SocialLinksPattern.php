@@ -44,19 +44,14 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $explicit = false;
-        for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
-            if ($this->hasOtherSemanticOwner($ancestor)) break;
-            $explicit = $explicit || self::isExplicitSocialCluster($ancestor);
-        }
-        return $this->recognizeCluster($element, $context, $explicit);
+        return $this->recognizeCluster($element, $context, self::hasSocialIntent($element));
     }
 
     private function recognizeCluster(DOMElement $element, PatternContext $context, bool $explicit): ?PatternRecognitionResult
     {
         // A source navigation landmark carries menu semantics that core/social-links
         // cannot retain; NavigationPattern owns that dynamic landmark contract.
-        if ( $this->hasOtherSemanticOwner($element) ) {
+        if ( self::hasOtherSemanticOwner($element) ) {
             return null;
         }
         $anchors = $this->anchors($element);
@@ -189,11 +184,21 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         return false;
     }
 
-    private function hasOtherSemanticOwner(DOMElement $element): bool
+    private static function hasOtherSemanticOwner(DOMElement $element): bool
     {
         return in_array(strtolower($element->tagName), array('nav', 'form', 'label', 'button', 'fieldset'), true)
-            || in_array(strtolower($this->attr($element, 'role')), array('navigation', 'form', 'button', 'menu', 'menubar', 'listbox'), true)
-            || MenuVocabulary::containsUnconditionalMenuToken($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+            || in_array(strtolower(trim($element->getAttribute('role'))), array('navigation', 'form', 'button', 'menu', 'menubar', 'listbox'), true)
+            || MenuVocabulary::containsUnconditionalMenuToken($element->getAttribute('class') . ' ' . $element->getAttribute('id'));
+    }
+
+    /** Social intent declared by the element or an enclosing region it is not owned away from. */
+    private static function hasSocialIntent(DOMElement $element): bool
+    {
+        for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if (self::hasOtherSemanticOwner($ancestor)) return false;
+            if (self::isExplicitSocialCluster($ancestor)) return true;
+        }
+        return false;
     }
 
     private function hasOnlyChild(DOMElement $element, DOMElement $child): bool
@@ -229,10 +234,15 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         return 1 === preg_match('/(?:^|[^a-z])socials?(?:[^a-z]|$)/', $identity);
     }
 
-    /** Race semantic row recognition before CSS-owned layout lowering. */
+    /**
+     * Race semantic row recognition before CSS-owned layout lowering only for
+     * declared social intent; links that merely point at a social host (for
+     * example a CTA row linking to a repository) keep their layout lowering.
+     */
     public static function hasSocialRowCandidate(DOMElement $element): bool
     {
         if (self::isExplicitSocialCluster($element)) return true;
+        if (!self::hasSocialIntent($element)) return false;
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement && in_array(strtolower($child->tagName), array('a', 'li'), true)) return true;
         }
