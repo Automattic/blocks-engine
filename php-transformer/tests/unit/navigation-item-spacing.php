@@ -110,7 +110,7 @@ $assert(
 );
 $hover = $selectorsDeclaring($horizontalRules, 'background:#eee');
 $assert(
-    1 === count($hover) && str_contains($hover[0], $item . ':not(blocks-engine-specificity-site-0):hover'),
+    1 === count($hover) && str_contains($hover[0], $item . ':not(blocks-engine-specificity-site-0)') && str_ends_with($hover[0], ':hover'),
     'a dynamic state on the item stays on the rendered item',
     json_encode($hover)
 );

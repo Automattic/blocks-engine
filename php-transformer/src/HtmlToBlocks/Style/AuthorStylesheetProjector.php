@@ -1416,6 +1416,37 @@ final class AuthorStylesheetProjector
                 continue;
             }
 
+            $otherSubjects = array();
+            foreach ($matches as $element) {
+                $target = $context->selectorProjections->navigationSubject($element->getNodePath() ?? '');
+                $subject = $parsed['compounds'][array_key_last($parsed['compounds'])] ?? array();
+                $structural = array_filter($parsed['compounds'], static fn(array $compound): bool => ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false) || null !== ($compound['nth_child'] ?? null) || null !== ($compound['nth_of_type'] ?? null));
+                if ('a' === strtolower($element->tagName) && array() !== $structural) {
+                    // Core still renders this anchor in its source item. Keep
+                    // existing structural predicates live rather than binding
+                    // a captured first/last item to a permanent marker.
+                    $otherSubjects[] = $element;
+                    continue;
+                }
+                if (in_array(strtolower($element->tagName), array('li', 'ul', 'ol'), true) && null !== ($subject['type'] ?? null)) {
+                    // Typed item subjects retain the existing structural
+                    // projection, including sibling predicates and whitespace
+                    // participation. The new anchor subject is independent.
+                    $otherSubjects[] = $element;
+                    continue;
+                }
+                if ('' === $target) {
+                    $otherSubjects[] = $element;
+                    continue;
+                }
+                $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+                // One shared carrier baseline defeats Core defaults while the
+                // original specificity and order arbitrate author declarations.
+                $rewritten[] = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+            }
+            if (array() === $otherSubjects) continue;
+            $matches = $otherSubjects;
+
             $attributeAncestryProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $matches, $context);
             if ( null !== $attributeAncestryProjection ) {
                 array_push($rewritten, ...$attributeAncestryProjection);
@@ -2867,12 +2898,23 @@ final class AuthorStylesheetProjector
         if ( '' !== $rest ) {
             return null;
         }
+        $baseline = '';
+        $matches = $this->matchingSourceElements($selector, $parsed, $context);
+        if (array() !== $matches && array() === array_filter($matches, static fn(DOMElement $element): bool => '' === $context->selectorProjections->navigationSubject($element->getNodePath() ?? ''))) {
+            // The same native-subject baseline as the independent anchor/item
+            // projections, while retaining live sibling predicates and source
+            // ancestry. Core defaults must not outrank typed item declarations.
+            // The native item contributes one class of the shared four-class
+            // baseline; retain the other three without changing author order.
+            $baseline = str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 3);
+        }
         // The native item class is the rule's single native scope: Core styles
         // `.wp-block-navigation .wp-block-navigation-item` (display:flex), so an
         // authored item rule keeps its own weight plus one class, the same scope
         // WordPressCompatCss gives every other projected native navigation part.
         $subject = '.wp-block-navigation-item' . $split['item'] . $split['structural']
             . ( $typeLength > 0 ? $this->typeSpecificityShim($context) : '' )
+            . $baseline
             . $trailingState;
         return $this->rewriteSourceTagTypes($selector, $parsed, $context, '', array(
             $start => array( 'end' => $end, 'value' => $subject ),

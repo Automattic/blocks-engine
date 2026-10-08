@@ -131,8 +131,8 @@ $assert(
 );
 $linkColor = $selectorsDeclaring($floatedRules, 'color:#666');
 $assert(
-    1 === count($linkColor) && str_contains($linkColor[0], '#header ul#menu '),
-    'an anchor rule under the list keeps `ul#menu` as its ancestor compound',
+    4 === count($linkColor) && array() === array_filter($linkColor, static fn(string $selector): bool => !str_contains($selector, '.wp-block-navigation-item.blocks-engine-navigation-anchor-') || !str_contains($selector, ':where(.wp-block-navigation-item__content)') || 2 !== substr_count($selector, ':not(#blocks-engine-specificity-id-site-0)')),
+    'an anchor rule under the list reaches exactly its four native anchor subjects with the source ancestor specificity',
     json_encode($linkColor)
 );
 

@@ -53,6 +53,8 @@ $authorOrder = ( new HtmlTransformer() )->transform(
 $authorAssets = $sourceAssets($authorOrder, 'author-css');
 $assert(1 === count($authorAssets), 'G2: transform emits exactly one author-css asset');
 $normalizedAuthorCss = preg_replace('/\s+/', '', (string) ($authorAssets[0]['content'] ?? '')) ?? '';
+$normalizedAuthorCss = preg_replace('/:root\.wp-block-navigation\.wp-block-navigation-item\.blocks-engine-navigation-anchor-[^{]+\{color:#fff\}/', '.desktop-nava{color:#fff}', $normalizedAuthorCss, -1, $navigationSubjectRules) ?? $normalizedAuthorCss;
+$assert(1 === $navigationSubjectRules, 'G2: source anchor color stays in its original author rule position on the native subject');
 $assert(
     '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons)>:where(.wp-block-button){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link){width:100%!important;max-width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-site-0)>:where(.wp-block-button__link){display:inline-flex!important;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
     'G2: author-css contains only its leading at-rule preamble and rewritten author stylesheet'

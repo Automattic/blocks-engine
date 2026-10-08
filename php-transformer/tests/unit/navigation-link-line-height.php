@@ -71,8 +71,8 @@ $listCss = implode("\n", array_map(
     $listResult['assets'] ?? array()
 ));
 $nestedClass = $marker($listLinks['/nested'] ?? array());
-$assert('' !== $nestedClass && str_contains($listCss, '.' . $nestedClass . '>.wp-block-navigation-item__content{line-height:1.5em}'), 'source nested anchor still owns its line-height');
-$assert('' !== $marker($listLinks['/item'] ?? array()), 'safely inherited line-height reaches the anchor as well as its item');
+$assert('line-height:1.5em' === ($listLinks['/nested']['metadata']['blocksEngineNavigationAnchor']['style'] ?? '') && !isset($listLinks['/nested']['style']['typography']['lineHeight']), 'source nested anchor still owns its line-height without reinterpreting it on the Core item');
+$assert('line-height:2' === ($listLinks['/item']['metadata']['blocksEngineNavigationAnchor']['itemStyle'] ?? ''), 'safely inherited line-height stays on its independent native item');
 $assert('' === $marker($listLinks['/different'] ?? array()), 'a relative line-height inherited from an item with a different font size is not reinterpreted on the anchor');
 $assert('' === $marker($listLinks['/important'] ?? array()), 'an important inherited declaration is not restated with stronger selector scope');
 
@@ -85,10 +85,10 @@ $wrappedResult = (new HtmlTransformer())->transform(
 $wrappedSerialized = (string) ($wrappedResult['serialized_blocks'] ?? '');
 $assert(
     1 === preg_match('/<!--\s*wp:navigation-link\s*(\{.*?\})\s*\/-->/s', $wrappedSerialized, $wrappedMatch)
-        && '' !== $marker(json_decode($wrappedMatch[1], true) ?: array()),
-    'header-like list item supplies an inherited, author-owned line-height marker'
+        && str_contains((string) ((json_decode($wrappedMatch[1], true) ?: array())['metadata']['blocksEngineNavigationAnchor']['itemStyle'] ?? ''), 'line-height:var(--nav-leading)'),
+    'header-like list item retains the actual inherited line-height on its independent native item'
 );
 $wrappedCss = implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), $wrappedResult['assets'] ?? array()));
-$assert(str_contains($wrappedCss, '>.wp-block-navigation-item__content{line-height:var(--nav-leading)}'), 'inherited header token remains responsive on Core anchor');
+$assert(str_contains($wrappedCss, '--nav-leading:1.5em') && !str_contains($wrappedCss, '>.wp-block-navigation-item__content{line-height:33px}'), 'inherited header token stays live rather than freezing a used line-height on the anchor');
 
 fwrite(STDOUT, "navigation link line-height passed: 11 assertions\n");

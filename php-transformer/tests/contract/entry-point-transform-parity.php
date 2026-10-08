@@ -23,6 +23,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 $assert = static function (bool $condition, string $message): void {
     if (! $condition) {
@@ -32,7 +33,7 @@ $assert = static function (bool $condition, string $message): void {
 
 /** Generated marker families, with the per-document hash folded away. */
 $markerFamilies = static function (string $markup): array {
-    preg_match_all('/blocks-engine-[a-z-]+(?:-[0-9a-f]{12})?(?:-[a-z0-9]+)*/', $markup, $matches);
+    preg_match_all('/blocks-engine-[a-z-]+(?:-[0-9a-f]{12})?(?:-[a-z0-9]+)*/', EngineMarker::withoutDocumentSeeds($markup), $matches);
     $families = array();
     foreach ($matches[0] as $class) {
         $families[(string) preg_replace('/-[0-9a-f]{12}/', '-<document>', $class)] = true;

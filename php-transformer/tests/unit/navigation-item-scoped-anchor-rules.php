@@ -16,6 +16,8 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 
 $failures = 0;
 $passes = 0;
@@ -28,17 +30,31 @@ $assert = static function (bool $ok, string $message, string $detail = '') use (
     fwrite(STDERR, 'FAIL: ' . $message . ( '' !== $detail ? ' - ' . $detail : '' ) . PHP_EOL);
 };
 
-$assets = static function (string $css, string $items): string {
+$assets = static function (string $css, string $items): array {
+    $source = '<style>' . $css . '</style><header><nav class="navigation-body"><ul class="navigation-list">' . $items . '</ul></nav></header><main><p>Body</p></main>';
     $result = ( new HtmlTransformer() )->transform(
-        '<style>' . $css . '</style><header><nav class="navigation-body"><ul class="navigation-list">'
-        . $items . '</ul></nav></header><main><p>Body</p></main>',
+        $source,
         array()
     )->toArray();
 
-    return implode("\n", array_map(
+    $candidateCss = implode("\n", array_map(
         static fn (array $asset): string => (string) ($asset['content'] ?? ''),
         is_array($result['assets'] ?? null) ? $result['assets'] : array()
     ));
+    $rows = array('css' => $candidateCss);
+    foreach (array('source' => $source, 'native' => StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($result['serialized_blocks'])) as $kind => $html) {
+        $dom = new DOMDocument(); $previous = libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        libxml_clear_errors(); libxml_use_internal_errors($previous);
+        $cascade = new StaticCssCascade($dom, 'native' === $kind ? $candidateCss : '');
+        foreach ($dom->getElementsByTagName('a') as $anchor) {
+            $values = $cascade->resolve($anchor, array('padding', 'display'), array());
+            $values['display'] ??= 'inline';
+            ksort($values);
+            $rows[$kind][trim($anchor->textContent ?? '')] = $values;
+        }
+    }
+    return $rows;
 };
 
 $items = '<li class="navigation-item"><a href="/" class="item-name">Home</a></li>'
@@ -53,19 +69,19 @@ $basekit = $assets(
     $items
 );
 $assert(
-    str_contains($basekit, '.wp-block-navigation-item.navigation-item.item-name>.wp-block-navigation-item__content{padding:5px 15px}'),
+    '5px 15px' === ($basekit['native']['Home']['padding'] ?? ''),
     'the winning item-scoped padding lands on the rendered anchor',
-    $basekit
+    json_encode($basekit)
 );
 $assert(
-    str_contains($basekit, '.wp-block-navigation-item.navigation-item.item-name>.wp-block-navigation-item__content{display:block}'),
+    'block' === ($basekit['native']['Home']['display'] ?? ''),
     'the item-scoped display lands on the rendered anchor',
-    $basekit
+    json_encode($basekit)
 );
 $assert(
-    ! str_contains($basekit, '__content{padding:14px}') && ! str_contains($basekit, '__content{padding:16px 20px}'),
+    $basekit['source'] === $basekit['native'],
     'losing padding declarations are not promoted over the source winner',
-    $basekit
+    json_encode($basekit)
 );
 
 $hostScoped = $assets(
@@ -73,9 +89,9 @@ $hostScoped = $assets(
     $items
 );
 $assert(
-    str_contains($hostScoped, '.navigation-body .wp-block-navigation-item.navigation-item.item-name>.wp-block-navigation-item__content{padding:5px 15px}'),
+    $hostScoped['source'] === $hostScoped['native'] && '5px 15px' === ($hostScoped['native']['Contact']['padding'] ?? ''),
     'a navigation-host ancestor stays in front of the folded item compound',
-    $hostScoped
+    json_encode($hostScoped)
 );
 
 $outerItem = $assets(
@@ -85,9 +101,9 @@ $outerItem = $assets(
     . '<li class="navigation-item"><a href="/about" class="item-name">About</a></li>'
 );
 $assert(
-    ! str_contains($outerItem, '.navigation-item.item-name>.wp-block-navigation-item__content{padding'),
+    !str_contains($outerItem['css'], '.navigation-item.item-name>.wp-block-navigation-item__content{padding'),
     'an item compound a nested anchor only reaches through its outer item is not folded',
-    $outerItem
+    json_encode($outerItem)
 );
 
 $foreignAncestor = $assets(
@@ -95,9 +111,9 @@ $foreignAncestor = $assets(
     $items
 );
 $assert(
-    ! str_contains($foreignAncestor, '.wp-block-navigation-item__content{padding:5px 15px}'),
+    $foreignAncestor['source'] === $foreignAncestor['native'] && !isset($foreignAncestor['native']['Home']['padding']),
     'an ancestor that is neither the item nor a navigation host still fails closed',
-    $foreignAncestor
+    json_encode($foreignAncestor)
 );
 
 if ( 0 < $failures ) {

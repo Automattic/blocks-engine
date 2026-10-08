@@ -131,6 +131,19 @@ final class AuthorSelectorProjectionState
      */
     private array $navigationSourcePaths = array();
 
+    /** @var array<string, string> Source subject path => its exact native CSS target. */
+    private array $navigationSubjects = array();
+
+    public function installNavigationSubject(string $path, string $selector): void
+    {
+        $this->navigationSubjects[$path] ??= $selector;
+    }
+
+    public function navigationSubject(string $path): string
+    {
+        return $this->navigationSubjects[$path] ?? '';
+    }
+
     /** @var array<string,string> Source anchor paths whose identity belongs to Core's rendered a, not li. */
     private array $socialAnchorMarkers = array();
 

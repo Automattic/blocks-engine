@@ -967,7 +967,7 @@ $navInherited = ( new HtmlTransformer() )->transform(
 )->toArray();
 $navInheritedCss = implode("\n", array_column($navInherited['assets'] ?? array(), 'content'));
 $navInheritedMarkup = (string) ($navInherited['serialized_blocks'] ?? '');
-$assert(str_contains($navInheritedCss, '.wp-block-navigation.menu.navbar .wp-block-navigation-item__content{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}'), 'menu presentation on a replaced source wrapper is recovered onto the native navigation item');
+$assert(str_contains($navInheritedCss, 'blocks-engine-navigation-box-') && str_contains($navInheritedCss, '{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}') && str_contains($navInheritedMarkup, '"boxes":[{"tag":"div"'), 'menu presentation stays on its retained native source wrapper rather than freezing the inherited anchor');
 $assert(! str_contains($navInheritedCss, '.wp-block-navigation.menu.navbar .wp-block-navigation-item__content{color:#000') && ! str_contains($navInheritedCss, 'font-family:Arial;font-size:10px}'), 'recovery reads the source menu rather than the document default that surrounds it');
 preg_match('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $navInheritedMarkup, $navInheritedAttrs);
 $navInheritedBlock = $navInheritedAttrs[1] ?? '';
@@ -4423,12 +4423,16 @@ $artifactNavStructureMarkup = (string) ($artifactNavStructureCss['serialized_blo
 $artifactNavStructureStaticCss = (string) ($artifactNavStructureCss['source_reports']['compiled_site']['visual_repair']['compat_css'] ?? '');
 $assert(str_contains($artifactNavStructureMarkup, 'desktop-nav') && str_contains($artifactNavStructureMarkup, 'site-menu') && str_contains($artifactNavStructureMarkup, 'blocks-engine-list-navigation'), 'list navigation promotes source list classes onto the core navigation wrapper');
 $assert(str_contains($artifactNavStructureStaticCss, '@media screen and (min-width:1025px)'), 'artifact navigation projection preserves its authored responsive condition');
+preg_match('/blocks-engine-navigation-item-[a-f0-9]{12}-\d+/', $artifactNavStructureMarkup, $artifactNavItemSubject);
+preg_match('/blocks-engine-navigation-anchor-[a-f0-9]{12}-\d+/', $artifactNavStructureMarkup, $artifactNavAnchorSubject);
 // The item geometry rule's subject is the source list item, so the author
 // projection carries it onto core's rendered item inside the authored stylesheet;
 // the route-owned compat replay reads that projected stylesheet.
 $artifactNavStructureAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactNavStructureCss['assets'] ?? array()));
-$assert(str_contains($artifactNavStructureAssetCss, 'ul.site-menu>.wp-block-navigation-item:not(blocks-engine-specificity-site-0){display:flex;align-items:center') && str_contains($artifactNavStructureAssetCss, 'margin-right:30px') && ! str_contains($artifactNavStructureStaticCss, 'margin-right:30px'), 'artifact CSS projects source navigation item geometry onto core navigation items once', $artifactNavStructureStaticCss);
-$assert(str_contains($artifactNavStructureStaticCss, '.desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'wp-block-navigation-item__content)') && str_contains($artifactNavStructureStaticCss, ' { font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px }'), 'artifact CSS projects source list anchor typography onto neutral core navigation content');
+$artifactNavStructureCompatOffset = strpos($artifactNavStructureStaticCss, 'wp-compat: replay source nav anchor selectors');
+$artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '' : substr($artifactNavStructureStaticCss, $artifactNavStructureCompatOffset);
+$assert(str_contains($artifactNavStructureAssetCss, 'ul.site-menu>.wp-block-navigation-item:not(blocks-engine-specificity-site-0)') && str_contains($artifactNavStructureAssetCss, 'display:flex;align-items:center') && str_contains($artifactNavStructureAssetCss, 'margin-right:30px') && ! str_contains($artifactNavStructureCompatCss, 'margin-right:30px'), 'artifact CSS projects source navigation item geometry without a second compatibility replay', $artifactNavStructureAssetCss);
+$assert(isset($artifactNavAnchorSubject[0]) && str_contains($artifactNavStructureAssetCss, '.wp-block-navigation-item.' . $artifactNavAnchorSubject[0] . ' :where(.wp-block-navigation-item__content)') && str_contains($artifactNavStructureAssetCss, '{font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px}'), 'artifact CSS projects source list anchor typography onto its distinct native anchor subject');
 $assert(str_contains($artifactNavStructureStaticCss, '.nav\\,alternate.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'gap:4px'), 'artifact navigation projection preserves escaped selector punctuation');
 $quotedNavigationCss = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\WordPressCompatCss())->css('.desktop-nav[data-kind="/* promoted */"] a{order:2}', array(), array());
 $assert(str_contains($quotedNavigationCss, '[data-kind="/* promoted */"]') && str_contains($quotedNavigationCss, 'order:2'), 'navigation projection preserves comment-like text inside quoted selector values before semantic attribute projection');
@@ -4438,7 +4442,7 @@ $assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__cont
 // A rule whose subject is the source list item itself is projected by the author
 // stylesheet projector onto core's rendered item (the source-type marker never
 // reaches it), so the compat layer no longer has a marker to map for it.
-$assert(str_contains($artifactNavStructureAssetCss, '.desktop-nav .wp-block-navigation-item:not(blocks-engine-specificity-site-0){float:left}'), 'artifact navigation projection moves a list-item subject onto the rendered core navigation item', $artifactNavStructureAssetCss);
+$assert(1 === preg_match('/\.desktop-nav \.wp-block-navigation-item:not\(blocks-engine-specificity-site-0\)[^{]*\{float:left\}/', $artifactNavStructureAssetCss), 'artifact navigation projection moves a list-item subject onto the rendered core navigation item', $artifactNavStructureAssetCss);
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation-item { float:left }'), 'the compat layer does not restate the list-item rule the author projection already addresses', $artifactNavStructureCompatCss);
 $assert(str_contains($artifactNavStructureMarkup, '"overlayMenu":"never"') && ! str_contains($artifactNavStructureAssetCss, 'blocks-engine-native-responsive-navigation{display:flex!important}'), 'list navigation without an authored responsive control preserves its mobile visibility contract', $artifactNavStructureAssetCss);
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');

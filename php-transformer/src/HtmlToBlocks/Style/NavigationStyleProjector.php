@@ -594,7 +594,8 @@ final class NavigationStyleProjector
             return array();
         }
 
-        $itemClasses = $this->listNavigationItemClasses($serializedBlocks);
+        $anchorAliases = $this->listNavigationAnchorAliases($serializedBlocks);
+        $itemClasses = $this->listNavigationItemClasses($serializedBlocks) + array_fill_keys(array_keys($anchorAliases), true);
         if ( array() === $itemClasses ) {
             return array();
         }
@@ -710,7 +711,7 @@ final class NavigationStyleProjector
                     $declarations[] = $property . ':' . $value;
                 }
 
-                if ( $bareAnchorClassRule ) {
+                if ( $bareAnchorClassRule && ! isset($anchorAliases[$class]) ) {
                     // core/navigation-link moves the authored anchor class onto
                     // its li. The bare rule then paints a second box that did not
                     // exist in the source, even for declarations also projected
@@ -740,6 +741,28 @@ final class NavigationStyleProjector
             $emitted[$emissionKey] = true;
 
             $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            if ( isset($anchorAliases[$class]) ) {
+                // Native subjects already retain the complete authored cascade.
+                // Replay only the editor paint/transition contested by Core's
+                // unlayered styles, using the same source winner evidence.
+                $editorDeclarations = array_filter($declarations, static fn (string $declaration): bool =>
+                    1 === preg_match('/^(?:color:|transition(?:-|:))/', $declaration)
+                );
+                if ( array() !== $editorDeclarations && $this->navigationConditionsAreProjectable($conditions)
+                    && ! $this->navigationRuleHasConditionalPropertyCompetitorOnAnchors($rule, 'color', $authoredRules, $sourceAnchors)
+                ) {
+                    $editorSelector = '.wp-block-navigation:not(.blocks-engine-list-navigation) '
+                        . $anchorAliases[$class] . $pseudo;
+                    $editorRule = $editorSelector . '{' . implode(';', $editorDeclarations) . '}';
+                    foreach ( array_reverse(array_values(array_filter($conditions,
+                        static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', trim($condition))
+                    ))) as $condition ) {
+                        $editorRule = $condition . '{' . $editorRule . '}';
+                    }
+                    $rules[] = $editorRule;
+                }
+                continue;
+            }
             // Keep a descendant class rule's authored context in both targets.
             // Its class moves from the source anchor onto core's item wrapper,
             // so both the anchor projection and item reset need that context.
@@ -822,7 +845,8 @@ final class NavigationStyleProjector
             return array();
         }
 
-        $itemClasses = $this->listNavigationItemClasses($serializedBlocks);
+        $anchorAliases = $this->listNavigationAnchorAliases($serializedBlocks);
+        $itemClasses = $this->listNavigationItemClasses($serializedBlocks) + array_fill_keys(array_keys($anchorAliases), true);
         $listHostClasses = $this->listNavigationHostClasses($serializedBlocks);
         $allHostClasses = $this->listNavigationHostClasses($serializedBlocks, false);
         $authoredRules = $this->navigationAuthorStyleRules();
@@ -911,6 +935,9 @@ final class NavigationStyleProjector
                     . ' .wp-block-navigation-item__content[aria-current]' . $pseudo;
             } else {
                 $itemSelector = '.wp-block-navigation-item.' . CssIdent::escape($class) . '>.wp-block-navigation-item__content' . $pseudo;
+                if ( 'anchor' === $classOwner && isset($anchorAliases[$class]) ) {
+                    $itemSelector = $anchorAliases[$class] . $pseudo;
+                }
                 $selectorText = '.wp-block-navigation.blocks-engine-list-navigation ' . $itemSelector;
             }
             $project = function (string $selector) use ($conditions, $declarations): string {
@@ -923,12 +950,16 @@ final class NavigationStyleProjector
                 }
                 return $projectedRule;
             };
-            $rules[$selectorText] = $project($selectorText);
-            if ( ! $isCurrentClass && str_contains($class, ':') ) {
+            // Native frontend subjects already match the layered source rule.
+            // Only the editor needs the unlayered compatibility replay.
+            if ( $isCurrentClass || 'anchor' !== $classOwner || ! isset($anchorAliases[$class]) ) {
+                $rules[$selectorText] = $project($selectorText);
+            }
+            if ( ! $isCurrentClass && (str_contains($class, ':') || isset($anchorAliases[$class])) ) {
                 // A referenced menu in the site editor has the core navigation
                 // root but not the importer's frontend-only list marker.
                 $editorSelector = '.wp-block-navigation:not(.blocks-engine-list-navigation) '
-                    . '.wp-block-navigation-item.' . CssIdent::escape($class) . '>.wp-block-navigation-item__content' . $pseudo;
+                    . $itemSelector;
                 $rules[$editorSelector] = $project($editorSelector);
             }
         }
@@ -1507,6 +1538,11 @@ final class NavigationStyleProjector
                     continue;
                 }
                 $content = '.wp-block-navigation-item.' . $class . '>.wp-block-navigation-item__content';
+                if (isset($attrs['metadata']['blocksEngineNavigationAnchor'])) {
+                    $content = '.wp-block-navigation-item.' . $class . ' .wp-block-navigation-item__content';
+                    $declarations = preg_replace('/(?:^|;)(?:display|font-size|line-height|color):[^;]*/', '', $declarations) ?? $declarations;
+                    $rules[$class . ':label'] = $content . '>.wp-block-navigation-item__label{font-size:0;line-height:0}';
+                }
                 $rules[$class] = $content . '{' . $declarations . '}';
             }
         }
@@ -1844,6 +1880,36 @@ final class NavigationStyleProjector
         }
 
         return true;
+    }
+
+    /**
+     * Source anchor classes transported by native metadata, scoped to their
+     * opaque item marker. A descendant hop also reaches retained passive boxes.
+     *
+     * @return array<string, string>
+     */
+    private function listNavigationAnchorAliases(string $serializedBlocks): array
+    {
+        if ( ! preg_match_all('/<!--\s*wp:navigation-link\s*(\{.*?\})\s*\/-->/s', $serializedBlocks, $matches) ) {
+            return array();
+        }
+        $aliases = array();
+        foreach ( $matches[1] as $json ) {
+            $attrs = json_decode($json, true);
+            $presentation = $attrs['metadata']['blocksEngineNavigationAnchor'] ?? null;
+            if ( ! is_array($presentation)
+                || 1 !== preg_match('/(?:^|\s)(blocks-engine-navigation-anchor-[a-z0-9_-]+)(?:\s|$)/', (string) ($attrs['className'] ?? ''), $marker)
+            ) {
+                continue;
+            }
+            foreach ( preg_split('/\s+/', trim((string) ($presentation['className'] ?? ''))) ?: array() as $class ) {
+                if ( '' === $class || str_starts_with($class, 'blocks-engine-') ) {
+                    continue;
+                }
+                $aliases[$class][$marker[1]] = '.wp-block-navigation-item.' . $marker[1];
+            }
+        }
+        return array_map(static fn (array $items): string => ':is(' . implode(',', $items) . ') :where(.wp-block-navigation-item__content)', $aliases);
     }
 
     /**

@@ -159,23 +159,25 @@ $listResult = $transform(
     . '</ul></nav>'
 );
 $listSerialized = (string) ( $listResult['serialized_blocks'] ?? '' );
-$listMarker = $markerFor($navigationLinkComment($listSerialized, 'https://example.org/'));
+$listAttrs = $navigationLinkComment($listSerialized, 'https://example.org/');
+preg_match('/blocks-engine-navigation-anchor-[a-f0-9]{12}-\d+/', $listAttrs['className'] ?? '', $listSubject);
+$listMarker = $listSubject[0] ?? '';
 $assert(
-    '' !== $listMarker,
+    '' !== $listMarker && 'bg-primary px-5' === ($listAttrs['metadata']['blocksEngineNavigationAnchor']['className'] ?? '') && !str_contains($listAttrs['className'] ?? '', 'bg-primary'),
     'a button-styled link inside a source list item still carries its box',
     $listSerialized
 );
 $listCss = $assetsCss($listResult);
 $listItemRule = '';
-if ( '' !== $listMarker && preg_match('/\.wp-block-navigation \.wp-block-navigation-item\.' . preg_quote($listMarker, '/') . '\{([^}]*)\}/', $listCss, $ruleMatch) ) {
+if ( preg_match('/\.wp-block-navigation-item\.blocks-engine-navigation-item-[a-f0-9]{12}-\d+[^{}]*\{([^}]*)\}/', $listCss, $ruleMatch) ) {
     $listItemRule = $ruleMatch[0];
 }
 $assert(
     '' !== $listItemRule
-        && str_contains($listItemRule, 'padding-left:0')
-        && str_contains($listItemRule, 'padding-right:0')
-        && ! str_contains($listItemRule, 'padding-bottom'),
-    'the item reset only touches the padding sides the anchor\'s box carried, leaving the source list item\'s own padding in place',
+        && str_contains($listItemRule, 'padding-bottom:14px')
+        && ! str_contains($listItemRule, 'padding-left')
+        && ! str_contains($listItemRule, 'padding-right'),
+    'the independent source item retains its own padding without acquiring the source anchor sides',
     $listItemRule === '' ? 'no item reset rule found in: ' . $listCss : $listItemRule
 );
 

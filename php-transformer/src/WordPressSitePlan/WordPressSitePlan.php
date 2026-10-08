@@ -3846,6 +3846,12 @@ PHP;
             $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
         }
+        foreach (array_merge($templates, $parts, $pages, $menus) as $document) {
+            if (str_contains((string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), 'blocksEngineNavigationAnchor')) {
+                $lines[] = NavigationAnchorRuntime::source();
+                break;
+            }
+        }
         // Gutenberg pads every saved block with newlines. Imported presentation can
         // preserve white-space (Wix rich text uses break-spaces), so that padding
         // renders as blank lines once a page is saved. Drop serializer newline runs

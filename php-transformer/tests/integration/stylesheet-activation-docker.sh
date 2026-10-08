@@ -39,4 +39,6 @@ wp eval 'putenv("NAVIGATION_OWNERSHIP_TEST=1"); require "/engine/tests/integrati
 NAVIGATION_OWNERSHIP_TEST=1 NAVIGATION_OPENER_TEST=1 NAVIGATION_TEST_URL="$url" node "$root/tests/integration/navigation-inventory-browser.mjs"
 wp eval 'putenv("NAVIGATION_OWNERSHIP_TEST=1"); putenv("NAVIGATION_LIST_PANEL_TEST=1"); require "/engine/tests/integration/navigation-inventory.php";'
 NAVIGATION_LIST_PANEL_TEST=1 NAVIGATION_OWNERSHIP_TEST=1 NAVIGATION_OPENER_TEST=1 NAVIGATION_TEST_URL="$url" node "$root/tests/integration/navigation-inventory-browser.mjs"
+wp eval 'require "/engine/tests/integration/navigation-anchor-subject.php";'
+NAVIGATION_TEST_URL="$url" node "$root/tests/integration/navigation-anchor-subject-browser.mjs"
 exit "$runtime_status"
