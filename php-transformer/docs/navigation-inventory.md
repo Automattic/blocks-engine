@@ -33,6 +33,17 @@ Entity sharing still compares canonical content and presentation. Different
 fragment destinations remain distinct. Equivalent occurrences across routes
 reference one native `wp_navigation` entity and can be edited once.
 
+An ordinary heading link outside a nested list also owns content: its destination,
+text, and heading level survive recursive conversion. Preserving that heading is
+not evidence of independent branding. The heading-brand predicate remains bounded
+to home destinations/`rel=home` or explicit brand signals, outside list ownership.
+The semantic-heading-brand negative therefore checks the non-home RichText link,
+absence of a brand carrier and menu claim, and the complete adjacent Work/Contact
+inventory. Its previous absence-of-heading assertion described the old landmark
+flattening, which converted `/topic` to a submenu label and claimed the adjacent
+Work/Contact list as its children rather than preserving the sibling layout.
+The list-owned heading negative still requires native navigation labels.
+
 ## Regression gates
 
 From `php-transformer/`:
