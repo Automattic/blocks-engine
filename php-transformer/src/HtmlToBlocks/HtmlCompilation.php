@@ -644,6 +644,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->sourceBlockAttributeProjector,
             $this->session,
             fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
+            $this,
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element)
         );
         $this->patternContext = $this->createPatternContext();
@@ -1558,6 +1559,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $body instanceof DOMElement ) {
             return $resultComposer->emptyBody($html, $provenance, $context, $startedAt, $selectorCache);
         }
+        SourceDom::removeIntegerKeyAttributes($body);
 
         if ( array() !== $sourceBodyClasses ) {
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
@@ -9642,6 +9644,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $block = $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
+        // core/image saves the class list and anchor on the <figure>; an author
+        // subject naming the <img> by class or id must find them there.
+        $this->session->authorSelectorProjectionState()->recordImageFigure(
+            $image->getNodePath() ?? '',
+            (string) ( $block['attrs']['className'] ?? '' ),
+            (string) ( $block['attrs']['anchor'] ?? '' ),
+            $link instanceof DOMElement
+        );
         if ( '' !== $linkAnchor ) {
             // A native image has only one anchor. Keep an existing figure/image
             // identity and the link's fragment target on separate native hosts.
