@@ -18,6 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
@@ -1543,7 +1544,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
 
         $sourceBodyClasses = $this->documentBodyClassNames($html);
-        $normalizedHtml = $this->normalizeHtml5VoidElements($this->documentBodyHtml($this->normalizeExplicitPlaintextElements($html)));
+        $normalizedHtml = NativeControlState::withoutReplayScript(
+            $this->normalizeHtml5VoidElements($this->documentBodyHtml($this->normalizeExplicitPlaintextElements($html)))
+        );
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
         $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $normalizedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);

@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 
 /**
@@ -821,6 +822,7 @@ final class ArtifactNormalizer
             $scriptIndex = 0;
             foreach ( HtmlTagScanner::scan($content, 'script') as $script ) {
                 ++$scriptIndex;
+                if (NativeControlState::isReplayScript($script['tag'])) continue;
                 $attributes = $script['attributes'];
                 $body = trim($script['content']);
                 if ( '' === $body || '' !== $this->htmlAttribute($attributes, 'src') || ! $this->isExecutableScriptType($this->htmlAttribute($attributes, 'type')) ) {

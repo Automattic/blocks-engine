@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
-/** Builds the editable companion that owns static browser-native GET forms. */
+/** Builds the editable companion that owns browser-native forms. */
 final class AuthoredNativeFormBlockGenerator
 {
     public const LOCAL_NAME = 'authored-native-form';
@@ -14,9 +14,9 @@ final class AuthoredNativeFormBlockGenerator
         return array(
             'apiVersion' => 3,
             'name' => $namespace . '/' . self::LOCAL_NAME,
-            'title' => 'Native GET Form',
+            'title' => 'Native Form',
             'category' => 'widgets',
-            'description' => 'An editable browser-native GET form.',
+            'description' => 'An editable browser-native form.',
             'editorScript' => 'file:./index.js',
             'attributes' => array(
                 'action' => array( 'type' => 'string', 'default' => '' ),
@@ -47,7 +47,7 @@ final class AuthoredNativeFormBlockGenerator
     var SelectControl = components.SelectControl;
     var ToggleControl = components.ToggleControl;
     var attributes = __BLOCK_ATTRIBUTES__;
-    function edit( props ) { var attrs = props.attributes; return createElement( element.Fragment, null, createElement( InspectorControls, null, createElement( PanelBody, { title: 'Form settings' }, createElement( TextControl, { label: 'Action', value: attrs.action || '', onChange: function( action ) { props.setAttributes( { action: action } ); } } ), createElement( SelectControl, { label: 'Method', value: attrs.method || 'get', options: [ { label: 'GET', value: 'get' } ], onChange: function( method ) { props.setAttributes( { method: method, methodDeclared: true } ); } } ), createElement( TextControl, { label: 'Form name', value: attrs.name || '', onChange: function( name ) { props.setAttributes( { name: name } ); } } ), createElement( ToggleControl, { label: 'Disable validation', checked: !!attrs.noValidate, onChange: function( noValidate ) { props.setAttributes( { noValidate: noValidate } ); } } ) ) ), createElement( 'form', { action: attrs.action || undefined, method: attrs.method || 'get', className: attrs.className || undefined, id: attrs.id || undefined, name: attrs.name || undefined, 'aria-label': attrs.ariaLabel || undefined, target: attrs.target || undefined, autoComplete: attrs.autocomplete || undefined, noValidate: attrs.noValidate }, createElement( InnerBlocks, null ) ) ); }
+    function edit( props ) { var attrs = props.attributes; return createElement( element.Fragment, null, createElement( InspectorControls, null, createElement( PanelBody, { title: 'Form settings' }, createElement( TextControl, { label: 'Action', value: attrs.action || '', onChange: function( action ) { props.setAttributes( { action: action } ); } } ), createElement( SelectControl, { label: 'Method', value: attrs.method || 'get', options: [ { label: 'GET', value: 'get' }, { label: 'POST', value: 'post' }, { label: 'Dialog', value: 'dialog' } ], onChange: function( method ) { props.setAttributes( { method: method, methodDeclared: true } ); } } ), createElement( TextControl, { label: 'Form name', value: attrs.name || '', onChange: function( name ) { props.setAttributes( { name: name } ); } } ), createElement( ToggleControl, { label: 'Disable validation', checked: !!attrs.noValidate, onChange: function( noValidate ) { props.setAttributes( { noValidate: noValidate } ); } } ) ) ), createElement( 'form', { action: attrs.action || undefined, method: attrs.method || 'get', className: attrs.className || undefined, id: attrs.id || undefined, name: attrs.name || undefined, 'aria-label': attrs.ariaLabel || undefined, target: attrs.target || undefined, autoComplete: attrs.autocomplete || undefined, noValidate: attrs.noValidate }, createElement( InnerBlocks, null ) ) ); }
     function save( props ) { var attrs = props.attributes; return createElement( 'form', { action: attrs.action || undefined, method: attrs.methodDeclared ? ( attrs.method || 'get' ) : undefined, className: attrs.className || undefined, id: attrs.id || undefined, name: attrs.name || undefined, 'aria-label': attrs.ariaLabel || undefined, target: attrs.target || undefined, autoComplete: attrs.autocomplete || undefined, noValidate: attrs.noValidate || undefined }, createElement( InnerBlocks.Content, null ) ); }
     blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
@@ -68,7 +68,8 @@ JS;
             }
         }
         if ( ! empty($attrs['methodDeclared']) ) {
-            $html .= ' method="get"';
+            $method = in_array($attrs['method'] ?? '', array('get', 'post', 'dialog'), true) ? $attrs['method'] : 'get';
+            $html .= ' method="' . $method . '"';
         }
         if ( ! empty($attrs['noValidate']) ) {
             $html .= ' novalidate';

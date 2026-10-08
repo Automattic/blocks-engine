@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use DOMElement;
 
 /** Lowers native GET-form controls while the form builder is converting children. */
@@ -24,11 +25,35 @@ final class NativeGetFormControlConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
+        // Typed baseline facts are a native-control contract even without CSS,
+        // including hidden/file/readonly controls and controls outside a form.
+        if (null !== NativeControlState::attributes($element)) {
+            $block = match ($tagName) {
+                'input' => $this->authoredFormControlBlockConverter->input($element, null, false, true),
+                'select' => $this->authoredFormControlBlockConverter->select($element, true),
+                'textarea' => $this->authoredFormControlBlockConverter->textarea($element, null, true),
+                default => null,
+            };
+            return ConversionOutcome::handled($block);
+        }
+        if ('label' === $tagName) {
+            $controls = FormControlClassifier::controlElements($element);
+            if (1 === count($controls) && null !== NativeControlState::attributes($controls[0])) {
+                $control = $controls[0];
+                return ConversionOutcome::handled(match (strtolower($control->tagName)) {
+                    'input' => $this->authoredFormControlBlockConverter->input($control, $element, false, true),
+                    'select' => $this->authoredFormControlBlockConverter->select($control, true, $element),
+                    'textarea' => $this->authoredFormControlBlockConverter->textarea($control, $element, true),
+                });
+            }
+        }
         if ( ! $this->nativeGetFormBlockBuilder->isInside() ) {
             return ConversionOutcome::unhandled();
         }
 
         if ( 'label' === $tagName && '' !== SourceDom::attr($element, 'for') ) {
+            $target = $element->ownerDocument?->getElementById(SourceDom::attr($element, 'for'));
+            if ($target instanceof DOMElement && $target->hasAttribute(NativeControlState::ATTRIBUTE)) return ConversionOutcome::unhandled();
             return ConversionOutcome::handled(null);
         }
 
@@ -56,8 +81,9 @@ final class NativeGetFormControlConverter implements ElementConverter
             return null;
         }
         if ( 'input' === $tagName ) {
-            return $this->authoredFormControlBlockConverter->input($element, $this->formControlMetadataBuilder->associatedLabel($element), false, true);
+            return $this->authoredFormControlBlockConverter->input($element, $element->hasAttribute(NativeControlState::ATTRIBUTE) ? null : $this->formControlMetadataBuilder->associatedLabel($element), false, true);
         }
+        if ('textarea' === $tagName) return $this->authoredFormControlBlockConverter->textarea($element, $this->formControlMetadataBuilder->associatedLabel($element), true);
         if ( 'select' === $tagName ) {
             return $this->authoredFormControlBlockConverter->select($element, true, $this->formControlMetadataBuilder->associatedLabel($element));
         }
