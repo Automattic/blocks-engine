@@ -191,7 +191,7 @@ final class ButtonStyleResolver
     private function declarations(string $style): array
     {
         $declarations = array();
-        foreach ( explode(';', $style) as $declaration ) {
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
             if ( ! str_contains($declaration, ':') ) {
                 continue;
             }

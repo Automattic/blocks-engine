@@ -1041,7 +1041,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return preg_match('/^(-?[0-9]*\.?[0-9]+)px$/i', $value, $match) ? (int) round((float) $match[1]) : null;
         };
 
-        foreach ( explode(';', $style) as $declaration ) {
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
             $parts = explode(':', $declaration, 2);
             if ( 2 !== count($parts) ) {
                 continue;

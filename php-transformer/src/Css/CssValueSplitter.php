@@ -61,6 +61,12 @@ final class CssValueSplitter
     }
 
     /**
+     * Lexing (quotes, escapes, comments, unquoted `url(` tokens, parens) is
+     * {@see CssSyntaxScanner::consume()}; this only decides where a top-level
+     * delimiter falls. A comment is discarded and reads as one space, so
+     * `a/**\/b` stays two tokens. Square brackets do not shield delimiters
+     * here, and an unmatched closer is kept as a literal byte.
+     *
      * @param array<int, string> $delimiters
      * @return array<int, string>
      */
@@ -68,49 +74,21 @@ final class CssValueSplitter
     {
         $parts  = array();
         $buffer = '';
-        $depth  = 0;
-        $quote  = null;
+        $state  = CssSyntaxScanner::state();
         $length = strlen($input);
 
-        for ( $index = 0; $index < $length; ++$index ) {
-            $char = $input[ $index ];
-            if ( '\\' === $char ) {
-                $buffer .= $char;
-                if ( $index + 1 < $length ) {
-                    $buffer .= $input[ ++$index ];
-                }
+        for ( $offset = 0; $offset < $length; ) {
+            $wasComment = $state['comment'];
+            $topLevel   = self::outsideGroups($state);
+            $next       = CssSyntaxScanner::consume($input, $offset, $state) ?? $offset + 1;
+            $piece      = $state['comment'] && ! $wasComment ? ' ' : substr($input, $offset, $next - $offset);
+            $offset     = $next;
+            if ( $wasComment ) {
                 continue;
             }
 
-            if ( null !== $quote ) {
-                $buffer .= $char;
-                if ( $quote === $char ) {
-                    $quote = null;
-                }
-                continue;
-            }
-
-            if ( '"' === $char || "'" === $char ) {
-                $quote  = $char;
-                $buffer .= $char;
-                continue;
-            }
-
-            // CSS tokenization discards a comment, so it never reaches a
-            // segment; it reads as one space so `a/**/b` stays two tokens.
-            if ( '/' === $char && '*' === ( $input[ $index + 1 ] ?? '' ) ) {
-                $index = self::commentEnd($input, $index);
-                $char  = ' ';
-            }
-
-            if ( '(' === $char ) {
-                ++$depth;
-            } elseif ( ')' === $char && $depth > 0 ) {
-                --$depth;
-            }
-
-            $isDelimiter = $splitWhitespace ? '' === trim($char) : in_array($char, $delimiters, true);
-            if ( 0 === $depth && $isDelimiter ) {
+            $isDelimiter = 1 === strlen($piece) && ( $splitWhitespace ? '' === trim($piece) : in_array($piece, $delimiters, true) );
+            if ( $topLevel && $isDelimiter ) {
                 if ( ! $splitWhitespace || '' !== $buffer ) {
                     $parts[] = $buffer;
                 }
@@ -118,7 +96,7 @@ final class CssValueSplitter
                 continue;
             }
 
-            $buffer .= $char;
+            $buffer .= $piece;
         }
 
         if ( ! $splitWhitespace || '' !== $buffer ) {
@@ -136,57 +114,26 @@ final class CssValueSplitter
      */
     public static function hasBalancedParens(string $value): bool
     {
-        $depth  = 0;
-        $quote  = null;
+        $state  = CssSyntaxScanner::state();
         $length = strlen($value);
 
-        for ( $index = 0; $index < $length; ++$index ) {
-            $char = $value[ $index ];
-            if ( '\\' === $char ) {
-                if ( $index + 1 < $length ) {
-                    ++$index;
-                }
-                continue;
-            }
-
-            if ( null !== $quote ) {
-                if ( $quote === $char ) {
-                    $quote = null;
-                }
-                continue;
-            }
-
-            if ( '"' === $char || "'" === $char ) {
-                $quote = $char;
-                continue;
-            }
-
-            if ( '/' === $char && '*' === ( $value[ $index + 1 ] ?? '' ) ) {
-                $index = self::commentEnd($value, $index);
-                continue;
-            }
-
-            if ( '(' === $char ) {
-                ++$depth;
-            } elseif ( ')' === $char ) {
-                --$depth;
-                if ( $depth < 0 ) {
+        for ( $offset = 0; $offset < $length; ) {
+            $next = CssSyntaxScanner::consume($value, $offset, $state);
+            if ( null === $next ) {
+                if ( ')' === $value[ $offset ] ) {
                     return false;
                 }
+                $next = $offset + 1;
             }
+            $offset = $next;
         }
 
-        return 0 === $depth;
+        return 0 === $state['parens'];
     }
 
-    /**
-     * Offset of the last byte of the comment opened at $offset. An unterminated
-     * comment runs to the end of the input, as it does in a browser.
-     */
-    private static function commentEnd(string $input, int $offset): int
+    /** @param array{quote: string, comment: bool, url: bool, parens: int, brackets: int} $state */
+    private static function outsideGroups(array $state): bool
     {
-        $close = strpos($input, '*/', $offset + 2);
-
-        return false === $close ? strlen($input) - 1 : $close + 1;
+        return '' === $state['quote'] && ! $state['comment'] && 0 === $state['parens'];
     }
 }

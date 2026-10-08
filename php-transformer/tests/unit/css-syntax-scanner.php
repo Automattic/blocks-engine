@@ -59,6 +59,29 @@ $assert(
     var_export($body('a{background:url(x\\{.png);color:red}'), true)
 );
 
+// An unquoted url() is a single token, so `/*` inside it is not a comment
+// opener; a quoted url() holds a string, which already shields it.
+$assert(
+    'background:url(a/*b.png)' === $body('{background:url(a/*b.png)} b{color:red}'),
+    'a `/*` inside an unquoted url() does not open a comment',
+    var_export($body('{background:url(a/*b.png)} b{color:red}'), true)
+);
+$assert(
+    25 === CssSyntaxScanner::matchingBrace('{background:url(a/*b.png)} b{color:red}', 0),
+    'matchingBrace closes a block holding an unquoted url() with `/*`',
+    var_export(CssSyntaxScanner::matchingBrace('{background:url(a/*b.png)} b{color:red}', 0), true)
+);
+$assert(
+    'background:url("a/*b.png")' === $body('a{background:url("a/*b.png")} b{color:red}'),
+    'a `/*` inside a quoted url() does not open a comment'
+);
+$assert(
+    'background:url(a}b.png)' === $body('a{background:url(a}b.png)} b{color:red}'),
+    'a raw brace inside an unquoted url() is part of the url token'
+);
+$assert('/* ; ( */color:red' === $body('a{/* ; ( */color:red}'), 'a `(` inside a comment does not open a group');
+$assert('content:"\\"}"' === $body('a{content:"\\"}"}'), 'an escaped quote does not close the string before its brace');
+
 // Structure is only read where the caller points at a brace, and an unclosed
 // block reports itself rather than guessing an end.
 $assert(null === CssSyntaxScanner::matchingBrace('a{b}', 0), 'matchingBrace requires an opening brace');

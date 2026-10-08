@@ -16,6 +16,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 
 $failures = 0;
@@ -215,6 +216,74 @@ $assert(
 );
 $assert(CssValueSplitter::hasBalancedParens('calc(100% - 2px) /* (sidebar */'), '8k: a paren inside a comment does not unbalance a value');
 $assert(! CssValueSplitter::hasBalancedParens('rgba(1, /* ) */ 2'), '8l: a close paren inside a comment does not balance a truncated value');
+
+// ---------------------------------------------------------------------------
+// 9. An unquoted url() is one token (CSS Syntax "consume a url token"): a `/*`
+//    or `(` inside it is part of the URL, not a comment opener or a group.
+//    Quoted urls, comments holding `;` or parens, and escaped quotes keep
+//    their own lexical meaning.
+// ---------------------------------------------------------------------------
+$split = static fn (string $input): array => CssValueSplitter::splitTopLevel($input, array( ';' ));
+$assert(
+    $split('background: url(a/*b.png); color: red') === array( 'background: url(a/*b.png)', 'color: red' ),
+    '9a: `/*` inside an unquoted url() does not open a comment',
+    json_encode($split('background: url(a/*b.png); color: red'))
+);
+$assert(
+    $split('background: URL( a/*b(.png ); color: red') === array( 'background: URL( a/*b(.png )', 'color: red' ),
+    '9b: an unquoted url() token is case-insensitive and treats `(` as a literal byte',
+    json_encode($split('background: URL( a/*b(.png ); color: red'))
+);
+$assert(
+    $split('background: url("a/*b.png"); color: red') === array( 'background: url("a/*b.png")', 'color: red' ),
+    '9c: `/*` inside a quoted url() stays inside the string',
+    json_encode($split('background: url("a/*b.png"); color: red'))
+);
+$assert(
+    $split('background: myurl(a /* ; */ b); color: red') === array( 'background: myurl(a   b)', 'color: red' ),
+    '9d: only a standalone `url(` is a url token; `myurl(` is an ordinary function whose comment is dropped',
+    json_encode($split('background: myurl(a /* ; */ b); color: red'))
+);
+$assert(
+    $split('width: 1px; /* a; b; */ height: 2px') === array( 'width: 1px', 'height: 2px' ),
+    '9e: a comment holding `;` never splits'
+);
+$assert(
+    $split('width: calc(1px /* ) */ + 2px); height: 2px') === array( 'width: calc(1px   + 2px)', 'height: 2px' ),
+    '9f: a `)` inside a comment does not close the enclosing function',
+    json_encode($split('width: calc(1px /* ) */ + 2px); height: 2px'))
+);
+$assert(
+    $split('width: 1px /* ( */; height: 2px') === array( 'width: 1px', 'height: 2px' ),
+    '9g: a `(` inside a comment does not open a group that swallows the next `;`',
+    json_encode($split('width: 1px /* ( */; height: 2px'))
+);
+$assert(
+    $split('content: "a\\";b"; color: red') === array( 'content: "a\\";b"', 'color: red' ),
+    '9h: an escaped double quote does not close the string',
+    json_encode($split('content: "a\\";b"; color: red'))
+);
+$assert(
+    $split("content: 'a\\';b'; color: red") === array( "content: 'a\\';b'", 'color: red' ),
+    '9i: an escaped single quote does not close the string',
+    json_encode($split("content: 'a\\';b'; color: red"))
+);
+$assert(CssValueSplitter::hasBalancedParens('url(a/*b.png)'), '9j: an unquoted url() holding `/*` is balanced');
+$assert(CssValueSplitter::hasBalancedParens('url(a(b.png)'), '9k: a `(` inside an unquoted url() is not a group');
+$assert(CssValueSplitter::hasBalancedParens('url("a/*b.png")'), '9l: a quoted url() holding `/*` is balanced');
+$assert(! CssValueSplitter::hasBalancedParens('url(a/*b.png'), '9m: an unterminated unquoted url() is unbalanced');
+$assert(CssValueSplitter::hasBalancedParens('calc(1px /* ) */ + 2px)'), '9n: a `)` inside a comment does not unbalance a value');
+$assert(CssValueSplitter::hasBalancedParens('"a\\")" (b)'), '9o: an escaped quote keeps the string open over its `)`');
+
+// ---------------------------------------------------------------------------
+// 10. Declaration readers outside the splitter read through it too, so a
+//     comment cannot split a declaration they key on.
+// ---------------------------------------------------------------------------
+$assert(
+    100 === LayoutParticipation::widthPreset('/* width: 50%; */ width: 100%'),
+    '10a: the width preset reader sees the declaration after a disabled one',
+    var_export(LayoutParticipation::widthPreset('/* width: 50%; */ width: 100%'), true)
+);
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssValueSplitter unit tests: {$failures} failed, {$passes} passed\n");
