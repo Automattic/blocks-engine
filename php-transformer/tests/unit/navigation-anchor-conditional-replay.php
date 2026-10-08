@@ -44,9 +44,18 @@ $assert(
 );
 
 // Other conditional group types carry the same replay.
-foreach ( array( '@supports (display:grid)', '@layer menu', '@container (min-width:20rem)' ) as $group ) {
+foreach ( array( '@supports (display:grid)', '@container (min-width:20rem)' ) as $group ) {
     $scoped = $anchorSection($compat('.sitenav a{color:#222}' . $group . '{.sitenav a{color:#0a7d55}}'));
     $assert(str_contains($scoped, $group) && str_contains($scoped, '#0a7d55'), $group . ' replays its nav anchor rule');
+}
+
+// Native selectors share layered declarations in their original source rule;
+// a separate painter would create a new anonymous layer when it replays one.
+foreach (array('@layer menu', '@layer') as $group) {
+    $source = $group . '{.sitenav a{color:#0a7d55!important}}';
+    $projected = (new WordPressCompatCss())->projectNavigationStylesheet($source, array());
+    $assert(str_contains($projected, $group) && str_contains($projected, 'wp-block-navigation-item__content') && substr_count($projected, '#0a7d55') === 1, $group . ' retains one shared source/native declaration in its original layer');
+    $assert(!str_contains($compat($projected), '@layer'), $group . ' is not repainted in a separate replay layer');
 }
 
 // Nested groups keep their nesting.

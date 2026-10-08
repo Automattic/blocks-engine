@@ -108,7 +108,7 @@ $assert(array() !== $cachedSitePlan && array() !== $isolatedSitePlan, 'The repea
 $assert($withoutDurations($isolatedSitePlan) === $withoutDurations($cachedSitePlan), 'A 54-page artifact must produce the same canonical WordPress site plan with cached and isolated stylesheet analysis.');
 $artifactMetrics = $cachedCompiler->htmlAnalysisCacheMetrics();
 $assert(($artifactMetrics['style_builds'] ?? 0) === 55 && ($artifactMetrics['style_hits'] ?? 0) >= 53 && ($artifactMetrics['style_bytes'] ?? 0) > 0, 'Artifact compiler exposes bounded source-payload cache build, hit, and byte counters.');
-$assert(55 === ($artifactMetrics['stylesheet_asset_discoveries'] ?? null), 'A 54-page repeated-CSS artifact discovers each document stylesheet set once, plus one canonical site-ordering pass.');
+$assert(54 === ($artifactMetrics['stylesheet_asset_discoveries'] ?? null), 'A 54-page repeated-CSS artifact discovers each document stylesheet set once and reuses its occurrences for replay and site ordering: ' . json_encode($artifactMetrics));
 
 $sequentialCompiler = new ArtifactCompiler();
 $sequentialShared = $sequentialCompiler->prepareShared($artifact);

@@ -49,9 +49,8 @@ $assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.ct
 $assert(hash('sha256', '.hero p{color:green}') === ($assetsByPath['index.inline-2.css']['source_hash'] ?? null) && ! str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), '.hero p') && str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
 $assert(! isset($assetsByPath['a.occurrence-2-generated-1.css']) && '.authored-collision{color:purple}' === ($assetsByPath['a.occurrence-2.css']['content'] ?? ''), 'a repeated identical link materializes no alias while authored collision CSS remains a deterministic orphan asset');
 
-// A repeat under a different media condition is a distinct cascade
-// participant, so it still earns its own asset, allocated around the authored
-// path collision.
+// Conditions and repeated positions are instances of one resource. Authored
+// paths that resemble retired alias names remain unrelated resource inventory.
 $mediaVariant = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="a.css"><link rel="stylesheet" href="a.css" media="print"><link rel="stylesheet" href="a.css"></head><body><p class="copy">Copy</p></body></html>' ),
@@ -61,12 +60,13 @@ $mediaVariant = ( new ArtifactCompiler() )->compile(array(
 ) )->toArray();
 $mediaVariantPaths = array_column($mediaVariant['assets'] ?? array(), 'path');
 $mediaVariantAssets = array_column($mediaVariant['assets'] ?? array(), null, 'path');
+$mediaVariantPlanAssets = array_column($mediaVariant['source_reports']['wordpress_site_plan']['assets'] ?? array(), null, 'source_path');
 $assert(
     in_array('a.css', $mediaVariantPaths, true)
-        && in_array('a.occurrence-2-generated-1.css', $mediaVariantPaths, true)
-        && 'print' === ($mediaVariantAssets['a.occurrence-2-generated-1.css']['media'] ?? null)
-        && 1 === count(array_filter($mediaVariantPaths, static fn (string $path): bool => str_contains($path, 'occurrence-2-generated'))),
-    'a repeated link under a different media condition still materializes its own asset, and the third identical link adds no further copy'
+        && 0 === count(array_filter($mediaVariantPaths, static fn (string $path): bool => str_contains($path, 'occurrence-2-generated')))
+        && array('', 'print', '') === array_column($mediaVariantPlanAssets['a.css']['stylesheet_instances'] ?? array(), 'media')
+        && '.authored-collision{color:purple}' === ($mediaVariantAssets['a.occurrence-2.css']['content'] ?? null),
+    'three ordered link instances retain their conditions and one CSS resource without allocating URI aliases or touching authored collision files'
 );
 
 $runtimeReveal = ( new ArtifactCompiler() )->compile(array( 'files' => array(
