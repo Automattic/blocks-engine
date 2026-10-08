@@ -19,6 +19,7 @@ final class CapturedDialogBlockGenerator
             'ariaDescribedby' => array('type' => 'string', 'default' => ''),
             'className' => array('type' => 'string', 'default' => ''),
             'presentation' => array('type' => 'string', 'default' => ''),
+            'placement' => array('type' => 'string', 'default' => ''),
             'addCloseButton' => array('type' => 'boolean', 'default' => false),
             'gallerySelection' => array('type' => 'array', 'default' => array()),
             'ancestorState' => array('type' => 'array', 'default' => array()),
@@ -28,7 +29,7 @@ final class CapturedDialogBlockGenerator
     var createElement = element.createElement;
     var InnerBlocks = blockEditor.InnerBlocks;
     function dialogProps( attrs ) {
-        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined, 'data-blocks-engine-ancestor-state': attrs.ancestorState && attrs.ancestorState.length ? JSON.stringify( attrs.ancestorState ) : undefined };
+        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'data-blocks-engine-placement': attrs.placement || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined, 'data-blocks-engine-ancestor-state': attrs.ancestorState && attrs.ancestorState.length ? JSON.stringify( attrs.ancestorState ) : undefined };
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
@@ -120,21 +121,30 @@ JS;
         var last = frames.length ? frames[ frames.length - 1 ][ property ] : '';
         return last || window.getComputedStyle( node )[ property ];
     }
-    // A dropdown panel is painted by its header in the source, not by itself.
-    // Use the nearest painted ancestor of the trigger and sit under the header.
+    // A dropdown with no observed source place drops under the trigger's
+    // header. Its paint usually lives on that header, and it joins the
+    // trigger's stacking context so the page's own layers stay beneath it.
     function placeDropdown( dialog, trigger ) {
         var host = trigger.closest( 'header,[role="banner"]' ) || trigger;
         var node = trigger;
         var background = '';
         var backdrop = 'none';
+        var layer = 'auto';
         while ( node && node.nodeType === 1 ) {
             var paint = settled( node, 'backgroundColor', 'background-color' );
-            if ( paint && 'transparent' !== paint && ! /rgba\(.*,\s*0\)$/.test( paint ) ) { background = paint; backdrop = settled( node, 'backdropFilter', 'backdrop-filter' ) || 'none'; break; }
+            if ( ! background && paint && 'transparent' !== paint && ! /rgba\(.*,\s*0\)$/.test( paint ) ) { background = paint; backdrop = settled( node, 'backdropFilter', 'backdrop-filter' ) || 'none'; }
+            if ( 'auto' === layer && 'auto' !== window.getComputedStyle( node ).zIndex ) layer = window.getComputedStyle( node ).zIndex;
             node = node.parentElement;
         }
         dialog.style.setProperty( '--blocks-engine-dropdown-background', background || window.getComputedStyle( document.body ).backgroundColor );
         dialog.style.setProperty( '--blocks-engine-dropdown-backdrop', backdrop );
+        dialog.style.setProperty( '--blocks-engine-dropdown-layer', layer );
         dialog.style.setProperty( '--blocks-engine-dropdown-top', Math.max( 0, Math.round( host.getBoundingClientRect().bottom ) ) + 'px' );
+    }
+    // The control a person operates: the trigger itself or the native button
+    // or link a block wrapper holds.
+    function control( trigger ) {
+        return trigger.matches( 'button,a,[role="button"]' ) ? trigger : trigger.querySelector( 'button,a,[role="button"]' ) || trigger;
     }
     // A source close control is a native button once converted, so it is
     // recognized by its accessible name as well as the explicit marker.
@@ -151,6 +161,21 @@ JS;
         var triggers = ( dialog.getAttribute( 'data-blocks-engine-triggers' ) || '' ).split( /\s+/ ).map( function( id ) { return document.getElementById( id ); } ).filter( Boolean );
         if ( ! triggers.length ) return;
         dialog.dataset.blocksEngineMounted = 'true';
+        // The capture observed a dropdown: it opens without making the page
+        // inert, its source trigger toggles it, and Escape returns focus to
+        // that trigger. Anything else keeps the modal contract.
+        var dropdown = 'dropdown' === dialog.getAttribute( 'data-blocks-engine-presentation' );
+        var opener = null;
+        function expanded( value ) { if ( dropdown ) triggers.forEach( function( trigger ) { control( trigger ).setAttribute( 'aria-expanded', value ? 'true' : 'false' ); } ); }
+        function close() { expanded( false ); if ( dialog.close ) dialog.close(); else { dialog.removeAttribute( 'open' ); dialog.dispatchEvent( new Event( 'close' ) ); } }
+        expanded( false );
+        dialog.addEventListener( 'close', function() { expanded( false ); } );
+        if ( dropdown ) document.addEventListener( 'keydown', function( event ) {
+            if ( 'Escape' !== event.key || ! dialog.open ) return;
+            event.preventDefault();
+            close();
+            if ( opener ) control( opener ).focus();
+        } );
         var selection = JSON.parse( dialog.getAttribute( 'data-blocks-engine-gallery-selection' ) || '[]' );
         triggers.forEach( function( trigger ) { trigger.addEventListener( 'click', function( event ) {
             var binding = selection.find( function( item ) { return item.triggerId === trigger.id; } );
@@ -165,15 +190,25 @@ JS;
                 if ( ! Number.isInteger( index ) ) return;
             }
             event.preventDefault();
+            if ( dropdown ) {
+                if ( dialog.open ) { close(); return; }
+                opener = trigger;
+                applyAncestors( dialog, trigger );
+                if ( 'under-header' === dialog.getAttribute( 'data-blocks-engine-placement' ) ) placeDropdown( dialog, trigger );
+                if ( dialog.show ) dialog.show(); else dialog.setAttribute( 'open', '' );
+                expanded( true );
+                return;
+            }
             if ( ! dialog.open ) applyAncestors( dialog, trigger );
-            if ( 'dropdown' === dialog.getAttribute( 'data-blocks-engine-presentation' ) ) placeDropdown( dialog, trigger );
             if ( dialog.showModal ) dialog.showModal(); else dialog.setAttribute( 'open', '' );
             if ( binding ) {
                 var carousel = dialog.querySelector( '.blocks-engine-authored-carousel' );
                 if ( carousel ) carousel.dispatchEvent( new CustomEvent( 'blocks-engine-carousel-select', { detail: { index: index } } ) );
             }
         } ); } );
-        dialog.addEventListener( 'click', function( event ) { if ( event.target === dialog || closeControl( event.target ) ) dialog.close ? dialog.close() : dialog.removeAttribute( 'open' ); } );
+        // A source close control inside the panel still closes it. Outside
+        // clicks are not given a meaning the capture did not observe.
+        dialog.addEventListener( 'click', function( event ) { if ( ( ! dropdown && event.target === dialog ) || closeControl( event.target ) ) close(); } );
     }
     function mountAll() { document.querySelectorAll( 'dialog[data-blocks-engine-triggers]' ).forEach( mount ); }
     if ( 'loading' === document.readyState ) document.addEventListener( 'DOMContentLoaded', mountAll ); else mountAll();
@@ -187,9 +222,11 @@ JS;
         // wrapper that painted it. Replace the user agent's white, centred,
         // black-on-white box with a full-width panel under the header. The
         // rules have no specificity, so the source classes still win.
+        // A dropdown kept at its observed source place flows there like the
+        // source panel did: only the user agent's dialog box is reset.
         $style = 'dialog[data-blocks-engine-triggers]:not([open]){display:none!important}'
-            . ':where(dialog[data-blocks-engine-presentation="dropdown"]){position:fixed;top:var(--blocks-engine-dropdown-top,0px);left:0;width:100%;max-width:none;max-height:calc(100vh - var(--blocks-engine-dropdown-top,0px));margin:0;overflow-y:auto;background-color:var(--blocks-engine-dropdown-background,Canvas);-webkit-backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);color:inherit}'
-            . 'dialog[data-blocks-engine-presentation="dropdown"]::backdrop{background:transparent}';
+            . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="under-header"]){position:fixed;top:var(--blocks-engine-dropdown-top,0px);left:0;width:100%;max-width:none;max-height:calc(100vh - var(--blocks-engine-dropdown-top,0px));margin:0;overflow-y:auto;z-index:var(--blocks-engine-dropdown-layer,auto);background-color:var(--blocks-engine-dropdown-background,Canvas);-webkit-backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);color:inherit}'
+            . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="in-place"]){position:static;inset:auto;width:auto;height:auto;max-width:none;max-height:none;margin:0;padding:0;border-width:0;background-color:transparent;color:inherit;overflow:visible}';
 
         return array(
             'name' => self::LOCAL_NAME,

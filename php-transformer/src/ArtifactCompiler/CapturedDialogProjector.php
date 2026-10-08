@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
+use DOMNode;
 use DOMXPath;
 
 /** Projects bounded captured-dialog evidence into the matching source document. */
@@ -346,7 +347,7 @@ final class CapturedDialogProjector
      * @param array<int, DOMElement> $triggers
      * @param array<int, string> $triggerIds
      */
-    private function appendProjectedDialog(DOMDocument $document, array $fragment, array $triggers, array $triggerIds, string $identity, bool $dropdown): DOMElement
+    private function appendProjectedDialog(DOMDocument $document, array $fragment, array $triggers, array $triggerIds, string $identity, bool $dropdown, ?DOMElement $sourcePlace = null): DOMElement
     {
         $dialogId = 'blocks-engine-dialog-' . $identity;
         $dialogElement = $document->createElement('dialog');
@@ -354,17 +355,29 @@ final class CapturedDialogProjector
         $dialogElement->setAttribute('data-blocks-engine-captured-dialog', 'true');
         $dialogElement->setAttribute('data-blocks-engine-triggers', implode(' ', $triggerIds));
         if (is_string($fragment['class']) && '' !== $fragment['class']) $dialogElement->setAttribute('class', $fragment['class']);
-        // A menu panel that does not place itself drops under its header. Its
-        // paint usually lives on that header, so the dialog block resolves it.
-        if ($dropdown && ! $fragment['self_positioned']) $dialogElement->setAttribute('data-blocks-engine-presentation', 'dropdown');
+        // The producer observed whether the source panel was modal or a
+        // dropdown. A dropdown opens without trapping the page and keeps the
+        // source trigger as its toggle. Where it sits follows the evidence:
+        // the panel's observed place in the source, its own positioning, or
+        // (with neither) under the trigger's header.
+        if ($dropdown) {
+            $dialogElement->setAttribute('data-blocks-engine-presentation', 'dropdown');
+            $dialogElement->setAttribute('data-blocks-engine-placement', $sourcePlace instanceof DOMElement ? 'in-place' : ($fragment['self_positioned'] ? 'source' : 'under-header'));
+        }
         $ancestorState = $this->triggerAncestorState($triggers);
         if (array() !== $ancestorState) $dialogElement->setAttribute('data-blocks-engine-ancestor-state', json_encode($ancestorState, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
         if (is_string($fragment['aria_label']) && '' !== $fragment['aria_label']) $dialogElement->setAttribute('aria-label', $fragment['aria_label']);
         if (is_string($fragment['aria_labelledby']) && '' !== $fragment['aria_labelledby']) $dialogElement->setAttribute('aria-labelledby', $fragment['aria_labelledby']);
         if (is_string($fragment['aria_describedby']) && '' !== $fragment['aria_describedby']) $dialogElement->setAttribute('aria-describedby', $fragment['aria_describedby']);
-        if (! $fragment['has_close_control']) $dialogElement->setAttribute('data-blocks-engine-add-close', 'true');
+        // A modal hides its trigger behind the page, so it needs a close
+        // control; a dropdown's source trigger stays reachable and closes it.
+        if (! $dropdown && ! $fragment['has_close_control']) $dialogElement->setAttribute('data-blocks-engine-add-close', 'true');
         foreach ($fragment['nodes'] as $node) {
             $dialogElement->appendChild($document->importNode($node, true));
+        }
+        if ($sourcePlace instanceof DOMElement && $sourcePlace->parentNode instanceof DOMNode) {
+            $sourcePlace->parentNode->replaceChild($dialogElement, $sourcePlace);
+            return $dialogElement;
         }
         ($document->getElementsByTagName('body')->item(0) ?? $document->documentElement)?->appendChild($dialogElement);
         return $dialogElement;
@@ -467,7 +480,10 @@ final class CapturedDialogProjector
                 }
                 // The producer marks an in-place dropdown panel with `dla-dropdown`.
                 $dropdown = in_array('dla-dropdown', preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), true);
-                $dialog = $this->appendProjectedDialog($document, $fragment, $triggers, $triggerIds, $identity, $dropdown);
+                // The producer placed a dropdown panel where the source rendered
+                // it (`data-dla-observed-placement`); the dialog stays there.
+                $sourcePlace = $dropdown && $panel->hasAttribute('data-dla-observed-placement') ? $panel : null;
+                $dialog = $this->appendProjectedDialog($document, $fragment, $triggers, $triggerIds, $identity, $dropdown, $sourcePlace);
                 $selection = json_decode($panel->getAttribute('data-blocks-engine-gallery-selection'), true);
                 if (is_array($selection) && array() !== $selection) {
                     $dialog->setAttribute('data-blocks-engine-gallery-selection', json_encode(array_map(static fn(string $id): array => array('triggerId' => $id, 'indices' => $selection), $triggerIds), JSON_THROW_ON_ERROR));
