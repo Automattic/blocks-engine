@@ -61,6 +61,25 @@ final class NavigationPatternContext
         $this->session?->authorSelectorProjectionState()->markNavigationSource($element, $role, $rendersSourceSiblings);
     }
 
+    /** Source list identity also survives when its landmark owns another block. */
+    public function navigationListHostIdentity(DOMElement $element): string
+    {
+        if (null === $this->session || !in_array(strtolower($element->tagName), array('ul', 'ol'), true)) return '';
+        $styles = $this->session->authorStyleAnalysis();
+        foreach ($styles->styleRules() as $rule) {
+            foreach ($rule['selectors'] ?? array() as $record) {
+                $parsed = $record['parsed'] ?? array();
+                $compounds = $parsed['compounds'] ?? array();
+                if (!($parsed['supported'] ?? false) || array() === $compounds) continue;
+                $subject = $compounds[array_key_last($compounds)];
+                if (!in_array(strtolower((string) ($subject['type'] ?? '')), array('ul', 'ol'), true)) continue;
+                $match = $styles->selectorMatchCache()->matches($element, $record['selector'], $parsed);
+                if (($match['supported'] ?? false) && ($match['matches'] ?? false)) return $this->session->authorSelectorProjectionState()->ensureSemanticMarker($element->getNodePath() ?? '');
+            }
+        }
+        return '';
+    }
+
     /** Marks a block element inside a link label that paints the label text itself. */
     public const LABEL_TYPOGRAPHY_BOX_CLASS = 'blocks-engine-label-typography';
 
