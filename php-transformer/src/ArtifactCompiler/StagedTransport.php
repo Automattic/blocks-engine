@@ -216,9 +216,7 @@ trait StagedTransport
         $initialTransformCount = $stageCompiler->htmlDocumentTransformCount;
         if (!$sharedPlanVerified) $this->assertSharedPlan($sharedPlan);
         $this->assertPagePlan($pagePlan, $sharedPlan);
-        $sharedArtifact = isset($sharedPlan['shared_reduction'])
-            ? array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)))
-            : $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
+        $sharedArtifact = array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)));
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
         $pageLayoutGeometryProof = is_array($pagePlan['layout_geometry_proof'] ?? null) ? $pagePlan['layout_geometry_proof'] : array();
         foreach ($pageArtifact['files'] as &$pageFile) {
@@ -249,15 +247,12 @@ trait StagedTransport
             // Stylesheet occurrence records are local conversion inputs. They
             // are rebuilt from the owned source so reference-backed shared
             // plans remain portable without hydrating a page at preparation.
+            // A page's own stylesheets are part of its cascade, exactly as in
+            // whole-artifact compilation (see compileHtmlSourceDocuments).
             $documentFiles = $hasSharedStylesheetOccurrences
                 ? $files
                 : $stageCompiler->withStylesheetOccurrenceAssets((string) ($file['content'] ?? ''), $path, $files);
-            if (!$hasSharedStylesheetOccurrences) {
-                foreach ($documentFiles as &$documentFile) {
-                    if (isset($documentFile['stylesheet_occurrence']) && 'page' === $stageCompiler->fileOwnership($documentFile)['scope']) unset($documentFile['stylesheet_occurrence']);
-                }
-                unset($documentFile);
-            }
+            $stageCompiler->glyphPayloadReader = $payloadReader;
             $stageCompiler->indexFiles($documentFiles);
             $compiledDocuments[$path] = $stageCompiler->compileHtmlDocumentBlocks(
                 (string) ($file['content'] ?? ''),
@@ -265,7 +260,8 @@ trait StagedTransport
                 $documentFiles,
                 $path === $entryPath ? 'artifact-entry' : 'artifact-document',
                 (string) ($sharedPlan['analysis']['block_namespace'] ?? ''),
-                true
+                true,
+                is_array($pagePlan['artifact']['runtime_declarations'] ?? null) ? $pagePlan['artifact']['runtime_declarations'] : array()
             );
         }
         ksort($compiledDocuments, SORT_STRING);
@@ -279,23 +275,10 @@ trait StagedTransport
         }
         // A receipt owns every page-derived input required by final reduction.
         // Text is hydrated here; binary references deliberately stay portable.
-        $pagePlan['receipt_schema'] = isset($sharedPlan['shared_reduction'])
-            ? ($pagePlan['compiler_options']['compiled_page_schema'] ?? self::COMPACT_RECEIPT_SCHEMA)
-            : self::PAGE_RECEIPT_SCHEMA;
-        if (self::COMPACT_RECEIPT_SCHEMA === $pagePlan['receipt_schema']) $pagePlan['artifact'] = $pageArtifact;
+        $pagePlan['receipt_schema'] = self::COMPACT_RECEIPT_SCHEMA;
+        $pagePlan['artifact'] = $pageArtifact;
         $pagePlan['compiled_documents'] = $compiledDocuments;
         $pagePlan['owned_document_paths'] = array_keys($compiledDocuments);
-        if (!isset($sharedPlan['shared_reduction'])) {
-            $pagePlan['work'] = array(
-                'compiled_document_count' => count($compiledDocuments),
-                'html_document_transform_count' => $stageCompiler->htmlDocumentTransformCount - $initialTransformCount,
-                'normalization_count' => 0,
-                'analysis_count' => 0,
-                'compile_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
-            );
-            $pagePlan['digest'] = $this->planDigest($this->pagePlanDigestInput($pagePlan));
-            return $pagePlan;
-        }
         $pagePlan['shared_reduction_digest'] = $sharedPlan['shared_reduction_digest'];
         $pagePlan['terminal_reduction'] = $stageCompiler->collectPageReduction(
             $pagePlan,
@@ -306,8 +289,15 @@ trait StagedTransport
             $files,
             $entryPath
         );
-        if (self::COMPACT_RECEIPT_SCHEMA === $pagePlan['receipt_schema']) {
-            unset($pagePlan['terminal_reduction']['files'], $pagePlan['terminal_reduction']['entry_blocks']);
+        unset($pagePlan['terminal_reduction']['files'], $pagePlan['terminal_reduction']['entry_blocks']);
+        // Final reduction reads a non-entry document through its serialized
+        // markup and precomputed editability report; its parsed block tree is
+        // the largest per-page payload and composition never reads it. Only
+        // the entry document keeps its tree, which terminal reports walk.
+        foreach ($pagePlan['compiled_documents'] as $path => $document) {
+            if ($path !== $entryPath && is_array($document['editability_report'] ?? null)) {
+                unset($pagePlan['compiled_documents'][$path]['blocks']);
+            }
         }
         /*
          * Observational work data is deliberately excluded from the receipt
@@ -409,8 +399,7 @@ trait StagedTransport
             }
             if (!isset($sharedPlan['shared_reduction'])) throw new \InvalidArgumentException('Compiled terminal receipts require the digest-bound shared reduction supplied by their shared plan.');
             $reduction = $pagePlan['terminal_reduction'] ?? null;
-            $isCompactReceipt = self::COMPACT_RECEIPT_SCHEMA === ($pagePlan['receipt_schema'] ?? null);
-            $pageFiles = $isCompactReceipt ? ($pagePlan['artifact']['files'] ?? null) : ($reduction['files'] ?? null);
+            $pageFiles = $pagePlan['artifact']['files'] ?? null;
             if (!is_array($reduction) || !is_array($pageFiles) || !is_array($reduction['source_documents'] ?? null) || !is_array($reduction['component_facts'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
             if (($pagePlan['shared_reduction_digest'] ?? null) !== ($sharedPlan['shared_reduction_digest'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt is bound to another shared reduction.');
             $pageArtifact = array('files' => $pageFiles);
@@ -429,11 +418,8 @@ trait StagedTransport
                 }
                 $compiledDocuments[$path] = $document;
             }
-            if ($isCompactReceipt) {
-                $reduction['files'] = $pageFiles;
-                $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
-                $reduction['entry_blocks'] = $pagePlan['compiled_documents'][$entryPath] ?? null;
-            }
+            $reduction['files'] = $pageFiles;
+            $reduction['entry_blocks'] = $pagePlan['compiled_documents'][(string) ($sharedPlan['analysis']['entry_path'] ?? '')] ?? null;
             $reductions[] = $reduction;
             $this->reportProgress($onProgress, 'compose_pages', count($reductions), $pageTotal);
         }
@@ -573,7 +559,7 @@ trait StagedTransport
      * Partition an envelope before normalization so preparing one stage never
      * parses, expands, or transforms payloads owned by another stage.
      *
-     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,layout_geometry_proof:array<string,mixed>,schema:string,input_keys:array<int,string>,identity:array<string,string>,source_paths:array<int,string>}
+     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,layout_geometry_proof:array<string,mixed>,schema:string,reports:array<int,string>,input_keys:array<int,string>,identity:array<string,string>,source_paths:array<int,string>}
      */
     private function stagePartition(array $artifact, string $scope, string $pageId = ''): array
     {
@@ -582,12 +568,17 @@ trait StagedTransport
         // meaning as inline compilation before ownership partitions are made.
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $capturedDialogsProjection = (new CapturedDialogProjector())->project($normalized['files']);
-        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($capturedDialogsProjection['files']);
+        $collectionsProjection = (new CapturedCollectionProjector())->project($capturedDialogsProjection['files']);
+        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($collectionsProjection['files'], $collectionsProjection['consumed_selectable_bindings'] ?? array());
         $choiceGroupsProjection = (new CapturedChoiceGroupProjector())->project($selectableSetsProjection['files']);
         $scrollStatesProjection = (new ScrollStateProjector())->project($choiceGroupsProjection['files']);
         $capturedDialogs = array(
-            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
+            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $collectionsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $choiceGroupsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
             'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
+            'native_runtime_replacements' => array_merge(
+                $capturedDialogsProjection['native_runtime_replacements'] ?? array(),
+                $collectionsProjection['superseded_runtime_scripts'] ?? array()
+            ),
         );
         if (0 < $selectableSetsProjection['projected_count']) {
             $capturedDialogs['projected_selectable_set_count'] = $selectableSetsProjection['projected_count'];
@@ -618,7 +609,7 @@ trait StagedTransport
             $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
             $fileScope = is_array($ownership) && is_string($ownership['scope'] ?? null)
                 ? $ownership['scope']
-                : (in_array($extension, array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared');
+                : (HtmlFragmentIncludes::isComponentPath($path) ? 'shared' : (in_array($extension, array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared'));
             $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
             if ('page' === $fileScope) $pages[$filePageId][] = $file;
             else $shared[] = $file;
@@ -634,6 +625,10 @@ trait StagedTransport
             'runtime_declarations' => $normalized['runtime_declarations'],
             'layout_geometry_proof' => $normalized['layout_geometry_proof'],
             'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
+            // Every stage re-normalizes its own envelope, so the report
+            // declaration has to travel with it or a partition would budget a
+            // declared report as page source.
+            'reports' => array_keys(ArtifactNormalizer::declaredReports($artifact)),
             'input_keys' => array_values(array_filter(array_keys($artifact), 'is_string')),
             'identity' => $identity,
             'source_paths' => $sourcePaths,
@@ -645,12 +640,13 @@ trait StagedTransport
             'captured_dialogs' => array(
                 'diagnostics' => $capturedDialogs['diagnostics'],
                 'projected_count' => $capturedDialogs['projected_count'],
+                'native_runtime_replacements' => $capturedDialogs['native_runtime_replacements'] ?? array(),
             ),
         );
     }
 
     /**
-     * @param array{entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,layout_geometry_proof:array<string,mixed>,schema:string,input_keys:array<int,string>} $partition
+     * @param array{entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,layout_geometry_proof:array<string,mixed>,schema:string,reports:array<int,string>,input_keys:array<int,string>} $partition
      * @param array<int,array<string,mixed>> $files
      * @return array<string,mixed>
      */
@@ -665,6 +661,9 @@ trait StagedTransport
             // serialized staged transport without exposing a consumer identity.
             'source_operation' => array('schema' => 'blocks-engine/php-transformer/source-operation/v1', 'input_keys' => $partition['input_keys']),
         );
+        if (array() !== ($partition['reports'] ?? array())) {
+            $artifact['reports'] = $partition['reports'];
+        }
         if ('' !== $partition['schema']) {
             $artifact['schema'] = $partition['schema'];
         }
@@ -711,7 +710,7 @@ trait StagedTransport
             if (!is_array($file)) continue;
             $path = is_string($file['path'] ?? null) ? $file['path'] : (is_string($key) ? $key : '');
             $ownership = $file['metadata']['compilation'] ?? null;
-            $fileScope = is_array($ownership) && is_string($ownership['scope'] ?? null) ? $ownership['scope'] : (in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared');
+            $fileScope = is_array($ownership) && is_string($ownership['scope'] ?? null) ? $ownership['scope'] : (HtmlFragmentIncludes::isComponentPath($path) ? 'shared' : (in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared'));
             $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
             // Shared preparation establishes the digest-bound canonical source
             // catalog. Page workers subsequently hydrate only their page plus
@@ -727,6 +726,32 @@ trait StagedTransport
                 }
             }
             $hydratedArtifact['files'][] = $file;
+        }
+        // Includes can name any local HTML fragment, not just a parts/ filename.
+        // Follow only dependencies of hydrated owned/shared text; unrelated page
+        // payloads stay closed. Digest verification remains readPayload's job.
+        $includeRoot = HtmlFragmentIncludes::virtualRoot($hydratedArtifact['files'], array_values(array_filter(array_merge(
+            array($artifact['entrypoint'] ?? $artifact['entry'] ?? $artifact['main'] ?? ''),
+            is_array($artifact['entrypoints'] ?? null) ? $artifact['entrypoints'] : array()
+        ), static fn($path): bool => is_string($path) && '' !== $path)));
+        $byPath = array();
+        foreach ($hydratedArtifact['files'] as $index => $file) $byPath[$file['path']] = $index;
+        $queue = array_keys($byPath);
+        $scanned = array();
+        for ($index = 0; $index < count($queue); ++$index) {
+            $path = $queue[$index];
+            $file = $hydratedArtifact['files'][$byPath[$path]];
+            if (isset($scanned[$path]) || !preg_match('/\.html?$/i', $path) || !is_string($file['content'] ?? null)) continue;
+            $scanned[$path] = true;
+            foreach (HtmlFragmentIncludes::directives($file['content'], $path) as $directive) {
+                $target = $includeRoot . substr($directive['virtual'], 1);
+                if (!isset($byPath[$target])) continue;
+                $targetIndex = $byPath[$target];
+                if (!isset($hydratedArtifact['files'][$targetIndex]['payload_reference'])) continue;
+                $hydratedArtifact['files'][$targetIndex]['content'] = $this->readPayload($this->payloadReference($hydratedArtifact['files'][$targetIndex]['payload_reference']), $payloadReader);
+                unset($hydratedArtifact['files'][$targetIndex]['payload_reference']);
+                $queue[] = $target;
+            }
         }
         // Reference-backed callers receive the same whole-artifact
         // normalization and captured-dialog projection as inline callers.
@@ -761,7 +786,7 @@ trait StagedTransport
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],
                 'component_facts' => $this->collectComponentFacts($planArtifact['files']),
-                'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $hydratedArtifact),
+                'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $hydratedArtifact, $payloadReader),
             );
             $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         }
@@ -800,10 +825,35 @@ trait StagedTransport
         $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
         $maxFile = min(ArtifactNormalizer::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES)));
         $maxTotal = min(ArtifactNormalizer::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_TOTAL_BYTES)));
+        $maxMediaFile = min(ArtifactNormalizer::MAX_MEDIA_FILE_BYTES, max(1, (int) ($requested['max_media_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_MEDIA_FILE_BYTES)));
+        $maxMediaTotal = min(ArtifactNormalizer::MAX_MEDIA_TOTAL_BYTES, max(1, (int) ($requested['max_media_total_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_MEDIA_TOTAL_BYTES)));
+        $maxReportFile = min(ArtifactNormalizer::MAX_REPORT_FILE_BYTES, max(1, (int) ($requested['max_report_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_REPORT_FILE_BYTES)));
+        $maxReportTotal = min(ArtifactNormalizer::MAX_REPORT_TOTAL_BYTES, max(1, (int) ($requested['max_report_total_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_REPORT_TOTAL_BYTES)));
+        $reports = ArtifactNormalizer::declaredReports($artifact);
         $total = 0;
+        $mediaTotal = 0;
+        $reportTotal = 0;
         foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $file) {
             if (!is_array($file) || !isset($file['payload_reference'])) continue;
             $reference = $this->payloadReference($file['payload_reference']);
+            // Reference-backed media is never opened by a reader, so its bytes
+            // cannot cause the allocation this budget exists to bound. It is
+            // still bounded, on the media budget, so growth stays refusable.
+            if ($this->isReferenceBackedBinary($file)) {
+                if ($reference['bytes'] > $maxMediaFile) throw new \InvalidArgumentException('A reference-backed media payload exceeds the compiler per-file media byte limit.');
+                $mediaTotal += $reference['bytes'];
+                if ($mediaTotal > $maxMediaTotal) throw new \InvalidArgumentException('Reference-backed media payloads exceed the compiler aggregate media byte limit.');
+                continue;
+            }
+            // A declared capture report is hydrated, so it stays bounded, but on
+            // the report budget: it is evidence about the capture, not page
+            // source the compiler converts.
+            if (isset($reports[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))])) {
+                if ($reference['bytes'] > $maxReportFile) throw new \InvalidArgumentException('A declared capture report exceeds the compiler per-file report byte limit.');
+                $reportTotal += $reference['bytes'];
+                if ($reportTotal > $maxReportTotal) throw new \InvalidArgumentException('Declared capture reports exceed the compiler aggregate report byte limit.');
+                continue;
+            }
             if ($reference['bytes'] > $maxFile) throw new \InvalidArgumentException('A payload reference exceeds the compiler per-file byte limit.');
             $total += $reference['bytes'];
             if ($total > $maxTotal) throw new \InvalidArgumentException('Payload references exceed the compiler aggregate byte limit.');
@@ -862,11 +912,7 @@ trait StagedTransport
     /** @param array<string,mixed> $file */
     private function isReferenceBackedBinary(array $file): bool
     {
-        if (!isset($file['payload_reference'])) return false;
-        $mime = strtolower((string) ($file['mime_type'] ?? $file['type'] ?? ''));
-        if ('image/svg+xml' === $mime || str_ends_with(strtolower((string) ($file['path'] ?? '')), '.svg')) return false;
-        $extension = strtolower(pathinfo((string) ($file['path'] ?? ''), PATHINFO_EXTENSION));
-        return !str_starts_with($mime, 'text/') && !in_array($mime, array('application/javascript', 'application/json', 'application/ecmascript'), true) && !in_array($extension, array('css', 'html', 'htm', 'js', 'mjs', 'json', 'md', 'markdown', 'mdx', 'svg'), true);
+        return ArtifactNormalizer::isReferenceBackedBinary($file);
     }
 
     /** @param array<string,mixed> $hashInput */
@@ -884,12 +930,10 @@ trait StagedTransport
         if (!is_array($sharedPlan['artifact'] ?? null) || !is_array($sharedPlan['artifact']['files'] ?? null)) {
             throw new \InvalidArgumentException('A staged shared plan requires its serialized artifact payload.');
         }
-        if (isset($sharedPlan['shared_reduction'])) {
-            $filesSource = $sharedPlan['shared_reduction']['files_source'] ?? null;
-            $hasFiles = is_array($sharedPlan['shared_reduction']['files'] ?? null) || 'artifact' === $filesSource;
-            if (!$hasFiles || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
-                throw new \InvalidArgumentException('A staged shared plan contains an invalid shared reduction digest.');
-            }
+        $filesSource = $sharedPlan['shared_reduction']['files_source'] ?? null;
+        $hasFiles = is_array($sharedPlan['shared_reduction']['files'] ?? null) || 'artifact' === $filesSource;
+        if (!$hasFiles || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
+            throw new \InvalidArgumentException('A staged shared plan requires a valid digest-bound shared reduction.');
         }
         if (!$this->compatibleReceiptOptions($sharedPlan['compiler_options'] ?? null)) {
             throw new \InvalidArgumentException('A staged shared plan was prepared with incompatible compiler options.');
@@ -925,7 +969,7 @@ trait StagedTransport
         if (!$this->compatibleReceiptOptions($pagePlan['compiler_options'] ?? null) || ($pagePlan['output_schema'] ?? null) !== TransformerResult::SCHEMA) {
             throw new \InvalidArgumentException('A staged page plan was prepared with incompatible compiler options or output schema.');
         }
-        if (isset($pagePlan['compiled_documents']) && !in_array(($pagePlan['receipt_schema'] ?? null), array(self::PAGE_RECEIPT_SCHEMA, self::COMPILED_RECEIPT_SCHEMA, self::COMPACT_RECEIPT_SCHEMA), true)) {
+        if (isset($pagePlan['compiled_documents']) && !in_array(($pagePlan['receipt_schema'] ?? null), array(self::COMPACT_RECEIPT_SCHEMA), true)) {
             throw new \InvalidArgumentException('A compiled page plan requires the compiled page receipt schema.');
         }
         $this->assertPlanDigest(
@@ -977,14 +1021,12 @@ trait StagedTransport
     /** @param mixed $options */
     private function compatibleReceiptOptions(mixed $options): bool
     {
-        return $options === $this->receiptCompilerOptions()
-            || $options === array('compiled_page_schema' => self::COMPILED_RECEIPT_SCHEMA, 'output_schema' => TransformerResult::SCHEMA)
-            || $options === array('compiled_page_schema' => self::PAGE_RECEIPT_SCHEMA, 'output_schema' => TransformerResult::SCHEMA);
+        return $options === $this->receiptCompilerOptions();
     }
 
     private function isTerminalReceiptSchema(mixed $schema): bool
     {
-        return in_array($schema, array(self::COMPILED_RECEIPT_SCHEMA, self::COMPACT_RECEIPT_SCHEMA), true);
+        return self::COMPACT_RECEIPT_SCHEMA === $schema;
     }
 
     /** @param array<string,mixed> $normalized @return array<string,mixed> */
@@ -1088,7 +1130,7 @@ trait StagedTransport
     }
 
     /** @param array<string,mixed> $partition @param array<string,mixed> $artifact */
-    private function compileSharedInlineShellReduction(array $partition, array $artifact): array
+    private function compileSharedInlineShellReduction(array $partition, array $artifact, ?PayloadReader $payloadReader = null): array
     {
         $files = array_merge($partition['shared'], ...array_values($partition['pages']));
         $files = self::sortedBySourcePaths($files, $partition['source_paths']);
@@ -1099,7 +1141,13 @@ trait StagedTransport
         $entryPath = (string) ($entry['path'] ?? '');
         $files = $this->withStylesheetOccurrenceAssets((string) ($entry['content'] ?? ''), $entryPath, $files);
         $this->generatedAssetRoot = '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/');
+        $previousReader = $this->glyphPayloadReader;
+        $this->glyphPayloadReader = $payloadReader;
         $this->indexFiles($files);
-        return $this->compileSharedInlineShells($files, $entryPath, (new CompanionPluginPayload())->blockNamespace($artifact));
+        try {
+            return $this->compileSharedInlineShells($files, $entryPath, (new CompanionPluginPayload())->blockNamespace($artifact));
+        } finally {
+            $this->glyphPayloadReader = $previousReader;
+        }
     }
 }

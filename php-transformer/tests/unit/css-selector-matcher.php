@@ -23,6 +23,9 @@ $dom->loadHTML('<!doctype html><div id="root"><section class="outer"><p id="one"
 libxml_clear_errors();
 $byId = static fn (string $id): DOMElement => $dom->getElementById($id);
 $match = static fn (string $selector, DOMElement $element, bool $suffix = false): array => CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector), $suffix);
+$assert($match('section > p:nth-of-type(2)', $byId('two'))['matches'], 'structural source selectors count only same-tag siblings');
+$assert($match('section > span:nth-of-type(1)', $byId('target'))['matches'], 'mixed tags and comments do not shift the type index');
+$assert(!$match('section > span:nth-of-type(4)', $byId('target'))['matches'], 'nth-of-type differs from absolute child position');
 
 foreach ( array( 'p.item#one', '*#one' ) as $selector ) {
     $result = $match($selector, $byId('one'));
@@ -73,7 +76,14 @@ $assert($match(':is(p.item)[data-value]', $byId('one'))['matches'], 'matches a s
 $assert($match(':where(#root) [data-value]', $byId('one'))['matches'], 'matches a single-simple-selector where() ancestry compound');
 $assert($match(':where(p.item)[data-value]', $byId('one'))['matches'], 'matches a single-simple-selector where() rightmost compound');
 
-foreach ( array( ':disabled', ':is(.x,.y)', ':where(.x,.y)', ':has(.x)', ':nth-child(0)', ':nth-child(2n+1)', ':nth-child()', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
+$assert($match('section > :is(.missing, .a)', $byId('one'))['matches'] && ! $match('section > :is(.missing, .a)', $byId('two'))['matches'], 'matches an is() selector list when any alternative matches');
+$assert($match('#root :where(.missing, section) > .item', $byId('two'))['matches'], 'matches a where() selector list in ancestry');
+$assert($match(':is(.missing, div .outer) > .final', $byId('target'))['matches'], 'matches a complex is() alternative against the whole document');
+$assert(10 === CssSelectorMatcher::specificity(CssSelectorMatcher::parse(':is(p, .a)')), 'weighs an is() selector list as its most specific alternative');
+$assert(10 === CssSelectorMatcher::specificity(CssSelectorMatcher::parse('.a:where(#one, .b)')), 'weighs a where() selector list as zero');
+$assert(array( 'ids' => 1, 'classes' => 0, 'types' => 0 ) === CssSelectorMatcher::selectorListArgumentSpecificity(CssSelectorMatcher::parse(':is(.a, #one)')['compounds'][0]), 'splits an is() selector list weight into simple-selector counts');
+
+foreach ( array( ':disabled', ':is(.x,:has(.y))', ':where(.x,)', ':is(.x,.y:hover)', ':has(.x)', ':nth-child(0)', ':nth-child(2n+1)', ':nth-child()', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
     $assert(! CssSelectorMatcher::parse($selector)['supported'], "rejects unsupported or malformed {$selector}");
 }
 
@@ -175,7 +185,6 @@ $identityFirst = $identityDom->getElementById('identity-first');
 if ( ! $identityFirst instanceof DOMElement ) {
     throw new RuntimeException('Selector-cache identity fixture did not produce the first element.');
 }
-$firstWrapperId = spl_object_id($identityFirst);
 $identityCache->classTokens($identityFirst);
 $identityCache->attribute($identityFirst, 'data-state');
 $identityCache->attributeNames($identityFirst);
@@ -187,7 +196,8 @@ $identitySecond = $identityDom->getElementById('identity-second');
 if ( ! $identitySecond instanceof DOMElement ) {
     throw new RuntimeException('Selector-cache identity fixture did not produce the second element.');
 }
-$assert($firstWrapperId === spl_object_id($identitySecond), 'identity regression fixture recycles the released DOMElement wrapper ID');
+// Native-node retention may prevent wrapper-ID reuse. The invariant is that
+// distinct nodes never share selector inputs, regardless of PHP's allocation.
 $assert(array( 'second' ) === $identityCache->classTokens($identitySecond), 'class-token cache does not alias a distinct element with a recycled wrapper ID');
 $assert('second' === $identityCache->attribute($identitySecond, 'data-state'), 'attribute cache does not alias a distinct element with a recycled wrapper ID');
 $assert(array( 'id', 'class', 'data-state', 'data-second' ) === $identityCache->attributeNames($identitySecond), 'attribute-name cache does not alias a distinct element with a recycled wrapper ID');

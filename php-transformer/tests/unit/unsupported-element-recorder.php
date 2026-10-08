@@ -87,7 +87,7 @@ $assert(! array_key_exists('control', $row), 'non-control-fallback-omits-control
 // Form-control metadata is attached only when the element actually has it.
 $fallbacks = array();
 $makeRecorder()->record($elementFrom('<input aria-label="Email">'), 'input', $fallbacks);
-$assert(array('tag' => 'input', 'selector' => 'input.sel', 'type' => 'text', 'label' => 'Email') === ($fallbacks[0]['control'] ?? null), 'control-metadata-attached-when-present');
+$assert(array('tag' => 'input', 'selector' => 'input.sel', 'type' => 'text', 'label' => 'Email', 'label_visible' => false) === ($fallbacks[0]['control'] ?? null), 'control-metadata-attached-when-present');
 
 if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");

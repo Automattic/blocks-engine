@@ -62,6 +62,8 @@ final class ResponsiveCounterpartEditorModule
         if ( label ) { return label; }
         ( attributes && attributes.wrappers || [] ).some( function( wrapper ) {
             label = variantLabelFrom( wrapper && wrapper.attributes && wrapper.attributes.class );
+            var source = wrapper && wrapper.attributes || {};
+            if ( ! label && Object.prototype.hasOwnProperty.call( source, 'data-dla-document-scope' ) && /^[a-z][a-z0-9_-]{0,63}$/.test( String( source['data-dla-device-document'] || '' ) ) ) label = source['data-dla-device-document'];
             return Boolean( label );
         } );
         return label;
@@ -99,8 +101,30 @@ final class ResponsiveCounterpartEditorModule
         var variant = variantOf( matches[ 0 ] );
         return variant ? { block: matches[ 0 ], variant: variant } : null;
     }
+    // Carry the owner's text into the counterpart while keeping the counterpart's
+    // own inline formatting: each variant styles its text through its own marks.
+    // Text nodes are matched in order; when the owner gained or lost text nodes,
+    // the whole text goes into the counterpart's first text node.
+    function textOnlyUpdate( ownerHtml, counterpartHtml ) {
+        // RichText attributes arrive as RichTextData objects; their string form is the HTML.
+        if ( null == ownerHtml || null == counterpartHtml || 'function' !== typeof DOMParser ) { return ownerHtml; }
+        ownerHtml = String( ownerHtml ); counterpartHtml = String( counterpartHtml );
+        var parse = function( html ) { return new DOMParser().parseFromString( '<body>' + html + '</body>', 'text/html' ).body; };
+        var texts = function( root ) { var out = []; var walker = root.ownerDocument.createTreeWalker( root, 4 ); while ( walker.nextNode() ) { out.push( walker.currentNode ); } return out; };
+        var owner = texts( parse( ownerHtml ) );
+        var target = parse( counterpartHtml );
+        var slots = texts( target );
+        if ( ! slots.length ) { return ownerHtml; }
+        if ( owner.length === slots.length ) {
+            slots.forEach( function( slot, index ) { slot.textContent = owner[ index ].textContent; } );
+        } else {
+            slots[ 0 ].textContent = owner.map( function( node ) { return node.textContent; } ).join( '' );
+            slots.slice( 1 ).forEach( function( slot ) { slot.textContent = ''; } );
+        }
+        return target.innerHTML;
+    }
     function applyToCounterpart( props, counterpart, attribute, notify ) {
-        var value = props.attributes[ attribute ];
+        var value = textOnlyUpdate( props.attributes[ attribute ], counterpart.block.attributes && counterpart.block.attributes[ attribute ] );
         var next = {};
         next[ attribute ] = value;
         data.dispatch( 'core/block-editor' ).updateBlockAttributes( counterpart.block.clientId, next );

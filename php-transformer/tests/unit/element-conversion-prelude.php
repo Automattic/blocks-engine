@@ -79,7 +79,8 @@ $authored = new AuthoredFormControlBlockConverter(
     static fn (): GeneratedBlockRegistry => new GeneratedBlockRegistry('ssi-fixture'),
     static function (string $text): void {},
     $runtime,
-    static fn (string $id): string => $id
+    static fn (string $id): string => $id,
+    static fn (DOMElement $element): DOMElement => $element
 );
 $styleResolver = new StyleResolver(
     new StyleResolutionContext(

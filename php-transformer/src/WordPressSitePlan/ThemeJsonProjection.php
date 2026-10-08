@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 
 /** Projects source CSS that has an exact Global Styles equivalent. */
 final class ThemeJsonProjection
@@ -34,25 +35,32 @@ final class ThemeJsonProjection
     private const CSS_WIDE_KEYWORDS = array('inherit', 'initial', 'revert', 'revert-layer', 'unset');
 
     /**
-     * Only global element selectors are removed from carrier CSS. Class, state,
-     * and responsive selectors remain authored CSS because theme.json cannot
-     * reproduce their cascade semantics.
+     * Source CSS remains intact. Global element defaults project only when
+     * their applicability and values agree across the document inventory;
+     * class, state, and responsive selectors remain source-owned.
      *
      * @param array<int,array<string,mixed>> $assets
-     * @return array{assets:array<int,array<string,mixed>>,theme:array<string,mixed>,provenance:array<int,array<string,mixed>>,presets:array<string,array<string,string>>}
+     * @param list<string> $documentPaths All documents to which site-wide styles apply.
+     * @return array{assets:array<int,array<string,mixed>>,theme:array<string,mixed>,provenance:array<int,array<string,mixed>>,presets:array<string,array<string,string>>,responsive_breakpoints:array<string,mixed>|null}
      */
-    public function project(array $assets): array
+    public function project(array $assets, array $documentPaths = array()): array
     {
-        $variables = $this->customProperties($assets);
+        $deliveryAssets = $assets;
+        // A selectable set owns its declarations for its entire lifetime.
+        // Projecting the initially preferred set into permanent Global Styles
+        // would keep its values active after the source selects another set.
+        $assets = array_filter($assets, static fn(array $asset): bool => StylesheetActivation::active($asset) && '' === ($asset['stylesheet_activation']['title'] ?? ''));
+        $variables = $this->customProperties($assets, $documentPaths);
         $candidates = array();
         $conditionalProperties = array();
+        $unrepresentableProperties = array();
         $fontFamilyStacks = array();
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $assetIndex => $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $path = (string) ($asset['source_path'] ?? $asset['path'] ?? '');
             $hash = (string) ($asset['content_hash'] ?? $asset['hash'] ?? hash('sha256', $asset['content']));
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors) use (&$candidates, &$conditionalProperties, &$fontFamilyStacks, $assetIndex, $path, $hash, $variables): void {
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors) use (&$candidates, &$conditionalProperties, &$unrepresentableProperties, &$fontFamilyStacks, $assetIndex, $path, $hash, $variables): void {
                 // Cascade layers qualify where a declaration sits in the source
                 // cascade but leave it unconditional; media, supports, container,
                 // scope, and starting-style ancestors make it cascade-conditional.
@@ -76,7 +84,9 @@ final class ThemeJsonProjection
                 if ($conditional) {
                     foreach ($resolved as $name => $value) {
                         foreach ($targets as $target) {
-                            if ($this->representable($target, $name, $value)) $conditionalProperties[$target . "\n" . $name] = true;
+                            $key = $target . "\n" . $name;
+                            if ($this->representable($target, $name, $value)) $conditionalProperties[$key] = true;
+                            else $unrepresentableProperties[$key] = true;
                         }
                     }
                     return;
@@ -90,7 +100,11 @@ final class ThemeJsonProjection
                     // The deferral stays source-owned.
                     if (array() !== $layer && in_array(strtolower($value), self::CSS_WIDE_KEYWORDS, true)) continue;
                     foreach ($targets as $target) {
-                        if ($this->representable($target, $name, $value)) $candidates[] = array('asset' => $assetIndex, 'path' => $path, 'hash' => $hash, 'selector' => strtolower(trim($prelude)), 'target' => $target, 'property' => $name, 'value' => $value, 'layer' => implode('>', $layer));
+                        if (!$this->representable($target, $name, $value)) {
+                            $unrepresentableProperties[$target . "\n" . $name] = true;
+                            continue;
+                        }
+                        $candidates[] = array('asset' => $assetIndex, 'path' => $path, 'hash' => $hash, 'selector' => strtolower(trim($prelude)), 'target' => $target, 'property' => $name, 'value' => $value, 'layer' => implode('>', $layer));
                     }
                 }
             });
@@ -104,10 +118,47 @@ final class ThemeJsonProjection
         $candidates = array_values(array_filter($candidates, static fn(array $candidate): bool => 1 === count($layers[$candidate['target'] . "\n" . $candidate['property']])));
 
         $counts = array_count_values(array_map(static fn(array $candidate): string => $candidate['property'] . "\n" . strtolower($candidate['value']), $candidates));
-        $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => !isset($conditionalProperties[$candidate['target'] . "\n" . $candidate['property']]) && (1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:'))));
+        $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => !isset($conditionalProperties[$candidate['target'] . "\n" . $candidate['property']]) && !isset($unrepresentableProperties[$candidate['target'] . "\n" . $candidate['property']]) && (1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:'))));
         $presets = $this->presets($selected, $fontFamilyStacks);
+        $selected = $this->sharedDefaults($selected, $assets, $documentPaths);
+        $responsiveBreakpoints = ResponsiveBreakpoints::fromAssets($assets);
 
-        return array('assets' => $assets, 'theme' => $this->theme($selected, $presets, $this->fontFaces($assets)), 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets);
+        return array('assets' => $deliveryAssets, 'theme' => $this->theme($selected, $presets, $this->fontFaces($assets), $responsiveBreakpoints['viewport']), 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets, 'responsive_breakpoints' => $responsiveBreakpoints['report']);
+    }
+
+    /**
+     * Global Styles applies to every document, even those that never load a
+     * candidate's stylesheet. Only unanimous values with complete applicability
+     * can be promoted. Conflicting contenders stay in source CSS: asset order
+     * alone cannot prove the winner of a document's specificity/layer cascade.
+     * Presets are collected before this gate because they do not apply styles.
+     *
+     * @param array<int,array<string,mixed>> $candidates
+     * @param array<int,array<string,mixed>> $assets
+     * @param list<string> $documentPaths
+     * @return array<int,array<string,mixed>>
+     */
+    private function sharedDefaults(array $candidates, array $assets, array $documentPaths): array
+    {
+        $evidence = array();
+        foreach ($candidates as $candidate) {
+            $key = $candidate['target'] . "\n" . $candidate['property'];
+            $evidence[$key]['values'][$candidate['value']] = true;
+            // Unscoped callers supply one stylesheet context; site plans always
+            // supply explicit scopes and their complete document inventory.
+            foreach ($assets[$candidate['asset']]['scopes'] ?? array(array('kind' => 'global')) as $scope) {
+                if ('global' === ($scope['kind'] ?? null)) $evidence[$key]['global'] = true;
+                elseif (is_string($scope['source_path'] ?? null)) $evidence[$key]['documents'][$scope['source_path']] = true;
+            }
+        }
+        return array_values(array_filter($candidates, static function (array $candidate) use ($evidence, $documentPaths): bool {
+            $entry = $evidence[$candidate['target'] . "\n" . $candidate['property']];
+            if (1 !== count($entry['values'])) return false;
+            if (!empty($entry['global'])) return true;
+            if (array() === $documentPaths) return false;
+            foreach ($documentPaths as $path) if (!isset($entry['documents'][$path])) return false;
+            return true;
+        }));
     }
 
     /**
@@ -135,19 +186,41 @@ final class ThemeJsonProjection
      * depend on is resolved before a value may be projected.
      *
      * @param array<int,array<string,mixed>> $assets
+     * @param list<string> $documentPaths
      * @return array<string,string>
      */
-    private function customProperties(array $assets): array
+    private function customProperties(array $assets, array $documentPaths): array
     {
         $variables = array();
+        $conflicts = array();
+        $coverage = array();
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body) use (&$variables): void {
+            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$variables, &$conflicts, &$coverage, $asset): void {
                 if (str_starts_with(ltrim($prelude), '@') || !preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER)) return;
-                foreach ($matches as $match) $variables[(string) $match[1]] = trim((string) $match[2]);
+                foreach ($matches as $match) {
+                    $name = (string) $match[1];
+                    $value = trim((string) $match[2]);
+                    if (isset($variables[$name]) && $variables[$name] !== $value) $conflicts[$name] = true;
+                    $variables[$name] = $value;
+                    if (!in_array(strtolower(trim($prelude)), array(':root', 'html'), true)) $conflicts[$name] = true;
+                    foreach ($ancestors as $ancestor) if (1 !== preg_match('/^@layer(?:\s|$)/', $ancestor)) $conflicts[$name] = true;
+                    foreach ($asset['scopes'] ?? array(array('kind' => 'global')) as $scope) {
+                        if ('global' === ($scope['kind'] ?? null)) $coverage[$name]['global'] = true;
+                        elseif (is_string($scope['source_path'] ?? null)) $coverage[$name]['documents'][$scope['source_path']] = true;
+                    }
+                }
             });
         }
+        foreach ($variables as $name => $_) {
+            if (!empty($coverage[$name]['global'])) continue;
+            if (array() === $documentPaths) $conflicts[$name] = true;
+            foreach ($documentPaths as $path) if (!isset($coverage[$name]['documents'][$path])) $conflicts[$name] = true;
+        }
+        // A route-dependent variable is unresolved, including when a use has a
+        // fallback: that fallback does not win where the variable is defined.
+        foreach ($conflicts as $name => $_) $variables[$name] = 'var(' . $name . ')';
         return $variables;
     }
 
@@ -214,12 +287,17 @@ final class ThemeJsonProjection
                 if (null === $src) continue;
                 $style = isset($properties['font-style']) && '' !== $properties['font-style'] ? $properties['font-style'] : null;
                 $weight = isset($properties['font-weight']) && '' !== $properties['font-weight'] ? $properties['font-weight'] : null;
-                $key = strtolower($family) . "\n" . (string) $style . "\n" . (string) $weight . "\n" . $src;
+                $range = trim((string) ($properties['unicode-range'] ?? ''));
+                $range = strlen($range) <= 1024 && preg_match('/^U\+[0-9A-F?]{1,6}(?:-[0-9A-F]{1,6})?(?:\s*,\s*U\+[0-9A-F?]{1,6}(?:-[0-9A-F]{1,6})?)*$/i', $range)
+                    ? strtoupper(preg_replace('/\s*,\s*/', ', ', $range) ?? $range)
+                    : null;
+                $key = strtolower($family) . "\n" . (string) $style . "\n" . (string) $weight . "\n" . $src . "\n" . (string) $range;
                 if (isset($seen[$key])) continue;
                 $seen[$key] = true;
                 $face = array('family' => $family, 'src' => $src);
                 if (null !== $style) $face['fontStyle'] = $style;
                 if (null !== $weight) $face['fontWeight'] = $weight;
+                if (null !== $range) $face['unicodeRange'] = $range;
                 $faces[] = $face;
             }
         }
@@ -292,8 +370,14 @@ final class ThemeJsonProjection
         return $presets;
     }
 
-    /** @param array<int,array<string,mixed>> $selected @param array<string,array<string,string>> $presets @param array<int,array<string,mixed>> $faces @return array<string,mixed> */
-    private function theme(array $selected, array $presets, array $faces = array()): array
+    /**
+     * @param array<int,array<string,mixed>> $selected
+     * @param array<string,array<string,string>> $presets
+     * @param array<int,array<string,mixed>> $faces
+     * @param array<string,string> $viewport
+     * @return array<string,mixed>
+     */
+    private function theme(array $selected, array $presets, array $faces = array(), array $viewport = array()): array
     {
         $settings = array();
         if (array() !== $presets['color']) $settings['color']['palette'] = array_map(static fn(string $value, string $slug): array => array('slug' => $slug, 'name' => $slug, 'color' => $value), array_keys($presets['color']), $presets['color']);
@@ -344,6 +428,15 @@ final class ThemeJsonProjection
         // and the editor gap control enabled.
         if (!isset($styles['spacing']['blockGap'])) $styles['spacing']['blockGap'] = false;
         $settings['spacing']['blockGap'] = true;
+        // The source's dominant responsive breakpoints ride alongside the other
+        // projected settings. WordPress 7.1 turns them into the `@mobile` and
+        // `@tablet` style-state media queries
+        // (WP_Theme_JSON::get_viewport_media_queries()), so core layout states
+        // and viewport-scoped block styles switch where the source's layouts
+        // switch instead of at the stock 480px/782px defaults. Absent keys keep
+        // those defaults: sanitize_viewport_settings() falls back per key and
+        // drops a tablet that is not larger than mobile.
+        if (array() !== $viewport) $settings['viewport'] = $viewport;
         return array('version' => 3, 'settings' => $settings, 'styles' => $styles);
     }
 

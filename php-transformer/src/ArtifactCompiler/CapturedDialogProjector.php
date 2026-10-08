@@ -3,8 +3,11 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
+use DOMNode;
 use DOMXPath;
 
 /** Projects bounded captured-dialog evidence into the matching source document. */
@@ -25,7 +28,7 @@ final class CapturedDialogProjector
         $diagnostics = array();
         $report = $this->jsonFile($files, 'interaction-states.json');
         if (null === $report) {
-            return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
+            return $this->retireOwnedDisclosureWithoutProjection($files, array());
         }
         if (self::REPORT_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_invalid', 'warning', 'The captured interaction report has an unsupported schema or pages shape.')), 'projected_count' => 0);
@@ -34,12 +37,12 @@ final class CapturedDialogProjector
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_limit_exceeded', 'warning', 'The captured interaction report exceeded the page limit.', array('max_pages' => self::MAX_PAGES))), 'projected_count' => 0);
         }
         if (! $this->hasDialogStates($report['pages'])) {
-            return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
+            return $this->retireOwnedDisclosureWithoutProjection($files, array());
         }
 
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
         if (null === $receipt || self::RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
-            return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.')), 'projected_count' => 0);
+            return $this->retireOwnedDisclosureWithoutProjection($files, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.')));
         }
 
         $routes = array();
@@ -57,6 +60,7 @@ final class CapturedDialogProjector
         }
 
         $projected = 0;
+        $retired = array();
         foreach ($report['pages'] as $page) {
             if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['states'] ?? null)) {
                 $diagnostics[] = $this->diagnostic('captured_interaction_page_invalid', 'warning', 'A captured interaction page was ignored because its source URL or states are invalid.');
@@ -79,14 +83,18 @@ final class CapturedDialogProjector
 
             $projection = $this->projectPage((string) $files[$index]['content'], $dialogStates, $path);
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
-            if (0 < $projection['projected_count']) {
+            if (0 < $projection['projected_count'] || array() !== $projection['retired_scripts']) {
                 $files[$index]['content'] = $projection['html'];
                 $files[$index]['bytes'] = strlen($projection['html']);
                 $projected += $projection['projected_count'];
+                foreach ($projection['retired_scripts'] as $body) {
+                    $retired[$path][] = $body;
+                }
             }
         }
+        $proofs = $this->omitRetiredDisclosureScripts($files, $retired);
 
-        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
+        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'native_runtime_replacements' => $proofs);
     }
 
     /** @param array<int, mixed> $pages */
@@ -125,12 +133,12 @@ final class CapturedDialogProjector
     {
         $kind = is_string($state['kind'] ?? null) ? $state['kind'] : 'dialog';
 
-        return '' === $kind || 'dialog' === $kind;
+        return '' === $kind || 'dialog' === $kind || 'gallery' === $kind;
     }
 
     /**
      * @param array<int, mixed> $states
-     * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int}
+     * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int, retired_scripts:array<int, array{body:string, attribute:string, reason:string}>}
      */
     private function projectPage(string $html, array $states, string $sourcePath): array
     {
@@ -140,12 +148,17 @@ final class CapturedDialogProjector
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
         if (! $loaded) {
-            return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_interaction_source_invalid', 'warning', 'Captured dialogs were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0);
+            return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_interaction_source_invalid', 'warning', 'Captured dialogs were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0, 'retired_scripts' => array());
         }
 
         $diagnostics = array();
-        $projected = 0;
+        $galleryCount = $this->prepareGalleries($document, $states, $sourcePath, $diagnostics);
+        $adoption = $this->adoptWiredPanels($document, $sourcePath);
+        $adopted = $adoption['triggers'];
+        $projected = $adoption['count'];
+        $handledNavigationDropdown = false;
         foreach ($states as $state) {
+            if ('gallery' === ($state['kind'] ?? '')) continue; // The verified in-place panels were adopted above.
             if (! is_array($state) || 'captured' !== ($state['status'] ?? null) || ! is_array($state['trigger'] ?? null) || ! is_array($state['dialog'] ?? null)) {
                 continue;
             }
@@ -162,8 +175,23 @@ final class CapturedDialogProjector
                 continue;
             }
             $triggers = $found['elements'];
+            if (array() === $triggers && $this->matchesAdoptedTrigger($adopted, $state['trigger'])) {
+                continue;
+            }
             if (array() === $triggers) {
                 $diagnostics[] = $this->diagnostic('captured_dialog_trigger_unmatched', 'warning', 'A captured dialog trigger did not match a bounded source element set.', array('source_path' => $sourcePath, 'selector' => (string) ($state['trigger']['selector'] ?? '')));
+                continue;
+            }
+            if (array() !== $triggers && array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isAdopted($adopted, $trigger))) {
+                continue;
+            }
+            // A navigation button with its dropdown panel of links stays in place:
+            // it becomes a navigation submenu, not a dialog opened from a button.
+            if (array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isNavigationDropdownTrigger($trigger))) {
+                $handledNavigationDropdown = true;
+                foreach ($triggers as $trigger) {
+                    $this->consumeMatchedCloseHelper($document, array($trigger), $trigger->parentNode);
+                }
                 continue;
             }
             $fragment = $this->safeDialogFragment($dialogHtml);
@@ -201,26 +229,451 @@ final class CapturedDialogProjector
                 }
                 $triggerIds[] = $triggerId;
             }
-            $dialogId = 'blocks-engine-dialog-' . $identity;
-            $dialogElement = $document->createElement('dialog');
-            $dialogElement->setAttribute('id', $dialogId);
-            $dialogElement->setAttribute('data-blocks-engine-captured-dialog', 'true');
-            $dialogElement->setAttribute('data-blocks-engine-triggers', implode(' ', $triggerIds));
-            if (is_string($fragment['class']) && '' !== $fragment['class']) $dialogElement->setAttribute('class', $fragment['class']);
-            if (is_string($fragment['aria_label']) && '' !== $fragment['aria_label']) $dialogElement->setAttribute('aria-label', $fragment['aria_label']);
-            if (is_string($fragment['aria_labelledby']) && '' !== $fragment['aria_labelledby']) $dialogElement->setAttribute('aria-labelledby', $fragment['aria_labelledby']);
-            if (is_string($fragment['aria_describedby']) && '' !== $fragment['aria_describedby']) $dialogElement->setAttribute('aria-describedby', $fragment['aria_describedby']);
-            if (! $fragment['has_close_control']) $dialogElement->setAttribute('data-blocks-engine-add-close', 'true');
-            foreach ($fragment['nodes'] as $node) {
-                $dialogElement->appendChild($document->importNode($node, true));
-            }
-            ($document->getElementsByTagName('body')->item(0) ?? $document->documentElement)?->appendChild($dialogElement);
+            $dialogElement = $this->appendProjectedDialog($document, $fragment, $triggers, $triggerIds, $identity, 'dropdown' === strtolower(trim((string) ($dialog['presentation'] ?? ''))));
+            $this->consumeMatchedCloseHelper($document, $triggers, $dialogElement);
             ++$projected;
+        }
+        $retired = array();
+        if ($galleryCount > 0) {
+            foreach (iterator_to_array($document->getElementsByTagName('script')) as $script) {
+                if (!$script instanceof DOMElement || !$script->hasAttribute('data-dla-gallery-runtime')) continue;
+                $body = trim($script->textContent ?? '');
+                if ('' !== $body) $retired[] = array('body' => $body, 'attribute' => 'data-dla-gallery-runtime', 'reason' => 'native_carousel_and_dialog_replace_capture_gallery');
+                $script->parentNode?->removeChild($script);
+            }
+        }
+        if ($this->hasNavigationOwnedDialogTrigger($document)) {
+            $this->consumeNavigationOwnedCloseHelpers($document);
+            $handledNavigationDropdown = true;
+        }
+        if (($projected > 0 || $handledNavigationDropdown) && !$this->hasDialogCloseHelper($document) && $this->everyDialogTriggerIsBound($document)) {
+            $reason = 0 < $projected ? 'native_dialog_close_replaces_capture_close_helper' : 'native_navigation_submenu_replaces_capture_disclosure';
+            $retired = array_merge($retired, $this->removeDisclosureRuntime($document, $reason));
         }
 
         $output = $document->saveHTML();
         $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
-        return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
+        return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired);
+    }
+
+    /** Consume viewport-scoped, observed image selection before the ordinary dialog adoption. */
+    private function prepareGalleries(DOMDocument $document, array $states, string $path, array &$diagnostics): int
+    {
+        $xpath = new DOMXPath($document);
+        $count = 0;
+        foreach ($states as $state) {
+            if ('gallery' !== ($state['kind'] ?? '') || !is_array($state['gallery'] ?? null)) continue;
+            $gallery = $state['gallery'];
+            $inline = $gallery['inline'] ?? array();
+            $lightbox = $gallery['lightbox'] ?? array();
+            $selection = $gallery['selection'] ?? array();
+            $frames = $inline['frames'] ?? array();
+            $fullFrames = $lightbox['frames'] ?? array();
+            $validCycle = static fn(array $cycle): bool => 'complete' === ($cycle['coverage'] ?? '') && 'verified' === ($cycle['restoration'] ?? '') && is_array($cycle['frames'] ?? null) && count($cycle['frames']) >= 2 && count($cycle['frames']) <= 24;
+            if (!$validCycle($inline)) continue;
+            $roots = $xpath->query('//*[@data-dla-gallery-source=' . $this->xpathLiteral((string) ($inline['selector'] ?? '')) . ' and @data-dla-gallery-capture-width=' . $this->xpathLiteral((string) ($inline['viewport']['width'] ?? '')) . ']');
+            if ($roots && 0 === $roots->length) continue; // A responsive collapse can retain only one captured viewport.
+            if (!$roots || 1 !== $roots->length) {
+                $diagnostics[] = $this->diagnostic('captured_gallery_source_unmatched', 'warning', 'The observed gallery did not match one viewport-scoped authoring root.', array('source_path' => $path));
+                continue;
+            }
+            $root = $roots->item(0);
+            $stage = $xpath->query('.//*[@data-dla-gallery-stage]', $root)?->item(0);
+            if (!$stage instanceof DOMElement) continue;
+            $stage->setAttribute('role', 'list');
+            foreach ($stage->childNodes as $item) if ($item instanceof DOMElement) $item->setAttribute('role', 'listitem');
+            ++$count;
+            if ('captured' !== ($state['status'] ?? '') || empty($gallery['closed']) || !$validCycle($lightbox)) continue;
+            $expected = range(0, count($fullFrames) - 1);
+            $sorted = $selection;
+            sort($sorted);
+            if (count($frames) !== count($fullFrames) || $sorted !== $expected || count($selection) !== count($frames)) {
+                $diagnostics[] = $this->diagnostic('captured_gallery_selection_invalid', 'warning', 'The captured image-to-lightbox selection is not a complete bijection.', array('source_path' => $path));
+                continue;
+            }
+            foreach ($selection as $index => $selected) {
+                if (($frames[$index]['fullImage'] ?? $frames[$index]['key'] ?? null) !== ($fullFrames[$selected]['key'] ?? null)) {
+                    $diagnostics[] = $this->diagnostic('captured_gallery_selection_invalid', 'warning', 'The selected full image does not match the observed inline image identity.', array('source_path' => $path));
+                    continue 2;
+                }
+            }
+            $key = $stage->getAttribute('data-dla-dialog-trigger');
+            $scope = $document->documentElement;
+            foreach ($this->documentScopes($document) as $candidateScope) if (SourceDom::elementContains($candidateScope, $root)) { $scope = $candidateScope; break; }
+            $panels = $xpath->query('.//*[@data-dla-dialog-panel=' . $this->xpathLiteral($key) . ']', $scope);
+            $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
+            if (!$panel instanceof DOMElement) continue;
+            $fullStage = $xpath->query('.//*[@data-dla-gallery-stage]', $panel)?->item(0);
+            if (!$fullStage instanceof DOMElement) continue;
+            $children = array_values(array_filter(iterator_to_array($fullStage->childNodes), static fn($child): bool => $child instanceof DOMElement));
+            if (count($children) !== count($fullFrames)) continue;
+            $native = $document->createElement('div');
+            $native->setAttribute('aria-label', 'Image gallery carousel');
+            $native->setAttribute('style', 'width:100%');
+            $list = $document->createElement('div');
+            $list->setAttribute('class', 'slideshow');
+            $list->setAttribute('role', 'list');
+            $list->setAttribute('data-dla-gallery-initial', (string) ($lightbox['initial'] ?? 0));
+            foreach ($children as $index => $child) {
+                $image = $child->getElementsByTagName('img')->item(0);
+                if (!$image instanceof DOMElement || '' === $image->getAttribute('src')) continue 2;
+                $item = $document->createElement('div');
+                $item->setAttribute('role', 'listitem');
+                $item->setAttribute('aria-hidden', $index === ($lightbox['initial'] ?? 0) ? 'false' : 'true');
+                $image = $image->cloneNode(true);
+                $image->setAttribute('style', 'display:block;width:100%;height:auto;max-height:80vh;object-fit:contain');
+                $item->appendChild($image);
+                $list->appendChild($item);
+            }
+            $native->appendChild($list);
+            foreach (array('Previous slide', 'Next slide') as $label) {
+                $button = $document->createElement('button', $label);
+                $button->setAttribute('aria-label', $label);
+                $native->appendChild($button);
+            }
+            while ($panel->firstChild) $panel->removeChild($panel->firstChild);
+            $panel->appendChild($native);
+            $close = $document->createElement('button', 'Close');
+            $close->setAttribute('aria-label', 'Close gallery');
+            $close->setAttribute('data-blocks-engine-dialog-close', 'true');
+            $panel->appendChild($close);
+            $panel->setAttribute('data-blocks-engine-gallery-selection', json_encode($selection, JSON_THROW_ON_ERROR));
+        }
+        return $count;
+    }
+
+    /**
+     * @param array{nodes:array<int, \DOMNode>, class:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool} $fragment
+     * @param array<int, DOMElement> $triggers
+     * @param array<int, string> $triggerIds
+     */
+    private function appendProjectedDialog(DOMDocument $document, array $fragment, array $triggers, array $triggerIds, string $identity, bool $dropdown, ?DOMElement $sourcePlace = null): DOMElement
+    {
+        $dialogId = 'blocks-engine-dialog-' . $identity;
+        $dialogElement = $document->createElement('dialog');
+        $dialogElement->setAttribute('id', $dialogId);
+        $dialogElement->setAttribute('data-blocks-engine-captured-dialog', 'true');
+        $dialogElement->setAttribute('data-blocks-engine-triggers', implode(' ', $triggerIds));
+        if (is_string($fragment['class']) && '' !== $fragment['class']) $dialogElement->setAttribute('class', $fragment['class']);
+        // The producer observed whether the source panel was modal or a
+        // dropdown. A dropdown opens without trapping the page and keeps the
+        // source trigger as its toggle. Where it sits follows the evidence:
+        // the panel's observed place in the source, its own positioning, or
+        // (with neither) under the trigger's header.
+        if ($dropdown) {
+            $dialogElement->setAttribute('data-blocks-engine-presentation', 'dropdown');
+            $dialogElement->setAttribute('data-blocks-engine-placement', $sourcePlace instanceof DOMElement ? 'in-place' : ($fragment['self_positioned'] ? 'source' : 'under-header'));
+        }
+        $ancestorState = $this->triggerAncestorState($triggers);
+        if (array() !== $ancestorState) $dialogElement->setAttribute('data-blocks-engine-ancestor-state', json_encode($ancestorState, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+        if (is_string($fragment['aria_label']) && '' !== $fragment['aria_label']) $dialogElement->setAttribute('aria-label', $fragment['aria_label']);
+        if (is_string($fragment['aria_labelledby']) && '' !== $fragment['aria_labelledby']) $dialogElement->setAttribute('aria-labelledby', $fragment['aria_labelledby']);
+        if (is_string($fragment['aria_describedby']) && '' !== $fragment['aria_describedby']) $dialogElement->setAttribute('aria-describedby', $fragment['aria_describedby']);
+        // A modal hides its trigger behind the page, so it needs a close
+        // control; a dropdown's source trigger stays reachable and closes it.
+        if (! $dropdown && ! $fragment['has_close_control']) $dialogElement->setAttribute('data-blocks-engine-add-close', 'true');
+        foreach ($fragment['nodes'] as $node) {
+            $dialogElement->appendChild($document->importNode($node, true));
+        }
+        if ($sourcePlace instanceof DOMElement && $sourcePlace->parentNode instanceof DOMNode) {
+            $sourcePlace->parentNode->replaceChild($dialogElement, $sourcePlace);
+            return $dialogElement;
+        }
+        ($document->getElementsByTagName('body')->item(0) ?? $document->documentElement)?->appendChild($dialogElement);
+        return $dialogElement;
+    }
+
+    /**
+     * Source-proven open/closed changes the producer recorded on a trigger's
+     * ancestors (for example a header that paints itself only while its menu
+     * is open). Keep a bounded, attribute-limited copy so the dialog can replay
+     * them; anything outside that shape is dropped rather than guessed.
+     *
+     * @param array<int, DOMElement> $triggers
+     * @return array<int, array{tag:string, closed:array<string, string|null>, opened:array<string, string|null>}>
+     */
+    private function triggerAncestorState(array $triggers): array
+    {
+        foreach ($triggers as $trigger) {
+            $bindings = json_decode($trigger->getAttribute('data-dla-dialog-ancestor-state'), true);
+            if (! is_array($bindings) || array() === $bindings || count($bindings) > 8) continue;
+            $state = array();
+            foreach ($bindings as $binding) {
+                $tag = is_array($binding) ? strtolower((string) ($binding['tag'] ?? '')) : '';
+                if (1 !== preg_match('/^[a-z][a-z0-9-]{0,31}$/', $tag) || ! is_array($binding['closed'] ?? null) || ! is_array($binding['opened'] ?? null)) continue 2;
+                $sides = array();
+                foreach (array('closed', 'opened') as $side) {
+                    foreach ($binding[$side] as $name => $value) {
+                        if (! in_array($name, array('class', 'style', 'hidden'), true) || (null !== $value && ! is_string($value)) || strlen((string) $value) > 2048) continue 3;
+                        $sides[$side][$name] = $value;
+                    }
+                }
+                if (array_keys($sides['closed'] ?? array()) !== array_keys($sides['opened'] ?? array()) || array() === ($sides['closed'] ?? array())) continue 2;
+                $state[] = array('tag' => $tag, 'closed' => $sides['closed'], 'opened' => $sides['opened']);
+            }
+            if (array() !== $state) return $state;
+        }
+        return array();
+    }
+
+    /**
+     * A capture that already wired its dialogs in the exported document keeps
+     * each trigger (`data-dla-dialog-trigger`) beside an in-place hidden panel
+     * (`data-dla-dialog-panel`). Adopt that panel as the native dialog bound to
+     * its trigger, so the wiring runtime is retired like any other projected
+     * dialog instead of leaving an unbound trigger target behind.
+     *
+     * @return array{triggers:array<int, DOMElement>, count:int}
+     */
+    private function adoptWiredPanels(DOMDocument $document, string $sourcePath): array
+    {
+        $xpath = new DOMXPath($document);
+        $adopted = array();
+        $count = 0;
+        $scopes = $this->documentScopes($document);
+        if (count($scopes) > self::MAX_STATES_PER_PAGE) {
+            return array('triggers' => array(), 'count' => 0);
+        }
+        foreach ($scopes as $scopeIndex => $scope) {
+            $groups = array();
+            foreach ($xpath->query('.//*[@data-dla-dialog-trigger]', $scope) ?: array() as $trigger) {
+                if (! $trigger instanceof DOMElement || $this->insideProjectedDialog($trigger)) continue;
+                if ($this->isNavigationDropdownTrigger($trigger)) continue;
+                $key = trim($trigger->getAttribute('data-dla-dialog-trigger'));
+                if (1 === preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key) && $key === trim($trigger->getAttribute('aria-controls'))) {
+                    $groups[$key][] = $trigger;
+                }
+            }
+            if (count($groups) > self::MAX_STATES_PER_PAGE) continue;
+            foreach ($groups as $key => $triggers) {
+                if (count($triggers) > self::MAX_STATES_PER_PAGE) continue;
+                $panels = $xpath->query('.//*[@data-dla-dialog-panel=' . $this->xpathLiteral((string) $key) . ']', $scope);
+                $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
+                if (! $panel instanceof DOMElement || array() !== array_filter($triggers, static fn(DOMElement $trigger): bool => SourceDom::elementContains($panel, $trigger))) continue;
+                // Sanitize the panel envelope, retaining its content wrapper:
+                // that wrapper can own a menu's hierarchy and presentation.
+                $html = (string) $document->saveHTML($panel);
+                if (strlen($html) > self::MAX_DIALOG_BYTES) continue;
+                // A declared document scope owns its wired panel's ancestry,
+                // stylesheet selectors and runtime. Moving it outside that
+                // scope into a modal changes the captured document contract.
+                // Keep the bounded source wiring and let normal runtime proof
+                // validate it rather than replacing it from a second report.
+                if ($scope->hasAttribute('data-dla-document-scope') && 0 < $xpath->query('//script[@data-dla-disclosure-runtime]')->length) {
+                    array_push($adopted, ...$triggers);
+                    continue;
+                }
+                $fragment = $this->safeDialogFragment($html);
+                if (null === $fragment) continue;
+                $identity = substr(hash('sha256', $sourcePath . "\n" . $key . "\n" . $scopeIndex . "\n" . $html), 0, 16);
+                $triggerIds = array();
+                $menu = false;
+                foreach ($triggers as $triggerIndex => $trigger) {
+                    $triggerId = trim($trigger->getAttribute('id'));
+                    $matches = '' !== $triggerId ? $xpath->query('//*[@id=' . $this->xpathLiteral($triggerId) . ']') : null;
+                    if ('' === $triggerId || ! $matches || 1 !== $matches->length) {
+                        $triggerId = 'blocks-engine-dialog-trigger-' . $identity . '-' . ($triggerIndex + 1);
+                        $trigger->setAttribute('id', $triggerId);
+                    }
+                    $triggerIds[] = $triggerId;
+                    $menu = $menu || 'menu' === strtolower(trim($trigger->getAttribute('aria-haspopup')));
+                }
+                // The producer marks an in-place dropdown panel with `dla-dropdown`.
+                $dropdown = in_array('dla-dropdown', preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), true);
+                // The producer placed a dropdown panel where the source rendered
+                // it (`data-dla-observed-placement`); the dialog stays there.
+                $sourcePlace = $dropdown && $panel->hasAttribute('data-dla-observed-placement') ? $panel : null;
+                $dialog = $this->appendProjectedDialog($document, $fragment, $triggers, $triggerIds, $identity, $dropdown, $sourcePlace);
+                $selection = json_decode($panel->getAttribute('data-blocks-engine-gallery-selection'), true);
+                if (is_array($selection) && array() !== $selection) {
+                    $dialog->setAttribute('data-blocks-engine-gallery-selection', json_encode(array_map(static fn(string $id): array => array('triggerId' => $id, 'indices' => $selection), $triggerIds), JSON_THROW_ON_ERROR));
+                }
+                if ($menu) $dialog->setAttribute('data-blocks-engine-captured-menu', 'true');
+                $panel->parentNode?->removeChild($panel);
+                foreach (iterator_to_array($scope->getElementsByTagName('button')) as $button) {
+                    if ($button instanceof DOMElement && $button->getAttribute('data-dla-dialog-close') === (string) $key && $button->hasAttribute('hidden') && ! SourceDom::elementContains($dialog, $button)) {
+                        $button->parentNode?->removeChild($button);
+                    }
+                }
+                array_push($adopted, ...$triggers);
+                ++$count;
+            }
+        }
+
+        return array('triggers' => $adopted, 'count' => $count);
+    }
+
+    /** @param array<int, DOMElement> $adopted */
+    private function isAdopted(array $adopted, DOMElement $trigger): bool
+    {
+        foreach ($adopted as $candidate) {
+            if ($candidate->isSameNode($trigger)) return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, DOMElement> $adopted
+     * @param array<string, mixed> $trigger
+     */
+    private function matchesAdoptedTrigger(array $adopted, array $trigger): bool
+    {
+        $label = $this->normalizedLabel((string) ($trigger['label'] ?? ''));
+        if ('' === $label) return false;
+        foreach ($adopted as $candidate) {
+            $name = $this->normalizedLabel($candidate->getAttribute('data-dla-disclosure-label'));
+            if ('' !== $name && (str_starts_with($name, $label) || str_starts_with($label, $name))) return true;
+        }
+
+        return false;
+    }
+
+    private function isNavigationDropdownTrigger(DOMElement $trigger): bool
+    {
+        return NavigationPattern::ownsCapturedSubmenuTrigger($trigger);
+    }
+
+    private function hasNavigationOwnedDialogTrigger(DOMDocument $document): bool
+    {
+        foreach ($document->getElementsByTagName('*') as $node) {
+            if ($node instanceof DOMElement && '' !== trim($node->getAttribute('data-dla-dialog-trigger')) && $this->isNavigationDropdownTrigger($node)) return true;
+        }
+        return false;
+    }
+
+    private function consumeNavigationOwnedCloseHelpers(DOMDocument $document): void
+    {
+        foreach (iterator_to_array($document->getElementsByTagName('*')) as $node) {
+            $parent = $node->parentNode;
+            if ($node instanceof DOMElement && $parent instanceof DOMElement && $this->isNavigationDropdownTrigger($node)) {
+                $this->consumeMatchedCloseHelper($document, array($node), $parent);
+            }
+        }
+    }
+
+    /** @return array<int, array{body:string, attribute:string, reason:string}> */
+    private function removeDisclosureRuntime(DOMDocument $document, string $reason): array
+    {
+        $retired = array();
+        foreach (iterator_to_array($document->getElementsByTagName('script')) as $script) {
+            if (!$script instanceof DOMElement || !$script->hasAttribute('data-dla-disclosure-runtime')) continue;
+            $body = trim($script->textContent ?? '');
+            if ('' !== $body) $retired[] = array('body' => $body, 'attribute' => 'data-dla-disclosure-runtime', 'reason' => $reason);
+            $script->parentNode?->removeChild($script);
+        }
+        return $retired;
+    }
+
+    /**
+     * Navigation ownership is proven from in-place controls, independently of
+     * interaction probing. Non-navigation triggers still prevent retirement.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array{files:array<int, array<string, mixed>>, diagnostics:array<int, array<string, mixed>>, projected_count:int, native_runtime_replacements:array<int, array<string, string>>}
+     */
+    private function retireOwnedDisclosureWithoutProjection(array $files, array $diagnostics): array
+    {
+        $retired = array();
+        foreach ($files as $index => $file) {
+            $content = $file['content'] ?? null;
+            $path = (string) ($file['path'] ?? '');
+            if (!preg_match('/\.html?$/i', $path) || !is_string($content) || !str_contains($content, 'data-dla-disclosure-runtime') || !str_contains($content, 'data-dla-dialog-trigger')) continue;
+            $previous = libxml_use_internal_errors(true);
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            if (!$loaded || !$this->hasNavigationOwnedDialogTrigger($document) || !$this->everyDialogTriggerIsBound($document)) continue;
+            $this->consumeNavigationOwnedCloseHelpers($document);
+            if ($this->hasDialogCloseHelper($document)) continue;
+            $pageRetired = $this->removeDisclosureRuntime($document, 'native_navigation_submenu_replaces_capture_disclosure');
+            if (array() === $pageRetired) continue;
+            $html = $document->saveHTML();
+            $html = is_string($html) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $html) : null;
+            if (!is_string($html)) continue;
+            $files[$index]['content'] = $html;
+            $files[$index]['bytes'] = strlen($html);
+            $retired[$path] = $pageRetired;
+        }
+
+        $proofs = $this->omitRetiredDisclosureScripts($files, $retired);
+        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => 0, 'native_runtime_replacements' => $proofs);
+    }
+
+    /** @param array<int, DOMElement> $triggers */
+    private function consumeMatchedCloseHelper(DOMDocument $document, array $triggers, DOMElement $dialog): void
+    {
+        foreach ($triggers as $trigger) {
+            $key = trim($trigger->getAttribute('data-dla-dialog-trigger'));
+            if ('' === $key || !preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key)) continue;
+            foreach (iterator_to_array($document->getElementsByTagName('button')) as $button) {
+                if (!$button instanceof DOMElement || $button->getAttribute('data-dla-dialog-close') !== $key || !$button->hasAttribute('hidden')) continue;
+                if (SourceDom::elementContains($dialog, $button)) continue;
+                if ('close' !== strtolower(trim($button->textContent ?? ''))) continue;
+                $button->parentNode?->removeChild($button);
+            }
+        }
+    }
+
+    private function hasDialogCloseHelper(DOMDocument $document): bool
+    {
+        foreach ($document->getElementsByTagName('button') as $button) {
+            if ($button instanceof DOMElement && '' !== trim($button->getAttribute('data-dla-dialog-close'))) return true;
+        }
+        return false;
+    }
+
+    private function everyDialogTriggerIsBound(DOMDocument $document): bool
+    {
+        $bound = array();
+        foreach ($document->getElementsByTagName('dialog') as $dialog) {
+            if (!$dialog instanceof DOMElement) continue;
+            foreach (preg_split('/\s+/', trim($dialog->getAttribute('data-blocks-engine-triggers'))) ?: array() as $id) {
+                if ('' !== $id) $bound[$id] = true;
+            }
+        }
+        foreach ($document->getElementsByTagName('*') as $node) {
+            if (!$node instanceof DOMElement || '' === trim($node->getAttribute('data-dla-dialog-trigger'))) continue;
+            // A navigation dropdown trigger becomes a submenu, so it needs no dialog binding.
+            if ($this->isNavigationDropdownTrigger($node)) continue;
+            $id = trim($node->getAttribute('id'));
+            if ('' === $id || !isset($bound[$id])) return false;
+        }
+        return true;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @param array<string, array<int, array{body:string, attribute:string, reason:string}>> $retired
+     * @return array<int, array<string, string>>
+     */
+    private function omitRetiredDisclosureScripts(array &$files, array $retired): array
+    {
+        $proofs = array();
+        $kept = array();
+        foreach ($files as $file) {
+            $sourcePath = ArtifactNormalizer::inlineExpansionSourcePath($file);
+            $body = trim((string) ($file['content'] ?? ''));
+            $replacement = null;
+            foreach ($retired[$sourcePath] ?? array() as $record) if ($body === $record['body']) $replacement = $record;
+            $matched = '' !== $sourcePath && 'inline-script' === ($file['source'] ?? null) && null !== $replacement;
+            if (!$matched) {
+                $kept[] = $file;
+                continue;
+            }
+            $proofs[] = array(
+                'schema' => 'blocks-engine/native-runtime-replacement/v1',
+                'source_path' => $sourcePath,
+                'asset_source_path' => (string) ($file['path'] ?? ''),
+                'body_hash' => hash('sha256', $body),
+                'attribute' => $replacement['attribute'],
+                'reason' => $replacement['reason'],
+            );
+        }
+        $files = $kept;
+        return $proofs;
     }
 
     /**
@@ -270,12 +723,7 @@ final class CapturedDialogProjector
 
     private function isResponsiveDocumentWrapper(DOMElement $element): bool
     {
-        foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
-            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)) {
-                return true;
-            }
-        }
-        return false;
+        return \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom::isDocumentVariantRoot($element);
     }
 
     /**
@@ -519,7 +967,7 @@ final class CapturedDialogProjector
         return false;
     }
 
-    /** @return array{nodes:array<int, \DOMNode>, class:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool}|null */
+    /** @return array{nodes:array<int, \DOMNode>, class:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool}|null */
     private function safeDialogFragment(string $html): ?array
     {
         $previous = libxml_use_internal_errors(true);
@@ -576,6 +1024,10 @@ final class CapturedDialogProjector
             'aria_labelledby' => $sourceRoot instanceof DOMElement ? trim($sourceRoot->getAttribute('aria-labelledby')) : '',
             'aria_describedby' => $sourceRoot instanceof DOMElement ? trim($sourceRoot->getAttribute('aria-describedby')) : '',
             'has_close_control' => $hasCloseControl,
+            'self_positioned' => $sourceRoot instanceof DOMElement && (
+                1 === preg_match('/(?:^|\s)(?:absolute|fixed|sticky)(?:\s|$)/', $sourceRoot->getAttribute('class'))
+                || 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed|sticky)/i', $sourceRoot->getAttribute('style'))
+            ),
         );
     }
 

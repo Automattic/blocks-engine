@@ -107,6 +107,9 @@ final class SvgElementConverter implements ElementConverter
     {
         if ( $this->materializer->svgNeedsPhrasingHost($element) ) {
             $imageMarkup = $this->materializer->inlineSvgRichTextImageMarkup($element);
+            if ( '' === $imageMarkup ) {
+                return null;
+            }
             if ( null !== $imageMarkup ) {
                 return $this->context->createBlock('core/paragraph', array(
                     'content' => $imageMarkup,

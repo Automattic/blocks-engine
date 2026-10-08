@@ -144,6 +144,24 @@ $assert(in_array('Hero', $names($emptyVisualNames), true), 'The neighbouring hea
 $assert(in_array('Main', $names($emptyVisualNames), true), 'The main landmark around the painted layer is still named.');
 $assert('pass' === ($emptyVisual['source_reports']['wp_block_validity']['status'] ?? ''), 'Empty visual groups remain editor-valid beside named landmarks.');
 
+$emptyAuthorLayout = $transform(
+    '<style>.header{display:flex}.actions{display:flex}</style>'
+    . '<div class="header"><div class="actions"></div></div>'
+);
+$emptyAuthorMarkup = (string) ($emptyAuthorLayout['serialized_blocks'] ?? '');
+$emptyAuthorCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    $emptyAuthorLayout['assets'] ?? array()
+));
+$assert(
+    str_contains($emptyAuthorMarkup, 'blocks-engine-empty-visual-group'),
+    'Empty author-owned layout groups carry the editor-only visual-boundary marker.'
+);
+$assert(
+    str_contains($emptyAuthorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder>.components-placeholder'),
+    'Empty author-owned layout groups reuse the picker-suppression CSS.'
+);
+
 $document = new DOMDocument();
 libxml_use_internal_errors(true);
 $document->loadHTML('<!doctype html><html><body><section><h2>Ignored</h2></section><div class="wrap"><h2>Not a section</h2></div></body></html>');

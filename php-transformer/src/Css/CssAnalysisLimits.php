@@ -8,4 +8,5 @@ final class CssAnalysisLimits
 {
     // Allows a complete author stylesheet while retaining a bounded parser input.
     public const MAX_STYLESHEET_BYTES = 4194304;
+    public const MAX_SCANNED_SELECTORS = 16384;
 }

@@ -49,6 +49,19 @@ $files = static function (string $html, array $states): array {
     );
 };
 
+$initialSource = static fn(string $heading, string $extra = ''): string => '<html><body><main><div><button type="button">Alpha</button><button type="button">Beta</button><button type="button"><span>03</span><span>Gamma</span></button></div><div><h2>' . $heading . '</h2><p>Initial content</p></div>' . $extra . '</main></body></html>';
+$initialStates = array($member(0, 'Alpha', '<div><h2>Alpha</h2></div>', 'captured', false, array(), array('size' => 3)), $member(1, 'Beta', '<div><h2>Beta</h2></div>', 'captured', false, array(), array('size' => 3)));
+$initial = $project($files($initialSource('Gamma'), $initialStates));
+$assert(3 === substr_count((string) $initial['files'][0]['content'], 'role="tabpanel"'), 'initial panel heading corroborates the unprobed source member');
+$incomplete = $project($files($initialSource('Alpha'), $initialStates));
+$assert(2 === substr_count((string) $incomplete['files'][0]['content'], 'role="tabpanel"'), 'an unprobed inactive last member is not recovered after incomplete probing');
+$multiSibling = $project($files($initialSource('Gamma', '<aside>After</aside>'), $initialStates));
+$assert(!str_contains((string) $multiSibling['files'][0]['content'], 'data-blocks-engine-tabs-flow='), 'three-sibling layouts do not receive an unsupported display-contents order projection');
+foreach (array('click-failed', 'no-dialog') as $status) {
+    $reported = $project($files($initialSource('Gamma'), array_merge($initialStates, array($member(2, 'Gamma', '', $status, false, array(), array('size' => 3))))));
+    $assert(2 === substr_count((string) $reported['files'][0]['content'], 'role="tabpanel"'), 'a reported ' . $status . ' member is never recovered from the initial region');
+}
+
 $source = '<html><body><main><div><button type="button">Alpha</button><button type="button">Beta</button></div><div><p>Select an item</p></div></main></body></html>';
 $alphaHtml = '<div><h2>Alpha</h2><p>Alpha specification</p></div>';
 $betaHtml = '<div><h2>Beta</h2><p>Beta specification</p></div>';
@@ -87,7 +100,48 @@ $failed = $project($files($source, array(
 $failedMarkup = (string) ($failed['files'][0]['content'] ?? '');
 $assert(1 === ($failed['projected_count'] ?? 0), 'failed members do not prevent projection of captured siblings');
 $assert(! str_contains($failedMarkup, 'Gamma') && ! str_contains($failedMarkup, 'Delta'), 'click-failed and no-dialog members do not become controls');
-$assert(in_array('captured_selectable_set_member_failed', $codes($failed), true), 'failed members emit an honest diagnostic');
+$assert(in_array('captured_selectable_set_member_failed', $codes($failed), true), 'click-failed members emit an honest diagnostic');
+$assert(1 === count(array_filter($codes($failed), static fn(string $code): bool => 'captured_selectable_set_member_failed' === $code)), 'a no-dialog probe is not counted as a failed member');
+$assert(in_array('captured_selectable_set_candidate_rejected', $codes($failed), true), 'a disproved selectable-set candidate is recorded as rejected');
+
+$disproved = $project($files($source, array(
+    array(
+        'status' => 'no-dialog',
+        'kind' => 'selectable-set',
+        'trigger' => array('tag' => 'button', 'label' => 'Phone. Phone. Select a country code'),
+        'set' => array('size' => 2, 'index' => 0),
+        'error' => 'no shared-region candidate',
+    ),
+    array(
+        'status' => 'no-dialog',
+        'kind' => 'selectable-set',
+        'trigger' => array('tag' => 'button', 'label' => 'Phone. Phone. Select a country code'),
+        'set' => array('size' => 2, 'index' => 1),
+        'error' => 'no shared-region candidate',
+    ),
+)));
+$disprovedMarkup = (string) ($disproved['files'][0]['content'] ?? '');
+$disprovedLoss = array_values(array_filter($disproved['diagnostics'] ?? array(), static function (array $row): bool {
+    return 'warning' === ($row['severity'] ?? '')
+        || 'unsupported_loss' === ($row['loss_class'] ?? '')
+        || in_array($row['code'] ?? '', array('captured_selectable_set_member_failed', 'captured_interaction_capture_gap'), true);
+}));
+$rejected = array_values(array_filter($disproved['diagnostics'] ?? array(), static fn(array $row): bool => 'captured_selectable_set_candidate_rejected' === ($row['code'] ?? '')));
+$rejectedContext = is_array($rejected[0]['context'] ?? null) ? $rejected[0]['context'] : array();
+$assert(0 === ($disproved['projected_count'] ?? -1), 'a disproved selectable-set candidate does not project tabs');
+$assert($source === $disprovedMarkup || str_contains($disprovedMarkup, 'Select an item'), 'a disproved candidate leaves the static HTML in place');
+$assert(array() === $disprovedLoss, 'a no-dialog-only selectable set is not an unsupported capture gap');
+$assert(1 === count($rejected) && 'info' === ($rejected[0]['severity'] ?? ''), 'a disproved candidate is one info record, not a loss');
+$assert(2 === ($rejectedContext['status_counts']['no-dialog'] ?? -1), 'status_counts count recorded no-dialog outcomes');
+$assert(0 === ($rejectedContext['status_counts']['click-failed'] ?? -1) && 0 === ($rejectedContext['status_counts']['captured'] ?? -1), 'status_counts do not invent other statuses');
+$assert(2 === ($rejectedContext['recorded_state_count'] ?? -1) && 0 === ($rejectedContext['captured_state_count'] ?? -1), 'a rejected candidate records the outcomes capture actually produced');
+
+$clickFailedOnly = $project($files($source, array(
+    $member(0, 'Alpha', $alphaHtml, 'click-failed'),
+)));
+$clickFailedGaps = array_values(array_filter($clickFailedOnly['diagnostics'] ?? array(), static fn(array $row): bool => 'captured_selectable_set_member_failed' === ($row['code'] ?? '')));
+$assert(1 === count($clickFailedGaps) && 'warning' === ($clickFailedGaps[0]['severity'] ?? ''), 'a click-failed member still reports one capture gap');
+$assert(! in_array('captured_selectable_set_candidate_rejected', $codes($clickFailedOnly), true), 'click-failed is not recorded as a rejected candidate');
 
 $truncatedHtml = '<div><p>Huge</p></div>';
 $truncated = $project($files($source, array(
@@ -140,6 +194,19 @@ $unmatchedMarkup = (string) ($unmatched['files'][0]['content'] ?? '');
 $assert(1 === ($unmatched['projected_count'] ?? 0), 'an unmatched region still projects by appending');
 $assert(str_contains($unmatchedMarkup, 'Alpha specification'), 'appended tabs still carry captured content');
 $assert(in_array('captured_selectable_set_region_appended', $codes($unmatched), true), 'unmatched regions emit an append diagnostic');
+
+$idSource = '<html><body><main><section><h1>Heading</h1><div role="tablist"><button type="button" role="tab" id="t-:r1:-trigger-one">Alpha</button><button type="button" role="tab" id="t-:r1:-trigger-two">Beta</button></div><div role="tabpanel" id="t-:r1:-content-one"><p>Select an item</p></div></section><footer><p>After the tabs</p></footer></main></body></html>';
+$idMember = static fn(int $index, string $label, string $html): array => $member($index, $label, $html, 'captured', false, array('selector' => '#t-\\:r1\\:-trigger-' . (0 === $index ? 'one' : 'two')), array('selector' => 'body > main > section > div:nth-of-type(1)'));
+$idStates = array_map(static function (array $state): array {
+    $state['dialog']['selector'] = '#t-\\:r1\\:-content-one';
+    return $state;
+}, array($idMember(0, 'Alpha', $alphaHtml), $idMember(1, 'Beta', $betaHtml)));
+$byId = $project($files($idSource, $idStates));
+$byIdMarkup = (string) ($byId['files'][0]['content'] ?? '');
+$assert(1 === ($byId['projected_count'] ?? 0), 'a region selected by a CSS-escaped id projects one set');
+$assert(! in_array('captured_selectable_set_region_appended', $codes($byId), true), 'a CSS-escaped id region is matched in place rather than appended');
+$assert(! str_contains($byIdMarkup, 'Select an item') && str_contains($byIdMarkup, 'Alpha specification') && str_contains($byIdMarkup, 'Beta specification'), 'the id-selected region is replaced by the captured panels');
+$assert(false !== strpos($byIdMarkup, 'Alpha specification') && strpos($byIdMarkup, 'Alpha specification') < strpos($byIdMarkup, 'After the tabs'), 'the captured panels stay inside the source layout instead of trailing the document');
 
 $graphicSource = '<html><body><main><div><svg><g><text>FR1</text><text>1,530 ft²</text></g><g><text>FR2</text><text>1,530 ft²</text></g></svg></div><div><p>Select a zone</p></div></main></body></html>';
 $graphicTrigger = static function (int $index, string $label): array {

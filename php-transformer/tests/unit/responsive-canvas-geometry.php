@@ -51,8 +51,8 @@ $variableWidth = (new HtmlTransformer())->transform(
     '<style>:root{--site-width:980px}body:not(.responsive) #site-root{min-width:var(--site-width)}</style><div class="document-variant"><div id="site-root"><main><p>Content</p></main></div></div>'
 )->toArray();
 $assert(
-    str_contains($css($variableWidth), 'body:not(.responsive) #site-root{min-width:0;max-width:100%}'),
-    'nested document canvas minimum widths expressed through source custom properties receive bounded responsive geometry'
+    str_contains($css($variableWidth), 'body:not(.responsive) #site-root{min-width:var(--site-width)}'),
+    'document-state-gated minimum widths keep the authored predicate and source custom property'
 );
 
 $percentageHeight = (new HtmlTransformer())->transform(
@@ -69,6 +69,19 @@ $assert(str_contains($percentageHeightCss, '.footer-background{position:absolute
 $assert(str_contains($percentageHeightCss, '.background-grid{position:absolute;inset:0;display:grid;grid-template-rows:1fr}'), 'positioned fill grids retain fractional tracks sized by their containing block');
 $assert(str_contains($percentageHeightCss, '.mixed-fill{height:100%}'), 'mixed structural and height-owning selectors retain their authored percentage height');
 $assert(in_array('responsive_geometry_ambiguous_percentage_height', array_column($percentageHeight['diagnostics'] ?? array(), 'code'), true), 'mixed percentage-height selectors emit a bounded ambiguity diagnostic');
+
+foreach ( array( 'absolute', 'fixed' ) as $position ) {
+    foreach ( array( '@media(min-width:1080px)', '@supports(display:grid)', '@container(min-width:600px)' ) as $condition ) {
+        $layerRule = '.paint-layer{height:100%!important;position:' . $position . ';top:0;left:0;width:100%}';
+        $conditionalPaint = (new HtmlTransformer())->transform(
+            '<style>.paint-host{position:relative}.paint-color{position:absolute;inset:0;background:#fbff4a}' . $condition . '{' . $layerRule . '.flow-frame{height:100%}}</style>'
+            . '<section><div class="paint-host"><p>Visible flow content sizes the host.</p><div class="paint-layer" aria-hidden="true"><div class="paint-color"></div></div></div><div class="flow-frame"><p>Ordinary in-flow frame.</p></div></section>'
+        )->toArray();
+        $conditionalPaintCss = $css($conditionalPaint);
+        $assert(str_contains($conditionalPaintCss, $layerRule), $condition . ' preserves the ' . $position . ' paint layer percentage height and priority');
+        $assert(str_contains($conditionalPaintCss, '.flow-frame{height:auto}'), $condition . ' still projects genuinely auto-sized in-flow frames');
+    }
+}
 
 $gridPercentageHeight = (new HtmlTransformer())->transform(
     '<style>.image-grid{display:grid;grid-template-rows:repeat(2,minmax(120px,auto))}.image-cell{grid-area:1/1/3/2}.image-frame,.image-inner{height:100%}.image-well{height:100%!important;position:relative}.image-well img{position:absolute;width:100%;height:100%;object-fit:cover}</style>'

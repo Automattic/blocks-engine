@@ -35,7 +35,8 @@ $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
 $assert('blocks-engine/php-transformer/staged-shared-plan/v1' === $shared['schema'] && 2 === $shared['summary']['file_count'] && preg_match('/^[a-f0-9]{64}$/', $shared['digest']), 'Shared preparation preserves the published v1 plan envelope and digest.');
 $assert('artifact' === ($shared['shared_reduction']['files_source'] ?? null) && !array_key_exists('files', $shared['shared_reduction']), 'Inline shared reductions reference their digest-bound artifact files instead of serializing a duplicate payload.');
-$assert(array('diagnostics', 'projected_count') === array_keys($shared['analysis']['captured_dialogs']), 'Shared preparation persists bounded captured-dialog evidence without duplicating projected artifact files.');
+$capturedDialogs = $shared['analysis']['captured_dialogs'];
+$assert(array('diagnostics', 'projected_count', 'native_runtime_replacements') === array_keys($capturedDialogs) && array() === $capturedDialogs['native_runtime_replacements'] && !array_key_exists('files', $capturedDialogs), 'Shared preparation persists bounded captured-dialog evidence and an empty replacement list without duplicating projected artifact files.');
 // Inline assets expanded out of an unannotated page follow that page, not the
 // immutable shared plan: parking page-varying content in the shared plan would
 // invalidate every page plan on a page edit.
@@ -84,6 +85,11 @@ $whole = $compiler->compile($artifact)->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent canonical site plans, including source-operation provenance and hashes.');
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent canonical materialization plans.');
 $assert(!isset($whole['source_reports']['materialization_plan'], $staged['source_reports']['materialization_plan']), 'Whole and staged results remove the superseded projection while preserving their byte-identical canonical plan.');
+// The About page links a page-scoped stylesheet the entry page does not. Every
+// driver must apply it: equivalence alone would also hold if all of them
+// dropped it, which they previously did.
+$aboutMarkup = current(array_filter($whole['source_reports']['wordpress_site_plan']['pages'] ?? array(), static fn (array $page): bool => 'about.html' === $page['source_path']))['canonical_block_markup'] ?? '';
+$assert(str_contains($aboutMarkup, '"layout":{"type":"grid","columnCount":2}'), 'A page-scoped stylesheet the page links reaches that page in whole compilation.');
 $ordinaryResult = $compiler->compose($shared, array($compiledPages['contact.html'], $compiledPages['index.html'], $compiledPages['about.html']));
 $compiledStaged = $ordinaryResult->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($compiledStaged['source_reports']['wordpress_site_plan'] ?? array()), 'Terminal composition consumes persisted compiled page receipts without changing the canonical site plan.');
@@ -134,6 +140,18 @@ $utf8Staged = (new ArtifactCompiler())->compose($utf8Shared, $utf8Receipts)->toA
 $utf8MetadataDiagnostic = current(array_filter($utf8Staged['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'html_head_metadata_not_carried' === ($diagnostic['code'] ?? null)));
 $utf8Content = $utf8MetadataDiagnostic['entries'][0]['content'] ?? null;
 $assert(str_repeat('a', 499) === $utf8Content && 499 === strlen($utf8Content) && 1 === preg_match('//u', $utf8Content), 'Serialized shared, page, and compiled checkpoints retain the 500-byte metadata diagnostic bound at a UTF-8 character boundary without replacement or conversion.');
+$utf8FragmentParagraphs = '<p>' . str_repeat("\xC3\xA9", 400) . '</p><p>a' . str_repeat("\xC3\xA9", 400) . '</p>';
+$utf8FragmentArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<!doctype html><html><body><main>' . $utf8FragmentParagraphs . '</main></body></html>'),
+));
+$utf8FragmentShared = json_decode(json_encode((new ArtifactCompiler())->prepareShared($utf8FragmentArtifact), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$utf8FragmentPages = json_decode(json_encode((new ArtifactCompiler())->preparePages($utf8FragmentArtifact, $utf8FragmentShared), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$utf8FragmentReceipts = (new ArtifactCompiler())->compilePreparedPages($utf8FragmentShared, $utf8FragmentPages);
+$utf8Fragments = array();
+array_walk_recursive($utf8FragmentReceipts, static function (mixed $value, int|string $key) use (&$utf8Fragments): void { if ('source_fragment' === $key) $utf8Fragments[] = $value; });
+$assert(array() !== $utf8Fragments && array() === array_filter($utf8Fragments, static fn (mixed $fragment): bool => !is_string($fragment) || 1 !== preg_match('//u', $fragment) || strlen($fragment) > 503), 'Truncated source fragments stay within the 500-byte diagnostic bound at a UTF-8 character boundary.');
+$assert(in_array(502, array_map('strlen', $utf8Fragments), true), 'The UTF-8 source fragment fixture places a multibyte character across the 500-byte truncation boundary.');
+$assert(is_string(json_encode($utf8FragmentReceipts)), 'Compiled page receipts with truncated multibyte source fragments serialize.');
 $largeOptions = '';
 $largeOptionValue = str_repeat('choice-', 16);
 for ($index = 0; $index < 6400; ++$index) $largeOptions .= '<option value="' . $largeOptionValue . '">' . $largeOptionValue . '</option>';
@@ -171,6 +189,20 @@ $assert(!array_filter($largeFormsStaged['diagnostics'] ?? array(), static fn(arr
 $tamperedManifestPlan = $largeFormsPlan; $tamperedManifestPlan['runtime_entity_records'][0]['entity']['controls'][0]['options'][0]['label'] = 'forged';
 $throws(static fn() => WordPressSitePlan::assertValid($tamperedManifestPlan), 'Canonical WordPress plan validation rejects a content-addressed runtime record whose entity no longer matches its hash.');
 $throws(static fn() => RuntimeEntityManifest::fromEntities('generic/forms/v1', array(array('value' => str_repeat('x', RuntimeDeclarations::MAX_PAYLOAD_BYTES)))), 'Runtime entity manifests reject a single entity record that exceeds the 5 MiB payload cap.');
+// A many-page collection can fit at compiler intake as entity records, then
+// exceed the declaration cap when composition projects final binding anchors.
+$siteEntities = array();
+for ($index = 0; $index < 74; ++$index) $siteEntities[] = array('source_path' => 'page-' . $index . '.html', 'bindings' => array(array('source_path' => 'page-' . $index . '.html', 'search_block_markup' => str_repeat('x', 72000), 'occurrence' => 1)));
+$siteDeclaration = array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => array('schema' => 'generic/forms/v1', 'entities' => $siteEntities)));
+$throws(static fn() => RuntimeDeclarations::normalizeList($siteDeclaration), 'The projected 74-page forms collection reproduces the pre-factoring 5 MiB rejection.');
+$composingDeclarations = RuntimeDeclarations::normalizeForComposition($siteDeclaration);
+$siteFactor = RuntimeDeclarations::factor($composingDeclarations);
+$assert(count($siteFactor['records']) > 1 && RuntimeDeclarations::canonicalJson($siteEntities) === RuntimeDeclarations::canonicalJson(RuntimeDeclarations::materialize($siteFactor['declarations'], $siteFactor['records'])[0]['payload']['entities']), 'Composition retains all 74 entity bindings in bounded records without changing their content or order.');
+$assert(strlen(RuntimeDeclarations::canonicalJson($siteFactor['declarations'][0]['payload'])) <= RuntimeDeclarations::MAX_PAYLOAD_BYTES, 'The published declaration remains within the public 5 MiB payload limit.');
+$tamperedRuntimeRecord = $largeFormsPlan;
+$tamperedRuntimeRecord['runtime_declarations'] = $siteFactor['declarations'];
+$tamperedRuntimeRecord['runtime_records'] = $siteFactor['records'];
+$throws(static fn() => WordPressSitePlan::assertValid($tamperedRuntimeRecord), 'Plan validation resolves factored bindings and rejects anchors missing from published pages.');
 $rootAssetPath = "website/external/Happy Women's Day.jpg";
 $rootAssetUrl = "/external/Happy%20Women's%20Day.jpg";
 $rootAssetArtifact = array('entrypoint' => 'website/index.html', 'files' => array(
@@ -307,8 +339,9 @@ $bootstrap = (string) ($siteWrites['functions.php']['payload']['data'] ?? '');
 $assert(array(array('kind' => 'global')) === ($siteAssets['assets/site.css']['scopes'] ?? null), 'Shared stylesheets retain an explicit global runtime scope.');
 $assert('about.html' === ($siteAssets['assets/about.css']['scopes'][0]['source_path'] ?? null) && str_contains($bootstrap, "if ( is_page() && 'about' === trim( get_page_uri( get_queried_object_id() ), '/' ) ) wp_enqueue_style"), 'Page-owned stylesheets enqueue only on their canonical WordPress route.');
 $assert('(min-width: 48rem)' === ($siteAssets['assets/about.css']['media'] ?? null) && str_contains($bootstrap, "array(), null, '(min-width: 48rem)'"), 'Stylesheet media conditions are retained as canonical frontend enqueue arguments.');
-$assert(str_contains($bootstrap, "empty( \$style['author_css'] )") && str_contains($bootstrap, "! empty( \$style['editor_only'] )") && str_contains($bootstrap, "add_action( 'after_setup_theme'") && str_contains($bootstrap, "add_editor_style( \$style['target_path'] )") && str_contains($bootstrap, "\$style['content_hash']") && str_contains($bootstrap, "\$style['media'] ?? 'all'") && str_contains($bootstrap, "get_theme_file_uri( \$style['target_path'] )") && str_contains($bootstrap, "'baseURL' => get_theme_file_uri( \$style['target_path'] )") && str_contains($bootstrap, "'isGlobalStyles' => false"), 'Canonical editor-only support styles use Core iframe delivery while authored styles retain route-scoped editor settings with base-URL resolution.');
-$assert(str_contains($bootstrap, "add_action( 'enqueue_block_assets'") && str_contains($bootstrap, "add_filter( 'block_editor_settings_all'") && !str_contains($bootstrap, "add_filter( 'wp_theme_json_data_theme'") && !str_contains($bootstrap, "blocks_engine_presentation_css") && str_contains($bootstrap, "file_get_contents( \$path )"), 'Canonical bootstrap uses Core editor settings for route-matched author CSS without theme-JSON materializing it.');
+$assert(str_starts_with((string) ($siteAssets['assets/about.css']['content'] ?? ''), "@media (min-width: 48rem){\n") && str_contains((string) ($siteAssets['assets/about.css']['content'] ?? ''), '.about-grid{display:grid'), 'Stylesheet media conditions also travel with CSS bytes for consumers that materialize assets without enqueue media metadata.');
+$assert(str_contains($bootstrap, "\$canvas = ! wp_should_load_block_editor_scripts_and_styles();") && str_contains($bootstrap, "( \$canvas || ( empty( \$style['author_css'] ) && empty( \$style['editor_only'] ) ) ) && \$blocks_engine_presentation_matches(") && ! str_contains($bootstrap, "add_editor_style(") && str_contains($bootstrap, "\$style['content_hash']") && str_contains($bootstrap, "\$style['media'] ?? 'all'") && str_contains($bootstrap, "get_theme_file_uri( \$style['target_path'] )"), 'Editor-only support styles and authored styles are enqueued by URL only on Core\'s editor-canvas iframe asset pass, route-scoped so an edited post loads only its own.');
+$assert(str_contains($bootstrap, "add_action( 'enqueue_block_assets'") && !str_contains($bootstrap, "get_theme_file_path( \$style['target_path'] )") && !str_contains($bootstrap, "file_get_contents(") && !str_contains($bootstrap, "add_filter( 'wp_theme_json_data_theme'") && !str_contains($bootstrap, "blocks_engine_presentation_css"), 'Canonical bootstrap never reads author CSS into editor settings or theme JSON; the editor iframe loads it by URL.');
 $themeScaffold = json_decode((string) ($siteWrites['theme.json']['payload']['data'] ?? ''), true);
 $assert(is_array($themeScaffold) && false === ($themeScaffold['styles']['spacing']['blockGap'] ?? null), 'Generated theme.json explicitly disables the global gap so WordPress emits no 0.5em fallback and no 0-1-0 global margin rules that would clobber authored child spacing.');
 $assert(is_array($themeScaffold) && true === ($themeScaffold['settings']['spacing']['blockGap'] ?? null), 'Generated theme.json opts into blockGap support so WordPress serializes the block gaps the blocks already carry instead of its 0.5em fallback.');
@@ -336,7 +369,7 @@ $bundledStaged = $bundleCompiler->compose($bundledShared, array_reverse($bundled
 $bundledPlan = $bundledWhole['source_reports']['wordpress_site_plan'] ?? array();
 $bundledCss = array_values(array_filter($bundledPlan['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)));
 $bundledBootstrap = (string) ((array_column($bundledPlan['writes'] ?? array(), null, 'target_path')['functions.php']['payload']['data'] ?? ''));
-$assert(8 === count($bundledCss) && 9 === substr_count($bundledBootstrap, 'wp_enqueue_style(') && 2 === substr_count($bundledBootstrap, 'is_front_page()'), 'Three-page inline-style fragmentation coalesces into one shared and two bounded stylesheet records per route, plus one generic editor iframe delivery loop.');
+$assert(8 === count($bundledCss) && 9 === substr_count($bundledBootstrap, 'wp_enqueue_style(') && 2 === substr_count($bundledBootstrap, 'if ( is_front_page() ) wp_enqueue_style('), 'Three-page inline-style fragmentation coalesces into one shared and two bounded stylesheet records per route, plus one generic editor iframe delivery loop.');
 $indexBundle = current(array_filter($bundledCss, static fn(array $asset): bool => 'page' === ($asset['scopes'][0]['kind'] ?? null) && true === ($asset['scopes'][0]['front_page'] ?? null) && '' === ($asset['media'] ?? '')));
 $assert(is_array($indexBundle) && str_contains((string) ($indexBundle['content'] ?? ''), '.cascade-0{color:#000}') && strpos((string) $indexBundle['content'], '.cascade-0{color:#000}') < strpos((string) $indexBundle['content'], '.cascade-7{color:#777}') && hash('sha256', (string) $indexBundle['content']) === ($indexBundle['content_hash'] ?? null), 'A coalesced route bundle preserves author cascade order and content-addressed identity.');
 $assert($canonical($bundledWhole['source_reports']['wordpress_site_plan'] ?? array()) === $canonical($bundledStaged['source_reports']['wordpress_site_plan'] ?? array()) && $canonical($bundledWhole['diagnostics'] ?? array()) === $canonical($bundledStaged['diagnostics'] ?? array()), 'Bounded stylesheet bundles preserve direct and staged canonical plans and diagnostics.');
@@ -370,32 +403,11 @@ $throws(static fn() => $compiler->compose($reductionMismatch, array()), 'Composi
 
 $throws(static fn() => $compiler->compose($shared, array($pages['index.html'], $pages['index.html'])), 'Composition rejects more than one page plan for the same page id.');
 
-$v2Shared = $shared;
-$v2Shared['compiler_options']['compiled_page_schema'] = ArtifactCompiler::COMPILED_RECEIPT_SCHEMA;
-$v2Shared['digest'] = RuntimeDeclarations::hash(array('artifact' => $v2Shared['artifact'], 'analysis' => $v2Shared['analysis'], 'shared_reduction' => $v2Shared['shared_reduction'], 'shared_reduction_digest' => $v2Shared['shared_reduction_digest'], 'compiler_options' => $v2Shared['compiler_options']));
-$v2Receipts = array();
-foreach ($pageIds as $pageId) {
-    $v2Page = $compiler->preparePage($artifact, $v2Shared, $pageId);
-    $v2Page['compiler_options']['compiled_page_schema'] = ArtifactCompiler::COMPILED_RECEIPT_SCHEMA;
-    $v2Page['digest'] = RuntimeDeclarations::hash(array('shared_digest' => $v2Page['shared_digest'], 'page_id' => $v2Page['page_id'], 'artifact' => $v2Page['artifact'], 'layout_geometry_proof' => $v2Page['layout_geometry_proof'], 'compiler_options' => $v2Page['compiler_options'], 'output_schema' => $v2Page['output_schema']));
-    $v2Receipts[] = $compiler->compilePreparedPage($v2Shared, $v2Page);
+foreach (array('blocks-engine/php-transformer/compiled-page-receipt/v1', 'blocks-engine/php-transformer/compiled-page-receipt/v2') as $retiredSchema) {
+    $retiredShared = $shared;
+    $retiredShared['compiler_options']['compiled_page_schema'] = $retiredSchema;
+    $throws(static fn() => $compiler->compilePreparedPages($retiredShared, $pages), 'Compilation rejects retired page receipt schema ' . $retiredSchema . '.');
 }
-$v2Result = $compiler->compose($v2Shared, array_reverse($v2Receipts))->toArray();
-$assert(array_key_exists('files', $v2Receipts[0]['terminal_reduction']) && array_key_exists('entry_blocks', $v2Receipts[0]['terminal_reduction']) && $whole['blocks'] === $v2Result['blocks'] && ($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($v2Result['source_reports']['wordpress_site_plan'] ?? array()), 'Persisted v2 duplicate-payload receipts retain canonical composition compatibility.');
-
-$legacyShared = $shared;
-unset($legacyShared['shared_reduction'], $legacyShared['shared_reduction_digest']);
-$legacyShared['compiler_options']['compiled_page_schema'] = ArtifactCompiler::PAGE_RECEIPT_SCHEMA;
-$legacyShared['digest'] = RuntimeDeclarations::hash(array('artifact' => $legacyShared['artifact'], 'analysis' => $legacyShared['analysis'], 'compiler_options' => $legacyShared['compiler_options']));
-$legacyReceipts = array();
-foreach ($pageIds as $pageId) {
-    $legacyPage = $compiler->preparePage($artifact, $legacyShared, $pageId);
-    $legacyPage['compiler_options']['compiled_page_schema'] = ArtifactCompiler::PAGE_RECEIPT_SCHEMA;
-    $legacyPage['digest'] = RuntimeDeclarations::hash(array('shared_digest' => $legacyPage['shared_digest'], 'page_id' => $legacyPage['page_id'], 'artifact' => $legacyPage['artifact'], 'layout_geometry_proof' => $legacyPage['layout_geometry_proof'], 'compiler_options' => $legacyPage['compiler_options'], 'output_schema' => $legacyPage['output_schema']));
-    $legacyReceipts[] = $compiler->compilePreparedPage($legacyShared, $legacyPage);
-}
-$legacyResult = $compiler->compose($legacyShared, array_reverse($legacyReceipts))->toArray();
-$assert($whole['blocks'] === $legacyResult['blocks'] && ($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($legacyResult['source_reports']['wordpress_site_plan'] ?? array()), 'Serialized v1 shared plans, page plans, and compiled receipts retain legacy envelope composition behavior.');
 
 // A validly digested page plan prepared from a divergent artifact must not
 // silently collide with (and get dedupe-renamed against) the shared files.

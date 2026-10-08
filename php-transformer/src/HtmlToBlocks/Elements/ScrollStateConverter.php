@@ -15,10 +15,14 @@ final class ScrollStateConverter implements ElementConverter
 {
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
+     * @param Closure(DOMElement, array<int, string>): string $inlineCarrierClassName the generated carrier
+     *        class restating the element's carried inline declarations (custom properties its descendants
+     *        read, inline geometry) minus the excluded properties, or '' when nothing needs carrying
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $convertChildren
+        private readonly Closure $convertChildren,
+        private readonly Closure $inlineCarrierClassName
     ) {
     }
 
@@ -48,11 +52,24 @@ final class ScrollStateConverter implements ElementConverter
             $tagName = 'div';
         }
         $anchor = trim(SourceDom::attr($element, 'id'));
-        $className = trim(SourceDom::attr($element, 'class'));
         $config = trim(SourceDom::attr($element, 'data-blocks-engine-scroll-state-config'));
         if ('' === $config || null === json_decode($config, true)) {
             $config = '{}';
         }
+        $decodedConfig = json_decode($config, true);
+        // The wrapper is rebuilt from id, class and config, so its inline
+        // style would be lost with it. Custom properties defined there scope
+        // the var() lookups of every descendant; carry them (with the rest of
+        // the carried inline declarations) the way a converted group does. A
+        // property the runtime toggles on the wrapper itself stays out of the
+        // carrier, whose !important rule would pin it against the toggle.
+        $toggled = array();
+        foreach (is_array($decodedConfig['styleTargets'] ?? null) ? $decodedConfig['styleTargets'] : array() as $target) {
+            if (is_array($target) && in_array($target['selector'] ?? '', array('', ':scope'), true) && is_array($target['properties'] ?? null)) {
+                $toggled = array_merge($toggled, array_map('strtolower', array_map('strval', array_keys($target['properties']))));
+            }
+        }
+        $className = trim(SourceDom::attr($element, 'class') . ' ' . ($this->inlineCarrierClassName)($element, $toggled));
 
         $attrs = array_filter(array(
             'tagName' => 'div' === $tagName ? '' : $tagName,

@@ -4,10 +4,14 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 use DOMNode;
+use DOMText;
 
 /** Builds provider-neutral form and control metadata from source DOM. */
 final class FormControlMetadataBuilder
@@ -18,10 +22,21 @@ final class FormControlMetadataBuilder
     /** A field description reads as a note, not an article; bound it like other in-form copy. */
     private const MAX_DESCRIPTION_LENGTH = 240;
 
-    /** @param Closure(DOMElement): string $elementSelector */
+    /** Context selectors are more numerous than control styling hooks; exhaustion is explicit. */
+    private const MAX_CONTEXT_CLASSES = 64;
+
+    /**
+     * @param Closure(DOMElement): string $elementSelector
+     * @param Closure(DOMElement): array<string, string>|null $typographyStyles Resolved snake_case typography
+     *     facts for one element, through the form presentation graph's cascade.
+     * @param Closure(DOMElement, DOMElement): (array<string, string>|null)|null $hiddenState The declaration
+     *     that hides an element below a form boundary, if the source hides it unconditionally.
+     */
     public function __construct(
         private readonly Closure $elementSelector,
-        private readonly ?Closure $presentationAttributes = null
+        private readonly ?Closure $presentationAttributes = null,
+        private readonly ?Closure $typographyStyles = null,
+        private readonly ?Closure $hiddenState = null
     ) {
     }
 
@@ -117,25 +132,53 @@ final class FormControlMetadataBuilder
         $interleaved = false;
         $seenControls = 0;
         $totalControls = 0;
+
+        // Copy a control already owns — its label, its field description — is
+        // carried by the control manifest, so it must not also surface here.
+        $claimedLabels = array();
+        $claimedTexts = array();
         foreach ( $form->getElementsByTagName('*') as $node ) {
-            if ( $node instanceof DOMElement && FormControlClassifier::isControlElement($node) ) {
-                ++$totalControls;
+            if ( ! $node instanceof DOMElement || ! FormControlClassifier::isControlElement($node) ) {
+                continue;
+            }
+            if ( FormControlClassifier::isNonAuthoredControl($node) ) {
+                continue;
+            }
+            ++$totalControls;
+            $labelElement = $this->labelElement($node);
+            if ( $labelElement instanceof DOMElement ) {
+                $claimedLabels[] = $labelElement;
+            }
+            $description = $this->describeControl($node, $labelElement);
+            // Only a resolved description is carried by the control manifest.
+            // Ambiguous candidates stay unattributed, so they may still
+            // surface here as form context instead of being lost.
+            if ( '' !== $description['description'] ) {
+                $claimedTexts[] = $description['description'];
             }
         }
 
+        $recorded = array();
         foreach ( $form->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
                 continue;
             }
             if ( FormControlClassifier::isControlElement($node) ) {
-                ++$seenControls;
+                if ( ! FormControlClassifier::isNonAuthoredControl($node) ) {
+                    ++$seenControls;
+                }
                 continue;
             }
 
-            $item = $this->inFormContextItem($node);
+            $item = $this->inFormContextItem($node, $form);
             if ( null === $item ) {
                 continue;
             }
+            if ( $this->isControlOwnedCopy($node, $item['text'], $claimedLabels, $claimedTexts)
+                || $this->isRecordedCopy($node, $recorded) ) {
+                continue;
+            }
+            $recorded[] = $node;
             if ( 0 === $seenControls ) {
                 $before[] = $item;
             } elseif ( $seenControls >= $totalControls ) {
@@ -155,7 +198,7 @@ final class FormControlMetadataBuilder
     }
 
     /** @return array<string, mixed>|null */
-    private function inFormContextItem(DOMElement $node): ?array
+    private function inFormContextItem(DOMElement $node, DOMElement $form): ?array
     {
         $tagName = strtolower($node->tagName);
         $text = trim((string) preg_replace('/\s+/', ' ', $node->textContent ?? ''));
@@ -164,24 +207,139 @@ final class FormControlMetadataBuilder
         }
 
         if ( 1 === preg_match('/^h([1-6])$/', $tagName, $matches) ) {
-            return array(
+            $item = array(
                 'type' => 'heading',
                 'level' => (int) $matches[1],
                 'text' => $text,
             );
-        }
-
-        // A note only reads as instructional when the source says so. Every
-        // label would otherwise be duplicated out of its own field.
-        if ( in_array($tagName, array( 'label', 'p' ), true)
-            && 1 === preg_match('/(?:required|note|instruction|help)/i', SourceDom::attr($node, 'class')) ) {
-            return array(
+        } elseif ( in_array($tagName, array( 'label', 'p' ), true) ) {
+            // A heading or note the reader sees between the fields. Copy that
+            // belongs to one control is withheld by `isControlOwnedCopy()`.
+            $item = array(
                 'type' => 'paragraph',
                 'text' => $text,
             );
+        } else {
+            return null;
         }
 
-        return null;
+        $item['source_selector'] = ($this->elementSelector)($node);
+
+        // Author rules address the element itself, so a consumer reproducing
+        // this copy as a block needs the classes to re-apply those rules.
+        $classes = SourceDom::boundedClassTokens(SourceDom::attr($node, 'class'), self::MAX_CONTEXT_CLASSES);
+        if ( array() !== $classes ) {
+            $item['class'] = implode(' ', $classes);
+            $validClassCount = count(SourceDom::boundedClassTokens(SourceDom::attr($node, 'class'), self::MAX_CONTEXT_CLASSES + 1));
+            if ( $validClassCount > self::MAX_CONTEXT_CLASSES ) {
+                $item['classes_truncated'] = true;
+            }
+        }
+
+        // A source styles in-form copy through custom properties set on
+        // ancestors of the form, so classes alone cannot reproduce it; carry
+        // the resolved typography the form presentation graph would report.
+        $styles = $this->contextTypography($node);
+        if ( array() !== $styles ) {
+            $item['styles'] = $styles;
+        }
+
+        // Status copy a form keeps hidden until it is submitted ("Thanks for
+        // submitting!") is not copy the reader sees. Say so, and by which
+        // declaration, so a consumer whose provider renders its own status can
+        // leave it out instead of showing it permanently.
+        $hidden = null === $this->hiddenState ? null : ($this->hiddenState)($node, $form);
+        if ( is_array($hidden) ) {
+            $item['hidden'] = $hidden;
+        }
+
+        return $item;
+    }
+
+    /**
+     * Resolved typography for one context item: on the element itself, or —
+     * when it declares none of it — on its sole text carrier (a `<span>`
+     * inside a `<p>` title). Omitted when neither resolves anything.
+     *
+     * @return array<string, string>
+     */
+    private function contextTypography(DOMElement $node): array
+    {
+        if ( null === $this->typographyStyles ) {
+            return array();
+        }
+        $styles = ($this->typographyStyles)($node);
+        if ( array() !== $styles ) {
+            return $styles;
+        }
+        $carrier = FormPresentationGraphBuilder::soleTextCarrier($node);
+        return null === $carrier ? array() : ($this->typographyStyles)($carrier);
+    }
+
+    /**
+     * Whether this node's copy is already carried by a control: it sits inside
+     * the element that labels the control, or it is the text the builder
+     * resolved as the control's own field description.
+     *
+     * @param array<int, DOMElement> $claimedLabels
+     * @param array<int, string>     $claimedTexts
+     */
+    private function isControlOwnedCopy(DOMElement $node, string $text, array $claimedLabels, array $claimedTexts): bool
+    {
+        foreach ( $claimedLabels as $label ) {
+            if ( SourceDom::elementContains($label, $node) ) {
+                return true;
+            }
+        }
+
+        // A field's own wrapper (`<p><label for="e">Email</label><input id="e"></p>`,
+        // `<p><button>Join</button></p>`) has no text of its own: everything it
+        // reads is a claimed label or a control it contains.
+        return in_array($text, $claimedTexts, true) || '' === $this->unclaimedText($node, $claimedLabels);
+    }
+
+    /**
+     * Text of an element outside the claimed labels and the controls it contains.
+     *
+     * @param array<int, DOMElement> $claimedLabels
+     */
+    private function unclaimedText(DOMElement $element, array $claimedLabels): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMText ) {
+                $text .= $child->textContent;
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || FormControlClassifier::isControlElement($child) ) {
+                continue;
+            }
+            foreach ( $claimedLabels as $label ) {
+                if ( $label->isSameNode($child) ) {
+                    continue 2;
+                }
+            }
+            $text .= $this->unclaimedText($child, $claimedLabels);
+        }
+
+        return trim((string) preg_replace('/\s+/', ' ', $text));
+    }
+
+    /**
+     * `getElementsByTagName('*')` walks descendants, so a nested container
+     * repeats an already-recorded subtree's text; keep the outer record only.
+     *
+     * @param array<int, DOMElement> $recorded
+     */
+    private function isRecordedCopy(DOMElement $node, array $recorded): bool
+    {
+        foreach ( $recorded as $recordedNode ) {
+            if ( SourceDom::elementContains($recordedNode, $node) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return array<string, mixed> */
@@ -207,6 +365,7 @@ final class FormControlMetadataBuilder
             'label_class'      => $labelElement instanceof DOMElement ? $this->classNames($labelElement) : '',
             'name'             => SourceDom::attr($control, 'name'),
             'type'             => $this->authoredInputType($control, $type),
+            'role'             => SourceDom::attr($control, 'role'),
             'label'            => $this->label($control),
             'aria_haspopup'    => SourceDom::attr($control, 'aria-haspopup'),
             'aria_describedby' => SourceDom::attr($control, 'aria-describedby'),
@@ -220,6 +379,13 @@ final class FormControlMetadataBuilder
             'rows'             => $this->effectiveRows($control),
             'description'      => $description['description'],
         ), static fn (string $value): bool => '' !== $value);
+
+        // An accessible name from aria-label or aria-labelledby is not a rendered
+        // label box beside the control. A provider that always renders its own
+        // label element must keep that name for assistive technology only.
+        if ( isset($metadata['label']) && ! $labelElement instanceof DOMElement && ! in_array($type, array( 'button', 'reset', 'submit', 'hidden' ), true) ) {
+            $metadata['label_visible'] = false;
+        }
 
         // More than one candidate means the text cannot be safely attributed to
         // this control alone; the caller surfaces it as a diagnostic instead of
@@ -249,6 +415,21 @@ final class FormControlMetadataBuilder
                 $presentation = ($this->presentationAttributes)($control);
                 if ( is_array($presentation['style'] ?? null) && array() !== $presentation['style'] ) {
                     $metadata['presentation'] = array( 'style' => $presentation['style'] );
+                }
+            }
+            // A provider flattens the editable label independently from its box.
+            // Read the existing whole-text carrier through the form typography
+            // cascade so a styled paragraph/div chain does not become button defaults.
+            $carrier = FormPresentationGraphBuilder::soleTextCarrier($control);
+            if ($carrier instanceof DOMElement) {
+                $typography = $this->contextTypography($carrier);
+                $declarations = array();
+                foreach ($typography as $property => $value) {
+                    $declarations[str_replace('_', '-', $property)] = $value;
+                }
+                $labelStyle = (new StyleAttributeMapper())->map($declarations)['style'];
+                if (array() !== $labelStyle) {
+                    $metadata['presentation']['style'] = array_replace_recursive($metadata['presentation']['style'] ?? array(), $labelStyle);
                 }
             }
         }
@@ -289,8 +470,60 @@ final class FormControlMetadataBuilder
                 $metadata['options'] = $options;
             }
         }
+        if ( ! isset($metadata['options']) ) {
+            $listboxOptions = $this->ownedListboxOptions($control);
+            if ( array() !== $listboxOptions ) {
+                $metadata['options'] = $listboxOptions;
+            }
+        }
+        $sourceSelect = $this->adjacentChoiceSelect($control);
+        if ( $sourceSelect instanceof DOMElement ) {
+            // Keep the visible trigger and the native value carrier as separate
+            // controls in the topology, but connect their source evidence here.
+            $metadata['options'] = $this->options($sourceSelect);
+            $metadata['choice_source_selector'] = ($this->elementSelector)($sourceSelect);
+            if ( $sourceSelect->hasAttribute('required') || 'true' === strtolower(trim($sourceSelect->getAttribute('aria-required'))) ) {
+                $metadata['required'] = true;
+            }
+        }
 
         return $metadata;
+    }
+
+    /** A hidden native select beside its visible trigger, possibly behind its captured popup. */
+    private function adjacentChoiceSelect(DOMElement $control): ?DOMElement
+    {
+        if ( 'button' !== strtolower($control->tagName)
+            || ( 'combobox' !== strtolower(trim($control->getAttribute('role')))
+                && 'listbox' !== strtolower(trim($control->getAttribute('aria-haspopup'))) ) ) {
+            return null;
+        }
+
+        $next = $control->nextElementSibling;
+        $key = trim(SourceDom::attr($control, 'data-dla-listbox-trigger'));
+        if ( '' !== $key && $next instanceof DOMElement
+            && $key === trim($next->getAttribute('data-dla-listbox-panel'))
+            && null !== FormControlClassifier::sourceSelectAfterCapturedPanel($next) ) {
+            // Capture inserts precisely one linked popup between the visible
+            // trigger and its source value carrier. Do not skip other nodes.
+            $next = $next->nextElementSibling;
+        }
+
+        foreach ( array( $control->previousElementSibling, $next ) as $sibling ) {
+            if ( ! $sibling instanceof DOMElement || 'select' !== strtolower($sibling->tagName) ) {
+                continue;
+            }
+            if ( ! $sibling->hasAttribute('hidden')
+                && ! ( 'true' === strtolower(trim($sibling->getAttribute('aria-hidden')))
+                    && '-1' === trim($sibling->getAttribute('tabindex')) ) ) {
+                continue;
+            }
+            if ( array() !== $this->options($sibling) ) {
+                return $sibling;
+            }
+        }
+
+        return null;
     }
 
     public function label(DOMElement $control): string
@@ -432,50 +665,7 @@ final class FormControlMetadataBuilder
     /** The element that labels this control, by `for`, by wrapping, or by field position. */
     public function labelElement(DOMElement $control): ?DOMElement
     {
-        $label = $this->associatedLabel($control);
-        if ( $label instanceof DOMElement ) {
-            return $label;
-        }
-        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( 'label' === strtolower($parent->tagName) ) {
-                return $parent;
-            }
-        }
-        return $this->fieldWrapperLabel($control);
-    }
-
-    /**
-     * Markup rendered by a client framework routinely omits both `id` and `for`
-     * and states the association by position alone: one label and one control
-     * inside the same field wrapper. That is the only association the source
-     * makes, so read it instead of reporting the control as unlabelled.
-     */
-    private function fieldWrapperLabel(DOMElement $control): ?DOMElement
-    {
-        $depth = 0;
-        for ( $wrapper = $control->parentNode; $wrapper instanceof DOMElement && $depth < self::FIELD_WRAPPER_DEPTH; $wrapper = $wrapper->parentNode, ++$depth ) {
-            if ( in_array(strtolower($wrapper->tagName), array( 'form', 'fieldset', 'body', 'html' ), true) ) {
-                return null;
-            }
-
-            $controls = FormControlClassifier::controlElements($wrapper);
-            // A wrapper shared with another control cannot say which one a label belongs to.
-            if ( 1 !== count($controls) || ! $controls[0]->isSameNode($control) ) {
-                return null;
-            }
-
-            $labels = array();
-            foreach ( $wrapper->getElementsByTagName('label') as $label ) {
-                if ( $label instanceof DOMElement && '' === SourceDom::attr($label, 'for') ) {
-                    $labels[] = $label;
-                }
-            }
-            if ( 1 === count($labels) ) {
-                return $labels[0];
-            }
-        }
-
-        return null;
+        return FormControlLabel::element($control);
     }
 
     /**
@@ -487,7 +677,7 @@ final class FormControlMetadataBuilder
      * the specific control it describes, not folded into a form-wide bucket
      * it cannot be positioned from.
      *
-     * Read it the same way `fieldWrapperLabel()` reads a positional label:
+     * Read it the same way `FormControlLabel::element()` reads a positional label:
      * only from a wrapper this control exclusively owns, so the text cannot
      * actually belong to a sibling field instead. More than one qualifying
      * candidate in that wrapper cannot be safely attributed either, so it is
@@ -535,8 +725,12 @@ final class FormControlMetadataBuilder
     private function descriptionCandidates(DOMElement $wrapper, DOMElement $control, ?DOMElement $labelElement): array
     {
         $candidates = array();
+        $listbox = $this->ownedListboxPanel($control);
         foreach ( $wrapper->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
+                continue;
+            }
+            if ( $listbox instanceof DOMElement && $this->isOwnedListboxCopy($node, $listbox) ) {
                 continue;
             }
             if ( SourceDom::elementContains($control, $node) || SourceDom::elementContains($node, $control) ) {
@@ -602,6 +796,165 @@ final class FormControlMetadataBuilder
 
         $value = trim(SourceDom::attr($control, 'value'));
         return '' !== $value ? $value : $fallback;
+    }
+
+    /**
+     * Option rows inside a listbox popup owned by this control are an auxiliary
+     * option set (a country-code selector, for one), not free field copy.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function ownedListboxOptions(DOMElement $control): array
+    {
+        $panel = $this->ownedListboxPanel($control);
+        if ( ! $panel instanceof DOMElement ) {
+            return array();
+        }
+
+        $options = array();
+        foreach ( $panel->getElementsByTagName('*') as $option ) {
+            if ( ! $option instanceof DOMElement || 'option' !== strtolower(trim($option->getAttribute('role'))) ) {
+                continue;
+            }
+            $label = $this->collapsedElementText($option);
+            if ( '' === $label ) {
+                continue;
+            }
+            $value = $option->getAttribute('data-value');
+            $row = array(
+                'label' => $label,
+                'value' => '' === $value ? $label : $value,
+            );
+            if ( 'true' === strtolower(trim($option->getAttribute('aria-selected'))) ) {
+                $row['selected'] = true;
+            }
+            if ( 'true' === strtolower(trim($option->getAttribute('aria-disabled'))) ) {
+                $row['disabled'] = true;
+            }
+            $options[] = $row;
+        }
+
+        return $options;
+    }
+
+    /**
+     * A listbox panel is owned by the control that pops it up: the capture
+     * trigger/panel pair, an aria-controls reference, or a nested listbox
+     * beside an aria-haspopup=listbox trigger.
+     */
+    private function ownedListboxPanel(DOMElement $control): ?DOMElement
+    {
+        $key = trim(SourceDom::attr($control, 'data-dla-listbox-trigger'));
+        $document = $control->ownerDocument;
+        if ( '' !== $key && $document instanceof \DOMDocument ) {
+            foreach ( $document->getElementsByTagName('*') as $candidate ) {
+                if ( $candidate instanceof DOMElement && $candidate->getAttribute('data-dla-listbox-panel') === $key ) {
+                    return $candidate;
+                }
+            }
+        }
+
+        if ( 'listbox' !== strtolower(trim(SourceDom::attr($control, 'aria-haspopup'))) ) {
+            return null;
+        }
+
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $id ) {
+            if ( '' === $id ) {
+                continue;
+            }
+            $target = $this->elementById($control, $id);
+            if ( $target instanceof DOMElement && null !== ( $panel = $this->referencedListbox($target) ) ) {
+                return $panel;
+            }
+        }
+
+        return $this->nestedListboxPanel($control);
+    }
+
+    private function referencedListbox(DOMElement $element): ?DOMElement
+    {
+        if ( $this->isListboxPanel($element) ) {
+            return $element;
+        }
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && 'listbox' === strtolower(trim($candidate->getAttribute('role'))) ) {
+                return $element;
+            }
+        }
+
+        return null;
+    }
+
+    private function nestedListboxPanel(DOMElement $control): ?DOMElement
+    {
+        $depth = 0;
+        for ( $wrapper = $control->parentNode; $wrapper instanceof DOMElement && $depth < self::FIELD_WRAPPER_DEPTH; $wrapper = $wrapper->parentNode, ++$depth ) {
+            if ( in_array(strtolower($wrapper->tagName), array( 'form', 'fieldset', 'body', 'html' ), true) ) {
+                break;
+            }
+            foreach ( $wrapper->getElementsByTagName('*') as $candidate ) {
+                if ( ! $candidate instanceof DOMElement || 'listbox' !== strtolower(trim($candidate->getAttribute('role'))) ) {
+                    continue;
+                }
+                if ( SourceDom::elementContains($control, $candidate) || $this->panelOwnedByOtherTrigger($candidate, $control) ) {
+                    continue;
+                }
+
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function panelOwnedByOtherTrigger(DOMElement $panel, DOMElement $control): bool
+    {
+        $ownKey = trim(SourceDom::attr($control, 'data-dla-listbox-trigger'));
+        for ( $node = $panel; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $key = trim($node->getAttribute('data-dla-listbox-panel'));
+            if ( '' === $key ) {
+                continue;
+            }
+
+            return $key !== $ownKey;
+        }
+
+        return false;
+    }
+
+    private function isListboxPanel(DOMElement $element): bool
+    {
+        return 'listbox' === strtolower(trim($element->getAttribute('role')))
+            || '' !== trim($element->getAttribute('data-dla-listbox-panel'));
+    }
+
+    private function isOwnedListboxCopy(DOMElement $node, DOMElement $panel): bool
+    {
+        if ( SourceDom::elementContains($panel, $node) ) {
+            return true;
+        }
+
+        return SourceDom::elementContains($node, $panel)
+            && $this->collapsedElementText($node) === $this->collapsedElementText($panel);
+    }
+
+    private function elementById(DOMElement $context, string $id): ?DOMElement
+    {
+        $document = $context->ownerDocument;
+        if ( '' === $id || ! $document instanceof \DOMDocument ) {
+            return null;
+        }
+        $found = $document->getElementById($id);
+        if ( $found instanceof DOMElement ) {
+            return $found;
+        }
+        foreach ( $document->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && $candidate->getAttribute('id') === $id ) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /** @return array<int, array<string, mixed>> */

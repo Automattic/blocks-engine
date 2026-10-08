@@ -4,7 +4,9 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 
 /**
@@ -20,6 +22,25 @@ final class ArtifactNormalizer
     public const MAX_FILES = 5000;
     public const MAX_FILE_BYTES = 10485760;
     public const MAX_TOTAL_BYTES = 335544320;
+    // Reference-backed media is carried as a digest and never read, so it is
+    // bounded on its own budget instead of the budget for parsed source bytes.
+    public const DEFAULT_MAX_MEDIA_FILE_BYTES = 67108864;
+    public const DEFAULT_MAX_MEDIA_TOTAL_BYTES = 536870912;
+    public const MAX_MEDIA_FILE_BYTES = 134217728;
+    public const MAX_MEDIA_TOTAL_BYTES = 1073741824;
+    // A capture report the artifact declares in `reports` is evidence about the
+    // capture, not page source: only the few reports a projector names are ever
+    // decoded, and none of them is converted to blocks or rewritten. Its bytes
+    // are hydrated, so they stay bounded, but on their own budget rather than
+    // the one sized for what the compiler parses.
+    public const DEFAULT_MAX_REPORT_FILE_BYTES = 16777216;
+    public const DEFAULT_MAX_REPORT_TOTAL_BYTES = 67108864;
+    public const MAX_REPORT_FILE_BYTES = 33554432;
+    public const MAX_REPORT_TOTAL_BYTES = 134217728;
+    /** Extensions whose referenced payloads the compiler hydrates and parses. */
+    public const REFERENCE_TEXT_EXTENSIONS = array('css', 'html', 'htm', 'js', 'mjs', 'json', 'md', 'markdown', 'mdx', 'svg');
+    /** Non-`text/*` mime types whose referenced payloads the compiler hydrates. */
+    public const REFERENCE_TEXT_MIME_TYPES = array('application/javascript', 'application/json', 'application/ecmascript');
     private const MAX_REJECTION_SAMPLES = 10;
     private const MAX_REJECTION_SAMPLE_PATH_BYTES = 256;
     private const SAMPLE_ROLES = array('entry', 'document', 'stylesheet', 'script', 'image', 'audio', 'video', 'font', 'data', 'asset');
@@ -39,9 +60,12 @@ final class ArtifactNormalizer
         $rejectionCounts = array();
         $rejectionSamples = array();
         $bytes = 0;
+        $mediaBytes = 0;
+        $reportBytes = 0;
         $truncationImpact = null;
         $seenPaths = array();
         $limits = $this->limits($artifact);
+        $declaredReports = self::declaredReports($artifact);
 
         foreach ( array('entrypoint', 'entry', 'main') as $key ) {
             if ( is_string($artifact[$key] ?? null) ) {
@@ -57,6 +81,7 @@ final class ArtifactNormalizer
         }
 
         $rawFiles = $this->rawFiles($artifact);
+        $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports);
         $reservedPaths = array();
         foreach ( $rawFiles as $file ) {
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
@@ -107,21 +132,57 @@ final class ArtifactNormalizer
                 continue;
             }
 
-            if ( $payload['bytes'] > $limits['max_file_bytes'] ) {
+            // A reference-backed media payload is kept closed behind its digest,
+            // so it costs no parsed bytes. Budget it on its own axis instead of
+            // charging it against what the compiler actually reads.
+            $referenceMedia = self::isReferenceBackedBinary(array('path' => $path) + $file);
+            // A declared capture report is hydrated but never converted, so it
+            // is bounded on the report budget rather than the parse budget.
+            $capturedReport = ! $referenceMedia && isset($declaredReports[$path]);
+
+            if ( $referenceMedia && $payload['bytes'] > $limits['max_media_file_bytes'] ) {
+                ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_media_file_too_large', $file, $path, $payload['bytes']);
+                $diagnostics[] = $this->diagnostic('artifact_media_file_too_large', 'warning', 'A referenced media file was ignored because it exceeds the per-file media byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_media_file_bytes' => $limits['max_media_file_bytes']));
+                continue;
+            }
+
+            if ( $capturedReport && $payload['bytes'] > $limits['max_report_file_bytes'] ) {
+                ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_report_file_too_large', $file, $path, $payload['bytes']);
+                $diagnostics[] = $this->diagnostic('artifact_report_file_too_large', 'warning', 'A declared capture report was ignored because it exceeds the per-file report byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_file_bytes' => $limits['max_report_file_bytes']));
+                continue;
+            }
+
+            if ( $capturedReport && $reportBytes + $payload['bytes'] > $limits['max_report_total_bytes'] ) {
+                ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_report_total_too_large', $file, $path, $payload['bytes']);
+                $diagnostics[] = $this->diagnostic('artifact_report_total_too_large', 'warning', 'A declared capture report was ignored because the bundle report byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_total_bytes' => $limits['max_report_total_bytes']));
+                continue;
+            }
+
+            if ( ! $referenceMedia && ! $capturedReport && $payload['bytes'] > $limits['max_file_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_file_too_large', $file, $path, $payload['bytes']);
                 $diagnostics[] = $this->diagnostic('artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_file_bytes' => $limits['max_file_bytes']));
                 continue;
             }
 
-            if ( $bytes + $payload['bytes'] > $limits['max_total_bytes'] ) {
+            if ( $referenceMedia && $mediaBytes + $payload['bytes'] > $limits['max_media_total_bytes'] ) {
+                ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_media_total_too_large', $file, $path, $payload['bytes']);
+                $diagnostics[] = $this->diagnostic('artifact_media_total_too_large', 'warning', 'A referenced media file was ignored because the bundle media byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_media_total_bytes' => $limits['max_media_total_bytes']));
+                continue;
+            }
+
+            if ( ! $referenceMedia && ! $capturedReport && ( $bytes - $mediaBytes - $reportBytes ) + $payload['bytes'] > $limits['max_total_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_total_too_large', $file, $path, $payload['bytes']);
                 $diagnostics[] = $this->diagnostic('artifact_total_too_large', 'warning', 'An artifact file was ignored because the bundle byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_total_bytes' => $limits['max_total_bytes']));
                 continue;
             }
 
-            $path = $this->dedupePath($path, $seenPaths);
+            $path = self::dedupePath($path, $seenPaths);
             $seenPaths[$path] = true;
             $mimeType = $this->mimeType((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? (str_contains((string) ($file['type'] ?? ''), '/') ? $file['type'] : '')), $path);
             $kind = $this->kind((string) ($file['kind'] ?? $file['type'] ?? ''), $path, $payload['content'], $mimeType);
@@ -175,6 +236,19 @@ final class ArtifactNormalizer
             }
             if ( is_array($file['metadata'] ?? null) ) {
                 $metadata = array();
+                if (is_array($file['metadata']['structured_data'] ?? null)) {
+                    $structured = array();
+                    $structuredBytes = 0;
+                    foreach (array_slice($file['metadata']['structured_data'], 0, 32) as $record) {
+                        if (!is_array($record) || 'application/ld+json' !== ($record['type'] ?? null) || !is_array($record['data'] ?? null)) continue;
+                        $encoded = json_encode($record['data']);
+                        if (!is_string($encoded) || strlen($encoded) > 262144 || !is_array(json_decode($encoded, true, 24))) continue;
+                        $structuredBytes += strlen($encoded);
+                        if ($structuredBytes > 262144) break;
+                        $structured[] = array('type' => 'application/ld+json', 'data' => $record['data']);
+                    }
+                    if (array() !== $structured) $metadata['structured_data'] = $structured;
+                }
                 if ( is_string($file['metadata']['route_path'] ?? null) && '' !== trim($file['metadata']['route_path']) ) {
                     $metadata['route_path'] = trim($file['metadata']['route_path']);
                 }
@@ -203,10 +277,13 @@ final class ArtifactNormalizer
                     $path
                 );
             }
-            foreach ( array('placement', 'type', 'media', 'source_path', 'selector', 'stylesheet_index', 'superseded_by') as $field ) {
+            foreach ( array('placement', 'type', 'media', 'source_media', 'source_path', 'selector', 'stylesheet_index', 'superseded_by') as $field ) {
                 if ( isset($file[$field]) && is_scalar($file[$field]) && '' !== trim((string) $file[$field]) ) {
                     $normalized[$field] = (string) $file[$field];
                 }
+            }
+            if ( is_int($file['stylesheet_link_position'] ?? null) ) {
+                $normalized['stylesheet_link_position'] = $file['stylesheet_link_position'];
             }
             foreach ( array('defer', 'async') as $field ) {
                 if ( isset($file[$field]) ) {
@@ -219,6 +296,11 @@ final class ArtifactNormalizer
             }
 
             $bytes += $normalized['bytes'];
+            if ( $referenceMedia ) {
+                $mediaBytes += $normalized['bytes'];
+            } elseif ( $capturedReport ) {
+                $reportBytes += $normalized['bytes'];
+            }
             $files[] = $normalized;
         }
 
@@ -252,6 +334,24 @@ final class ArtifactNormalizer
             'layout_geometry_proof' => $layoutGeometryProof['proof'],
             'truncation_impact' => $truncationImpact,
         );
+    }
+
+    /**
+     * Is this file carried as a portable payload reference the compiler keeps
+     * closed? Such a file contributes no parsed bytes, so it is budgeted as
+     * media. The rule is the single source of truth shared with StagedTransport.
+     *
+     * @param array<string,mixed> $file
+     */
+    public static function isReferenceBackedBinary(array $file): bool
+    {
+        if (!isset($file['payload_reference'])) return false;
+        $mime = strtolower((string) ($file['mime_type'] ?? $file['type'] ?? ''));
+        if ('image/svg+xml' === $mime || str_ends_with(strtolower((string) ($file['path'] ?? '')), '.svg')) return false;
+        $extension = strtolower(pathinfo((string) ($file['path'] ?? ''), PATHINFO_EXTENSION));
+        return !str_starts_with($mime, 'text/')
+            && !in_array($mime, self::REFERENCE_TEXT_MIME_TYPES, true)
+            && !in_array($extension, self::REFERENCE_TEXT_EXTENSIONS, true);
     }
 
     /** @param array<string,int> $counts @param array<int,array<string,mixed>> $samples @param array<string,mixed> $file */
@@ -320,7 +420,7 @@ final class ArtifactNormalizer
             }
             // Omitted rows share the same canonical namespace as admitted rows.
             // A later duplicate becomes assets/logo-2.svg, not assets/logo.svg.
-            $path = $this->dedupePath($path, $seenPaths);
+            $path = self::dedupePath($path, $seenPaths);
             $seenPaths[$path] = true;
             $class = in_array((string) ($file['source'] ?? ''), array('inline-style', 'inline-script'), true) ? 'generated' : 'source';
             ++$byClass[$class]['count'];
@@ -374,7 +474,7 @@ final class ArtifactNormalizer
         return $impact;
     }
 
-    /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int} */
+    /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int,max_media_file_bytes:int,max_media_total_bytes:int,max_report_file_bytes:int,max_report_total_bytes:int} */
     private function limits(array $artifact): array
     {
         $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
@@ -382,7 +482,33 @@ final class ArtifactNormalizer
             'max_files'       => min(self::MAX_FILES, max(1, (int) ($requested['max_files'] ?? self::DEFAULT_MAX_FILES))),
             'max_file_bytes'  => min(self::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? self::DEFAULT_MAX_FILE_BYTES))),
             'max_total_bytes' => min(self::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? self::DEFAULT_MAX_TOTAL_BYTES))),
+            'max_media_file_bytes'  => min(self::MAX_MEDIA_FILE_BYTES, max(1, (int) ($requested['max_media_file_bytes'] ?? self::DEFAULT_MAX_MEDIA_FILE_BYTES))),
+            'max_media_total_bytes' => min(self::MAX_MEDIA_TOTAL_BYTES, max(1, (int) ($requested['max_media_total_bytes'] ?? self::DEFAULT_MAX_MEDIA_TOTAL_BYTES))),
+            'max_report_file_bytes'  => min(self::MAX_REPORT_FILE_BYTES, max(1, (int) ($requested['max_report_file_bytes'] ?? self::DEFAULT_MAX_REPORT_FILE_BYTES))),
+            'max_report_total_bytes' => min(self::MAX_REPORT_TOTAL_BYTES, max(1, (int) ($requested['max_report_total_bytes'] ?? self::DEFAULT_MAX_REPORT_TOTAL_BYTES))),
         );
+    }
+
+    /**
+     * The capture reports this artifact declares, as a path lookup set.
+     *
+     * `reports` is the same declaration the source manifest already carries for
+     * these files; it is what keeps them addressable at the artifact root
+     * instead of under the website tree. Reusing it here means one declaration
+     * decides both where a report lives and which budget bounds it.
+     *
+     * @param array<string,mixed> $artifact
+     * @return array<string,true>
+     */
+    public static function declaredReports(array $artifact): array
+    {
+        $reports = array();
+        foreach (is_array($artifact['reports'] ?? null) ? $artifact['reports'] : array() as $report) {
+            if (!is_string($report)) continue;
+            $path = ArtifactPath::safeRelativePath($report);
+            if ('' !== $path) $reports[$path] = true;
+        }
+        return $reports;
     }
 
     /**
@@ -455,6 +581,8 @@ final class ArtifactNormalizer
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
+
             if ( isset($expandedSources[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))]) ) {
                 continue;
             }
@@ -463,6 +591,16 @@ final class ArtifactNormalizer
                 continue;
             }
 
+            // A page's <style> and <link> elements form one cascade sequence.
+            // Record how many stylesheet links precede each <style> so later
+            // enqueue ordering can place it between the same links.
+            $linkOffsets = array();
+            foreach ( StyleTagScanner::scanLinks($content) as $link ) {
+                $rel = preg_split('/\s+/', strtolower(trim($this->htmlAttribute($link['tag'], 'rel')))) ?: array();
+                if ( in_array('stylesheet', $rel, true) && '' !== $this->htmlAttribute($link['tag'], 'href') ) {
+                    $linkOffsets[] = $link['offset'];
+                }
+            }
             $styles = array();
             foreach ( StyleTagScanner::scan($content) as $style ) {
                 $attributes = $style['attributes'];
@@ -470,7 +608,8 @@ final class ArtifactNormalizer
                 if ( '' === $css || ! StyleTagScanner::isCssType($this->htmlAttribute($attributes, 'type')) ) {
                     continue;
                 }
-                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'type' => $this->htmlAttribute($attributes, 'type') );
+                $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
+                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'source_media' => array_key_exists('data-dla-source-media', \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
             // Spacing an author declares inline on <body> is page content the
             // reader sees, but the document is re-wrapped in a bare <body>
@@ -500,7 +639,9 @@ final class ArtifactNormalizer
                     'source'    => 'inline-style',
                     'source_path' => ArtifactPath::safeRelativePath((string) ($file['path'] ?? 'index.html')),
                     'stylesheet_index' => $index + 1,
+                    'stylesheet_link_position' => $style['link_position'] ?? null,
                     'media' => $style['media'],
+                    'source_media' => $style['source_media'] ?? null,
                     'type' => $style['type'],
                 ));
             }
@@ -613,7 +754,7 @@ final class ArtifactNormalizer
         }
 
         $spacing = array();
-        foreach ( explode(';', $style) as $declaration ) {
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
             $parts = explode(':', $declaration, 2);
             if ( 2 !== count($parts) ) {
                 continue;
@@ -667,19 +808,21 @@ final class ArtifactNormalizer
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
+            if (!empty($file['metadata']['compilation']['included_component'])) continue;
+
             if ( isset($expandedSources[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))]) ) {
                 continue;
             }
             $content = $this->payload($file, (string) ($file['path'] ?? ''))['content'];
-            if ( ! $this->isHtmlLikeFile($file) || '' === trim($content) || ! preg_match_all('@<script\b([^>]*)>(.*?)</script>@is', $content, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
+            if ( ! $this->isHtmlLikeFile($file) || '' === trim($content) ) {
                 continue;
             }
 
             $scriptIndex = 0;
-            foreach ( $matches as $match ) {
+            foreach ( HtmlTagScanner::scan($content, 'script') as $script ) {
                 ++$scriptIndex;
-                $attributes = (string) $match[1][0];
-                $body = trim((string) $match[2][0]);
+                $attributes = $script['attributes'];
+                $body = trim($script['content']);
                 if ( '' === $body || '' !== $this->htmlAttribute($attributes, 'src') || ! $this->isExecutableScriptType($this->htmlAttribute($attributes, 'type')) ) {
                     continue;
                 }
@@ -692,7 +835,7 @@ final class ArtifactNormalizer
                     'role'        => 'script',
                     'intent'      => 'behavior',
                     'source'      => 'inline-script',
-                    'placement'   => $this->scriptPlacement($content, (int) $match[0][1]),
+                    'placement'   => $script['placement'],
                     'type'        => $this->htmlAttribute($attributes, 'type'),
                     'defer'       => $this->hasBooleanAttribute($attributes, 'defer'),
                     'async'       => $this->hasBooleanAttribute($attributes, 'async'),
@@ -728,24 +871,12 @@ final class ArtifactNormalizer
 
     private function htmlAttribute(string $attributes, string $name): string
     {
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/i', $attributes, $match) ) {
-            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        }
-        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*([^\s>]+)/i', $attributes, $match) ) {
-            return html_entity_decode((string) $match[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        }
-        return '';
+        return HtmlTagScanner::attributes($attributes)[strtolower($name)] ?? '';
     }
 
     private function hasBooleanAttribute(string $attributes, string $name): bool
     {
-        return 1 === preg_match('/(?:^|\s)' . preg_quote($name, '/') . '(?:\s|=|$)/i', $attributes);
-    }
-
-    private function scriptPlacement(string $html, int $offset): string
-    {
-        $headClose = stripos($html, '</head>');
-        return false !== $headClose && $offset < $headClose ? 'head' : 'body';
+        return array_key_exists(strtolower($name), HtmlTagScanner::attributes($attributes));
     }
 
     /**
@@ -781,7 +912,7 @@ final class ArtifactNormalizer
         if (null === $contentKey || !is_string($file[$contentKey])) {
             return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('missing_file_payload', 'warning', 'An artifact file was ignored because it has no explicit text or base64 payload.', array('path' => $path))));
         }
-        $content = $this->normalizeContent($file[$contentKey]);
+        $content = !empty($file['metadata']['compilation']['resolved_html_includes']) ? $file[$contentKey] : $this->normalizeContent($file[$contentKey]);
         return array('accepted' => true, 'content' => $content, 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => strlen($content), 'diagnostics' => array());
     }
 
@@ -941,11 +1072,17 @@ final class ArtifactNormalizer
     }
 
     /**
-     * @param array<string, bool> $seen
+     * The first free `<base>-<n><ext>` name when `$path` is already taken.
+     * `$seen` is keyed by path; with `$foldCase` both the lookup and the
+     * probes use lowercase keys, so a name is taken when any spelling of it
+     * is, as on a case-insensitive filesystem.
+     *
+     * @param array<string, mixed> $seen
      */
-    private function dedupePath(string $path, array $seen): string
+    public static function dedupePath(string $path, array $seen, bool $foldCase = false): string
     {
-        if ( ! isset($seen[$path]) ) {
+        $key = static fn(string $candidate): string => $foldCase ? strtolower($candidate) : $candidate;
+        if ( ! isset($seen[$key($path)]) ) {
             return $path;
         }
 
@@ -953,7 +1090,7 @@ final class ArtifactNormalizer
         $base = '' === $extension ? $path : substr($path, 0, -1 - strlen($extension));
         $suffix = '' === $extension ? '' : '.' . $extension;
         $index = 2;
-        while ( isset($seen[$base . '-' . $index . $suffix]) ) {
+        while ( isset($seen[$key($base . '-' . $index . $suffix)]) ) {
             ++$index;
         }
 

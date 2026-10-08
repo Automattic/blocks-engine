@@ -47,7 +47,8 @@ final class ColumnsPattern implements PatternRecognizerInterface
             array($converter, 'element'),
             $context->presentationAttributes(...),
             $columns->structuralStyle(...),
-            $context->createBlock(...)
+            $context->createBlock(...),
+            $columns->referenceViewportStyle(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -58,8 +59,10 @@ final class ColumnsPattern implements PatternRecognizerInterface
      * @param callable(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param callable(DOMElement, array<int, array<string, mixed>>&, bool): (array<string, mixed>|null) $convertElement
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
-     * @param callable(DOMElement): string $resolvedStyle
+     * @param callable(DOMElement): string $resolvedStyle Static author rules plus inline style (structural projection).
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
+     * @param (callable(DOMElement): string)|null $referenceViewportStyle Resting cascade at the desktop reference
+     *        viewport, media-conditional rules included; classification only. Defaults to $resolvedStyle.
      * @return array<string, mixed>|null
      */
     public function match(
@@ -69,9 +72,10 @@ final class ColumnsPattern implements PatternRecognizerInterface
         callable $convertElement,
         callable $presentationAttributes,
         callable $resolvedStyle,
-        callable $createBlock
+        callable $createBlock,
+        ?callable $referenceViewportStyle = null
     ): ?array {
-        if ( ! $this->looksLikeColumnsContainer($element, $resolvedStyle($element)) ) {
+        if ( ! $this->looksLikeColumnsContainer($element, $resolvedStyle($element), $referenceViewportStyle ?? $resolvedStyle) ) {
             return null;
         }
 
@@ -133,15 +137,32 @@ final class ColumnsPattern implements PatternRecognizerInterface
         return ShellLandmarkPolicy::isColumnsWrapperTag($element->tagName);
     }
 
-    private function looksLikeColumnsContainer(DOMElement $element, string $resolvedStyle): bool
+    /**
+     * @param callable(DOMElement): string $referenceViewportStyle
+     */
+    private function looksLikeColumnsContainer(DOMElement $element, string $resolvedStyle, callable $referenceViewportStyle): bool
     {
+        $inlineStyle = strtolower($this->attr($element, 'style'));
+        $style = strtolower('' !== trim($resolvedStyle) ? $resolvedStyle : $inlineStyle);
+
+        // An out-of-flow flex track is not a row of independent WordPress
+        // columns: its positioning and the containing viewport together define
+        // the gallery geometry. core/columns participates in normal flow and
+        // can wrap its children at the responsive breakpoint, growing the
+        // document by one item per row. Keep it as a group so the geometry
+        // carrier can preserve position/display and all child items.
+        // resolvedStyle() is the structural projection and can intentionally
+        // omit inline properties outside its allow-list (including position).
+        // Keep the explicit inline participation signal alongside it.
+        if ( preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\b/', $style . ';' . $inlineStyle) ) {
+            return false;
+        }
+
         if ( $this->hasClass($element, 'wp-block-columns') ) {
             return true;
         }
 
         $className = strtolower($this->attr($element, 'class'));
-        $inlineStyle = strtolower($this->attr($element, 'style'));
-        $style = strtolower('' !== trim($resolvedStyle) ? $resolvedStyle : $inlineStyle);
 
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style) && $this->hasDirectChildElement($element, 'svg') ) {
             return false;
@@ -175,8 +196,8 @@ final class ColumnsPattern implements PatternRecognizerInterface
         // stacks such as hero copy must stay groups so source CSS controls flow.
         return (bool) preg_match('/(?:^|\s)columns?(?:$|\s)/', $className)
             || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::directElementChildCount($element) )
-            || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
-            || $this->hasSidebarAndContentChildren($element)
+            || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element, $referenceViewportStyle) )
+            || $this->hasSidebarAndContentChildren($element, $referenceViewportStyle)
             || preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex/', $inlineStyle);
     }
 
@@ -192,22 +213,81 @@ final class ColumnsPattern implements PatternRecognizerInterface
         return (bool) preg_match('/(?:^|[\s_-])(?:docs?|documentation|article|content)(?:[\s_-]+(?:layout|shell|page|with[\s_-]+sidebar)|$)|(?:^|[\s_-])sidebar[\s_-]+layout(?:$|[\s_-])/', $name);
     }
 
-    private function hasSidebarAndContentChildren(DOMElement $element): bool
+    /**
+     * A sidebar-named child and a content-named child suggest a two-pane
+     * layout only when both are laid out beside each other at the desktop
+     * reference viewport. A phone-only sticky bar (`<aside>` that is
+     * `display:none` from the tablet breakpoint up and `position:fixed` to the
+     * viewport edge) is never a pane, so it cannot vouch for columns; counting
+     * it turns the page wrapper into a row of equal columns. The layout is read
+     * from the resting cascade WITH media-conditional rules, so a mobile-first
+     * sidebar hidden at the base viewport and revealed by a `min-width` rule
+     * still counts.
+     *
+     * @param callable(DOMElement): string $referenceViewportStyle
+     */
+    private function hasSidebarAndContentChildren(DOMElement $element, callable $referenceViewportStyle): bool
     {
-        $hasSidebar = false;
-        $hasContent = false;
+        $named = array();
+        $namesSidebar = false;
+        $namesContent = false;
         foreach ( $element->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
 
             $name = strtolower(trim($child->tagName . ' ' . $this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'role')));
-            $hasSidebar = $hasSidebar || (bool) preg_match('/(?:^|[\s_-])(?:aside|sidebar|toc|table[\s_-]+of[\s_-]+contents)(?:$|[\s_-])/', $name);
-            $hasContent = $hasContent || in_array(strtolower($child->tagName), array( 'article', 'form', 'main' ), true)
+            $sidebar = (bool) preg_match('/(?:^|[\s_-])(?:aside|sidebar|toc|table[\s_-]+of[\s_-]+contents)(?:$|[\s_-])/', $name);
+            $content = in_array(strtolower($child->tagName), array( 'article', 'form', 'main' ), true)
                 || (bool) preg_match('/(?:^|[\s_-])(?:main|content|article|form|docs?[\s_-]+content|documentation[\s_-]+content)(?:$|[\s_-])/', $name);
+            if ( ! $sidebar && ! $content ) {
+                continue;
+            }
+
+            $named[] = array( $child, $sidebar, $content );
+            $namesSidebar = $namesSidebar || $sidebar;
+            $namesContent = $namesContent || $content;
+        }
+
+        if ( ! $namesSidebar || ! $namesContent ) {
+            return false;
+        }
+
+        // Names alone would promote; resolve the desktop layout only now, and
+        // only for the children whose names take part in the decision.
+        $hasSidebar = false;
+        $hasContent = false;
+        foreach ( $named as [ $child, $sidebar, $content ] ) {
+            if ( ! $this->isLaidOutInFlow($child, $referenceViewportStyle($child)) ) {
+                continue;
+            }
+
+            $hasSidebar = $hasSidebar || $sidebar;
+            $hasContent = $hasContent || $content;
         }
 
         return $hasSidebar && $hasContent;
+    }
+
+    /**
+     * Whether the element takes part in its parent's normal flow at the
+     * viewport the given style was resolved for: rendered (not `display:none`,
+     * and not the `hidden` attribute left to the user-agent default) and not
+     * removed from flow by `position:absolute|fixed`. Sticky and relative
+     * boxes keep their flow slot and remain partners.
+     */
+    private function isLaidOutInFlow(DOMElement $element, string $resolvedStyle): bool
+    {
+        $style = strtolower($resolvedStyle);
+        if ( preg_match('/(?:^|;)\s*display\s*:\s*none\b/', $style) ) {
+            return false;
+        }
+
+        if ( $element->hasAttribute('hidden') && ! preg_match('/(?:^|;)\s*display\s*:/', $style) ) {
+            return false;
+        }
+
+        return ! preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\b/', $style);
     }
 
 }

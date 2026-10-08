@@ -115,6 +115,7 @@ final class HtmlResultComposer
         $diagnostics = $input['diagnostics'];
         $diagnostics = $this->appendResponsiveGeometryDiagnostics($diagnostics, $input['responsive_geometry_ambiguities']);
         $diagnostics = $this->appendResponsiveHeightDiagnostics($diagnostics, $input['responsive_height_ambiguities']);
+        $diagnostics = $this->appendGridPlacementCarrierDiagnostics($diagnostics, $input['grid_placement_carrier_findings'] ?? array(), $input['source']);
         $diagnostics = $this->appendHeadMetadataDiagnostic($diagnostics, $input['head_metadata'], $input['source']);
         $diagnostics = $this->appendAuthorLayoutTopologyDiagnostics($diagnostics, $input['author_layout_topology_findings'], $input['source']);
 
@@ -267,6 +268,25 @@ final class HtmlResultComposer
     {
         foreach ($ambiguities as $ambiguity) {
             $diagnostics[] = array('code' => 'responsive_geometry_ambiguous_percentage_height', 'message' => 'A percentage-height rule matches both auto-sized structural wrappers and height-owning content, so it was retained without a responsive projection.', 'source' => HtmlTransformer::class, 'severity' => 'warning', 'selector' => $ambiguity['selector'], 'height' => $ambiguity['height']);
+        }
+        return $diagnostics;
+    }
+
+    /** @param array<int, array<string, mixed>> $diagnostics @param list<array{selector: string, reason: string}> $findings @return array<int, array<string, mixed>> */
+    private function appendGridPlacementCarrierDiagnostics(array $diagnostics, array $findings, string $source): array
+    {
+        foreach ($findings as $finding) {
+            $diagnostics[] = array(
+                'code' => 'grid_placement_kept_on_carrier',
+                'message' => 'Source-authored grid-item placement stayed on carrier CSS instead of native block layout data.',
+                'source' => $source,
+                'severity' => 'info',
+                'selector' => $finding['selector'],
+                'reason' => $finding['reason'],
+                'reason_code' => $finding['reason'],
+                'pattern_family' => 'grid_child_placement',
+                'repair_bucket' => 'native_grid_placement_projection',
+            );
         }
         return $diagnostics;
     }

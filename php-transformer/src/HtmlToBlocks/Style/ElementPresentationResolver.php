@@ -17,6 +17,9 @@ interface ElementPresentationResolver
     /** @return array<string, string> */
     public function structuralPresentationDeclarations(DOMElement $element): array;
 
+    /** @return array<string, string> */
+    public function authorStructuralDeclarations(DOMElement $element): array;
+
     /**
      * The authored `font-size` that must be serialized inline on a text block
      * for the authored size to win at the WordPress runtime, or '' when the

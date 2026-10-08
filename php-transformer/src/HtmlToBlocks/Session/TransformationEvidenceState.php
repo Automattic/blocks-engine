@@ -32,6 +32,9 @@ final class TransformationEvidenceState
     /** @var array<string, true> */
     private array $responsiveImageFallbackSelectors = array();
 
+    /** @var array<string, array{selector: string, reason: string}> */
+    private array $gridPlacementCarrierFindings = array();
+
     public function recordFormControlEcho(string $text): void
     {
         $text = trim($text);
@@ -168,5 +171,25 @@ final class TransformationEvidenceState
     public function responsiveImageFallbacks(): array
     {
         return $this->responsiveImageFallbacks;
+    }
+
+    /**
+     * Record grid-item placement that stayed on carrier CSS instead of
+     * becoming native block layout data, with the typed reason it was kept.
+     * Deduplicated per selector and reason: the same element's presentation
+     * attributes can be resolved under several cache keys.
+     */
+    public function recordGridPlacementCarrierFinding(string $selector, string $reason): void
+    {
+        $this->gridPlacementCarrierFindings[$selector . "\0" . $reason] = array(
+            'selector' => $selector,
+            'reason' => $reason,
+        );
+    }
+
+    /** @return list<array{selector: string, reason: string}> */
+    public function gridPlacementCarrierFindings(): array
+    {
+        return array_values($this->gridPlacementCarrierFindings);
     }
 }

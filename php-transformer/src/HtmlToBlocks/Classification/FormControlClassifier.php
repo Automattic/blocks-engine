@@ -38,6 +38,7 @@ final class FormControlClassifier
             $type = strtolower(trim($control->hasAttribute('type') ? $control->getAttribute('type') : ''));
             return '' !== $type ? $type : 'submit';
         }
+        if (in_array($tagName, array('div', 'span'), true) && 'button' === strtolower(trim($control->getAttribute('role')))) return 'button';
         if ( 'select' === $tagName && $control->hasAttribute('multiple') ) {
             return 'select-multiple';
         }
@@ -76,19 +77,67 @@ final class FormControlClassifier
         return $controls;
     }
 
-    /** Hidden honeypots and aria-hidden traps are not authored fields. */
+    /**
+     * Hidden honeypots, template scaffolding, and accessibility-hidden traps
+     * are not authored fields. aria-hidden outside a native form is closed
+     * overlay render state, not non-authorship.
+     */
     public static function isNonAuthoredControl(DOMElement $control): bool
     {
+        if ( 'hidden' === self::controlType($control) ) {
+            return true;
+        }
+        if ( 1 === preg_match('/(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/i', $control->getAttribute('style')) ) {
+            return true;
+        }
         if ( 'new-password' === strtolower(trim($control->getAttribute('autocomplete'))) ) {
             return true;
         }
+        $insideNativeForm = false;
         for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( 'true' === strtolower($parent->getAttribute('aria-hidden')) ) {
+            if ( in_array(strtolower($parent->tagName), array( 'template', 'script', 'style', 'noscript' ), true) ) {
+                return true;
+            }
+            if ( null !== self::sourceSelectAfterCapturedPanel($parent) ) {
+                return true;
+            }
+            if ( 'form' === strtolower($parent->tagName) ) {
+                $insideNativeForm = true;
+            }
+            if ( ! $insideNativeForm && 'true' === strtolower(trim($parent->getAttribute('aria-hidden'))) ) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * A capture-only popup is bounded by its linked visible trigger and the
+     * immediately following hidden native value carrier. Only its descendants
+     * leave provider control topology; the panel remains in the page replay.
+     */
+    public static function sourceSelectAfterCapturedPanel(DOMElement $panel): ?DOMElement
+    {
+        $key = trim($panel->getAttribute('data-dla-listbox-panel'));
+        if ( '' === $key || ! $panel->hasAttribute('hidden') ) {
+            return null;
+        }
+        $trigger = $panel->previousElementSibling;
+        $select = $panel->nextElementSibling;
+        if ( ! $trigger instanceof DOMElement || 'button' !== strtolower($trigger->tagName)
+            || $key !== trim($trigger->getAttribute('data-dla-listbox-trigger'))
+            || ( 'combobox' !== strtolower(trim($trigger->getAttribute('role')))
+                && 'listbox' !== strtolower(trim($trigger->getAttribute('aria-haspopup'))) )
+            || ! $select instanceof DOMElement || 'select' !== strtolower($select->tagName)
+            || ( ! $select->hasAttribute('hidden')
+                && ! ( 'true' === strtolower(trim($select->getAttribute('aria-hidden')))
+                    && '-1' === trim($select->getAttribute('tabindex')) ) )
+            || 0 === $select->getElementsByTagName('option')->length ) {
+            return null;
+        }
+
+        return $select;
     }
 
     public static function hasDataEntryControls(DOMElement $form): bool

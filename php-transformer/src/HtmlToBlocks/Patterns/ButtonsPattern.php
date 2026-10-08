@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
@@ -174,7 +175,9 @@ final class ButtonsPattern
     /** @return array<string, mixed> */
     private function buttonBlockFromAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons, ?DOMElement $presentationElement = null): array
     {
-        $presentationElement ??= $this->buttonSurfaceElement($anchor) ?? $anchor;
+        $presentationElement ??= $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor))
+            ? $anchor
+            : ($this->buttonSurfaceElement($anchor) ?? $anchor);
         $resolvedPresentation = trim($buttons->resolvedStyle($presentationElement));
         $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));
         $attrs = $this->buttonPresentationAttributes($presentationElement, $context, $buttons);
@@ -184,6 +187,7 @@ final class ButtonsPattern
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
         $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
+        $attrs = array_replace_recursive($attrs, $this->buttonLabelTextAttributes($anchor, $buttons));
 
         return $context->createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,
@@ -192,6 +196,20 @@ final class ButtonsPattern
             'linkTarget' => $buttons->attribute($anchor, 'target'),
             'rel'        => $buttons->attribute($anchor, 'rel'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
+    }
+
+    /** The box and a whole-label descendant can have different source owners. */
+    private function buttonLabelTextAttributes(DOMElement $anchor, ButtonPatternContext $buttons): array
+    {
+        $text = $this->plainText(SourceDom::innerHtml($anchor));
+        $style = array();
+        foreach ($anchor->getElementsByTagName('*') as $label) {
+            if (!$label instanceof DOMElement || '' === $text || $this->plainText(SourceDom::innerHtml($label)) !== $text) continue;
+            $native = $this->styleResolver->nativeAttributes($buttons->nativePresentationStyle($label))['style'] ?? array();
+            if (isset($native['typography'])) $style['typography'] = array_replace($style['typography'] ?? array(), $native['typography']);
+            if (isset($native['color']['text'])) $style['color']['text'] = $native['color']['text'];
+        }
+        return array() === $style ? array() : array('style' => $style);
     }
 
     /**
@@ -208,10 +226,7 @@ final class ButtonsPattern
             $attrs['style']['spacing']['margin'] = $margin;
         }
 
-        $alignment = $this->textAlignment($buttons->resolvedStyle($element));
-        if ( '' === $alignment && $element->parentNode instanceof DOMElement ) {
-            $alignment = $this->textAlignment($buttons->resolvedStyle($element->parentNode));
-        }
+        $alignment = $this->inheritedTextAlignment($element, $buttons);
         if ( in_array($alignment, array( 'left', 'center', 'right' ), true) ) {
             $attrs['layout'] = array(
                 'type'           => 'flex',
@@ -229,6 +244,30 @@ final class ButtonsPattern
         }
 
         return strtolower((string) end($matches[1]));
+    }
+
+    /**
+     * The alignment a synthesized core/buttons wrapper must justify with.
+     *
+     * `text-align` is an inherited property: the nearest ancestor whose own
+     * cascade declares it decides the value an inline-level control inherits,
+     * however deeply that control nests under the declaring container. An
+     * anchor centered only through an ancestor's `text-align:center` becomes a
+     * flex core/buttons whose default main-axis alignment is `left`, so the
+     * inherited alignment has to be restated as `layout.justifyContent` or the
+     * source's centering is lost. Walking the ancestor chain mirrors the
+     * browser's inheritance; the first explicit declaration wins.
+     */
+    private function inheritedTextAlignment(DOMElement $element, ButtonPatternContext $buttons): string
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $alignment = $this->textAlignment($buttons->resolvedStyle($node));
+            if ( '' !== $alignment ) {
+                return $alignment;
+            }
+        }
+
+        return '';
     }
 
     private function buttonSurfaceElement(DOMElement $anchor): ?DOMElement
@@ -254,8 +293,19 @@ final class ButtonsPattern
 
     private function buttonText(DOMElement $element, string $html, ButtonPatternContext $buttons): string
     {
-        $html = preg_replace('/<img\b[^>]*\balt\s*=\s*(["\'])(.*?)\1[^>]*>/is', '$2', $html) ?? $html;
-        $html = preg_replace('/<img\b[^>]*>/is', '', $html) ?? $html;
+        // Source images collapse to their text alternative. An image that is
+        // this engine's own materialized inline SVG is already the label's
+        // native form, exactly as the transform that produced it emitted it.
+        $html = preg_replace_callback(
+            '/<img\b[^>]*>/is',
+            static function (array $match): string {
+                if ( preg_match('/\bsrc\s*=\s*(["\'])(.*?)\1/is', $match[0], $src) && AssetMaterializationState::isInlineSvgAssetReference(html_entity_decode($src[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')) ) {
+                    return $match[0];
+                }
+                return preg_match('/\balt\s*=\s*(["\'])(.*?)\1/is', $match[0], $alt) ? $alt[2] : '';
+            },
+            $html
+        ) ?? $html;
         $html = $buttons->materializeSvgImages($element, $html) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
         $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
@@ -433,7 +483,7 @@ final class ButtonsPattern
         // as `button { background: none }` can precede a filled button variant.
         // It is also resolved before the presentation attributes so the carrier
         // can be told which properties the native supports have already claimed.
-        $native = $this->styleResolver->nativeAttributes($resolvedStyle);
+        $native = $this->styleResolver->nativeAttributes($buttons->nativePresentationStyle($element));
         // Native core/button width owns only its canonical percentage values.
         // Other anchors and width values retain their generated geometry carrier.
         $excludedGeometry = null !== $width ? array( 'width' ) : array();

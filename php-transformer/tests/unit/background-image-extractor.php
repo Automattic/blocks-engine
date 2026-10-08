@@ -41,6 +41,12 @@ $assertSame(
     'Unsafe image URLs remain rejected.'
 );
 
+$assertSame(
+    '',
+    $extractor->urlFromStyle('background-image:url("about:blank")'),
+    'The capture neutralization sentinel is not treated as a drawable image.'
+);
+
 echo "background image extractor ok\n";
 
 exit(0 === $failures ? 0 : 1);

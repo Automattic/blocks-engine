@@ -57,7 +57,7 @@ $assert(array() === $css->secondaryBlockRenderRepairCss(''), 'empty serialized b
 $synthetic = $css->beforeAuthorCss(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, 'blocks-engine/layout-shell');
 $assert(1 === count($synthetic), 'synthetic paragraph emits one before-author rule group');
 $assert(str_contains($synthetic[0], ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}'), 'synthetic paragraph margin reset is present');
-$assert(str_contains($synthetic[0], ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){display:contents}'), 'synthetic paragraph carrier is layout-transparent');
+$assert(str_contains($synthetic[0], ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:contents}'), 'synthetic paragraph carrier is layout-transparent unless it is a lowered source box');
 
 $layoutShell = $css->beforeAuthorCss('<!-- wp:blocks-engine/layout-shell -->', 'blocks-engine/layout-shell');
 $assert(1 === count($layoutShell), 'layout-shell comment emits one before-author rule');
@@ -70,6 +70,13 @@ $assert(':where(.' . HtmlCompilation::EMPTY_VISUAL_GROUP_CLASS . '){pointer-even
 $fragment = $css->beforeAuthorCss(ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS, 'blocks-engine/layout-shell');
 $assert(1 === count($fragment), 'positioned fragment link emits one before-author rule');
 $assert(':where(.' . ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}' === $fragment[0], 'positioned fragment link reuses ButtonLinkDispatcher constant');
+
+$accessibleEmptyLink = $css->beforeAuthorCss(ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS, 'blocks-engine/layout-shell');
+$assert(1 === count($accessibleEmptyLink), 'accessible empty link emits click-region CSS');
+$assert(
+    ':where(a.' . ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS . '){display:block;width:100%;height:100%;min-height:inherit}' === $accessibleEmptyLink[0],
+    'accessible empty link fills its geometry-carrying host to create a rendered click region'
+);
 
 $neutralButtons = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS, 'blocks-engine/layout-shell');
 $assert(1 === count($neutralButtons), 'layout-neutral buttons wrapper emits one before-author rule');
@@ -94,8 +101,14 @@ $assert(
 $listNavRules = $css->listNavigationHostRepairCss('blocks-engine-list-navigation blocks-engine-native-responsive-navigation', '');
 $assertLayer($listNavRules, CascadeLayer::LIST_NAVIGATION_REPAIR, 'list-navigation host repair rules are all tagged LIST_NAVIGATION_REPAIR');
 $listNav = $css_of($listNavRules);
-$assert(2 === count($listNav), 'list-navigation host repair emits responsive host and brand-carrier rules');
-$assert('.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}' === $listNav[0], 'native-responsive list-navigation host is display:flex');
+$assert(3 === count($listNav), 'list-navigation host repair emits mobile host, desktop wrapper, and brand-carrier rules');
+$assert('@media(max-width:599px){.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}' === $listNav[0], 'native-responsive list-navigation host is display:flex only below Core\'s overlay breakpoint');
+$assert(
+    str_starts_with($listNav[1], '@media(min-width:600px){')
+        && str_contains($listNav[1], '.wp-block-navigation__responsive-container:not(.is-menu-open)')
+        && str_contains($listNav[1], 'display:contents!important'),
+    'desktop overlay wrappers flatten so source justification keeps the list'
+);
 
 $compilation = new ReflectionClass(HtmlCompilation::class);
 $method = $compilation->getMethod('materializeAuthorStylesheet');

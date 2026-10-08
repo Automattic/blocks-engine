@@ -48,6 +48,12 @@ export interface NativeSectionDecision extends NativeSectionResult {
 
 export interface StrategyState {
   instanceStyles?: unknown;
+  /**
+   * Count of paragraphs the strategy synthesized from non-paragraph source text
+   * (text-only div/span elements, stray inline text). Drain sinks use it to ship
+   * the lowered-paragraph support CSS exactly when such paragraphs exist.
+   */
+  loweredTextBlocks?: number;
 }
 
 export interface StrategyDedupOutput {

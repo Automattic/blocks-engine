@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use DOMElement;
 
 /**
@@ -223,7 +224,7 @@ final class LayoutParticipation
         }
 
         $width = '';
-        foreach ( explode(';', $resolvedStyle) as $declaration ) {
+        foreach ( CssValueSplitter::splitTopLevel($resolvedStyle, array( ';' )) as $declaration ) {
             if ( ! str_contains($declaration, ':') ) {
                 continue;
             }

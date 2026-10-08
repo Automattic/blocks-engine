@@ -1,0 +1,66 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-column-flex-growing-item-definite-height",
+  "description": "Two grid cells in a section, each holding a `height:100%` column-flex block. In the first, the block's content wrapper grows (`flex:var(--content-flex,0)` with `--content-flex:1`), and inside it a `height:100%` flex wrapper stretches a button link with `height:100%` and flex centring. A growing flex item's post-flexing main size is definite when its column flex container's height is (CSS Flexbox 9.8), so the wrapper's `height:100%` resolves and the button fills the cell. The projector must keep that `height:100%` (and the carrier fill down to the core/button link) instead of demoting it to `height:auto`. In the second cell the content wrapper does not grow (`flex:0 0 auto`), so its child's `height:100%` still has no definite size to resolve against and is still demoted.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-column-flex-growing-item-definite-height.json",
+    "notes": "Regression coverage for grid-cell buttons stretched with height:100% that rendered at their content height (Automattic/blocks-engine#2185)."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.cells{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(2,minmax(34px,auto))}.cell{grid-row:1/3}.cell-block{position:relative;height:auto}.cells .cell-block{display:flex;flex-direction:column;height:100%}.grow-content{flex:var(--content-flex,0)}.fill-cell{--content-flex:1}.fill-wrap{display:flex;height:100%}.fill-wrap .cta{display:flex;height:100%;align-items:center;justify-content:center;box-sizing:border-box;padding:0 35px;background:#333;color:#fff}.fixed-content{flex:0 0 auto}.fixed-wrap{display:flex;height:100%}</style></head><body><section class=\"hero\"><div class=\"cells\"><div class=\"cell\"><div class=\"cell-block fill-cell\"><div class=\"grow-content\"><div class=\"fill-wrap\"><a class=\"cta\" href=\"/about\">About</a></div></div></div></div><div class=\"cell\"><div class=\"cell-block\"><div class=\"fixed-content\"><div class=\"fixed-wrap\"><p>Note</p></div></div></div></div></div></section></body></html>"
+  },
+  "expected_fallbacks": [],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "fallbacks",
+      "assert": "count",
+      "count": 0
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": ".fill-wrap{display:flex;height:100%}"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "not_contains",
+      "value": ".fill-wrap{display:flex;height:auto}"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": ":where(.wp-block-buttons)> :where(.wp-block-button)> :where(.wp-block-button__link){height:100%!important}"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": "display:flex!important;align-items:center!important;justify-content:center!important"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": ".fixed-wrap{display:flex;height:auto}"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<!-- wp:buttons"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<!-- wp:button"
+    }
+  ]
+}

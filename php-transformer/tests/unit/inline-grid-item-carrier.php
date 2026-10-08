@@ -2,7 +2,13 @@
 declare(strict_types=1);
 
 /**
- * Inline grid-item placement must survive conversion of native block children.
+ * Inline grid-item placement must survive conversion of native block children,
+ * for a parent grid whose track list core cannot express natively (mixed
+ * track sizes). A parent whose track list IS natively expressible
+ * (Automattic/blocks-engine#2139 step 1) instead converts the child
+ * placement to native `style.layout` data — covered by
+ * tests/unit/native-grid-child-placement.php — rather than restating it on
+ * this carrier.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -21,7 +27,7 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $result = ( new HtmlTransformer() )->transform(
-    '<div style="display:grid;grid-template-columns:repeat(12,1fr)">'
+    '<div style="display:grid;grid-template-columns:200px repeat(11,1fr)">'
     . '<h3 style="grid-area:1 / 1 / span 1 / span 8">Stay Connected</h3>'
     . '<p style="grid-column:2 / span 4;grid-row:2">Email</p>'
     . '</div>',

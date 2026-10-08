@@ -471,17 +471,7 @@ final class StyleAttributeMapper
         $shorthand = trim((string) ($declarations[ $property ] ?? ''));
         if ( '' !== $shorthand ) {
             $consumed[ $property ] = true;
-            $parts = CssValueSplitter::splitTopLevelWhitespace($shorthand);
-            $count = count($parts);
-            if ( 1 === $count ) {
-                $sides = array( 'top' => $parts[0], 'right' => $parts[0], 'bottom' => $parts[0], 'left' => $parts[0] );
-            } elseif ( 2 === $count ) {
-                $sides = array( 'top' => $parts[0], 'right' => $parts[1], 'bottom' => $parts[0], 'left' => $parts[1] );
-            } elseif ( 3 === $count ) {
-                $sides = array( 'top' => $parts[0], 'right' => $parts[1], 'bottom' => $parts[2], 'left' => $parts[1] );
-            } elseif ( $count >= 4 ) {
-                $sides = array( 'top' => $parts[0], 'right' => $parts[1], 'bottom' => $parts[2], 'left' => $parts[3] );
-            }
+            [ $sides['top'], $sides['right'], $sides['bottom'], $sides['left'] ] = CssValueInspector::expandBoxShorthand($shorthand);
         }
 
         foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
@@ -695,7 +685,7 @@ final class StyleAttributeMapper
                 $parsed['style'] = $lower;
                 continue;
             }
-            if ( preg_match('/^[0-9.]+(?:px|em|rem|%|pt|vw|vh)?$/i', $token) || in_array($lower, array( 'thin', 'medium', 'thick' ), true) ) {
+            if ( CssValueInspector::isBorderWidthToken($token) ) {
                 $parsed['width'] = $token;
                 continue;
             }

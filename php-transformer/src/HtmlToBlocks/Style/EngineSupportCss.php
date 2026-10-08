@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
+
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 
@@ -28,7 +30,9 @@ final class EngineSupportCss
 
     private const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
 
-    private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = 'blocks-engine-propagated-link-color';
+    private const SLIDESHOW_GALLERY_CLASS = 'blocks-engine-slideshow-gallery';
+
+    private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = SourceBlockAttributeProjector::PROPAGATED_LINK_COLOR_CLASS;
 
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
@@ -36,7 +40,7 @@ final class EngineSupportCss
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
-    private const LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS = 'blocks-engine-layout-shell-editor-inner-blocks';
+    public const LAYOUT_SHELL_EDITOR_INNER_BLOCKS_CLASS = 'blocks-engine-layout-shell-editor-inner-blocks';
 
     /**
      * @return list<string>
@@ -44,6 +48,12 @@ final class EngineSupportCss
     public function beforeAuthorCss(string $serializedBlocks, string $layoutShellBlockName): array
     {
         $parts = array();
+        if ( str_contains($serializedBlocks, 'wp-block-accordion-panel') ) {
+            // Core owns the panel's hidden state. Projected source display rules
+            // describe its open box and must not expose padding or borders while
+            // Core has concealed the panel.
+            $parts[] = ':root .wp-block-accordion-panel[hidden]{display:none!important}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS) ) {
             // A paragraph is required for valid block markup, but phrasing content
             // did not have paragraph margins in the source document.
@@ -52,7 +62,12 @@ final class EngineSupportCss
                 // it has no source box. Let the source anchor/span remain the
                 // layout participant unless a separate carrier explicitly
                 // owns a box.
-                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){display:contents}'
+                // A lowered block-level source wrapper keeps its box.
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:contents}'
+                // A parent's sibling-spacing rule (`.stack > * + *`) now matches the
+                // carrier, whose margins do nothing as display:contents. The
+                // anchor it stands for takes them instead, as in the source.
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ')>a{margin:inherit}'
                 . "\n" . ':root :where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.has-text-color)>a{color:inherit}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}'
@@ -74,6 +89,9 @@ final class EngineSupportCss
             // block-library default it must beat) and so still outranks this.
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS . '){margin-top:0;margin-bottom:0}';
         }
+        if (str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS)) {
+            $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS) ) {
             // A standalone SVG becomes valid RichText image markup inside a
             // paragraph. Its source was a block box, so remove the paragraph's
@@ -85,6 +103,35 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
             $parts[] = '.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS) ) {
+            // core/image inserts a figure between a source flex/grid item and
+            // the image. Keep the wrapper in the DOM for Gutenberg, but remove
+            // its layout box so the source image retains its native replaced-
+            // element min-content and flex-shrink behavior.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS) ) {
+            // The source image fills both axes of its parent. Its core/image
+            // figure is an extra box; give that box the source's full inline
+            // extent so the image's percentage width does not size from an
+            // aspect-ratio-constrained, shrink-to-fit figure instead.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '){width:100%}';
+        }
+        if ( str_contains($serializedBlocks, '<video') ) {
+            $parts[] = 'video{max-width:100%}';
+        }
+        if ( 1 === preg_match('/<figure[^>]*\bwp-block-image\b[^>]*>\s*<a[\s>]/', $serializedBlocks) ) {
+            // core/image serializes a linked image as <figure><a><img></a></figure>.
+            // The author-stylesheet projection bridges a source rule that painted
+            // the <img> onto the generated one with `object-fit:inherit`,
+            // `object-position:inherit` and `border-radius:inherit`, all of which
+            // read the IMMEDIATE parent -- none of the three is an inherited
+            // property. For a linked image that parent is the generated anchor,
+            // which carries none of them, so the bridge resolves to the initial
+            // value and the source's crop is lost. Relay the figure's values
+            // through the anchor so the bridge lands the same either way.
+            $parts[] = ':root :where(.wp-block-image)>a{object-fit:inherit;object-position:inherit;border-radius:inherit}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS) ) {
             $parts[] = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '{display:inline-block}';
@@ -108,6 +155,12 @@ final class EngineSupportCss
             // measured against that instead of its own line height. A stacked
             // brand lockup grew by the difference on every line.
             $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '>a){display:contents}';
+            if ( str_contains($serializedBlocks, 'blocks-engine-addressable-inline-block') ) {
+                $parts[] = ':where(p.blocks-engine-addressable-inline-block){display:inline-block!important}';
+            }
+            if ( str_contains($serializedBlocks, 'blocks-engine-addressable-inline-text') ) {
+                $parts[] = ':where(p.blocks-engine-addressable-inline-text){display:inline!important}';
+            }
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_CLASS) ) {
             // Gutenberg inserts two editor-only InnerBlocks wrappers between a
@@ -134,6 +187,11 @@ final class EngineSupportCss
             // Positioned fragment links retain their source anchor and selectors;
             // their valid paragraph host must not create a line box in document flow.
             $parts[] = ':where(.' . ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}';
+        }
+        if ( str_contains($serializedBlocks, ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS) ) {
+            // Empty labelled links have no intrinsic inline box. Fill the
+            // paragraph host, whose saved block attributes carry source geometry.
+            $parts[] = ':where(a.' . ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS . '){display:block;width:100%;height:100%;min-height:inherit}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS) ) {
             // A synthesized core/buttons wrapper is required for validity, but it
@@ -173,6 +231,12 @@ final class EngineSupportCss
             // An empty painted layer has no portable interaction contract. It
             // must not cover native controls after its source runtime is absent.
             $parts[] = ':where(.' . HtmlCompilation::EMPTY_VISUAL_GROUP_CLASS . '){pointer-events:none!important}';
+        }
+        if ( str_contains($serializedBlocks, HtmlCompilation::LOWERED_PARAGRAPH_CLASS) ) {
+            // A paragraph lowered from a margin-less source element (e.g. a
+            // text-only div) must not gain the UA 1em paragraph margins. This
+            // precedes author CSS so authored margin utilities still win.
+            $parts[] = ':root :where(p.' . HtmlCompilation::LOWERED_PARAGRAPH_CLASS . '){margin-block-start:0;margin-block-end:0}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             // Core flow spacing is not part of a source grid or flex contract.
@@ -229,7 +293,11 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $parts[] = '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}'
-                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
+                // The generated item's font reset must yield to source item
+                // typography, including low-specificity list selectors. Keep
+                // the display repair strong enough to beat core's item display.
+                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item}'
+                . "\n" . ':where(.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link){font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}';
         }
@@ -247,9 +315,46 @@ final class EngineSupportCss
     public function generatedMarkupRepairCss(string $serializedBlocks): array
     {
         $parts = array();
+        if ( str_contains($serializedBlocks, self::SLIDESHOW_GALLERY_CLASS) ) {
+            $gap = '16px';
+            $parts[] = ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.has-nested-images{display:flex;flex-wrap:wrap;gap:' . $gap . '}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.has-nested-images>.wp-block-image{box-sizing:border-box;flex:0 0 auto !important;margin:0;min-width:0;max-width:100%}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-2>.wp-block-image{width:calc((100% - ' . $gap . ') / 2) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-3>.wp-block-image{width:calc((100% - 2 * ' . $gap . ') / 3) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-4>.wp-block-image{width:calc((100% - 3 * ' . $gap . ') / 4) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-5>.wp-block-image{width:calc((100% - 4 * ' . $gap . ') / 5) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-6>.wp-block-image{width:calc((100% - 5 * ' . $gap . ') / 6) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-7>.wp-block-image{width:calc((100% - 6 * ' . $gap . ') / 7) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-8>.wp-block-image{width:calc((100% - 7 * ' . $gap . ') / 8) !important}'
+                . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.is-cropped>.wp-block-image img{aspect-ratio:1;height:auto;object-fit:cover;width:100%}';
+        }
         if ( str_contains($serializedBlocks, self::LAYOUT_TABLE_COLUMNS_CLASS) ) {
-            $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '{display:flex;flex-wrap:nowrap;gap:0}'
-                . "\n" . ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column{box-sizing:border-box;min-width:0}';
+            $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . ':not(:where(.blocks-engine-layout-table-table,.blocks-engine-layout-table-row)){display:flex;flex-wrap:nowrap;gap:0;box-sizing:border-box}'
+                . "\n" . ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column:not(:where(.blocks-engine-layout-table-cell)){box-sizing:border-box;min-width:0}'
+                . "\n" . ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column[style*="flex-basis"]{flex-grow:0}'
+                . "\n" . ':where(.wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column){padding:1px}';
+            // Native wrappers retain auto table tracks, including min-content
+            // overflow and shared multi-row sizing. These are generated-markup
+            // repairs, scoped solely to positively classified layout tables.
+            $parts[] = '.wp-block-columns:where(.blocks-engine-layout-table-table),.wp-block-group:where(.blocks-engine-layout-table-table){display:table;margin:0}'
+                . "\n" . ':where(.blocks-engine-layout-table-table){border-collapse:separate;border-spacing:2px}'
+                . "\n" . '.wp-block-columns:where(.blocks-engine-layout-table-row){display:table-row;margin:0}'
+                . "\n" . '.blocks-engine-layout-table-cell{display:table-cell;box-sizing:content-box;word-break:normal;overflow-wrap:normal}'
+                . "\n" . ':where(.blocks-engine-layout-table-cell){vertical-align:middle;padding:1px}'
+                . "\n" . ':root .blocks-engine-layout-table-cell .blocks-engine-synthetic-image-figure-inline{display:contents;margin:0}'
+                . "\n" . '.blocks-engine-layout-table-cell :where(.blocks-engine-synthetic-image-figure-inline) img{display:inline;max-width:none;vertical-align:baseline}';
+        }
+        if ( str_contains($serializedBlocks, HtmlCompilation::PROPAGATED_LINK_CARRIER_CLASS) ) {
+            // A propagated card link wraps all of the block's source children.
+            // Layout-transparent, so the source element's flex/grid row still
+            // lays out those children directly; the link stays clickable
+            // through them.
+            $parts[] = ':root :where(.' . HtmlCompilation::PROPAGATED_LINK_CARRIER_CLASS . ')>a:only-child{display:contents}';
+        }
+        if ( str_contains($serializedBlocks, FallbackEmitter::LINK_CONTENTS_CLASS) ) {
+            // A source link restored around frozen component content adds only
+            // navigation: its content keeps the source box and paint.
+            $parts[] = ':root :where(a.' . FallbackEmitter::LINK_CONTENTS_CLASS . '){display:contents;color:inherit;text-decoration:inherit}';
         }
         if ( str_contains($serializedBlocks, self::PROPAGATED_LINK_COLOR_CARRIER_CLASS) ) {
             // The source painted this text; the anchor around it only exists
@@ -317,7 +422,26 @@ final class EngineSupportCss
         // link rows retain authored mobile display rules without core's
         // overlay control replacing them.
         if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
-            $parts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
+            // Core's overlay is the only reason this host must stay visible.
+            // Force that below Core's 600px overlay breakpoint so a phone
+            // trigger is not hidden by the author's `display:none`. Leave
+            // desktop display to the source: a table-cell + float:right menu
+            // (or any other end justification) is otherwise restated as flex
+            // and the list snaps to the start edge of the nav box.
+            $parts[] = '@media(max-width:599px){.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}';
+            // overlayMenu mobile wraps the list in a width:100% container whose
+            // inner content box is display:flex. That formatting context
+            // ignores the source list's float/end justification, so desktop
+            // links jump from the right edge to the left of an otherwise
+            // unchanged nav box. Flatten the wrappers while the overlay is
+            // closed so the list participates in the host's layout the same
+            // way overlayMenu never did.
+            $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation';
+            $closed = $host . ' .wp-block-navigation__responsive-container:not(.is-menu-open)';
+            $parts[] = '@media(min-width:600px){' . $closed . ','
+                . $closed . ' .wp-block-navigation__responsive-close,'
+                . $closed . ' .wp-block-navigation__responsive-dialog,'
+                . $closed . ' .wp-block-navigation__responsive-container-content{display:contents!important}}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-sidebar-navigation-carrier') ) {
             // Core's mobile overlay is active at this breakpoint. The source

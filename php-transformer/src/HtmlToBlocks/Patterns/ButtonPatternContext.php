@@ -108,6 +108,22 @@ final class ButtonPatternContext
         );
     }
 
+    /** Native supports must leave conditional families on their projected author selectors. */
+    public function nativePresentationStyle(DOMElement $element): string
+    {
+        if (! $this->styleResolver instanceof StyleResolver) {
+            return '';
+        }
+
+        return $this->styleResolver->resolveCssVariablesInValue(
+            $this->styleResolver->cssDeclarationString($this->styleResolver->classOwnedResponsiveDeclarations(
+                $element,
+                $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element))
+            )),
+            $element
+        );
+    }
+
     public function richText(DOMElement $element): string
     {
         return $this->richTextMaterializer?->content($element) ?? SourceDom::innerHtml($element);

@@ -20,7 +20,8 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "tagName": "form" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "custom/authored-textarea", "attrs": { "name": "m", "className": "mt-1.5 w-full" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "custom/layout-shell", "attrs": { "wrappers": [{ "tagName": "div", "attributes": { "class": "grid gap-5 sm:grid-cols-2" } }] } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "custom/authored-textarea", "attrs": { "name": "m", "className": "mt-1.5 w-full" } }
   ],
   "expected_fallbacks": [
     { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }

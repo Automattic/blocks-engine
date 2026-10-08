@@ -32,7 +32,7 @@
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:cover" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-background-image" },
-    { "path": "assets.0.content", "assert": "contains", "value": ".hero-media{background-image:url('/assets/hero-bg.jpg');background-size:cover}" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".hero-media{background-image:url('/assets/hero-bg.jpg');background-size:cover}" },
     { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/retreats\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "srcset=\\\"/assets/one-large.jpg 900w\\\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\\\"gallery-cards\\\"" },

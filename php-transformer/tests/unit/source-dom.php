@@ -116,6 +116,33 @@ $assert(SourceDom::anchorAttributeValue('Section 10') === 'Section 10', 'a leadi
 $assert(SourceDom::anchorAttributeValue('') === '', 'an empty value stays empty');
 $assert(SourceDom::anchorAttributeValue("line\nbreak") === '', 'an embedded control character is rejected');
 
+$assert(SourceDom::namedFragmentTargetId($element('<a name="comments" id="comments"></a>')) === 'comments', 'id wins over name for a fragment target');
+$assert(SourceDom::namedFragmentTargetId($element('<a name="section"></a>')) === 'section', 'name maps to the same identifier when id is absent');
+$assert(SourceDom::namedFragmentTargetId($element('<div id="box"></div>')) === 'box', 'a non-anchor id is still a fragment target identifier');
+$assert(SourceDom::namedFragmentTargetId($element('<div name="box"></div>')) === '', 'name is not a fragment target on non-anchor elements');
+$assert(SourceDom::isEmptyNamedFragmentTarget($element('<a name="comments" id="comments"></a>')), 'an empty href-less named anchor is a fragment target');
+$assert(SourceDom::isEmptyNamedFragmentTarget($element('<a name="section"></a>')), 'an empty name-only anchor is a fragment target');
+$assert(! SourceDom::isEmptyNamedFragmentTarget($element('<a href="/x"></a>')), 'an empty destination-bearing anchor is not a fragment target');
+$assert(! SourceDom::isEmptyNamedFragmentTarget($element('<a name="comments">text</a>')), 'a named anchor with text is not an empty fragment target');
+$collisionRoot = $element('<main><div id="comments"></div><a name="comments" id="comments"></a></main>');
+$collisionAnchor = $collisionRoot->getElementsByTagName('a')->item(0);
+$assert($collisionAnchor instanceof DOMElement && SourceDom::documentHasOtherFragmentTarget($collisionAnchor, 'comments'), 'a second fragment target with the same id is a collision');
+$solo = $element('<a name="only" id="only"></a>');
+$assert(! SourceDom::documentHasOtherFragmentTarget($solo, 'only'), 'a sole fragment target is not a collision with itself');
+
+$referenced = $element('<main><p><a href="#section-anchor">Jump</a></p><div id="section-anchor"></div></main>');
+$referencedTarget = $referenced->getElementsByTagName('div')->item(0);
+$assert($referencedTarget instanceof DOMElement && SourceDom::documentReferencesFragmentId($referencedTarget, 'section-anchor'), 'a hash href addresses the matching fragment id');
+$unreferenced = $element('<main><p>Copy</p><div id="sdk-mount"></div></main>');
+$unreferencedTarget = $unreferenced->getElementsByTagName('div')->item(0);
+$assert($unreferencedTarget instanceof DOMElement && ! SourceDom::documentReferencesFragmentId($unreferencedTarget, 'sdk-mount'), 'an unused id is not an address');
+$ariaRef = $element('<main><p aria-labelledby="status-slot">Ready</p><div id="status-slot"></div></main>');
+$ariaTarget = $ariaRef->getElementsByTagName('div')->item(0);
+$assert($ariaTarget instanceof DOMElement && SourceDom::documentReferencesFragmentId($ariaTarget, 'status-slot'), 'aria-labelledby addresses the matching fragment id');
+$labelFor = $element('<main><label for="email-field">Email</label><div id="email-field"></div></main>');
+$labelTarget = $labelFor->getElementsByTagName('div')->item(0);
+$assert($labelTarget instanceof DOMElement && SourceDom::documentReferencesFragmentId($labelTarget, 'email-field'), 'a label for attribute addresses the matching fragment id');
+
 // --- URL safety -------------------------------------------------------------
 
 $assert(SourceDom::safeFallbackUrl('https://example.test/a', 'href'), 'https is allowed');

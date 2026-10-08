@@ -11,11 +11,10 @@ use DOMElement;
 final class FormCustomPropertyResolver
 {
     private const MAX_EXPANSION_DEPTH = 5;
-    private const MAX_EXPANDED_BYTES = 4096;
     private const DEFAULT_VIEWPORT_PX = 1280;
 
     /** @param list<array<string, mixed>> $rules */
-    public static function resolve(string $value, DOMElement $element, ?array $condition, array $rules): string
+    public static function resolve(string $value, DOMElement $element, ?array $condition, array $rules, bool $unconditionalBase = false): string
     {
         if ( ! str_contains($value, 'var(') ) {
             return trim($value);
@@ -29,7 +28,7 @@ final class FormCustomPropertyResolver
             // Cascade each element before applying its declarations over inherited values.
             $declared = array();
             foreach ( $rules as $rule ) {
-                if ( ! self::ruleConditionApplies($rule['condition'] ?? null, $condition) || ! CssSelectorMatcher::matches($ancestor, $rule['parsed_selector'])['matches'] ) {
+                if ( ($unconditionalBase && null === $condition && null !== ($rule['condition'] ?? null)) || ! self::ruleConditionApplies($rule['condition'] ?? null, $condition) || ! CssSelectorMatcher::matches($ancestor, $rule['parsed_selector'])['matches'] ) {
                     continue;
                 }
                 foreach ( $rule['declarations'] as $declaration ) {
@@ -60,16 +59,16 @@ final class FormCustomPropertyResolver
             }
         }
         $customProperties = array_map(static fn (array $fact): string => $fact['value'], $properties);
-        return self::expandWith($value, static fn (string $name): ?string => $customProperties[$name] ?? null) ?? trim($value);
+        return CssVariableExpander::expand($value, static fn (string $name): ?string => $customProperties[$name] ?? null) ?? trim($value);
     }
 
     /** @param list<array<string, mixed>> $rules @return list<array<string, mixed>> */
-    public static function conditionsChanging(string $value, DOMElement $element, array $rules): array
+    public static function conditionsChanging(string $value, DOMElement $element, array $rules, bool $unconditionalBase = false): array
     {
         if ( ! str_contains($value, 'var(') ) {
             return array();
         }
-        $base = self::resolve($value, $element, null, $rules);
+        $base = self::resolve($value, $element, null, $rules, $unconditionalBase);
         $conditions = array();
         foreach ( $rules as $rule ) {
             $condition = $rule['condition'] ?? null;
@@ -138,7 +137,7 @@ final class FormCustomPropertyResolver
                 return null;
             }
             $resolving[$name] = true;
-            $value = self::expandWith($declared[$name]['value'], static fn (string $reference): ?string => $resolve($reference, $depth + 1));
+            $value = CssVariableExpander::expand($declared[$name]['value'], static fn (string $reference): ?string => $resolve($reference, $depth + 1));
             unset($resolving[$name]);
             if ( isset($invalid[$name]) ) $value = null;
             $computed[$name] = $value;
@@ -148,26 +147,4 @@ final class FormCustomPropertyResolver
         return $computed;
     }
 
-    /** @param callable(string): ?string $resolve */
-    private static function expandWith(string $value, callable $resolve): ?string
-    {
-        $seen = array();
-        for ( $pass = 0; $pass < self::MAX_EXPANSION_DEPTH && str_contains($value, 'var('); ++$pass ) {
-            if ( strlen($value) > self::MAX_EXPANDED_BYTES ) return null;
-            if ( isset($seen[$value]) ) return null;
-            $seen[$value] = true;
-            $unresolved = false;
-            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', static function (array $matches) use ($resolve, &$unresolved): string {
-                $resolved = $resolve($matches[1]);
-                if ( null !== $resolved ) return $resolved;
-                if ( isset($matches[2]) ) return trim($matches[2]);
-                $unresolved = true;
-                return $matches[0];
-            }, $value);
-            if ( ! is_string($expanded) || $unresolved ) return null;
-            if ( $expanded === $value ) break;
-            $value = $expanded;
-        }
-        return str_contains($value, 'var(') || strlen($value) > self::MAX_EXPANDED_BYTES ? null : trim($value);
-    }
 }

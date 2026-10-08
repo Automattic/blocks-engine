@@ -12,6 +12,21 @@ use DOMNode;
 final class CssSelectorMatcher
 {
     /**
+     * A static pseudo-element paints on a host; its declarations do not style that host.
+     *
+     * @return array{selector:string,suffix:string,parsed:array<string,mixed>}|null
+     */
+    public static function pseudoElementHost(string $selector): ?array
+    {
+        $selector = trim($selector);
+        if (1 !== preg_match('/(:{1,2}(?:before|after))$/i', $selector, $suffix)) return null;
+        $host = substr($selector, 0, -strlen($suffix[1]));
+        $parsed = self::parse($host);
+        if (!$parsed['supported'] || null !== $parsed['pseudo_state_suffix_span']) return null;
+        return array('selector' => $host, 'suffix' => $suffix[1], 'parsed' => $parsed);
+    }
+
+    /**
      * HTML defines these enumerated attribute values as ASCII-case-insensitive
      * by default, which this matcher does not model.
      *
@@ -148,6 +163,7 @@ final class CssSelectorMatcher
         $classes = count($compound['classes']) - (int) ( $zero['classes'] ?? 0 )
             + count($compound['attributes']) - (int) ( $zero['attributes'] ?? 0 )
             + ( null !== $compound['nth_child'] ? 1 : 0 )
+            + ( null !== ($compound['nth_type'] ?? null) ? 1 : 0 )
             + (int) $compound['first_child']
             + (int) $compound['last_child']
             + (int) ( $compound['root'] ?? false )
@@ -156,10 +172,68 @@ final class CssSelectorMatcher
 
         $specificity = 100 * $ids + 10 * $classes + $types;
         foreach ( $compound['not'] as $negated ) {
-            $specificity += self::compoundSpecificity($negated);
+            foreach ( $negated['compounds'] as $negatedCompound ) {
+                $specificity += self::compoundSpecificity($negatedCompound);
+            }
+        }
+        foreach ( $compound['any'] ?? array() as $group ) {
+            $specificity += $group['specificity'];
         }
 
         return $specificity;
+    }
+
+    /**
+     * What a compound's `:is()`/`:where()` selector-list arguments add to its
+     * specificity, split into id, class and type counts for callers that
+     * rebuild a selector's weight simple selector by simple selector.
+     *
+     * @param array<string, mixed> $compound
+     * @return array{ids: int, classes: int, types: int}
+     */
+    public static function selectorListArgumentSpecificity(array $compound): array
+    {
+        $specificity = 0;
+        foreach ( $compound['any'] ?? array() as $group ) {
+            $specificity += $group['specificity'];
+        }
+
+        return array( 'ids' => intdiv($specificity, 100), 'classes' => intdiv($specificity % 100, 10), 'types' => $specificity % 10 );
+    }
+
+    /**
+     * Parse the selector list inside `:is()` or `:where()`.
+     *
+     * The compound form above folds a single argument into the surrounding
+     * compound, which cannot express "any of". A list keeps each alternative as
+     * its own selector: the compound matches when one of them matches the same
+     * element, which is exactly how `:is()` and `:where()` evaluate. `:is()`
+     * weighs as its most specific alternative and `:where()` as zero. An
+     * alternative this matcher cannot read keeps the whole selector
+     * unsupported rather than matching on the alternatives it can read.
+     *
+     * @param list<string> $alternatives
+     * @return array{alternatives: list<array{compounds: list<array<string, mixed>>, combinators: list<string>}>, specificity: int}|null
+     */
+    private static function parseSelectorListArgument(array $alternatives, bool $zeroSpecificity): ?array
+    {
+        $group = array( 'alternatives' => array(), 'specificity' => 0 );
+        foreach ( $alternatives as $alternative ) {
+            $alternative = trim($alternative);
+            if ( '' === $alternative ) {
+                return null;
+            }
+            $parsed = self::parseUncached($alternative);
+            if ( ! ($parsed['supported'] ?? false) || null !== ($parsed['pseudo_state_suffix_span'] ?? null) ) {
+                return null;
+            }
+            $group['alternatives'][] = array( 'compounds' => $parsed['compounds'], 'combinators' => $parsed['combinators'] );
+            if ( ! $zeroSpecificity ) {
+                $group['specificity'] = max($group['specificity'], self::specificity($parsed));
+            }
+        }
+
+        return $group;
     }
 
     /**
@@ -275,7 +349,7 @@ final class CssSelectorMatcher
     /** @return array{compound: array<string, mixed>, suffix: array{start: int, end: int}|null, type_span: array{start: int, end: int, name: string}|null}|null */
     private static function parseCompound(string $source, int $sourceStart, bool $isRightmost): ?array
     {
-        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'not' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false, 'root' => false, 'resting_state_negations' => 0, 'zero_specificity' => array( 'types' => 0, 'classes' => 0, 'ids' => 0, 'attributes' => 0 ) );
+        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'not' => array(), 'any' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false, 'root' => false, 'resting_state_negations' => 0, 'zero_specificity' => array( 'types' => 0, 'classes' => 0, 'ids' => 0, 'attributes' => 0 ) );
         $offset = 0;
         $suffix = null;
         $typeSpan = null;
@@ -301,12 +375,24 @@ final class CssSelectorMatcher
                 }
                 $lowerName = strtolower($name);
                 if ( in_array($lowerName, array( 'is', 'where' ), true) && '(' === ($source[ $offset ] ?? '') ) {
+                    $listClosing = self::matchingParenthesis($source, $offset);
+                    $alternatives = null === $listClosing ? null : CssStylesheetTransformer::splitSelectorList(substr($source, $offset + 1, $listClosing - $offset - 1));
+                    if ( is_array($alternatives) && count($alternatives) > 1 ) {
+                        $group = self::parseSelectorListArgument($alternatives, 'where' === $lowerName);
+                        if ( null === $group ) {
+                            return null;
+                        }
+                        $compound['any'][] = $group;
+                        $offset = $listClosing + 1;
+                        $hasSimple = true;
+                        continue;
+                    }
                     $closing = strpos($source, ')', $offset + 1);
                     if ( false === $closing ) {
                         return null;
                     }
                     $selected = self::parseCompound(trim(substr($source, $offset + 1, $closing - $offset - 1)), 0, false);
-                    if ( null === $selected || null !== $selected['suffix'] || array() !== $selected['compound']['not'] || null !== $selected['compound']['nth_child'] || $selected['compound']['first_child'] || $selected['compound']['last_child'] ) {
+                    if ( null === $selected || null !== $selected['suffix'] || array() !== $selected['compound']['not'] || array() !== $selected['compound']['any'] || null !== $selected['compound']['nth_child'] || $selected['compound']['first_child'] || $selected['compound']['last_child'] ) {
                         return null;
                     }
                     $selectedCompound = $selected['compound'];
@@ -329,8 +415,8 @@ final class CssSelectorMatcher
                     continue;
                 }
                 if ( 'not' === $lowerName && '(' === ($source[ $offset ] ?? '') ) {
-                    $closing = strpos($source, ')', $offset + 1);
-                    if ( false === $closing ) {
+                    $closing = self::matchingParenthesis($source, $offset);
+                    if ( null === $closing ) {
                         return null;
                     }
                     $argument = trim(substr($source, $offset + 1, $closing - $offset - 1));
@@ -342,11 +428,24 @@ final class CssSelectorMatcher
                         $hasSimple = true;
                         continue;
                     }
-                    $negated = self::parseCompound($argument, 0, false);
-                    if ( null === $negated || null !== $negated['suffix'] || array() !== $negated['compound']['not'] ) {
+                    // Selectors Level 4 allows complex selectors — arguments
+                    // carrying descendant, child, or sibling combinators —
+                    // inside `:not()`. Parsing the argument as one compound
+                    // silently dropped those combinators, so a source
+                    // exclusion such as `.a:not(.wrapper .a)` was evaluated
+                    // as `.a:not(.wrapper.a)` and flipped into a false
+                    // match. Parse the argument as a full selector and
+                    // evaluate it against the source DOM instead; anything
+                    // the matcher cannot parse keeps the whole selector
+                    // unsupported so the declaration stays source-owned.
+                    if ( '' === $argument ) {
                         return null;
                     }
-                    $compound['not'][] = $negated['compound'];
+                    $negated = self::parseUncached($argument);
+                    if ( ! ($negated['supported'] ?? false) || null !== ($negated['pseudo_state_suffix_span'] ?? null) ) {
+                        return null;
+                    }
+                    $compound['not'][] = array( 'compounds' => $negated['compounds'], 'combinators' => $negated['combinators'] );
                     $offset = $closing + 1;
                     $hasSimple = true;
                     continue;
@@ -367,7 +466,7 @@ final class CssSelectorMatcher
                     $hasSimple = true;
                     continue;
                 }
-                if ( 'nth-child' === $lowerName && '(' === ($source[ $offset ] ?? '') ) {
+                if ( in_array($lowerName, array('nth-child', 'nth-of-type'), true) && '(' === ($source[ $offset ] ?? '') ) {
                     $closing = strpos($source, ')', $offset + 1);
                     if ( false === $closing ) {
                         return null;
@@ -376,7 +475,7 @@ final class CssSelectorMatcher
                     if ( ! preg_match('/^[1-9][0-9]*$/', $argument) ) {
                         return null;
                     }
-                    $compound['nth_child'] = (int) $argument;
+                    $compound['nth-child' === $lowerName ? 'nth_child' : 'nth_type'] = (int) $argument;
                     $offset = $closing + 1;
                     $hasSimple = true;
                     continue;
@@ -440,10 +539,48 @@ final class CssSelectorMatcher
         return $hasSimple ? array( 'compound' => $compound, 'suffix' => $suffix, 'type_span' => $typeSpan ) : null;
     }
 
+    /**
+     * Offset of the `)` closing the `(` at $open, or null when it never
+     * closes. The scan ignores parentheses inside strings, comments, and
+     * nested functional pseudo-classes, so a `:not()` argument such as
+     * `:where(.a)` or `[title="x)"]` extracts intact.
+     */
+    private static function matchingParenthesis(string $source, int $open): ?int
+    {
+        $state = CssSyntaxScanner::state();
+        $depth = 1;
+        $length = strlen($source);
+        // Consume the opening parenthesis so the scanner's own paren counter
+        // stays balanced for the rest of the scan.
+        $offset = CssSyntaxScanner::consume($source, $open, $state);
+        if ( null === $offset ) {
+            return null;
+        }
+        for ( ; $offset < $length; ) {
+            $character = $source[ $offset ];
+            $before = $state['parens'];
+            $next = CssSyntaxScanner::consume($source, $offset, $state);
+            if ( null === $next ) {
+                return null;
+            }
+            // The scanner's own paren counter only moves for structural
+            // parentheses, so a depth change on a raw bracket byte marks one.
+            if ( $next === $offset + 1 && '(' === $character && $state['parens'] === $before + 1 ) {
+                ++$depth;
+            } elseif ( $next === $offset + 1 && ')' === $character && $state['parens'] === $before - 1 ) {
+                --$depth;
+                if ( 0 === $depth ) {
+                    return $offset;
+                }
+            }
+            $offset = $next;
+        }
+        return null;
+    }
+
     /** @return array{name: string, operator: string|null, value: string|null, flag: string|null}|null */
     private static function attribute(string $source, int &$offset): ?array
-    {
-        ++$offset;
+    {        ++$offset;
         self::skipIgnorable($source, $offset);
         $name = self::identifier($source, $offset);
         if ( null === $name ) {
@@ -681,7 +818,19 @@ final class CssSelectorMatcher
             }
         }
         foreach ( $compound['not'] as $negated ) {
-            if ( self::matchesCompound($element, $negated, $cache) ) {
+            if ( self::matchesAt($element, $negated['compounds'], $negated['combinators'], count($negated['compounds']) - 1, $cache) ) {
+                return false;
+            }
+        }
+        foreach ( $compound['any'] ?? array() as $group ) {
+            $matched = false;
+            foreach ( $group['alternatives'] as $alternative ) {
+                if ( self::matchesAt($element, $alternative['compounds'], $alternative['combinators'], count($alternative['compounds']) - 1, $cache) ) {
+                    $matched = true;
+                    break;
+                }
+            }
+            if ( ! $matched ) {
                 return false;
             }
         }
@@ -694,6 +843,13 @@ final class CssSelectorMatcher
         }
         if ( null !== $compound['nth_child'] && $childIndex !== $compound['nth_child'] ) {
             return false;
+        }
+        if (null !== ($compound['nth_type'] ?? null)) {
+            $typeIndex = 1;
+            for ($previous = self::previousElementSibling($element); null !== $previous; $previous = self::previousElementSibling($previous)) {
+                if (strtolower($previous->tagName) === strtolower($element->tagName)) ++$typeIndex;
+            }
+            if ($typeIndex !== $compound['nth_type']) return false;
         }
         if ( $compound['first_child'] && 1 !== $childIndex ) {
             return false;

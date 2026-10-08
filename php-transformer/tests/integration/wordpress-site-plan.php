@@ -31,6 +31,22 @@ $previousPageOnFront = get_option('page_on_front');
 $previousUserId = get_current_user_id();
 $editorUserId = 0;
 $pageIds = array();
+$taxonomyThemeDir = null;
+$taxonomyTermId = 0;
+$previousPostsPerPage = (int) get_option('posts_per_page');
+$bindNavigation = static function (array $plan, string $markup) use (&$pageIds): string {
+    $references = array();
+    foreach ($plan['menus'] as $menu) {
+        if (!isset($menu['token'])) continue;
+        $id = wp_insert_post(array('post_type' => 'wp_navigation', 'post_status' => 'publish', 'post_title' => $menu['title'], 'post_content' => wp_slash($menu['block_markup'])), true);
+        if (is_wp_error($id)) throw new RuntimeException($id->get_error_message());
+        $pageIds['navigation-' . $id] = $id;
+        $references['"ref":"' . WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}"'] = '"ref":' . $id;
+    }
+    $resolved = strtr($markup, $references);
+    if (str_contains($resolved, WordPressSitePlan::NAVIGATION_TOKEN_PREFIX)) throw new RuntimeException('The integration consumer did not bind every navigation entity.');
+    return $resolved;
+};
 try {
 if (!is_dir($themeDir) && !mkdir($themeDir, 0777, true) && !is_dir($themeDir)) throw new RuntimeException('Could not create integration theme directory.');
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
@@ -46,7 +62,7 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
     'about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><h1>Root About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/root-about.js"></script><script src="assets/shared.js"></script></body></html>',
     'nested/about.html' => '<!doctype html><html><head><link rel="stylesheet" href="../assets/global.css"><style media="(min-width: 48rem)">.about-owned{color:#654321}.about-media-presentation{display:grid}</style><script src="../assets/about-head.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="../assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><h1>About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="https://cdn.example.test/about.js" async></script><script src="../assets/shared.js"></script></body></html>',
     'nested/deep/about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="../../assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><h1>Deep About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/deep-about.js"></script></body></html>',
-    array('path' => 'notes/essay.html', 'content' => '<main><article>Essay<time datetime="2024-03-02T10:30:00Z"></time></article></main><script src="assets/essay.js"></script>'),
+    array('path' => 'notes/essay.html', 'content' => '<meta property="article:published_time" content="2024-03-02T10:30:00Z"><main><article>Essay<time datetime="2024-03-02T10:30:00Z"></time></article></main><script src="assets/essay.js"></script>'),
     'assets/about-head.js' => 'window.aboutHeadAsset=true;',
     'assets/root-about.js' => 'window.rootAboutAsset=true;',
     'assets/deep-about.js' => 'window.deepAboutAsset=true;',
@@ -70,6 +86,12 @@ require $themeDir . '/functions.php';
 $sourceSentence = 'What is your favorite RC track you\'ve been to? "Any" -- even the 1960s ones...';
 $assert($sourceSentence === wptexturize($sourceSentence, true), 'A generated theme renders captured punctuation exactly as the source wrote it.');
 $assert(str_contains(apply_filters('the_content', '<p>' . $sourceSentence . '</p>'), $sourceSentence), 'The content pipeline delivers decoded source punctuation unchanged.');
+$assert(false === has_action('wp_head', 'print_emoji_detection_script') && false === has_action('embed_head', 'print_emoji_detection_script'), 'The generated theme keeps native emoji on frontend and embedded source text.');
+$assert(array('wordpress', 'lists') === apply_filters('tiny_mce_plugins', array('wordpress', 'wpemoji', 'lists')), 'Editable source text keeps native emoji while retaining unrelated TinyMCE plugins.');
+// Core registers this admin callback after theme loading, before admin_init.
+add_action('admin_print_scripts', 'print_emoji_detection_script');
+do_action('admin_init');
+$assert(false === has_action('admin_print_scripts', 'print_emoji_detection_script'), 'The theme removes the late-registered admin emoji runtime before editor scripts print.');
 $editorUserId = wp_insert_user(array('user_login' => 'blocks-engine-editor-' . wp_generate_password(8, false), 'user_pass' => wp_generate_password(24), 'role' => 'administrator'));
 if (is_wp_error($editorUserId)) throw new RuntimeException($editorUserId->get_error_message());
 wp_set_current_user($editorUserId);
@@ -117,6 +139,7 @@ $imageUrl = $assetBase . 'logo.svg';
 $assert(is_file($cssFile) && is_file($themeDir . '/assets/assets/logo.svg') && str_contains((string) file_get_contents($cssFile), 'url("logo.svg")') && str_starts_with($cssUrl, home_url('/')) && str_starts_with($imageUrl, home_url('/')) && !str_contains($cssUrl . $imageUrl, 'build.example.test'), 'A moved active theme exposes local CSS and SVG image fetch URLs under the runtime host and subdirectory without a source-origin URL.');
 $themeJson = json_decode((string) file_get_contents($themeDir . '/theme.json'), true);
 $globalStylesheet = wp_get_global_stylesheet();
+$assert(!isset($themeJson['styles']['typography']['fontFamily']) && !isset($themeJson['styles']['spacing']['padding']), 'A stylesheet loaded by only some pages cannot set the site-wide font or padding.');
 $presetGroups = array(
     'color' => $themeJson['settings']['color']['palette'] ?? array(),
     'font-family' => $themeJson['settings']['typography']['fontFamilies'] ?? array(),
@@ -126,7 +149,18 @@ $presetGroups = array(
 foreach ($presetGroups as $group => $presets) foreach ($presets as $preset) {
     $slug = (string) ($preset['slug'] ?? '');
     $variable = '--wp--preset--' . $group . '--' . $slug;
-    $assert('' !== $slug && $slug === _wp_to_kebab_case($slug) && str_contains($globalStylesheet, $variable . ':') && str_contains($globalStylesheet, 'var(' . $variable . ')'), 'WordPress emits and resolves the generated ' . $group . ' preset without changing its slug.');
+    // Presets are editor choices, including values whose route applicability
+    // prevents setting a Global Styles default. Exercise resolution separately
+    // from the generated theme's decision to apply that value site-wide.
+    $reference = 'var:preset|' . $group . '|' . $slug;
+    $probeStyles = match ($group) {
+        'color' => array('color' => array('text' => $reference)),
+        'font-family' => array('typography' => array('fontFamily' => $reference)),
+        'font-size' => array('typography' => array('fontSize' => $reference)),
+        'spacing' => array('spacing' => array('padding' => $reference)),
+    };
+    $probe = new WP_Theme_JSON(array('version' => 3, 'settings' => $themeJson['settings'], 'styles' => $probeStyles), 'theme');
+    $assert('' !== $slug && $slug === _wp_to_kebab_case($slug) && str_contains($globalStylesheet, $variable . ':') && str_contains($probe->get_stylesheet(), 'var(' . $variable . ')'), 'WordPress emits and resolves the generated ' . $group . ' preset without changing its slug.');
 }
 $sidebarPart = current(array_filter($plan['template_parts'] ?? array(), static fn(array $part): bool => 'sidebar' === ($part['slug'] ?? null)));
 $sidebarWrite = current(array_filter($resolved['writes'] ?? array(), static fn(array $write): bool => 'templates/front-page.html' === ($write['target_path'] ?? null)));
@@ -134,6 +168,11 @@ $sidebarTemplateBlocks = parse_blocks((string) ($sidebarWrite['payload']['data']
 $sidebarBlocks = array_values(array_filter($sidebarTemplateBlocks, static fn(array $block): bool => 'core/template-part' === ($block['blockName'] ?? null) && 'sidebar' === ($block['attrs']['slug'] ?? null)));
 $sidebarReference = isset($sidebarBlocks[0]) ? serialize_block($sidebarBlocks[0]) : '';
 $sidebarRendered = do_blocks($sidebarReference);
+// #2165: a page saved in the editor gains Gutenberg's newline padding, which
+// renders under preserved white-space. The generated theme drops it.
+$editorSaved = serialize_blocks(parse_blocks('<!-- wp:group --><div class="wp-block-group"><!-- wp:paragraph --><p>One</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>Two' . "\n" . 'lines</p><!-- /wp:paragraph --></div><!-- /wp:group -->'));
+$editorSavedRendered = do_blocks($editorSaved);
+$assert(str_contains($editorSaved, "\n") && ! str_contains($editorSavedRendered, ">\n<") && 1 === preg_match('#>One</p><p[^>]*>Two\nlines</p>#', $editorSavedRendered), 'Editor-saved serialization padding does not render between or around blocks, while text newlines remain.');
 $assert('uncategorized' === ($sidebarPart['area'] ?? null) && 'aside' === ($sidebarPart['tag_name'] ?? null) && 1 === count($sidebarBlocks) && 'uncategorized' === ($sidebarBlocks[0]['attrs']['area'] ?? null) && 'aside' === ($sidebarBlocks[0]['attrs']['tagName'] ?? null) && str_contains($sidebarRendered, '<aside ') && str_contains($sidebarRendered, 'Integration Sidebar') && !str_contains($sidebarRendered, '<sidebar'), 'WordPress parses and renders the sidebar reference emitted by the generated front-page template with a core-supported area and semantic aside wrapper.');
 $positionedSvg = (new HtmlTransformer())->transform('<style>.hero-media{position:relative;width:1280px;height:760px}@media(max-width:700px){.hero-media{width:320px;height:240px}}</style><main><div class="hero-media"><svg class="hero-art" width="100%" height="100%" style="object-fit:cover" viewBox="0 0 1280 728.88"><rect width="1280" height="728.88" fill="#111"/></svg></div></main>')->toArray();
 $positionedSvgMarkup = (string) ($positionedSvg['serialized_blocks'] ?? '');
@@ -227,10 +266,16 @@ $editorSettings = static function (?WP_Post $post, string $name = 'core/edit-pos
         $styles->done = array_values(array_diff($styles->done, array($handle)));
         $styles->to_do = array_values(array_diff($styles->to_do, array($handle)));
     }
+    // Outer admin document pass: Core fires enqueue_block_assets on block editor
+    // screens while wp_should_load_block_editor_scripts_and_styles() is true.
+    get_current_screen()->is_block_editor(true);
+    do_action('enqueue_block_assets');
+    $outerPresentationHandles = array_values(array_filter($styles->queue, static fn(string $handle): bool => str_starts_with($handle, 'blocks-engine-editor-')));
+    // Canvas iframe pass: _wp_get_iframed_editor_assets() re-fires the hook and
+    // returns the <link> tags the iframe loads as __unstableResolvedAssets.
     $context = array('name' => $name);
     if ($post instanceof WP_Post) $context['post'] = $post;
     $settings = get_block_editor_settings(array(), new WP_Block_Editor_Context($context));
-    $outerPresentationHandles = array_values(array_filter($styles->queue, static fn(string $handle): bool => str_starts_with($handle, 'blocks-engine-editor-')));
     return array('settings' => $settings, 'outer_presentation_handles' => $outerPresentationHandles);
 };
 $frontEditor = $editorSettings($frontPage);
@@ -245,9 +290,7 @@ $aboutEditorAssets = (string) ($aboutEditorSettings['__unstableResolvedAssets'][
 $globalPresentation = array_column($plan['assets'] ?? array(), null, 'source_path')['assets/global.css'] ?? array();
 $authorPresentationPaths = array_values(array_map(static fn(array $asset): string => (string) ($asset['target_path'] ?? ''), array_filter($plan['assets'] ?? array(), static fn(array $asset): bool => 'author-css' === ($asset['source'] ?? ''))));
 $authorPresentationHandles = array_map(static fn(string $path): string => 'blocks-engine-editor-' . substr(hash('sha256', $path), 0, 12), $authorPresentationPaths);
-$editorStyleFor = static function (array $settings, string $path): array { foreach ($settings['styles'] ?? array() as $style) if (is_array($style) && get_theme_file_uri($path) === ($style['baseURL'] ?? null)) return $style; return array(); };
-$frontAuthorStyle = $editorStyleFor($frontEditorSettings, 'assets/assets/global.css');
-$aboutAuthorStyle = $editorStyleFor($aboutEditorSettings, 'assets/nested/about.inline.css');
+$linkFor = static function (string $assets, string $path): string { return 1 === preg_match('/<link\\b[^>]*\\bhref=([\'"])' . preg_quote(get_theme_file_uri($path), '/') . '(?:\\?[^\'"]*)?\\1[^>]*>/', $assets, $match) ? $match[0] : ''; };
 $post = $frontPage;
 set_current_screen('front');
 $frontRequestThemeJsonCss = (string) ((apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data())['styles']['css'] ?? '');
@@ -259,10 +302,10 @@ $siteEditor = $editorSettings(null, 'core/edit-site');
 $siteEditorAssets = (string) (($siteEditor['settings']['__unstableResolvedAssets']['styles'] ?? ''));
 set_current_screen('front');
 $assert(array() === array_values(array_intersect($authorPresentationHandles, $frontEditor['outer_presentation_handles'])) && array() === array_values(array_intersect($authorPresentationHandles, $aboutEditor['outer_presentation_handles'])) && array() === array_values(array_intersect($authorPresentationHandles, $siteEditor['outer_presentation_handles'])), 'Authored presentation styles are absent from the outer post and site editor documents.');
-$assert(!str_contains($frontEditorAssets, get_theme_file_uri('assets/assets/global.css')) && !str_contains($aboutEditorAssets, get_theme_file_uri('assets/assets/global.css')) && !str_contains($aboutEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')) && !str_contains($siteEditorAssets, get_theme_file_uri('assets/assets/global.css')) && !str_contains($siteEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')), 'Authored presentation styles are not collected as outer-document iframe assets.');
-$assert('.global-presentation{display:block}' === substr((string) ($frontAuthorStyle['css'] ?? ''), -strlen('.global-presentation{display:block}')) && get_theme_file_uri('assets/assets/global.css') === ($frontAuthorStyle['baseURL'] ?? null) && 'theme' === ($frontAuthorStyle['__unstableType'] ?? null) && false === ($frontAuthorStyle['isGlobalStyles'] ?? true), 'A route-matched authored stylesheet is delivered through Core editor settings with its source selectors, bytes, and stylesheet base URL.');
-$assert(str_contains((string) ($aboutAuthorStyle['css'] ?? ''), '@media (min-width: 48rem){.about-owned{color:#654321}.about-media-presentation{display:grid}') && get_theme_file_uri('assets/nested/about.inline.css') === ($aboutAuthorStyle['baseURL'] ?? null) && false !== strpos($aboutEditorCss, '.global-presentation{display:block}') && false !== strpos($aboutEditorCss, '.about-owned{color:#654321}') && strpos($aboutEditorCss, '.global-presentation{display:block}') < strpos($aboutEditorCss, '.about-owned{color:#654321}'), 'Route-matched editor settings preserve responsive stylesheet scope and source cascade order.');
-$assert(str_contains($siteEditorCss = implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $siteEditor['settings']['styles'] ?? array())), '.global-presentation{display:block}') && str_contains($siteEditorCss, '.about-owned{color:#654321}'), 'The site editor receives the complete declared authored presentation set through editor settings.');
+$assert('' !== $linkFor($frontEditorAssets, 'assets/assets/global.css') && '' === $linkFor($frontEditorAssets, 'assets/nested/about.inline.css') && '' !== $linkFor($aboutEditorAssets, 'assets/assets/global.css') && '' !== $linkFor($aboutEditorAssets, 'assets/nested/about.inline.css') && 1 === substr_count($aboutEditorAssets, get_theme_file_uri('assets/assets/global.css')) && 1 === substr_count($aboutEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')), 'Route-matched authored stylesheets are loaded by URL into the editor canvas iframe, once each, and only for the edited route.');
+$assert(!str_contains($frontEditorCss, '.global-presentation{display:block}') && !str_contains($aboutEditorCss, '.global-presentation{display:block}') && !str_contains($aboutEditorCss, '.about-owned{color:#654321}') && array() === array_filter(array_merge($frontEditorSettings['styles'] ?? array(), $aboutEditorSettings['styles'] ?? array()), static fn(mixed $style): bool => is_array($style) && in_array($style['baseURL'] ?? null, array_map('get_theme_file_uri', $authorPresentationPaths), true)), 'Authored stylesheet contents are never inlined into the editor settings payload.');
+$assert(1 === preg_match('/\\bmedia=([\'"])\\(min-width: 48rem\\)\\1/', $linkFor($aboutEditorAssets, 'assets/nested/about.inline.css')) && strpos($aboutEditorAssets, get_theme_file_uri('assets/assets/global.css')) < strpos($aboutEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')), 'Iframe stylesheet links preserve responsive stylesheet media and source cascade order.');
+$assert('' !== $linkFor($siteEditorAssets, 'assets/assets/global.css') && '' !== $linkFor($siteEditorAssets, 'assets/nested/about.inline.css') && !str_contains(implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $siteEditor['settings']['styles'] ?? array())), '.about-owned{color:#654321}'), 'The site editor canvas loads the complete declared authored presentation set by URL, not inlined.');
 $assert('' === $frontRequestThemeJsonCss && '' === $frontEditorThemeJsonCss && '' === $aboutEditorThemeJsonCss, 'Presentation CSS is not duplicated through frontend or editor theme JSON.');
 $assert(str_contains($frontEditorCss, WordPressSitePlan::EDITOR_CORE_IMAGE_INTERACTION_CSS) && str_contains($frontEditorCss, WordPressSitePlan::EDITOR_POST_TITLE_INTERACTION_CSS) && str_contains($frontEditorCss, WordPressSitePlan::EDITOR_LINK_INTERACTION_CSS), 'Editor interaction compatibility remains a bounded editor-settings rule.');
 global $wp_query;
@@ -328,9 +371,9 @@ $assert(str_contains($singleTemplate, 'wp:post-content') && str_contains($single
 // aria-current="page" when the link's id/kind resolve against the queried
 // object, which never happens for the "custom" kind links this engine emits
 // for a static-site import. The generated theme bootstrap instead recovers
-// the missing attribute at render time, keyed off the frontend
-// blocks-engine-current-navigation-item className the engine already emits
-// for the page's own current item. Prove this against a real WordPress
+// the missing attribute at render time. Entity factoring excludes frozen
+// source current state, so the integration consumer binds actual navigation
+// posts and renders against the actual front-page request. Prove this in WordPress:
 // render: the current item gets aria-current="page", its sibling does not.
 $currentNavArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><body><nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav><main><p>Home</p></main></body></html>')))->toArray();
 $currentNavPlan = $currentNavArtifact['source_reports']['wordpress_site_plan'] ?? array();
@@ -342,7 +385,8 @@ $currentNavClosureEnd = strpos($currentNavBootstrap, "\n}, 10, 2 );", $currentNa
 if (false === $currentNavClosureEnd) throw new RuntimeException('The navigation-link current-item filter closure has no discoverable closing statement.');
 eval('$currentNavFilter = ' . substr($currentNavBootstrap, $currentNavClosureStart, $currentNavClosureEnd + 2 - $currentNavClosureStart) . ';');
 add_filter('render_block_core/navigation-link', $currentNavFilter, 10, 2);
-$currentNavPageMarkup = (string) ($currentNavPlan['pages'][0]['canonical_block_markup'] ?? '');
+$currentNavPageMarkup = $bindNavigation($currentNavPlan, (string) ($currentNavPlan['pages'][0]['canonical_block_markup'] ?? ''));
+$setRequest($frontPage, true);
 $currentNavRendered = do_blocks($currentNavPageMarkup);
 remove_filter('render_block_core/navigation-link', $currentNavFilter, 10);
 $assert(str_contains($currentNavRendered, '<a class="wp-block-navigation-item__content" aria-current="page"  href="/"><span class="wp-block-navigation-item__label">Home</span></a>'), 'WordPress renders the current navigation-link item with aria-current="page", recovering both accessibility semantics and the source stylesheet\'s own [aria-current] active-state styling hook.');
@@ -366,7 +410,7 @@ $sharedRouteNavArtifact = (new ArtifactCompiler())->compile(array('entrypoint' =
 $sharedRouteNavPlan = $sharedRouteNavArtifact['source_reports']['wordpress_site_plan'] ?? array();
 $sharedRouteNavHeader = current(array_filter($sharedRouteNavPlan['template_parts'] ?? array(), static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
 if (!is_array($sharedRouteNavHeader) || array() === $sharedRouteNavHeader) throw new RuntimeException('Expected the repeated navigation header to extract into a shared template part.');
-$sharedRouteNavHeaderMarkup = (string) ($sharedRouteNavHeader['canonical_block_markup'] ?? '');
+$sharedRouteNavHeaderMarkup = $bindNavigation($sharedRouteNavPlan, (string) ($sharedRouteNavHeader['canonical_block_markup'] ?? ''));
 $assert(!str_contains($sharedRouteNavHeaderMarkup, 'blocks-engine-current-navigation-item'), 'The shared header carries no static current-item marker, since one rendered part serves every route.');
 $sharedRouteNavWrites = array(); foreach ($sharedRouteNavPlan['writes'] ?? array() as $write) $sharedRouteNavWrites[$write['target_path']] = $write;
 $sharedRouteNavBootstrap = (string) ($sharedRouteNavWrites['functions.php']['payload']['data'] ?? '');
@@ -395,9 +439,67 @@ $assert(str_contains($day1Rendered, '<a class="wp-block-navigation-item__content
 $assert(!str_contains($day1Rendered, 'aria-current="page"  href="/"'), 'Serving /day-1 does not render the front-page shared-part link as current.');
 $assert(str_contains($day13Rendered, '<a class="wp-block-navigation-item__content" aria-current="page"  href="/day-13">') && !str_contains($day13Rendered, 'aria-current="page"  href="/day-1"'), 'Serving /day-13 renders only the /day-13 shared-part navigation-link item as current, proving the near-miss /day-1 route is never mistaken for it.');
 $assert(str_contains($frontSharedRendered, '<a class="wp-block-navigation-item__content" aria-current="page"  href="/">') && !str_contains($frontSharedRendered, 'aria-current="page"  href="/day-1"') && !str_contains($frontSharedRendered, 'aria-current="page"  href="/day-13"'), 'Serving the front page renders only the "/" shared-part navigation-link item as current.');
+// #2468: captured source pagination must resolve through real WordPress
+// rewrite resolution, not only through direct WP_Query construction. A
+// disposable second theme materializes the corroborated taxonomy fixture, the
+// bootstrap's emitted rewrite rules register through init, and the actual
+// source page-2 path is resolved the way WordPress resolves a request.
+$taxonomyArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<main><h1>Home</h1></main>',
+    array('path' => 'archives/field-notes.html', 'content' => '<main><h1>Field Notes</h1><article><h2><a href="/stories/one">One</a></h2><p>One summary.</p></article><article><h2><a href="/stories/two">Two</a></h2><p>Two summary.</p></article></main>', 'metadata' => array('route_path' => '/journal/category/field-notes')),
+    array('path' => 'stories/one.html', 'content' => '<article><h1>One</h1><p>Full one.</p><a href="/journal/category/field-notes">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
+    array('path' => 'stories/two.html', 'content' => '<article><h1>Two</h1><p>Full two.</p><a href="/journal/category/field-notes">Field Notes</a></article>', 'metadata' => array('post_type' => 'post')),
+)))->toArray();
+$taxonomyPlan = $taxonomyArtifact['source_reports']['wordpress_site_plan'] ?? array();
+$assert(1 === count($taxonomyPlan['taxonomy_entities'] ?? array()) && '/journal/category/field-notes' === ($taxonomyPlan['taxonomy_entities'][0]['archive']['source_route'] ?? null), 'The taxonomy fixture projects one corroborated term on its source route.');
+$taxonomyTheme = $theme . '-taxonomy';
+$taxonomyThemeDir = WP_CONTENT_DIR . '/themes/' . $taxonomyTheme;
+if (!is_dir($taxonomyThemeDir) && !mkdir($taxonomyThemeDir, 0777, true) && !is_dir($taxonomyThemeDir)) throw new RuntimeException('Could not create taxonomy proof theme directory.');
+foreach ((new WordPressSitePlanResolver())->resolve($taxonomyPlan, array('theme_uri' => home_url('/wp-content/themes/' . $taxonomyTheme)))['writes'] as $taxonomyWrite) {
+    $taxonomyWritePath = $taxonomyThemeDir . '/' . $taxonomyWrite['target_path'];
+    if (!is_dir(dirname($taxonomyWritePath)) && !mkdir(dirname($taxonomyWritePath), 0777, true) && !is_dir(dirname($taxonomyWritePath))) throw new RuntimeException('Could not create taxonomy theme write directory.');
+    if (false === file_put_contents($taxonomyWritePath, 'base64' === $taxonomyWrite['payload']['encoding'] ? base64_decode($taxonomyWrite['payload']['data'], true) : $taxonomyWrite['payload']['data'])) throw new RuntimeException('Could not write taxonomy theme file.');
+}
+wp_clean_themes_cache();
+switch_theme($taxonomyTheme);
+require $taxonomyThemeDir . '/functions.php';
+$taxonomyTerm = wp_insert_term('Field Notes', 'category', array('slug' => 'field-notes'));
+if (is_wp_error($taxonomyTerm)) throw new RuntimeException($taxonomyTerm->get_error_message());
+$taxonomyTermId = (int) $taxonomyTerm['term_id'];
+foreach (range(1, 11) as $taxonomyMemberIndex) {
+    $taxonomyMemberId = wp_insert_post(array('post_type' => 'post', 'post_status' => 'publish', 'post_title' => 'Field note ' . $taxonomyMemberIndex, 'post_content' => '<!-- wp:paragraph --><p>Field note ' . $taxonomyMemberIndex . '.</p><!-- /wp:paragraph -->'), true);
+    if (is_wp_error($taxonomyMemberId)) throw new RuntimeException($taxonomyMemberId->get_error_message());
+    $pageIds['taxonomy-member-' . $taxonomyMemberIndex] = $taxonomyMemberId;
+    wp_set_object_terms($taxonomyMemberId, array($taxonomyTermId), 'category', false);
+}
+update_option('posts_per_page', 10);
+do_action('init');
+global $wp_rewrite;
+$wp_rewrite->set_permalink_structure('/%postname%/');
+$resolveRequest = static function (string $path): array {
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+    $_SERVER['REQUEST_URI'] = $path;
+    $_SERVER['QUERY_STRING'] = '';
+    $request = new WP();
+    $request->parse_request('');
+    return $request->query_vars;
+};
+$baseRouteVars = $resolveRequest('/journal/category/field-notes/');
+$pageTwoVars = $resolveRequest('/journal/category/field-notes/page/2/');
+$zeroPageVars = $resolveRequest('/journal/category/field-notes/page/0/');
+$negativePageVars = $resolveRequest('/journal/category/field-notes/page/-2/');
+$overboundPageVars = $resolveRequest('/journal/category/field-notes/page/1000000/');
+$assert('field-notes' === ($baseRouteVars['category_name'] ?? null), 'The base source route resolves to the native category query through real rewrite resolution.');
+$assert('field-notes' === ($pageTwoVars['category_name'] ?? null) && 2 === (int) ($pageTwoVars['paged'] ?? 0), 'The captured source page-2 path resolves to the same native term query with its paged context.');
+$assert(isset($zeroPageVars['error'], $negativePageVars['error'], $overboundPageVars['error']), 'Zero, negative, and seven-digit page numbers stay outside the bounded capture and keep native 404 semantics.');
+$boundedQuery = new WP_Query(array('category_name' => 'field-notes', 'paged' => 2));
+$assert(1 === (int) $boundedQuery->post_count && 1 === preg_match('/^Field note /', (string) get_the_title($boundedQuery->posts[0] ?? null)), 'The resolved query identity reproduces the native term query at page 2 with its single remaining member.');
+wp_reset_postdata();
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);
+    if ($taxonomyTermId > 0) wp_delete_term($taxonomyTermId, 'category');
+    update_option('posts_per_page', $previousPostsPerPage);
     wp_set_current_user($previousUserId);
     if ($editorUserId > 0) {
         if (!function_exists('wp_delete_user')) require_once ABSPATH . 'wp-admin/includes/user.php';
@@ -407,5 +509,6 @@ fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
     if ('' !== $previousTheme) switch_theme($previousTheme);
     wp_clean_themes_cache();
     if (is_dir($themeDir)) { $items = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($themeDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST); foreach ($items as $item) $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname()); rmdir($themeDir); }
+    if (null !== $taxonomyThemeDir && is_dir($taxonomyThemeDir)) { $taxonomyItems = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($taxonomyThemeDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST); foreach ($taxonomyItems as $item) $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname()); rmdir($taxonomyThemeDir); }
     wp_clean_themes_cache();
 }

@@ -19,7 +19,7 @@ final class BlockFactory
      *
      * @var array<int, string>
      */
-    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'ul', 'ol', 'li', 'form' );
+    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'search', 'ul', 'ol', 'li', 'form' );
 
     private ?StyleAttributeMapper $styleMapper = null;
 
@@ -198,8 +198,10 @@ final class BlockFactory
             unset($attrs['minHeightUnit']);
         }
         if ( 'core/media-text' === $name ) {
-            // Legacy internal carrier; native media-text cannot round-trip
-            // extra classes on its generated media figure.
+            // Internal-only: consumed by mediaTextHtml() to build the media
+            // pane's class list, but not a real core/media-text attribute —
+            // core's save() never reads it back, so it never belongs in the
+            // serialized comment.
             unset($attrs['mediaFigureClassName']);
             // Internal-only: consumed by mediaTextVideoAttrs() to build the
             // video pane's <video> tag (dimensions, poster, native playback
@@ -323,12 +325,13 @@ final class BlockFactory
         }
 
         if ( 'core/columns' === $name ) {
-            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-columns') . '>', 'closing' => '</div>' );
+            $classes = 'wp-block-columns' . (false === ($attrs['isStackedOnMobile'] ?? null) ? ' is-not-stacked-on-mobile' : '');
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, $classes) . '>', 'closing' => '</div>' );
         }
 
         if ( 'core/column' === $name ) {
             $width = trim((string) ($attrs['width'] ?? ''));
-            $columnStyle = trim((string) ($attrs['inlineGeometryStyle'] ?? '') . (preg_match('/^\d+(?:\.\d+)?%$/', $width) ? ';flex-basis:' . $width : ''), ';');
+            $columnStyle = trim((string) ($attrs['inlineGeometryStyle'] ?? '') . ($this->isColumnFlexBasis($width) ? ';flex-basis:' . $width : ''), ';');
             return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-column', $columnStyle) . '>', 'closing' => '</div>' );
         }
 
@@ -352,6 +355,9 @@ final class BlockFactory
             $level = (int) ($attrs['level'] ?? 3);
             $level = max(1, min(6, $level));
             $showIcon = ! array_key_exists('showIcon', $attrs) || false !== $attrs['showIcon'];
+            if ( $showIcon ) {
+                $attrs['className'] = SourceDom::mergeClassNames('has-icon has-icon-' . ('left' === ($attrs['iconPosition'] ?? 'right') ? 'left' : 'right'), (string) ($attrs['className'] ?? ''));
+            }
             $icon = $showIcon ? '<span class="wp-block-accordion-heading__toggle-icon" aria-hidden="true">+</span>' : '';
             $title = '<span class="wp-block-accordion-heading__toggle-title">' . ($attrs['title'] ?? '') . '</span>';
             $children = 'left' === ($attrs['iconPosition'] ?? 'right') ? $icon . $title : $title . $icon;
@@ -372,7 +378,11 @@ final class BlockFactory
                 $label = is_array($tab) ? (string) ($tab['label'] ?? '') : '';
                 $buttons .= '<button type="button" role="tab">' . $this->preserveRichTextPunctuation($label) . '</button>';
             }
-            return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-tab-list') . ' role="tablist">' . $buttons . '</div>';
+            // Layout renders blockGap as scoped CSS, not a saved inline gap.
+            // Retain the attribute for the editor and server layout engine.
+            unset($attrs['style']['spacing']['blockGap']);
+            $ariaLabel = $this->htmlAttrs(array('aria-label' => (string) ($attrs['ariaLabel'] ?? '')));
+            return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-tab-list') . ' role="tablist"' . $ariaLabel . '>' . $buttons . '</div>';
         }
 
         if ( 'core/tab-panels' === $name ) {
@@ -452,7 +462,9 @@ final class BlockFactory
             $labelsClass = ! empty($attrs['showLabels']) ? 'has-visible-labels' : '';
             $justification = $this->safeSlug((string) ($attrs['justifyContent'] ?? ''));
             $justificationClass = in_array($justification, array( 'left', 'center', 'right', 'space-between' ), true) ? 'is-content-justification-' . $justification : '';
-            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $labelsClass . ' ' . $sizeClass . ' ' . $justificationClass)) . '>', 'closing' => '</ul>' );
+            $iconColorClass = '' !== trim((string) ($attrs['iconColorValue'] ?? '')) ? 'has-icon-color' : '';
+            $iconBackgroundClass = '' !== trim((string) ($attrs['iconBackgroundColorValue'] ?? '')) ? 'has-icon-background-color' : '';
+            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $labelsClass . ' ' . $sizeClass . ' ' . $justificationClass . ' ' . $iconColorClass . ' ' . $iconBackgroundClass)) . '>', 'closing' => '</ul>' );
         }
 
         if ( 'core/social-link' === $name ) {
@@ -604,8 +616,13 @@ final class BlockFactory
 
         $wrapperOpening = '<div' . $this->blockSupportAttrs($wrapperAttrs, implode(' ', $wrapperClasses), $wrapperStyle) . '>';
         $contentOpening = '<div class="wp-block-media-text__content">';
-        // Native save() requires the generated media figure's exact class.
-        $figure = '<figure class="wp-block-media-text__media">' . $this->mediaTextMediaHtml($attrs) . '</figure>';
+        // `mediaFigureClassName` is an internal-only key (stripped from the
+        // serialized comment attrs in commentAttrs()): core's own save() has
+        // no attribute that reaches this figure, so a source `<figure>`'s
+        // classes are carried here directly rather than dropped. See
+        // MediaTextPattern::enclosingSourceFigure() for why.
+        $mediaFigureClass = SourceDom::mergeClassNames('wp-block-media-text__media', (string) ($attrs['mediaFigureClassName'] ?? ''));
+        $figure = '<figure class="' . htmlspecialchars($mediaFigureClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $this->mediaTextMediaHtml($attrs) . '</figure>';
 
         if ( $mediaOnRight ) {
             return array(
@@ -811,7 +828,6 @@ final class BlockFactory
         if ( ! empty($attrs['href']) ) {
             $linkAttrs = array(
                 'href'        => (string) $attrs['href'],
-                'id'          => (string) ($attrs['linkAnchor'] ?? ''),
                 'target'      => (string) ($attrs['linkTarget'] ?? ''),
                 'rel'         => (string) ($attrs['rel'] ?? ''),
                 'class'       => (string) ($attrs['linkClass'] ?? ''),
@@ -889,6 +905,11 @@ final class BlockFactory
     private function isPercentageWidth(string $width): bool
     {
         return 1 === preg_match('/%\s*$/', trim($width));
+    }
+
+    private function isColumnFlexBasis(string $width): bool
+    {
+        return 1 === preg_match('/^\d+(?:\.\d+)?(?:%|px|em|rem|ch|vw|vmin|vmax)$/', trim($width));
     }
 
     /**

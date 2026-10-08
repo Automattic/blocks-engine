@@ -183,45 +183,29 @@ final class GeneratedBlockStyleProjector
     ): void {
         $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
         $declarations = array();
+        $guardedDeclarations = array();
         $wrapperDeclarations = array();
         $outerWrapperDeclarations = array();
         $intrinsicWrapperDeclarations = array();
-        $responsiveAuthoredProperties = $sourceControl instanceof DOMElement
-            ? $this->responsiveAuthoredProperties($sourceControl)
-            : array();
         $logicalCorners = array( 'border-start-start-radius', 'border-start-end-radius', 'border-end-start-radius', 'border-end-end-radius' );
         $hasLogicalCorners = $sourceControl instanceof DOMElement && (
             array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, $logicalCorners)
             || array() !== array_intersect_key($this->styleResolver->cssDeclarations($sourceControl->getAttribute('style')), array_flip($logicalCorners))
         );
-        foreach ( array(
-            'background-color' => $style['color']['background'] ?? '',
-            'color' => $style['color']['text'] ?? '',
-            'border-color' => $style['border']['color'] ?? '',
-            'border-style' => $style['border']['style'] ?? '',
-            'border-width' => $style['border']['width'] ?? '',
-            'border-radius' => $style['border']['radius'] ?? '',
-            'font-size' => $style['typography']['fontSize'] ?? '',
-            'font-weight' => $style['typography']['fontWeight'] ?? '',
-            'letter-spacing' => $style['typography']['letterSpacing'] ?? '',
-            'line-height' => $style['typography']['lineHeight'] ?? '',
-            'text-transform' => $style['typography']['textTransform'] ?? '',
-            'padding-top' => $style['spacing']['padding']['top'] ?? '',
-            'padding-right' => $style['spacing']['padding']['right'] ?? '',
-            'padding-bottom' => $style['spacing']['padding']['bottom'] ?? '',
-            'padding-left' => $style['spacing']['padding']['left'] ?? '',
-        ) as $property => $value ) {
-            if ( isset($responsiveAuthoredProperties[$property]) || ('border-radius' === $property && $hasLogicalCorners) ) {
-                continue;
-            }
-            $value = CssValueInspector::withoutImportant(trim((string) $value));
-            if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
-                $declarations[] = $property . ':' . $value . '!important';
-            }
-        }
+        // Core serializes the button's own color, border, typography and spacing
+        // attributes inline on the link, where they already outrank every
+        // non-important rule. They are not restated here: an !important class
+        // copy froze the imported paint and silently defeated the owner's own
+        // button controls in the editor and on the frontend.
         if ( $sourceControl instanceof DOMElement ) {
             $sourceDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($sourceControl));
-            $sourceStructuralDeclarations = $this->styleResolver->structuralPresentationDeclarations($sourceControl);
+            $sourceStructuralDeclarations = $this->styleResolver->classOwnedResponsiveDeclarations(
+                $sourceControl,
+                $this->styleResolver->structuralPresentationDeclarations($sourceControl)
+            );
+            // The square-corner fallback is also a radius declaration. It must
+            // not recreate a base value when authored conditions own that family.
+            $ownsRadius = isset($this->styleResolver->classOwnedResponsiveDeclarations($sourceControl, array('border-radius' => '0'))['border-radius']);
             // Native button attributes preserve only uniform border values. Keep
             // authored side shorthands on the generated link rule so `var()`
             // values retain their width, style, and color after conversion.
@@ -255,26 +239,41 @@ final class GeneratedBlockStyleProjector
             // An inline-level control sizes to its content, so the wrapper
             // standing in its place has to do the same. A block-level wrapper
             // stretches to its container instead, which both moves the control
-            // and steals the width its siblings were sharing.
-            } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
-                $outerWrapperDeclarations[] = 'width:max-content';
+            // and steals the width its siblings were sharing. When the control
+            // is centered only through inherited text-align, the synthesized
+            // core/buttons wrapper restates that centering as flex
+            // justification — which needs a wrapper that fills its parent to
+            // have room to act, mirroring the full-width block the source
+            // centered the control inside of.
+            } elseif ( ! $hasAuthoredWidth && $this->sourceControlFillsFlowLine($sourceControl, $sourceDeclarations) ) {
+                // A block-level control in normal flow spans its container's
+                // line. core/buttons is a flex row, which would shrink it to its
+                // label instead, so every wrapper layer fills the line.
+                $outerWrapperDeclarations[] = 'width:100%';
                 $outerWrapperDeclarations[] = 'max-width:100%';
+                $wrapperDeclarations[] = 'width:100%';
+                $declarations[] = 'box-sizing:border-box';
+                $declarations[] = 'width:100%';
+            } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
+                if ( 'center' === $inheritedTextAlignment ) {
+                    $outerWrapperDeclarations[] = 'width:100%';
+                    $outerWrapperDeclarations[] = 'max-width:100%';
+                } else {
+                    $outerWrapperDeclarations[] = 'width:max-content';
+                    $outerWrapperDeclarations[] = 'max-width:100%';
+                }
                 $intrinsicWrapperDeclarations[] = 'width:max-content';
                 $intrinsicWrapperDeclarations[] = 'max-width:100%';
                 $declarations[] = 'box-sizing:border-box';
                 $declarations[] = 'width:max-content';
                 $declarations[] = 'max-width:100%';
             }
-            $background = CssValueInspector::comparable((string) ($sourceDeclarations['background'] ?? ''));
-            if ( '' === trim((string) ($style['color']['background'] ?? '')) && preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $background) && ! $this->sourceControlSurfaceIsFilled($sourceControl) ) {
-                $declarations[] = 'background-color:transparent!important';
-            }
             if ( ! self::sourceControlHasVisibleBorder($sourceDeclarations) ) {
                 if ( '' === trim((string) ($style['border']['style'] ?? '')) ) {
-                    $declarations[] = 'border-style:none!important';
+                    $guardedDeclarations[':not([style*="border-style"]):not([style*="border-top-style"])'][] = 'border-style:none!important';
                 }
                 if ( '' === trim((string) ($style['border']['width'] ?? '')) ) {
-                    $declarations[] = 'border-width:0!important';
+                    $guardedDeclarations[':not([style*="border-width"]):not([style*="border-top-width"])'][] = 'border-width:0!important';
                 }
             }
             if ( preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px|em|rem|vh|vw)$/', $height) ) {
@@ -303,7 +302,7 @@ final class GeneratedBlockStyleProjector
                     $declarations[] = $property . ':' . $value . '!important';
                 }
             }
-            if ( 'a' === strtolower($sourceControl->tagName) && '' === trim((string) ($style['border']['radius'] ?? '')) ) {
+            if ( $ownsRadius && ( 'a' === strtolower($sourceControl->tagName) || '0' === CssValueInspector::comparable((string) ($sourceDeclarations['border-width'] ?? '')) ) && '' === trim((string) ($style['border']['radius'] ?? '')) ) {
                 $hasCornerRadius = $hasLogicalCorners;
                 foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius', 'border-start-start-radius', 'border-start-end-radius', 'border-end-start-radius', 'border-end-end-radius' ) as $property ) {
                     if ( '' !== trim((string) ($sourceStructuralDeclarations[$property] ?? '')) ) {
@@ -329,7 +328,7 @@ final class GeneratedBlockStyleProjector
         if ( '' !== $inheritedTextAlignment ) {
             $declarations[] = 'text-align:' . $inheritedTextAlignment . '!important';
         }
-        if ( array() === $declarations ) {
+        if ( array() === $declarations && array() === $guardedDeclarations ) {
             return;
         }
 
@@ -342,8 +341,76 @@ final class GeneratedBlockStyleProjector
         $intrinsicWrapperRule = array() === $intrinsicWrapperDeclarations
             ? ''
             : '.' . $marker . '.' . $marker . '.wp-block-button{' . implode(';', $intrinsicWrapperDeclarations) . '}';
-        $generatedStyles->registerNativeButton($marker, $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}');
+        $linkSelector = '.' . $marker . '.' . $marker . '>.wp-block-button__link';
+        $linkRules = array() === $declarations ? '' : $linkSelector . '{' . implode(';', $declarations) . '}';
+        foreach ( $guardedDeclarations as $guard => $guarded ) {
+            $linkRules .= $linkSelector . $guard . '{' . implode(';', $guarded) . '}';
+        }
+        $generatedStyles->registerNativeButton($marker, $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . $linkRules);
     }
+
+    public function registerNativeButtonDefaultBackgroundGuard(string $marker, DOMElement $sourceControl, GeneratedSupportStylesheetState $generatedStyles, bool $blockHasInlineBackground = false): bool
+    {
+        if ( $blockHasInlineBackground ) return false;
+        $sourceDeclarations = $this->styleResolver->cssDeclarations(
+            $this->styleResolver->specificityResolvedPresentationStyle($sourceControl)
+        );
+        if ( ! $this->sourceControlNeedsDefaultButtonBackgroundGuard($sourceControl, $sourceDeclarations) ) {
+            return false;
+        }
+        $media = $this->sourceBackgroundGuardMedia($sourceControl);
+        if ( null === $media ) return false;
+        $selector = '.' . $marker . '.' . $marker . '>.wp-block-button__link:not([style*="background"])';
+        foreach ( $this->styleResolver->sourceBackgroundInteractionStates($sourceControl) as $state ) {
+            $selector .= ':not(:' . $state . ')';
+        }
+        $rule = $selector . '{background-color:transparent!important}';
+        if ( '' !== $media ) $rule = '@media ' . $media . '{' . $rule . '}';
+        $generatedStyles->appendNativeButton($marker, $rule);
+        return true;
+    }
+
+    /** @param array<string, string> $sourceDeclarations */
+    private function sourceControlNeedsDefaultButtonBackgroundGuard(DOMElement $sourceControl, array $sourceDeclarations): bool
+    {
+        $background = CssValueInspector::comparable((string) ($sourceDeclarations['background'] ?? ''));
+        $backgroundColor = CssValueInspector::comparable((string) ($sourceDeclarations['background-color'] ?? ''));
+        $sourceHasNoFill = '' === $background && '' === $backgroundColor;
+        $sourceHasTransparentFill = self::isTransparentBackgroundValue($background)
+            || self::isTransparentBackgroundValue($backgroundColor);
+        return ( $sourceHasNoFill || $sourceHasTransparentFill ) && ! $this->sourceControlSurfaceIsFilled($sourceControl);
+    }
+
+    private function sourceBackgroundGuardMedia(DOMElement $sourceControl): ?string
+    {
+        $minWidth = null;
+        $maxWidth = null;
+        foreach ( $this->styleResolver->styleRuleCandidates($sourceControl, 'conditional') as $rule ) {
+            if ( ! $this->styleResolver->matchesCssSelector($sourceControl, (string) ($rule['selector'] ?? '')) ) continue;
+            $hasPaint = false;
+            foreach ( array('background', 'background-color') as $property ) {
+                $value = CssValueInspector::comparable((string) ($rule['declarations'][$property] ?? ''));
+                if ( '' !== $value && ! self::isTransparentBackgroundValue($value) ) {
+                    $hasPaint = true;
+                    break;
+                }
+            }
+            if ( ! $hasPaint ) continue;
+            foreach ( $rule['conditions'] ?? array() as $condition ) {
+                if ( ! is_string($condition) || ! preg_match('/^@media\s*\(\s*(max|min)-width\s*:\s*(\d+(?:\.\d+)?)px\s*\)$/i', trim($condition), $matches) ) return null;
+                $value = (float) $matches[2];
+                if ( 'max' === strtolower($matches[1]) ) $minWidth = max($minWidth ?? 0, (int) floor($value) + 1);
+                else $maxWidth = min($maxWidth ?? PHP_INT_MAX, (int) ceil($value) - 1);
+            }
+        }
+        if ( null === $minWidth && null === $maxWidth ) return '';
+        if ( null !== $minWidth && null !== $maxWidth && $minWidth > $maxWidth ) return null;
+        $conditions = array();
+        if ( null !== $minWidth ) $conditions[] = '(min-width:' . $minWidth . 'px)';
+        if ( null !== $maxWidth ) $conditions[] = '(max-width:' . $maxWidth . 'px)';
+        return implode(' and ', $conditions);
+    }
+
 
     /**
      * Whether the control renders a fill at the desktop reference viewport.
@@ -355,12 +422,21 @@ final class GeneratedBlockStyleProjector
      */
     private function sourceControlSurfaceIsFilled(DOMElement $sourceControl): bool
     {
+        foreach ( $this->styleResolver->styleRuleCandidates($sourceControl, 'static') as $rule ) {
+            if ( ! $this->styleResolver->matchesCssSelector($sourceControl, (string) ($rule['selector'] ?? '')) ) continue;
+            foreach ( array('background', 'background-color') as $property ) {
+                $value = CssValueInspector::comparable((string) ($rule['declarations'][$property] ?? ''));
+                if ( '' !== $value && ! self::isTransparentBackgroundValue($value) ) return true;
+            }
+        }
         $declarations = $this->styleResolver->cssDeclarations(
             $this->styleResolver->controlSurfaceResolvedStyle($sourceControl)
         );
         foreach ( array( 'background', 'background-color' ) as $property ) {
             $value = CssValueInspector::comparable((string) ($declarations[$property] ?? ''));
-            if ( '' === $value || preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent|initial|inherit|unset|revert)(?:\s+none)?$/', $value) ) {
+            if ( '' === $value || preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent|initial|inherit|unset|revert)(?:\s+none)?$/', $value)
+                || self::isTransparentBackgroundValue($value)
+            ) {
                 continue;
             }
 
@@ -368,6 +444,13 @@ final class GeneratedBlockStyleProjector
         }
 
         return false;
+    }
+
+    private static function isTransparentBackgroundValue(string $value): bool
+    {
+        return (bool) preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $value)
+            || (bool) preg_match('/^(?:rgba|hsla)\(\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*0(?:\.0+)?%?\s*\)$/i', $value)
+            || (bool) preg_match('/^(?:rgb|hsl)\(\s*[^\/]+\/\s*0(?:\.0+)?%?\s*\)$/i', $value);
     }
 
     /**
@@ -399,48 +482,6 @@ final class GeneratedBlockStyleProjector
         return true;
     }
 
-    private function responsiveAuthoredProperties(DOMElement $sourceControl): array
-    {
-        $propertySources = array(
-            'background-color' => array( 'background', 'background-color' ),
-            'color' => array( 'color' ),
-            'border-color' => array( 'border', 'border-color' ),
-            'border-style' => array( 'border', 'border-style' ),
-            'border-width' => array( 'border', 'border-width' ),
-            'border-radius' => array( 'border-radius' ),
-            'font-size' => array( 'font-size' ),
-            'font-weight' => array( 'font-weight' ),
-            'letter-spacing' => array( 'letter-spacing' ),
-            'line-height' => array( 'line-height' ),
-            'text-transform' => array( 'text-transform' ),
-            'padding-top' => array( 'padding', 'padding-top' ),
-            'padding-right' => array( 'padding', 'padding-right' ),
-            'padding-bottom' => array( 'padding', 'padding-bottom' ),
-            'padding-left' => array( 'padding', 'padding-left' ),
-        );
-        $properties = array_values(array_unique(array_merge(...array_values($propertySources))));
-        $declared = $this->styleResolver->authorDeclaredPropertyValues(
-            $sourceControl,
-            $properties
-        );
-        $conditional = $this->styleResolver->conditionalAuthorDeclaredPropertyValues($sourceControl, $properties);
-        $responsive = array();
-        foreach ( $propertySources as $property => $sources ) {
-            $values = array();
-            $hasConditionalDeclaration = false;
-            foreach ( $sources as $source ) {
-                foreach ( $declared[$source] ?? array() as $value ) {
-                    $values[CssValueInspector::comparable($value)] = true;
-                }
-                $hasConditionalDeclaration = $hasConditionalDeclaration || isset($conditional[$source]);
-            }
-            if ( $hasConditionalDeclaration && count($values) > 1 ) {
-                $responsive[$property] = true;
-            }
-        }
-        return $responsive;
-    }
-
     public function registerDirectFlexButton(string $marker, DOMElement $control, GeneratedSupportStylesheetState $generatedStyles): void
     {
         $parent = $control->parentNode;
@@ -458,12 +499,18 @@ final class GeneratedBlockStyleProjector
         $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
         $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
         $link = $button . '>:where(.wp-block-button__link)';
-        $columnGeometry = $stretchesCrossAxis ? ';width:100%!important' : '';
+        // The outer box participates in the authored parent, including its live
+        // responsive cross-axis stretching. Intrinsic widths resolved at the
+        // reference viewport must not pin it when that parent becomes a column.
+        $hasWidth = array() !== ($this->styleResolver->authorDeclaredPropertyValues($control, array('width'))['width'] ?? array());
+        $isFlex = in_array(CssValueInspector::comparable((string) ($parentStyle['display'] ?? '')), array('flex', 'inline-flex'), true);
         $generatedStyles->registerDirectFlexButton(
             $marker,
-            $wrapper . '{display:block!important;gap:0!important;min-width:0' . $columnGeometry . '}'
-                . $button . '{display:block!important;margin:0!important;min-width:0' . $columnGeometry . '}'
+            $wrapper . '{display:block!important;gap:0!important;min-width:0}'
+                . $button . '{display:block!important;margin:0!important;min-width:0' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
                 . $link . '{box-sizing:border-box' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
+                . ($hasWidth || ! $isFlex ? '' : $wrapper . '{width:auto!important}')
+                . ($isFlex ? $button . '{width:100%!important;height:100%}' . $link . '{width:100%!important;height:100%}' : '')
         );
     }
 
@@ -522,6 +569,23 @@ final class GeneratedBlockStyleProjector
      */
     private static function sourceControlHasVisibleBorder(array $sourceDeclarations): bool
     {
+        // A reset can pair border-style:solid with zero width. Style alone
+        // cannot paint a border; only later nonzero side widths can override it.
+        $width = CssValueInspector::comparable((string) ($sourceDeclarations['border-width'] ?? ''));
+        if ( '' !== $width && 1 === preg_match('/^0(?:px)?(?:\s+0(?:px)?){0,3}$/', $width) ) {
+            $nonzeroSide = false;
+            foreach ( array('border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width') as $property ) {
+                $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
+                $nonzeroSide = $nonzeroSide || ('' !== $value && CssValueInspector::isNonZero($value));
+            }
+            foreach ( array('border', 'border-top', 'border-right', 'border-bottom', 'border-left') as $property ) {
+                $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
+                $nonzeroSide = $nonzeroSide || ('' !== $value && self::borderSideShorthandIsVisible($value));
+            }
+            if ( ! $nonzeroSide ) {
+                return false;
+            }
+        }
         $shorthand = CssValueInspector::comparable((string) ($sourceDeclarations['border'] ?? ''));
         if ( '' !== $shorthand && ! preg_match('/^(?:0(?:px)?|none)$/', $shorthand) ) {
             return true;
@@ -583,6 +647,25 @@ final class GeneratedBlockStyleProjector
     }
 
     /** @param array<string, string> $sourceDeclarations */
+    /** A display:block control whose parent lays it out in normal block flow. */
+    private function sourceControlFillsFlowLine(DOMElement $sourceControl, array $sourceDeclarations): bool
+    {
+        if ( 'block' !== CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')) ) {
+            return false;
+        }
+        $float = CssValueInspector::comparable((string) ($sourceDeclarations['float'] ?? ''));
+        $position = CssValueInspector::comparable((string) ($sourceDeclarations['position'] ?? ''));
+        if ( in_array($float, array( 'left', 'right' ), true) || in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        $parent = $sourceControl->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $parentDisplay = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? 'block'));
+        return in_array($parentDisplay, array( '', 'block', 'flow-root', 'list-item' ), true);
+    }
+
     private function sourceControlStretchesFlex(array $sourceDeclarations): bool
     {
         $display = CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? ''));

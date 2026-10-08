@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
 /** Shared predicates for comparing CSS values without changing their authored form. */
@@ -13,14 +14,79 @@ final class CssValueInspector
         return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value));
     }
 
+    /**
+     * Expand a 1–4 value CSS box shorthand into physical sides.
+     *
+     * @return array{0: string, 1: string, 2: string, 3: string} top, right, bottom, left
+     */
+    public static function expandBoxShorthand(string $value): array
+    {
+        $parts = CssValueSplitter::splitTopLevelWhitespace(trim($value));
+        $count = count($parts);
+
+        return match ( true ) {
+            1 === $count => array( $parts[0], $parts[0], $parts[0], $parts[0] ),
+            2 === $count => array( $parts[0], $parts[1], $parts[0], $parts[1] ),
+            3 === $count => array( $parts[0], $parts[1], $parts[2], $parts[1] ),
+            4 <= $count => array( $parts[0], $parts[1], $parts[2], $parts[3] ),
+            default => array( '', '', '', '' ),
+        };
+    }
+
+    public static function isBorderWidthToken(string $token): bool
+    {
+        $lower = strtolower($token);
+
+        return 1 === preg_match('/^[0-9.]+(?:px|em|rem|%|pt|vw|vh)?$/i', $token)
+            || in_array($lower, array( 'thin', 'medium', 'thick' ), true);
+    }
+
+    /**
+     * A definite, non-percentage length whose used size can overflow its
+     * containing block when the viewport is narrower than the authored value.
+     */
+    public static function isAbsoluteLength(string $value): bool
+    {
+        return 1 === preg_match('/^(?:\d+|\d*\.\d+)(?:px|em|rem|ch|ex|cm|mm|in|pt|pc)?$/', self::comparable($value));
+    }
+
     public static function withoutImportant(string $value): string
     {
         return trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
     }
 
+    /**
+     * Whether a colour value paints nothing: the `transparent` keyword, a
+     * zero-alpha hex, or an `rgba()`/`hsla()` whose alpha is zero.
+     */
+    public static function isTransparentColor(string $value): bool
+    {
+        $normalized = self::comparable($value);
+        if ( '' === $normalized ) {
+            return false;
+        }
+        if ( 'transparent' === $normalized ) {
+            return true;
+        }
+
+        $compact = preg_replace('/\s+/', '', $normalized) ?? '';
+        if ( in_array($compact, array( '#0000', '#00000000' ), true) ) {
+            return true;
+        }
+
+        return 1 === preg_match('/^(?:rgba?|hsla?)\((?:[^,]+,){3}0(?:\.0+)?\)$/', $compact)
+            || 1 === preg_match('#^(?:rgba?|hsla?)\([^/]+/0(?:\.0+)?%?\)$#', $compact);
+    }
+
     public static function isImportant(string $value): bool
     {
         return 1 === preg_match('/\s*!\s*important\s*$/i', $value);
+    }
+
+    /** @see RenderEquivalentMarkup::isZeroLength() */
+    public static function isZeroLength(string $value): bool
+    {
+        return RenderEquivalentMarkup::isZeroLength($value);
     }
 
     /**

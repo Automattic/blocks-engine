@@ -1,0 +1,45 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-image-slideshow-gallery",
+  "description": "An image-only stage plus thumbnail pager nested in an inert host becomes core/gallery with every unique photo (stage plus thumbnail-only slides), cropped multi-column layout from the strip geometry, not a generated gallery companion.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-image-slideshow-gallery.json",
+    "notes": "Covers GalleryPattern nested slideshow recognition, incomplete captured stages, thumbnail-strip geometry, and the collage-guard exception for per-slide crop layers."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div><div style=\"height:20px;overflow:hidden\"></div><div id=\"photo-slideshow\" class=\"photo-slideshow\"><style>.photo-slideshow .stage{position:relative;z-index:2;overflow:hidden}.photo-slideshow .crop{position:absolute;z-index:1}</style><table><tbody><tr><td><div class=\"picker\" style=\"height:75px\"><a><img src=\"https://example.com/one-thumb.jpg\" width=\"105\" height=\"70\"></a><a><img src=\"https://example.com/two-thumb.jpg\" width=\"105\" height=\"70\"></a><a><img src=\"https://example.com/three-thumb.jpg\" width=\"105\" height=\"70\"></a><a><img src=\"https://example.com/four-thumb.jpg\" width=\"105\" height=\"70\"></a><a><img src=\"https://example.com/five-thumb.jpg\" width=\"105\" height=\"70\"></a></div></td></tr><tr><td><div class=\"stage\"><div class=\"slides\"><div class=\"slide\"><div class=\"crop\" style=\"width:736px;left:-368px;top:-246px\"><img class=\"wp-image-41\" src=\"https://example.com/one.jpg\" alt=\"One\" style=\"width:100%\"></div></div><div class=\"slide\" style=\"display:none\"><div class=\"crop\" style=\"width:736px;left:-368px;top:-246px\"><img class=\"wp-image-42\" src=\"https://example.com/two.jpg\" alt=\"Two\" style=\"width:736px\"></div></div><div class=\"slide\" style=\"display:none\"><div class=\"crop\" style=\"width:736px;left:-368px;top:-246px\"><img class=\"wp-image-43\" src=\"https://example.com/three.jpg\" alt=\"Three\" style=\"width:736px\"></div></div></div></div></td></tr></tbody></table></div><div style=\"height:20px;overflow:hidden\"></div></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/gallery", "attrs": { "columns": 5, "imageCrop": true } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "https://example.com/one.jpg", "alt": "One", "id": 41 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/image", "attrs": { "url": "https://example.com/two.jpg", "alt": "Two", "id": 42 } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/image", "attrs": { "url": "https://example.com/three.jpg", "alt": "Three", "id": 43 } },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/image", "attrs": { "url": "https://example.com/four-thumb.jpg" } },
+    { "path": "blocks.0.innerBlocks.4", "name": "core/image", "attrs": { "url": "https://example.com/five-thumb.jpg" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 5 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:gallery" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"columns\":5" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "columns-5" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "is-cropped" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "https://example.com/one.jpg" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "https://example.com/two.jpg" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "https://example.com/three.jpg" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "https://example.com/four-thumb.jpg" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "https://example.com/five-thumb.jpg" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "one-thumb.jpg" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

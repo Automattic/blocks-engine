@@ -33,6 +33,29 @@ $assert('capture-shell' === ($namedWrapper['fallbacks'][0]['tag'] ?? ''), 'seman
 $customElement = $transform('<main><custom-widget aria-label="Custom control"></custom-widget></main>');
 $assert('custom-widget' === ($customElement['fallbacks'][0]['tag'] ?? ''), 'unrelated custom elements remain explicit fallbacks');
 
+$emptyCustomElement = $transform('<main><next-route-announcer style="position:absolute"></next-route-announcer><p>Visible copy</p></main>');
+$assert(array() === ($emptyCustomElement['fallbacks'] ?? array()), 'an empty unaddressed custom element with no rendered box is inert scaffolding');
+$assert(! str_contains((string) ($emptyCustomElement['serialized_blocks'] ?? ''), 'next-route-announcer') && str_contains((string) ($emptyCustomElement['serialized_blocks'] ?? ''), 'Visible copy'), 'dropping an inert custom element retains its content siblings');
+
+$resetAnnouncer = $transform('<style>.stack{display:flex;flex-direction:column;justify-content:space-between;min-height:100vh}*{border:0 solid;border-color:var(--border);margin:0;padding:0}</style><main class="stack"><p>Before</p><next-route-announcer style="position:absolute"></next-route-announcer><p>After</p></main>');
+$assert(array() === ($resetAnnouncer['fallbacks'] ?? array()), 'zero-width framework border resets do not make an empty out-of-flow announcer visible');
+$assert(! str_contains((string) ($resetAnnouncer['serialized_blocks'] ?? ''), 'next-route-announcer'), 'a visually inert announcer is not preserved as a fallback after framework resets');
+
+$outOfFlowAnnouncer = $transform('<main style="display:flex;flex-direction:column;min-height:100vh"><p>Before</p><next-route-announcer style="position:absolute"></next-route-announcer><p>After</p></main>');
+$assert(array() === ($outOfFlowAnnouncer['fallbacks'] ?? array()), 'an out-of-flow empty custom element does not become a flex-slot fallback');
+$assert(! str_contains((string) ($outOfFlowAnnouncer['serialized_blocks'] ?? ''), 'next-route-announcer'), 'an out-of-flow empty custom element is omitted without moving its siblings');
+
+$inFlowCustomElement = $transform('<style>.stack{display:flex;flex-direction:column;gap:16px;min-height:100vh}</style><main class="stack"><p>Before</p><custom-widget style="position:relative"></custom-widget><p>After</p></main>');
+$assert('custom-widget' === ($inFlowCustomElement['fallbacks'][0]['tag'] ?? ''), 'an in-flow empty custom element still preserves its owned flex slot');
+
+$styledCustomElement = $transform('<style>layout-slot{display:block;width:1px;height:1px;background:#000}</style><main><layout-slot></layout-slot></main>');
+$assert('layout-slot' === ($styledCustomElement['fallbacks'][0]['tag'] ?? ''), 'a rendered empty custom-element box remains an explicit fallback');
+
+$modernColorBorder = $transform('<style>empty-box{border:1px solid rgb(0 0 0)}</style><main><empty-box style="position:absolute"></empty-box><p>After</p></main>');
+$assert('empty-box' === ($modernColorBorder['fallbacks'][0]['tag'] ?? ''), 'zero color channels do not make a visible nonzero border inert');
+$mixedWidthBorder = $transform('<style>empty-box{border-width:2px 0 2px 2px;border-style:solid;border-color:#000}</style><main><empty-box style="position:absolute"></empty-box><p>After</p></main>');
+$assert('empty-box' === ($mixedWidthBorder['fallbacks'][0]['tag'] ?? ''), 'one zero border side does not hide nonzero authored border geometry');
+
 $unreferencedStore = $transform('<main><svg data-dom-store style="display:none"><defs><symbol id="unused"><path d="M0 0h1v1z"/></symbol></defs></svg><p>Visible copy</p></main>');
 $assert(array() === ($unreferencedStore['fallbacks'] ?? array()), 'hidden unreferenced SVG store emits no fallback');
 $assert(! str_contains((string) ($unreferencedStore['serialized_blocks'] ?? ''), 'unused'), 'hidden unreferenced SVG store emits no raw HTML');
@@ -67,5 +90,63 @@ $assert(array() === ($visibleIframe['fallbacks'] ?? array()), 'visible bounded i
 $hiddenSourcedIframe = $transform('<main><iframe title="third-party embed" style="display:none" src="https://example.test/embed"></iframe></main>');
 $assert(1 === count($hiddenSourcedIframe['fallbacks'] ?? array()), 'hidden sourced iframe remains preserved');
 $assert(! str_contains((string) ($hiddenSourcedIframe['serialized_blocks'] ?? ''), '<iframe'), 'hidden sourced iframe remains a suppressed runtime island');
+
+// An empty container inside a CSS-owned layout used to lower to an empty
+// `core/group`; enough of them fail the editability policy and abort a whole
+// site. Only a container that nothing renders and nothing addresses is dropped.
+$authoredLayout = '<style>.panel{display:flex;flex-direction:column;justify-content:space-between;align-items:stretch;padding:4px}</style>';
+$emptyContainer = static fn (string $styles, string $markup): array => $transform($authoredLayout . $styles . '<main><div class="panel"><p>Runnable example</p>' . $markup . '</div></main>');
+
+$inertSeparator = $emptyContainer('', '<div class="widget-separator"></div>');
+$assert(! str_contains((string) ($inertSeparator['serialized_blocks'] ?? ''), 'widget-separator'), 'an inert empty container emits no block');
+$assert(array() === ($inertSeparator['fallbacks'] ?? array()), 'an inert empty container emits no fallback');
+
+$paintedRule = $emptyContainer('<style>.rule{height:2px;background:#333}</style>', '<div class="rule"></div>');
+$assert(str_contains((string) ($paintedRule['serialized_blocks'] ?? ''), 'rule'), 'an empty container the author paints and sizes still emits a block');
+
+$generatedContent = $emptyContainer('<style>.glyph::before{content:"\2726"}</style>', '<div class="glyph"></div>');
+$assert(str_contains((string) ($generatedContent['serialized_blocks'] ?? ''), 'glyph blocks-engine-empty-visual-group'), 'an empty container whose pseudo-element draws generated content stays a recognized empty visual');
+
+// An id is not visual ownership. Unreferenced empty named containers are
+// SDK mount points and empty platform hosts: no text, no media, no box paint.
+// Emitting them as Groups only inflates List View. A hash link, label `for`,
+// or ARIA reference is what addresses an id as a fragment target.
+$unreferencedMount = $transform('<main><p>Visible copy</p><div id="sdk-mount" class="sdk-reset"></div><div id="chrome-slot"></div></main>');
+$assert(! str_contains((string) ($unreferencedMount['serialized_blocks'] ?? ''), 'sdk-mount') && ! str_contains((string) ($unreferencedMount['serialized_blocks'] ?? ''), 'chrome-slot'), 'an unreferenced empty named container emits no block');
+$assert(array() === ($unreferencedMount['fallbacks'] ?? array()), 'an unreferenced empty named container emits no fallback');
+$assert(str_contains((string) ($unreferencedMount['serialized_blocks'] ?? ''), 'Visible copy'), 'dropping unreferenced empty named containers keeps sibling content');
+
+$descendantOnlyCss = $transform('<style>#sdk-mount .dialog{position:absolute;inset:0;background:#000}#chrome-slot .item{margin-top:10px}</style><main><p>Visible copy</p><div id="sdk-mount" class="sdk-reset"></div><div id="chrome-slot"></div></main>');
+$assert(! str_contains((string) ($descendantOnlyCss['serialized_blocks'] ?? ''), 'sdk-mount') && ! str_contains((string) ($descendantOnlyCss['serialized_blocks'] ?? ''), 'chrome-slot'), 'descendant-only author CSS does not keep an empty named container');
+
+$anchored = $transform('<main><p><a href="#section-anchor">Jump</a></p><div id="section-anchor"></div></main>');
+$assert(str_contains((string) ($anchored['serialized_blocks'] ?? ''), 'section-anchor'), 'a hash-linked empty fragment target still emits a block');
+
+$labelledBy = $transform('<main><p aria-labelledby="status-slot">Ready</p><div id="status-slot"></div></main>');
+$assert(str_contains((string) ($labelledBy['serialized_blocks'] ?? ''), 'status-slot'), 'an empty container referenced by aria-labelledby still emits a block');
+
+$offscreenMount = $transform('<style>#sdk-mount{position:absolute;top:0;left:-9999px}</style><main><p>Visible copy</p><div id="sdk-mount"></div></main>');
+$assert(! str_contains((string) ($offscreenMount['serialized_blocks'] ?? ''), 'sdk-mount'), 'an offscreen empty named container with no box size emits no block');
+
+$stretchedPaint = $transform('<style>.hero{position:relative}.layer{position:absolute;inset:0;background:#123}</style><main><div class="hero"><div class="layer"></div><p>Content</p></div></main>');
+$assert(str_contains((string) ($stretchedPaint['serialized_blocks'] ?? ''), 'layer'), 'a stretched painted out-of-flow empty layer still emits a block');
+
+$responsiveSpacer = $emptyContainer('<style>@media (min-width:600px){.gap{height:40px}}</style>', '<div class="gap"></div>');
+$assert(str_contains((string) ($responsiveSpacer['serialized_blocks'] ?? ''), 'gap'), 'an empty container sized only at another viewport still emits a block');
+
+$animated = $emptyContainer('<style>.pulse{animation:pulse 2s linear infinite}</style>', '<div class="pulse"></div>');
+$assert(str_contains((string) ($animated['serialized_blocks'] ?? ''), 'pulse'), 'an empty container the author animates still emits a block');
+
+$gridCell = $transform('<style>.grid{display:grid;grid-template-columns:1fr 1fr}</style><main><div class="grid"><p>One</p><div class="cell"></div><p>Two</p></div></main>');
+$assert(str_contains((string) ($gridCell['serialized_blocks'] ?? ''), 'cell'), 'an empty grid item owns a track, so it still emits a block');
+
+$gappedItem = $transform('<style>.row{display:flex;gap:16px}</style><main><div class="row"><p>One</p><div class="cell"></div><p>Two</p></div></main>');
+$assert(str_contains((string) ($gappedItem['serialized_blocks'] ?? ''), 'cell'), 'an empty flex item between authored gaps still emits a block');
+
+$distributedItem = $transform('<style>.row{display:flex;justify-content:space-between}</style><main><div class="row"><p>One</p><p>Two</p><div class="cell"></div></div></main>');
+$assert(str_contains((string) ($distributedItem['serialized_blocks'] ?? ''), 'cell'), 'an empty flex item sharing a definite main axis still emits a block');
+
+$labelled = $emptyContainer('', '<div class="status-slot" aria-label="Upload progress"></div>');
+$assert(str_contains((string) ($labelled['serialized_blocks'] ?? ''), 'status-slot'), 'an empty container with an accessible name still emits a block');
 
 echo "OK: inert capture scaffolding passed ({$assertions} assertions)\n";

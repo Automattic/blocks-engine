@@ -129,8 +129,8 @@ $assert($islandRecorded, 'runtime-button-records-control-island');
 // A plain button that matches no pattern yields nothing.
 $assert(null === $makeDispatcher()->convertButton($elementFrom('<button>go</button>')), 'unmatched-button-yields-nothing');
 
-// An empty anchor with no accessible name drops.
-$assert(null === $makeDispatcher()->convertAnchor($elementFrom('<a href="/x"></a>'), $fallbacks), 'empty-anchor-drops');
+// An empty safe link retains its destination on a native RichText host.
+$assert('core/paragraph' === ($makeDispatcher()->convertAnchor($elementFrom('<a href="/x"></a>'), $fallbacks)['blockName'] ?? ''), 'empty-anchor-retains-destination');
 
 // Untitled inline SVG is visual content. Convert children instead of dropping.
 $svgChildren = $makeDispatcher(array(
@@ -172,6 +172,17 @@ $assert(
 // An icon-only anchor with an aria-label and a safe href survives as a paragraph host.
 $iconOnly = $makeDispatcher()->convertAnchor($elementFrom('<a href="/x" aria-label="Home"></a>'), $fallbacks);
 $assert('core/paragraph' === ($iconOnly['blockName'] ?? ''), 'icon-only-anchor-survives');
+
+// An externally labelled empty anchor remains a native link, including its
+// sibling name reference, and gets the marker consumed by renderer CSS.
+$labelledDoc = new DOMDocument();
+$labelledDoc->loadHTML('<?xml encoding="utf-8" ?><body><span id="announcement-bar-text-inner-id">Tickets on sale</span><a href="https://app.arts-people.com/?show=354999" aria-labelledby="announcement-bar-text-inner-id"></a></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$labelledAnchor = $labelledDoc->getElementsByTagName('a')->item(0);
+$labelled = $makeDispatcher()->convertAnchor($labelledAnchor, $fallbacks);
+$assert('core/paragraph' === ($labelled['blockName'] ?? ''), 'empty-aria-labelledby-anchor-converts');
+$assert(str_contains((string) ($labelled['attrs']['content'] ?? ''), 'aria-labelledby="announcement-bar-text-inner-id"'), 'label-reference-and-safe-href-retained');
+$assert(str_contains((string) ($labelled['attrs']['content'] ?? ''), ButtonLinkDispatcher::ACCESSIBLE_EMPTY_LINK_CLASS), 'empty-accessible-link-gets-renderer-marker');
+$assert(null === $makeDispatcher()->convertAnchor($elementFrom('<a href="javascript:alert(1)" aria-labelledby="label"></a>'), $fallbacks), 'empty-labelled-anchor-with-unsafe-href-drops');
 
 // The same anchor with an unsafe href does not qualify and drops.
 $assert(null === $makeDispatcher()->convertAnchor($elementFrom('<a href="javascript:void(0)" aria-label="Home"></a>'), $fallbacks), 'icon-only-anchor-with-unsafe-href-drops');

@@ -14,6 +14,21 @@ final class RuntimeBehaviorState
     /** @var array<int, array<string, mixed>> */
     private array $runtimeProjectionScriptAssets = array();
 
+    /** @var array<int, array<string, mixed>> Source-qualified captured theme-control ownership evidence. */
+    private array $themePreferenceOwnership = array();
+
+    /** @param array<int, array<string, mixed>> $contracts */
+    public function installThemePreferenceOwnership(array $contracts): void
+    {
+        $this->themePreferenceOwnership = array_values(array_filter($contracts, 'is_array'));
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function themePreferenceOwnership(): array
+    {
+        return $this->themePreferenceOwnership;
+    }
+
     /** @var array<string, true> */
     private array $nativeDisclosureRootPaths = array();
 

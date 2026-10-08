@@ -3,8 +3,8 @@
  * Plugin Name: Blocks Engine PHP Transformer
  * Plugin URI: https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer
  * Description: Canonical PHP primitives for transforming HTML, Markdown, and website artifacts into WordPress block outputs.
- * Version: 0.16.1
- * Requires PHP: 8.1
+ * Version: 0.37.17
+ * Requires PHP: 8.2
  * Author: Automattic
  * License: GPL-3.0-or-later
  * Text Domain: blocks-engine-php-transformer
@@ -15,7 +15,7 @@
 declare(strict_types=1);
 
 if ( ! defined('BLOCKS_ENGINE_PHP_TRANSFORMER_VERSION') ) {
-    define('BLOCKS_ENGINE_PHP_TRANSFORMER_VERSION', '0.16.1');
+    define('BLOCKS_ENGINE_PHP_TRANSFORMER_VERSION', '0.37.17');
 }
 
 if ( ! defined('BLOCKS_ENGINE_PHP_TRANSFORMER_FILE') ) {

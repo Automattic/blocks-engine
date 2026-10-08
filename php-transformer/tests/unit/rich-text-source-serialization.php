@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
@@ -58,18 +59,56 @@ $assert(
 );
 
 $linkedAttachment = ( new HtmlTransformer() )->transform(
-    '<p class="attachment"><a class="lightbox" href="https://example.test/model-full.jpg" target="_blank" rel="noopener"><img src="https://example.test/model.jpg" alt="Geological model"></a></p>'
+    '<p class="attachment"><a href="https://example.test/model-full.jpg"><img src="https://example.test/model.jpg" alt="Geological model"></a></p>'
 )->toArray();
 $attachmentMarkup = (string) ($linkedAttachment['serialized_blocks'] ?? '');
 $assert(
-    'custom/responsive-media' === ($linkedAttachment['blocks'][0]['blockName'] ?? null)
-        && str_contains((string) ($linkedAttachment['blocks'][0]['attrs']['content'] ?? ''), '<a class="lightbox" href="https://example.test/model-full.jpg" target="_blank" rel="noopener"><img src="https://example.test/model.jpg" alt="Geological model"></a>')
+    'core/image' === ($linkedAttachment['blocks'][0]['blockName'] ?? null)
+        && 'https://example.test/model-full.jpg' === ($linkedAttachment['blocks'][0]['attrs']['href'] ?? null)
         && ! str_contains($attachmentMarkup, '<!-- wp:html'),
-    'An image-only paragraph link remains responsive media so crop cannot discard its link presentation.'
+    'An image-only paragraph link lowers to core/image with its native link destination.'
 );
 $assert(
     'pass' === ( ( new BlockValidityValidator() )->validateBlocks($linkedAttachment['blocks'] ?? array())['status'] ?? '' ),
     'A linked image lowered from a paragraph stays Gutenberg-valid.'
+);
+
+$wordBreak = ( new HtmlTransformer() )->transform('<p>Marketing pages<wbr> remain editable.</wbr></p>')->toArray();
+$wordBreakContent = (string) ($wordBreak['blocks'][0]['attrs']['content'] ?? '');
+$wordBreakReport = is_array($wordBreak['source_reports']['editability_report'] ?? null) ? $wordBreak['source_reports']['editability_report'] : array();
+$wordBreakPolicy = ( new EditabilityPolicy() )->evaluate($wordBreakReport);
+$assert(
+    'Marketing pages remain editable.' === $wordBreakContent
+        && ! str_contains($wordBreakContent, 'wbr')
+        && 0 === ($wordBreakReport['metrics']['structural_rich_text_attribute_count'] ?? -1)
+        && 'passed' === ($wordBreakPolicy['status'] ?? '')
+        && 'pass' === ( ( new BlockValidityValidator() )->validateBlocks($wordBreak['blocks'] ?? array())['status'] ?? '' ),
+    'Void wbr presentation hints are removed from RichText without rejecting the editable paragraph.'
+);
+
+$decoratedHeading = ( new HtmlTransformer() )->transform(
+    '<main><h2 class="section-title"><span>Contact Us</span><div class="rule"><hr aria-hidden="true"></div></h2></main>'
+)->toArray();
+$decoratedBlocks = array();
+$visitDecorated = static function (array $blocks) use (&$visitDecorated, &$decoratedBlocks): void {
+    foreach ( $blocks as $block ) {
+        $decoratedBlocks[] = $block;
+        $visitDecorated($block['innerBlocks'] ?? array());
+    }
+};
+$visitDecorated($decoratedHeading['blocks'] ?? array());
+$headings = array_values(array_filter($decoratedBlocks, static fn (array $block): bool => 'core/heading' === ($block['blockName'] ?? null)));
+$separators = array_values(array_filter($decoratedBlocks, static fn (array $block): bool => 'core/separator' === ($block['blockName'] ?? null)));
+$assert(
+    1 === count($headings)
+        && 2 === ($headings[0]['attrs']['level'] ?? null)
+        && 'Contact Us' === trim(strip_tags((string) ($headings[0]['attrs']['content'] ?? '')))
+        && 'inherit' === ($headings[0]['attrs']['style']['typography']['fontSize'] ?? null)
+        && '0' === ($headings[0]['attrs']['style']['spacing']['margin']['top'] ?? null)
+        && '0' === ($headings[0]['attrs']['style']['spacing']['margin']['bottom'] ?? null)
+        && 1 === count($separators)
+        && 'pass' === ( ( new BlockValidityValidator() )->validateBlocks($decoratedHeading['blocks'] ?? array())['status'] ?? '' ),
+    'A decorated heading retains an editable heading landmark and its separator.'
 );
 
 if ( 0 === $failures ) {

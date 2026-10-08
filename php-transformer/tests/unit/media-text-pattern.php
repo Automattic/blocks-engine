@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MediaTextPattern;
@@ -73,12 +74,12 @@ $pattern = new MediaTextPattern();
 $matchMethod = new ReflectionMethod(MediaTextPattern::class, 'match');
 $matchParameters = $matchMethod->getParameters();
 $assertSame(
-    array( 'element', 'fallbacks', 'convertChildren', 'convertElement', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock' ),
+    array( 'element', 'fallbacks', 'convertChildren', 'convertElement', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock', 'fullPresentationStyle', 'documentRootFontSize' ),
     array_map(static fn (ReflectionParameter $parameter): string => $parameter->getName(), $matchParameters),
     'match callback parameter names remain frozen.'
 );
 $assertSame(
-    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable' ),
+    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable' ),
     array_map(static fn (ReflectionParameter $parameter): string => (string) $parameter->getType(), $matchParameters),
     'match callback parameter types remain frozen.'
 );
@@ -113,7 +114,9 @@ $match = static function (
     bool $throwMediaStyle = false,
     ?callable $resolveMediaUrl = null,
     bool $throwCreate = false,
-    ?callable $resolvePresentationStyle = null
+    ?callable $resolvePresentationStyle = null,
+    ?callable $resolveFullPresentationStyle = null,
+    ?callable $resolveRootFontSize = null
 ) use ($pattern, $htmlAttributes): ?array {
     $record = array(
         'convertCalls'         => 0,
@@ -124,6 +127,11 @@ $match = static function (
 
     $resolveMediaUrl ??= static fn (string $url): string => '/resolved/' . ltrim($url, '/');
     $resolvePresentationStyle ??= static fn (DOMElement $sourceElement): string => $sourceElement->getAttribute('style');
+    // Defaults to the same inline-style read as the gate style: none of the
+    // existing fixtures below author `position` at all, so this only
+    // changes behavior where a test explicitly overrides it.
+    $resolveFullPresentationStyle ??= $resolvePresentationStyle;
+    $resolveRootFontSize ??= static fn (DOMElement $sourceElement): ?float => 16.0;
 
     return $pattern->match(
         $element,
@@ -171,7 +179,9 @@ $match = static function (
                 'attrs'       => $attrs,
                 'innerBlocks' => $innerBlocks,
             );
-        }
+        },
+        $resolveFullPresentationStyle,
+        $resolveRootFontSize
     );
 };
 
@@ -227,6 +237,68 @@ $assertSame('core/paragraph', $iconLabelResult['blocks'][0]['innerBlocks'][1]['b
 
 $largeHeadingResult = $transformHtml('<section style="display:flex"><img src="feature.jpg" width="640" height="360" alt=""><h2>Feature</h2></section>');
 $assertSame('core/media-text', $largeHeadingResult['blocks'][0]['blockName'] ?? null, 'Legitimate large image plus heading remains media-text.');
+
+// Small authored portrait media is a flex item, not a media-text pane. Keep
+// it as an editable image in the source row so its geometry and crop survive.
+$portraitResult = $transformHtml('<div class="author-row" style="display:flex;align-items:center;gap:12px"><img class="portrait" src="portrait.jpg" style="width:48px;height:48px;flex-shrink:0;object-fit:cover;border-radius:9999px" alt="Author"><div><p>Neutral author attribution</p></div></div>');
+$portraitBlock = $portraitResult['blocks'][0] ?? array();
+$assertSame('core/group', $portraitBlock['blockName'] ?? null, 'Compact portrait row lowers to a group rather than media-text.');
+$assertSame('core/image', $portraitBlock['innerBlocks'][0]['blockName'] ?? null, 'Compact portrait remains a native image child.');
+$portraitMarkup = (string) ($portraitBlock['innerBlocks'][0]['innerHTML'] ?? '');
+$assertContains('width:48px', $portraitMarkup, 'Portrait keeps authored width.');
+$assertContains('height:48px', $portraitMarkup, 'Portrait keeps authored height.');
+$assertContains('object-fit:cover', $portraitMarkup, 'Portrait keeps authored crop.');
+$portraitStyles = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $portraitResult['assets'] ?? array()));
+$assertContains('border-radius:9999px', $portraitStyles, 'Portrait keeps authored shape.');
+$assertContains('flex-shrink:0', $portraitStyles, 'Portrait keeps authored flex participation.');
+$assertSame('pass', $portraitResult['source_reports']['wp_block_validity']['status'] ?? null, 'Group and image portrait lowering has a canonical Gutenberg-valid save shape.');
+
+// Captured testimonial author row shape: Tailwind's w-12/h-12 utilities
+// resolve through the stylesheet in rem units (3rem at the default 16px root).
+// The emitted output previously promoted this compact author row to the
+// media-text pane, whose native image defaults replace the circular crop.
+$authorRow = '<div class="flex items-center gap-4"><img class="w-12 h-12 rounded-full object-cover" src="portrait.jpg" alt="Alex Rivera"><div><p>Alex Rivera</p><p>Independent consultant with experience advising growing teams.</p></div></div>';
+$authorCss = '.flex{display:flex}.items-center{align-items:center}.gap-4{gap:1rem}.w-12{width:3rem}.h-12{height:3rem}.rounded-full{border-radius:9999px}.object-cover{object-fit:cover}';
+$capturedAuthorResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html class="root"><body>' . $authorRow . '</body></html>',
+    array('static_css' => $authorCss)
+)->toArray();
+$capturedAuthorBlock = $capturedAuthorResult['blocks'][0] ?? array();
+$assertSame('core/group', $capturedAuthorBlock['blockName'] ?? null, 'Captured rem-sized testimonial portrait row stays an editable group.');
+$assertSame('core/image', $capturedAuthorBlock['innerBlocks'][0]['blockName'] ?? null, 'Captured testimonial portrait remains a native image.');
+$capturedPortraitMarkup = (string) ($capturedAuthorBlock['innerBlocks'][0]['innerHTML'] ?? '');
+$assertContains('w-12 h-12 rounded-full object-cover', $capturedPortraitMarkup, 'Captured utility classes remain attached to the native portrait image.');
+$assertContains('width:3rem;height:3rem', $capturedPortraitMarkup, 'Captured rem-based portrait dimensions remain intact.');
+$capturedPortraitStyles = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $capturedAuthorResult['assets'] ?? array()));
+$assertContains('border-radius:9999px', $capturedPortraitStyles, 'Captured rounded-full utility retains portrait rounding.');
+$assertContains('object-fit:cover', $capturedPortraitStyles, 'Captured object-cover utility retains its portrait crop.');
+
+// A core/image figure adds a new flex item around a replaced source image.
+// With a landscape intrinsic ratio, that wrapper's min-content width is smaller
+// than the source image's authored 48px flex base, causing asymmetric shrink.
+// The generated wrapper stays semantically present but its layout box must not
+// participate, restoring the original image's natural flex sizing.
+$constrainedLandscapeRow = '<div class="author-row"><img width="150" height="100" class="portrait" src="portrait.jpg" alt="Jordan Lee"><div><p>Jordan Lee</p><p>Product designer</p></div></div>';
+$constrainedCss = '.author-row{display:flex;align-items:center;gap:1rem;width:158px}.portrait{width:3rem;height:3rem;object-fit:cover;border-radius:9999px}';
+$landscapeRowResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html class="root"><body>' . $constrainedLandscapeRow . '</body></html>',
+    array('static_css' => $constrainedCss)
+)->toArray();
+$landscapeRowBlock = $landscapeRowResult['blocks'][0] ?? array();
+$assertSame('core/group', $landscapeRowBlock['blockName'] ?? null, 'Constrained landscape portrait row remains a native group.');
+$landscapeImageMarkup = (string) ($landscapeRowBlock['innerBlocks'][0]['innerHTML'] ?? '');
+$assertContains('blocks-engine-synthetic-flex-image-figure', $landscapeRowBlock['innerBlocks'][0]['attrs']['className'] ?? '', 'Flex-item image figure is tagged for transparent layout participation.');
+$landscapeRowStyles = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $landscapeRowResult['assets'] ?? array()));
+$assertContains('figure.blocks-engine-synthetic-flex-image-figure){display:contents}', $landscapeRowStyles, 'Synthetic figure does not replace the source image flex item geometry.');
+$assertContains('width:3rem;height:3rem', $landscapeImageMarkup, 'Transparent figure keeps the authored image dimensions unchanged.');
+
+// A non-default root changes what 3rem means. At 24px, the same decorated
+// portrait is 72px and must remain a genuine two-pane media/text composition.
+$largeRemPortrait = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html class="root"><head></head><body>' . $authorRow . '</body></html>',
+    array('static_css' => 'html{font-size:24px}' . $authorCss)
+)->toArray();
+$assertSame('core/media-text', $largeRemPortrait['blocks'][0]['blockName'] ?? null, 'A 3rem portrait at a 24px root is not misclassified as compact.');
 
 $quoteResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><blockquote><p>Quoted</p></blockquote></section>');
 $assertSame('core/quote', $quoteResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null, 'Blockquote text side keeps core/quote identity.');
@@ -1047,7 +1119,8 @@ $figureWrappedElement = $elementByClass(
 );
 $figureWrapped = $match($figureWrappedElement, array( $paragraph ), $fallbacks, $record);
 $assertSame('core/media-text', $figureWrapped['blockName'] ?? null, 'Figure-wrapped video pane still matches core/media-text.');
-$assertSame('in', $figureWrapped['attrs']['className'] ?? null, 'Enclosing source figure class reaches the valid outer class carrier.');
+$assertSame('in', $figureWrapped['attrs']['mediaFigureClassName'] ?? null, 'Enclosing source figure class reaches mediaFigureClassName.');
+$assertTrue(! array_key_exists('className', $figureWrapped['attrs'] ?? array()), 'Enclosing source figure class does not leak onto the wrapper className.');
 
 $fallbacks = array();
 $record = array();
@@ -1057,7 +1130,7 @@ $noFigureElement = $elementByClass(
     'vid'
 );
 $noFigure = $match($noFigureElement, array( $paragraph ), $fallbacks, $record);
-$assertTrue(! array_key_exists('className', $noFigure['attrs'] ?? array()), 'No enclosing figure means no added source className.');
+$assertTrue(! array_key_exists('mediaFigureClassName', $noFigure['attrs'] ?? array()), 'No enclosing figure means no mediaFigureClassName.');
 
 $fallbacks = array();
 $record = array();
@@ -1067,7 +1140,7 @@ $unclassedFigureElement = $elementByClass(
     'vid'
 );
 $unclassedFigure = $match($unclassedFigureElement, array( $paragraph ), $fallbacks, $record);
-$assertTrue(! array_key_exists('className', $unclassedFigure['attrs'] ?? array()), 'A classless enclosing figure emits no added source className.');
+$assertTrue(! array_key_exists('mediaFigureClassName', $unclassedFigure['attrs'] ?? array()), 'A classless enclosing figure emits no mediaFigureClassName.');
 
 // A figure that also owns unrelated sibling content is not exclusive to this
 // media/text pane; its classes describe more than the pane, so they are left
@@ -1080,41 +1153,84 @@ $sharedFigureElement = $elementByClass(
     'vid'
 );
 $sharedFigure = $match($sharedFigureElement, array( $paragraph ), $fallbacks, $record);
-$assertTrue(! array_key_exists('className', $sharedFigure['attrs'] ?? array()), 'A figure with a non-wrapper sibling emits no added source className.');
+$assertTrue(! array_key_exists('mediaFigureClassName', $sharedFigure['attrs'] ?? array()), 'A figure with a non-wrapper sibling emits no mediaFigureClassName.');
 
-// End-to-end: source figure classes use the valid outer native class carrier.
-$revealResult = $transformHtml(
-    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></figure>'
-);
-$revealBlock = $revealResult['blocks'][0]['blockName'] ?? null;
-// The wrapping figure/frame divs may themselves fold away or coalesce
-// depending on surrounding structure; what this defect is scoped to is
-// specifically the generated media-text figure carrying the source class.
-$revealMediaTextBlock = null;
-$collectMediaText = static function (array $blocks) use (&$collectMediaText, &$revealMediaTextBlock): void {
+// End-to-end invariant: a source `<figure class="X">` wrapping a video tile
+// must still be matched by a literal `figure.X` author selector once
+// converted — the exact rule shape a scroll-reveal script depends on
+// (`figure { opacity: 0 } figure.X { opacity: 1 }`). Losing this either
+// direction (the source figure not staying a `<figure>`, or the class not
+// landing on a `<figure>`) leaves the base rule permanently in effect and
+// the tile permanently hidden. Only the fix's own `figureSelectorMatches()`
+// helper below asserts this by literally parsing and matching the selector
+// against the emitted markup, independent of which element carries it.
+$figureSelectorMatches = static function (string $selector, string $html): bool {
+    $document = new DOMDocument();
+    $previous = libxml_use_internal_errors(true);
+    $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+    $parsed = CssSelectorMatcher::parse($selector);
+    foreach ( $document->getElementsByTagName('*') as $candidate ) {
+        if ( $candidate instanceof DOMElement && CssSelectorMatcher::matches($candidate, $parsed)['matches'] ) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+$collectMediaText = static function (array $blocks) use (&$collectMediaText): ?array {
     foreach ( $blocks as $block ) {
         if ( ! is_array($block) ) {
             continue;
         }
         if ( 'core/media-text' === ($block['blockName'] ?? null) ) {
-            $revealMediaTextBlock = $block;
-            return;
+            return $block;
         }
         if ( is_array($block['innerBlocks'] ?? null) ) {
-            $collectMediaText($block['innerBlocks']);
+            $found = $collectMediaText($block['innerBlocks']);
+            if ( null !== $found ) {
+                return $found;
+            }
         }
     }
+
+    return null;
 };
-$collectMediaText($revealResult['blocks'] ?? array());
+
+// A single "frame" wrapper between the source figure and the matched
+// media/text container — the exact shape #2087 fixed and #2101 regressed.
+$revealResult = $transformHtml(
+    '<figure class="in"><div class="frame"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></figure>'
+);
+$revealMediaTextBlock = $collectMediaText($revealResult['blocks'] ?? array());
 $assertTrue(is_array($revealMediaTextBlock), 'Reveal fixture converts to a core/media-text block somewhere in the tree.');
 $assertContains(
-    '<div class="wp-block-media-text is-stacked-on-mobile vid in">',
+    '<figure class="wp-block-media-text__media in">',
     (string) ($revealMediaTextBlock['innerHTML'] ?? ''),
-    'Generated media-text wrapper carries the source figure class.'
+    'Generated media-text figure carries the source figure class.'
+);
+$assertTrue(
+    $figureSelectorMatches('figure.in', (string) ($revealMediaTextBlock['innerHTML'] ?? '')),
+    'A literal figure.in author selector matches an element in the emitted media-text markup.'
 );
 $assertTrue(
     ! str_contains(json_encode($revealResult['blocks']), 'mediaFigureClassName'),
     'Internal media figure carrier never leaks into serialized block attrs.'
+);
+
+// Two "frame"-style wrappers between the source figure and the matched
+// container: an even deeper chain than what regressed #2087, proving the
+// carrier does not depend on a specific wrapper count.
+$deeplyWrappedResult = $transformHtml(
+    '<figure class="in"><div class="frame"><div class="inner"><div class="vid" style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></div></div></div></figure>'
+);
+$deeplyWrappedMediaTextBlock = $collectMediaText($deeplyWrappedResult['blocks'] ?? array());
+$assertTrue(is_array($deeplyWrappedMediaTextBlock), 'Deeply wrapped reveal fixture converts to a core/media-text block somewhere in the tree.');
+$assertTrue(
+    $figureSelectorMatches('figure.in', (string) ($deeplyWrappedMediaTextBlock['innerHTML'] ?? '')),
+    'A literal figure.in author selector still matches with two wrapper levels between the source figure and the media/text container.'
 );
 
 // The equivalent image case is unaffected: core/image already puts source
@@ -1125,6 +1241,10 @@ $assertContains(
     '<figure class="wp-block-image is-resized in">',
     (string) ($revealImageResult['blocks'][0]['innerHTML'] ?? ''),
     'Image case keeps preserving the source figure class on its own wrapper figure, exactly as before.'
+);
+$assertTrue(
+    $figureSelectorMatches('figure.in', (string) ($revealImageResult['blocks'][0]['innerHTML'] ?? '')),
+    'A literal figure.in author selector matches the emitted core/image markup too.'
 );
 
 // End-to-end: a video's intrinsic dimensions, poster, and native playback
@@ -1158,6 +1278,178 @@ $assertContains(
     (string) ($plainVideoBlock['innerHTML'] ?? ''),
     'A dimensionless/posterless video keeps emitting the original plain <video controls src> markup.'
 );
+
+// An absolutely-positioned control removed from flow can never be a real
+// flex/grid item, so it can never be the container's second pane — the
+// unit-level gate declines before text conversion, independent of what the
+// control itself contains.
+$fallbacks = array( array( 'reason' => 'existing' ) );
+$record = array();
+$overlayElement = $elementFromHtml('<section style="display:flex;position:relative"><video src="clip.mp4"></video><button class="play" type="button">Play</button></section>');
+$overlayDeclined = $match(
+    $overlayElement,
+    array( $paragraph ),
+    $fallbacks,
+    $record,
+    array(),
+    true,
+    false,
+    null,
+    false,
+    null,
+    static fn (DOMElement $sourceElement): string => 'button' === strtolower($sourceElement->tagName)
+        ? 'position:absolute;inset:0'
+        : $sourceElement->getAttribute('style')
+);
+$assertNull($overlayDeclined, 'Out-of-flow text-side control declines media-text.');
+$assertSame(0, $record['convertCalls'], 'Out-of-flow gate runs before text conversion.');
+$assertSame(array( array( 'reason' => 'existing' ) ), $fallbacks, 'Out-of-flow decline leaves host fallbacks unchanged.');
+
+$fallbacks = array( array( 'reason' => 'existing' ) );
+$record = array();
+$fixedOverlayElement = $elementFromHtml('<section style="display:flex"><video src="clip.mp4"></video><button class="play" type="button">Play</button></section>');
+$fixedOverlayDeclined = $match(
+    $fixedOverlayElement,
+    array( $paragraph ),
+    $fallbacks,
+    $record,
+    array(),
+    true,
+    false,
+    null,
+    false,
+    null,
+    static fn (DOMElement $sourceElement): string => 'button' === strtolower($sourceElement->tagName)
+        ? 'position:fixed;top:0;left:0'
+        : $sourceElement->getAttribute('style')
+);
+$assertNull($fixedOverlayDeclined, 'Fixed-position text-side control also declines media-text.');
+
+// In-flow positioning (relative/sticky/static, or no position at all) never
+// disqualifies a genuine text pane: only out-of-flow positions do.
+foreach ( array( '', 'position:relative', 'position:sticky;top:0', 'position:static' ) as $inFlowPosition ) {
+    $fallbacks = array();
+    $record = array();
+    $inFlowElement = $elementFromHtml('<section style="display:flex"><video src="clip.mp4"></video><div><p>Watch</p></div></section>');
+    $inFlowBlock = $match(
+        $inFlowElement,
+        array( $paragraph ),
+        $fallbacks,
+        $record,
+        array(),
+        false,
+        false,
+        null,
+        false,
+        null,
+        static fn (DOMElement $sourceElement): string => 'div' === strtolower($sourceElement->tagName)
+            ? $inFlowPosition
+            : $sourceElement->getAttribute('style')
+    );
+    $assertSame('core/media-text', $inFlowBlock['blockName'] ?? null, 'In-flow text-side position remains eligible: ' . json_encode($inFlowPosition));
+}
+
+// An unresolvable `position` on the text side fails closed, exactly like the
+// other strict gates: it might be absolute, so the pattern must not guess.
+$fallbacks = array( array( 'reason' => 'existing' ) );
+$record = array();
+$unresolvablePositionElement = $elementFromHtml('<section style="display:flex"><video src="clip.mp4"></video><div><p>Watch</p></div></section>');
+$unresolvablePositionBlock = $match(
+    $unresolvablePositionElement,
+    array( $paragraph ),
+    $fallbacks,
+    $record,
+    array(),
+    true,
+    false,
+    null,
+    false,
+    null,
+    static fn (DOMElement $sourceElement): string => 'div' === strtolower($sourceElement->tagName)
+        ? 'position:var(--overlay-position)'
+        : $sourceElement->getAttribute('style')
+);
+$assertNull($unresolvablePositionBlock, 'Unresolvable text-side position declines media-text.');
+$assertSame(0, $record['convertCalls'], 'Unresolvable text-side position runs before text conversion.');
+
+// End-to-end: the reported shape — a video with an absolutely-positioned
+// play-button overlay authored entirely through class-based CSS (the
+// overlay is not identified by tag name or class name, only by its own
+// `position: absolute; inset: 0`).
+$overlayStylesheet = '<style>'
+    . '.frame{display:flex;justify-content:center}'
+    . '.vid{position:relative;display:flex;justify-content:center;max-width:100%}'
+    . '.vid .play{position:absolute;inset:0;width:100%;height:100%;display:grid;place-items:center}'
+    . '</style>';
+$overlayVideoResult = $transformHtml(
+    $overlayStylesheet
+    . '<figure class="in"><div class="frame"><div class="vid">'
+    . '<video src="clip.mp4" poster="clip.jpg" width="1280" height="720"></video>'
+    . '<button class="play" type="button" aria-label="Play video"><svg aria-hidden="true"></svg></button>'
+    . '</div></div></figure>'
+);
+$overlayVideoBlocks = $overlayVideoResult['blocks'] ?? array();
+$assertTrue(null === $collectMediaText($overlayVideoBlocks), 'An absolutely-positioned overlay control never produces core/media-text anywhere in the tree.');
+$overlayVideoJson = json_encode($overlayVideoBlocks);
+$assertTrue(is_string($overlayVideoJson) && ! str_contains($overlayVideoJson, '"core/media-text"'), 'Overlay video fixture emits no core/media-text block.');
+$findBlockByName = static function (array $blocks, array $names) use (&$findBlockByName): ?array {
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        if ( in_array($block['blockName'] ?? null, $names, true) ) {
+            return $block;
+        }
+        if ( is_array($block['innerBlocks'] ?? null) ) {
+            $found = $findBlockByName($block['innerBlocks'], $names);
+            if ( null !== $found ) {
+                return $found;
+            }
+        }
+    }
+
+    return null;
+};
+$overlayVideoBlockNode = $findBlockByName($overlayVideoBlocks, array( 'core/video', 'core/html' ));
+$assertTrue(is_array($overlayVideoBlockNode), 'Overlay video fixture still emits a video-carrying block.');
+$overlayVideoMarkup = (string) ($overlayVideoBlockNode['innerHTML'] ?? '');
+$assertContains('width="1280"', $overlayVideoMarkup, 'Video keeps its own source width instead of a 50% media-text pane width.');
+$assertContains('height="720"', $overlayVideoMarkup, 'Video keeps its own source height instead of a media-text pane height.');
+$assertTrue(! str_contains($overlayVideoJson, '"mediaWidth"'), 'No mediaWidth (media-text pane share) attribute is fabricated anywhere in the tree.');
+
+$overlayButtonBlock = $findBlockByName($overlayVideoBlocks, array( 'core/button' ));
+$assertTrue(is_array($overlayButtonBlock), 'The overlay control survives conversion as a real, editable block.');
+$overlayButtonMarkup = (string) ($overlayButtonBlock['innerHTML'] ?? '');
+$assertContains('<button', $overlayButtonMarkup, 'The overlay control keeps a native button role in the saved markup.');
+$assertContains('Play video', $overlayButtonMarkup, 'The overlay control keeps its accessible label text in the saved markup.');
+
+$overlayValidity = ( new Runtime() )->validateBlockSerialization($overlayVideoBlocks);
+$assertSame('pass', $overlayValidity['status'] ?? null, 'Overlay video fixture passes serialization validity.');
+$overlayFindings = ( new \Automattic\BlocksEngine\PhpTransformer\WordPress\CanonicalSaveShapeValidator() )->findings($overlayVideoBlocks);
+$assertSame(array(), $overlayFindings, 'Overlay video fixture passes the canonical save-shape validator.');
+
+// The same shape generalizes to an image with an absolutely-positioned
+// badge: overlays are recognized by their own CSS, not by tag name.
+$overlayImageResult = $transformHtml(
+    '<style>.tile{position:relative;display:flex}.tile .badge{position:absolute;inset:0 auto auto 0}</style>'
+    . '<div class="tile"><img src="photo.jpg" width="640" height="480" alt="Product"><span class="badge">New</span></div>'
+);
+$overlayImageJson = json_encode($overlayImageResult['blocks'] ?? array());
+$assertTrue(is_string($overlayImageJson) && ! str_contains($overlayImageJson, '"core/media-text"'), 'Absolutely-positioned badge over an image never produces core/media-text.');
+
+// Regression: the same container shape with a genuine, in-flow text pane
+// (no positioning CSS anywhere) still converts to core/media-text — the
+// overlay gate must not over-fire on ordinary media/text sections.
+$genuineTwoPaneResult = $transformHtml(
+    '<style>.frame{display:flex;justify-content:center}.vid{display:flex;justify-content:center;max-width:100%}</style>'
+    . '<figure class="in"><div class="frame"><div class="vid">'
+    . '<video src="clip.mp4" width="1280" height="720"></video>'
+    . '<div><h2>About this clip</h2><p>Behind the scenes footage.</p></div>'
+    . '</div></div></figure>'
+);
+$genuineTwoPaneBlock = $collectMediaText($genuineTwoPaneResult['blocks'] ?? array());
+$assertTrue(is_array($genuineTwoPaneBlock), 'A genuine in-flow media/text pair still converts to core/media-text.');
+$assertSame('core/heading', $genuineTwoPaneBlock['innerBlocks'][0]['blockName'] ?? null, 'Genuine two-pane text side keeps its heading identity.');
 
 if ( 0 === $failures ) {
     echo "media text pattern ok\n";

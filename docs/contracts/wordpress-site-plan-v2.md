@@ -48,6 +48,21 @@ and `WordPressSitePlanResolver::resolve()`.
   to 5 MiB. Resolution exposes complete records in
   `runtime_entity_resolution`, so materializers consume every entity without
   expanding or changing the canonical declaration.
+- A producer may opt one entity row into a whole-page replacement *candidate* by
+  setting `whole_page_candidate` to `blocks-engine/whole-page-candidate/v1` and
+  declaring a bounded `id`, canonical `source_path`, and `source_route` equal to
+  the owning page's `route.path`. Planning projects this onto that page's optional
+  `whole_page_candidates` list. Each row carries `schema`, `source_path`,
+  `source_route`, `page_reconciliation_identity`,
+  `declaration_reconciliation_identity`, and `entity_id`. At most one candidate
+  may claim each nonsynthetic page, with at most 100 candidates per plan. The list is ordered,
+  part of `plan_identity`, and validated against the declaration entity (inline
+  or content-addressed record) and the canonical nonsynthetic page. Missing,
+  duplicate, detached, or stale claims fail validation. No candidate alters
+  `routes`, `operations`, or page ownership: consumers must separately prove a
+  successful provider destination, content/image coverage, and rollback before
+  deciding whether to suppress a source page. Resolution preserves the hint;
+  checkpoint replay must use the approved plan identity and the same entity row.
 - Provider entity block bindings use `generic/block-binding/v1`. In addition to
   materializer-compatible `search_block_markup` and `occurrence`, each binding
   carries a `blocks-engine/runtime-binding-position/v1` emitted-block identity:
@@ -56,6 +71,11 @@ and `WordPressSitePlanResolver::resolve()`.
    class similarity. Repeated identical block markup remains distinct by position.
    Shared-shell extraction retains a shell in page content when it contains a
    binding anchor, so the materializer's page-owned binding contract is unchanged.
+   When consumer wrapper contracts make complete footer shells visually distinct,
+   deterministic site planning may factor an identical footer paragraph into one
+   `inline_shared_shell` part and reference it at each original page or part
+   content position. The route-owned outer wrappers remain in place, preserving their
+   layout and authored presentation while the shared copy is edited once.
    Validation rejects a binding whose declared markup, occurrence, or position is
    detached from its owning page.
 - `asset_publication` is the explicit declaration kind for materializing a declared
@@ -91,6 +111,25 @@ and `WordPressSitePlanResolver::resolve()`.
   to exactly one declared asset target. Validation rejects unsafe paths, missing
   scaffold writes, duplicate targets, missing asset writes, undeclared tokens, and
    template or part writes that do not match their declarations.
+- Navigation entity references are separate from asset `reference_tokens`: each
+  projected inline `core/navigation` occurrence points at its producer-declared
+  menu `token` using `{{wordpress-site-plan:navigation:navigation-<16hex>}}` in
+  the block's `ref` attribute. Sharing compares complete menu content (including
+  nesting, full URLs with query/fragment suffixes, link behavior, rich labels and
+  item presentation), normalizing JSON transport spelling and route-current
+  state. The token names the entity's reconciliation identity. Host attributes and
+  surrounding block ancestry remain in the owning document. Different item
+  presentation therefore remains a different entity. This is destination
+  independent: consumers persist the declared menu and replace this exact token
+  with the resulting WordPress entity ID. They must not infer entity ownership
+  by rescanning serialized blocks or matching labels and URLs. The `v2` schema
+  and navigation token spelling are additive. `reference_semantics.navigation_entities`
+  declares `explicit_refs/v1`; consumers must support this contract before
+  materializing navigation entities. Duplicate declarations, unknown references,
+  unreferenced entities, and non-navigation placeholder ownership are rejected.
+  Asset resolution projects each entity's `resolved_block_markup` while leaving
+  navigation IDs to the destination materializer. Provider-owned block anchors
+  retain their inline navigation rather than being invalidated by factoring.
 - `source.source_documents` is additive source evidence. Each row records a
   compiled document path, payload hash, and producer provenance. Template-surface
   variants must exactly match a catalog row. This evidence supports structural
@@ -99,6 +138,11 @@ and `WordPressSitePlanResolver::resolve()`.
   `nested/index.*` is `/nested`, and nested documents retain every directory segment.
   A declared lowercase `metadata.route_path` with the same safe shape is preserved as
   the explicit canonical route.
+  Each derived segment follows WordPress's own title sanitization: Latin diacritics
+  fold onto ASCII, dots and whitespace become a single `-`, WordPress's punctuation
+  is dropped, and a segment left empty by that fold (one written entirely outside
+  ASCII) keeps a stable token derived from its own bytes instead of disappearing
+  from the route.
   This map is computed before document projection and is the sole input for exported
   `routes`, page hierarchy operations, document link and metadata-href rewriting,
   resolver/report projections, and page-scoped script conditions. Relative and
@@ -109,7 +153,30 @@ and `WordPressSitePlanResolver::resolve()`.
   `provenance.source_url` site, or becomes `#` when no source URL is recorded; each
   such link is reported once as a `wordpress_site_plan_unresolved_navigation_link`
   warning in `diagnostics` rather than failing the plan.
-  The plan rejects colliding, traversal, encoded-separator, and unsafe route identities.
+  A head `link` declaration must name a captured asset or an explicit URL. One
+  that names neither costs that declaration and not the plan when it carries no
+  subresource: an unresolved feed, resource hint, manifest, vendor, oEmbed
+  discovery (`alternate` with a `+oembed` media type) or server-side protocol
+  endpoint (`pingback`, `EditURI`, `wlwmanifest`, `hub`, `webmention`, OpenID)
+  link is omitted from the materialized head and reported once per distinct
+  declaration as a `wordpress_site_plan_omitted_link_declaration` warning in
+  `diagnostics`, naming the relation, the href, the page it was first seen on
+  and how many pages carried it. A relation set that also names a rendered
+  resource is not one of these and still fails closed, as does any unresolved
+  rendering-critical link such as `stylesheet` or `icon`. These warnings live on
+  the plan's own `diagnostics`; they are not envelope diagnostics and so do not
+  appear in `source_reports.wordpress_site_plan_diagnostics`. The list is
+  bounded, after which one `reason: truncated` row carries the number of
+  remaining distinct declarations.
+  The plan rejects traversal, encoded-separator, and unsafe route identities. Two
+  documents deriving one route cost those two documents and not the plan: the first
+  in document order keeps the route, later ones take a deterministic `-2`, `-3`
+  suffix as WordPress resolves a duplicate `post_name`, and each is reported once as
+  a `wordpress_site_plan_colliding_page_route` warning in `diagnostics` naming both
+  source paths and the shared route. An authored `metadata.route_path` and the
+  entrypoint's `/` are never renamed, and two explicit declarations naming one route
+  remain an authored contradiction that fails closed, naming both paths. Page routes
+  are unique across the materialized page set.
   Missing directory parents are explicit synthetic pages with stable source and
   reconciliation identities; a physical directory index takes precedence over a
   synthetic parent.
@@ -120,7 +187,10 @@ and `WordPressSitePlanResolver::resolve()`.
   resolved operations verbatim rather than inferring hierarchy or front-page behavior.
 - Targets, slugs, and tokens use a case-insensitive collision policy. Producers
   retain their declared spelling, while plans reject two values that differ only by
-  case so they materialize consistently on case-insensitive filesystems.
+  case so they materialize consistently on case-insensitive filesystems. When two
+  captured files differ only by case, the compiler keeps the byte-order-first
+  spelling and gives each later spelling a numbered asset target (`photo-2.png`);
+  source paths and their references are unchanged.
 - Static browser references in markup and CSS (`src`, stylesheet `href`, `srcset`,
   `poster`, applicable `action`, `url()`, and `@import`) must be declared asset
   tokens or absolute/root-relative URLs. The canonical `functions.php` registers

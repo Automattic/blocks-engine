@@ -178,9 +178,11 @@ $assert(str_ends_with((string) ($shellBlock['blockName'] ?? ''), '/layout-shell'
 $shellScript = (string) ($shellDefinitions[0]['assets']['index.js'] ?? '');
 $shellCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $shellResult['assets'] ?? array()));
 $assert(1 === count($shellDefinitions) && str_contains($shellScript, 'InnerBlocks.Content'), '6: layout-shell emits one companion definition whose save path retains native inner blocks');
-$assert(str_contains($shellScript, 'function wrappedContent( wrappers, content, outerProps )') && str_contains($shellScript, 'props = outerProps( props )') && str_contains($shellScript, 'content = wrappedContent( wrappers, content )') && str_contains($shellScript, 'edit: edit,'), '6: layout-shell edit preserves the save wrapper chain without merging editor props into authored wrappers');
-$assert(str_contains($shellScript, "useBlockProps( { style: { display: 'contents' } } )"), '6: layout-shell uses a box-neutral editor carrier so Gutenberg layout CSS cannot override authored wrapper positioning');
-$assert(str_contains($shellScript, "return createElement( 'div', useBlockProps( { style: { display: 'contents' } } ), content )"), '6: layout-shell retains the editor carrier for empty and source-backed wrapper chains');
+$assert(str_contains($shellScript, 'function wrappedContent( wrappers, content, outerProps )') && str_contains($shellScript, 'props = outerProps( props )') && str_contains($shellScript, 'wrappedContent( wrappers, content, sourceBlockProps )') && str_contains($shellScript, 'edit: edit,'), '6: layout-shell edit preserves the save wrapper chain and merges source-safe block props onto its outermost wrapper');
+$assert(str_contains($shellScript, 'function sourceBlockProps( props )') && str_contains($shellScript, "className !== 'block-editor-block-list__block'") && str_contains($shellScript, 'var blockProps = useBlockProps();'), '6: layout-shell tracks the real outermost wrapper as the block\'s own DOM node instead of isolating it behind a boxless carrier');
+$assert(str_contains($shellScript, 'merged.style = Object.assign( {}, blockProps.style || {}, props.style || {} );'), '6: layout-shell deep-merges Gutenberg block props onto the wrapper\'s own authored style, letting the wrapper\'s declarations win');
+$assert(str_contains($shellScript, 'function mergeRefs( refs )') && str_contains($shellScript, 'merged.ref = props.ref ? mergeRefs( [ blockProps.ref, props.ref ] ) : blockProps.ref;'), '6: layout-shell composes Gutenberg\'s block ref with any ref a wrapper itself carries instead of dropping one');
+$assert(str_contains($shellScript, "return wrappers.length ? wrappedContent( wrappers, content, sourceBlockProps ) : createElement( 'div', useBlockProps(), content )"), '6: layout-shell falls back to a conventional block wrapper for empty source chains');
 $assert(str_contains($shellScript, "useInnerBlocksProps( { className: 'blocks-engine-layout-shell-editor-inner-blocks' } )"), '6: layout-shell marks its one Gutenberg-owned InnerBlocks layer through the supported editor DOM API');
 $assert(str_contains($shellCss, ':root :where(.wp-block-custom-layout-shell) .blocks-engine-layout-shell-editor-inner-blocks{display:contents}') && ! str_contains($shellCss, '.blocks-engine-layout-shell-editor-inner-blocks>.block-editor-block-list__layout{display:contents}'), '6: layout-shell flattens only its marked editor layer, never native child block carriers');
 $assert(str_contains($shellScript, '__experimentalLabel: function( attributes, options )') && str_contains($shellScript, "context === 'list-view' || context === 'breadcrumb'") && str_contains($shellScript, "replace( /^_+/, '' ).replace( /_[a-z0-9]{5,}_\\d+$/i, '' )") && str_contains($shellScript, "return semantic + ': ' + detail") && str_contains($shellScript, "return 'Layout shell ('"), '6: layout-shell exposes concise semantic labels in List View and breadcrumbs');
@@ -215,13 +217,15 @@ $normalizedStyleBlock = $normalizedStyleShell['blocks'][0] ?? array();
 $assert('core/group' === ($normalizedStyleBlock['blockName'] ?? '') && '#fff' === ($normalizedStyleBlock['attrs']['style']['color']['text'] ?? null) && 'core/group' === ($normalizedStyleBlock['innerBlocks'][0]['blockName'] ?? null), '6: color-owned wrappers remain native boundaries while retaining canonical color declarations');
 
 // ---------------------------------------------------------------------------
-// 7. Gate (negative): weak signals stay UNKNOWN -> unchanged fallback.
+// 7. Gate (negative): weak signals stay UNKNOWN -> no generated block. A
+//    custom element with no runtime ownership is a transparent container
+//    (#2181), so its light DOM lowers to native blocks instead of a fallback.
 // ---------------------------------------------------------------------------
 $weak = ( new HtmlTransformer() )->transform('<my-widget><span>hello there</span></my-widget>')->toArray();
 $assert(count($weak['source_reports']['generated_blocks'] ?? array()) === 0, '7: low-confidence subtree generates nothing');
-$assert(count($weak['blocks']) === 0, '7: low-confidence subtree emits no block');
-$assert(count($weak['fallbacks']) === 1, '7: existing fallback behavior is preserved');
-$assert(($weak['fallbacks'][0]['classification']['bucket'] ?? '') === 'unknown', '7: classifier verdict is unknown', json_encode($weak['fallbacks'][0]['classification'] ?? array()));
+$assert(array('core/paragraph') === array_column($weak['blocks'], 'blockName'), '7: low-confidence light DOM lowers to a native paragraph', json_encode(array_column($weak['blocks'], 'blockName')));
+$assert(str_contains((string) ($weak['serialized_blocks'] ?? ''), 'hello there'), '7: low-confidence light DOM text is kept');
+$assert(count($weak['fallbacks']) === 0, '7: no fallback is recorded for the transparent custom element');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "CustomBlockGenerator unit tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);

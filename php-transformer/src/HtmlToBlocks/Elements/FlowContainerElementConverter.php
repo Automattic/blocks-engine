@@ -41,12 +41,32 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
 
+        return $this->lower($element, $tagName, $fallbacks);
+    }
+
+    /**
+     * Lowers an unknown or custom element (`bdt`, `x-panel`) in block position
+     * the way a generic `div` lowers: it has no rendering of its own, so its
+     * children convert in place and it is kept as a Group only when it wraps
+     * several blocks or carries presentation, and vanishes when empty and
+     * inert. The caller decides which unknown elements may take this path.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    public function convertUnknownElement(DOMElement $element, array &$fallbacks): ConversionOutcome
+    {
+        return $this->lower($element, strtolower($element->tagName), $fallbacks);
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    private function lower(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    {
+        if ( SourceDom::documentVariantRoot($element) === $element ) {
+            return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
+        }
         $runtimeAppShell = $this->context->runtimeAppShellBlock($element, $fallbacks);
         if ( null !== $runtimeAppShell ) {
             return ConversionOutcome::handled($runtimeAppShell);
-        }
-        if ( SourceDom::documentVariantRoot($element) === $element ) {
-            return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
         if ( $this->context->isEmptyInteractiveFeatureShell($element) ) {
             return ConversionOutcome::handled(null);
@@ -117,6 +137,14 @@ final class FlowContainerElementConverter implements ElementConverter
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);
             }
+        }
+
+        // A flex/grid child may itself be an ordinary inline text run. Keep
+        // its own box as the layout item while its addressable spans share one
+        // editable RichText carrier instead of becoming stacked paragraphs.
+        if ( $this->hasMultipleAddressableInlineChildren($element) && $this->context->isDirectChildOfAuthorOwnedLayout($element) ) {
+            $inlineRun = $this->context->inlineAddressableRunGroupBlock($element);
+            if ( null !== $inlineRun ) return ConversionOutcome::handled($inlineRun);
         }
 
         if ( 'button' !== strtolower(SourceDom::attr($element, 'role'))
@@ -192,6 +220,9 @@ final class FlowContainerElementConverter implements ElementConverter
             }
         }
 
+        if ( $this->isClippedHorizontalTrack($element) ) {
+            return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
+        }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( ColumnsPattern::class ));
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
@@ -272,6 +303,15 @@ final class FlowContainerElementConverter implements ElementConverter
         return ConversionOutcome::handled(null);
     }
 
+    private function hasMultipleAddressableInlineChildren(DOMElement $element): bool
+    {
+        $count = 0;
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement && '' !== trim($child->getAttribute('id')) && ++$count > 1) return true;
+        }
+        return false;
+    }
+
     /**
      * Races the semantic/interactive recognizers that own an element outright
      * when they match, mirroring the bookkeeping of their late race below.
@@ -330,5 +370,68 @@ final class FlowContainerElementConverter implements ElementConverter
         }
 
         return false;
+    }
+
+    private function isClippedHorizontalTrack(DOMElement $element): bool
+    {
+        $inline = strtolower(SourceDom::attr($element, 'style'));
+        if ( 1 !== preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $inline) ) {
+            return false;
+        }
+        $style = $this->structuralDeclarationString($element);
+        if ( 1 === preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
+            || 1 === preg_match('/(?:^|;)\s*flex-wrap\s*:\s*wrap(?:-reverse)?\b/', $style)
+        ) {
+            return false;
+        }
+
+        $stripChildren = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $childStyle = strtolower(SourceDom::attr($child, 'style'));
+            if ( 1 !== preg_match('/(?:^|;)\s*(?:flex-shrink\s*:\s*0\b|width\s*:\s*[1-9]\d*(?:\.\d+)?px\b)/', $childStyle) ) {
+                $childStyle = $this->structuralDeclarationString($child);
+            }
+            if ( 1 === preg_match('/(?:^|;)\s*(?:flex-shrink\s*:\s*0\b|width\s*:\s*[1-9]\d*(?:\.\d+)?px\b)/', $childStyle) ) {
+                ++$stripChildren;
+            }
+        }
+        if ( 2 > $stripChildren ) {
+            return false;
+        }
+
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 1 === preg_match('/(?:^|;)\s*overflow(?:-x)?\s*:\s*(?:hidden|clip)\b/', $this->clipDeclarationString($node)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function structuralDeclarationString(DOMElement $element): string
+    {
+        return $this->declarationString($this->context->structuralPresentationDeclarations($element));
+    }
+
+    private function clipDeclarationString(DOMElement $element): string
+    {
+        return $this->declarationString(array_merge(
+            $this->context->authorStructuralDeclarations($element),
+            $this->context->structuralPresentationDeclarations($element)
+        ));
+    }
+
+    /** @param array<string, string> $declarations */
+    private function declarationString(array $declarations): string
+    {
+        $parts = array();
+        foreach ( $declarations as $property => $value ) {
+            $parts[] = strtolower((string) $property) . ':' . strtolower(trim((string) $value));
+        }
+
+        return implode(';', $parts);
     }
 }

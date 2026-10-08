@@ -511,7 +511,7 @@ $assert(
     ! isset($majorityNavigation['innerBlocks'][0]['attrs']['style']['color']['text'])
         && ! isset($majorityNavigation['innerBlocks'][3]['attrs']['style']['color']['text'])
         && str_contains((string) ($majorityNavigation['attrs']['className'] ?? ''), $majorityCurrentCarrier)
-        && str_contains($majorityCss, '.wp-block-navigation.' . $majorityCurrentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content')
+        && str_contains($majorityCss, '.wp-block-navigation.' . $majorityCurrentCarrier . '.' . $majorityCurrentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content')
         && str_contains($majorityCss, '{color:#dde6ef}')
         && str_contains($majorityCss, '.' . $majorityCtaCarrier . '>.wp-block-navigation-item__content{color:#071018}'),
     'current and CTA link colour exceptions remain in their own scoped CSS carriers',
@@ -579,9 +579,9 @@ $assert(
 );
 $assert(
     str_contains((string) ($alphaNavigation['attrs']['className'] ?? ''), $currentCarrier)
-        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content')
-        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item__content[aria-current]')
-        && ! str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:not(')
+        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . '.' . $currentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content')
+        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . '.' . $currentCarrier . ' .wp-block-navigation-item>.wp-block-navigation-item__content[aria-current]')
+        && ! str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . '.' . $currentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:not(')
         && str_contains($alphaCss, '{color:rgb(255,255,255)}'),
     'authored current colour follows the WordPress runtime current item within its navigation',
     'attrs=' . json_encode($alphaNavigation['attrs'] ?? array()) . ' css=' . substr($alphaCss, -1200)
@@ -667,6 +667,35 @@ $assert(
     substr($hoverCss, -800)
 );
 
+$utilityHover = $transform(
+    '<style>@keyframes paint{to{opacity:1}}.animated{animation:paint 1s}'
+        . '@layer utilities{.text-muted-foreground{color:#777}.hover\\:text-foreground:focus{color:#111}.transition-colors{transition:color 150ms}}'
+        . '@media (hover:hover){@layer utilities{.hover\\:text-foreground:hover{color:#111}}}</style>'
+        . '<nav><ul><li><a class="text-muted-foreground hover:text-foreground transition-colors" href="/">Home</a></li></ul></nav>'
+);
+$utilityHoverCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($utilityHover['assets'] ?? null) ? $utilityHover['assets'] : array()
+));
+$assert(
+    str_contains($utilityHoverCss, '@media (hover:hover){.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.hover\\:text-foreground>.wp-block-navigation-item__content:hover{color:#111}}')
+        && str_contains($utilityHoverCss, '@media (hover:hover){.wp-block-navigation:not(.blocks-engine-list-navigation) .wp-block-navigation-item.hover\\:text-foreground>.wp-block-navigation-item__content:hover{color:#111}}')
+        && (bool) preg_match('/\.wp-block-navigation-item__content:not\(:hover\)(?::not\(:focus\))?\{color:#777\}/', $utilityHoverCss)
+        && str_contains($utilityHoverCss, 'transition:color 150ms'),
+    'escaped utility hover paint reaches the native anchor without freezing its resting color or dropping its transition',
+    substr($utilityHoverCss, -1100)
+);
+$editorStaticStateCss = implode("\n", array_map(
+    static fn (array $asset): string => 'editor-static-state' === ($asset['source'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($utilityHover['assets'] ?? null) ? $utilityHover['assets'] : array()
+));
+$assert(
+    str_contains($editorStaticStateCss, 'animation-play-state:running!important')
+        && ! str_contains($editorStaticStateCss, 'transition:none!important'),
+    'editor animation settling does not cancel authored navigation transitions',
+    $editorStaticStateCss
+);
+
 $dynamicCurrentList = $transform(
     '<style>.current-menu a{color:#223344}.current-menu .current>a{color:#aa1100}'
         . '.current-menu .current>a:hover{color:#00cc44}</style>'
@@ -686,7 +715,7 @@ $assert(
         && ! str_contains((string) ($dynamicCurrentLinks[0]['attrs']['anchorClassName'] ?? ''), 'current')
         && ! str_contains($dynamicCurrentCss, $staticCurrentSelector)
         && str_contains((string) ($dynamicCurrentNavigation['attrs']['className'] ?? ''), $dynamicCurrentCarrier)
-        && str_contains($dynamicCurrentCss, '.wp-block-navigation.' . $dynamicCurrentCarrier
+        && str_contains($dynamicCurrentCss, '.wp-block-navigation.' . $dynamicCurrentCarrier . '.' . $dynamicCurrentCarrier
             . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:not(:hover)')
         && str_contains($dynamicCurrentCss, '.wp-block-navigation.current-menu'
             . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:hover')

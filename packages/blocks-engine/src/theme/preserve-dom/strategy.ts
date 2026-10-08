@@ -45,8 +45,20 @@ function classNameWithInstance($el: Cheerio<Element>, sheet: InstanceStyleSheet)
   return [base, instance].filter(Boolean).join(' ');
 }
 
-function paragraphBlock(inner: string): string {
-  return `<!-- wp:paragraph -->\n<p>${inner}</p>\n<!-- /wp:paragraph -->`;
+/**
+ * Engine-owned marker class for paragraphs synthesized from non-paragraph source
+ * text (text-only div/span elements, stray inline text). A real <p> keeps the
+ * user-agent block margins that are part of the source; a lowered paragraph must
+ * keep its source box's block margins instead (0 unless authored). The backing
+ * support rule below is zero-specificity (:where) so any authored margin (class
+ * or inline) still wins the cascade while the UA's 1em paragraph default is
+ * suppressed where the author CSS is silent.
+ */
+export const LOWERED_TEXT_CLASS = 'is-lowered-text';
+export const LOWERED_TEXT_SUPPORT_RULE = `:where(p.${LOWERED_TEXT_CLASS}){margin-block-start:0;margin-block-end:0}`;
+
+function loweredTextParagraphBlock(inner: string): string {
+  return `<!-- wp:paragraph {"className":${attrJson(LOWERED_TEXT_CLASS)}} -->\n<p class="${LOWERED_TEXT_CLASS}">${inner}</p>\n<!-- /wp:paragraph -->`;
 }
 
 const HEADING = /^h([1-6])$/;
@@ -184,7 +196,7 @@ function svgImageBlock($: CheerioAPI, svgEl: Element, sheet: InstanceStyleSheet)
   return `<!-- wp:image${attrs} -->\n<figure class="${escapeHtml(figCls)}"><img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${styleAttr}/></figure>\n<!-- /wp:image -->`;
 }
 
-function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): ChildResult {
+function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet, state: StrategyState): ChildResult {
   const tag = el.tagName?.toLowerCase() ?? '';
   const $el = $(el);
 
@@ -227,9 +239,13 @@ function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): Child
   const text = $el.text().trim();
   const elementChildren = $el.children().toArray();
   if ((tag === 'div' || tag === 'span') && !$el.attr('id') && elementChildren.length === 0 && text) {
-    const cls = classNameWithInstance($el, sheet);
+    // The source box is a div/span: it has no block margins of its own. Marker-class the
+    // paragraph so the lowered-text support rule keeps those margins at 0 wherever the
+    // author CSS is silent, while any authored margin (e.g. a mt-*/mb-* utility) still wins.
+    const cls = [classNameWithInstance($el, sheet), LOWERED_TEXT_CLASS].filter(Boolean).join(' ');
     const attrs = blockAttrs([], cls);
     const clsPart = cls ? ` class="${escapeHtml(cls)}"` : '';
+    state.loweredTextBlocks = (state.loweredTextBlocks ?? 0) + 1;
     return {
       markup: `<!-- wp:paragraph${attrs} -->\n<p${clsPart}>${inlineHtml($, el).trim()}</p>\n<!-- /wp:paragraph -->`,
       clean: true,
@@ -241,7 +257,7 @@ function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): Child
   // structures survive instead of being dropped. `clean` only stays true if every
   // descendant emitted cleanly (an unhandled leaf still downgrades the whole subtree).
   if (NESTABLE_CONTAINERS.has(tag) && elementChildren.length > 0) {
-    return emitContainer($, el, tag, sheet);
+    return emitContainer($, el, tag, sheet, state);
   }
 
   // Un-convertible element kind (svg, table, form, media): keep it losslessly as a nested
@@ -273,16 +289,22 @@ function emitContainer(
   $: CheerioAPI,
   el: Element,
   tag: string,
-  sheet: InstanceStyleSheet
+  sheet: InstanceStyleSheet,
+  state: StrategyState
 ): ChildResult {
   const $el = $(el);
   const childResults: ChildResult[] = [];
   for (const node of $el.contents().get()) {
     if (isTag(node)) {
-      childResults.push(emitChild($, node, sheet));
+      childResults.push(emitChild($, node, sheet, state));
     } else if (isText(node)) {
       const text = node.data.trim();
-      if (text) childResults.push({ markup: paragraphBlock(escapeHtml(text)), clean: true });
+      if (text) {
+        // A stray inline text node has no block margins; the synthesized paragraph
+        // must not inherit the UA paragraph margins either.
+        state.loweredTextBlocks = (state.loweredTextBlocks ?? 0) + 1;
+        childResults.push({ markup: loweredTextParagraphBlock(escapeHtml(text)), clean: true });
+      }
     }
   }
 
@@ -353,14 +375,16 @@ export const preserveDomStrategy: SectionStrategy = {
     for (const node of container.contents().get()) {
       if (isTag(node)) {
         total += 1;
-        const res = emitChild($, node, sheet);
+        const res = emitChild($, node, sheet, state);
         if (!res.clean) downgrades += 1;
         if (res.markup) childMarkup.push(res.markup);
       } else if (isText(node)) {
         const text = node.data.trim();
         if (!text) continue;
         total += 1;
-        childMarkup.push(paragraphBlock(escapeHtml(text)));
+        // Same as container-level stray text: no source box margins to inherit.
+        state.loweredTextBlocks = (state.loweredTextBlocks ?? 0) + 1;
+        childMarkup.push(loweredTextParagraphBlock(escapeHtml(text)));
       }
     }
 
@@ -407,7 +431,12 @@ export const preserveDomStrategy: SectionStrategy = {
     };
   },
   drainDedup(state) {
-    if (!(state.instanceStyles instanceof InstanceStyleSheet)) return { cssRules: [] };
-    return { cssRules: state.instanceStyles.size ? state.instanceStyles.toCss().split('\n') : [] };
+    const sheet = state.instanceStyles instanceof InstanceStyleSheet ? state.instanceStyles : null;
+    // Engine support CSS first: the zero-specificity lowered-paragraph rule ships only
+    // when lowered paragraphs exist, and loses to every authored rule by specificity.
+    const rules: string[] = [];
+    if (state.loweredTextBlocks) rules.push(LOWERED_TEXT_SUPPORT_RULE);
+    if (sheet && sheet.size) rules.push(...sheet.toCss().split('\n'));
+    return { cssRules: rules };
   },
 };

@@ -71,6 +71,20 @@ $triadProduct = $recognizer->productCardData($triadCard);
 $assert(is_array($triadProduct) && 'Tour Tee' === ($triadProduct['name'] ?? null), 'name + price + cart control qualifies a card');
 $assert(true === ($triadProduct['has_cart_control'] ?? null), 'cart control is recorded on the triad card');
 
+$speakingInquiry = $element(
+    '<form><h3>Speaking inquiry</h3><label>Budget Range</label><span class="price">$5,000</span><input class="border border-border focus:border-gold" name="budget" /></form>'
+);
+$assert(null === $recognizer->productCardData($speakingInquiry), 'form input border classes do not create a cart control');
+
+$orderCard = $element(
+    '<article><h3>Order consultation</h3><span class="price">$30</span><button class="order-now">Order</button></article>'
+);
+$buyCard = $element(
+    '<article><h3>Buy consultation</h3><span class="price">$30</span><button class="buy-now">Buy</button></article>'
+);
+$assert(true === ($recognizer->productCardData($orderCard)['has_cart_control'] ?? null), 'standalone order control still qualifies a card');
+$assert(true === ($recognizer->productCardData($buyCard)['has_cart_control'] ?? null), 'standalone buy control still qualifies a card');
+
 $servicesCard = $element(
     '<div class="service card"><h3>Consulting</h3><p>We help you grow.</p><a href="/contact">Learn more</a></div>'
 );

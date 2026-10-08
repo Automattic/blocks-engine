@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -12,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisC
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 /**
  * Resolves source CSS into native block presentation attributes.
@@ -27,6 +29,18 @@ use DOMElement;
  */
 final class StyleResolver implements ElementPresentationResolver
 {
+    /** Viewport the desktop cascade is evaluated at: the capture's desktop reference. */
+    private const DESKTOP_REFERENCE_WIDTH = 1440.0;
+
+    /**
+     * Viewport the collapsed (phone) cascade is evaluated at: the capture's
+     * mobile reference. Core's responsive overlay is the menu below 600px, and
+     * this width sits inside that range below every common menu breakpoint,
+     * so the values it resolves are what the source paints while its own menu
+     * is collapsed.
+     */
+    public const MOBILE_REFERENCE_WIDTH = 390.0;
+
     public function __construct(
         private readonly StyleResolutionContext $context,
         private readonly HtmlTransformerAnalysisCache $analysisCache
@@ -40,6 +54,15 @@ final class StyleResolver implements ElementPresentationResolver
     private ?ClosedStateNormalizer $closedStateNormalizer = null;
 
     private ?InlineGeometry $inlineGeometry = null;
+
+    /**
+     * Whether an element's block keeps a native core grid layout attribute,
+     * keyed by the presentation cache's element key. Parents are queried once
+     * per placed child, so the layout resolution is memoized per transform.
+     *
+     * @var array<string, bool>
+     */
+    private array $coreGridParentCache = array();
 
     /**
      * Resolved presentation attributes for the active transform, keyed by the
@@ -153,7 +176,8 @@ final class StyleResolver implements ElementPresentationResolver
             $this->geometryStructuralPath(...),
             $this->structuralPresentationDeclarations(...),
             $this->hasConditionalStyleFamily(...),
-            $this->responsivePropertyFamily(...)
+            $this->responsivePropertyFamily(...),
+            $this->hasConditionalGridTemplateColumns(...)
         );
     }
 
@@ -218,8 +242,26 @@ final class StyleResolver implements ElementPresentationResolver
             ? array()
             : $this->cssDeclarations((string) ($this->styleAttributeMapper()->serialize($mapped['style'] ?? array())['style'] ?? ''));
 
+        $nativeGridPlacement = $this->nativeGridChildPlacement($element);
+        if ( array() !== $nativeGridPlacement['excluded'] ) {
+            $excludedGeometryProperties = array_values(array_unique(array_merge(
+                $excludedGeometryProperties,
+                $nativeGridPlacement['excluded']
+            )));
+        }
+
+        $anchor = SourceDom::anchorAttributeValue(SourceDom::attr($element, 'id'));
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
-            'anchor'    => SourceDom::anchorAttributeValue(SourceDom::attr($element, 'id')),
+            // A non-default responsive document variant (e.g. the mobile
+            // counterpart of a desktop document) can reuse the very same
+            // source id as its default-variant counterpart's copy of the
+            // same wrapper. Both compile into the same page, so when that
+            // id is genuinely shared across variants it must not survive
+            // unchanged on both: that produces duplicate ids, which is
+            // invalid HTML and breaks same-page anchor navigation to that
+            // id. An id unique to its own variant (no other variant
+            // declares it) is left exactly as authored.
+            'anchor'    => '' === $anchor ? '' : $anchor . $this->documentVariantIdDisambiguationSuffix($element, $anchor),
             'className' => $this->mergePresentationClassNames(
                 $this->inlineStyleDeclaresAllReset($element) ? '' : $this->context->promotedClassName(SourceDom::attr($element, 'class')),
                 $this->editorAnchorClassName($element),
@@ -237,9 +279,235 @@ final class StyleResolver implements ElementPresentationResolver
             'layout'    => $this->inlineGeometry()->layoutAttribute($element, $this->cssDeclarationString($declarations)),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
 
+        if ( array() !== $nativeGridPlacement['placement'] ) {
+            $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+            // The keys are core's child layout values
+            // (wp_get_layout_child_values()), rendered by
+            // wp_get_child_layout_style_rules() for children of a
+            // layout.type=grid container; they do not serialize into the
+            // wrapper's inline style. Merged rather than assigned: other
+            // resolution on this element may already have populated
+            // style.layout (e.g. selfStretch/flexSize for a flex-item child),
+            // and grid placement must not clobber it.
+            $existingChildLayout = is_array($style['layout'] ?? null) ? $style['layout'] : array();
+            $style['layout'] = array_merge($existingChildLayout, $nativeGridPlacement['placement']);
+            $attrs['style'] = $style;
+        }
+
         $cache->attributes[$cacheKey] = $attrs;
 
         return $attrs;
+    }
+
+    /**
+     * Some source selectors mix static box presentation with a runtime-owned
+     * transform/visibility declaration on the same source class. A replaced
+     * component cannot keep that class around its rebuilt slides; transfer only
+     * missing, unconditional core-supported geometry to the native block attrs.
+     * Conditional families are left to the source stylesheet cascade.
+     *
+     * @param array<string, string> $base
+     * @return array<string, string>
+     */
+    private function mergeUnownedStaticGeometryDeclarations(DOMElement $element, array $base): array
+    {
+        $properties = array_fill_keys(array(
+            'display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-content',
+            'gap', 'row-gap', 'column-gap', 'grid-template-columns', 'grid-template-rows',
+            'grid-auto-flow', 'grid-auto-columns', 'grid-auto-rows',
+            'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
+            'position', 'overflow', 'overflow-x', 'overflow-y', 'box-sizing',
+            'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+            'margin-block', 'margin-block-start', 'margin-block-end', 'margin-inline', 'margin-inline-start', 'margin-inline-end',
+            'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+            'padding-block', 'padding-block-start', 'padding-block-end', 'padding-inline', 'padding-inline-start', 'padding-inline-end',
+        ), true);
+        $missing = array_fill_keys(array_diff_key($properties, $base), true);
+        if (array() === $missing) {
+            return $base;
+        }
+        $owned = array();
+        foreach ($this->context->authorStyles()->styleRules() as $rule) {
+            if (!empty($rule['conditions'])) {
+                continue;
+            }
+            $matched = false;
+            foreach (is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $selectorRecord) {
+                $selector = trim((string) ($selectorRecord['selector'] ?? ''));
+                if ('' !== $selector && $this->matchesCssSelector($element, $selector)) {
+                    $matched = true;
+                    break;
+                }
+            }
+            if (!$matched) {
+                continue;
+            }
+            $geometry = array_intersect_key(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(), $missing);
+            if (array() !== $geometry) {
+                $owned = $this->mergeCssDeclarationMaps($owned, $geometry);
+            }
+        }
+        return $this->mergeCssDeclarationMaps($base, $owned);
+    }
+
+    /**
+     * Native core 7.1 grid child placement for this element, when the parent
+     * element is emitted as a core grid layout container (issue #2139 step
+     * 1).
+     *
+     * Placement resolves from the resting cascaded-value stream (matched
+     * non-conditional author rules plus the inline style), so class-authored
+     * and inline placement convert alike. Author rules are never rewritten:
+     * converted properties leave only the per-element inline geometry
+     * carrier, and a class-owned rule is restated natively from the same
+     * resolved value. Placement with a media-query variant stays entirely
+     * author/carrier owned.
+     *
+     * The parent check runs first because it is memoized and most elements
+     * are not grid items. Under a parent that is not a core grid, only inline
+     * placement is diagnosed; the parent keeps the subtree CSS-owned, so
+     * class-authored placement there loses nothing.
+     *
+     * @return array{placement: array<string, int>, excluded: list<string>}
+     */
+    private function nativeGridChildPlacement(DOMElement $element): array
+    {
+        $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
+        if ( null === $parent || ! $this->parentEmitsCoreGridLayout($parent) ) {
+            $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+            if ( $this->inlineGeometry()->declaresGridPlacement($inline) ) {
+                $this->recordGridPlacementCarrierFinding($element, 'grid_placement_parent_not_core_grid');
+            }
+
+            return array( 'placement' => array(), 'excluded' => array() );
+        }
+
+        $geometry = $this->inlineGeometry();
+        // Grid placement is outside the classification allow-list that feeds
+        // structuralPresentationDeclarations(), so it resolves from the
+        // generic cascaded-value stream: matched resting author rules plus
+        // the inline style, without media-conditional rules.
+        $placementDeclarations = array_intersect_key(
+            $this->matchedCascadedDeclarations($element),
+            array_fill_keys($geometry->gridItemPlacementProperties(), true)
+        );
+        if ( ! $geometry->declaresGridPlacement($placementDeclarations) ) {
+            return array( 'placement' => array(), 'excluded' => array() );
+        }
+        $resolved = $this->structuralPresentationDeclarations($element);
+
+        // Absolutely positioned grid children place their containing block
+        // through grid-area; that projection (issue #2139 step 2) is not the
+        // native child layout core renders here.
+        $position = CssValueInspector::comparable((string) ( $resolved['position'] ?? '' ));
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return array( 'placement' => array(), 'excluded' => array() );
+        }
+
+        $resolution = $geometry->resolveGridChildPlacement($placementDeclarations);
+        if ( null !== $resolution['reason'] ) {
+            $this->recordGridPlacementCarrierFinding($element, $resolution['reason']);
+        }
+        if ( array() === $resolution['placement'] ) {
+            return array( 'placement' => array(), 'excluded' => array() );
+        }
+
+        if ( $this->hasConditionalGridPlacement($element) ) {
+            // The placement varies under a media query and the transformer
+            // has no destination viewport breakpoint mapping. Core's
+            // unconditional child-layout rule and the author's media-query
+            // rule tie on specificity, so emitting the base placement natively
+            // could override the responsive variant depending on stylesheet
+            // order. The whole placement stays author/carrier owned.
+            $this->recordGridPlacementCarrierFinding($element, 'grid_placement_responsive_unmapped');
+
+            return array( 'placement' => array(), 'excluded' => array() );
+        }
+
+        return array( 'placement' => $resolution['placement'], 'excluded' => $resolution['converted'] );
+    }
+
+    /**
+     * Whether the block hosting this element's parent is emitted with a
+     * native `layout.type: grid` attribute, mirroring the layout attribute
+     * and CSS-ownership demotion the emitters apply.
+     */
+    private function parentEmitsCoreGridLayout(DOMElement $parent): bool
+    {
+        $cache = $this->context->presentationResolutionCache();
+        $key = $cache->elementKey($parent) . ':core-grid-parent';
+        if ( isset($this->coreGridParentCache[$key]) ) {
+            return $this->coreGridParentCache[$key];
+        }
+
+        $declarations = $this->classOwnedResponsiveDeclarations(
+            $parent,
+            $this->presentationDeclarations($parent)
+        );
+
+        return $this->coreGridParentCache[$key] = $this->inlineGeometry()->isCoreGridContainerParent(
+            $parent,
+            $this->cssDeclarationString($declarations)
+        );
+    }
+
+    /**
+     * Whether a media-conditional author rule restates this element's grid
+     * placement, so the placement is viewport-dependent in the source.
+     */
+    private function hasConditionalGridPlacement(DOMElement $element): bool
+    {
+        return $this->hasConditionalDeclarationForProperties($element, $this->inlineGeometry()->gridItemPlacementProperties());
+    }
+
+    /**
+     * Whether a media-conditional author rule restates this element's
+     * `grid-template-columns`, so a track list otherwise exactly expressible
+     * as native `columnCount` grid layout (issue #2139 step 1) has a
+     * viewport-dependent variant the transformer has no breakpoint mapping
+     * for. The element keeps its base track list under CSS ownership instead
+     * of losing the responsive variant to a native attribute the transformer
+     * cannot make responsive.
+     */
+    private function hasConditionalGridTemplateColumns(DOMElement $element): bool
+    {
+        return $this->hasConditionalDeclarationForProperties($element, array( 'grid-template-columns' ));
+    }
+
+    /**
+     * Whether a media-conditional author rule matching this element declares
+     * any of the given properties.
+     *
+     * @param list<string> $properties
+     */
+    private function hasConditionalDeclarationForProperties(DOMElement $element, array $properties): bool
+    {
+        $wanted = array_fill_keys(array_map('strtolower', $properties), true);
+        foreach ( $this->styleRuleCandidates($element, 'conditional') as $rule ) {
+            if ( ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
+                continue;
+            }
+            // Classification properties live in `declarations`; properties
+            // outside that allow-list (grid-item placement) ride the
+            // conditional rule's `cascadedDeclarations` stream.
+            foreach ( array( $rule['declarations'] ?? array(), $rule['cascadedDeclarations'] ?? array() ) as $declarations ) {
+                foreach ( array_keys($declarations) as $property ) {
+                    if ( isset($wanted[ strtolower(trim((string) $property)) ]) ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function recordGridPlacementCarrierFinding(DOMElement $element, string $reason): void
+    {
+        $this->context->transformationEvidence()->recordGridPlacementCarrierFinding(
+            SourceDom::elementSelector($element),
+            $reason
+        );
     }
 
     /**
@@ -251,7 +519,7 @@ final class StyleResolver implements ElementPresentationResolver
      * @param array<string, string> $declarations
      * @return array<string, string>
      */
-    private function classOwnedResponsiveDeclarations(DOMElement $element, array $declarations): array
+    public function classOwnedResponsiveDeclarations(DOMElement $element, array $declarations): array
     {
         if (array() === $declarations || array() === $this->context->sourceStyles()->conditionalRules()) {
             return $declarations;
@@ -273,6 +541,92 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $declarations;
+    }
+
+    /**
+     * The inline projection a hook-retaining rich-text carrier may keep.
+     *
+     * A rich-text carrier keeps the author's classes, id, and assigned
+     * rich-text marker as selector hooks, so a media-conditional rule continues
+     * to address it after conversion — but an inline declaration out-ranks
+     * every stylesheet rule. Projecting the static cascade winner inline would
+     * freeze the base breakpoint's value onto the carrier and silence that
+     * responsive rule at every other width. The same demotion
+     * `classOwnedResponsiveDeclarations()` applies to block wrappers, scoped to
+     * conditional rules the carrier will still answer after the transform:
+     * class tokens it retains, an authored id, or a marker assigned so id
+     * selectors can be rewritten onto the carrier.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    public function stripResponsiveClassOwnedDeclarations(DOMElement $element, array $declarations): array
+    {
+        if (array() === $declarations || array() === $this->context->sourceStyles()->conditionalRules()) {
+            return $declarations;
+        }
+
+        $classes = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
+        $id = SourceDom::safeAnchor(SourceDom::attr($element, 'id'));
+        $marker = trim(SourceDom::attr($element, 'data-blocks-engine-richtext-marker'));
+        if (array() === $classes && '' === $id && '' === $marker) {
+            return $declarations;
+        }
+
+        $responsiveFamilies = array() === $classes ? array() : $this->responsiveClassFamiliesInPlay($element, $classes);
+        if ('' !== $id || '' !== $marker) {
+            $responsiveFamilies += $this->conditionalFamiliesInPlay($element);
+        }
+        if (array() === $responsiveFamilies) {
+            return $declarations;
+        }
+
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        foreach (array_keys($declarations) as $property) {
+            $family = $this->responsivePropertyFamily($property);
+            if (! isset($responsiveFamilies[$family]) || $this->inlineOwnsResponsiveProperty($property, $family, $inline)) {
+                continue;
+            }
+            unset($declarations[$property]);
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * Property families the media-conditional rules put in play for this
+     * element through a selector naming one of its class tokens — the rules a
+     * class-retaining carrier keeps answering after conversion.
+     *
+     * @param list<string> $classes
+     * @return array<string, true>
+     */
+    private function responsiveClassFamiliesInPlay(DOMElement $element, array $classes): array
+    {
+        $families = array();
+        foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
+            $selector = (string) ($rule['selector'] ?? '');
+            if (! $this->matchesCssSelector($element, $selector) || ! $this->selectorNamesAnyRetainedClass($selector, $classes)) {
+                continue;
+            }
+            foreach (array_keys($rule['declarations']) as $property) {
+                $families[$this->responsivePropertyFamily($property)] = true;
+            }
+        }
+
+        return $families;
+    }
+
+    /** @param list<string> $classes */
+    private function selectorNamesAnyRetainedClass(string $selector, array $classes): bool
+    {
+        foreach ($classes as $class) {
+            if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -313,6 +667,229 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * What the cascade declares for a family of properties at the mobile
+     * reference viewport, in the order the cascade last stated them.
+     *
+     * The desktop-anchored resolvers read the element as the capture rendered
+     * it at {@see self::DESKTOP_REFERENCE_WIDTH}; a menu's collapsed panel is
+     * painted only below the source breakpoint, so those resolvers never see
+     * it. This walks the same candidate rules but keeps every unconditional
+     * declaration plus the media/feature conditions that hold at
+     * {@see self::MOBILE_REFERENCE_WIDTH}, with a source inline declaration
+     * last. Shared cascade priority resolves importance, layers and specificity.
+     * The returned map is keyed by property and ordered by winning priority,
+     * so a caller resolving a shorthand against its longhand
+     * (`background` after `background-color`) takes the final key.
+     *
+     * @param list<string> $properties
+     * @return array<string, string>
+     */
+    public function collapsedViewportDeclarations(DOMElement $element, array $properties): array
+    {
+        $rules = ( function () use ($element): iterable {
+            foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $rule ) {
+                yield array(
+                    'selectors' => array( (string) ( $rule['selector'] ?? '' ) ),
+                    'declarations' => is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(),
+                    'conditions' => is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array(),
+                    'layer' => $rule['layerRank'] ?? null,
+                );
+            }
+        } )();
+
+        return $this->collapsedViewportDeclarationsFromRules($element, $properties, $rules, fn (string $selector): bool => $this->matchesCssSelector($element, $selector));
+    }
+
+    /**
+     * {@see collapsedViewportDeclarations()} read from the author analysis
+     * instead of the source-style collections.
+     *
+     * The source-style collections keep only the classification allow-list,
+     * which leaves out the transform family (runtime-animatable, so kept out
+     * of the resting cascade) and the logical inset and margin properties. An
+     * element's placement needs those, and the author analysis keeps every
+     * declaration together with its condition stack. The cascade rules are
+     * the same: author importance, layer and specificity priority, authored
+     * declaration order, inline style last, conditions evaluated at
+     * {@see self::MOBILE_REFERENCE_WIDTH}.
+     *
+     * @param list<string> $properties
+     * @return array<string, string>
+     */
+    public function collapsedViewportAuthorDeclarations(DOMElement $element, array $properties): array
+    {
+        return $this->authorDeclarationsAtViewport($element, $properties, self::MOBILE_REFERENCE_WIDTH);
+    }
+
+    /**
+     * The same author-analysis cascade as
+     * {@see collapsedViewportAuthorDeclarations()}, with conditions evaluated at
+     * the desktop reference viewport ({@see self::DESKTOP_REFERENCE_WIDTH}).
+     * Unlike the source-style collections it sees every authored property
+     * (`float`, `white-space`, `word-spacing`, …), so a caller can ask how an
+     * element lays out where the allow-list is silent. A value is the declared
+     * one, not an inherited one: a caller walks the ancestors itself.
+     *
+     * @param list<string> $properties
+     * @return array<string, string>
+     */
+    public function referenceViewportAuthorDeclarations(DOMElement $element, array $properties): array
+    {
+        return $this->authorDeclarationsAtViewport($element, $properties, self::DESKTOP_REFERENCE_WIDTH);
+    }
+
+    /**
+     * @param list<string> $properties
+     * @return array<string, string>
+     */
+    private function authorDeclarationsAtViewport(DOMElement $element, array $properties, float $viewportWidth): array
+    {
+        $authorStyles = $this->context->authorStyles();
+        $parsedBySelector = array();
+        $rules = ( function () use ($authorStyles, &$parsedBySelector): iterable {
+            foreach ( $authorStyles->styleRules() as $rule ) {
+                $selectors = array();
+                foreach ( is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $record ) {
+                    $selector = (string) ( $record['selector'] ?? '' );
+                    // Interaction states and generated content are not the
+                    // resting element, as in the source-style collections.
+                    if ( '' === $selector || $this->selectorCarriesPseudoState($selector) ) {
+                        continue;
+                    }
+                    $selectors[] = $selector;
+                    $parsedBySelector[ $selector ] ??= is_array($record['parsed'] ?? null) ? $record['parsed'] : array();
+                }
+                // The author analysis keeps at-rule preludes verbatim, so a
+                // comment written before `@media` travels with the condition
+                // (`/* tablet */ @media(max-width:1300px)`); the viewport
+                // evaluator reads the at-rule itself.
+                $conditions = array();
+                foreach ( is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array() as $condition ) {
+                    $condition = trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition));
+                    if ( '' !== $condition ) {
+                        $conditions[] = $condition;
+                    }
+                }
+                yield array(
+                    'selectors' => $selectors,
+                    'declarations' => is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array(),
+                    'conditions' => $conditions,
+                    'layer' => $rule['layer'] ?? null,
+                );
+            }
+        } )();
+        $selectorCache = $authorStyles->selectorMatchCache();
+        $matches = static function (string $selector) use ($element, $selectorCache, &$parsedBySelector): bool {
+            $match = $selectorCache->matches($element, $selector, $parsedBySelector[ $selector ] ?? array());
+
+            return ( $match['supported'] ?? false ) && ( $match['matches'] ?? false );
+        };
+
+        return $this->collapsedViewportDeclarationsFromRules($element, $properties, $rules, $matches, $viewportWidth);
+    }
+
+    /** Authored control correspondence, retaining query stacks and cascade winners.
+     * Unlike the resting classification collection, author analysis includes
+     * transforms and logical margins. Values stay conditional when the source
+     * control is replaced by a native control with different markup.
+     * @param list<string> $properties
+     * @return array<string, array<string, string>> Empty key is the base rule.
+     */
+    public function authoredControlPresentation(DOMElement $element, array $properties): array
+    {
+        $groups = array('' => array());
+        $requested = array_flip($properties);
+        $author = $this->context->authorStyles();
+        $order = 0;
+        foreach ($author->styleRules() as $rule) {
+            $specificity = null;
+            foreach ($rule['selectors'] ?? array() as $record) {
+                $selector = (string) ($record['selector'] ?? '');
+                if ('' === $selector || $this->selectorCarriesPseudoState($selector)) continue;
+                $match = $author->selectorMatchCache()->matches($element, $selector, $record['parsed'] ?? array());
+                if (!($match['supported'] ?? false) || !($match['matches'] ?? false)) continue;
+                $candidate = $this->mediaTextSelectorSpecificity($selector);
+                if (null === $specificity || $candidate > $specificity) $specificity = $candidate;
+            }
+            if (null === $specificity) continue;
+            $conditions = array();
+            foreach ($rule['conditions'] ?? array() as $condition) {
+                $condition = trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition));
+                if ('' !== $condition && !preg_match('/^@layer\b/i', $condition)) $conditions[] = $condition;
+            }
+            $key = implode('{', $conditions);
+            $groups[$key] ??= array();
+            foreach ($rule['declarations'] ?? array() as $property => $value) {
+                if (!isset($requested[$property])) continue;
+                CssCascade::apply($groups[$key], $property, array('value' => $value, 'important' => CssValueInspector::isImportant($value), 'specificity' => $specificity, 'layer' => $rule['layer'] ?? null, 'order' => $order++, 'inline' => false));
+            }
+        }
+        foreach ($this->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value) {
+            if (isset($requested[$property])) CssCascade::apply($groups[''], $property, array('value' => $value, 'important' => CssValueInspector::isImportant($value), 'specificity' => array(0, 0, 0), 'layer' => null, 'order' => $order++, 'inline' => true));
+        }
+        $result = array();
+        foreach ($groups as $condition => $facts) {
+            foreach ($facts as $property => $fact) {
+                if ('' !== $condition && isset($groups[''][$property]) && !CssCascade::wins($fact, $groups[''][$property])) unset($facts[$property]);
+            }
+            uasort($facts, static fn(array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
+            $result[$condition] = array_map(static fn(array $fact): string => $fact['value'], $facts);
+        }
+        return $result;
+    }
+
+    /**
+     * The shared walk behind the collapsed-viewport readers: every rule whose
+     * selector matches and whose conditions hold at the given viewport (the
+     * mobile reference unless a caller names another) records its
+     * declarations in order, the inline style last.
+     *
+     * @param list<string> $properties
+     * @param iterable<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>, layer?:int|null}> $rules
+     * @param callable(string): bool $matches Whether one selector matches the element.
+     * @return array<string, string>
+     */
+    private function collapsedViewportDeclarationsFromRules(DOMElement $element, array $properties, iterable $rules, callable $matches, float $viewportWidth = self::MOBILE_REFERENCE_WIDTH): array
+    {
+        $facts = array();
+        $requested = array_flip($properties);
+        $order = 0;
+        foreach ( $rules as $rule ) {
+            if ( array() !== $rule['conditions'] && ! $this->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) ) continue;
+            $specificity = null;
+            foreach ( $rule['selectors'] as $selector ) {
+                if ( $matches($selector) ) {
+                    $candidate = $this->mediaTextSelectorSpecificity($selector);
+                    if ( null === $specificity || $candidate > $specificity ) $specificity = $candidate;
+                }
+            }
+            if ( null === $specificity ) continue;
+            // Declaration order, not requested-property order, determines
+            // which shorthand or longhand must be restated last.
+            foreach ( $rule['declarations'] as $property => $value ) {
+                $value = trim((string) $value);
+                if ( ! isset($requested[$property]) || '' === $value ) continue;
+                CssCascade::apply($facts, $property, array(
+                    'value' => $value, 'important' => CssValueInspector::isImportant($value),
+                    'specificity' => $specificity, 'layer' => $rule['layer'] ?? null,
+                    'order' => $order++, 'inline' => false,
+                ));
+            }
+        }
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        foreach ( $inline as $property => $value ) {
+            if ( ! isset($requested[$property]) || '' === trim($value) ) continue;
+            CssCascade::apply($facts, $property, array(
+                'value' => trim($value), 'important' => CssValueInspector::isImportant($value),
+                'specificity' => array(0, 0, 0), 'layer' => null,
+                'order' => $order++, 'inline' => true,
+            ));
+        }
+        uasort($facts, static fn(array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
+        return array_map(static fn(array $fact): string => $fact['value'], $facts);
+    }
+
+    /**
      * Value stated for this element by media-conditional rules.
      *
      * `specificityResolvedPresentationStyle()` reads the static collection
@@ -327,6 +904,13 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
             $declared = trim((string) ( $rule['declarations'][$property] ?? '' ));
             if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
+                continue;
+            }
+            // A condition that never holds at the reference viewport (`@media
+            // print` hiding nav chrome) is not the value the document renders
+            // with; letting it through turns an anchored conditional winner
+            // into a resting one.
+            if ( ! $this->conditionsApplyAtReferenceViewport(is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array()) ) {
                 continue;
             }
             $value = $declared;
@@ -367,7 +951,7 @@ final class StyleResolver implements ElementPresentationResolver
     public function declaredPresentation(DOMElement $element, string $property): DeclaredPresentation
     {
         $entries = array();
-        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
+        foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $rule ) {
             $declared = trim((string) ( $rule['declarations'][ $property ] ?? '' ));
             if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
                 continue;
@@ -468,15 +1052,36 @@ final class StyleResolver implements ElementPresentationResolver
             return '';
         }
 
-        $base = $this->carriedDeclarationValue($declared->base());
-        $conditional = array();
-        foreach ($declared->conditional() as $condition => $value) {
-            $value = $this->carriedDeclarationValue($value);
-            if ('' !== $value) {
-                $conditional[$condition] = $value;
+        $sequence = $this->fontSizeSequence($element);
+        $fact = static fn (array $entry): array => array(
+            'important' => $entry['important'],
+            'inline' => false,
+            'layer' => $entry['layerRank'],
+            'specificity' => $entry['specificity'],
+            'order' => $entry['order'],
+        );
+        $baseEntry = null;
+        foreach ($sequence as $entry) {
+            if (array() !== $entry['queries']) {
+                continue;
+            }
+            if (null === $baseEntry || CssCascade::wins($fact($entry), $fact($baseEntry))) {
+                $baseEntry = $entry;
             }
         }
-        if ('' === $base && array() === $conditional) {
+        $conditional = array();
+        foreach ($sequence as $entry) {
+            if (array() === $entry['queries'] || (null !== $baseEntry && !CssCascade::wins($fact($entry), $fact($baseEntry)))) {
+                continue;
+            }
+            $value = $this->carriedFontSizeValue($entry);
+            if ('' !== $value) {
+                $conditional[implode('{', $entry['queries'])] = $value;
+            }
+        }
+        $base = null === $baseEntry ? '' : $this->carriedFontSizeValue($baseEntry);
+        $restatesImportant = null !== $baseEntry && $baseEntry['important'];
+        if (('' === $base && array() === $conditional) || (array() === $conditional && !$restatesImportant && (null === $baseEntry || null === $baseEntry['layer']))) {
             return '';
         }
 
@@ -487,6 +1092,175 @@ final class StyleResolver implements ElementPresentationResolver
         $this->context->generatedSupportStyles()->registerResponsiveTypography($className, $base, $conditional);
 
         return $className;
+    }
+
+    /**
+     * Preserve layered responsive margin winners on the emitted block root.
+     * WordPress layout defaults are unlayered and therefore outrank normal
+     * author declarations retained inside a named cascade layer.
+     */
+    public function responsiveBlockMarginTopClassName(DOMElement $element): string
+    {
+        if (! $this->hasConditionalDeclarationForProperties($element, array('margin-top', 'margin'))) return '';
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        if (array_intersect_key($inline, array_flip(array('margin', 'margin-top', 'margin-block', 'margin-block-start'))) !== array()) {
+            return '';
+        }
+
+        $sequence = $this->declarationSequence($element, 'margin-top');
+        if (array() === $sequence) {
+            return '';
+        }
+        $fact = static fn (array $entry): array => array(
+            'important' => $entry['important'],
+            'inline' => false,
+            'layer' => $entry['layerRank'],
+            'specificity' => $entry['specificity'],
+            'order' => $entry['order'],
+        );
+
+        $baseWinner = null;
+        foreach ($sequence as $entry) {
+            if (array() !== $entry['queries']) continue;
+            if (null === $baseWinner || CssCascade::wins($fact($entry), $fact($baseWinner))) $baseWinner = $entry;
+        }
+        $conditionalWinners = array();
+        foreach ($sequence as $entry) {
+            if (array() === $entry['queries'] || (null !== $baseWinner && ! CssCascade::wins($fact($entry), $fact($baseWinner)))) continue;
+            $condition = implode('{', $entry['queries']);
+            $current = $conditionalWinners[$condition] ?? null;
+            if (null === $current || CssCascade::wins($fact($entry), $fact($current))) $conditionalWinners[$condition] = $entry;
+        }
+        $winners = array_merge(null === $baseWinner ? array() : array($baseWinner), array_values($conditionalWinners));
+        if (array() === $conditionalWinners || array() === array_filter($winners, static fn (array $entry): bool => null !== $entry['layerRank'])) {
+            return '';
+        }
+        foreach ($winners as $entry) {
+            if ($entry['important']) return '';
+        }
+
+        // These group-source tags have no user-agent block margin. When only
+        // a conditional author rule exists, carry that real zero baseline too,
+        // rather than letting an unlayered WordPress block default fill it in.
+        if ( null === $baseWinner && !in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section'), true) ) return '';
+        $base = null === $baseWinner ? '0px' : $this->carriedDeclarationValue($baseWinner['value']);
+        $conditional = array();
+        $orderedConditionalWinners = array();
+        foreach ($conditionalWinners as $condition => $entry) {
+            $orderedConditionalWinners[] = array(
+                'condition' => $condition,
+                'entry' => $entry,
+                'position' => count($orderedConditionalWinners),
+            );
+        }
+        usort($orderedConditionalWinners, static function (array $left, array $right) use ($fact): int {
+            $leftWins = CssCascade::wins($fact($left['entry']), $fact($right['entry']));
+            $rightWins = CssCascade::wins($fact($right['entry']), $fact($left['entry']));
+            if ($leftWins === $rightWins) {
+                return $left['position'] <=> $right['position'];
+            }
+
+            // Projected rules use one generated selector, so specificity and
+            // source order must be represented by output order when their
+            // responsive conditions overlap. Emit the source cascade loser
+            // first so the winning declaration remains last in the browser.
+            return $leftWins ? 1 : -1;
+        });
+        foreach ($orderedConditionalWinners as $winner) {
+            $condition = $winner['condition'];
+            $entry = $winner['entry'];
+            $value = $this->carriedDeclarationValue($entry['value']);
+            if ('' !== $value) $conditional[$condition] = $value;
+        }
+        if ('' === $base && array() === $conditional) return '';
+
+        $marker = 'blocks-engine-responsive-margin-top-' . substr(hash(
+            'sha256',
+            $this->geometryStructuralPath($element) . "\n" . $base . "\n" . serialize($conditional)
+        ), 0, 12);
+        $this->context->generatedSupportStyles()->registerResponsiveBlockMarginTop($marker, $base, $conditional);
+
+        return $marker;
+    }
+
+    /** @return list<array{value:string,queries:list<string>,layer:string|null,layerRank:int|null,important:bool,order:int,specificity:array<int,int>}> */
+    private function declarationSequence(DOMElement $element, string $property): array
+    {
+        $entries = array();
+        foreach ($this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $index => $rule) {
+            $declared = trim((string) ($rule['declarations'][$property] ?? ''));
+            $selector = (string) ($rule['selector'] ?? '');
+            if ('' === $declared || ! $this->matchesCssSelector($element, $selector)) continue;
+            $conditions = array_map('trim', $rule['conditions'] ?? array());
+            $entries[] = array(
+                'value' => $declared,
+                'queries' => array_values(array_filter($conditions, static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', $condition))),
+                'layer' => $rule['layer'] ?? null,
+                'layerRank' => $rule['layerRank'] ?? null,
+                'important' => CssValueInspector::isImportant($declared),
+                'order' => (int) ($rule['cascadeOrder'] ?? $index),
+                'specificity' => $this->mediaTextSelectorSpecificity($selector),
+            );
+        }
+
+        return $entries;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rules
+     * @return list<array<string, mixed>>
+     */
+    private function rulesInCascadeOrder(array $rules): array
+    {
+        $indexed = array();
+        foreach ($rules as $index => $rule) {
+            $indexed[] = array('index' => $index, 'rule' => $rule);
+        }
+        usort($indexed, static function (array $left, array $right): int {
+            $order = ($left['rule']['cascadeOrder'] ?? $left['index']) <=> ($right['rule']['cascadeOrder'] ?? $right['index']);
+
+            return 0 !== $order ? $order : $left['index'] <=> $right['index'];
+        });
+
+        return array_column($indexed, 'rule');
+    }
+
+    /**
+     * @return list<array{value: string, queries: list<string>, layer: string|null, layerRank: int|null, important: bool, order: int, specificity: array<int, int>}>
+     */
+    private function fontSizeSequence(DOMElement $element): array
+    {
+        $entries = array();
+        foreach ($this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $index => $rule) {
+            $declared = trim((string) ($rule['declarations']['font-size'] ?? ''));
+            $selector = (string) ($rule['selector'] ?? '');
+            if ('' === $declared || !$this->matchesCssSelector($element, $selector)) {
+                continue;
+            }
+            $conditions = array_map('trim', $rule['conditions'] ?? array());
+            $entries[] = array(
+                'value' => $declared,
+                'queries' => array_values(array_filter(
+                    $conditions,
+                    static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', $condition)
+                )),
+                'layer' => $rule['layer'] ?? null,
+                'layerRank' => $rule['layerRank'] ?? null,
+                'important' => CssValueInspector::isImportant($declared),
+                'order' => (int) ($rule['cascadeOrder'] ?? $index),
+                'specificity' => $this->mediaTextSelectorSpecificity($selector),
+            );
+        }
+
+        return $entries;
+    }
+
+    /** @param array{value: string, important: bool} $entry */
+    private function carriedFontSizeValue(array $entry): string
+    {
+        $value = $this->carriedDeclarationValue($entry['value']);
+
+        return '' === $value || !$entry['important'] ? $value : $value . ' !important';
     }
 
     /**
@@ -507,7 +1281,7 @@ final class StyleResolver implements ElementPresentationResolver
         // a conditioned declaration that wins, not merely a winner alongside
         // some unrelated breakpoint.
         $applyingConditional = $unlayered->conditionalOnly()->resolvedValue();
-        if ( '' !== $applyingConditional ) {
+        if ( '' !== $applyingConditional && $applyingConditional === $unlayered->resolvedValue() ) {
             return $applyingConditional;
         }
 
@@ -749,6 +1523,16 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * A generated carrier class restating only the element's inline background
+     * paint, for empty source containers kept as visual boundaries. '' when the
+     * inline style paints no image.
+     */
+    public function emptyElementBackgroundCarrierClassName(DOMElement $element): string
+    {
+        return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element);
+    }
+
+    /**
      * `core/embed`'s save() is a rigid, two-level `<figure><div
      * class="wp-block-embed__wrapper">` shape with no attribute path onto
      * that inner wrapper div at all — `customClassName` only ever reaches
@@ -941,14 +1725,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     private function isDocumentVariantRoot(DOMElement $element): bool
     {
-        foreach (preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className) {
-            if (str_starts_with($className, 'site-document-variant-')
-                || in_array($className, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)
-            ) {
-                return true;
-            }
-        }
-        return false;
+        return SourceDom::isDocumentVariantRoot($element);
     }
 
     /**
@@ -1433,6 +2210,16 @@ final class StyleResolver implements ElementPresentationResolver
      * resolving against the original container box. When the container height
      * is auto the figure percentage computes back to auto, so the carry stays
      * faithful even when the driving rule lives behind a media query.
+     *
+     * An image the source links adds a second injected box to that same chain:
+     * core/image serializes it as <figure><a><img></a></figure>, and that <a>
+     * is an inline-level, auto-height element the source never had. Carrying
+     * the height only as far as the figure leaves the authored percentage
+     * resolving against the link instead, so the image still collapses to its
+     * intrinsic ratio while the identical unlinked image renders correctly.
+     * Restate the fill on the injected link so the chain reaches the image
+     * unbroken. The link box is generated, not authored, so sizing it overrides
+     * nothing the source said.
      */
     public function injectedFigureHeightClassName(DOMElement $image): string
     {
@@ -1441,10 +2228,31 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $rule = 'height:100% !important';
-        $className = $this->context->layoutGeometry()->allocateCarrier('figure-height' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule);
-        $this->context->layoutGeometry()->registerRule($className, '.' . $className . '{' . $rule . '}');
+        $linkRule = $this->hasAncestorLink($image) ? '>a{display:block !important;width:100% !important;' . $rule . '}' : '';
+        $className = $this->context->layoutGeometry()->allocateCarrier('figure-height' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule . $linkRule);
+        $this->context->layoutGeometry()->registerRule(
+            $className,
+            '.' . $className . '{' . $rule . '}' . ('' === $linkRule ? '' : '.' . $className . $linkRule)
+        );
 
         return $className;
+    }
+
+    /**
+     * Whether a source ancestor link can reach this image, and therefore
+     * whether the generated block can carry one. core/image only ever emits
+     * its link anchor around the <img>, so no other element can appear in
+     * between.
+     */
+    private function hasAncestorLink(DOMElement $element): bool
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'a' === strtolower($ancestor->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function authorStylesDriveImageHeight(DOMElement $image): bool
@@ -1526,10 +2334,23 @@ final class StyleResolver implements ElementPresentationResolver
             $declarations,
             $this->inlineCustomPropertiesConsumedByAuthorStyles($element, $declarations) + $this->customPropertiesReferencedByValues($geometryValues)
         );
+        // Most callers case-fold declaration keys for matching, but custom
+        // property names are case-sensitive: `--headerBg` and `--headerbg` are
+        // different properties, so the carrier must declare the name the
+        // author wrote or every `var(--headerBg)` reader falls back to its
+        // :root default. A key that already is an authored name stays as is.
+        $authoredNames = array();
+        foreach (CssValueSplitter::splitTopLevel(SourceDom::attr($element, 'style'), array(';')) as $declaration) {
+            $name = trim(explode(':', $declaration, 2)[0]);
+            if (str_starts_with($name, '--')) {
+                $authoredNames[$name] = $name;
+                $authoredNames[strtolower($name)] ??= $name;
+            }
+        }
         $customProperties = array();
         foreach ($declarations as $property => $value) {
             if (str_starts_with($property, '--') && isset($required[$property])) {
-                $customProperties[$property] = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->context->resolvedAssetImageUrl($url));
+                $customProperties[$authoredNames[$property] ?? $property] = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->context->resolvedAssetImageUrl($url));
             }
         }
         ksort($customProperties, SORT_STRING);
@@ -1551,7 +2372,13 @@ final class StyleResolver implements ElementPresentationResolver
         $consumed = array();
         $inspect = function (DOMElement $target) use (&$consumed, $declared): void {
             foreach ( $this->matchingStyleRules($target, 'static-conditional-pseudo') as $rule ) {
-                $consumed += array_intersect_key($this->customPropertiesReferencedByValues($rule['declarations']), $declared);
+                // Read the rule's UNFILTERED `var()` references. `declarations`
+                // is the `safeVisualDeclarations()` classification allow-list,
+                // which omits `opacity`, `transform`, `filter` and friends — a
+                // reference from one of those was invisible here, so the inline
+                // definition an ancestor declared was judged unused and dropped,
+                // leaving the reader invalid at computed-value time.
+                $consumed += array_intersect_key(array_fill_keys($rule['customPropertyReferences'] ?? array(), true), $declared);
             }
         };
         $inspect($element);
@@ -1574,7 +2401,7 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ($values as $value) {
             if (preg_match_all('/\bvar\(\s*(--[-_a-zA-Z0-9]+)/', $value, $matches)) {
                 foreach ($matches[1] as $property) {
-                    $properties[strtolower($property)] = true;
+                    $properties[$property] = true;
                 }
             }
         }
@@ -1678,6 +2505,274 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Source identity and variable scope needed when a generated component root
+     * replaces the matched source element. Root hooks remain attached to the
+     * generated stage; presentation hooks used by the source control topology
+     * are routed to the generated control host.
+     *
+     * @return array{className: string, stageClassName: string, controlClassName: string, attributes: array<string, string>, controlAttributes: array<string, string>, customProperties: array<string, string>}
+     */
+    public function sourceCustomPropertyScope(DOMElement $element, array $presentationTargets = array(), array $replacedSlides = array()): array
+    {
+        $classes = array();
+        $controlClasses = array();
+        $attributes = array();
+        $controlAttributes = array();
+        $properties = array();
+        $customPropertyEntries = array();
+        foreach ($this->matchingStyleRules($element, 'static-conditional') as $rule) {
+            $declarations = array_merge($rule['declarations'] ?? array(), $rule['cascadedDeclarations'] ?? array());
+            $customNames = array_filter(array_keys($declarations), static fn ($name): bool => str_starts_with((string) $name, '--'));
+            if (array() === $customNames) {
+                continue;
+            }
+            $selector = (string) ($rule['selector'] ?? '');
+            foreach (SourceDom::boundedClassTokens(SourceDom::attr($element, 'class')) as $class) {
+                if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                    $classes[$class] = true;
+                }
+            }
+            if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $matches)) {
+                foreach (array_unique($matches[1]) as $name) {
+                    $value = SourceDom::attr($element, $name);
+                    if ('' !== $value) {
+                        $attributes[$name] = $value;
+                    }
+                }
+            }
+            foreach ($customNames as $name) {
+                $properties[(string) $name] = true;
+                $customPropertyEntries[(string) $name][] = array(
+                    'value' => trim((string) ($declarations[$name] ?? '')),
+                    'conditions' => array_values(array_map('trim', $rule['conditions'] ?? array())),
+                );
+            }
+        }
+        // A generated carousel owns the control nodes but their authored
+        // presentation rules can be scoped through the source component's root
+        // classes/attributes. Keep only root identity hooks named by selectors
+        // that actually matched those emitted control/topology source nodes.
+        // This does not restore runtime slide hooks such as `.slider .slide`.
+        $rootClasses = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
+        $runtimeOwnedRootClasses = array();
+        $runtimeProperties = array_fill_keys(array('transform', 'translate', 'rotate', 'scale', 'animation', 'animation-name', 'animation-play-state', 'opacity', 'visibility'), true);
+        $authorRules = $this->context->authorStyles()->styleRules();
+        foreach ($authorRules as $authorRule) {
+            $declarations = is_array($authorRule['declarations'] ?? null) ? $authorRule['declarations'] : array();
+            if (array() === $declarations) {
+                continue;
+            }
+            $customNames = array_filter(array_keys($declarations), static fn ($name): bool => str_starts_with((string) $name, '--'));
+            $conditions = array_values(array_map('trim', is_array($authorRule['conditions'] ?? null) ? $authorRule['conditions'] : array()));
+            foreach (is_array($authorRule['selectors'] ?? null) ? $authorRule['selectors'] : array() as $authorSelector) {
+                $selector = trim((string) ($authorSelector['selector'] ?? ''));
+                if ('' === $selector) {
+                    continue;
+                }
+                if ($this->matchesCssSelector($element, $selector)) {
+                    if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $identityMatches)) {
+                        foreach (array_unique($identityMatches[1]) as $name) {
+                            $value = SourceDom::attr($element, $name);
+                            if ('' !== $value && strlen($value) <= 512 && ! preg_match('/(?:controller|current-context|current-styles|animation-state|controllers-bound)/i', $name)) {
+                                $attributes[$name] = $value;
+                            }
+                        }
+                    }
+                }
+                if (array() !== $customNames && $this->matchesCssSelector($element, $selector)) {
+                    foreach ($rootClasses as $class) {
+                        if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                            $classes[$class] = true;
+                        }
+                    }
+                    if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $matches)) {
+                        foreach (array_unique($matches[1]) as $name) {
+                            $value = SourceDom::attr($element, $name);
+                            if ('' !== $value && strlen($value) <= 512 && ! preg_match('/(?:controller|current-context|current-styles|animation-state|controllers-bound)/i', $name)) {
+                                $attributes[$name] = $value;
+                            }
+                        }
+                    }
+                    foreach ($customNames as $name) {
+                        $properties[(string) $name] = true;
+                        $customPropertyEntries[(string) $name][] = array(
+                            'value' => trim((string) ($declarations[$name] ?? '')),
+                            'conditions' => $conditions,
+                        );
+                    }
+                }
+                foreach ($presentationTargets as $target) {
+                    if (!$target instanceof DOMElement || !$this->matchesCssSelector($target, $selector)) {
+                        continue;
+                    }
+                    foreach ($rootClasses as $class) {
+                        if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                            $controlClasses[$class] = true;
+                        }
+                    }
+                    if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $matches)) {
+                        foreach (array_unique($matches[1]) as $name) {
+                            $value = SourceDom::attr($element, $name);
+                            if ('' !== $value && strlen($value) <= 512 && ! preg_match('/(?:controller|current-context|current-styles|animation-state|controllers-bound)/i', $name)) {
+                                $controlAttributes[$name] = $value;
+                                $attributes[$name] = $value;
+                            }
+                        }
+                    }
+                }
+                foreach ($replacedSlides as $slide) {
+                    if (!$slide instanceof DOMElement || !$this->matchesCssSelector($slide, $selector)
+                        || ! $this->hasSourceSlideRuntimeState($declarations, $runtimeProperties)
+                    ) {
+                        continue;
+                    }
+                    foreach ($rootClasses as $class) {
+                        if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                            $runtimeOwnedRootClasses[$class] = true;
+                        }
+                    }
+                }
+            }
+        }
+        foreach ($presentationTargets as $target) {
+            if (!$target instanceof DOMElement || $target === $element) {
+                continue;
+            }
+            foreach ($this->matchingStyleRules($target, 'static-conditional') as $rule) {
+                $selector = (string) ($rule['selector'] ?? '');
+                foreach ($rootClasses as $class) {
+                    if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                        $controlClasses[$class] = true;
+                    }
+                }
+                if (preg_match_all('/\[\s*((?:data|aria)-[a-zA-Z0-9_-]+)(?:\s*[~|^$*]?=)?/', $selector, $matches)) {
+                    foreach (array_unique($matches[1]) as $name) {
+                        $value = SourceDom::attr($element, $name);
+                        if ('' !== $value && strlen($value) <= 512 && ! preg_match('/(?:controller|current-context|current-styles|animation-state|controllers-bound)/i', $name)) {
+                            $controlAttributes[$name] = $value;
+                            $attributes[$name] = $value;
+                        }
+                    }
+                }
+            }
+        }
+        $replacementClasses = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
+        foreach ($replacedSlides as $slide) {
+            if (!$slide instanceof DOMElement) {
+                continue;
+            }
+            $slideClasses = SourceDom::boundedClassTokens(SourceDom::attr($slide, 'class'));
+            foreach ($this->matchingStyleRules($slide, 'cascaded-values') as $rule) {
+                $selector = (string) ($rule['selector'] ?? '');
+                $declarations = array_merge($rule['declarations'] ?? array(), $rule['cascadedDeclarations'] ?? array());
+                if (! $this->hasSourceSlideRuntimeState($declarations, $runtimeProperties)) {
+                    continue;
+                }
+                foreach ($replacementClasses as $class) {
+                    $namesRootClass = 1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector);
+                    $namesSlide = false;
+                    foreach ($slideClasses as $slideClass) {
+                        $namesSlide = $namesSlide || 1 === preg_match('/' . CssIdent::classSelectorRegex($slideClass) . '(?![a-zA-Z0-9_-])/', $selector);
+                    }
+                    if ($namesRootClass && $namesSlide) {
+                        $runtimeOwnedRootClasses[$class] = true;
+                    }
+                }
+            }
+        }
+        $presentationClasses = array_values(array_filter(
+            array_unique(array_merge(array_keys($classes), SourceDom::boundedClassTokens($this->presentationClassName(SourceDom::attr($element, 'class'))))),
+            static fn (string $class): bool => !isset($runtimeOwnedRootClasses[$class]) && isset($classes[$class])
+        ));
+        // The component's presentation classes and source marker also scope
+        // authored control CSS. Rebind them to the generated control host rather
+        // than the slide stage, so source runtime selectors cannot retarget slides.
+        foreach (SourceDom::boundedClassTokens($this->presentationClassName(SourceDom::attr($element, 'class'))) as $class) {
+            $controlClasses[$class] = true;
+        }
+        foreach ($this->sourceAttributeSelectorMarkers($element) as $marker) {
+            $controlClasses[$marker] = true;
+        }
+        $controlAttributes += $attributes;
+        // Stylesheet declarations keep their own selector and media-condition
+        // ownership when the emitted root carries the matched class/attribute
+        // identity above. Serializing a cascade winner inline would freeze a
+        // reference-viewport value and defeat source media rules. Only direct
+        // inline custom properties are restated on the replacement root.
+        $available = array_filter(
+            $this->cssDeclarations(SourceDom::attr($element, 'style')),
+            static fn (string $name): bool => str_starts_with($name, '--'),
+            ARRAY_FILTER_USE_KEY
+        );
+        foreach ($customPropertyEntries as $name => $entries) {
+            $unique = array();
+            foreach ($entries as $entry) {
+                $unique[serialize($entry)] = $entry;
+            }
+            $customPropertyEntries[$name] = array_values($unique);
+        }
+        $scopedDeclarations = array();
+        foreach ($customPropertyEntries as $name => $entries) {
+            if (isset($available[$name])) {
+                continue;
+            }
+            foreach ($entries as $entry) {
+                $value = $entry['value'];
+                if ('' === $value || preg_match('/[;{}<>]/', $value)) {
+                    continue;
+                }
+                $conditions = $entry['conditions'];
+                $scopeKey = serialize($conditions);
+                $scopedDeclarations[$scopeKey]['conditions'] = $conditions;
+                // Replaying every source condition preserves viewport ownership;
+                // the last value for a variable under one condition wins in
+                // source order without pinning the base/reference viewport.
+                $scopedDeclarations[$scopeKey]['declarations'][$name] = $value;
+            }
+        }
+        // The replacement root needs a per-instance binding: source class or
+        // data hooks may be shared by otherwise independent components.
+        // Keep source IDs as identity too, since author selectors may depend on
+        // them, but never use a source-specific attribute as the restatement key.
+        $scopeToken = substr(hash('sha256', (string) ($element->getNodePath() ?? '') . "\n" . (string) $element->ownerDocument?->saveHTML($element)), 0, 16);
+        $scopeAttribute = 'data-be-source-scope';
+        $scopeValue = 'scope-' . $scopeToken;
+        $attributes[$scopeAttribute] = $scopeValue;
+        $sourceScopeSelector = '[' . $scopeAttribute . '="' . $scopeValue . '"]';
+        $sourceId = SourceDom::attr($element, 'id');
+        if ('' !== $sourceId) {
+            $attributes['id'] = $sourceId;
+        }
+        $serializationMarker = $scopeValue;
+        foreach ($scopedDeclarations as $scope) {
+            $declarations = $scope['declarations'];
+            ksort($declarations, SORT_STRING);
+            $this->context->generatedSupportStyles()->registerSourceCustomPropertyScope(
+                $serializationMarker,
+                $sourceScopeSelector,
+                $scope['conditions'],
+                $declarations
+            );
+        }
+        $customProperties = array();
+        foreach (array_keys($properties) as $name) {
+            if (isset($available[$name])) {
+                $customProperties[$name] = $available[$name];
+            }
+        }
+        ksort($customProperties, SORT_STRING);
+
+        return array(
+            'className' => implode(' ', $presentationClasses),
+            'stageClassName' => $this->safeStageClassName($element, $replacedSlides),
+            'controlClassName' => implode(' ', array_keys($controlClasses)),
+            'attributes' => $attributes,
+            'controlAttributes' => $controlAttributes,
+            'customProperties' => $customProperties,
+        );
+    }
+
+    /**
      * Resolve structural context even when the element is not itself a style
      * boundary. Child classification still needs parent flex/grid semantics.
      *
@@ -1699,6 +2794,52 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $cache->structuralDeclarations[$cacheKey] = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations(SourceDom::attr($element, 'style')));
+    }
+
+    /**
+     * Resolve the CSS root font size for rem-based structural measurements.
+     * Fragment transforms often retain only a body root; in that case resolve
+     * `html` rules against a detached root element through the same selector
+     * and cascade machinery used for source elements.
+     */
+    public function documentRootFontSize(DOMElement $context): ?float
+    {
+        $document = $context->ownerDocument;
+        if ( null === $document ) {
+            return null;
+        }
+
+        $root = $document->documentElement;
+        if ( ! $root instanceof DOMElement || 'html' !== strtolower($root->tagName) ) {
+            // Fragment input has no author document root; in its default
+            // browser context rem uses the initial 16px root size.
+            return 16.0;
+        }
+        $declarations = $this->structuralPresentationDeclarations($root);
+        $fontSize = trim(CssValueInspector::withoutImportant((string) ($declarations['font-size'] ?? '')));
+        if ( '' === $fontSize ) {
+            return 16.0;
+        }
+        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)\s*px$/i', $fontSize, $matches) ) {
+            return 0 < (float) $matches[1] ? (float) $matches[1] : null;
+        }
+        if ( 1 === preg_match('/^(\d+(?:\.\d+)?)\s*(?:em|rem)$/i', $fontSize, $matches) ) {
+            return 0 < (float) $matches[1] ? 16 * (float) $matches[1] : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Source-owned static box geometry for replacement wrappers, with matched
+     * unconditional author declarations included even when a parent runtime
+     * class cannot remain on the generated stage.
+     *
+     * @return array<string, string>
+     */
+    public function sourceGeometryPresentationDeclarations(DOMElement $element): array
+    {
+        return $this->mergeUnownedStaticGeometryDeclarations($element, $this->structuralPresentationDeclarations($element));
     }
 
     /**
@@ -2029,6 +3170,9 @@ final class StyleResolver implements ElementPresentationResolver
         $classes = 0;
         $elements = 0;
         foreach ($parsed['compounds'] as $compound) {
+            if ( true === ($compound['forced_zero_specificity'] ?? false) ) {
+                continue;
+            }
             $zeroSpecificity = $compound['zero_specificity'] ?? array();
             $ids += count($compound['ids'] ?? array()) - (int) ($zeroSpecificity['ids'] ?? 0);
             $classes += count($compound['classes'] ?? array()) + count($compound['attributes'] ?? array())
@@ -2039,6 +3183,10 @@ final class StyleResolver implements ElementPresentationResolver
             if (null !== ($compound['type'] ?? null) && 0 === (int) ($zeroSpecificity['types'] ?? 0)) {
                 ++$elements;
             }
+            $listSpecificity = CssSelectorMatcher::selectorListArgumentSpecificity($compound);
+            $ids += $listSpecificity['ids'];
+            $classes += $listSpecificity['classes'];
+            $elements += $listSpecificity['types'];
         }
 
         return array( $ids, $classes, $elements );
@@ -2213,7 +3361,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     private function isZeroLength(string $value): bool
     {
-        return 1 === preg_match('/^0(?:px|em|rem|%|vh|vw)?$/', CssValueInspector::comparable($value));
+        return CssValueInspector::isZeroLength($value);
     }
 
     private function isExpandedLength(string $property, string $value): bool
@@ -2340,7 +3488,34 @@ final class StyleResolver implements ElementPresentationResolver
             return '';
         }
         $anchor = SourceDom::safeAnchor(SourceDom::attr($element, 'id'));
-        return '' === $anchor ? '' : 'blocks-engine-editor-anchor-' . $anchor;
+        return '' === $anchor ? '' : EngineMarker::editorAnchorClass($anchor);
+    }
+
+    /**
+     * The suffix that disambiguates `$id` on `$element` from another
+     * responsive document variant's copy of the same id, or '' when no
+     * other variant actually declares it. Captured desktop/mobile document
+     * pairs commonly reuse ids on genuinely distinct elements that happen to
+     * sit in only one variant (e.g. a mobile-only component root); those
+     * stay exactly as authored, so only an id proven to recur under a
+     * different {@see SourceDom::documentVariantRoot()} is disambiguated.
+     */
+    private function documentVariantIdDisambiguationSuffix(DOMElement $element, string $id): string
+    {
+        $suffix = SourceDom::documentVariantIdSuffix($element);
+        if ( '' === $suffix ) {
+            return '';
+        }
+        $ownRoot = SourceDom::documentVariantRoot($element);
+        foreach ( $this->context->authorStyles()->sourceElementsById($id) as $candidate ) {
+            if ( ! $element->isSameNode($candidate) ) {
+                $candidateRoot = SourceDom::documentVariantRoot($candidate);
+                if ( ! ( $candidateRoot instanceof DOMElement && $ownRoot instanceof DOMElement && $candidateRoot->isSameNode($ownRoot) ) ) {
+                    return $suffix;
+                }
+            }
+        }
+        return '';
     }
 
     /**
@@ -2657,136 +3832,214 @@ final class StyleResolver implements ElementPresentationResolver
             'cascaded_values' => array(),
         );
         $imageOrder = 0;
+        $cascadeOrder = 0;
         $layers = array();
         if (preg_match_all('/@layer\s+([a-z0-9_-]+(?:\.[a-z0-9_-]+)?(?:\s*,\s*[a-z0-9_-]+(?:\.[a-z0-9_-]+)?)*)\s*;/i', $css, $layerStatements)) {
             foreach ($layerStatements[1] as $statement) foreach (explode(',', $statement) as $name) $layers[strtolower(trim($name))] ??= count($layers);
         }
         (new CssStylesheetTransformer())->visitStyleRules(
             $css,
-            function (string $prelude, string $body, array $conditions) use (&$analysis, &$imageOrder, &$layers): void {
-                $rawDeclarations = $this->cssDeclarations($body);
-                $declarations = $this->safeVisualDeclarations($rawDeclarations);
-                // A materialized SVG asset is an isolated document: it cannot
-                // inherit `fill`/`stroke`/`color` (or the custom properties they
-                // reference) from the host stylesheet the way the inline source
-                // could. This unfiltered stream — kept separate from the finite
-                // `safeVisualDeclarations()` allow-list used for classification —
-                // lets paint materialization resolve the same cascade a browser
-                // would, including id/class-scoped custom-property indirection.
-                $cascadedValueDeclarations = $this->cascadeRelevantDeclarations($rawDeclarations);
-                $mediaTextDeclarations = array() === $conditions
-                    ? array_values(array_filter(
-                        $this->mediaTextInlineDeclarationEntries($body),
-                        static fn (array $entry): bool => in_array($entry['property'], array(
-                            'align-items',
-                            'direction',
-                            'display',
-                            'flex-basis',
-                            'flex-direction',
-                            'flex-flow',
-                            'float',
-                            'grid-template-columns',
-                            'order',
-                            'width',
-                        ), true)
-                    ))
-                    : array();
-                $imageEntries = $this->imageShapeDeclarationEntries($body);
-                $layer = null;
-                foreach ($conditions as $condition) if (preg_match('/^@layer\s+([a-z0-9_-]+(?:\.[a-z0-9_-]+)*)\b/i', trim($condition), $match)) {
-                    $name = strtolower($match[1]);
-                    $layers[$name] ??= count($layers);
-                    $layer = $name;
-                }
-                // A rule is static when every condition wrapping it resolves the
-                // same way for every reader. `@layer` always does. So does an
-                // `@supports` condition the engine knows to be true: the browser
-                // rendering the output will take that branch unconditionally, so
-                // the resting cascade has to see it too.
-                //
-                // Tailwind v4 writes each opacity-modified colour as an opaque
-                // fallback plus the real translucent value behind
-                // `@supports (color: color-mix(...))`. Leaving that branch out of
-                // the resting rules resolved every such colour to the fallback
-                // the framework only emits for browsers without the feature.
-                //
-                // `@media` stays conditional: it depends on the viewport, which
-                // is exactly what the conditional stream exists to model.
-                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? explode(',', $prelude) as $selector) {
-                    $selector = trim($selector);
-                    if ('' === $selector || str_starts_with($selector, '@')) {
-                        continue;
-                    }
-                    $lifted = ColorSchemeVariant::liftSelector($selector);
-                    $selector = trim($lifted['prelude']);
-                    $selectorConditions = $conditions;
-                    if (null !== $lifted['scheme']) {
-                        $selectorConditions[] = '@media (prefers-color-scheme: ' . $lifted['scheme'] . ')';
-                    }
-                    $selectorIsStaticLayerRule = array() !== $selectorConditions
-                        && array_reduce($selectorConditions, fn (bool $static, string $condition): bool => $static && $this->conditionResolvesStatically($condition), true);
-                    $supportedRestingSelector = ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector);
-                    if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations)) {
-                        $analysis['static'][] = array(
-                            'selector' => $selector,
-                            'declarations' => $declarations,
-                            'mediaTextDeclarations' => $mediaTextDeclarations,
-                            'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
-                            'layer' => $layer,
-                        );
-                    }
-                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $selectorConditions && ! $selectorIsStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations)) {
-                        $analysis['conditional'][] = array(
-                            'selector' => $selector,
-                            'declarations' => $declarations,
-                            'cascadedDeclarations' => $cascadedValueDeclarations,
-                            'conditions' => $selectorConditions,
-                            'layer' => $layer,
-                        );
-                    }
-                    if ($supportedRestingSelector) {
-                        foreach ($imageEntries as $entry) {
-                            $analysis['image_shape'][] = array(
-                                'selector' => $selector,
-                                'property' => $entry['property'],
-                                'value' => $entry['value'],
-                                'conditions' => $selectorConditions,
-                                'order' => $imageOrder++,
-                                'layer' => $layer,
-                            );
-                        }
-                    }
-                    if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && array() !== $cascadedValueDeclarations) {
-                        $analysis['cascaded_values'][] = array('selector' => $selector, 'declarations' => $cascadedValueDeclarations);
-                    }
-                    if (array() === $declarations) {
-                        continue;
-                    }
-                    if (array() === $selectorConditions && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
-                        $state = strtolower((string) $stateMatches[1][0][0]);
-                        $offset = (int) $stateMatches[0][0][1];
-                        $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
-                        if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
-                            $analysis['navigation_state'][] = array('selector' => $selector, 'base_selector' => $baseSelector, 'state' => $state, 'declarations' => $declarations);
-                            $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'state' => $state, 'state_subject_selector' => trim(substr($selector, 0, $offset)), 'declarations' => $rawDeclarations);
-                        }
-                    }
-                    if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {
-                        $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
-                        if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector)) {
-                            $pseudoDeclarations = $declarations;
-                            if (isset($rawDeclarations['content'])) {
-                                $pseudoDeclarations['content'] = $rawDeclarations['content'];
-                            }
-                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions);
-                        }
-                    }
-                }
+            function (string $prelude, string $body, array $conditions) use (&$analysis, &$imageOrder, &$cascadeOrder, &$layers): void {
+                $this->analyzeStyleRule($prelude, $body, $conditions, $analysis, $imageOrder, $cascadeOrder, $layers);
             }
         );
 
         $analysis['layer_names'] = array_keys($layers);
         return $analysis;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $analysis
+     * @param list<string> $conditions
+     * @param array<string, int> $layers
+     */
+    private function analyzeStyleRule(string $prelude, string $body, array $conditions, array &$analysis, int &$imageOrder, int &$cascadeOrder, array &$layers): void
+    {
+        $transformer = new CssStylesheetTransformer();
+        $parts = str_contains($body, '{') ? $transformer->splitStyleRuleBody($body) : array();
+        $nests = false;
+        foreach ($parts as $part) {
+            if (isset($part['prelude']) && $transformer->nestsStyleRules((string) $part['prelude'])) {
+                $nests = true;
+                break;
+            }
+        }
+        if (!$nests) {
+            $this->recordStyleRuleDeclarations($prelude, $body, $conditions, $analysis, $imageOrder, $cascadeOrder, $layers);
+            return;
+        }
+        foreach ($parts as $part) {
+            if (isset($part['declarations'])) {
+                if ('' !== trim($part['declarations'])) {
+                    $this->recordStyleRuleDeclarations($prelude, $part['declarations'], $conditions, $analysis, $imageOrder, $cascadeOrder, $layers);
+                }
+                continue;
+            }
+            if (!$transformer->nestsStyleRules((string) $part['prelude'])) {
+                continue;
+            }
+            $nested = $conditions;
+            $nested[] = trim((string) $part['prelude']);
+            $this->analyzeStyleRule($prelude, (string) $part['body'], $nested, $analysis, $imageOrder, $cascadeOrder, $layers);
+        }
+    }
+
+    /**
+     * Record one (possibly condition-scoped) style rule into the analysis
+     * streams. Extracted verbatim from the former `stylesheetAnalysis()`
+     * visitor closure.
+     *
+     * @param array<int, array<string, mixed>> $analysis
+     * @param list<string> $conditions
+     * @param array<string, int> $layers
+     */
+    private function recordStyleRuleDeclarations(string $prelude, string $body, array $conditions, array &$analysis, int &$imageOrder, int &$cascadeOrder, array &$layers): void
+    {
+        $rawDeclarations = $this->cssDeclarations($body);
+        $declarations = $this->safeVisualDeclarations($rawDeclarations);
+        // A materialized SVG asset is an isolated document: it cannot
+        // inherit `fill`/`stroke`/`color` (or the custom properties they
+        // reference) from the host stylesheet the way the inline source
+        // could. This unfiltered stream — kept separate from the finite
+        // `safeVisualDeclarations()` allow-list used for classification —
+        // lets paint materialization resolve the same cascade a browser
+        // would, including id/class-scoped custom-property indirection.
+        $cascadedValueDeclarations = $this->cascadeRelevantDeclarations($rawDeclarations);
+        // Which custom properties this rule READS, taken from the same
+        // unfiltered stream. Consumption is not confined to the
+        // classification allow-list — `opacity`, `transform`, `filter`
+        // and `transition` all read `var()` — and an inline definition
+        // an ancestor declares is only carried when the engine can see
+        // a reader for it. Names only: this rides every rule record.
+        $customPropertyReferences = array_keys($this->customPropertiesReferencedByValues($rawDeclarations));
+        $readingCustomProperties = static fn (array $rule): array => array() === $customPropertyReferences
+            ? $rule
+            : $rule + array( 'customPropertyReferences' => $customPropertyReferences );
+        $mediaTextDeclarations = array() === $conditions
+            ? array_values(array_filter(
+                $this->mediaTextInlineDeclarationEntries($body),
+                static fn (array $entry): bool => in_array($entry['property'], array(
+                    'align-items',
+                    'direction',
+                    'display',
+                    'flex-basis',
+                    'flex-direction',
+                    'flex-flow',
+                    'float',
+                    'grid-template-columns',
+                    'order',
+                    'width',
+                ), true)
+            ))
+            : array();
+        $imageEntries = $this->imageShapeDeclarationEntries($body);
+        $layer = null;
+        foreach ($conditions as $condition) if (preg_match('/^@layer\s+([a-z0-9_-]+(?:\.[a-z0-9_-]+)*)\b/i', trim($condition), $match)) {
+            $name = strtolower($match[1]);
+            $layers[$name] ??= count($layers);
+            $layer = $name;
+        }
+        // A rule is static when every condition wrapping it resolves the
+        // same way for every reader. `@layer` always does. So does an
+        // `@supports` condition the engine knows to be true: the browser
+        // rendering the output will take that branch unconditionally, so
+        // the resting cascade has to see it too.
+        //
+        // Tailwind v4 writes each opacity-modified colour as an opaque
+        // fallback plus the real translucent value behind
+        // `@supports (color: color-mix(...))`. Leaving that branch out of
+        // the resting rules resolved every such colour to the fallback
+        // the framework only emits for browsers without the feature.
+        //
+        // `@media` stays conditional: it depends on the viewport, which
+        // is exactly what the conditional stream exists to model.
+        foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? explode(',', $prelude) as $selector) {
+            $selector = trim($selector);
+            if ('' === $selector || str_starts_with($selector, '@')) {
+                continue;
+            }
+            $lifted = ColorSchemeVariant::liftSelector($selector);
+            $selector = trim($lifted['prelude']);
+            $selectorConditions = $conditions;
+            if (null !== $lifted['scheme']) {
+                $selectorConditions[] = '@media (prefers-color-scheme: ' . $lifted['scheme'] . ')';
+            }
+            $selectorIsStaticLayerRule = array() !== $selectorConditions
+                && array_reduce($selectorConditions, fn (bool $static, string $condition): bool => $static && $this->conditionResolvesStatically($condition), true);
+            $supportedRestingSelector = ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector);
+            if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations || array() !== $customPropertyReferences)) {
+                $staticRule = $readingCustomProperties(array(
+                    'selector' => $selector,
+                    'declarations' => $declarations,
+                    'mediaTextDeclarations' => $mediaTextDeclarations,
+                    'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
+                    'layer' => $layer,
+                    'layerRank' => null === $layer ? null : ($layers[$layer] ?? null),
+                ));
+                $staticRule['cascadeOrder'] = $cascadeOrder++;
+                $analysis['static'][] = $staticRule;
+            }
+            if (! $this->selectorCarriesPseudoState($selector) && array() !== $selectorConditions && ! $selectorIsStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations || array() !== $customPropertyReferences)) {
+                $conditionalRule = $readingCustomProperties(array(
+                    'selector' => $selector,
+                    'declarations' => $declarations,
+                    'cascadedDeclarations' => $cascadedValueDeclarations,
+                    'conditions' => $selectorConditions,
+                    'layer' => $layer,
+                    'layerRank' => null === $layer ? null : ($layers[$layer] ?? null),
+                ));
+                $conditionalRule['cascadeOrder'] = $cascadeOrder++;
+                $analysis['conditional'][] = $conditionalRule;
+            }
+            if ($supportedRestingSelector) {
+                foreach ($imageEntries as $entry) {
+                    $analysis['image_shape'][] = array(
+                        'selector' => $selector,
+                        'property' => $entry['property'],
+                        'value' => $entry['value'],
+                        'conditions' => $selectorConditions,
+                        'order' => $imageOrder++,
+                        'layer' => $layer,
+                    );
+                }
+            }
+            if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && array() !== $cascadedValueDeclarations) {
+                $analysis['cascaded_values'][] = array('selector' => $selector, 'declarations' => $cascadedValueDeclarations);
+            }
+            // A `content`-only pseudo-element rule draws generated
+            // content while declaring no classified property, so it is
+            // collected before the empty-declaration guard below.
+            if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {
+                $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
+                if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && (array() !== $declarations || isset($rawDeclarations['content']))) {
+                    $pseudoDeclarations = $declarations;
+                    if (isset($rawDeclarations['content'])) {
+                        $pseudoDeclarations['content'] = $rawDeclarations['content'];
+                    }
+                    $analysis['pseudo'][] = $readingCustomProperties(array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions));
+                }
+            }
+            if (array() === $declarations) {
+                continue;
+            }
+            $navigationStateConditions = array_filter(
+                $selectorConditions,
+                static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', trim($condition))
+            );
+            $navigationStateConditionsSupported = array() === array_filter(
+                $navigationStateConditions,
+                static fn (string $condition): bool => 1 !== preg_match('/^@media\b/i', trim($condition))
+            );
+            if (($selectorConditions === array() || $selectorIsStaticLayerRule || $navigationStateConditionsSupported) && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
+                $state = strtolower((string) $stateMatches[1][0][0]);
+                $offset = (int) $stateMatches[0][0][1];
+                $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
+                if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
+                    $analysis['navigation_state'][] = array('selector' => $selector, 'base_selector' => $baseSelector, 'state' => $state, 'declarations' => $declarations);
+                    $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'state' => $state, 'state_subject_selector' => trim(substr($selector, 0, $offset)), 'declarations' => $rawDeclarations);
+                }
+            }
+        }
     }
 
     /** @return list<array{property: string, value: string}> */
@@ -2830,6 +4083,146 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Box declarations that author rules give this element only under a media
+     * query, resolved per condition stack.
+     *
+     * A materialized SVG becomes an `<img>` that no `svg` selector reaches, and
+     * the wrappers such rules go through are often flattened, so the projected
+     * stylesheet cannot size it. The resting cascade
+     * ({@see presentationDeclarations()}) leaves media rules out. Each entry is
+     * one property's winner inside one condition stack (with `@layer` dropped,
+     * since the carrier is unlayered), ordered so that emitting them in order
+     * at equal specificity resolves overlapping stacks the way the source
+     * cascade does. Custom properties the value reads are re-rooted from the
+     * nearest source element defining them under the same conditions.
+     *
+     * @param list<string> $properties
+     * @return list<array{conditions: list<string>, property: string, value: string, customProperties: array<string, string>}>
+     */
+    public function mediaConditionedBoxDeclarations(DOMElement $element, array $properties): array
+    {
+        $wanted = array_fill_keys($properties, true);
+        $groups = array();
+        foreach ( $this->styleRuleCandidates($element, 'image-shape') as $rule ) {
+            $property = (string) ($rule['property'] ?? '');
+            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            if ( ! isset($wanted[$property]) || array() === $conditions ) {
+                continue;
+            }
+            $media = array();
+            $hasMedia = false;
+            foreach ( $conditions as $condition ) {
+                $condition = trim((string) $condition);
+                if ( preg_match('/^@layer\b/i', $condition) ) {
+                    continue;
+                }
+                if ( preg_match('/^@media\b/i', $condition) ) {
+                    $hasMedia = true;
+                } elseif ( ! $this->conditionResolvesStatically($condition) ) {
+                    // Container queries and unknown @supports terms depend on
+                    // context the carrier cannot restate.
+                    continue 2;
+                }
+                $media[] = $condition;
+            }
+            if ( ! $hasMedia || ! $this->matchesCssSelector($element, (string) $rule['selector']) ) {
+                continue;
+            }
+            $key = implode("\n", $media);
+            $groups[$key]['conditions'] = $media;
+            $groups[$key]['raw'] = $conditions;
+            $groups[$key]['facts'] ??= array();
+            CssCascade::apply($groups[$key]['facts'], $property, array(
+                'value' => (string) $rule['value'],
+                'important' => CssValueInspector::isImportant((string) $rule['value']),
+                'specificity' => $this->mediaTextSelectorSpecificity((string) $rule['selector']),
+                'order' => (int) $rule['order'],
+                'inline' => false,
+                'layer' => $rule['layer'] ?? null,
+            ));
+        }
+        if ( array() === $groups ) {
+            return array();
+        }
+
+        $entries = array();
+        foreach ( $groups as $group ) {
+            foreach ( $group['facts'] ?? array() as $property => $winner ) {
+                $value = trim((string) $winner['value']);
+                if ( '' === $value || preg_match('~[{}<>;]|/\*~', $value) ) {
+                    continue;
+                }
+                $entries[] = array(
+                    'conditions' => $group['conditions'],
+                    'property' => (string) $property,
+                    'value' => $value,
+                    'customProperties' => $this->conditionedCustomProperties($value, $element, $group['raw']),
+                    'cascade' => $winner,
+                );
+            }
+        }
+        usort($entries, static fn (array $a, array $b): int => CssCascade::wins($a['cascade'], $b['cascade']) ? (CssCascade::wins($b['cascade'], $a['cascade']) ? 0 : 1) : -1);
+
+        return array_map(static function (array $entry): array {
+            unset($entry['cascade']);
+            return $entry;
+        }, $entries);
+    }
+
+    /**
+     * Custom properties a value reads, defined on the element or an ancestor
+     * by a rule under exactly these conditions, nearest definition first.
+     *
+     * @param list<string> $conditions
+     * @return array<string, string>
+     */
+    private function conditionedCustomProperties(string $value, DOMElement $element, array $conditions): array
+    {
+        if ( ! str_contains($value, 'var(') || ! preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $value, $matches) ) {
+            return array();
+        }
+        $pending = array_fill_keys(array_unique($matches[1]), true);
+        $carried = array();
+        $static = $this->cascadedCustomProperties($element);
+        $visited = array();
+        // Resolve dependencies through the same source scope, with a bound
+        // that also terminates cyclic custom-property references.
+        for ( $depth = 0; $depth < 32 && array() !== $pending; ++$depth ) {
+            $name = (string) array_key_first($pending);
+            unset($pending[$name]);
+            if (isset($visited[$name])) continue;
+            $visited[$name] = true;
+            $declared = '';
+            for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+                $facts = array();
+                foreach ( $this->matchingStyleRules($node, 'conditional') as $order => $rule ) {
+                    $value = trim((string) ($rule['cascadedDeclarations'][$name] ?? ''));
+                    if ( ($rule['conditions'] ?? array()) === $conditions && '' !== $value ) {
+                        CssCascade::apply($facts, $name, array(
+                            'value' => $value, 'important' => CssValueInspector::isImportant($value),
+                            'specificity' => $this->mediaTextSelectorSpecificity((string) $rule['selector']),
+                            'order' => (int) ($rule['cascadeOrder'] ?? $order),
+                            'inline' => false, 'layer' => $rule['layerRank'] ?? null,
+                        ));
+                    }
+                }
+                $inline = trim((string) ($this->cssDeclarations(SourceDom::attr($node, 'style'))[$name] ?? ''));
+                if ('' !== $inline) CssCascade::apply($facts, $name, array('value' => $inline, 'important' => CssValueInspector::isImportant($inline), 'specificity' => array(0, 0, 0), 'order' => PHP_INT_MAX, 'inline' => true, 'layer' => null));
+                if (isset($facts[$name])) { $declared = $facts[$name]['value']; break; }
+            }
+            if ('' === $declared) $declared = trim((string) ($static[$name] ?? ''));
+            if ('' !== $declared && !preg_match('~[{}<>;]|/\*~', $declared)) {
+                $carried[$name] = $declared;
+                if (preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $declared, $references)) {
+                    foreach ($references[1] as $reference) if (!isset($visited[$reference])) $pending[$reference] = true;
+                }
+            }
+        }
+
+        return $carried;
+    }
+
+    /**
      * Whether one at-rule condition holds identically for every reader.
      *
      * `@layer` only orders the cascade, so a layered rule is always resting.
@@ -2851,13 +4244,29 @@ final class StyleResolver implements ElementPresentationResolver
     /** @param list<string> $conditions */
     private function conditionsApplyAtReferenceViewport(array $conditions): bool
     {
+        return $this->conditionsApplyAtViewport($conditions, self::DESKTOP_REFERENCE_WIDTH);
+    }
+
+    /**
+     * Whether a declaration's at-rule conditions all hold at one viewport width.
+     *
+     * `@layer` only orders the cascade and never conditions. `@supports` holds
+     * when the allowlist knows the feature to be true. `@media` is evaluated
+     * at the given width, with `em`/`rem` read against the 16px media-query
+     * base. Any other at-rule, and any media feature the evaluator does not
+     * know, does not hold.
+     *
+     * @param list<string> $conditions
+     */
+    public function conditionsApplyAtViewport(array $conditions, float $viewportWidth): bool
+    {
         foreach ($conditions as $condition) {
             $condition = trim($condition);
             if (preg_match('/^@layer\b/i', $condition)) continue;
             if (preg_match('/^@supports\b/i', $condition)) {
                 if (!CssCascade::supportsConditionApplies((string) preg_replace('/^@supports\s*/i', '', $condition))) return false;
             } elseif (preg_match('/^@media\b/i', $condition)) {
-                if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), 1440.0)) return false;
+                if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), $viewportWidth)) return false;
             } else return false;
         }
         return true;
@@ -2970,6 +4379,11 @@ final class StyleResolver implements ElementPresentationResolver
             'text-decoration',
             'text-decoration-line',
             'text-transform',
+            'transition',
+            'transition-delay',
+            'transition-duration',
+            'transition-property',
+            'transition-timing-function',
             'table-layout',
             'width',
             'z-index',
@@ -2992,6 +4406,10 @@ final class StyleResolver implements ElementPresentationResolver
     {
         static $cascadeProperties = array(
             'color' => true,
+            // Anchor carriers must resolve authored decoration even when the
+            // general presentation demand filter skips an ordinary text link.
+            'text-decoration' => true,
+            'text-decoration-line' => true,
             'fill' => true,
             'fill-opacity' => true,
             'stroke' => true,
@@ -2999,6 +4417,25 @@ final class StyleResolver implements ElementPresentationResolver
             'stroke-width' => true,
             'animation' => true,
             'animation-name' => true,
+            'opacity' => true,
+            'transform' => true,
+            'transform-origin' => true,
+            'rotate' => true,
+            'scale' => true,
+            'translate' => true,
+            'transition-property' => true,
+            'transition-duration' => true,
+            'transition-timing-function' => true,
+            'transition-delay' => true,
+            // Grid-item placement: resolved for native core grid child
+            // layout (Automattic/blocks-engine#2139).
+            'grid-area' => true,
+            'grid-column' => true,
+            'grid-column-start' => true,
+            'grid-column-end' => true,
+            'grid-row' => true,
+            'grid-row-start' => true,
+            'grid-row-end' => true,
         );
 
         $filtered = array();
@@ -3053,7 +4490,10 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             [$name, $value] = array_map('trim', explode(':', $declaration, 2));
-            $name = strtolower($name);
+            // Custom property names are case-sensitive: `--btnBg` and
+            // `--btnbg` are distinct properties, and `var(--btnBg)` only
+            // reads the first.
+            $name = str_starts_with($name, '--') ? $name : strtolower($name);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
             // A consumed custom property can supply the URL to an authored
             // background rule. Keep it for the same sanitized carrier path.
@@ -3202,6 +4642,28 @@ final class StyleResolver implements ElementPresentationResolver
         return $cache->selectorMatchCache->styleRuleCandidates($element, $collection, $index);
     }
 
+    /** @return list<string> Authored interaction states that paint a background on this element. */
+    public function sourceBackgroundInteractionStates(DOMElement $element): array
+    {
+        $states = array();
+        foreach ( $this->context->sourceStyles()->navigationStateRules() as $rule ) {
+            $state = strtolower((string) ($rule['state'] ?? ''));
+            if ( ! in_array($state, array('hover', 'focus', 'focus-visible', 'active'), true) ) continue;
+            if ( ! $this->matchesCssSelector($element, (string) ($rule['base_selector'] ?? '')) ) continue;
+            foreach ( array('background', 'background-color') as $property ) {
+                $value = CssValueInspector::comparable((string) ($rule['declarations'][$property] ?? ''));
+                if ( '' !== $value
+                    && ! CssValueInspector::isTransparentColor($value)
+                    && ! in_array($value, array('none', 'initial', 'inherit', 'unset', 'revert'), true)
+                ) {
+                    $states[$state] = true;
+                    break;
+                }
+            }
+        }
+        return array_keys($states);
+    }
+
     /** @return array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, attributes: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} */
     private function styleRuleCandidateIndex(string $collection): array
     {
@@ -3212,6 +4674,7 @@ final class StyleResolver implements ElementPresentationResolver
             'static-conditional' => array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules()),
             'static-conditional-pseudo' => array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules(), $this->context->sourceStyles()->pseudoElementRules()),
             'cascaded-values' => $this->context->sourceStyles()->cascadedValueRules(),
+            'image-shape' => $this->context->sourceStyles()->imageShapeRules(),
         };
         $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'attributes' => array(), 'total' => count($rules));
         foreach ( $rules as $order => $rule ) {
@@ -3276,12 +4739,78 @@ final class StyleResolver implements ElementPresentationResolver
         return implode(' ', array_values(array_unique($classes)));
     }
 
+    /**
+     * Source classes may style a replacement stage, except for hooks whose
+     * matching source rules position, hide, or animate the replaced slides.
+     *
+     * @param array<int, DOMElement> $replacedSlides
+     */
+    public function safeStageClassName(DOMElement $sourceElement, array $replacedSlides): string
+    {
+        $classes = array_values(array_unique(array_merge(
+            array_values(array_filter(SourceDom::boundedClassTokens(SourceDom::attr($sourceElement, 'class')), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-')))
+        )));
+        $runtimeProperties = array_fill_keys(array('transform', 'translate', 'rotate', 'scale', 'animation', 'animation-name', 'animation-play-state', 'opacity', 'visibility'), true);
+        $unsafe = array();
+        foreach ($this->context->authorStyles()->styleRules() as $rule) {
+            $declarations = is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array();
+            if (! $this->hasSourceSlideRuntimeState($declarations, $runtimeProperties)) {
+                continue;
+            }
+            foreach (is_array($rule['selectors'] ?? null) ? $rule['selectors'] : array() as $selectorRecord) {
+                $selector = trim((string) ($selectorRecord['selector'] ?? ''));
+                if ('' === $selector) {
+                    continue;
+                }
+                $targetsSlide = false;
+                foreach ($replacedSlides as $slide) {
+                    if ($slide instanceof DOMElement && $this->matchesCssSelector($slide, $selector)) {
+                        $targetsSlide = true;
+                        break;
+                    }
+                }
+                if (!$targetsSlide) {
+                    continue;
+                }
+                foreach ($classes as $class) {
+                    if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![a-zA-Z0-9_-])/', $selector)) {
+                        $unsafe[$class] = true;
+                    }
+                }
+            }
+        }
+        return implode(' ', array_values(array_filter($classes, static fn (string $class): bool => ! isset($unsafe[$class]))));
+    }
+
+    /** Source list classes for the generated track, excluding slide runtime hooks. */
+    public function safeTrackClassName(DOMElement $sourceList, array $replacedSlides): string
+    {
+        return $this->safeStageClassName($sourceList, $replacedSlides);
+    }
+
+    /** @return list<string> Attribute identities needed by projected source selectors. */
+    public function sourceAttributeSelectorMarkers(DOMElement $element): array
+    {
+        return $this->context->authorSelectorProjectionState()->sourceAttributeSelectorMarkers($element->getNodePath() ?? '');
+    }
+
+    /** @param array<string, string> $declarations @param array<string, true> $runtimeProperties */
+    private function hasSourceSlideRuntimeState(array $declarations, array $runtimeProperties): bool
+    {
+        return array() !== array_intersect_key($declarations, $runtimeProperties)
+            || 'none' === strtolower(trim((string) ($declarations['display'] ?? '')));
+    }
+
     private function hasAuthorClassSelector(string $className): bool
     {
         foreach ( $this->context->authorStyles()->styleRules() as $rule ) {
             foreach ( $rule['selectors'] as $selector ) {
                 foreach ( $selector['parsed']['compounds'] ?? array() as $compound ) {
-                    foreach ( array_merge(array($compound), $compound['not'] ?? array()) as $part ) {
+                    $parts = array_merge(array($compound));
+                    foreach ( $compound['not'] ?? array() as $negated ) {
+                        array_push($parts, ...($negated['compounds'] ?? array()));
+                    }
+                    foreach ( $parts as $part ) {
                         if ( in_array($className, $part['classes'] ?? array(), true) ) {
                             return true;
                         }
@@ -3353,6 +4882,15 @@ final class StyleResolver implements ElementPresentationResolver
         );
     }
 
+    /** SVG/state presentation also needs the unfiltered paint and motion stream. */
+    public function resolvedSourceStateDeclarations(DOMElement $element): array
+    {
+        return array_merge(
+            $this->resolvedPresentationDeclarations($element),
+            $this->cssDeclarations($this->resolveCssVariablesInValue($this->resolvedCascadeStyle($element, 'cascaded-values'), $element))
+        );
+    }
+
     public function resolveCssVariablesInValue(string $value, ?DOMElement $element = null): string
     {
         if ( false === strpos($value, 'var(') ) {
@@ -3371,36 +4909,14 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function expandCssVariableReferences(string $value, array $customProperties): string
     {
-        for ( $pass = 0; $pass < 5; ++$pass ) {
-            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', static function (array $matches) use ($customProperties): string {
-                $name = (string) $matches[1];
-                $propertyValue = (string) ($customProperties[$name] ?? '');
-                // A custom property authored as a bare CSS-wide keyword
-                // (`--token:unset`) is a common "no override" sentinel: a
-                // design-system token deliberately left unset so a consuming
-                // `var(--token, <default>)` falls through to its own default,
-                // exactly as if `--token` were never declared. Per spec these
-                // keywords have no special meaning once substituted into
-                // another property's value (the declaration would simply be
-                // invalid), so honoring the sentinel intent here -- rather
-                // than substituting the literal word "unset" -- is a closer
-                // approximation of the cascade's real outcome than treating
-                // it as a normal value.
-                $isCssWideKeywordSentinel = in_array(strtolower(trim($propertyValue)), array( 'unset', 'initial', 'inherit', 'revert', 'revert-layer' ), true);
-                if ( isset($customProperties[$name]) && '' !== $propertyValue && ! $isCssWideKeywordSentinel ) {
-                    return $propertyValue;
-                }
-
-                return isset($matches[2]) && '' !== trim((string) $matches[2]) ? trim((string) $matches[2]) : (string) $matches[0];
-            }, $value);
-
-            if ( ! is_string($expanded) || $expanded === $value ) {
-                break;
-            }
-            $value = $expanded;
-        }
-
-        return trim($value);
+        return CssVariableExpander::expand($value, static function (string $name) use ($customProperties): ?string {
+            $propertyValue = trim((string) ($customProperties[$name] ?? ''));
+            // Retain the existing design-token sentinel policy while sharing
+            // balanced nested/function fallback substitution with form paint.
+            return '' === $propertyValue || in_array(strtolower($propertyValue), array( 'unset', 'initial', 'inherit', 'revert', 'revert-layer' ), true)
+                ? null
+                : $propertyValue;
+        }) ?? trim($value);
     }
 
     /**

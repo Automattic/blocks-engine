@@ -1,0 +1,61 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-multi-image-link-keeps-its-images",
+  "description": "An image-only link with one image promotes to linked core/image; multi-image links remain groups with one linked core/image per source image.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-multi-image-link-keeps-its-images.json",
+    "notes": "Neutral synthetic regression fixture for single-image and multi-image link lowering."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "The anchor content was discarded outright before this conversion existed, so there is no legacy output to compare."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><body><a class=\"feed\" href=\"/gallery\"><img src=\"assets/one.jpg\" alt=\"One\" width=\"320\" height=\"240\"><img src=\"assets/two.jpg\" alt=\"Two\" width=\"320\" height=\"240\"></a><a class=\"portrait\" href=\"/profile\"><img src=\"assets/profile.jpg\" alt=\"Profile\" width=\"320\" height=\"240\"></a><a class=\"strip\" href=\"/strip\">\n  <img src=\"assets/three.jpg\" alt=\"Three\" width=\"320\" height=\"240\">\n  <img src=\"assets/four.jpg\" alt=\"Four\" width=\"320\" height=\"240\">\n</a><a class=\"spacer-link\" href=\"/nothing\"></a></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "feed" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "assets/one.jpg", "alt": "One", "href": "/gallery", "linkDestination": "custom" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/image", "attrs": { "url": "assets/two.jpg", "alt": "Two", "href": "/gallery", "linkDestination": "custom" } },
+    { "path": "blocks.1", "name": "core/image", "attrs": { "url": "assets/profile.jpg", "alt": "Profile", "href": "/profile", "linkDestination": "custom" } },
+    { "path": "blocks.2", "name": "core/group", "attrs": { "className": "strip" } },
+    { "path": "blocks.2.innerBlocks.0", "name": "core/image", "attrs": { "url": "assets/three.jpg", "alt": "Three", "href": "/strip", "linkDestination": "custom" } },
+    { "path": "blocks.2.innerBlocks.1", "name": "core/image", "attrs": { "url": "assets/four.jpg", "alt": "Four", "href": "/strip", "linkDestination": "custom" } },
+    { "path": "blocks.3", "name": "core/paragraph" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 4 },
+
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/image" },
+    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "equals", "value": "assets/one.jpg" },
+    { "path": "blocks.0.innerBlocks.0.attrs.href", "assert": "equals", "value": "/gallery" },
+    { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/image" },
+    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "equals", "value": "assets/two.jpg" },
+    { "path": "blocks.0.innerBlocks.1.attrs.href", "assert": "equals", "value": "/gallery" },
+
+    { "path": "blocks.1.blockName", "assert": "equals", "value": "core/image" },
+    { "path": "blocks.1.attrs.href", "assert": "equals", "value": "/profile" },
+
+    { "path": "blocks.2.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.2.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.2.innerBlocks.0.attrs.url", "assert": "equals", "value": "assets/three.jpg" },
+    { "path": "blocks.2.innerBlocks.0.attrs.href", "assert": "equals", "value": "/strip" },
+    { "path": "blocks.2.innerBlocks.1.attrs.url", "assert": "equals", "value": "assets/four.jpg" },
+    { "path": "blocks.2.innerBlocks.1.attrs.href", "assert": "equals", "value": "/strip" },
+
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/gallery\"><img src=\"assets/one.jpg\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/gallery\"><img src=\"assets/two.jpg\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/strip\"><img src=\"assets/three.jpg\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/strip\"><img src=\"assets/four.jpg\"" },
+
+    { "path": "blocks.3.blockName", "assert": "equals", "value": "core/paragraph" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/nothing\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

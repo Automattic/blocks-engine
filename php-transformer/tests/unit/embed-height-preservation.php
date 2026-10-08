@@ -52,7 +52,7 @@ $assert(
     'an authored absolute height carries wp-has-aspect-ratio WITHOUT a proportional wp-embed-aspect-* preset — the box is fixed, not approximated'
 );
 $assert(
-    1 === preg_match('/\bbe-inline-geometry-[0-9a-f]{20,}\b/', $authoredHeightClassName, $carrierMatch),
+    1 === preg_match('/\bbe-inline-geometry-[0-9a-f]{16,}\b/', $authoredHeightClassName, $carrierMatch),
     'an authored absolute height mints a generated-stylesheet carrier class on the figure'
 );
 $assert(

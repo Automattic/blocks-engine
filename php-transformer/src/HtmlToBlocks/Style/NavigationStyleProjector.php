@@ -3,11 +3,13 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 /**
  * Projects author navigation styling onto the emitted navigation blocks.
@@ -180,7 +182,7 @@ final class NavigationStyleProjector
             // both have to be overridden for that to hold: without them the
             // negative delay lands on an animation that never advances, and the
             // element stays on whatever keyframe its fill mode paints.
-            $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important;transition:none!important}';
+            $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important}';
         }
         if ( $this->context->runtimeBehavior()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
@@ -269,7 +271,7 @@ final class NavigationStyleProjector
                             $selector
                         ) ?? $selector;
                     }
-                    $replacement = self::projectAnchorIds($selector, $ids);
+                    $replacement = $this->projectAnchorIds($selector, $ids);
                     if ( $replacement !== $selector ) {
                         $projected[] = $replacement;
                         $throughInnerBlocks = self::throughEditorInnerBlocks($replacement);
@@ -334,22 +336,34 @@ final class NavigationStyleProjector
      * so projecting only the `#` form left the container a grid while its
      * children lost `grid-area` and stacked in source order.
      *
+     * A `#…` target also carries id specificity, and a bare class does not, so
+     * the restated rule loses to any author rule with more classes than it —
+     * `#bganim{background:…}` (1,0,0) against Bulma's `.hero.is-info.is-bold`
+     * (0,3,0), which leaves the editor canvas painted with the wrong gradient.
+     * Wrap the anchor in `:where()` and restore the id with the shared id
+     * specificity shim, so the projected compound weighs exactly what the
+     * authored one did. The `[id="…"]` spelling already weighs one attribute,
+     * the same as the class it becomes, so it is projected unshimmed.
+     *
      * @param array<string, bool> $ids
      */
-    private static function projectAnchorIds(string $fragment, array $ids, bool $keepSourceClass = false): string
+    private function projectAnchorIds(string $fragment, array $ids, bool $keepSourceClass = false): string
     {
-        $anchor = static function (string $id) use ($ids, $keepSourceClass): ?string {
+        $idSpecificity = ':not(#' . $this->context->authorStyles()->idSpecificityShim() . ')';
+        $anchor = static function (string $id, string $specificity = '') use ($ids, $keepSourceClass): ?string {
             if ( ! isset($ids[$id]) ) {
                 return null;
             }
-            $projected = '.blocks-engine-editor-anchor-' . $id;
+            $projected = '' === $specificity
+                ? '.' . EngineMarker::editorAnchorClass($id)
+                : ':where(.' . EngineMarker::editorAnchorClass($id) . ')' . $specificity;
             return $keepSourceClass ? ':is(' . $projected . ',.' . $id . ')' : $projected;
         };
 
         $fragment = preg_replace_callback(
             '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
-            static function (array $match) use ($anchor): string {
-                $projected = $anchor($match[2]);
+            static function (array $match) use ($anchor, $idSpecificity): string {
+                $projected = $anchor($match[2], $idSpecificity);
                 return null === $projected ? $match[0] : $match[1] . $projected;
             },
             $fragment
@@ -379,8 +393,8 @@ final class NavigationStyleProjector
             return null;
         }
 
-        $projectIds = static fn (string $fragment): string => self::projectAnchorIds($fragment, $ids);
-        $projectTargetIds = static fn (string $fragment): string => self::projectAnchorIds($fragment, $ids, true);
+        $projectIds = fn (string $fragment): string => $this->projectAnchorIds($fragment, $ids);
+        $projectTargetIds = fn (string $fragment): string => $this->projectAnchorIds($fragment, $ids, true);
 
         $start = (int) $rightmost['start'];
         $end = (int) $rightmost['end'];
@@ -739,6 +753,35 @@ final class NavigationStyleProjector
                     $mappedRule = $condition . '{' . $mappedRule . '}';
                 }
                 $rules[] = $mappedRule;
+
+                // The site editor renders a referenced wp_navigation entity
+                // without the frontend list-navigation root marker.
+                if ( ! $scopedAnchorClassRule && str_contains($class, ':') ) {
+                    $editorItemSelector = '.wp-block-navigation:not(.blocks-engine-list-navigation) .wp-block-navigation-item'
+                        . $itemCompound . '.' . CssIdent::escape($class);
+                    $editorSelector = $editorItemSelector . '>.wp-block-navigation-item__content' . $pseudo;
+                    $editorRule = $editorSelector . '{' . implode(';', $declarations) . '}';
+                    foreach ( array_reverse(array_values(array_filter(
+                        $conditions,
+                        static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', trim($condition))
+                    ))) as $condition ) {
+                        $editorRule = $condition . '{' . $editorRule . '}';
+                    }
+                    $rules[] = $editorRule;
+                }
+                $carriesTransition = array_filter(
+                    $declarations,
+                    static fn (string $declaration): bool => 1 === preg_match('/^transition(?:-|\s*:)/i', $declaration)
+                );
+                if ( ! $scopedAnchorClassRule && array() !== $carriesTransition ) {
+                    $editorSelector = '.wp-block-navigation:not(.blocks-engine-list-navigation) .wp-block-navigation-item'
+                        . $itemCompound . '.' . CssIdent::escape($class) . '>.wp-block-navigation-item__content' . $pseudo;
+                    $editorRule = $editorSelector . '{' . implode(';', $declarations) . '}';
+                    foreach ( array_reverse($conditions) as $condition ) {
+                        $editorRule = $condition . '{' . $editorRule . '}';
+                    }
+                    $rules[] = $editorRule;
+                }
             }
 
             if ( array() !== $itemNeutralizers ) {
@@ -785,7 +828,8 @@ final class NavigationStyleProjector
         $authoredRules = $this->navigationAuthorStyleRules();
         $rules = array();
         foreach ( $authoredRules as $rule ) {
-            if ( array() !== ($rule['conditions'] ?? array()) ) {
+            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            if ( array() !== $conditions && ! $this->navigationConditionsAreProjectable($conditions) ) {
                 continue;
             }
             $selector = trim((string) ($rule['selector'] ?? ''));
@@ -794,6 +838,13 @@ final class NavigationStyleProjector
                 $match = array( $anchorMatch[1], $anchorMatch[2], $anchorMatch[3], 'anchor' );
             } elseif ( 1 === preg_match('/^(.*?)(?:^|\s)\.([A-Za-z_][A-Za-z0-9_-]*)\s*>\s*a((?::[a-z-]+)*)$/', $selector, $itemMatch) ) {
                 $match = array( $itemMatch[1], $itemMatch[2], $itemMatch[3], 'item' );
+            } else {
+                foreach ( array_keys($itemClasses) as $itemClass ) {
+                    if ( 1 === preg_match('/^' . CssIdent::classSelectorRegex($itemClass) . '((?::[a-z-]+)+)$/i', $selector, $stateMatch) ) {
+                        $match = array( '', $itemClass, $stateMatch[1], 'anchor' );
+                        break;
+                    }
+                }
             }
             if ( array() === $match ) {
                 continue;
@@ -859,10 +910,27 @@ final class NavigationStyleProjector
                     . ',' . $hostSelector
                     . ' .wp-block-navigation-item__content[aria-current]' . $pseudo;
             } else {
-                $selectorText = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
-                    . $class . '>.wp-block-navigation-item__content' . $pseudo;
+                $itemSelector = '.wp-block-navigation-item.' . CssIdent::escape($class) . '>.wp-block-navigation-item__content' . $pseudo;
+                $selectorText = '.wp-block-navigation.blocks-engine-list-navigation ' . $itemSelector;
             }
-            $rules[$selectorText] = $selectorText . '{' . implode(';', $declarations) . '}';
+            $project = function (string $selector) use ($conditions, $declarations): string {
+                $projectedRule = $selector . '{' . implode(';', $declarations) . '}';
+                foreach ( array_reverse(array_values(array_filter(
+                    $conditions,
+                    static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', trim($condition))
+                ))) as $condition ) {
+                    $projectedRule = $condition . '{' . $projectedRule . '}';
+                }
+                return $projectedRule;
+            };
+            $rules[$selectorText] = $project($selectorText);
+            if ( ! $isCurrentClass && str_contains($class, ':') ) {
+                // A referenced menu in the site editor has the core navigation
+                // root but not the importer's frontend-only list marker.
+                $editorSelector = '.wp-block-navigation:not(.blocks-engine-list-navigation) '
+                    . '.wp-block-navigation-item.' . CssIdent::escape($class) . '>.wp-block-navigation-item__content' . $pseudo;
+                $rules[$editorSelector] = $project($editorSelector);
+            }
         }
 
         return array_map(
@@ -935,7 +1003,9 @@ final class NavigationStyleProjector
                 ++$specificity[2];
             }
             foreach ( $compound['not'] ?? array() as $negated ) {
-                $addCompound($negated);
+                foreach ( $negated['compounds'] ?? array() as $negatedCompound ) {
+                    $addCompound($negatedCompound);
+                }
             }
         };
         foreach ( $parsed['compounds'] ?? array() as $compound ) {
@@ -1081,7 +1151,10 @@ final class NavigationStyleProjector
     private function navigationRuleHasConditionalPropertyCompetitorOnAnchors(array $candidate, string $property, array $authoredRules, array $anchors): bool
     {
         foreach ( $authoredRules as $rule ) {
-            if ( array() === ($rule['conditions'] ?? array())
+            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            if ( array() === $conditions
+                || $this->navigationConditionsAreStaticLayers($conditions)
+                || ($candidate['id'] ?? null) === ($rule['id'] ?? null)
                 || ($candidate['pseudo'] ?? '') !== ($rule['pseudo'] ?? '')
                 || ! array_key_exists($property, is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array())
             ) {
@@ -1095,6 +1168,25 @@ final class NavigationStyleProjector
             }
         }
         return false;
+    }
+
+    /** @param list<string> $conditions */
+    private function navigationConditionsAreStaticLayers(array $conditions): bool
+    {
+        return array() !== $conditions && array() === array_filter(
+            $conditions,
+            static fn (string $condition): bool => 1 !== preg_match('/^@layer\s+[a-z0-9_.-]+\s*$/i', trim($condition))
+        );
+    }
+
+    /** @param list<string> $conditions */
+    private function navigationConditionsAreProjectable(array $conditions): bool
+    {
+        return array() === array_filter(
+            $conditions,
+            static fn (string $condition): bool => 1 !== preg_match('/^@layer\s+[a-z0-9_.-]+\s*$/i', trim($condition))
+                && 1 !== preg_match('/^@media\b[^)]*\b(?:hover|pointer)\s*:/i', trim($condition))
+        );
     }
 
     /**
@@ -1353,7 +1445,9 @@ final class NavigationStyleProjector
     {
         $matched = array();
         foreach ( $this->context->sourceStyles()->navigationStateRules() as $rule ) {
-            if ( ! isset($rule['declarations']['color'])
+            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            if ( (array() !== $conditions && ! $this->navigationConditionsAreProjectable($conditions))
+                || ! isset($rule['declarations']['color'])
                 || ! $this->styleResolver->matchesCssSelector($element, $rule['base_selector'])
             ) {
                 continue;
@@ -1414,6 +1508,88 @@ final class NavigationStyleProjector
                 }
                 $content = '.wp-block-navigation-item.' . $class . '>.wp-block-navigation-item__content';
                 $rules[$class] = $content . '{' . $declarations . '}';
+            }
+        }
+
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::SOURCE_STYLE_PROJECTION, $css),
+            array_values($rules)
+        );
+    }
+
+    /**
+     * Carry a navigation-link's resolved source box to the anchor core renders.
+     *
+     * core/navigation-link renders the block's className on its item, where
+     * core's own `.wp-block-navigation .wp-block-navigation-item` background
+     * rule outranks the utility classes that painted the source anchor, and
+     * the rendered `.wp-block-navigation-item__content` anchor receives
+     * neither the fill nor the padding a button-styled link declares. The
+     * carried padding sides are reset on the item, to the source item's own
+     * winner, so the box is not painted twice.
+     *
+     * Tagged {@see CascadeLayer::SOURCE_STYLE_PROJECTION}.
+     *
+     * @return list<CascadeRule>
+     */
+    public function navigationLinkBoxRules(string $serializedBlocks): array
+    {
+        $prefix = 'blocks-engine-navigation-link-box-';
+        if ( ! str_contains($serializedBlocks, $prefix)
+            || ! preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches, PREG_SET_ORDER)
+        ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
+                if ( ! str_starts_with($class, $prefix) ) {
+                    continue;
+                }
+                $box = $this->context->generatedSupportStyles()->navigationLinkBox($class);
+                if ( '' === $box['content'] ) {
+                    continue;
+                }
+                $item = '.wp-block-navigation .wp-block-navigation-item.' . $class;
+                $rules[$class . ':content'] = $item . '>.wp-block-navigation-item__content{' . $box['content'] . '}';
+                if ( '' !== $box['item_reset'] ) {
+                    $rules[$class . ':item'] = $item . '{' . $box['item_reset'] . '}';
+                }
+            }
+        }
+
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::SOURCE_STYLE_PROJECTION, $css),
+            array_values($rules)
+        );
+    }
+
+    /** Restate an authored anchor's relative line-height on Core's rendered anchor. */
+    public function navigationAnchorLineHeightRules(string $serializedBlocks): array
+    {
+        $prefix = 'blocks-engine-navigation-anchor-line-height-';
+        if (!str_contains($serializedBlocks, $prefix)
+            || !preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches)
+        ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ($matches[1] as $json) {
+            $attrs = json_decode($json, true);
+            if (!is_array($attrs)) continue;
+            foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
+                if (!str_starts_with($class, $prefix)) continue;
+                $value = $this->context->generatedSupportStyles()->navigationAnchorLineHeight($class);
+                if ('' === $value) continue;
+                $rules[$class] = '.wp-block-navigation .wp-block-navigation-item.' . $class
+                    . '>.wp-block-navigation-item__content{line-height:' . $value . '}';
             }
         }
 
@@ -1559,10 +1735,13 @@ final class NavigationStyleProjector
                     }
 
                     $restingSuffix = $this->navigationColorRestingSuffix($currentColors[$className]['state_mask']);
-                    $selector = '.wp-block-navigation.' . $className
+                    // In a shared header every item also carries its resting
+                    // color for the routes where it is not current; the current
+                    // state must outrank that per-item resting rule.
+                    $selector = '.wp-block-navigation.' . $className . '.' . $className
                         . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content' . $restingSuffix
-                        . ',.wp-block-navigation.' . $className
-                        . ' .wp-block-navigation-item__content[aria-current]' . $restingSuffix;
+                        . ',.wp-block-navigation.' . $className . '.' . $className
+                        . ' .wp-block-navigation-item>.wp-block-navigation-item__content[aria-current]' . $restingSuffix;
                     $rules['current:' . $className] = $selector . '{color:' . $currentColors[$className]['color'] . '}';
                 }
             }

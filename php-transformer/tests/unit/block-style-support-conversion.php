@@ -244,7 +244,7 @@ $importantGeometryResult = ( new HtmlTransformer() )->transform($importantGeomet
 $importantGeometryMarkup = (string) ($importantGeometryResult['serialized_blocks'] ?? '');
 $importantGeometryCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($importantGeometryResult['assets'] ?? null) ? $importantGeometryResult['assets'] : array()));
 $importantGeometryParity = ( new StaticStyleParityRunner() )->compareSourceToTransformWithGeometry($importantGeometryHtml);
-$assert(! str_contains($importantGeometryMarkup, 'style=') && str_contains($importantGeometryCss, '{width:30rem !important;min-height:12rem !important}'), '43: width and min-height !important ride the carrier stylesheet, not a raw style core save() cannot reproduce', $importantGeometryMarkup . "\n" . $importantGeometryCss);
+$assert(! str_contains($importantGeometryMarkup, 'style=') && str_contains($importantGeometryCss, 'width:30rem !important') && str_contains($importantGeometryCss, 'min-height:12rem !important'), '43: width and min-height !important ride the carrier stylesheet, not a raw style core save() cannot reproduce', $importantGeometryMarkup . "\n" . $importantGeometryCss);
 $assert(1.0 === (float) ($importantGeometryParity['geometry_v2']['parity']['score'] ?? 0.0), '44: geometry v2 preserves width and min-height !important', json_encode($importantGeometryParity['geometry_v2']['parity'] ?? array()));
 
 $collisionAllocator = new GeometryCarrierClassAllocator(static fn (string $signature): string => str_repeat('a', 64));

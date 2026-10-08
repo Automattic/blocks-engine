@@ -50,6 +50,11 @@ final class RuntimeIslandContext
         return $this->session->runtimeSelectorState();
     }
 
+    public function generatedBlockName(string $localName): string
+    {
+        return $this->session->generatedBlockRegistry()?->blockName($localName) ?? '';
+    }
+
     /**
      * @return iterable<DOMElement>
      */

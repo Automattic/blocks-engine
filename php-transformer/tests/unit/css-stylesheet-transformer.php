@@ -72,6 +72,24 @@ foreach ( array( '.\\31 0', ".\\31\r\n0" ) as $selector ) {
 $escapedCss = '.before\\{x\\;y\\,z { color:red }';
 $assert('.after\\{x\\;y\\,z { color:red }' === $transformer->transform($escapedCss, $rename), 'escaped structural bytes do not split stylesheet rules');
 
+// Long inert runs must not hide the next lexical transition. In particular,
+// the closing star of a comment and escaped punctuation are not inert bytes.
+foreach (array(str_repeat('ordinary', 4096), "caf\xc3\xa9\0tail") as $run) {
+    $prelude = '/*' . $run . '*/ .before[data-label="' . $run . ',}\"x"]';
+    $body = ' content:"' . $run . ';}\"x"; --value: fn(' . $run . '); /*' . $run . '*/ ';
+    $css = $prelude . '{' . $body . '}';
+    $assert(str_replace('.before', '.after', $css) === $transformer->transform($css, $rename), 'long runs preserve comments, quoted punctuation, escapes and binary bytes');
+    $assert(array($prelude, ' .next') === CssStylesheetTransformer::splitSelectorList($prelude . ', .next'), 'long selector runs split at the actual top-level comma');
+    $visited = array();
+    $transformer->visitStyleRules('@media screen{' . $css . '}', static function (string $selector, string $declarations, array $ancestors) use (&$visited): void {
+        $visited[] = array($selector, $declarations, $ancestors);
+    });
+    $assert(array(array($prelude, $body, array('@media screen'))) === $visited, 'long runs retain complete nested visitor payloads');
+    foreach (array('/*' . $run, '.before{content:"' . $run, '.before{--x:' . $run . '\\', '.before{--x:(' . $run . ';}') as $malformed) {
+        $assert($malformed === $transformer->transform($malformed, $rename), 'malformed long-run input stays byte-identical');
+    }
+}
+
 // CSS whitespace is exactly space, tab, LF, CR, and FF; comments only separate
 // descendants when surrounding whitespace supplies the combinator.
 $tokens = CssSelectorTokenizer::tokenize(".a\f>\f.b");
@@ -127,6 +145,24 @@ $assert(array(
 ) === $mixedParts, 'style-rule bodies retain ordered declaration runs, nested conditions, relative selectors, and custom-property blocks');
 $assert(array(array('declarations' => 'content:"{";background:url("data:image/svg+xml,<svg>{}</svg>");margin:0')) === $transformer->splitStyleRuleBody('content:"{";background:url("data:image/svg+xml,<svg>{}</svg>");margin:0'), 'braces inside strings and URLs are not nested style rules');
 $assert(array(array('declarations' => 'margin:0;@media (min-width:700px){color:red')) === $transformer->splitStyleRuleBody('margin:0;@media (min-width:700px){color:red'), 'incomplete mixed bodies remain opaque');
+
+// Merging per-page projections of one stylesheet keeps each distinct rule once, at its last position.
+$merged = $transformer->concatenateWithoutRedundantRules(array(
+    '.shared{color:red}:where(.page-a){color:blue}@media (min-width:600px){.wide{margin:0}.a-only{padding:1px}}',
+    '.shared{color:red}[data-theme]{color:green}@media (min-width:600px){.wide{margin:0}}',
+));
+$assert(':where(.page-a){color:blue}@media (min-width:600px){.a-only{padding:1px}}.shared{color:red}[data-theme]{color:green}@media (min-width:600px){.wide{margin:0}}' === $merged, 'rules repeated later are dropped from earlier projections while page-specific rules and conditional groups remain in order');
+$assert('.x{color:red}.y{color:blue}.x{color:red}' !== $transformer->concatenateWithoutRedundantRules(array('.x{color:red}.y{color:blue}', '.x{color:red}')) && '.y{color:blue}.x{color:red}' === $transformer->concatenateWithoutRedundantRules(array('.x{color:red}.y{color:blue}', '.x{color:red}')), 'the surviving copy is the last one, so it still overrides the rules between the copies');
+$assert('@media print{.x{color:red}}.x{color:red}' === $transformer->concatenateWithoutRedundantRules(array('@media print{.x{color:red}}', '.x{color:red}')), 'identical rules under different conditions are distinct');
+$assert('@layer base{.x{color:red}}@layer a, b;@layer base{.x{color:red}}@layer a, b;' === $transformer->concatenateWithoutRedundantRules(array('@layer base{.x{color:red}}@layer a, b;', '@layer base{.x{color:red}}@layer a, b;')), 'layer blocks and statements are never dropped, since first appearance fixes layer order');
+$assert(".x{color:red\n.x{color:red}" === $transformer->concatenateWithoutRedundantRules(array('.x{color:red', '.x{color:red}')), 'malformed input is concatenated unchanged');
+
+$assert('.a-only{color:blue}@media (min-width:600px){.wide-a{margin:1px}}' === $transformer->rulesAbsentFrom(array('.shared{color:red}.a-only{color:blue}@media (min-width:600px){.wide{margin:0}.wide-a{margin:1px}}', '.a-only{color:blue}'), array('.shared{color:red}@media (min-width:600px){.wide{margin:0}}')), 'only rules missing from the present stylesheets remain, once each, in order and inside their conditional groups');
+$assert('@layer base{.x{color:red}}' === $transformer->rulesAbsentFrom(array('@layer base{.x{color:red}}'), array('@layer base{.x{color:red}}')), 'layer blocks are never treated as already present');
+$source = '.small{padding:20px}@media(min-width:768px){.wide{padding:32px}}';
+$projection = '.small:not(.control){padding:20px}@media(min-width:768px){.wide{padding:32px}}';
+$assert($projection === $transformer->rulesAbsentFrom(array($projection), array($source), true), 'a later page delta retains responsive rules after its rewritten base rule, preserving cascade order');
+$assert('' === $transformer->rulesAbsentFrom(array($source), array($source), true), 'an unchanged projection still needs no page stylesheet');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssStylesheetTransformer unit tests: {$failures} failed, {$passes} passed\n");

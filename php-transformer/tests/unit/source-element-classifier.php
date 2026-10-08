@@ -87,6 +87,35 @@ $assert(
 // --- media: responsive image sources ---------------------------------------
 
 $assert(
+    ! $classifier->hasPictureSourceSelection($element('<picture><source media="(min-width: 0px)" srcset="photo.jpg"><img src="photo.jpg"></picture>')),
+    'a universal source matching the fallback image is not a source selection'
+);
+$assert(
+    ! $classifier->hasPictureSourceSelection($element('<picture><source media="(min-width: 0px)" srcset="photo.jpg 1x, photo-large.jpg 2x"><img src="photo.jpg"></picture>')),
+    'universal density candidates including the fallback image are not a source selection'
+);
+$assert(
+    $classifier->hasPictureSourceSelection($element('<picture><source media="(min-width: 0px)" srcset="other.jpg 1x, photo-large.jpg 2x"><img src="photo.jpg"></picture>')),
+    'universal density candidates without the fallback image remain a source selection'
+);
+$assert(
+    $classifier->hasPictureSourceSelection($element('<picture><source media="(min-width: 0px)" srcset="photo.jpg 400w, photo-large.jpg 800w" sizes="50vw"><img src="photo.jpg"></picture>')),
+    'width-descriptor candidates remain a source selection'
+);
+$assert(
+    $classifier->hasPictureSourceSelection($element('<picture><source media="(min-width: 0px)" type="image/avif" srcset="photo.jpg 1x, photo-large.jpg 2x"><img src="photo.jpg"></picture>')),
+    'a differing source format remains a source selection'
+);
+$assert(
+    $classifier->hasPictureSourceSelection($element('<picture><source media="(max-width: 600px)" srcset="small.jpg"><img src="photo.jpg"></picture>')),
+    'a source selected at a viewport breakpoint is a source selection'
+);
+$assert(
+    $classifier->hasPictureSourceSelection($element('<picture><source type="image/avif" srcset="photo.avif"><img src="photo.jpg"></picture>')),
+    'a source in a different image format is a source selection'
+);
+
+$assert(
     $classifier->hasResponsiveImageSources($element('<img src="a.png" srcset="a-2x.png 2x">')),
     'srcset on the element itself counts'
 );
@@ -248,6 +277,87 @@ $assert(
 $assert(
     ! $classifier->hasCommerceToken($element('<div class="pricing-table">9</div>'), array('price')),
     'a longer word containing the token does not match'
+);
+
+// --- image-only slideshow collections --------------------------------------
+
+$slideshowHost = $element(
+    '<div><div style="height:20px;overflow:hidden"></div><div id="photo-slideshow" class="photo-slideshow">'
+    . '<div class="slides">'
+    . '<div class="slide"><img src="one.jpg"></div>'
+    . '<div class="slide" style="display:none"><img src="two.jpg"></div>'
+    . '</div>'
+    . '<div class="picker"><a><img src="one-t.jpg"></a><a><img src="two-t.jpg"></a></div>'
+    . '</div></div>'
+);
+$stageImages = $classifier->imageSlideshowStageImages($slideshowHost);
+$assert(
+    2 === count($stageImages)
+        && 'one.jpg' === $stageImages[0]->getAttribute('src')
+        && 'two.jpg' === $stageImages[1]->getAttribute('src'),
+    'a thin host around a stage and thumbnail pager yields the stage images'
+);
+$assert(
+    $classifier->isImageOnlySlideshowCollection($slideshowHost),
+    'the same host is an image-only slideshow collection'
+);
+
+$incompleteHost = $element(
+    '<div><div style="height:20px;overflow:hidden"></div><div id="photo-slideshow" class="photo-slideshow">'
+    . '<div class="slides">'
+    . '<div class="slide"><img src="one.jpg"></div>'
+    . '<div class="slide" style="display:none"><img src="two.jpg"></div>'
+    . '</div>'
+    . '<div class="picker"><a><img src="one-thumb.jpg" width="105" height="70"></a>'
+    . '<a><img src="two-thumb.jpg" width="105" height="70"></a>'
+    . '<a><img src="three-thumb.jpg" width="105" height="70"></a></div>'
+    . '</div></div>'
+);
+$completeImages = $classifier->imageSlideshowStageImages($incompleteHost);
+$assert(
+    3 === count($completeImages)
+        && 'one.jpg' === $completeImages[0]->getAttribute('src')
+        && 'two.jpg' === $completeImages[1]->getAttribute('src')
+        && 'three-thumb.jpg' === $completeImages[2]->getAttribute('src'),
+    'thumbnail-only photos join the stage set in source order'
+);
+$layout = $classifier->imageSlideshowGalleryLayout($incompleteHost);
+$assert(
+    3 === ( $layout['columns'] ?? 0 ) && true === ( $layout['imageCrop'] ?? null ),
+    'gallery columns follow the thumbnail strip that fits the stage'
+);
+
+$mixedSlide = $element(
+    '<div class="photo-slideshow"><div class="slides">'
+    . '<div class="slide"><h2>Quote</h2><p>Copy.</p><img src="one.jpg"></div>'
+    . '<div class="slide" style="display:none"><h2>Two</h2><p>More.</p><img src="two.jpg"></div>'
+    . '</div></div>'
+);
+$assert(
+    array() === $classifier->imageSlideshowStageImages($mixedSlide),
+    'slides that carry headings are not an image-only collection'
+);
+
+$videoSlide = $element(
+    '<div class="photo-slideshow"><div class="slides">'
+    . '<div class="slide"><video src="clip.mp4"></video></div>'
+    . '<div class="slide" style="display:none"><img src="two.jpg"></div>'
+    . '</div><div class="picker"><a><img src="one-t.jpg"></a><a><img src="two-t.jpg"></a></div></div>'
+);
+$assert(
+    array() === $classifier->imageSlideshowStageImages($videoSlide),
+    'a slideshow that mixes video is not an image-only collection'
+);
+
+$article = $element(
+    '<article><p>Intro</p><div id="photo-slideshow" class="photo-slideshow"><div class="slides">'
+    . '<div class="slide"><img src="one.jpg"></div>'
+    . '<div class="slide" style="display:none"><img src="two.jpg"></div>'
+    . '</div></div><p>Outro</p></article>'
+);
+$assert(
+    array() === $classifier->imageSlideshowStageImages($article),
+    'mixed siblings around a slideshow are not themselves the collection'
 );
 
 // --- phrasing content -------------------------------------------------------

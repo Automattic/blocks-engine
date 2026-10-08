@@ -134,6 +134,20 @@ final class ClosedStateNormalizer
             return false;
         }
 
+        // A decorative image beside an already playable autoplay video is its
+        // presentation layer, not unreachable editorial content. Revealing the
+        // captured hidden image would cover the native playback we retain.
+        $images = $element->getElementsByTagName('img');
+        $image = $images->item(0);
+        $parent = $element->parentNode;
+        if (1 === $element->childElementCount && 1 === $images->length && $image instanceof DOMElement && $image->parentNode === $element && $image->hasAttribute('alt') && '' === $attr($image, 'alt') && $parent instanceof DOMElement) {
+            foreach ($parent->childNodes as $sibling) {
+                if ($sibling instanceof DOMElement && 'video' === strtolower($sibling->tagName) && $sibling->hasAttribute('autoplay') && $sibling->hasAttribute('muted') && '' !== trim((string) $attr($sibling, 'src'))) {
+                    return true;
+                }
+            }
+        }
+
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'a', 'button', 'input', 'select', 'textarea', 'img', 'picture', 'video', 'audio', 'iframe', 'nav', 'form' ), true) ) {
                 return false;
@@ -196,7 +210,7 @@ final class ClosedStateNormalizer
 
     private function isZeroLength(string $value): bool
     {
-        return 1 === preg_match('/^0(?:px|em|rem|%|vh|vw)?$/', $this->normalizedValue($value));
+        return CssValueInspector::isZeroLength($value);
     }
 
     private function isHiddenOverflow(string $value): bool

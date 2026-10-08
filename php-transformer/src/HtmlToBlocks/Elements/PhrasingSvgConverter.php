@@ -25,7 +25,7 @@ final class PhrasingSvgConverter implements ElementConverter
         }
 
         $imageMarkup = $this->svgMaterializer->inlineSvgRichTextImageMarkup($element);
-        if ( null === $imageMarkup ) {
+        if ( null === $imageMarkup || '' === $imageMarkup ) {
             return ConversionOutcome::unhandled();
         }
 

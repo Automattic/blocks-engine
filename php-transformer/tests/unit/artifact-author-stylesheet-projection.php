@@ -123,6 +123,21 @@ $rounded = ( new ArtifactCompiler() )->compile(array( 'files' => array(
 $roundedCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $rounded['assets'] ?? array()));
 $assert(! str_contains($roundedCss, 'box-sizing:content-box'), 'border radius alone is not box chrome and does not alter source sizing');
 
+// A band sized by `height` with bottom padding is 35px shorter under the WordPress
+// border-box reset, and everything below it moves up. Height is a definite size
+// just like width.
+$contentBoxHeight = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9}</style><div class="band"><p>Copy</p></div>' ),
+) ) )->toArray();
+$contentBoxHeightCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $contentBoxHeight['assets'] ?? array()));
+$assert(str_contains($contentBoxHeightCss, '.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9;box-sizing:content-box}'), 'definite source height plus box chrome retains the initial content-box model against the WordPress block reset');
+
+$heightOnly = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.band{display:block;height:245px;overflow:hidden;background:#9b9}</style><div class="band"><p>Copy</p></div>' ),
+) ) )->toArray();
+$heightOnlyCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $heightOnly['assets'] ?? array()));
+$assert(! str_contains($heightOnlyCss, 'box-sizing:content-box'), 'a definite height without box chrome does not alter source sizing');
+
 $projectedPinnedLayer = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>#projected-pinned-layer{position:fixed;top:0}</style><link rel="stylesheet" href="site.css"><main><div class="data-liberation-mobile-document"><div id="projected-pinned-layer">Header</div><div id="projected-mobile-pinned-layer">Mobile header</div></div></main>' ),
@@ -283,7 +298,7 @@ $assert(! str_contains($nexusGeometryMarkup, 'wp-block-media-text is-stacked-on-
     && ! str_contains($nexusGeometryCss, '.h-9 .wp-block-media-text__media > img')
     && ! str_contains($nexusGeometryCss, '.max-w-[120px]{max-width:120px}')
     && ! str_contains($nexusGeometryCss, '.h-9{height:2.25rem}')
-    && str_contains($nexusGeometryCss, ':where(p.blocks-engine-synthetic-paragraph){display:contents}')
+    && str_contains($nexusGeometryCss, ':where(p.blocks-engine-synthetic-paragraph:not(.blocks-engine-source-box-paragraph)){display:contents}')
      && 'pass' === ($nexusGeometryValidity['source_reports']['wp_block_validity']['status'] ?? ''),
     'full artifact geometry fixture preserves footer image classes and makes floating link carriers transparent while remaining valid');
 
@@ -394,7 +409,7 @@ $sharedSettledCss = (string) ($sharedSettledAssets['shared.css']['content'] ?? '
 preg_match_all('/#animated[^,{]*\{animation:fade/', $sharedSettledCss, $sharedSettledSelectors);
 preg_match_all('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', implode('', $sharedSettledSelectors[0] ?? array()), $sharedSettledMarkerMatches);
 $sharedSettledMarkers = array_fill_keys($sharedSettledMarkerMatches[0] ?? array(), true);
-$assert(3 === count($sharedSettledMarkers) && array() !== ($sharedSettledSelectors[0] ?? array()) && array() === array_filter($sharedSettledSelectors[0], static fn(string $selector): bool => array() !== array_filter(array_keys($sharedSettledMarkers), static fn(string $marker): bool => !str_contains($selector, ':not(.' . $marker . ')'))), 'Shared state gates exclude every page-specific settled marker across stylesheet paths so one route projection cannot reactivate another route animation.');
+$assert(1 === count($sharedSettledMarkers) && array() !== ($sharedSettledSelectors[0] ?? array()) && array() === array_filter($sharedSettledSelectors[0], static fn(string $selector): bool => array() !== array_filter(array_keys($sharedSettledMarkers), static fn(string $marker): bool => !str_contains($selector, ':not(.' . $marker . ')'))), 'shared state gates use a stable source-predicate marker across stylesheet paths so equivalent negated selectors deduplicate without reviving settled animations');
 
 $multiPageRuntime = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
@@ -471,7 +486,7 @@ $imageCss = (string) ($imageStylesheet['content'] ?? '');
 $assert(str_contains($imageCss, '.photo{position:absolute;width:123px;height:106px;object-fit:cover}') && str_contains($imageCss, '.relative-photo{width:86.356%;height:auto;aspect-ratio:727.431 / 593.583}'), 'source image geometry remains on the canonical core/image wrapper');
 $assert(str_contains($imageCss, '{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}') && ! str_contains($imageCss, '> img{width:123px') && ! str_contains($imageCss, '> img{width:86.356%'), 'canonical nested images fill explicitly owned wrapper geometry instead of applying source dimensions twice');
 $assert(str_contains($imageCss, '{display:block;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}') && ! preg_match('/source-tag-img[^,{]*\.wp-block-image > img\{[^}]*width:100%/', $imageCss), 'generic image presentation selectors do not impose nested image geometry');
-$assert(preg_match('/where\(figure\).*\.photo\.wp-block-image > img\{display:block;max-width:100%/', $imageCss) && preg_match('/blocks-engine-root-child-.*\.wp-block-image > img\{display:block;max-width:100%/', $imageCss), 'type and root-child image selectors project the canonical nested-image bridge without inventing dimensions');
+$assert(preg_match('/where\(figure\).*\.photo\.wp-block-image > img,[^{]*\.wp-block-image > a > img\{display:block;max-width:100%/', $imageCss) && preg_match('/blocks-engine-root-child-.*\.wp-block-image > img,[^{]*\.wp-block-image > a > img\{display:block;max-width:100%/', $imageCss), 'type and root-child image selectors project the canonical nested-image bridge without inventing dimensions');
 $assert('text' === ($imageStylesheet['content_encoding'] ?? '') && ! isset($imageStylesheet['content_base64']) && '' !== $imageCss, 'stylesheet projection drops the stale base64 twin and keeps the rewritten text as the sole payload representation');
 $assert(1 === preg_match('/<!-- wp:image [\s\S]*<figure[^>]*photo[^>]*><img/', (string) ($image['serialized_blocks'] ?? '')), 'image projection preserves canonical core/image figure markup');
 
@@ -485,7 +500,7 @@ $positionedImage = ( new ArtifactCompiler() )->compile(array(
 $positionedImageCss = implode("\n", array_column($positionedImage['assets'] ?? array(), 'content'));
 $assert(str_contains((string) ($positionedImage['serialized_blocks'] ?? ''), 'map be-inline-geometry-'), 'unsupported inline image presentation uses a deterministic carrier class');
 $assert(str_contains($positionedImageCss, 'object-fit:fill !important;object-position:-197.702px -102.702px !important'), 'image presentation carrier preserves source object fit and position for the nested image bridge');
-$assert(str_contains($positionedImageCss, '.map.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}'), 'nested image fills a wrapper with explicitly owned width and height');
+$assert(str_contains($positionedImageCss, '.map.wp-block-image > img,.map.wp-block-image > a > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}'), 'nested image fills a wrapper with explicitly owned width and height, linked or not');
 
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
@@ -500,7 +515,63 @@ $assert(1 === count($multiPageSupportAssets), 'identical generated engine suppor
 $multiPageAssetPaths = array_column($multiPage['assets'] ?? array(), 'path');
 $multiPageWordPressAssets = $multiPage['source_reports']['wordpress_site_plan']['assets'] ?? array();
 $assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', $multiPageAssetPaths[0] ?? '') && 'shared.css' === ($multiPageAssetPaths[1] ?? '') && 'shared' === ($multiPageSupportAssets[0]['compilation']['scope'] ?? '') && 'global' === ($multiPageWordPressAssets[0]['scopes'][0]['kind'] ?? ''), 'identical multi-page support is ordered before author CSS and promoted to global scope');
+$multiPageAboutCss = $multiPage['assets'][2] ?? array();
+$assert(1 === preg_match('#^shared\.page-[a-f0-9]{12}\.css$#', (string) ($multiPageAboutCss['path'] ?? '')) && array( 'scope' => 'page', 'id' => 'about.html' ) === ($multiPageAboutCss['compilation'] ?? null) && 'page' === ($multiPageWordPressAssets[2]['scopes'][0]['kind'] ?? '') && ! str_contains((string) ($multiPage['assets'][1]['content'] ?? ''), (string) preg_replace('/^.*?(blocks-engine-richtext-[a-f0-9]{12})-.*$/s', '$1', (string) ($multiPageAboutCss['content'] ?? ''))), 'a page\'s own projection of a shared stylesheet is page-scoped, loads after it, and stays out of the site-wide copy');
 $assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
+
+// A source grid's attribute-specific desktop winner must remain later than a
+// shared fallback that still matches the attribute-free editable Group.
+$responsiveGrid = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="cards.css"><header class="shared">Shared header</header><main><ul class="cards" data-count="2"><li>One</li><li>Two</li></ul></main>' ),
+        array( 'path' => 'people.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="cards.css"><header class="shared" data-owner="people">Shared header</header><main><ul class="cards" data-count="4" style="grid-gap:100px 100px"><li><img src="one.jpg" alt="One"></li><li>Two</li><li>Three</li><li>Four</li></ul></main>' ),
+        array( 'path' => 'cards.css', 'kind' => 'css', 'content' => '.shared{color:#456}.shared[data-owner="people"]{color:red}.cards{display:grid;gap:20px;grid-template-columns:1fr}.cards:not([data-count="1"]){grid-template-columns:repeat(2,1fr)}@media(min-width:768px){.cards[data-count="4"]{grid-template-columns:repeat(3,1fr)}}@media(min-width:1100px){.cards[data-count="4"]{grid-template-columns:repeat(4,1fr)}}@media(max-width:600px){.cards[data-count="4"]{grid-template-columns:1fr}}' ),
+        array( 'path' => 'one.jpg', 'kind' => 'image', 'content' => 'image-bytes' ),
+    ),
+) )->toArray();
+$gridAssets = $responsiveGrid['assets'] ?? array();
+$gridBaseIndex = array_search('cards.css', array_column($gridAssets, 'path'), true);
+$gridPageAssets = array_values(array_filter($gridAssets, static fn (array $asset): bool => str_starts_with((string) ($asset['path'] ?? ''), 'cards.page-')));
+$gridPageCss = implode('', array_column($gridPageAssets, 'content'));
+$gridBaseCss = false !== $gridBaseIndex ? (string) ($gridAssets[$gridBaseIndex]['content'] ?? '') : '';
+$gridMarker = '';
+preg_match('/blocks-engine-attribute-[a-f0-9]+-\d+/', $gridPageCss, $gridMarkerMatch);
+$gridMarker = $gridMarkerMatch[0] ?? '';
+$gridPages = array_column($responsiveGrid['source_reports']['compiled_site']['pages'] ?? array(), null, 'source_path');
+$gridMarkup = (string) ($gridPages['people.html']['block_markup'] ?? '');
+$assert(false !== $gridBaseIndex && count($gridPageAssets) === 1 && array_search($gridPageAssets[0]['path'], array_column($gridAssets, 'path'), true) > $gridBaseIndex, 'the page-specific grid projection follows its shared stylesheet');
+$gridPlanPaths = array_column($responsiveGrid['source_reports']['wordpress_site_plan']['assets'] ?? array(), 'source_path');
+$gridPlanBase = array_search('cards.css', $gridPlanPaths, true);
+$gridPlanPage = array_search($gridPageAssets[0]['path'] ?? '', $gridPlanPaths, true);
+$assert(false !== $gridPlanBase && false !== $gridPlanPage && $gridPlanBase < $gridPlanPage, 'the WordPress site plan preserves the shared-then-page stylesheet cascade through theme enqueue');
+$gridSource = 'cards.css';
+$gridPage = 'cards.page-123456789abc.css';
+$orderedGridStyles = ( new ReflectionMethod(\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::class, 'orderPageStylesheetProjections') )->invoke(null, array(
+    array('kind' => 'css', 'source_path' => $gridPage, 'content' => '.cards:not([data-count="1"]){grid-template-columns:repeat(4,1fr)}'),
+    array('kind' => 'css', 'source_path' => $gridPage . '.shared-chrome', 'content' => '.shared{color:#456}'),
+    array('kind' => 'css', 'source_path' => 'unrelated.css', 'content' => '.other{color:#789}'),
+    array('kind' => 'css', 'source_path' => $gridSource, 'content' => '.cards:not([data-count="1"]){grid-template-columns:repeat(2,1fr)}'),
+    array('kind' => 'css', 'source_path' => $gridSource . '.shared-chrome', 'content' => '.shared{color:#123}'),
+));
+$orderedGridSources = array_column($orderedGridStyles, 'source_path');
+$assert(array('unrelated.css', $gridSource, $gridSource . '.shared-chrome', $gridPage, $gridPage . '.shared-chrome') === $orderedGridSources, 'a linked shared stylesheet stays before its page-scoped winner after chrome factoring without moving unrelated CSS');
+$assert('' !== $gridMarker && str_contains($gridPageCss, 'grid-template-columns:repeat(4,1fr)') && str_contains($gridPageCss, '@media(max-width:600px)') && str_contains($gridBaseCss, 'grid-template-columns:repeat(2,1fr)') && ! str_contains($gridPageCss, 'grid-template-columns:repeat(2,1fr)'), 'page projection retains its own responsive grid winners without replaying an unrelated shared two-column fallback after them');
+$assert(str_contains(implode("\n", array_column($gridAssets, 'content')), 'grid-gap:100px 100px') && str_contains($gridMarkup, 'be-inline-geometry-'), 'the editable grid keeps its inline-authored legacy gap through the existing layout carrier');
+$assert(str_contains($gridMarkup, 'blocks-engine-css-owned-grid') && str_contains($gridMarkup, $gridMarker) && 'pass' === ( new Runtime() )->validateBlockSerialization($gridMarkup)['status'], 'the attribute-selected four-card grid remains a valid editable Group document');
+$gridDocument = new DOMDocument();
+@$gridDocument->loadHTML('<body>' . preg_replace('/<!--.*?-->/s', '', $gridMarkup) . '</body>');
+$gridElement = null;
+foreach ( $gridDocument->getElementsByTagName('ul') as $candidate ) {
+    if ( str_contains($candidate->getAttribute('class'), $gridMarker) ) {
+        $gridElement = $candidate;
+        break;
+    }
+}
+$gridCascade = new StaticCssCascade($gridDocument, $gridBaseCss . $gridPageCss);
+$assert($gridElement instanceof DOMElement && 'repeat(4,1fr)' === ($gridCascade->resolve($gridElement, array( 'grid-template-columns' ), array())['grid-template-columns'] ?? ''), 'the projected four-column rule wins the shared two-column fallback in source order at the desktop reference');
+$gridCascade = new StaticCssCascade($gridDocument, implode("\n", array_column($orderedGridStyles, 'content')));
+$assert('repeat(4,1fr)' === ($gridCascade->resolve($gridElement, array('grid-template-columns'), array())['grid-template-columns'] ?? ''), 'the final site-plan stylesheet order preserves the four-column browser winner');
 
 $pageSubsetArtifact = array(
     'entrypoint' => 'index.html',
@@ -530,6 +601,33 @@ foreach ($pageSubsetShared['analysis']['page_ids'] as $pageId) $pageSubsetReceip
 $pageSubsetStaged = $pageSubsetCompiler->compose($pageSubsetShared, array_reverse($pageSubsetReceipts))->toArray();
 $pageSubsetStagedAssets = array_column($pageSubsetStaged['source_reports']['wordpress_site_plan']['assets'] ?? array(), null, 'source_path');
 $assert(array('services.html', 'portfolio.html') === array_column($pageSubsetStagedAssets['section.css']['scopes'] ?? array(), 'source_path'), 'staged compilation retains the same subset page scopes as monolithic compilation');
+
+$sharedShellResponsive = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="shared.css"><style>.home-grid{display:grid;grid-template-columns:1fr 1fr}@media(max-width:700px){.home-grid{grid-template-columns:1fr}}</style></head><body><header class="site-chrome">Brand</header><main><div class="home-grid"><div>One</div><div>Two</div></div></main></body></html>' ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="shared.css"><style>.about-grid{display:grid;grid-template-columns:1fr 1fr}@media(max-width:700px){.about-grid{grid-template-columns:1fr}}</style></head><body><header class="site-chrome">Brand</header><main><div class="about-grid"><div>One</div><div>Two</div></div></main></body></html>' ),
+        array( 'path' => 'shared.css', 'kind' => 'css', 'content' => '.site-chrome{display:block;color:#123456}' ),
+    ),
+) )->toArray();
+$sharedShellPlanAssets = $sharedShellResponsive['source_reports']['wordpress_site_plan']['assets'] ?? array();
+$sharedShellPageStyles = array_values(array_filter($sharedShellPlanAssets, static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && 'shared.css' !== ($asset['source_path'] ?? '') && 'global' !== (($asset['scopes'][0]['kind'] ?? null))));
+$sharedShellPageCss = implode("\n", array_column($sharedShellPageStyles, 'content'));
+$sharedShellSharedAsset = array_values(array_filter($sharedShellPlanAssets, static fn (array $asset): bool => 'shared.css' === ($asset['source_path'] ?? '')))[0] ?? array();
+$assert(2 === count($sharedShellSharedAsset['scopes'] ?? array()) && ! str_contains($sharedShellPageCss, 'site-chrome'), 'shared stylesheet remains scoped to its two consuming pages without absorbing route CSS');
+$assert(str_contains($sharedShellPageCss, 'home-grid') && str_contains($sharedShellPageCss, 'about-grid'), 'route-owned responsive styles remain in page-scoped assets after shared-shell extraction');
+$sharedShellHome = new DOMDocument();
+$sharedShellHome->loadHTML('<html><body><div class="home-grid"><div>One</div><div>Two</div></div></body></html>');
+$sharedShellHomeElement = $sharedShellHome->getElementsByTagName('div')->item(0);
+$sharedShellAbout = new DOMDocument();
+$sharedShellAbout->loadHTML('<html><body><div class="about-grid"><div>One</div><div>Two</div></div></body></html>');
+$sharedShellAboutElement = $sharedShellAbout->getElementsByTagName('div')->item(0);
+$assert($sharedShellHomeElement instanceof DOMElement && $sharedShellAboutElement instanceof DOMElement, 'responsive multi-page fixture exposes both grid roots');
+$sharedShellDesktopCss = $sharedShellPageCss;
+$sharedShellDesktopHome = ( new StaticCssCascade($sharedShellHome, $sharedShellDesktopCss) )->resolve($sharedShellHomeElement, array('display', 'grid-template-columns'), array('width' => 1000));
+$sharedShellDesktopAbout = ( new StaticCssCascade($sharedShellAbout, $sharedShellDesktopCss) )->resolve($sharedShellAboutElement, array('display', 'grid-template-columns'), array('width' => 1000));
+$assert('grid' === ($sharedShellDesktopHome['display'] ?? '') && '1fr 1fr' === ($sharedShellDesktopHome['grid-template-columns'] ?? '') && 'grid' === ($sharedShellDesktopAbout['display'] ?? '') && '1fr 1fr' === ($sharedShellDesktopAbout['grid-template-columns'] ?? ''), 'desktop declared cascade retains two columns independently on both routes');
+$assert(str_contains($sharedShellPageCss, '@media(max-width:700px){.home-grid{grid-template-columns:1fr}}'), 'mobile route media rule retains its one-column override');
 
 $siblingSupport = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
@@ -563,9 +661,14 @@ $dataMeshGridMarkup = (string) ($dataMeshGrid['serialized_blocks'] ?? '');
 $dataMeshGridCss = implode("\n", array_column($dataMeshGrid['assets'] ?? array(), 'content'));
 preg_match('/\b(blocks-engine-attribute-[a-f0-9-]+)\b/', $dataMeshGridMarkup, $dataMeshGridMarker);
 $dataMeshGridMarker = $dataMeshGridMarker[1] ?? '';
+$dataMeshGridChildMarker = '';
+if ( preg_match('/:where\(\.(blocks-engine-attribute-[a-f0-9-]+)\)>:where\(#service-one\)/', $dataMeshGridCss, $dataMeshGridChildMarkerMatch) ) {
+    $dataMeshGridChildMarker = $dataMeshGridChildMarkerMatch[1];
+}
 $assert(
     '' !== $dataMeshGridMarker
-        && str_contains($dataMeshGridCss, ':where(.' . $dataMeshGridMarker . ')>:where(#service-one)')
+        && '' !== $dataMeshGridChildMarker
+        && str_contains($dataMeshGridMarkup, $dataMeshGridChildMarker)
         && str_contains($dataMeshGridCss, '@media(max-width:600px){:where(.' . $dataMeshGridMarker . ')')
         && ! str_contains($dataMeshGridCss, '[data-mesh-id="services-gridContainer"]'),
     'artifact stylesheet projection retains a data-addressed grid root and its direct-child combinator through the responsive cascade'
@@ -588,19 +691,23 @@ $dataMeshPositionedGrid = ( new ArtifactCompiler() )->compile(array(
 ) )->toArray();
 $dataMeshPositionedGridMarkup = (string) ($dataMeshPositionedGrid['serialized_blocks'] ?? '');
 $dataMeshPositionedGridCss = implode("\n", array_column($dataMeshPositionedGrid['assets'] ?? array(), 'content'));
-$dataMeshPositionedGridMarker = '';
-if ( preg_match('/\b(blocks-engine-attribute-[a-f0-9-]+)\b/', $dataMeshPositionedGridMarkup, $dataMeshPositionedGridMarkerMatch) ) {
-    $dataMeshPositionedGridMarker = $dataMeshPositionedGridMarkerMatch[1];
+$dataMeshPositionedCopyMarker = '';
+$dataMeshPositionedStrategyMarker = '';
+if ( preg_match('/:where\(\.(blocks-engine-attribute-[a-f0-9-]+)\)>:where\(#svc-copy\)/', $dataMeshPositionedGridCss, $dataMeshPositionedCopyMarkerMatch) ) {
+    $dataMeshPositionedCopyMarker = $dataMeshPositionedCopyMarkerMatch[1];
+}
+if ( preg_match('/:where\(\.(blocks-engine-attribute-[a-f0-9-]+)\)>:where\(#svc-strategy\)/', $dataMeshPositionedGridCss, $dataMeshPositionedStrategyMarkerMatch) ) {
+    $dataMeshPositionedStrategyMarker = $dataMeshPositionedStrategyMarkerMatch[1];
 }
 $assert(
-    '' !== $dataMeshPositionedGridMarker
-        && str_contains($dataMeshPositionedGridMarkup, $dataMeshPositionedGridMarker)
-        && (bool) preg_match('/:where\(\.' . $dataMeshPositionedGridMarker . '\)>:where\(#svc-copy\)/', $dataMeshPositionedGridCss)
-        && (bool) preg_match('/:where\(\.' . $dataMeshPositionedGridMarker . '\)>:where\(#svc-strategy\)/', $dataMeshPositionedGridCss)
+    '' !== $dataMeshPositionedCopyMarker
+        && '' !== $dataMeshPositionedStrategyMarker
+        && str_contains($dataMeshPositionedGridMarkup, $dataMeshPositionedCopyMarker)
+        && str_contains($dataMeshPositionedGridMarkup, $dataMeshPositionedStrategyMarker)
         && str_contains($dataMeshPositionedGridCss, 'grid-area:1 / 1 / 2 / 2')
         && str_contains($dataMeshPositionedGridCss, 'grid-area:10 / 1 / 11 / 2')
         && str_contains($dataMeshPositionedGridCss, 'grid-template-columns:100%')
-        && (bool) preg_match('/@media\(max-width:980px\)\{[^@]*:where\(\.' . $dataMeshPositionedGridMarker . '\)/', $dataMeshPositionedGridCss),
+        && (bool) preg_match('/@media\(max-width:980px\)\{[^@]*:where\(\.blocks-engine-attribute-[a-f0-9-]+\)/', $dataMeshPositionedGridCss),
     'artifact stylesheet projection keeps a data-identified, positioned-child grid computing through the paired interact-element selector family'
 );
 
@@ -729,6 +836,24 @@ $borderedTableMarkup = (string) ($borderedTable['serialized_blocks'] ?? '');
 $borderedTableCss = implode("\n", array_column(array_filter($borderedTable['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
 $assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)">/', $borderedTableMarkup, $borderedTableMarker) === 1 && str_contains($borderedTableCss, '.' . ($borderedTableMarker[1] ?? '') . '>table th,.' . ($borderedTableMarker[1] ?? '') . '>table td{border:0}') && str_contains($borderedTableCss, 'table{border:2px solid #123456;border-collapse:collapse}'), 'authored table borders retain their outer frame while generated cell borders are reset');
 $assert('pass' === ( new Runtime() )->validateBlockSerialization($borderedTableMarkup)['status'], 'authored bordered tables remain editor-valid');
+
+// #2125: rules no page rewrites must be emitted once, however many pages project the stylesheet.
+$sharedRules = '';
+for ( $index = 0; $index < 40; ++$index ) {
+    $sharedRules .= ".card-{$index}{margin:{$index}px}.quote{color:#" . sprintf('%06x', $index) . '}';
+}
+$sharedSize = static function (int $pages) use ($sharedRules): int {
+    $files = array( array( 'path' => 'site.css', 'kind' => 'css', 'content' => $sharedRules ) );
+    for ( $page = 0; $page < $pages; ++$page ) {
+        $files[] = array( 'path' => 0 === $page ? 'index.html' : "page-{$page}/index.html", 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="/site.css"></head><body><section class="card-' . $page . '"><p><span class="quote">&quot;</span>Page ' . $page . '</p></section></body></html>' );
+    }
+    $compiled = ( new ArtifactCompiler() )->compile(array( 'entrypoint' => 'index.html', 'files' => $files ))->toArray();
+    // Only stylesheets every page loads count; a page's own rules are page-scoped.
+    return array_sum(array_map(static fn (array $asset): int => str_starts_with((string) $asset['path'], 'site') && 'page' !== ($asset['compilation']['scope'] ?? '') ? strlen((string) ($asset['content'] ?? '')) : 0, $compiled['assets'] ?? array()));
+};
+$twoPages = $sharedSize(2);
+$sixPages = $sharedSize(6);
+$assert($twoPages > 0 && $sixPages === $twoPages, "the site-wide copy of a shared stylesheet stays the same size however many pages project it (2 pages: {$twoPages} bytes, 6 pages: {$sixPages} bytes)");
 
 if ( $failures > 0 ) {
     exit(1);

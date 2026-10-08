@@ -15,6 +15,8 @@ use DOMElement;
  * |
  * +-- exactly one pure img/video side? -- no --> null
  * |
+ * +-- text side out of flow (overlay)? -- yes -> null
+ * |
  * +-- strict media/layout gates pass? ---- no --> null
  * |
  * +-- convert text child once
@@ -46,7 +48,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
             $media->mediaTextStyle(...),
             SourceDom::htmlAttributes(...),
             $media->resolveImageUrl(...),
-            $context->createBlock(...)
+            $context->createBlock(...),
+            $media->coverStyle(...),
+            $media->documentRootFontSize(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -61,6 +65,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
      * @param callable(DOMElement): array<string, string> $htmlAttributes
      * @param callable(string): string $resolveAssetUrl
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
+     * @param callable(DOMElement): string $fullPresentationStyle Superset of the gate-only media style, including
+     *        `position` (the same source CoverPattern reads background/position facts from).
+     * @param callable(DOMElement): ?float $documentRootFontSize CSS root size used to resolve rem dimensions.
      * @return array<string, mixed>|null
      */
     public function match(
@@ -72,7 +79,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
         callable $mergedPresentationStyle,
         callable $htmlAttributes,
         callable $resolveAssetUrl,
-        callable $createBlock
+        callable $createBlock,
+        callable $fullPresentationStyle,
+        callable $documentRootFontSize
     ): ?array {
         $elementChildren = $this->strictElementChildren($element);
         if ( null === $elementChildren || 2 !== count($elementChildren) ) {
@@ -100,6 +109,33 @@ final class MediaTextPattern implements PatternRecognizerInterface
 
         $mediaType = strtolower($resolution['media']->tagName);
         if ( 'video' === $mediaType && $resolution['anchor'] instanceof DOMElement ) {
+            return null;
+        }
+
+        // A sibling taken out of normal flow (`position: absolute`/`fixed`)
+        // can never be a flex/grid item, so it can never be the container's
+        // second pane, no matter what content it holds — a play-button
+        // control laid over a video with `inset:0`, a badge over an image,
+        // etc. Splitting it into media-text's two panes would fabricate a
+        // side-by-side layout the source never renders and steal half the
+        // media's width. Declining here leaves the container to ordinary
+        // flow lowering, which keeps the media and the positioned control
+        // together in one box so the source's positioning CSS still applies
+        // and the control stays reachable. Uses $fullPresentationStyle, not
+        // $mergedPresentationStyle: mediaTextStyle's allow list is a fixed
+        // set of layout-gate properties that omits `position` entirely.
+        try {
+            $textElementStyle = $fullPresentationStyle($elementChildren[ $textIndex ]);
+        } catch ( \Throwable ) {
+            return null;
+        }
+        if ( $this->declaresUnresolvableGateValue($textElementStyle, array( 'position' )) ) {
+            return null;
+        }
+        $textElementPosition = strtolower($this->normalizedCssValue(
+            (string) ($this->styleDeclarations($textElementStyle)['position'] ?? '')
+        ));
+        if ( in_array($textElementPosition, array( 'absolute', 'fixed' ), true) ) {
             return null;
         }
 
@@ -156,7 +192,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
                     return null;
                 }
             }
-            $mediaStyle = $mergedPresentationStyle($resolution['media']);
+            $mediaStyle = $fullPresentationStyle($resolution['media']);
+            $rootFontSize = $documentRootFontSize($element);
         } catch ( \Throwable ) {
             return null;
         }
@@ -164,7 +201,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
         // A small, explicitly sized image beside short text is an icon lockup,
         // not a two-pane media/text section. Let normal group lowering retain
         // the authored row so both the image and text stay editable.
-        if ( 'img' === $mediaType && $this->isCompactIconTextPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle) ) {
+        if ( 'img' === $mediaType && $this->isCompactIconTextPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle, $rootFontSize) ) {
             return null;
         }
 
@@ -279,17 +316,38 @@ final class MediaTextPattern implements PatternRecognizerInterface
             }
         }
 
-        // core/media-text's save() only round-trips custom classes on the
-        // outer wrapper. Figure classes describe that wrapper's surface, but
-        // image classes belong to the generated media image and must not leak
-        // onto the whole media-text container.
+        // core/media-text's save() puts `className` on the outer wrapper
+        // `<div>` only — never on the generated `<figure
+        // class="wp-block-media-text__media">` pane. When the matched
+        // container is itself wrapped by a source `<figure>` (a "frame" div,
+        // a link anchor, ...), that figure's classes have nowhere else to
+        // land that an author selector keyed on the figure tag itself
+        // (`figure.is-visible`, a scroll-reveal state class, ...) can still
+        // match: the wrapper is a `<div>`, so it is never a match for
+        // `figure.<class>`, and the media pane is the only `<figure>` left in
+        // the emitted markup. `mediaFigureClassName` carries the source
+        // figure's classes onto that pane; BlockFactory merges it into the
+        // pane's class list and strips the internal key back out of the
+        // serialized comment attrs. This is independent of how many wrapper
+        // levels sit between the source figure and the matched container —
+        // enclosingSourceFigure() walks through all of them — and of how the
+        // enclosing figure itself later gets represented once its own
+        // wrapper coalesces (its class carries forward here regardless).
         $sourceFigure = $this->enclosingSourceFigure($element);
         $figureClassName = $sourceFigure instanceof DOMElement ? trim($this->attr($sourceFigure, 'class')) : '';
+        if ( '' !== $figureClassName ) {
+            $attrs['mediaFigureClassName'] = $figureClassName;
+        }
+
+        // `mediaTextImageMarker` is a distinct carrier for a different
+        // problem: an author selector keyed on the source `<img>` itself
+        // (`img.photo`), which AuthorStylesheetProjector re-targets onto this
+        // marker on the block's own wrapper. Unrelated to the figure-class
+        // carrier above; both may be present at once.
         $mediaTextImageMarker = (string) ($attrs['mediaTextImageMarker'] ?? '');
         unset($attrs['mediaTextImageMarker']);
         $attrs['className'] = SourceDom::mergeClassNames(
             (string) ($attrs['className'] ?? ''),
-            $figureClassName,
             $mediaTextImageMarker
         );
         if ( '' === $attrs['className'] ) {
@@ -535,12 +593,14 @@ final class MediaTextPattern implements PatternRecognizerInterface
         return false;
     }
 
-    private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle): bool
+    private function isCompactIconTextPair(DOMElement $media, DOMElement $text, string $mediaStyle, ?float $rootFontSize): bool
     {
-        if ( ! preg_match('/^(?:h[1-6]|p|span)$/', strtolower($text->tagName)) ) {
+        $simpleText = preg_match('/^(?:h[1-6]|p|span)$/', strtolower($text->tagName));
+        if ( ! $simpleText && ! $this->hasCompactPortraitPresentation($mediaStyle) ) {
             return false;
         }
 
+        $declarations = $this->styleDeclarations($mediaStyle);
         $width = $this->compactHtmlDimension($this->attr($media, 'width'));
         $height = $this->compactHtmlDimension($this->attr($media, 'height'));
         if ( null !== $width
@@ -550,23 +610,41 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return true;
         }
 
-        $declarations = $this->styleDeclarations($mediaStyle);
-        $width = $this->compactPixelDimension($this->normalizedCssValue((string) ($declarations['width'] ?? '')));
+        $width = $this->compactPixelDimension($this->normalizedCssValue((string) ($declarations['width'] ?? '')), $rootFontSize);
         $heightValue = strtolower($this->normalizedCssValue((string) ($declarations['height'] ?? 'auto')));
-        $height = $this->compactPixelDimension($heightValue);
+        $height = $this->compactPixelDimension($heightValue, $rootFontSize);
 
-        return null !== $width
+        $compact = null !== $width
             && 64 >= $width
             && ( 'auto' === $heightValue || ( null !== $height && 64 >= $height ) );
+        return $compact && ( $simpleText || ( null !== $height && 64 >= $height ) );
     }
 
-    private function compactPixelDimension(string $value): ?float
+    private function hasCompactPortraitPresentation(string $mediaStyle): bool
     {
-        if ( ! preg_match('/^\s*(\d+(?:\.\d+)?)\s*px\s*$/i', $value, $matches) ) {
+        $declarations = $this->styleDeclarations($mediaStyle);
+        $objectFit = strtolower($this->normalizedCssValue((string) ($declarations['object-fit'] ?? '')));
+        $borderRadius = strtolower($this->normalizedCssValue((string) ($declarations['border-radius'] ?? '')));
+        return 'cover' === $objectFit || '' !== $borderRadius;
+    }
+
+    private function compactPixelDimension(string $value, ?float $rootFontSize): ?float
+    {
+        if ( ! preg_match('/^\s*(\d+(?:\.\d+)?)\s*(px|rem)\s*$/i', $value, $matches) ) {
             return null;
         }
 
         $dimension = (float) $matches[1];
+        // Captured utility stylesheets commonly express fixed dimensions in
+        // rem (`w-12`/`h-12` -> 3rem). Only compare those to the compact-media
+        // pixel threshold when the source root size is known.
+        if ( 'rem' === strtolower($matches[2]) ) {
+            if ( null === $rootFontSize ) {
+                return null;
+            }
+            $dimension *= $rootFontSize;
+        }
+
         return 0 < $dimension ? $dimension : null;
     }
 

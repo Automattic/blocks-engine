@@ -54,7 +54,7 @@ foreach (array(1, 11) as $count) {
     $geometryMetrics = $geometryGroups['source_reports']['editability_report']['metrics'] ?? array();
     $geometryPolicy = (new \Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy())->evaluate($geometryGroups['source_reports']['editability_report'] ?? array());
     $geometryMarkup = (string) ($geometryGroups['serialized_blocks'] ?? '');
-    preg_match('/be-inline-geometry-[a-f0-9]{64}/', $geometryMarkup, $geometryClass);
+    preg_match('/be-inline-geometry-[a-f0-9]{16}/', $geometryMarkup, $geometryClass);
     $geometryCss = implode("\n", array_map(static fn (array $asset): string => 'engine-support' === ($asset['source'] ?? '') ? (string) ($asset['content'] ?? '') : '', $geometryGroups['assets'] ?? array()));
     $assert($count === ($geometryMetrics['empty_visual_group_count'] ?? null) && 0 === ($geometryMetrics['empty_wrapper_count'] ?? null) && 'passed' === ($geometryPolicy['status'] ?? null) && isset($geometryClass[0]) && str_contains($geometryCss, '.' . $geometryClass[0] . '{'), 'Direct transformer verifies generated carrier CSS for ' . $count . ' empty height/geometry group(s) before editability policy evaluation.');
 }
@@ -183,5 +183,19 @@ $columnSizelessCssOut = $engineSupportCss($columnSizeless['assets'] ?? array());
 $assert(str_contains($columnSizelessMarkup, 'placeholder blocks-engine-empty-flex-column-item'), 'A sizeless painted flex child in a column-direction container carries the column-axis compatibility marker.');
 $assert(str_contains($columnSizelessCssOut, ':where(.blocks-engine-empty-flex-column-item){flex:0 0 0!important;height:0!important;min-height:0!important;margin-top:0!important;margin-bottom:0!important}'), 'The column-axis compatibility rule zeroes height and vertical margin instead of the row-axis width and horizontal margin.');
 $assert(! str_contains($columnSizelessCssOut, 'blocks-engine-empty-flex-item){'), 'A page with only column-axis empty flex items does not also emit the unused row-axis compatibility rule.');
+
+// Inline opacity is paint owned by an empty painted boundary, rather than a
+// reveal/visibility state to be globally rewritten. Preserve alpha per source
+// element, including intentional zero, without needing source identity hooks.
+$inlineOverlay = ( new HtmlTransformer() )->transform('<main><div style="height:40px;background-color:#000;opacity:.35"></div><div style="height:40px;background-color:#000;opacity:.65"></div><div style="height:40px;background-color:#000;opacity:0"></div></main>')->toArray();
+$inlineOverlayMarkup = (string) ($inlineOverlay['serialized_blocks'] ?? '');
+$inlineOverlayCss = $engineSupportCss($inlineOverlay['assets'] ?? array());
+$inlineOverlayValidity = ( new BlockValidityValidator() )->validateBlocks($inlineOverlay['blocks'] ?? array());
+$assert(3 === substr_count($inlineOverlayMarkup, 'blocks-engine-empty-visual-group') / 2 && 'pass' === ($inlineOverlayValidity['status'] ?? ''), 'Empty inline-painted overlays remain valid native groups.');
+$assert(str_contains($inlineOverlayCss, 'opacity:.35 !important') && str_contains($inlineOverlayCss, 'opacity:.65 !important') && str_contains($inlineOverlayCss, 'opacity:0 !important'), 'Each empty inline-painted overlay retains its authored alpha, including intentional zero.');
+
+$classPaintOverlay = ( new HtmlTransformer() )->transform('<style>.neutral-overlay{position:absolute;inset:0;background:#000}</style><main style="position:relative;height:40px"><div class="neutral-overlay" style="opacity:.6"></div></main>')->toArray();
+$classPaintOverlayCss = $engineSupportCss($classPaintOverlay['assets'] ?? array());
+$assert(str_contains($classPaintOverlayCss, 'opacity:.6 !important'), 'An empty boundary retains inline alpha when its background paint is owned by an authored class.');
 
 fwrite(STDOUT, "Empty visual figure contracts passed.\n");

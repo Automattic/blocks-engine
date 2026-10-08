@@ -6,6 +6,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlAttributeName;
+use Closure;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
@@ -193,6 +196,115 @@ final class SourceDom
         return $id;
     }
 
+    /**
+     * Identifier of an in-page jump target: `id`, or `name` on an `<a>` when
+     * `id` is absent. HTML fragment navigation treats those as the same.
+     */
+    public static function namedFragmentTargetId(DOMElement $element): string
+    {
+        $id = self::anchorAttributeValue(self::attr($element, 'id'));
+        if ( '' !== $id ) {
+            return $id;
+        }
+
+        if ( 'a' !== strtolower($element->tagName) ) {
+            return '';
+        }
+
+        return self::anchorAttributeValue(self::attr($element, 'name'));
+    }
+
+    /**
+     * An empty, href-less `<a>` whose only job is to be a fragment target.
+     */
+    public static function isEmptyNamedFragmentTarget(DOMElement $element): bool
+    {
+        if ( 'a' !== strtolower($element->tagName)
+            || 0 !== self::childElementCount($element)
+            || '' !== trim($element->textContent ?? '')
+            || '' !== LinkUrlSanitizer::sanitize(self::attr($element, 'href'))
+        ) {
+            return false;
+        }
+
+        return '' !== self::namedFragmentTargetId($element);
+    }
+
+    /**
+     * Whether another element in the same document already owns this fragment
+     * identifier, so emitting it again would duplicate the id.
+     */
+    public static function documentHasOtherFragmentTarget(DOMElement $element, string $id): bool
+    {
+        if ( '' === $id ) {
+            return false;
+        }
+
+        $root = $element->ownerDocument?->documentElement;
+        if ( ! $root instanceof DOMElement ) {
+            return false;
+        }
+
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($element) ) {
+                continue;
+            }
+
+            if ( $id === self::anchorAttributeValue(self::attr($candidate, 'id')) ) {
+                return true;
+            }
+
+            if ( 'a' === strtolower($candidate->tagName) && $id === self::anchorAttributeValue(self::attr($candidate, 'name')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether another element in the same document addresses this fragment
+     * identifier: a hash href, a label `for`, or an ARIA idref. An unused
+     * `id` is not an address — it is a name with no reader.
+     */
+    public static function documentReferencesFragmentId(DOMElement $element, string $id): bool
+    {
+        if ( '' === $id ) {
+            return false;
+        }
+
+        $root = $element->ownerDocument?->documentElement;
+        if ( ! $root instanceof DOMElement ) {
+            return false;
+        }
+
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($element) ) {
+                continue;
+            }
+
+            $href = self::attr($candidate, 'href');
+            if ( '' !== $href ) {
+                $hash = strpos($href, '#');
+                if ( false !== $hash && $id === self::anchorAttributeValue(rawurldecode(substr($href, $hash + 1))) ) {
+                    return true;
+                }
+            }
+
+            foreach ( array( 'aria-labelledby', 'aria-describedby', 'aria-controls' ) as $attribute ) {
+                if ( in_array($id, preg_split('/\s+/', trim(self::attr($candidate, $attribute))) ?: array(), true) ) {
+                    return true;
+                }
+            }
+
+            if ( $id === self::attr($candidate, 'for') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function hasClass(DOMElement $element, string $className): bool
     {
         return in_array($className, preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array(), true);
@@ -206,14 +318,65 @@ final class SourceDom
     public static function documentVariantRoot(DOMElement $element): ?DOMElement
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-            foreach ( preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array() as $class ) {
-                if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( 'data-liberation-desktop-document', 'data-liberation-mobile-document' ), true) ) {
-                    return $node;
-                }
+            if ( self::isDocumentVariantRoot($node) ) {
+                return $node;
             }
         }
 
         return null;
+    }
+
+    /**
+     * A captured responsive document variant stands in for the source `<body>`
+     * inside its own viewport branch, so it carries the body's classes without
+     * being a content element of its own.
+     */
+    public static function isDocumentVariantRoot(DOMElement $element): bool
+    {
+        // A document scope is a declared source-body boundary, independent of
+        // presentation classes or a fixed set of device/profile names.
+        if ($element->hasAttribute('data-dla-document-scope') && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', trim(self::attr($element, 'data-dla-device-document')))) return true;
+        foreach ( preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array() as $class ) {
+            if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( 'data-liberation-desktop-document', 'data-liberation-mobile-document' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The suffix distinguishing a non-default responsive document variant's
+     * copy of a shared source id from its default-variant counterpart, so an
+     * id compiled onto both copies of the same wrapper does not collide on
+     * the page. Empty for the default (desktop) variant, or for an element
+     * outside any declared variant, which both keep the bare source id.
+     *
+     * Mirrors Data Liberation Agent's own `--dla-mobile` convention for
+     * pairing a mobile-specific identity with its desktop counterpart
+     * (`dataItem-kooetu6x` / `dataItem-kooetu6x--dla-mobile`), instead of
+     * inventing a second convention for the same kind of pairing. The
+     * convention itself lives in {@see DocumentVariantIds}, which also keeps the
+     * delivered author stylesheets pointing at the suffixed ids.
+     */
+    public static function documentVariantIdSuffix(DOMElement $element): string
+    {
+        $root = self::documentVariantRoot($element);
+        if ( ! $root instanceof DOMElement ) {
+            return '';
+        }
+
+        foreach ( preg_split('/\s+/', trim(self::attr($root, 'class'))) ?: array() as $class ) {
+            $suffix = DocumentVariantIds::suffixForClass($class);
+            if ( null !== $suffix ) {
+                return $suffix;
+            }
+        }
+
+        $declared = trim(self::attr($root, 'data-dla-device-document'));
+        if ($root->hasAttribute('data-dla-document-scope') && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $declared)) return '--dla-' . $declared;
+
+        return '';
     }
 
     public static function associatedLabel(DOMElement $control): ?DOMElement
@@ -259,17 +422,46 @@ final class SourceDom
     }
 
     /**
+     * Names that would be int keys are skipped, so every key is a string
+     * ({@see HtmlAttributeName}).
+     *
      * @return array<string, string>
      */
     public static function htmlAttributes(DOMElement $element): array
     {
         $attributes = array();
         foreach ( $element->attributes ?? array() as $attribute ) {
+            if ( HtmlAttributeName::isIntegerKey($attribute->nodeName) ) {
+                continue;
+            }
             $attributes[$attribute->nodeName] = $attribute->nodeValue ?? '';
         }
 
         ksort($attributes);
         return $attributes;
+    }
+
+    /**
+     * Removes attributes named like an int array key (`0`, `512`) from the
+     * subtree ({@see HtmlAttributeName}).
+     *
+     * libxml 2.14+ keeps such names and older libxml drops them, so removing
+     * them right after parsing gives the same source tree on every libxml
+     * version. No later reader, serializer or SVG asset can then see them.
+     */
+    public static function removeIntegerKeyAttributes(DOMElement $root): void
+    {
+        $removals = array();
+        foreach ( array_merge(array( $root ), iterator_to_array($root->getElementsByTagName('*'), false)) as $element ) {
+            foreach ( $element->attributes ?? array() as $attribute ) {
+                if ( HtmlAttributeName::isIntegerKey($attribute->nodeName) ) {
+                    $removals[] = $attribute;
+                }
+            }
+        }
+        foreach ( $removals as $attribute ) {
+            $attribute->ownerElement?->removeAttributeNode($attribute);
+        }
     }
 
     /**
@@ -370,6 +562,17 @@ final class SourceDom
         return $match;
     }
 
+    /** A heading is the whole content surface, not one part of a composite link. */
+    public static function onlyChildHeading(DOMElement $element): ?DOMElement
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 1 === preg_match('/^h[1-6]$/i', $child->tagName) ) {
+                return self::onlyChildElement($element, strtolower($child->tagName));
+            }
+        }
+        return null;
+    }
+
     /**
      * @param array<int, string> $excludedTags
      */
@@ -390,25 +593,52 @@ final class SourceDom
      * stripped, missing image sources recovered from host metadata, and
      * (when the caller supplies them) projected author tag-selector markers
      * materialized onto matching tags so rewritten author CSS still targets
-     * the fallback markup.
+     * the fallback markup. Path markers (semantic leaves) are stamped the same
+     * way: author CSS is rewritten onto them, and preserved HTML otherwise
+     * keeps only the source class.
      *
-     * @param array<string, string> $tagMarkers Lowercased tag name => marker class name.
+     * @param array<string, string>          $tagMarkers  Lowercased tag name => marker class name.
+     * @param Closure(DOMElement): list<string>|null $pathMarkers Original element => marker classes.
      */
-    public static function safeFallbackHtml(DOMElement $element, array $tagMarkers = array()): string
+    public static function safeFallbackHtml(DOMElement $element, array $tagMarkers = array(), ?Closure $pathMarkers = null): string
     {
         $clone = $element->cloneNode(true);
         if ( $clone instanceof DOMElement ) {
+            self::materializeFallbackProjectionMarkers($element, $clone, $tagMarkers, $pathMarkers);
             self::materializeMissingImageSources($clone);
-            self::materializeFallbackSourceTagMarker($clone, $tagMarkers);
-            foreach ( $clone->getElementsByTagName('*') as $descendant ) {
-                if ( $descendant instanceof DOMElement ) {
-                    self::materializeFallbackSourceTagMarker($descendant, $tagMarkers);
-                }
-            }
             return self::safeFallbackHtmlString(trim($clone->ownerDocument->saveHTML($clone) ?: ''));
         }
 
         return self::safeFallbackHtmlString(self::outerHtml($element));
+    }
+
+    /** @param array<string, string> $tagMarkers @param Closure(DOMElement): list<string>|null $pathMarkers */
+    private static function materializeFallbackProjectionMarkers(DOMElement $original, DOMElement $clone, array $tagMarkers, ?Closure $pathMarkers): void
+    {
+        self::materializeFallbackSourceTagMarker($clone, $tagMarkers);
+        if ( null !== $pathMarkers ) {
+            $markers = array_values(array_filter($pathMarkers($original), static fn (string $marker): bool => '' !== $marker));
+            if ( array() !== $markers ) {
+                $clone->setAttribute('class', self::mergeClassNames(self::attr($clone, 'class'), ...$markers));
+            }
+        }
+        $originalChildren = array();
+        $cloneChildren = array();
+        foreach ( $original->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $originalChildren[] = $child;
+            }
+        }
+        foreach ( $clone->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $cloneChildren[] = $child;
+            }
+        }
+        foreach ( $originalChildren as $index => $child ) {
+            if ( isset($cloneChildren[$index]) ) {
+                self::materializeFallbackProjectionMarkers($child, $cloneChildren[$index], $tagMarkers, $pathMarkers);
+            }
+        }
     }
 
     /** @param array<string, string> $tagMarkers */
@@ -769,6 +999,56 @@ final class SourceDom
     public static function dedupeArrayRows(array $rows): array
     {
         return DeterministicRowDeduplicator::dedupe($rows);
+    }
+
+    /**
+     * Whether the element is the opener of a projected native dialog: its id is
+     * named by a captured dialog's `data-blocks-engine-triggers`. Such a control
+     * owns that dialog and is never redundant hamburger or navigation chrome.
+     */
+    public static function isBoundCapturedDialogTrigger(DOMElement $element): bool
+    {
+        $id = trim(self::attr($element, 'id'));
+        $document = $element->ownerDocument;
+        if ( '' === $id || null === $document ) {
+            return false;
+        }
+        foreach ( $document->getElementsByTagName('dialog') as $dialog ) {
+            if ( $dialog instanceof DOMElement
+                && 'true' === self::attr($dialog, 'data-blocks-engine-captured-dialog')
+                && in_array($id, preg_split('/\s+/', trim(self::attr($dialog, 'data-blocks-engine-triggers'))) ?: array(), true)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The single image an autonomous custom element host renders, when the host
+     * contains nothing but that image (optionally inside picture/source).
+     * Such hosts are owned by the media path: promoted to core/image when the
+     * host is provably inert, otherwise kept verbatim as responsive media.
+     */
+    public static function imageOnlyCustomElement(DOMElement $element): ?DOMElement
+    {
+        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') ) {
+            return null;
+        }
+
+        $images = $element->getElementsByTagName('img');
+        if ( 1 !== $images->length || ! $images->item(0) instanceof DOMElement ) {
+            return null;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && ! in_array(strtolower($descendant->tagName), array( 'img', 'picture', 'source' ), true) ) {
+                return null;
+            }
+        }
+
+        return $images->item(0);
     }
 
     /**

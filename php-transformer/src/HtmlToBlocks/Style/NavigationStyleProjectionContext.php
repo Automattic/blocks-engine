@@ -15,10 +15,8 @@ use DOMElement;
  * Per-transform state is read from the compilation's typed session. Closures
  * remain only for transformer-owned operations.
  *
- * `materializeStylesheetAsset` is a transformer-owned operation rather than a
- * navigation concern — the transformer uses it for engine-support and author
- * stylesheets too — so the projector reaches it through this surface instead of
- * owning it.
+ * Stylesheet asset materialization is shared by navigation, engine-support and
+ * author styles. The projector reaches that stage through this surface.
  */
 final class NavigationStyleProjectionContext
 {

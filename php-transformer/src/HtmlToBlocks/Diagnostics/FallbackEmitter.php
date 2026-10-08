@@ -10,10 +10,14 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMDocument;
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
+use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 
 /**
  * Constructs the per-element fallback / behavior-loss emission entries that
@@ -66,6 +70,11 @@ final class FallbackEmitter
     /** @var array<string, string> */
     private array $sourceTagMarkers = array();
 
+    protected function fallbackSourceTagMarker(string $tagName): string
+    {
+        return $this->sourceTagMarkers[$tagName] ?? '';
+    }
+
     private readonly SubtreeClassifier $classifier;
 
     private readonly CustomBlockGenerator $blockGenerator;
@@ -111,6 +120,15 @@ final class FallbackEmitter
      * Reset the per-transform custom-block dedup registry. Called once per
      * transform so generated-block names/dedup never leak across documents.
      */
+    private function containsProjectedCollectionControl(DOMElement $element): bool
+    {
+        if ($element->hasAttribute('data-blocks-engine-collection-choice') || $element->hasAttribute('data-blocks-engine-collection-choices')) return true;
+        foreach ($element->getElementsByTagName('*') as $node) {
+            if ($node instanceof DOMElement && ($node->hasAttribute('data-blocks-engine-collection-choice') || $node->hasAttribute('data-blocks-engine-collection-choices'))) return true;
+        }
+        return false;
+    }
+
     public function resetGeneratedBlocks(): void
     {
         $this->generatedBlockNames = array();
@@ -134,6 +152,7 @@ final class FallbackEmitter
      */
     public function maybeGenerateCustomBlock(DOMElement $element, GeneratedBlockRegistry $registry, bool $preserveRoot = false, bool $confirmedComponent = false): ?array
     {
+        if ($this->containsProjectedCollectionControl($element)) return null;
         $result = $this->classifier->classify($element, $this->classificationContext($element));
         if ( ! $confirmedComponent && ! $result->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK) ) {
             return null;
@@ -153,6 +172,7 @@ final class FallbackEmitter
         if ( '' === trim($content) ) {
             return null;
         }
+        $content = $this->withEnclosingLink($element, $content);
 
         $namespace = $this->sanitizeNameSegment($registry->namespace());
         if ( '' === $namespace ) {
@@ -160,7 +180,7 @@ final class FallbackEmitter
         }
 
         $signature = $this->structuralSignature($element);
-        $identity = $signature . "\0" . $content;
+        $identity = self::generatedBlockIdentity($signature, $content);
         if ( isset($this->generatedBlockNames[$identity]) ) {
             $localName = $this->generatedBlockNames[$identity];
         } else {
@@ -184,6 +204,42 @@ final class FallbackEmitter
             'blockName' => $namespace . '/' . $localName,
             'attrs'     => $this->blockGenerator->referenceAttributes($content),
         );
+    }
+
+    /** Class on a link restored around frozen component content; styled layout-transparent. */
+    public const LINK_CONTENTS_CLASS = 'blocks-engine-link-contents';
+
+    /**
+     * A block-level `<a href>` around content becomes a layout group whose link
+     * is pushed onto its native text blocks. A component frozen into companion
+     * content has no native text block to carry it, so the anchor is restored
+     * around that content. The link is layout-transparent and inherits the
+     * source text paint, so only navigation is added.
+     */
+    private function withEnclosingLink(DOMElement $element, string $content): string
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'a' !== strtolower($ancestor->tagName) ) {
+                continue;
+            }
+            $href = LinkUrlSanitizer::sanitize(trim($ancestor->getAttribute('href')));
+            if ( '' === $href ) {
+                return $content;
+            }
+            $attributes = ' href="' . htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            foreach ( array( 'target', 'rel' ) as $name ) {
+                $value = trim($ancestor->getAttribute($name));
+                if ( '' !== $value && 1 === preg_match('/^[A-Za-z0-9_ -]{1,64}$/D', $value) ) {
+                    $attributes .= ' ' . $name . '="' . $value . '"';
+                }
+            }
+            $label = trim($ancestor->getAttribute('aria-label'));
+            if ( '' !== $label ) {
+                $attributes .= ' aria-label="' . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+            return '<a' . $attributes . ' class="' . self::LINK_CONTENTS_CLASS . '">' . $content . '</a>';
+        }
+        return $content;
     }
 
     public function isRepeatableContentComponent(DOMElement $element): bool
@@ -270,6 +326,18 @@ final class FallbackEmitter
         }
 
         return array() === $children ? $tag : $tag . '(' . implode(',', $children) . ')';
+    }
+
+    /**
+     * The identity a generated block name is derived from. Document markers are
+     * reduced to their kind: the same component compiled on two pages carries
+     * different marker seeds, and would otherwise become two block types, which
+     * also keeps chrome containing it from matching across pages. Each instance
+     * still carries its own content, markers included, in its attributes.
+     */
+    public static function generatedBlockIdentity(string $signature, string $content): string
+    {
+        return $signature . "\0" . EngineMarker::withoutDocumentSeeds(RenderEquivalentMarkup::canonical($content));
     }
 
     /**
@@ -655,18 +723,7 @@ final class FallbackEmitter
 
     private function elementMatchesRuntimeSelector(DOMElement $element, string $selector): bool
     {
-        $tag = strtolower($element->tagName);
-        if ( $selector === $tag && 'canvas' === $tag ) {
-            return true;
-        }
-        if ( preg_match('/^([a-z][a-z0-9-]*)\.([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            return $tag === strtolower((string) $match[1]) && in_array((string) $match[2], preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(), true);
-        }
-        if ( preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ) {
-            return ( '' === (string) ($match[1] ?? '') || $tag === strtolower((string) $match[1]) ) && $element->hasAttribute(strtolower((string) $match[2]));
-        }
-
-        return false;
+        return RuntimeSelectorVocabulary::matchesElement($element, $selector, array( 'canvas' ));
     }
 
     /**

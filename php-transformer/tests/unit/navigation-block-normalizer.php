@@ -67,6 +67,30 @@ $sourceProvenance[2] = array('source_attributes' => array('class' => 'wsite-menu
 $normalized = $normalizer->normalize(array($navigation(1), $navigation(2)), $sourceProvenance, array());
 $assert(1 === count($normalized) && 1 === ($normalized[0]['_source_provenance_id'] ?? null), 'recognizes a responsive duplicate from its source ancestor identity');
 
+// A visible second menu is page content, not a responsive copy: a breakpoint
+// utility on a shared container (`px-container-padding-mobile` on a footer
+// grid) must not let the ancestor keyword vocabulary condemn the footer nav
+// for repeating the header's destinations.
+$footerLikeProvenance = array(
+    1 => array('source_attributes' => array('class' => 'hidden md:flex'), 'context' => array('class_names' => array('hidden', 'md:flex'))),
+    2 => array(
+        'source_attributes' => array('class' => 'flex flex-col gap-3'),
+        'context' => array('class_names' => array('flex', 'flex-col', 'gap-3'), 'ancestor_class_names' => array('bg-secondary', 'max-w-7xl', 'px-container-padding-mobile', 'md:grid-cols-3', 'grid')),
+    ),
+);
+$normalized = $normalizer->normalize(array($navigation(1), $navigation(2)), $footerLikeProvenance, array());
+$assert(2 === count($normalized), 'a visible menu stays when a breakpoint utility, not menu identity, carries the keyword');
+
+// One class naming BOTH the breakpoint and the menu (`mobile-menu`) still
+// proves the copy — the corroboration lives inside a single token.
+$mobileMenuProvenance = array(
+    1 => array('source_attributes' => array('class' => 'primary'), 'context' => array('class_names' => array('primary'))),
+    2 => array('source_attributes' => array('class' => 'flex flex-col'), 'context' => array('class_names' => array('flex', 'flex-col'), 'ancestor_class_names' => array('mobile-menu')),
+    ),
+);
+$normalized = $normalizer->normalize(array($navigation(1), $navigation(2)), $mobileMenuProvenance, array());
+$assert(1 === count($normalized) && 1 === ($normalized[0]['_source_provenance_id'] ?? null), 'a class naming breakpoint and menu together is still a responsive duplicate');
+
 $group = array(
     'blockName' => 'core/group',
     'innerBlocks' => array($link('One', '/one'), $link('Two', '/two')),
@@ -144,6 +168,26 @@ $offCanvasDrawerMarkup = (string) ($offCanvasDrawerResult['serialized_blocks'] ?
 $assert(1 === substr_count($offCanvasDrawerMarkup, '<!-- wp:navigation '), 'a Tailwind off-canvas drawer duplicate hidden only via an ancestor and a media query collapses to one navigation block');
 $assert(str_contains($offCanvasDrawerMarkup, 'hidden lg:flex'), 'the surviving navigation is the real desktop menu, not the off-canvas duplicate');
 $assert(! str_contains($offCanvasDrawerMarkup, 'is-responsive') && false === strpos($offCanvasDrawerMarkup, '"overlayMenu":"mobile"'), 'the surviving desktop navigation is not reclassified as a responsive overlay');
+
+// End-to-end, full-document path: a header desktop nav plus the disclosure's
+// mobile dialog copy, and a footer grid whose middle column repeats the same
+// destinations under a container carrying the `px-container-padding-mobile`
+// utility. All three menus are real surfaces — the footer column must keep
+// its own navigation block between the brand and contact columns.
+$footerRepeatHtml = '<header>'
+    . '<nav class="hidden md:flex items-center gap-8"><a href="/index.html">Home</a><a href="/about/index.html">About</a><a href="/contact/index.html">Contact</a></nav>'
+    . '<details class="dla-disclosure"><summary aria-label="Toggle menu">Menu</summary>'
+    . '<div class="dla-dialog" role="dialog"><nav class="flex flex-col gap-3"><a href="/index.html">Home</a><a href="/about/index.html">About</a><a href="/contact/index.html">Contact</a></nav></div>'
+    . '</details>'
+    . '</header>'
+    . '<footer><div class="grid grid-cols-3 gap-10 max-w-7xl mx-auto px-container-padding-mobile md:px-container-padding">'
+    . '<div>Brand</div>'
+    . '<nav class="flex flex-col gap-3"><a href="/index.html">Home</a><a href="/about/index.html">About</a><a href="/contact/index.html">Contact</a></nav>'
+    . '<div class="flex flex-col gap-3"><a href="mailto:hi@example.com">hi@example.com</a></div>'
+    . '</div></footer>';
+$footerRepeatResult = (new HtmlTransformer())->transform($footerRepeatHtml)->toArray();
+$footerRepeatMarkup = (string) ($footerRepeatResult['serialized_blocks'] ?? '');
+$assert(3 === substr_count($footerRepeatMarkup, '<!-- wp:navigation '), 'a footer nav repeating the header destinations keeps its own navigation block in the full document');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "Navigation block normalizer contract: {$failures} failed, {$passes} passed\n");

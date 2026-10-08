@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -19,7 +20,7 @@ use InvalidArgumentException;
 final class FormPresentationGraphBuilder
 {
     private const MAX_CONTROLS = 128;
-    private const MAX_RULES_PER_ROLE = 32;
+    private const MAX_RULES_PER_ROLE = 96;
     private const MAX_RULES = 8192;
     private const MAX_SELECTORS = 16384;
     private const MAX_CONDITION_DEPTH = 8;
@@ -27,8 +28,14 @@ final class FormPresentationGraphBuilder
     private const MAX_VISUAL_PARTS = 32;
     private const MAX_VISUAL_BYTES = 12288;
     private const MAX_VISUAL_DIMENSION = 4096;
-    private const MAX_PROVENANCE = 16;
+    private const MAX_PROVENANCE = 32;
     private const MAX_DIAGNOSTICS = 32;
+    /** The text properties a label role reads from its text carrier when the label declares none itself. */
+    private const TYPOGRAPHY_PROPERTIES = array(
+        'color', 'font', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height',
+    );
+    /** How far a text-carrier search may walk before the search, not the cascade, gives up. */
+    private const MAX_CARRIER_CANDIDATES = 256;
     private const CONTROL_CONTAINER_PROPERTIES = array(
         'background', 'background-color', 'border', 'border-color', 'border-style', 'border-width',
         'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
@@ -42,7 +49,7 @@ final class FormPresentationGraphBuilder
         'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
         'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
         'border-radius', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius',
-        'box-sizing', 'color', 'display', 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight',
+        'box-sizing', 'color', 'display', 'font', 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight',
         'height', 'letter-spacing', 'line-height', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
         // Margin carries the same logical longhands padding already reports, so a
         // source that spaces an element with `margin-inline-start` keeps that box.
@@ -61,9 +68,12 @@ final class FormPresentationGraphBuilder
 
     private array $diagnostics = array();
     private bool $truncated = false;
+    /** Memoized rule sets for {@see typographyStyles()}, analyzed once per transform. */
+    private ?array $typographyAnalysis = null;
+    private ?array $visibilityAnalysis = null;
 
-    /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker */
-    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null)
+    /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker @param list<DOMElement> $scopeElements */
+    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null, private readonly array $scopeElements = array())
     {
     }
 
@@ -71,7 +81,7 @@ final class FormPresentationGraphBuilder
     public function buildContainer(DOMElement $form, array $stylesheets, string $inlineCss = ''): array
     {
         $this->truncated = false;
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, self::cascadeFilter(array($form)), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         if ($analysis['truncated']) return array();
         $matched = $this->matched($form, $analysis['rules']);
         $styles = $this->styles($matched['base'], $form, null, array());
@@ -85,13 +95,343 @@ final class FormPresentationGraphBuilder
         return $this->truncated || (!$styles && !$variants) ? array() : array('schema' => 'generic/form-container-presentation/v1', 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null), 'variants' => $variants);
     }
 
+    /** Element-owned box facts and inherited text use the existing cascade. */
+    public function buildElement(DOMElement $element, array $stylesheets, string $inlineCss = ''): array
+    {
+        $this->diagnostics = array();
+        $this->truncated = false;
+        $this->typographyAnalysis ??= $this->typographyAnalysis($stylesheets, $inlineCss);
+        $analysis = $this->typographyAnalysis;
+        $this->truncated = $analysis['truncated'];
+        if ($this->truncated) $this->diagnostics[] = 'css_analysis_limit';
+        $matched = $this->matched($element, $analysis['rules']);
+        $base = $matched['base'];
+        $conditional = $this->effectiveConditional($matched['conditional'], $base);
+        // Inherited text properties reach this element from the nearest declaring
+        // ancestor. `text-align` is inherited too: it places inline-level content
+        // (an inline-block submit) inside a block wrapper a provider flattens.
+        $inherited = array_flip(array_merge(self::TYPOGRAPHY_PROPERTIES, array( 'text-align' )));
+        // Inheritance is per property: a local font-size does not prevent the
+        // family and color from coming from the nearest declaring ancestor.
+        for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            $parent = $this->matched($ancestor, $analysis['rules']);
+            foreach (array_intersect_key($parent['base'], $inherited) as $property => $fact) {
+                if (!isset($base[$property])) $base[$property] = $fact + array('element' => $ancestor);
+            }
+            foreach ($this->effectiveConditional($parent['conditional'], $parent['base']) as $encoded => $facts) {
+                foreach (array_intersect_key($facts, $inherited) as $property => $fact) {
+                    if (isset($matched['base'][$property]) || isset($conditional[$encoded][$property])) continue;
+                    if (isset($base[$property]['element']) && !$base[$property]['element']->isSameNode($ancestor)) continue;
+                    $conditional[$encoded][$property] = $fact + array('element' => $ancestor);
+                }
+            }
+            // Once a property has a nearest declaring ancestor, further
+            // ancestors cannot override it, even with higher specificity.
+            foreach (array_keys($parent['base']) as $property) unset($inherited[$property]);
+        }
+        foreach ($base as $property => $fact) {
+            $owner = $fact['element'] ?? $element;
+            foreach (FormCustomPropertyResolver::conditionsChanging($fact['value'], $owner, $analysis['customProperties'], true) as $condition) {
+                $encoded = json_encode($condition);
+                $conditional[$encoded][$property] ??= $fact;
+            }
+        }
+        $styles = $this->styles($base, $element, null, $analysis['customProperties'], true);
+        $provenance = $this->provenance($base, null);
+        $variants = array();
+        foreach ($conditional as $encoded => $facts) {
+            if (count($variants) >= self::MAX_RULES_PER_ROLE) {
+                $this->truncated = true;
+                $this->diagnostics[] = 'variant_limit';
+                break;
+            }
+            $condition = json_decode($encoded, true);
+            $patch = $this->styles($facts, $element, $condition, $analysis['customProperties']);
+            foreach ($patch as $key => $value) if (($styles[$key] ?? null) === $value) unset($patch[$key]);
+            $facts = array_filter($facts, static fn(array $fact, string $property): bool => isset($patch[self::key($property)]), ARRAY_FILTER_USE_BOTH);
+            if ($patch) $variants[] = array('condition' => $condition, 'styles' => $patch, 'precedence' => $this->precedence($facts), 'provenance' => $this->provenance($facts, $condition));
+        }
+        $result = array('schema' => 'generic/form-element-presentation/v1', 'styles' => $styles, 'provenance' => $provenance, 'variants' => $variants, 'truncated' => $this->truncated, 'diagnostics' => array_slice(array_values(array_unique($this->diagnostics)), 0, self::MAX_DIAGNOSTICS));
+        self::assertElement($result);
+        return $result;
+    }
+
+    public static function assertElement(array $presentation): void
+    {
+        if (array_diff(array_keys($presentation), array('schema', 'styles', 'provenance', 'variants', 'truncated', 'diagnostics')) || !array_is_list($presentation['variants'] ?? null)) throw new InvalidArgumentException('Form element presentation envelope has unknown keys.');
+        foreach ($presentation['variants'] as $variant) {
+            if (!is_array($variant) || array_diff(array_keys($variant), array('condition', 'styles', 'precedence', 'provenance'))) throw new InvalidArgumentException('Form element presentation variant has unknown keys.');
+            foreach (is_array($variant['precedence'] ?? null) ? $variant['precedence'] : array() as $rank) if (!is_array($rank) || array_diff(array_keys($rank), array('source_order', 'specificity', 'important'))) throw new InvalidArgumentException('Form element presentation precedence has unknown keys.');
+        }
+        if ('generic/form-element-presentation/v1' !== ($presentation['schema'] ?? null) || !is_array($presentation['styles'] ?? null) || !is_array($presentation['provenance'] ?? null) || !is_array($presentation['variants'] ?? null) || count($presentation['variants']) > self::MAX_RULES_PER_ROLE || !is_bool($presentation['truncated'] ?? null) || !is_array($presentation['diagnostics'] ?? null) || count($presentation['diagnostics']) > self::MAX_DIAGNOSTICS) throw new InvalidArgumentException('Form element presentation envelope is invalid.');
+        self::assertStyles($presentation['styles']);
+        self::assertProvenance($presentation['provenance'], $presentation['styles'], null);
+        foreach ($presentation['variants'] as $variant) {
+            if (!is_array($variant) || !is_array($variant['condition'] ?? null) || !self::validCondition($variant['condition']) || !is_array($variant['styles'] ?? null) || !is_array($variant['provenance'] ?? null) || !is_array($variant['precedence'] ?? null)) throw new InvalidArgumentException('Form element presentation variant is invalid.');
+            self::assertStyles($variant['styles']);
+            self::assertProvenance($variant['provenance'], $variant['styles'], $variant['condition']);
+            foreach ($variant['precedence'] as $property => $rank) if (!in_array($property, self::PROPERTIES, true) || !isset($variant['styles'][self::key($property)]) || !is_array($rank) || !is_int($rank['source_order'] ?? null) || !is_int($rank['specificity'] ?? null) || !is_bool($rank['important'] ?? null)) throw new InvalidArgumentException('Form element presentation precedence is invalid.');
+        }
+    }
+
+    /**
+     * Resolved typography facts for one element, through the same cascade and
+     * custom-property resolution the presentation graph roles use — the one
+     * cascade, so copy reported outside the graph (an in-form context item)
+     * reads the same values a role would.
+     *
+     * @param list<array<string, mixed>> $stylesheets @return array<string, string>
+     */
+    public function typographyStyles(DOMElement $element, array $stylesheets, string $inlineCss = ''): array
+    {
+        $this->typographyAnalysis ??= $this->typographyAnalysis($stylesheets, $inlineCss);
+        if ( $this->typographyAnalysis['truncated'] ) {
+            return array();
+        }
+        $matched = $this->matched($element, $this->typographyAnalysis['rules']);
+        return $this->styles(
+            array_intersect_key($matched['base'], array_flip(self::TYPOGRAPHY_PROPERTIES)),
+            $element,
+            null,
+            $this->typographyAnalysis['customProperties']
+        );
+    }
+
+    /**
+     * Whether the source hides an element unconditionally: `display: none` on it
+     * or on an ancestor below `$boundary`, or a resolved `visibility` of
+     * `hidden`/`collapse` (the nearest declaration wins, since a descendant may
+     * re-show itself). Form builders keep status copy such as a success message
+     * inside the form this way until a submission succeeds. Returns the
+     * deciding declaration, or null when the element is shown, when it is shown
+     * under any condition a rule on the chain declares (a responsive variant is
+     * not status copy), or when the bounded cascade could not be analyzed.
+     *
+     * @return array{property: string, value: string, selector: string, source_path: string}|null
+     */
+    public function hiddenState(DOMElement $element, DOMElement $boundary, array $stylesheets, string $inlineCss = ''): ?array
+    {
+        if ( null === $this->visibilityAnalysis ) {
+            $filter = array() === $this->scopeElements ? null : self::cascadeFilter($this->scopeElements);
+            $this->visibilityAnalysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array( 'display', 'visibility' ), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        }
+        if ( $this->visibilityAnalysis['truncated'] ) {
+            return null;
+        }
+        return $this->hiddenBelow($element, $boundary, $this->visibilityAnalysis['rules']);
+    }
+
+    /**
+     * The declaration that hides an element (or an ancestor below `$boundary`)
+     * under every condition the chain's rules declare, judged from `$rules`.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @return array{property: string, value: string, selector: string, source_path: string}|null
+     */
+    private function hiddenBelow(DOMElement $element, DOMElement $boundary, array $rules): ?array
+    {
+        $chain = array();
+        $conditions = array();
+        for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            $facts = $this->visibilityFacts($node, $rules);
+            $chain[] = $facts;
+            $conditions += array_fill_keys(array_keys($facts['conditional']), true);
+        }
+        $hidden = self::hiddenDecision($chain, null);
+        if ( null === $hidden ) {
+            return null;
+        }
+        // A responsive variant that shows the element makes it layout, not status copy.
+        foreach ( array_keys($conditions) as $condition ) {
+            if ( null === self::hiddenDecision($chain, (string) $condition) ) {
+                return null;
+            }
+        }
+        return $hidden;
+    }
+
+    /**
+     * @param list<array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>}> $chain
+     * @return array{property: string, value: string, selector: string, source_path: string}|null
+     */
+    private static function hiddenDecision(array $chain, ?string $condition): ?array
+    {
+        $visibility = null;
+        foreach ( $chain as $facts ) {
+            $resolved = $facts['base'];
+            if ( null !== $condition ) {
+                foreach ( $facts['conditional'][$condition] ?? array() as $property => $fact ) {
+                    CssCascade::apply($resolved, $property, $fact);
+                }
+            }
+            $display = $resolved['display'] ?? null;
+            if ( is_array($display) && 'none' === strtolower(trim((string) $display['value'])) ) {
+                return self::hiddenFact('display', 'none', $display);
+            }
+            if ( null === $visibility && is_array($resolved['visibility'] ?? null) ) {
+                $visibility = $resolved['visibility'];
+            }
+        }
+        $value = null === $visibility ? '' : strtolower(trim((string) $visibility['value']));
+        return in_array($value, array( 'hidden', 'collapse' ), true) ? self::hiddenFact('visibility', $value, $visibility) : null;
+    }
+
+    /**
+     * Winning `display`/`visibility` declarations on one element, unconditional
+     * and per condition.
+     *
+     * @return array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>}
+     */
+    private function visibilityFacts(DOMElement $element, array $rules): array
+    {
+        $properties = array( 'display', 'visibility' );
+        if ( $element->hasAttribute('style') ) {
+            $inline = $element->getAttribute('style');
+            $rules[] = array( 'inline' => true, 'selector' => '[style]', 'declarations' => CssRuleAnalyzer::declarations($inline, $properties), 'condition' => null, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'order' => PHP_INT_MAX, 'specificity' => 10000 );
+        }
+        $base = array();
+        $conditional = array();
+        foreach ( $rules as $rule ) {
+            $match = ! empty($rule['inline']) ? array( 'supported' => true, 'matches' => true ) : CssSelectorMatcher::matches($element, $rule['parsed_selector']);
+            if ( ! $match['supported'] || ! $match['matches'] ) {
+                continue;
+            }
+            $encoded = null === ( $rule['condition'] ?? null ) ? null : (string) json_encode($rule['condition']);
+            foreach ( $rule['declarations'] as $declarationOrder => $declaration ) {
+                if ( ! in_array($declaration['name'], $properties, true) ) {
+                    continue;
+                }
+                $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
+                $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
+                $fact = array( 'value' => $value, 'path' => $rule['path'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'declaration_order' => $declarationOrder, 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
+                if ( null === $encoded ) {
+                    CssCascade::apply($base, $declaration['name'], $fact);
+                } else {
+                    $conditional[$encoded] ??= array();
+                    CssCascade::apply($conditional[$encoded], $declaration['name'], $fact);
+                }
+            }
+        }
+        return array( 'base' => $base, 'conditional' => $conditional );
+    }
+
+    /** @return array{property: string, value: string, selector: string, source_path: string} */
+    private static function hiddenFact(string $property, string $value, array $fact): array
+    {
+        return array( 'property' => $property, 'value' => $value, 'selector' => (string) $fact['selector'], 'source_path' => (string) $fact['path'] );
+    }
+
+    /**
+     * The single deepest descendant whose collapsed text is the scope's own
+     * visible text, ignoring the excluded subtrees — the element a source
+     * styles instead of the scope itself (a `<p>` inside a `<label>`, a
+     * `<span>` inside a `<p>`). Null when no descendant carries the text alone:
+     * none, or more than one at the deepest level.
+     *
+     * @param list<DOMElement> $excluded
+     */
+    public static function soleTextCarrier(DOMElement $scope, array $excluded = array()): ?DOMElement
+    {
+        $text = self::collapsedCarrierText($scope, $excluded);
+        if ( '' === $text ) {
+            return null;
+        }
+        $carrier = null;
+        $carrierDepth = 0;
+        $scanned = 0;
+        foreach ( $scope->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            if ( ++$scanned > self::MAX_CARRIER_CANDIDATES ) {
+                return null;
+            }
+            $depth = 0;
+            $withinExcluded = false;
+            for ( $ancestor = $candidate->parentNode; $ancestor instanceof DOMElement && ! $ancestor->isSameNode($scope); $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
+                if ( self::isExcludedCarrier($ancestor, $excluded) ) {
+                    $withinExcluded = true;
+                    break;
+                }
+                ++$depth;
+            }
+            if ( $withinExcluded || self::isExcludedCarrier($candidate, $excluded)
+                || self::collapsedCarrierText($candidate, $excluded) !== $text ) {
+                continue;
+            }
+            if ( null === $carrier || $depth > $carrierDepth ) {
+                $carrier = $candidate;
+                $carrierDepth = $depth;
+                continue;
+            }
+            if ( $depth === $carrierDepth ) {
+                return null;
+            }
+        }
+        return $carrier;
+    }
+
+    /** @param list<DOMElement> $excluded */
+    private static function isExcludedCarrier(DOMElement $element, array $excluded): bool
+    {
+        foreach ( $excluded as $excludedElement ) {
+            if ( $element->isSameNode($excludedElement) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param list<DOMElement> $excluded */
+    private static function collapsedCarrierText(DOMElement $element, array $excluded): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( ! self::isExcludedCarrier($child, $excluded) ) {
+                    $text .= self::collapsedCarrierText($child, $excluded);
+                }
+                continue;
+            }
+            $text .= $child->textContent ?? '';
+        }
+        return trim((string) preg_replace('/\s+/', ' ', $text) ?? '');
+    }
+
+    /** @param list<array<string, mixed>> $stylesheets @return array{truncated: bool, rules: list<array<string, mixed>>, customProperties: list<array<string, mixed>>} */
+    private function typographyAnalysis(array $stylesheets, string $inlineCss): array
+    {
+        $filter = array() === $this->scopeElements ? null : self::cascadeFilter($this->scopeElements);
+        $properties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        $customProperties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array('--*'), CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, $filter, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        return array(
+            'truncated' => $properties['truncated'] || $customProperties['truncated'],
+            'rules' => $properties['rules'],
+            'customProperties' => $customProperties['rules'],
+        );
+    }
+
+    /** @param list<DOMElement> $elements */
+    private static function cascadeFilter(array $elements): Closure
+    {
+        return static function (array $selector) use ($elements): bool {
+            foreach ($elements as $element) {
+                for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null) {
+                    $match = CssSelectorMatcher::matches($ancestor, $selector);
+                    if (!$match['supported'] || $match['matches']) return true;
+                }
+            }
+            return false;
+        };
+    }
+
     /** @param list<array<string, mixed>> $stylesheets @return array<string, mixed> */
     public function build(DOMElement $form, array $stylesheets, string $inlineCss = ''): array
     {
         $this->diagnostics = array();
         $this->truncated = false;
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
         $controlsForCustomProperties = $this->presentationElements($form);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, self::cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
@@ -136,26 +476,73 @@ final class FormPresentationGraphBuilder
                     continue;
                 }
                 $matched = $this->matched($element, $analysis['rules']);
-                $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules']);
-                if ( array() !== $styles || 'required_marker' === $role ) {
-                    $row[$role] = array( 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null) );
+                $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules'], true);
+                $provenance = $this->provenance($matched['base'], null);
+                $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
+                foreach ($matched['base'] as $property => $fact) {
+                    foreach (FormCustomPropertyResolver::conditionsChanging($fact['value'], $element, $customPropertyAnalysis['rules'], true) as $condition) $conditional[json_encode($condition)][$property] ??= $fact;
                 }
-                foreach ( $this->effectiveConditional($matched['conditional'], $matched['base']) as $encoded => $facts ) {
+                $carried = array();
+                $buttonCaption = 'control' === $role && 'button' === strtolower($control->tagName);
+                if ( 'label' === $role || $buttonCaption ) {
+                    // The label's text is painted by its sole text carrier (a `<p>`
+                    // or `<span>` inside it). Typography that carrier declares wins
+                    // over the label's own for that text, property by property, so a
+                    // provider label that renders the text directly keeps it.
+                    $carried = $this->carrierTypography($buttonCaption ? array() : $roles, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $conditional);
+                    if ( array() !== $carried ) {
+                        $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
+                        foreach ( $provenance as $factIndex => $fact ) {
+                            $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
+                            if ( array() === $fact['properties'] ) {
+                                unset($provenance[$factIndex]);
+                            } else {
+                                $provenance[$factIndex] = $fact;
+                            }
+                        }
+                        $provenance = array_values($provenance);
+                        $styles = array_merge($styles, $carried['styles']);
+                        ksort($styles);
+                        $provenance = array_merge($provenance, $carried['provenance']);
+                        if ( count($provenance) > self::MAX_PROVENANCE ) {
+                            $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
+                            $this->truncated = true;
+                            $this->diagnostics[] = 'provenance_limit';
+                        }
+                    }
+                    foreach ( $carried['conditional'] ?? array() as $encoded => $patch ) {
+                        $conditional[$encoded] ??= array();
+                    }
+                }
+                if ( array() !== $styles || 'required_marker' === $role ) {
+                    $row[$role] = array( 'styles' => $styles, 'provenance' => $provenance );
+                }
+                foreach ( $conditional as $encoded => $facts ) {
                     if ( count($variants) >= self::MAX_VARIANTS ) {
                         $this->truncated = true;
                         $this->diagnostics[] = 'variant_limit';
                         break 2;
                     }
                     $condition = json_decode($encoded, true);
+                    $carrierPatch = $carried['conditional'][$encoded] ?? array();
+                    $facts = array_diff_key($facts, array_flip(array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys($carrierPatch['styles'] ?? array()))));
                     $patch = $this->styles($facts, $element, $condition, $customPropertyAnalysis['rules']);
+                    $patch = array_merge($patch, $carrierPatch['styles'] ?? array());
+                    ksort($patch);
                     if ( array() !== $patch ) {
+                        $variantProvenance = array_merge($this->provenance($facts, $condition), $carrierPatch['provenance'] ?? array());
+                        if ( count($variantProvenance) > self::MAX_PROVENANCE ) {
+                            $variantProvenance = array_slice($variantProvenance, 0, self::MAX_PROVENANCE);
+                            $this->truncated = true;
+                            $this->diagnostics[] = 'provenance_limit';
+                        }
                         $variants[] = array(
                             'index' => $index,
                             'role' => $role,
                             'condition' => $condition,
                             'style_patch' => $patch,
-                            'precedence' => $this->precedence($facts),
-                            'provenance' => $this->provenance($facts, $condition),
+                            'precedence' => array_merge($this->precedence($facts), $carrierPatch['precedence'] ?? array()),
+                            'provenance' => $variantProvenance,
                         );
                     }
                 }
@@ -203,6 +590,11 @@ final class FormPresentationGraphBuilder
             }
         }
 
+        $diagnostics = array_values(array_unique($this->diagnostics));
+        // Unsupported selectors can fill the diagnostic budget before the
+        // actual bound that made this graph unsafe to publish. Keep that cause
+        // visible so a dropped provider presentation graph is actionable.
+        $bounds = array_values(array_filter($diagnostics, static fn (string $diagnostic): bool => str_ends_with($diagnostic, '_limit') || str_contains($diagnostic, '_truncated:')));
         $graph = array(
             'schema' => array() === $visualParts && ! $hasRequiredMarker && array() === $controlContainers ? 'generic/computed-form-presentation/v1' : 'generic/computed-form-presentation/v2',
             'basis' => 'source_css_cascade',
@@ -210,7 +602,7 @@ final class FormPresentationGraphBuilder
             'limits' => array( 'controls' => self::MAX_CONTROLS, 'rules_per_role' => self::MAX_RULES_PER_ROLE ),
             'controls' => $controls,
             'variants' => $variants,
-            'diagnostics' => array_slice(array_values(array_unique($this->diagnostics)), 0, self::MAX_DIAGNOSTICS),
+            'diagnostics' => array_slice(array_values(array_unique(array_merge($bounds, $diagnostics))), 0, self::MAX_DIAGNOSTICS),
         );
         if ( 'generic/computed-form-presentation/v2' === $graph['schema'] ) {
             $graph['visual_parts'] = $visualParts;
@@ -284,6 +676,72 @@ final class FormPresentationGraphBuilder
     }
 
     /**
+     * A checkbox/radio label's visible text often lives in a dedicated carrier
+     * — `<label><div><p>Yes</p></div>…` — while the `<label>` itself declares
+     * no typography. The text inherits each typography property from the
+     * nearest element between it and the label that declares it — often an
+     * intermediate carrier (`<p>`) above the spans that hold the text — so each
+     * property is resolved where it is declared, walking from the deepest
+     * carrier up to (not including) the label. Base and condition-scoped facts
+     * are resolved at the same declaring element.
+     *
+     * @param array<string, mixed> $roles
+     * @param list<array<string, mixed>> $rules
+     * @param list<array<string, mixed>> $customPropertyRules
+     * @return array<string, mixed>
+     */
+    private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules, array $labelConditional = array()): array
+    {
+        $excluded = array_values(array_filter(
+            array( $roles['control'] ?? null, $roles['required_marker'] ?? null ),
+            static fn (mixed $element): bool => $element instanceof DOMElement
+        ));
+        $carrier = self::soleTextCarrier($label, $excluded);
+        $chain = array();
+        $conditions = array_fill_keys(array_keys($labelConditional), true);
+        for ( $element = $carrier; $element instanceof DOMElement && ! $element->isSameNode($label); $element = $element->parentNode instanceof DOMElement ? $element->parentNode : null ) {
+            $matched = $this->matched($element, $rules);
+            $base = array_intersect_key($matched['base'], array_flip(self::TYPOGRAPHY_PROPERTIES));
+            $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
+            foreach ($base as $property => $fact) {
+                foreach (FormCustomPropertyResolver::conditionsChanging($fact['value'], $element, $customPropertyRules, true) as $condition) $conditional[json_encode($condition)][$property] ??= $fact;
+            }
+            foreach ( $conditional as $encoded => &$facts ) {
+                $facts = array_intersect_key($facts, array_flip(self::TYPOGRAPHY_PROPERTIES));
+                if ( array() !== $facts ) $conditions[$encoded] = true;
+            }
+            unset($facts);
+            $chain[] = array( 'element' => $element, 'base' => $base, 'conditional' => $conditional );
+        }
+        $resolve = function (?array $condition) use ($chain, $customPropertyRules): array {
+            $styles = array(); $provenance = array(); $precedence = array();
+            $encoded = null === $condition ? '' : json_encode($condition);
+            foreach ( $chain as $row ) {
+                $facts = array_diff_key(
+                    array_replace($row['base'], $row['conditional'][$encoded] ?? array()),
+                    array_flip(array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys($styles)))
+                );
+                $styles += $this->styles($facts, $row['element'], $condition, $customPropertyRules, null === $condition);
+                $provenance = array_merge($provenance, $this->provenance($facts, $condition));
+                $precedence += $this->precedence($facts);
+            }
+            ksort($styles); ksort($precedence);
+            return array( 'styles' => $styles, 'provenance' => $provenance, 'precedence' => $precedence );
+        };
+        $result = $resolve(null);
+        $result['conditional'] = array();
+        if ( count($conditions) > self::MAX_VARIANTS ) {
+            $this->truncated = true;
+            $this->diagnostics[] = 'variant_limit';
+        }
+        foreach ( array_slice(array_keys($conditions), 0, self::MAX_VARIANTS) as $encoded ) {
+            $patch = $resolve(json_decode($encoded, true));
+            if ( array() !== $patch['styles'] ) $result['conditional'][$encoded] = $patch;
+        }
+        return array() === $result['styles'] && array() === $result['conditional'] ? array() : $result;
+    }
+
+    /**
      * A provider field flattens the exclusive label/control wrapper. Carry that
      * wrapper's authored gap onto the label as margin-block-end so the Jetpack
      * field shell keeps the intra-field spacing.
@@ -302,7 +760,7 @@ final class FormPresentationGraphBuilder
             return;
         }
         $parent = $control->parentNode;
-        if ( ! $parent instanceof DOMElement ) {
+        if ( ! $parent instanceof DOMElement || $parent->isSameNode($this->label($control)) ) {
             return;
         }
         $wrapper = null;
@@ -415,6 +873,7 @@ final class FormPresentationGraphBuilder
     {
         if ( count($provenance) > self::MAX_PROVENANCE ) throw new InvalidArgumentException('Form presentation provenance exceeds its limit.');
         foreach ( $provenance as $fact ) {
+            if ( is_array($fact) && array_diff(array_keys($fact), array( 'source_path', 'source_sha256', 'selector', 'condition', 'properties' )) ) throw new InvalidArgumentException('Form presentation provenance has unknown keys.');
             if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || '' === ArtifactPath::safeRelativePath($fact['source_path']) || ArtifactPath::safeRelativePath($fact['source_path']) !== $fact['source_path'] || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, self::PROPERTIES, true) || ! isset($styles[self::key($property)])) || ($condition !== null && ($fact['condition'] ?? null) !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) throw new InvalidArgumentException('Form presentation provenance is invalid.');
         }
     }
@@ -434,21 +893,30 @@ final class FormPresentationGraphBuilder
     {
         $elements = $this->controls($form);
         foreach ( $this->controls($form) as $control ) {
+            if (($carrier = self::soleTextCarrier($control)) instanceof DOMElement) $elements[] = $carrier;
             $label = $this->label($control);
             if ( $label instanceof DOMElement ) $elements[] = $label;
-            if ( null !== $this->requiredMarker && ($marker = ($this->requiredMarker)($control)) instanceof DOMElement ) $elements[] = $marker;
+            $excluded = array( $control );
+            if ( null !== $this->requiredMarker && ($marker = ($this->requiredMarker)($control)) instanceof DOMElement ) {
+                $elements[] = $marker;
+                $excluded[] = $marker;
+            }
+            if ( $label instanceof DOMElement && ($carrier = self::soleTextCarrier($label, $excluded)) instanceof DOMElement ) $elements[] = $carrier;
+            if (null !== $this->sanitizeInlineSvgMarkup) {
+                $visualCount = 0;
+                foreach ($control->getElementsByTagName('svg') as $svg) {
+                    if (!$svg instanceof DOMElement || !SourceDom::svgHasDrawableContent($svg)) continue;
+                    $elements[] = $svg;
+                    if (++$visualCount >= self::MAX_VISUAL_PARTS) break;
+                }
+            }
         }
         return $elements;
     }
 
     private function label(DOMElement $control): ?DOMElement
     {
-        $label = SourceDom::associatedLabel($control);
-        if ( $label instanceof DOMElement ) {
-            return $label;
-        }
-        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) if ( 'label' === strtolower($parent->tagName) ) return $parent;
-        return null;
+        return FormControlLabel::element($control);
     }
 
     /** @return list<array{part: array<string,mixed>, variants: list<array<string,mixed>>, group?: array<string,mixed>, group_variants?: list<array<string,mixed>>}> */
@@ -459,6 +927,9 @@ final class FormPresentationGraphBuilder
         $ordinal = 0;
         foreach ( $control->getElementsByTagName('svg') as $svg ) {
             if ( ! $svg instanceof DOMElement || ! SourceDom::svgHasDrawableContent($svg) ) continue;
+            // An icon the source keeps hidden inside the control (a loading
+            // spinner shown only while the form submits) is not drawn there.
+            if ( null !== $this->hiddenBelow($svg, $control, $rules) ) continue;
             if ( count($parts) >= self::MAX_VISUAL_PARTS ) { $this->truncated = true; $this->diagnostics[] = 'visual_part_limit'; break; }
             $selector = SourceDom::elementSelector($svg);
             if ( strlen($selector) > 2048 ) { $this->diagnostics[] = 'visual_selector_limit'; continue; }
@@ -519,17 +990,35 @@ final class FormPresentationGraphBuilder
             if ( ! $match['supported'] ) { $this->diagnostics[] = 'unsupported_selector:' . $rule['selector']; continue; }
             if ( ! $match['matches'] ) continue;
             if ( $matched++ >= self::MAX_RULES_PER_ROLE ) { $this->truncated = true; $this->diagnostics[] = 'rules_per_role_limit'; break; }
-            foreach ( $rule['declarations'] as $declaration ) {
+            foreach ( $rule['declarations'] as $declarationOrder => $declaration ) {
                 if ( ! in_array($declaration['name'], self::PROPERTIES, true) ) continue;
                 $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
                 $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
-                $fact = array( 'value' => $value, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
+                $fact = array( 'value' => $value, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'declaration_order' => $declarationOrder, 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
                 $encoded = null === $rule['condition'] ? null : json_encode($rule['condition']);
                 if ( null === $encoded ) $target =& $base; else { $conditional[$encoded] ??= array(); $target =& $conditional[$encoded]; }
                 CssCascade::apply($target, $declaration['name'], $fact); unset($target);
             }
         }
+        $base = $this->fontCascade($base);
+        foreach ($conditional as &$facts) $facts = $this->fontCascade($facts, $base);
+        unset($facts);
         return array( 'base' => $base, 'conditional' => $conditional );
+    }
+
+    /** A winning font shorthand resets weaker longhands on the same source element. */
+    private function fontCascade(array $facts, array $base = array()): array
+    {
+        $font = $facts['font'] ?? $base['font'] ?? null;
+        if (!is_array($font)) return $facts;
+        if (isset($base['font']) && !CssCascade::wins($font, $base['font'])) $font = $base['font'];
+        foreach (array('font-family', 'font-size', 'font-style', 'font-variant', 'font-weight', 'line-height') as $property) {
+            if (!isset($facts[$property]) || !CssCascade::wins($font, $facts[$property])) continue;
+            // A same-rule longhand authored after the shorthand overrides it.
+            if (CssCascade::wins($facts[$property], $font) && ($font['declaration_order'] ?? 0) < ($facts[$property]['declaration_order'] ?? 0)) continue;
+            unset($facts[$property]);
+        }
+        return $facts;
     }
 
     private function effectiveConditional(array $conditional, array $base): array
@@ -540,11 +1029,12 @@ final class FormPresentationGraphBuilder
     }
 
     /** @param list<array<string, mixed>> $rules */
-    private function styles(array $facts, DOMElement $element, ?array $condition, array $rules): array
+    private function styles(array $facts, DOMElement $element, ?array $condition, array $rules, bool $unconditionalBase = false): array
     {
         $result = array();
         foreach ( $facts as $property => $fact ) {
-            $value = FormCustomPropertyResolver::resolve($fact['value'], $element, $condition, $rules);
+            $owner = $fact['element'] ?? $element;
+            $value = FormCustomPropertyResolver::resolve($fact['value'], $owner, $condition, $rules, $unconditionalBase);
             if ( null !== $this->resolveValue && str_contains($value, 'var(') ) $value = ($this->resolveValue)($element, $value);
             $result[self::key($property)] = $value;
         }

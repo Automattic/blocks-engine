@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -43,11 +44,27 @@ final class RichTextMaterializer implements RichTextMaterialization
         return (bool) preg_match('/<(?:address|article|aside|blockquote|details|div|dl|figure|h[1-6]|hr|main|menu|nav|ol|p|pre|section|table|ul)\b/i', $content);
     }
 
+    /**
+     * Inline elements whose resolved source styling is carried onto the
+     * RichText markup. Unknown and custom elements (`<bdt>`, `<x-note>`) are
+     * included: they are later normalized onto a RichText-safe carrier, so
+     * their class-driven styling must travel with them.
+     */
+    private static function isMaterializedInline(DOMElement $element): bool
+    {
+        return in_array(strtolower($element->tagName), array( 'span', 'font', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true)
+            || RichTextInlineTags::isUnknownHtmlElement($element);
+    }
+
     /** @param array<int, string> $excludedTags */
     public function content(DOMElement $element, array $excludedTags = array()): string
     {
         $content = array() === $excludedTags ? SourceDom::innerHtml($element) : SourceDom::innerHtmlWithoutTags($element, $excludedTags);
-        if ( '' === $content || ! preg_match('/<(?:span|font|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
+        // `<wbr>` is a void presentation hint, not editable RichText markup.
+        // Browsers can serialize malformed source as a closing `</wbr>` too;
+        // remove both forms so it cannot become structural HTML in a block.
+        $content = preg_replace('/<\/?wbr\b[^>]*>/i', '', $content) ?? $content;
+        if ( '' === $content || ( ! preg_match('/<(?:span|font|em|i|strong|b|mark|small|sub|sup)\b/i', $content) && ! RichTextInlineTags::containsUnknownElement($content) ) ) {
             return $content;
         }
 
@@ -64,7 +81,7 @@ final class RichTextMaterializer implements RichTextMaterialization
 
         $sourceInlines = array();
         foreach ( $element->getElementsByTagName('*') as $sourceInline ) {
-            if ( $sourceInline instanceof DOMElement && in_array(strtolower($sourceInline->tagName), array( 'span', 'font', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
+            if ( $sourceInline instanceof DOMElement && self::isMaterializedInline($sourceInline) ) {
                 for ( $parent = $sourceInline->parentNode; $parent instanceof DOMElement && $parent !== $element; $parent = $parent->parentNode ) {
                     if ( in_array(strtolower($parent->tagName), $excludedTags, true) ) {
                         continue 2;
@@ -76,7 +93,7 @@ final class RichTextMaterializer implements RichTextMaterialization
 
         $targetInlines = array();
         foreach ( $body->getElementsByTagName('*') as $targetInline ) {
-            if ( $targetInline instanceof DOMElement && in_array(strtolower($targetInline->tagName), array( 'span', 'font', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
+            if ( $targetInline instanceof DOMElement && self::isMaterializedInline($targetInline) ) {
                 $targetInlines[] = $targetInline;
             }
         }
@@ -102,6 +119,11 @@ final class RichTextMaterializer implements RichTextMaterialization
                 }
                 $inline['--blocks-engine-richtext-marker'] = $marker;
             }
+            // The serialized inline keeps the author's classes as selector hooks,
+            // and an inline declaration out-ranks every stylesheet rule — a base
+            // value projected here would freeze the breakpoint it came from onto
+            // the carrier and silence the responsive class rule at every width.
+            $inline = $this->styleResolver->stripResponsiveClassOwnedDeclarations($sourceInline, $inline);
             if ( array() === $inline ) {
                 continue;
             }

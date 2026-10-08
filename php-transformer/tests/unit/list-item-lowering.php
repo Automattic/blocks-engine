@@ -91,7 +91,7 @@ $archiveMarkup = (string) ($archive['serialized_blocks'] ?? '');
 if (str_contains($archiveMarkup, '<!-- wp:list') || !str_contains($archiveMarkup, 'tagName":"ul"') || !str_contains($archiveMarkup, 'tagName":"li"')) throw new RuntimeException('A dated archive index with block descendants stays on the structural list path.');
 if (!str_contains($archiveMarkup, 'index blocks-engine-css-owned-layout blocks-engine-css-owned-grid')) throw new RuntimeException('A dated archive index keeps CSS-owned grid so gap, not core flow, sets row rhythm.');
 if (!str_contains($archiveMarkup, 'row-inner blocks-engine-css-owned-layout blocks-engine-css-owned-flow') || !str_contains($archiveMarkup, 'body blocks-engine-css-owned-layout blocks-engine-css-owned-flow')) throw new RuntimeException('Structural-list inner flex rows and stacked flex items neutralize WordPress flow so source child margins own vertical rhythm.');
-if (!str_contains($archiveMarkup, '<p class="dek">Excerpt one</p>') || str_contains($archiveMarkup, 'wp-block-group dek')) throw new RuntimeException('A margin-styled excerpt div becomes a paragraph carrying its classes, not a group wrapping a classless paragraph.');
+if (!str_contains($archiveMarkup, '<p class="dek blocks-engine-lowered-paragraph">Excerpt one</p>') || str_contains($archiveMarkup, 'wp-block-group dek')) throw new RuntimeException('A margin-styled excerpt div becomes a paragraph carrying its classes, not a group wrapping a classless paragraph.');
 if (str_contains($archiveMarkup, '<!-- wp:html') || 'pass' !== ($archive['source_reports']['wp_block_validity']['status'] ?? null)) throw new RuntimeException('A dated archive index remains Gutenberg-valid without HTML fallback.');
 
 $stackedCopy = (new HtmlTransformer())->transform(

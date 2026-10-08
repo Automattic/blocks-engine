@@ -26,6 +26,9 @@ final class ButtonLinkDispatcher
      */
     public const POSITIONED_FRAGMENT_LINK_CARRIER_CLASS = 'blocks-engine-positioned-fragment-link-carrier';
 
+    /** Marks an empty, externally labelled link whose source box is carried by its host. */
+    public const ACCESSIBLE_EMPTY_LINK_CLASS = 'blocks-engine-accessible-empty-link';
+
     public function __construct(private readonly ButtonLinkDispatchContext $context)
     {
     }
@@ -62,19 +65,41 @@ final class ButtonLinkDispatcher
 
         // An icon-only link still carries an accessible name, so it must survive
         // even though it has no text content.
-        if ( '' === trim($element->textContent ?? '') && '' !== $this->context->safeLinkUrl(SourceDom::attr($element, 'href')) && '' !== trim(SourceDom::attr($element, 'aria-label')) ) {
+        if ( '' === trim($element->textContent ?? '') && '' !== $this->context->safeLinkUrl(SourceDom::attr($element, 'href')) && ( '' !== trim(SourceDom::attr($element, 'aria-label')) || $this->hasAccessibleLabelReference($element) ) ) {
+            if ( '' === trim(SourceDom::attr($element, 'aria-label')) ) {
+                $element->setAttribute('class', SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), self::ACCESSIBLE_EMPTY_LINK_CLASS));
+            }
             return $this->paragraphHost($element);
         }
 
-        if ( '' === trim($element->textContent ?? '') ) {
-            if ( 0 < $element->getElementsByTagName('svg')->length ) {
-                $svgChildren = $this->context->convertLinkWrapperGroup($element, $fallbacks);
-                if ( null !== $svgChildren ) {
-                    return $svgChildren;
-                }
-            }
+        // A childless whitespace-only link still owns its destination and may
+        // own a CSS hitbox. Use the same native RichText host as other links;
+        // neither a duplicate sibling destination nor absent text proves that
+        // it is safe to omit. Keep media-bearing anchors on their own lowering.
+        if ( 0 === SourceDom::childElementCount($element)
+            && '' === trim($element->textContent ?? '')
+            && '' !== $this->context->safeLinkUrl(SourceDom::attr($element, 'href')) ) {
+            return $this->paragraphHost($element);
+        }
 
-            return null;
+        // A text-less anchor is not an empty anchor: icons, one image, a whole
+        // image feed, a media carrier — whatever it wraps is content, and the
+        // link-wrapper group is the lowering that keeps it while propagating the
+        // link onto the blocks it becomes. Offer that group to every text-less
+        // anchor rather than only to the svg-only shape it was first added for.
+        // `imageBlockFromAnchor()` above answers for exactly one image; a link
+        // holding several fell past both branches and took its whole subtree
+        // with it.
+        if ( '' === trim($element->textContent ?? '') ) {
+            return $this->context->convertLinkWrapperGroup($element, $fallbacks);
+        }
+
+        // A sized or row-grouped image plus a label element is one navigation
+        // target. Native group/image saves cannot keep that anchor, the label,
+        // and density sources together.
+        $linkedContent = $this->context->linkedResponsiveContentBlockFromAnchor($element);
+        if ( null !== $linkedContent ) {
+            return $linkedContent;
         }
 
         // Tag-wise inline children can still stack: a linked brand lockup whose
@@ -250,5 +275,21 @@ final class ButtonLinkDispatcher
         $position = strtolower(trim((string) ($this->context->structuralPresentationDeclarations($anchor)['position'] ?? '')));
 
         return in_array($position, array( 'absolute', 'fixed' ), true);
+    }
+
+    private function hasAccessibleLabelReference(DOMElement $anchor): bool
+    {
+        $labelledby = trim(SourceDom::attr($anchor, 'aria-labelledby'));
+        if ( '' === $labelledby || null === $anchor->ownerDocument ) {
+            return false;
+        }
+
+        foreach ( preg_split('/\\s+/', $labelledby) ?: array() as $id ) {
+            if ( '' !== $id && null !== $anchor->ownerDocument->getElementById($id) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -136,6 +136,18 @@ $fallback = $converter->convert($svg, 'svg', $fallbacks);
 $assert($fallback->handled && null === $fallback->block, 'unmaterialized-svg-handled-without-block');
 $assert(1 === $fallbackCaptures && 'html_inline_svg_fallback' === ($fallbacks[0]['diagnostic_code'] ?? ''), 'unmaterialized-svg-captures-fallback');
 
+// A materialized SVG image is content-addressed by its visual payload. Engine
+// class tokens are scoped to the compiling document and style nothing inside a
+// standalone image, so the same icon compiled on two routes is one asset.
+$svgIdentity = new ReflectionMethod(\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer::class, 'svgImageAssetIdentity');
+$svgMaterializer = (new ReflectionClass(\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer::class))->newInstanceWithoutConstructor();
+$iconOnRouteA = '<svg viewBox="0 0 20 20"><g class="blocks-engine-attribute-12b8d2529d4c-97"><path d="M0 0h20v20H0z" class="blocks-engine-attribute-12b8d2529d4c-98 icon-fill"></path></g></svg>';
+$iconOnRouteB = '<svg viewBox="0 0 20 20"><g class="blocks-engine-attribute-bbf8754ba669-60"><path d="M0 0h20v20H0z" class="blocks-engine-attribute-bbf8754ba669-61 icon-fill"></path></g></svg>';
+$otherIcon = '<svg viewBox="0 0 20 20"><g class="blocks-engine-attribute-bbf8754ba669-60"><path d="M0 0h10v10H0z" class="blocks-engine-attribute-bbf8754ba669-61 icon-fill"></path></g></svg>';
+$assert($svgIdentity->invoke($svgMaterializer, $iconOnRouteA) === $svgIdentity->invoke($svgMaterializer, $iconOnRouteB), 'svg-asset-identity-ignores-document-scoped-engine-classes');
+$assert($svgIdentity->invoke($svgMaterializer, $iconOnRouteA) !== $svgIdentity->invoke($svgMaterializer, $otherIcon), 'svg-asset-identity-keeps-distinct-geometry');
+$assert(str_contains($svgIdentity->invoke($svgMaterializer, $iconOnRouteA), 'class="icon-fill"'), 'svg-asset-identity-keeps-authored-classes');
+
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);

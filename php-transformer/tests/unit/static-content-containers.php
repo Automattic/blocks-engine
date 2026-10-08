@@ -37,12 +37,16 @@ foreach (array(
     'unsupported descendant' => '<content><div><h1>Heading</h1><progress value="1" max="2">Progress</progress></div></content>',
     'script descendant' => '<content><div><script>alert(1)</script><h1>Heading</h1></div></content>',
     'embed descendant' => '<content><div><embed src="https://example.test/plugin"><h1>Heading</h1></div></content>',
-    'unrecognized element' => '<pagebody><div><h1>Unknown component</h1></div></pagebody>',
 ) as $label => $source) {
     $guarded = $transform($source);
     $unsupported = array_filter($guarded['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? ''));
     $assert(1 === count($unsupported) && array() === ($guarded['blocks'] ?? array()), $label . ' retains the existing explicit unsupported boundary.');
 }
+
+// An unrecognized element with no runtime ownership is a generic container
+// (#2181): its content lowers to native blocks rather than being dropped.
+$unrecognized = $transform('<pagebody><div><h1>Unknown component</h1></div></pagebody>');
+$assert(array() === ($unrecognized['fallbacks'] ?? array()) && str_contains((string) ($unrecognized['serialized_blocks'] ?? ''), '<!-- wp:heading'), 'unrecognized element content lowers to native blocks without a fallback.');
 
 $collection = $transform('<content><div>One</div><div>Two</div></content>');
 $assert(str_starts_with((string) ($collection['blocks'][0]['blockName'] ?? ''), 'custom/collection-'), 'Repeated children retain the existing custom collection conversion.');

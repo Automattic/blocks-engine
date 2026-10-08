@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 use WeakMap;
 
@@ -38,17 +39,21 @@ final class AuthorStyleRuleProjector
         return $this->projectWithDeclarations($prelude, $body, $authorStyles, $sourceStyles, $evidence)['body'];
     }
 
-    /** @return array{body: string, declarations: array<string, string>} */
+    /**
+     * @param list<string> $conditions At-rules the rule sits inside, outermost first.
+     * @return array{body: string, declarations: array<string, string>}
+     */
     public function projectWithDeclarations(
         string $prelude,
         string $body,
         AuthorStyleAnalysis $authorStyles,
         SourceStyleResolutionState $sourceStyles,
-        TransformationEvidenceState $evidence
+        TransformationEvidenceState $evidence,
+        array $conditions = array()
     ): array {
         $declarations = $this->styleResolver->verbatimCssDeclarations($body);
         $this->acceptProjectedBody($body, $declarations, $this->projectResponsiveCanvasMinimumWidth($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence));
-        $this->acceptProjectedBody($body, $declarations, $this->projectAutoSizedStructuralPercentageHeight($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence));
+        $this->acceptProjectedBody($body, $declarations, $this->projectAutoSizedStructuralPercentageHeight($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence, $conditions));
         $this->acceptProjectedBody($body, $declarations, $this->projectSourceContentBoxSizing($prelude, $body, $declarations, $authorStyles, $sourceStyles));
         $this->acceptProjectedBody($body, $declarations, $this->projectIntrinsicGridRowTracks($prelude, $body, $declarations, $authorStyles, $sourceStyles));
         return array('body' => $body, 'declarations' => $declarations);
@@ -67,10 +72,12 @@ final class AuthorStyleRuleProjector
     /** @param array<string, string> $declarations */
     private function projectSourceContentBoxSizing(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles): string
     {
-        if ( isset($declarations['box-sizing'])
-            || ! isset($declarations['width'])
-            || ! CssValueInspector::hasDefiniteWidth('width:' . $declarations['width'])
-        ) {
+        // A box sized on either axis is 2×(padding+border) smaller under the
+        // WordPress border-box reset; a `height` band loses its bottom padding
+        // just as a `width` column loses its side padding.
+        $sized = ( isset($declarations['width']) && CssValueInspector::hasDefiniteWidth('width:' . $declarations['width']) )
+            || ( isset($declarations['height']) && CssValueInspector::hasDefiniteHeight('height:' . $declarations['height']) );
+        if ( isset($declarations['box-sizing']) || ! $sized ) {
             return $body;
         }
 
@@ -181,12 +188,23 @@ final class AuthorStyleRuleProjector
             if ( ! $parsed['supported'] ) {
                 return $body;
             }
+            // Route-owned document predicates now survive on the native root.
+            // A minimum width explicitly gated by that state is authored
+            // behavior, not an orphaned desktop shell constraint to repair.
+            foreach (array_slice($parsed['compounds'] ?? array(), 0, -1) as $compound) {
+                if (in_array(strtolower((string) ($compound['type'] ?? '')), array('html', 'body'), true)
+                    && (array() !== ($compound['classes'] ?? array()) || array() !== ($compound['ids'] ?? array())
+                        || array() !== ($compound['attributes'] ?? array()) || array() !== ($compound['not'] ?? array())
+                        || array() !== ($compound['any'] ?? array()))) return $body;
+            }
             $matches = $this->semanticPreparer->matchingSourceElements($authorStyles, $selector, $parsed);
             if ( array() === $matches ) {
                 continue;
             }
             $matchedSurface = true;
             foreach ( $matches as $element ) {
+                $scope = SourceDom::documentVariantRoot($element);
+                if ($scope instanceof DOMElement && $scope->hasAttribute('data-dla-document-scope')) return $body;
                 if ( ! $this->isWideAbsoluteMinimumWidth($this->styleResolver->resolveCssVariablesInValue($minimumWidth, $element)) ) {
                     return $body;
                 }
@@ -436,9 +454,13 @@ final class AuthorStyleRuleProjector
         if ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true)
             && in_array($flexDirection, array( 'column', 'column-reverse' ), true) ) {
             // Stretch only governs the cross axis. A column flex parent sizes
-            // its children along the block axis via flex-basis/grow instead,
-            // so it is not a stretch-derived size source for block height.
-            return false;
+            // its children along the block axis via flex-basis/grow instead:
+            // a growing item's post-flexing main size is definite exactly when
+            // the container's main size is (CSS Flexbox 9.8), so it fills the
+            // container's definite height. A non-growing item keeps its
+            // content height and is no size source.
+            return $this->growsAlongFlexMainAxis($element)
+                && $this->receivesDefiniteBlockSize($parent, $depth + 1);
         }
         $alignSelfRaw = (string) ($this->styleResolver->structuralPresentationDeclarations($element)['align-self'] ?? '');
         $alignSelf = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($alignSelfRaw), $element));
@@ -449,6 +471,130 @@ final class AuthorStyleRuleProjector
         }
 
         return $this->receivesDefiniteBlockSize($parent, $depth + 1);
+    }
+
+    /**
+     * Whether a percentage height fills a stretched grid or row-flex item.
+     *
+     * Equal-height cards size the row from content, then stretch each item to
+     * that used size. `height:100%` on the item or its descendants resolves
+     * against that area even when a section ancestor's own height is auto.
+     * Collapsing it to `height:auto` drops the shared baseline. This is not a
+     * definite size for fractional grid tracks, which still need a definite
+     * container.
+     */
+    private function percentageHeightFillsStretchedItem(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $parent = $node->parentNode;
+            if ( ! $parent instanceof DOMElement ) {
+                return false;
+            }
+            if ( $node !== $element && in_array(strtolower($node->tagName), array( 'footer', 'header', 'section' ), true) ) {
+                return false;
+            }
+            $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
+            $parentDisplay = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+                CssValueInspector::withoutImportant((string) ($parentDeclarations['display'] ?? '')),
+                $parent
+            ));
+            $flexDirection = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+                CssValueInspector::withoutImportant((string) ($parentDeclarations['flex-direction'] ?? '')),
+                $parent
+            ));
+            if ( '' === $flexDirection ) {
+                $flexFlow = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+                    CssValueInspector::withoutImportant((string) ($parentDeclarations['flex-flow'] ?? '')),
+                    $parent
+                ));
+                $flexFlowAxis = (string) (CssValueSplitter::splitTopLevelWhitespace($flexFlow)[0] ?? '');
+                if ( in_array($flexFlowAxis, array( 'row', 'row-reverse', 'column', 'column-reverse' ), true) ) {
+                    $flexDirection = $flexFlowAxis;
+                }
+            }
+            if ( $this->stretchesOnBlockAxis($node, $parent, $parentDeclarations, $parentDisplay, $flexDirection) ) {
+                return true;
+            }
+            // An intermediate box that does not fill its parent breaks the
+            // chain. A non-growing column-flex item keeps content height, so a
+            // descendant percentage does not resolve against the stretched card.
+            if ( $node !== $element && ! $this->fillsParentBlockSize($node, $parent, $parentDisplay, $flexDirection) ) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private function fillsParentBlockSize(DOMElement $element, DOMElement $parent, string $parentDisplay, string $flexDirection): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        $height = strtolower(CssValueInspector::withoutImportant((string) ($declarations['height'] ?? '')));
+        $minHeight = strtolower(CssValueInspector::withoutImportant((string) ($declarations['min-height'] ?? '')));
+        if ( $this->isPercentageBlockSize($height) || $this->isPercentageBlockSize($minHeight) ) {
+            return true;
+        }
+
+        return in_array($parentDisplay, array( 'flex', 'inline-flex' ), true)
+            && in_array($flexDirection, array( 'column', 'column-reverse' ), true)
+            && $this->growsAlongFlexMainAxis($element);
+    }
+
+    /**
+     * Whether `$element` is stretched on the block axis by a grid or row-flex parent.
+     *
+     * Column flex is excluded: its block axis is the main axis, sized by
+     * flex-grow rather than stretch.
+     *
+     * @param array<string, string> $parentDeclarations
+     */
+    private function stretchesOnBlockAxis(DOMElement $element, DOMElement $parent, array $parentDeclarations, string $parentDisplay, string $flexDirection): bool
+    {
+        $stretchesCrossAxis = in_array($parentDisplay, array( 'grid', 'inline-grid' ), true)
+            || ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true)
+                && ! in_array($flexDirection, array( 'column', 'column-reverse' ), true) );
+        if ( ! $stretchesCrossAxis ) {
+            return false;
+        }
+        $alignSelf = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+            CssValueInspector::withoutImportant((string) ($this->styleResolver->structuralPresentationDeclarations($element)['align-self'] ?? '')),
+            $element
+        ));
+        if ( 'stretch' === $alignSelf ) {
+            return true;
+        }
+        if ( '' !== $alignSelf && ! in_array($alignSelf, array( 'auto', 'normal' ), true) ) {
+            return false;
+        }
+        $alignItems = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+            CssValueInspector::withoutImportant((string) ($parentDeclarations['align-items'] ?? '')),
+            $parent
+        ));
+
+        return '' === $alignItems || in_array($alignItems, array( 'normal', 'stretch' ), true);
+    }
+
+    /**
+     * Whether the element's resolved `flex-grow` (longhand, else the first
+     * number of the `flex` shorthand) is positive.
+     */
+    private function growsAlongFlexMainAxis(DOMElement $element): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        $grow = $this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['flex-grow'] ?? '')), $element);
+        if ( '' === trim($grow) ) {
+            $flex = strtolower(trim($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['flex'] ?? '')), $element)));
+            $first = (string) (CssValueSplitter::splitTopLevelWhitespace($flex)[0] ?? '');
+            if ( '' !== $first && ! is_numeric($first) ) {
+                // `flex:auto` and `flex:<basis>` both grow by 1; `none` and
+                // the CSS-wide keywords do not.
+                return ! in_array($flex, array( 'none', 'initial', 'inherit', 'unset', 'revert' ), true);
+            }
+            $grow = $first;
+        }
+        $grow = trim($grow);
+
+        return is_numeric($grow) && 0 < (float) $grow;
     }
 
     /**
@@ -463,6 +609,10 @@ final class AuthorStyleRuleProjector
      * common in page-builder output that scales a section to the viewport),
      * the container's own auto height is thereby definite too, the same way
      * a real browser's grid track-sizing algorithm resolves it.
+     *
+     * An `aspect-ratio` box reaches a definite block size the same bottom-up
+     * way: with `height` auto, the ratio derives the block size from the
+     * inline size, so the box is exactly as definite as its own width is.
      */
     private function establishesOwnDefiniteBlockSize(DOMElement $element, string $height): bool
     {
@@ -470,12 +620,48 @@ final class AuthorStyleRuleProjector
             return false;
         }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( $this->aspectRatioDerivesBlockSize($element, $declarations) ) {
+            return true;
+        }
         $display = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['display'] ?? '')), $element));
         if ( ! in_array($display, array( 'grid', 'inline-grid' ), true) ) {
             return false;
         }
         $rows = $this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['grid-template-rows'] ?? '')), $element);
         return $this->gridTemplateRowsContainDefiniteTrack($rows);
+    }
+
+    /**
+     * Whether a declared `aspect-ratio` resolves this element's block size.
+     * With `height` auto (the caller's precondition) a real ratio derives the
+     * block axis from the inline one, so it is definite exactly when the
+     * element's own `width` is: a length, or a percentage of the parent's
+     * content width, which for the in-flow boxes this analysis walks is
+     * itself resolved before the block axis is.
+     *
+     * An `auto` width is deliberately not accepted. It is definite only in
+     * normal flow -- a float, an inline-level box, an absolutely positioned
+     * box or a row flex item shrink-to-fit instead, sizing the inline axis
+     * from content -- and this analysis does not model which of those the
+     * element is in.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function aspectRatioDerivesBlockSize(DOMElement $element, array $declarations): bool
+    {
+        $ratio = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+            CssValueInspector::withoutImportant((string) ($declarations['aspect-ratio'] ?? '')),
+            $element
+        ));
+        if ( '' === $ratio || 'auto' === $ratio || str_contains($ratio, 'auto') ) {
+            return false;
+        }
+        if ( 1 !== preg_match('~^[\d.]+(?:\s*/\s*[\d.]+)?$~', trim($ratio)) ) {
+            return false;
+        }
+        $width = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['width'] ?? ''), $element);
+
+        return $this->isDefiniteBlockSize($width) || $this->isPercentageBlockSize($width);
     }
 
     private function gridTemplateRowsContainDefiniteTrack(string $rows): bool
@@ -564,14 +750,18 @@ final class AuthorStyleRuleProjector
         return $pixels >= 640;
     }
 
-    /** @param array<string, string> $declarations */
+    /**
+     * @param array<string, string> $declarations
+     * @param list<string>          $conditions
+     */
     private function projectAutoSizedStructuralPercentageHeight(
         string $prelude,
         string $body,
         array $declarations,
         AuthorStyleAnalysis $authorStyles,
         SourceStyleResolutionState $sourceStyles,
-        TransformationEvidenceState $evidence
+        TransformationEvidenceState $evidence,
+        array $conditions = array()
     ): string {
         $height = (string) ($declarations['height'] ?? '');
         if ( '100%' !== strtolower(CssValueInspector::withoutImportant($height)) ) {
@@ -592,7 +782,7 @@ final class AuthorStyleRuleProjector
                 continue;
             }
             $matchedSurface = true;
-            $autoSizedMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isAutoSizedStructuralPercentageHeight($element, $authorStyles));
+            $autoSizedMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isAutoSizedStructuralPercentageHeight($element, $authorStyles, $conditions));
             if ( count($autoSizedMatches) !== count($matches) ) {
                 if ( array() !== $autoSizedMatches ) {
                     $evidence->recordResponsiveHeightAmbiguity($selector, $height);
@@ -614,26 +804,29 @@ final class AuthorStyleRuleProjector
         return implode(';', $retained);
     }
 
-    private function isAutoSizedStructuralPercentageHeight(DOMElement $element, AuthorStyleAnalysis $authorStyles): bool
+    /** @param list<string> $conditions */
+    private function isAutoSizedStructuralPercentageHeight(DOMElement $element, AuthorStyleAnalysis $authorStyles, array $conditions = array()): bool
     {
         if ( in_array(strtolower($element->tagName), array( 'canvas', 'embed', 'iframe', 'img', 'input', 'object', 'picture', 'svg', 'video' ), true) ) {
             return false;
         }
-        $elementStyle = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( in_array(strtolower(CssValueInspector::withoutImportant((string) ($elementStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+        if ( $this->isPositionedUnderConditions($element, $conditions) ) {
             return false;
         }
-        if ( $this->receivesDefiniteBlockSize($element) ) {
+        if ( $this->receivesDefiniteBlockSize($element) || $this->percentageHeightFillsStretchedItem($element) ) {
             return false;
         }
         $ancestor = $element->parentNode;
         while ( $ancestor instanceof DOMElement && $ancestor !== $authorStyles->sourceBody() ) {
             $style = $this->styleResolver->structuralPresentationDeclarations($ancestor);
-            if ( in_array(strtolower(CssValueInspector::withoutImportant((string) ($style['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+            if ( $this->isPositionedUnderConditions($ancestor, $conditions) ) {
                 return false;
             }
             $ancestorHeight = strtolower(CssValueInspector::withoutImportant((string) ($style['height'] ?? '')));
             if ( ! in_array($ancestorHeight, array( '', 'auto', '100%' ), true) ) {
+                return false;
+            }
+            if ( $this->hasDefiniteHeightUnderConditions($ancestor, $conditions) ) {
                 return false;
             }
             if ( in_array(strtolower($ancestor->tagName), array( 'footer', 'header', 'section' ), true) ) {
@@ -642,6 +835,82 @@ final class AuthorStyleRuleProjector
             $ancestor = $ancestor->parentNode;
         }
         return false;
+    }
+
+    /**
+     * Whether `$element` has a definite height wherever a rule scoped by
+     * `$conditions` applies.
+     *
+     * A responsive capture scopes its desktop stylesheet under
+     * `@media (min-width:768px)`, so a wrapper's `height:42px` never reaches
+     * the unconditional structural cascade. A percentage-height rule under that
+     * same condition still resolves against the wrapper in the source. Only
+     * declarations whose own condition stack is a subset of the rule's are
+     * read: those hold everywhere the rule does. An inline height already
+     * reached the structural cascade, and is left to it.
+     *
+     * @param list<string> $conditions
+     */
+    private function hasDefiniteHeightUnderConditions(DOMElement $element, array $conditions): bool
+    {
+        $held = self::restatableConditions($conditions);
+        if ( array() === $held || isset($this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'))['height']) ) {
+            return false;
+        }
+        $height = $this->presentationValueUnderConditions($element, 'height', $conditions);
+
+        return $this->isDefiniteBlockSize($this->styleResolver->resolveStructuralCssVariablesInValue($height, $element));
+    }
+
+    /** @param list<string> $conditions */
+    private function isPositionedUnderConditions(DOMElement $element, array $conditions): bool
+    {
+        $position = $this->presentationValueUnderConditions($element, 'position', $conditions);
+        return in_array(CssValueInspector::comparable($position), array( 'absolute', 'fixed' ), true);
+    }
+
+    /**
+     * Resolve only author declarations guaranteed by this rule's condition
+     * domain, using the same ordered declaration set as definite-height proof.
+     * Position is not inherited: a parent's declaration cannot position a child.
+     * Inline declarations retain their ordinary cascade/importance priority.
+     *
+     * @param list<string> $conditions
+     */
+    private function presentationValueUnderConditions(DOMElement $element, string $property, array $conditions): string
+    {
+        $held = self::restatableConditions($conditions);
+        $value = $this->styleResolver->declaredPresentation($element, $property)->resolvedValueWhere(
+            static fn (array $stack): bool => array() === array_diff(self::restatableConditions($stack), $held)
+        );
+        $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        if ( isset($inline[$property]) && CssCascade::wins(
+            array( 'important' => CssValueInspector::isImportant($inline[$property]), 'inline' => true, 'specificity' => 0, 'order' => 1 ),
+            array( 'important' => CssValueInspector::isImportant($value), 'inline' => false, 'specificity' => 0, 'order' => 0 )
+        ) ) {
+            return $inline[$property];
+        }
+        return $value;
+    }
+
+    /**
+     * Viewport and feature conditions, normalized for comparison. A cascade
+     * `@layer` scopes a declaration without conditioning it.
+     *
+     * @param list<string> $conditions
+     * @return list<string>
+     */
+    private static function restatableConditions(array $conditions): array
+    {
+        $normalized = array();
+        foreach ( $conditions as $condition ) {
+            $condition = strtolower((string) preg_replace('/\s+/', '', (string) $condition));
+            if ( '' !== $condition && ! str_starts_with($condition, '@layer') ) {
+                $normalized[] = $condition;
+            }
+        }
+
+        return $normalized;
     }
 
     private function isPageShellOrSectionSurface(DOMElement $element, AuthorStyleAnalysis $authorStyles): bool

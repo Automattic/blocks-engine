@@ -68,6 +68,7 @@ final class VisualIframeBlockGenerator
             'category' => 'embed',
             'description' => 'A bounded external visual surface.',
             'editorScript' => 'file:./index.js',
+            'style' => 'file:./style.css',
             'attributes' => array(
                 'src' => array( 'type' => 'string', 'default' => '' ),
                 'title' => array( 'type' => 'string', 'default' => '' ),
@@ -101,7 +102,7 @@ final class VisualIframeBlockGenerator
         }
     }
     function iframeProps( attributes ) {
-        var props = {};
+        var props = { style: { maxWidth: '100%' } };
         [ 'src', 'title', 'width', 'height', 'allow', 'loading', 'sandbox', 'referrerPolicy' ].forEach( function( name ) { if ( attributes[ name ] ) { props[ name ] = attributes[ name ]; } } );
         if ( attributes.className ) { props.className = attributes.className; }
         if ( attributes.allowFullScreen ) { props.allowFullScreen = true; }
@@ -156,11 +157,14 @@ final class VisualIframeBlockGenerator
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
-        return array( 'index.js' => str_replace(
-            array( '__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__' ),
-            array( $blockName, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) ),
-            $script
-        ) );
+        return array(
+            'index.js' => str_replace(
+                array( '__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__' ),
+                array( $blockName, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) ),
+                $script
+            ),
+            'style.css' => 'iframe{max-width:100%}',
+        );
     }
 
     /** @param array<string, mixed> $attributes */
@@ -180,6 +184,7 @@ JS;
         if ( true === ($attributes['allowFullScreen'] ?? false) ) {
             $markup .= ' allowfullscreen=""';
         }
+        $markup .= ' style="max-width:100%"';
 
         return $markup . '></iframe>';
     }

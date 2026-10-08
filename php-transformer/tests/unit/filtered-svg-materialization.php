@@ -144,7 +144,7 @@ $textAndIconMarkup = (string) ($textAndIcon['serialized_blocks'] ?? '');
 $assert(1 === substr_count($textAndIconMarkup, '<a '), 'A phrasing text-plus-icon anchor stays one link.');
 $assert(0 === substr_count($textAndIconMarkup, 'blocks-engine-synthetic-svg-paragraph'), 'A phrasing text-plus-icon anchor does not emit a synthetic SVG paragraph.');
 $assert(1 === substr_count($textAndIconMarkup, '<!-- wp:paragraph') && 0 === substr_count($textAndIconMarkup, '<!-- wp:group'), 'A phrasing text-plus-icon anchor stays one paragraph without a group wrapper.');
-$assert(preg_match('/<a href="\/services">Read more <img src="assets\/materialized-svg\/[^"]+" alt="" class="[^"]+" style="width:14px;height:14px" \/>/', $textAndIconMarkup) === 1, 'The SVG icon materializes as a RichText image inside the same anchor.');
+$assert(preg_match('/<a href="\/services">Read more <img src="assets\/materialized-svg\/[^"]+" alt="" class="[^"]+" style="width:14px;height:14px">/', $textAndIconMarkup) === 1, 'The SVG icon materializes as a RichText image inside the same anchor.');
 $assert(!str_contains($textAndIconMarkup, '<!-- wp:html') && !str_contains($textAndIconMarkup, '<!-- wp:freeform') && !str_contains($textAndIconMarkup, '<!-- wp:missing'), 'A phrasing text-plus-icon anchor stays on the native paragraph path.');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($textAndIcon['blocks'] ?? array())['status'] ?? null), 'A phrasing text-plus-icon paragraph remains Gutenberg-valid.');
 

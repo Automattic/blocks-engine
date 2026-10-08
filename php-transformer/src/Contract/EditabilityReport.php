@@ -9,7 +9,6 @@ final class EditabilityReport
     public const SCHEMA = 'blocks-engine/php-transformer/editability-report/v2';
     private const MAX_REPORTED_SIGNALS = 100;
     private const MAX_NORMALIZATION_PATH_ENTRIES = 24;
-    private const INLINE_RICH_TEXT_TAGS = array('a', 'abbr', 'b', 'br', 'cite', 'code', 'del', 'em', 'i', 'img', 'ins', 'kbd', 'mark', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var');
     private const RICH_TEXT_ATTRIBUTES = array(
         'core/heading' => array('content'),
         'core/list-item' => array('content'),
@@ -300,7 +299,7 @@ final class EditabilityReport
         if ($this->hasVisualGroupAttributes($attrs)) return 'empty_visual_group';
         $className = (string) ($attrs['className'] ?? '');
         foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
-            if (preg_match('/^be-inline-geometry-[a-f0-9]{64}(?:-[a-f0-9]{64})?$/', $class) && str_contains($generatedCarrierCss, '.' . $class . '{')) return 'empty_visual_group';
+            if (preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class) && str_contains($generatedCarrierCss, '.' . $class . '{')) return 'empty_visual_group';
         }
         return 'empty_wrapper';
     }
@@ -338,7 +337,7 @@ final class EditabilityReport
     private function containsStructuralHtml(string $value): bool
     {
         if (!preg_match_all('/<\/?([a-z][a-z0-9:-]*)\b[^>]*>/i', $value, $matches)) return false;
-        foreach ($matches[1] as $tag) if (!in_array(strtolower((string) $tag), self::INLINE_RICH_TEXT_TAGS, true)) return true;
+        foreach ($matches[1] as $tag) if (!RichTextInlineTags::isAllowed((string) $tag)) return true;
         return false;
     }
 
@@ -352,7 +351,7 @@ final class EditabilityReport
             'block_name' => $blockName,
             'attribute' => $attribute,
             'source_selector' => is_string($provenance['selector'] ?? null) ? $provenance['selector'] : '',
-            'source_fragment' => is_string($provenance['source_fragment'] ?? null) ? substr($provenance['source_fragment'], 0, 512) : '',
+            'source_fragment' => is_string($provenance['source_fragment'] ?? null) ? mb_strcut($provenance['source_fragment'], 0, 512, 'UTF-8') : '',
         ), static fn(string $value): bool => '' !== $value);
     }
 
