@@ -77,7 +77,7 @@ $conditionalOrdinaryStore = $transform($conditionalStyles . '<main><svg style="d
 $conditionalOrdinarySvg = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($conditionalOrdinaryStore['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))));
 $assert(str_contains((string) ($conditionalOrdinaryStore['serialized_blocks'] ?? ''), 'assets/materialized-svg/') && str_contains($conditionalOrdinarySvg, 'ordinary-store'), 'ordinary hidden SVG retains conditional visibility safeguards');
 
-$capturedCollection = $transform('<main><fluid-columns-repeater><div><svg viewBox="0 0 1 1"><defs><link rel="stylesheet" href="/assets/icon.css"></defs><path d="M0 0h1v1z"/></svg><p>One</p></div><div><p>Two</p></div></fluid-columns-repeater></main>');
+$capturedCollection = $transform('<main><fluid-columns-repeater><div><svg viewBox="0 0 1 1"><defs><link rel="stylesheet" href="/assets/icon.css"></defs><path d="M0 0h1v1z"/></svg><p>One</p></div><div><svg viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg><p>Two</p></div></fluid-columns-repeater></main>');
 $generatedRender = implode("\n", array_map(static fn (array $block): string => (string) ($block['render'] ?? ''), $capturedCollection['source_reports']['generated_blocks'] ?? array()));
 $assert('' !== $generatedRender && ! str_contains($generatedRender, '<link'), 'generated custom blocks strip captured stylesheet links from nested SVG markup');
 

@@ -247,6 +247,37 @@ $assert(
 );
 
 // ---------------------------------------------------------------------------
+// 12. Peers are content units: empty shells, prose runs, layout cells, and
+//     bare wrappers around a mixed document flow are not repetition.
+// ---------------------------------------------------------------------------
+$repeatable = static fn (string $html): int => (int) $classifier->classify($element($html))->signals()['repeatable_children'];
+
+$assert(
+    $repeatable('<div class="page"><div><div id="slot-a"></div></div><div><div id="slot-b"></div></div><div class="article"><p>Body</p></div></div>') < 2,
+    '12: matching empty placeholders are not repeated units'
+);
+$assert(
+    $repeatable('<div class="rich-text"><p class="copy">One</p><p class="copy">Two</p><p class="copy">Three</p></div>') < 2,
+    '12: a run of paragraphs is prose, not repetition'
+);
+$assert(
+    $repeatable('<div class="stack"><div class="cell"><figure><img src="a.jpg" alt=""></figure></div><div class="cell"><p>Copy beside the image.</p></div></div>') < 2,
+    '12: an image cell beside a text cell are not peers'
+);
+$assert(
+    $repeatable('<div class="body"><div><p class="copy">Intro</p></div><div><div class="embed"><span>file.pdf</span></div></div><div><div class="embed"><a href="/x">Go</a></div></div><div><p class="copy">Outro</p></div><div><figure><img src="b.jpg" alt=""></figure></div></div>') < 2,
+    '12: bare wrappers around a mixed document flow take the shape of what they wrap'
+);
+$assert(
+    3 === $repeatable('<div class="tiles"><div class="tile"><img src="a.jpg" alt=""></div><div class="tile"><img src="b.jpg" alt=""></div><div class="tile"><img src="c.jpg" alt=""></div></div>'),
+    '12: media-only tiles sharing one shape still repeat'
+);
+$assert(
+    3 === $repeatable('<ul class="feed"><li><div class="card"><h3>A</h3><p>a</p></div></li><li><div class="card"><h3>B</h3><p>b</p></div></li><li><div class="card"><h3>C</h3><p>c</p></div></li></ul>'),
+    '12: bare wrappers around matching cards still repeat'
+);
+
+// ---------------------------------------------------------------------------
 
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "SubtreeClassifier unit tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
