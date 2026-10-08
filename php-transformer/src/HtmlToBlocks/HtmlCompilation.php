@@ -3285,7 +3285,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $wrappedSearchBlock;
         }
 
-        $customImage = $this->imageOnlyCustomElement($element);
+        $customImage = SourceDom::imageOnlyCustomElement($element);
         if ( $customImage instanceof DOMElement ) {
             $this->imageDimensions()->fillParentImageViewportPair($customImage);
             if ( ! $this->canPromoteImageOnlyCustomElement($element, $customImage) ) {
@@ -9860,26 +9860,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $src;
     }
 
-    private function imageOnlyCustomElement(DOMElement $element): ?DOMElement
-    {
-        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') ) {
-            return null;
-        }
-
-        $images = $element->getElementsByTagName('img');
-        if ( 1 !== $images->length || ! $images->item(0) instanceof DOMElement ) {
-            return null;
-        }
-
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && ! in_array(strtolower($descendant->tagName), array( 'img', 'picture', 'source' ), true) ) {
-                return null;
-            }
-        }
-
-        return $images->item(0);
-    }
-
     /**
      * A core/image save is a block figure, not a custom-element host. Only erase
      * a host when its box and identity are provably inert after that substitution.
@@ -10087,11 +10067,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $video = null; $poster = null;
         foreach ($children as $child) {
             if ('video' === strtolower($child->tagName)) $video = $child;
-            elseif (null !== $this->imageOnlyCustomElement($child)) $poster = $child;
+            elseif (null !== SourceDom::imageOnlyCustomElement($child)) $poster = $child;
             else return null;
         }
         if (!$video instanceof DOMElement || !$poster instanceof DOMElement || !$this->hasOnlyStructuralCustomVideoHostAttributes($poster, true)) return null;
-        $image = $this->imageOnlyCustomElement($poster);
+        $image = SourceDom::imageOnlyCustomElement($poster);
         if (!$image instanceof DOMElement || !$image->hasAttribute('alt') || '' !== $this->attr($image, 'alt') || 1 !== count($this->elementElementChildren($poster)) || $image->parentNode !== $poster) return null;
         $videoBlock = $this->convertMediaElement($video);
         $imageBlock = $this->convertImageElement($image);
@@ -10174,7 +10154,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function imageOnlyCarrierElement(DOMElement $element): ?DOMElement
     {
-        $customImage = $this->imageOnlyCustomElement($element);
+        $customImage = SourceDom::imageOnlyCustomElement($element);
         if ( $customImage instanceof DOMElement ) {
             return $customImage;
         }
