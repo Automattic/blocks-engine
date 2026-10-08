@@ -149,9 +149,16 @@ final class DocumentHeadContext
         return $owned;
     }
 
-    public static function bootstrap(array $pages, array $assets, array $tokens): string
+    public static function bootstrap(array $pages, array $assets, array $tokens, array $taxonomyEntities = array()): string
     {
         $rows = array(); $paths = array();
+        $taxonomyArchives = array();
+        foreach ($taxonomyEntities as $entity) {
+            $sourcePath = is_array($entity) ? ($entity['archive']['source_path'] ?? null) : null;
+            $taxonomy = is_array($entity) ? ($entity['taxonomy'] ?? null) : null;
+            $slug = is_array($entity) ? ($entity['slug'] ?? null) : null;
+            if (is_string($sourcePath) && is_string($taxonomy) && is_string($slug)) $taxonomyArchives[$sourcePath] = array('taxonomy' => $taxonomy, 'term_slug' => $slug);
+        }
         foreach ($pages as $page) {
             if (!isset($page['document_metadata']['head']) || !empty($page['synthetic'])) continue;
             $head = $page['document_metadata']['head'];
@@ -166,7 +173,9 @@ final class DocumentHeadContext
                     if ($owned) $styles[] = 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12);
                 }
             }
-            $rows[] = array('identity' => $page['reconciliation_identity'], 'path' => trim($page['route']['path'], '/'), 'front_page' => !empty($page['entrypoint']), 'html' => self::render($head, $assets, $tokens, WordPressSitePlan::entryRootFromDocuments($pages)), 'styles' => $styles, 'viewport' => (bool) array_filter($head['elements'], static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
+            $row = array('identity' => $page['reconciliation_identity'], 'path' => trim($page['route']['path'], '/'), 'front_page' => !empty($page['entrypoint']), 'html' => self::render($head, $assets, $tokens, WordPressSitePlan::entryRootFromDocuments($pages)), 'styles' => $styles, 'viewport' => (bool) array_filter($head['elements'], static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
+            if (isset($taxonomyArchives[$page['source_path']])) $row += $taxonomyArchives[$page['source_path']];
+            $rows[] = $row;
         }
         if (array() === $rows) return '';
         foreach ($tokens as $token) $paths[WordPressSitePlan::TOKEN_PREFIX . $token['token'] . '}}'] = $token['target_path'];
@@ -174,8 +183,11 @@ final class DocumentHeadContext
 add_filter( 'template_include', static function ( $template ) use ( $blocks_engine_document_heads, $blocks_engine_head_assets ) {
     $id = is_singular() ? get_queried_object_id() : 0;
     $identity = $id ? get_post_meta( $id, '_blocks_engine_reconciliation_identity', true ) : '';
+    $queried_term = function_exists( 'get_queried_object' ) ? get_queried_object() : null;
     foreach ( $blocks_engine_document_heads as $row ) {
-        if ( '' !== $identity ? $identity !== $row['identity'] : !( ( $row['front_page'] && is_front_page() ) || ( is_page() && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) continue;
+        if ( isset( $row['taxonomy'], $row['term_slug'] ) ) {
+            if ( ! is_object( $queried_term ) || ( $queried_term->taxonomy ?? '' ) !== $row['taxonomy'] || ( $queried_term->slug ?? '' ) !== $row['term_slug'] ) continue;
+        } elseif ( '' !== $identity ? $identity !== $row['identity'] : !( ( $row['front_page'] && is_front_page() ) || ( is_page() && $row['path'] === trim( get_page_uri( $id ), '/' ) ) ) ) continue;
         if ( $row['viewport'] ) remove_action( 'wp_head', '_block_template_viewport_meta_tag', 0 );
         add_action( 'wp_enqueue_scripts', static function () use ( $row ): void {
             foreach ( $row['styles'] as $handle ) wp_dequeue_style( $handle );

@@ -263,6 +263,18 @@ PHP;
             if (is_string($path)) $page['route'] = array('path' => $path, 'parent_path' => self::parentRoutePath($path), 'slug' => self::routeSlug($path));
         }
         unset($page);
+        // Taxonomy projection runs over compiled documents to prove source
+        // membership, while page metadata is where declared head resources are
+        // resolved to canonical asset tokens. Attach that canonical occurrence
+        // only after resource resolution; copying the compiled URL here would
+        // detach the archive proof from its declared write and scope.
+        $canonicalPagesBySource = array_column($pages, null, 'source_path');
+        foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) {
+            $archiveSource = $taxonomyEntity['archive']['source_path'] ?? null;
+            $archiveHead = is_string($archiveSource) ? ($canonicalPagesBySource[$archiveSource]['document_metadata']['head'] ?? null) : null;
+            if (is_array($archiveHead)) $taxonomyEntity['archive']['document_head'] = $archiveHead;
+        }
+        unset($taxonomyEntity);
         $preflightPages = $pages;
         $this->listingQueryContainers = array();
         $preflightPages = $this->materializeListingQueryLoops($preflightPages, $runtimeDeclarations, $taxonomyProjection['entities']);
@@ -3542,7 +3554,7 @@ PHP;
         $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY);
         $rootContext = DocumentRootContext::bootstrap($pages);
         if ('' !== $rootContext) $lines[] = $rootContext;
-        $headContext = DocumentHeadContext::bootstrap($pages, $assets, $tokens);
+        $headContext = DocumentHeadContext::bootstrap($pages, $assets, $tokens, $taxonomyEntities);
         if ('' !== $headContext) $lines[] = $headContext;
         $fields = ListingFieldProjection::bootstrap($pages);
         if ('' !== $fields) $lines[] = $fields;
@@ -4599,6 +4611,7 @@ PHP;
             self::unique($seen, $entity['taxonomy'] . ':' . $entity['slug'], 'taxonomy term');
             $archive = $entity['archive'] ?? null;
             if (!is_array($archive) || !self::safePath($archive['source_path'] ?? null) || !is_string($archive['source_route'] ?? null) || !preg_match('~^/[a-z0-9-]+(?:/[a-z0-9-]+)*$~', $archive['source_route']) || !is_string($archive['presentation_markup'] ?? null) || strlen($archive['presentation_markup']) > 1000000 || !str_contains($archive['presentation_markup'], '<!-- wp:query ') || !str_contains($archive['presentation_markup'], '"inherit":true') || !str_contains($archive['presentation_markup'], '<!-- wp:query-pagination ') || !str_contains($archive['presentation_markup'], '<!-- wp:query-no-results -->') || ($archive['query'] ?? null) !== array('post_type' => 'post', 'taxonomy' => $entity['taxonomy'], 'term' => $entity['slug'])) throw new InvalidArgumentException('WordPress site plan taxonomy archive is structurally invalid.');
+            if (isset($archive['document_head'])) DocumentHeadContext::assertValid($archive['document_head']);
             $archivePage = $pagesBySource[$archive['source_path']] ?? null;
             if (!is_array($archivePage) || ($archivePage['route']['path'] ?? null) !== $archive['source_route']) throw new InvalidArgumentException('WordPress site plan taxonomy archive route is detached from its source page.');
             $members = $entity['membership_source_paths'] ?? null;
