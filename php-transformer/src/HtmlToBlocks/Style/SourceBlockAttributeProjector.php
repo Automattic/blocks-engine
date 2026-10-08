@@ -17,6 +17,9 @@ final class SourceBlockAttributeProjector
     public const HIDDEN_RICH_TEXT_MARKER_CLASS = 'blocks-engine-hidden-richtext-marker';
     public const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
     public const SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS = 'blocks-engine-synthetic-anchor-block-display';
+    /** RichText content wrapped in a link propagated from an enclosing card anchor. */
+    public const PROPAGATED_LINK_CLASS = 'blocks-engine-propagated-link';
+    public const PROPAGATED_LINK_COLOR_CLASS = 'blocks-engine-propagated-link-color';
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
@@ -28,6 +31,38 @@ final class SourceBlockAttributeProjector
     public const LAYOUT_NEUTRAL_BUTTON_CLASS = 'blocks-engine-layout-child-button';
 
     private const SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX = 'blocks-engine-synthetic-header-anchor-';
+
+    /**
+     * Markers that record a fact about the ORIGINAL source which the block's
+     * saved tag cannot express: a `<p>` that was synthesized around inline
+     * content, or a `<figure>` synthesized around a bare image. Re-ingested
+     * transformer output has only the saved tag, so the marker is the one
+     * piece of evidence left; re-deriving it for the same block keeps a
+     * transform of the engine's own saved markup a fixed point. Every other
+     * engine class is re-derived from structure, never carried.
+     */
+    private const SELF_DESCRIBING_MARKERS = array(
+        'core/paragraph' => array(
+            self::SYNTHETIC_PARAGRAPH_CLASS,
+            self::SOURCE_BOX_PARAGRAPH_CLASS,
+            self::SYNTHETIC_SVG_PARAGRAPH_CLASS,
+            self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS,
+            self::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS,
+            self::PROPAGATED_LINK_CLASS,
+            self::PROPAGATED_LINK_COLOR_CLASS,
+        ),
+        'core/heading'   => array(
+            self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS,
+            self::PROPAGATED_LINK_CLASS,
+            self::PROPAGATED_LINK_COLOR_CLASS,
+        ),
+        'core/image'     => array(
+            self::SYNTHETIC_IMAGE_FIGURE_CLASS,
+            self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
+            self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS,
+            self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
+        ),
+    );
 
     public function __construct(
         private readonly StyleResolver $styleResolver,
@@ -73,6 +108,11 @@ final class SourceBlockAttributeProjector
             }
             if ( 'a' === $sourceTagName ) {
                 $attrs = $this->withSyntheticHeaderAnchorCarrier($attrs, $sourceElement, $context->generatedStyles);
+            }
+        }
+        foreach ( self::SELF_DESCRIBING_MARKERS[ $name ] ?? array() as $marker ) {
+            if ( SourceDom::hasClass($sourceElement, $marker) ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $marker);
             }
         }
         $projectionClassName = $this->sourceProjectionClassName($sourceElement, $context, (string) ($attrs['className'] ?? ''));

@@ -32,7 +32,7 @@ final class EngineSupportCss
 
     private const SLIDESHOW_GALLERY_CLASS = 'blocks-engine-slideshow-gallery';
 
-    private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = 'blocks-engine-propagated-link-color';
+    private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = SourceBlockAttributeProjector::PROPAGATED_LINK_COLOR_CLASS;
 
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
