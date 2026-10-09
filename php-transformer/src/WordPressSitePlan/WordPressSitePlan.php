@@ -424,7 +424,6 @@ PHP;
          }
          unset($taxonomyEntity);
         $operations = $this->operations($pages);
-        $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $assets = self::withVariantScopedIdSelectors($assets);
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
@@ -436,6 +435,14 @@ PHP;
             $tokens = array_merge($tokens, $this->tokens($placeholderAssets));
             $assetWrites = array_merge($assetWrites, $this->assetWrites($placeholderAssets, $references));
         }
+        // Asset bytes are final now. Integrity copied from the source must
+        // describe them before script loading and the head bootstrap emit it.
+        $integrity = new SubresourceIntegrity($assetWrites, $tokens);
+        $pages = $integrity->documents($pages);
+        $parts = $integrity->documents($parts);
+        foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) if (is_array($taxonomyEntity['archive']['document_head'] ?? null)) $taxonomyEntity['archive']['document_head'] = $integrity->head($taxonomyEntity['archive']['document_head']);
+        unset($taxonomyEntity);
+        $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $taxonomyProjection['entities']), $assetWrites);
         $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->missingMedia->diagnostics());
         // All shell, navigation, listing and script binding projection is now
