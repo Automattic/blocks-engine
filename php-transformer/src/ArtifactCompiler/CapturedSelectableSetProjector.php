@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use DOMDocument;
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 
 /**
  * Projects captured selectable-set evidence (N members driving one shared
@@ -931,8 +932,9 @@ final class CapturedSelectableSetProjector
             return null;
         }
         $xpath = new \DOMXPath($document);
+        $this->keepSafeVisualIframes($xpath);
         foreach (array('script', 'iframe', 'object', 'embed', 'template', 'canvas') as $tag) {
-            $matches = $xpath->query('//' . $tag);
+            $matches = $xpath->query('iframe' === $tag ? '//iframe[not(@data-be-safe-iframe)]' : '//' . $tag);
             if (false === $matches) {
                 continue;
             }
@@ -961,6 +963,11 @@ final class CapturedSelectableSetProjector
                 }
             }
         }
+        foreach (iterator_to_array($xpath->query('//iframe[@data-be-safe-iframe]') ?: array()) as $iframe) {
+            if ($iframe instanceof DOMElement) {
+                $iframe->removeAttribute('data-be-safe-iframe');
+            }
+        }
         $wrapper = $xpath->query('//*[@data-region-root="true"]')?->item(0);
         if (! $wrapper instanceof DOMElement) {
             return null;
@@ -971,6 +978,35 @@ final class CapturedSelectableSetProjector
         }
 
         return is_string($html) ? $html : null;
+    }
+
+    /**
+     * Keeps plain https visual iframes and strips every attribute outside the
+     * bounded embed set. Kept frames get a temporary marker so the removal pass
+     * skips them; a marker that came from the source is dropped first.
+     */
+    private function keepSafeVisualIframes(\DOMXPath $xpath): void
+    {
+        $allowed = array('src', 'title', 'width', 'height', 'class', 'allow', 'allowfullscreen', 'loading', 'referrerpolicy');
+        $classifier = new SourceElementClassifier();
+        foreach (iterator_to_array($xpath->query('//iframe') ?: array()) as $iframe) {
+            if (! $iframe instanceof DOMElement) {
+                continue;
+            }
+            $iframe->removeAttribute('data-be-safe-iframe');
+            if ($iframe->hasAttribute('srcdoc') || ! $classifier->isSafeVisualIframeUrl(trim($iframe->getAttribute('src')))) {
+                continue;
+            }
+            foreach (iterator_to_array($iframe->attributes) as $attribute) {
+                if (! in_array(strtolower($attribute->name), $allowed, true)) {
+                    $iframe->removeAttribute($attribute->name);
+                }
+            }
+            while ($iframe->firstChild) {
+                $iframe->removeChild($iframe->firstChild);
+            }
+            $iframe->setAttribute('data-be-safe-iframe', '1');
+        }
     }
 
     /** @return array<int, \DOMNode> */

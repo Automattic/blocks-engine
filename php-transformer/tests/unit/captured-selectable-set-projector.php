@@ -189,6 +189,16 @@ $scriptedMarkup = (string) ($scripted['files'][0]['content'] ?? '');
 $assert(str_contains($scriptedMarkup, 'Safe') && str_contains($scriptedMarkup, 'Kept'), 'sanitized region content is retained');
 $assert(! str_contains($scriptedMarkup, 'window.x') && ! str_contains($scriptedMarkup, 'evil.example') && ! str_contains($scriptedMarkup, '<script'), 'executable markup and form endpoints are stripped');
 
+$videoFrame = '<iframe src="https://www.youtube-nocookie.com/embed/aBcDeFgHiJk?rel=0" title="Demo video" width="1152" height="648" allowfullscreen="" loading="lazy" onload="x()" srcdoc-x="1" data-be-safe-iframe="1"></iframe>';
+$framed = $project($files($source, array(
+    $member(0, 'Alpha', '<div><p>Intro</p><div class="aspect-video">' . $videoFrame . '</div></div>'),
+    $member(1, 'Beta', '<div><p>Other</p><iframe src="http://insecure.example/x"></iframe><iframe srcdoc="<p>x</p>" src="https://example.test/y"></iframe><iframe src="javascript:alert(1)" data-be-safe-iframe="1"></iframe></div>'),
+)));
+$framedMarkup = (string) ($framed['files'][0]['content'] ?? '');
+$assert(str_contains($framedMarkup, 'src="https://www.youtube-nocookie.com/embed/aBcDeFgHiJk?rel=0"') && str_contains($framedMarkup, 'width="1152"') && str_contains($framedMarkup, 'title="Demo video"'), 'a plain https video iframe survives in a projected panel');
+$assert(! str_contains($framedMarkup, 'onload') && ! str_contains($framedMarkup, 'data-be-safe-iframe'), 'event handlers and the internal marker never reach the output');
+$assert(1 === substr_count($framedMarkup, '<iframe'), 'insecure, srcdoc, and javascript iframes are still removed, even with a spoofed marker');
+
 $unmatched = $project($files('<html><body><main><p>No region</p></main></body></html>', array($member(0, 'Alpha', $alphaHtml), $member(1, 'Beta', $betaHtml))));
 $unmatchedMarkup = (string) ($unmatched['files'][0]['content'] ?? '');
 $assert(1 === ($unmatched['projected_count'] ?? 0), 'an unmatched region still projects by appending');
