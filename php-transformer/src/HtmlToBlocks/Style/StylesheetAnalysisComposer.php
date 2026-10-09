@@ -278,7 +278,8 @@ final class StylesheetAnalysisComposer
                 // A link/style media attribute scopes the entire stylesheet.
                 // Preserve that scope for presentation analysis just as emitted
                 // stylesheet assets preserve it for browser rendering.
-                $payloads[] = '' === $media ? $content : '@media ' . $media . '{' . $content . '}';
+                // `media="all"` matches every medium, so it gates nothing.
+                $payloads[] = '' === $media || 'all' === strtolower($media) ? $content : '@media ' . $media . '{' . $content . '}';
             }
         }
 

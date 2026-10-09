@@ -53,6 +53,9 @@ final class AuthorSelectorProjectionState
     /** @var array<string, list<string>> */
     private array $runtimeAttributeSelectorMarkers = array();
 
+    /** @var array<string, true> Author selectors kept live because a source script owns their data state. */
+    private array $runtimeOwnedSelectors = array();
+
     /** @var array<string, string> */
     private array $attributeNegationMarkers = array();
 
@@ -432,6 +435,17 @@ final class AuthorSelectorProjectionState
         }
 
         return false;
+    }
+
+    /** Records an author selector whose data predicates stay live in the output. */
+    public function retainRuntimeOwnedSelector(string $selector): void
+    {
+        $this->runtimeOwnedSelectors[trim($selector)] = true;
+    }
+
+    public function retainsRuntimeOwnedSelector(string $selector): bool
+    {
+        return isset($this->runtimeOwnedSelectors[trim($selector)]);
     }
 
     public function installAttributeNegationMarker(string $selector, string $marker): void
