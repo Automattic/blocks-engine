@@ -56,6 +56,21 @@ $assert('empty-box' === ($modernColorBorder['fallbacks'][0]['tag'] ?? ''), 'zero
 $mixedWidthBorder = $transform('<style>empty-box{border-width:2px 0 2px 2px;border-style:solid;border-color:#000}</style><main><empty-box style="position:absolute"></empty-box><p>After</p></main>');
 $assert('empty-box' === ($mixedWidthBorder['fallbacks'][0]['tag'] ?? ''), 'one zero border side does not hide nonzero authored border geometry');
 
+// An empty div/section that carries only role, aria-*, tabindex or data-* has no
+// rendered footprint, and the native group cannot save those attributes, so it
+// would become an empty box. Notification-region scaffolding is the usual case.
+$emptyRegions = $transform('<main><div role="region" aria-label="Notifications (F8)" tabindex="-1" style="pointer-events: none;"></div><section aria-label="Notifications alt+T" tabindex="-1" aria-live="polite" aria-atomic="false"></section><div data-state="idle" data-widget="x"></div><h1>Visible heading</h1></main>');
+$emptyRegionsMarkup = (string) ($emptyRegions['serialized_blocks'] ?? '');
+$assert(! str_contains($emptyRegionsMarkup, 'blocks-engine-empty-visual-group') && ! str_contains($emptyRegionsMarkup, '<!-- wp:group'), 'empty role/aria/data-only containers emit no empty group: ' . $emptyRegionsMarkup);
+$assert(str_contains($emptyRegionsMarkup, 'Visible heading') && array() === ($emptyRegions['fallbacks'] ?? array()), 'dropping attribute-only empties keeps content and records no fallback');
+
+$sizedRegion = $transform('<style>.slot{height:40px}</style><main><div class="slot" role="region" aria-label="Reserved"></div><h1>Visible heading</h1></main>');
+$assert(str_contains((string) ($sizedRegion['serialized_blocks'] ?? ''), 'blocks-engine-empty-visual-group'), 'an empty region with an authored height keeps its box');
+$handlerRegion = $transform('<main><div role="button" tabindex="0" onclick="go()"></div><h1>Visible heading</h1></main>');
+$assert(str_contains((string) ($handlerRegion['serialized_blocks'] ?? ''), 'blocks-engine-empty-visual-group'), 'an empty element with an event binding is kept');
+$targetRegion = $transform('<main><div id="top" role="region"></div><a href="#top">Top</a><h1>Visible heading</h1></main>');
+$assert(str_contains((string) ($targetRegion['serialized_blocks'] ?? ''), 'blocks-engine-empty-visual-group'), 'an empty element that a hash link targets is kept');
+
 $unreferencedStore = $transform('<main><svg data-dom-store style="display:none"><defs><symbol id="unused"><path d="M0 0h1v1z"/></symbol></defs></svg><p>Visible copy</p></main>');
 $assert(array() === ($unreferencedStore['fallbacks'] ?? array()), 'hidden unreferenced SVG store emits no fallback');
 $assert(! str_contains((string) ($unreferencedStore['serialized_blocks'] ?? ''), 'unused'), 'hidden unreferenced SVG store emits no raw HTML');

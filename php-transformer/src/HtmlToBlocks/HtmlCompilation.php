@@ -5964,12 +5964,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || $this->isEmptyVisualInlineCandidate($element);
         }
 
+        // A bare role, tabindex, aria-* or data-* attribute is not a reason to
+        // keep an empty element: a native group cannot save those attributes,
+        // so the kept block would be an empty box with no footprint. An
+        // aria-label alone already dropped the element; the rest now agree.
         $id = SourceDom::namedFragmentTargetId($element);
         if ( $this->runtimeIslands->isRuntimeDomTarget($element)
             || ( '' !== $id && SourceDom::documentReferencesFragmentId($element, $id) )
-            || '' !== trim($this->attr($element, 'role'))
-            || array() !== $this->interactiveAttributes($element)
-            || array() !== $this->safeDataAttributes($element)
+            || array() !== $this->eventMetadata($element)
             || array() !== $this->structureSignals($element, array())
             || $this->hasRenderableEmptyBlockBox($element)
             || $this->hasStaticPseudoElementRule($element)
