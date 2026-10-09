@@ -1177,13 +1177,13 @@ final class ShellExtraction
      * @param array<int,array<string,mixed>> $pages
      * @param array<int,array<string,mixed>> $parts
      * @param array<int,array<string,mixed>> $runtimeDeclarations
-     * @return array{pages:array<int,array<string,mixed>>,frames:array<string,array{opening:string,closing:string,shells:array<int,string>}>}
+     * @return array{pages:array<int,array<string,mixed>>,frames:array<string,array{opening:string,closing:string,shells:array<int,string>}>,generic_source:?string}
      */
     public function hoistInlineShellFrames(array $pages, array $parts, array $runtimeDeclarations): array
     {
         $areas = array();
         foreach ($parts as $part) if ('inline_shared_shell' === ($part['placement']['kind'] ?? null) && in_array($part['area'] ?? null, array('header', 'footer'), true)) $areas[(string) $part['slug']] = (string) $part['area'];
-        if (array() === $areas) return array('pages' => $pages, 'frames' => array());
+        if (array() === $areas) return array('pages' => $pages, 'frames' => array(), 'generic_source' => null);
         $frames = array();
         $split = array();
         foreach ($pages as $index => $page) {
@@ -1205,6 +1205,7 @@ final class ShellExtraction
         foreach (array_intersect_key($split, $inner) as $index => $frame) $groups[self::frameIdentity($frame)][] = $index;
         $generic = null;
         foreach ($groups as $indexes) if (null === $generic || count($indexes) > count($generic)) $generic = $indexes;
+        $genericSource = null !== $generic ? (string) $pages[$generic[0]]['source_path'] : null;
         $generic = null !== $generic ? $split[$generic[0]] : null;
         foreach ($split as $index => $frame) {
             $page = $pages[$index];
@@ -1222,7 +1223,7 @@ final class ShellExtraction
         // A page that keeps its chrome in its own content must not also get the
         // generic frame, so it renders through a plain route template.
         if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames['page-' . $page['slug']] = array('opening' => '', 'closing' => '', 'shells' => array());
-        return array('pages' => $pages, 'frames' => $frames);
+        return array('pages' => $pages, 'frames' => $frames, 'generic_source' => $genericSource);
     }
 
     /**

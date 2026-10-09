@@ -36,6 +36,9 @@ $assert(isset($templates['page-bare']) && !str_contains($templates['page-bare'],
 preg_match('/blocks-engine-control-[0-9a-f]{12}-\d+/', $templates['page'], $marker);
 $globalRule = array_filter($plan['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null) && array(array('kind' => 'global')) === ($asset['scopes'] ?? array()) && isset($marker[0]) && str_contains((string) ($asset['content'] ?? ''), $marker[0]) && str_contains((string) $asset['content'], 'border-radius:99px'));
 $assert(isset($marker[0]) && array() !== $globalRule, 'The rules for the frame button are in a site-wide stylesheet.');
+$bootstrap = '';
+foreach ($plan['writes'] as $write) if (str_ends_with((string) $write['target_path'], 'functions.php')) $bootstrap = (string) ($write['payload']['data'] ?? '');
+$assert(1 === preg_match('/if \( ! \$blocks_engine_route_styles \) wp_enqueue_style\( \'blocks-engine-frame-fallback-/', $bootstrap), 'A page without a stylesheet of its own gets the stylesheet of the page that authored the generic frame.');
 foreach ($plan['pages'] as $row) if (in_array($row['slug'], array('a', 'b', 'c', 'odd'), true)) $assert(!str_contains($row['canonical_block_markup'], 'wp:template-part'), $row['slug'] . ' content holds no template part.');
 
 // When every inner page has its own frame, the generic template still carries

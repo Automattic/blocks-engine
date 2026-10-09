@@ -130,7 +130,7 @@ foreach (array($frontCondition, $aboutCondition, $teamCondition) as $condition) 
     $assert(1 === count(array_keys($published['routes'][$condition] ?? array(), $sharedTarget, true)), 'Every route publishes the shared chrome stylesheet exactly once: ' . $condition . ' ' . json_encode($published['routes'][$condition] ?? null));
 }
 $assert(count($published['routes']) === count(array_filter($published['routes'], static fn(array $files): bool => in_array($sharedTarget, $files, true))), 'No route block omits the shared chrome stylesheet, including generated hierarchy routes.');
-$assert(array($sharedTarget) === ($published['global']['! $blocks_engine_route_styles'] ?? null), 'WordPress-native routes no document owns load the shared chrome from the fallback.');
+$assert(in_array($sharedTarget, $published['global']['! $blocks_engine_route_styles'] ?? array(), true), 'WordPress-native routes no document owns load the shared chrome from the fallback. They also load the stylesheets of the page that authored the generic page frame.');
 // Cascade: the shared rules follow the route's own contributing <style>, and a
 // later authored stylesheet still follows them, as in the flat parent order.
 $assert(array('assets/index.inline.css', $sharedTarget, 'assets/route.css') === $published['routes'][$frontCondition], 'The front page keeps inline origin, shared chrome, then its later link: ' . json_encode($published['routes'][$frontCondition]));
