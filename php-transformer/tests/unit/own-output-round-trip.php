@@ -61,6 +61,8 @@ foreach ($nativeTables as $name => $saved) {
     $assert($savedHtml($blocks) === $saved, 'A native core/table with ' . $name . ' saves back unchanged.', "saved:  {$saved}\nresult: {$blocks}");
     $assert(1 === preg_match('/^<!-- wp:table[ \{]/', $blocks) && ! str_contains($blocks, 'blocks-engine-table-'), 'A native core/table with ' . $name . ' stays one core/table without an engine marker.', $blocks);
 }
-$assert(str_contains($transform($nativeTables['fixed layout (the editor default)']), '"hasFixedLayout":true'), 'has-fixed-layout reads back as hasFixedLayout.');
+// hasFixedLayout defaults to true, so like the editor the comment leaves it out.
+$assert(str_starts_with($transform($nativeTables['fixed layout (the editor default)']), '<!-- wp:table -->'), 'A default fixed-layout table serializes like the editor saves it: no attributes.', $transform($nativeTables['fixed layout (the editor default)']));
+$assert(str_contains($transform($nativeTables['auto layout']), '"hasFixedLayout":false'), 'A non-default auto-layout table keeps hasFixedLayout:false.');
 
 echo 'Own output round trip tests: ' . $assertions . ' passed' . PHP_EOL;
