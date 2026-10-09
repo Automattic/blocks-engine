@@ -64,6 +64,25 @@ $assert(
 );
 $assert(str_contains($blocks, 'Desktop welcome') && str_contains($blocks, 'Phone welcome'), 'Both device documents stay editable content.');
 
+// Pages sharing a header compile it once as a site-wide shell. That synthetic
+// document carries the head (and the script) but no device document roots, so
+// the rule has no subject there; it must still not become a frozen marker.
+$sitePage = static fn (string $title): string => str_replace(
+    array('<title>Devices</title>', '<main><h1>Desktop welcome</h1>', '<main><h1>Phone welcome</h1>'),
+    array('<title>' . $title . '</title>', '<header class="site-header"><p>Oak Hills HOA</p></header><main><h1>Desktop ' . $title . '</h1>', '<header class="site-header"><p>Oak Hills HOA</p></header><main><h1>Phone ' . $title . '</h1>'),
+    $page('<script data-dla-device-selection="">' . $selector . '</script>')
+);
+$site = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $sitePage('Home'),
+    'about/index.html' => $sitePage('About'),
+)))->toArray();
+$siteCss = implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    array_filter($site['assets'] ?? array(), static fn ($asset): bool => is_array($asset) && 'css' === ($asset['kind'] ?? ''))
+));
+$assert(str_contains($siteCss, 'html:not([data-dla-selected-document]) [data-dla-device-document="desktop"]'), 'Multi-page site keeps the live desktop default.');
+$assert(!str_contains($siteCss, 'html:not(.blocks-engine-attribute-state-'), 'No page or shared shell projection freezes the script-written root attribute. Got: ' . $desktopRules($siteCss));
+
 // Control: without a script that writes the root attribute, the captured state
 // is the only state, and the existing projection is unchanged.
 [$staticCss] = $compile($page(''));

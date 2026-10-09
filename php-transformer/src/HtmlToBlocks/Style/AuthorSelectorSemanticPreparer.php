@@ -338,9 +338,11 @@ final class AuthorSelectorSemanticPreparer
      * root (which never had the attribute) would match on every device and
      * show the desktop document beside the selected one.
      *
-     * The selector is kept as authored only when every source subject is a
+     * The selector is kept as authored when every source subject is a
      * declared document variant root, whose source attributes the output
-     * keeps, so the authored selector still finds it.
+     * keeps, so the authored selector still finds it. A negated predicate
+     * with no subject (a shared header compiled without the device roots)
+     * keeps it too, since the negation would otherwise still be frozen.
      *
      * @param array<string, mixed> $parsed
      */
@@ -350,11 +352,18 @@ final class AuthorSelectorSemanticPreparer
             return false;
         }
         $runtimeOwned = false;
+        $negatedRuntimeOwned = false;
         foreach ( $parsed['compounds'] ?? array() as $compound ) {
+            $negated = array();
+            foreach ( $compound['not'] ?? array() as $negation ) {
+                foreach ( $negation['compounds'] ?? array() as $nested ) {
+                    array_push($negated, ...CssSelectorCompoundInspector::dataAttributeNames($nested));
+                }
+            }
             foreach ( CssSelectorCompoundInspector::dataAttributeNames($compound) as $name ) {
                 if ( $this->sourceScriptsWriteAttribute($authorStyles, $projections, strtolower($name)) ) {
                     $runtimeOwned = true;
-                    break 2;
+                    $negatedRuntimeOwned = $negatedRuntimeOwned || in_array($name, $negated, true);
                 }
             }
         }
@@ -367,7 +376,7 @@ final class AuthorSelectorSemanticPreparer
                 return false;
             }
         }
-        return array() !== $subjects;
+        return array() !== $subjects || $negatedRuntimeOwned;
     }
 
     private function discoverNegatedDataAttributeState(string $selector, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
