@@ -752,7 +752,10 @@ final class ShellExtraction
 
         ksort($sources, SORT_STRING);
         $sourcePath = 'wordpress-site-plan/shared/footer-content';
-        $partMarkup = (string) $cluster['identity'];
+        // The identity is a comparison form without RichText markers and
+        // engine classes. Emit a real occurrence, as the other extractors do.
+        $firstOccurrences = reset($cluster['documents']);
+        $partMarkup = (string) ($firstOccurrences[0]['markup'] ?? $cluster['identity']);
         $part = array(
             'source_path' => $sourcePath . '#footer',
             'slug' => $slug,
