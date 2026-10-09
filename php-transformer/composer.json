@@ -410,6 +410,7 @@
       "php tests/unit/pattern-recognizer-registry.php",
       "php tests/unit/social-links-boundary.php",
       "php tests/unit/social-links-source-context.php",
+      "php tests/unit/social-anchor-ancestor-selector.php",
       "php tests/unit/social-links-icon-color.php",
       "php tests/unit/pattern-registry-staged-dispatch.php",
       "php tests/unit/navigation-pattern-context.php",
