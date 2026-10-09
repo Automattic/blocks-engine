@@ -14,6 +14,9 @@ use DOMElement;
 /** Prepares source identities needed to project author selectors onto canonical blocks. */
 final class AuthorSelectorSemanticPreparer
 {
+    /** @var list<string> Executable source scripts outside the body DOM, such as head runtimes. */
+    private array $runtimeScriptSources = array();
+
     public function __construct(
         private readonly AuthorSelectorSemanticContext $context,
         private readonly StylesheetAnalysisComposer $stylesheetAnalysisComposer,
@@ -50,6 +53,10 @@ final class AuthorSelectorSemanticPreparer
             ? $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss)
             : implode("\n\n", array_column(array_filter($stylesheetAssets, static fn(array $asset): bool => StylesheetActivation::active($asset)), 'content'));
         $authorStyles = new AuthorStyleAnalysis($html, $combinedAuthorCss, $stylesheetAssets, $sourceBody);
+        $this->runtimeScriptSources = array_values(array_filter(
+            array_column($session->runtimeBehaviorState()->runtimeProjectionScriptAssets(), 'content'),
+            'is_string'
+        ));
         $session->installAuthorStyleAnalysis($authorStyles);
         $sourceStyles = $session->sourceStyleResolutionState();
         $projections = $session->authorSelectorProjectionState();
@@ -238,6 +245,10 @@ final class AuthorSelectorSemanticPreparer
             // Attribute-carrying native hosts and document roots remain live
             // source subjects; a captured-state marker would freeze their CSS.
             if (SourceAttributeSubjects::retainsDataPredicates($parsed, $authorStyles)) continue;
+            if ($this->retainsRuntimeOwnedDataState($authorSelector['selector'], $parsed, $authorStyles, $projections)) {
+                $projections->retainRuntimeOwnedSelector($authorSelector['selector']);
+                continue;
+            }
             $this->discoverNegatedDataAttributeState($authorSelector['selector'], $authorStyles, $projections);
             $this->discoverAncestorAttributeState($authorSelector['selector'], $authorStyles, $projections);
             $pseudoHost = CssSelectorMatcher::pseudoElementHost($authorSelector['selector']);
@@ -316,6 +327,47 @@ final class AuthorSelectorSemanticPreparer
             }
         }
         return false;
+    }
+
+    /**
+     * A data predicate that a source script writes is runtime state, not
+     * captured state. Device documents show this: the head selection script sets
+     * `data-dla-selected-document` on <html> after capture, so
+     * `html:not([data-dla-selected-document]) [data-dla-device-document="desktop"]`
+     * must stay a live attribute test. A marker frozen from the captured
+     * root (which never had the attribute) would match on every device and
+     * show the desktop document beside the selected one.
+     *
+     * The selector is kept as authored only when every source subject is a
+     * declared document variant root, whose source attributes the output
+     * keeps, so the authored selector still finds it.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function retainsRuntimeOwnedDataState(string $selector, array $parsed, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): bool
+    {
+        if ( ! ($parsed['supported'] ?? false) || null !== ($parsed['pseudo_state_suffix_span'] ?? null) ) {
+            return false;
+        }
+        $runtimeOwned = false;
+        foreach ( $parsed['compounds'] ?? array() as $compound ) {
+            foreach ( CssSelectorCompoundInspector::dataAttributeNames($compound) as $name ) {
+                if ( $this->sourceScriptsWriteAttribute($authorStyles, $projections, strtolower($name)) ) {
+                    $runtimeOwned = true;
+                    break 2;
+                }
+            }
+        }
+        if ( ! $runtimeOwned ) {
+            return false;
+        }
+        $subjects = $this->matchingSourceElements($authorStyles, $selector, $parsed);
+        foreach ( $subjects as $subject ) {
+            if ( ! $subject->hasAttribute('data-dla-document-scope') || ! SourceDom::isDocumentVariantRoot($subject) ) {
+                return false;
+            }
+        }
+        return array() !== $subjects;
     }
 
     private function discoverNegatedDataAttributeState(string $selector, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
@@ -581,7 +633,8 @@ final class AuthorSelectorSemanticPreparer
      */
     private function sourceScriptsWriteAttribute(AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections, string $name): bool
     {
-        return $projections->scriptWritesAttribute($name, static function () use ($authorStyles, $name): bool {
+        $runtimeScriptSources = $this->runtimeScriptSources;
+        return $projections->scriptWritesAttribute($name, static function () use ($authorStyles, $name, $runtimeScriptSources): bool {
             $document = $authorStyles->sourceBody()->ownerDocument;
             if ( null === $document ) {
                 return false;
@@ -595,12 +648,15 @@ final class AuthorSelectorSemanticPreparer
                 $property = 'aria' . str_replace(' ', '', ucwords(str_replace('-', ' ', substr($name, 5))));
                 $patterns[] = '/\.' . preg_quote($property, '/') . '\s*=(?!=)/';
             }
+            // Head runtimes are not in the body DOM; their bound assets are.
+            $sources = $runtimeScriptSources;
             foreach ( $document->getElementsByTagName('script') as $script ) {
                 $type = strtolower(trim(explode(';', $script instanceof \DOMElement ? $script->getAttribute('type') : '')[0]));
-                if ( '' !== $type && ! in_array($type, self::EXECUTABLE_SCRIPT_TYPES, true) ) {
-                    continue;
+                if ( '' === $type || in_array($type, self::EXECUTABLE_SCRIPT_TYPES, true) ) {
+                    $sources[] = $script->textContent;
                 }
-                $source = $script->textContent;
+            }
+            foreach ( $sources as $source ) {
                 if ( false === stripos($source, $name) && ! str_starts_with($name, 'aria-') ) {
                     continue;
                 }
