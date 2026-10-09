@@ -42,7 +42,7 @@ final class ButtonElementConverter implements ElementConverter
             }
         }
 
-        if ( $this->context->isImageCarrierButton($element) && '' !== trim(SourceDom::attr($element, 'aria-label')) ) {
+        if ( $this->hasAccessibleIconOnlyContent($element) ) {
             return ConversionOutcome::handled($this->context->runtimeButton($element));
         }
 
@@ -63,6 +63,35 @@ final class ButtonElementConverter implements ElementConverter
         }
 
         return ConversionOutcome::handled($this->context->convertButton($element));
+    }
+
+    private function hasAccessibleIconOnlyContent(DOMElement $element): bool
+    {
+        if ( '' === trim(SourceDom::attr($element, 'aria-label')) ) {
+            return false;
+        }
+
+        $hasArtwork = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType || XML_CDATA_SECTION_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array('img', 'svg'), true) ) {
+                return false;
+            }
+            if ( 'svg' === strtolower($child->tagName)
+                && ( 'true' !== strtolower(trim(SourceDom::attr($child, 'aria-hidden')))
+                    || '' === trim(SourceDom::attr($child, 'viewbox'))
+                    || 0 === SourceDom::childElementCount($child) ) ) {
+                return false;
+            }
+            $hasArtwork = true;
+        }
+
+        return $hasArtwork;
     }
 
     private function preservesUnsafeInlineHandler(DOMElement $element): bool

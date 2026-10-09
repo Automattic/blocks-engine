@@ -66,7 +66,7 @@ $ineligibleResult = (new CapturedChoiceGroupProjector())->project($ineligible);
 $assert(0 === ($ineligibleResult['projected_count'] ?? -1), 'unsupported producer evidence is not projected');
 $assert(str_contains(json_encode($ineligibleResult['diagnostics'] ?? array()), 'captured_choice_group_ineligible'), 'unsupported producer evidence emits an eligibility diagnostic');
 $ineligibleDiagnostic = $ineligibleResult['diagnostics'][0] ?? array();
-$assert('behavior_loss' === ($ineligibleDiagnostic['conversion_classification'] ?? null) && 'interactive_behavior_loss' === ($ineligibleDiagnostic['loss_class'] ?? null), 'ineligible choice-group diagnostics count as interactive behavior loss');
+$assert('behavior_loss' === ($ineligibleDiagnostic['conversion_classification'] ?? null) && 'unsupported_loss' === ($ineligibleDiagnostic['loss_class'] ?? null), 'ineligible choice-group diagnostics count as unsupported loss');
 
 $contentChanging = $files;
 $contentChangingReport = json_decode((string) $contentChanging[2]['content'], true);

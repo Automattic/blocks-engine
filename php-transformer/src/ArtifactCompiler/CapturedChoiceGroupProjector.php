@@ -112,7 +112,7 @@ final class CapturedChoiceGroupProjector
                     $this->diagnostic('captured_choice_group_ineligible', 'warning', 'A captured choice group was omitted because its producer replay, restoration, or coverage evidence is not eligible for offline replay.', array('source_url' => $sourceUrl, 'selector' => $selector)),
                     array(
                         'conversion_classification' => 'behavior_loss',
-                        'loss_class' => 'interactive_behavior_loss',
+                        'loss_class' => 'unsupported_loss',
                         'diagnostic_class' => 'interactive_behavior_loss',
                     )
                 );
