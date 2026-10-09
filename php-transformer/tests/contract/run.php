@@ -6006,6 +6006,31 @@ $assert(! str_contains($triggerRowMarkup, '<!-- wp:button'), 'the source trigger
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($triggerRowSelectableSet['blocks'] ?? array()), 'trigger-row selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($triggerRowSelectableSet['blocks'] ?? array())['status'] ?? ''), 'trigger-row selectable-set tabs remain Gutenberg-valid');
 
+$stretchSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Stretch Tabs Site', 'slug' => 'captured-stretch-tabs-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><div class="step-row" style="display:flex;gap:8px"><button type="button" style="display:flex;flex:1 1 0%;min-width:200px;padding:12px"><span>Alpha</span></button><button type="button" style="display:flex;flex:1 1 0%;min-width:200px;padding:12px"><span>Beta</span></button></div><div class="detail"><p>Select an item to view details</p></div></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(
+                    array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0)),
+                    array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1)),
+                ),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$stretchCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $stretchSelectableSet['assets'] ?? array()));
+$assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+\{[^}]*flex-grow:1;[^}]*flex-basis:0%[^}]*\}/', $stretchCss), 'a stretching source trigger puts flex-grow and flex-basis on the tab list, which core tab buttons inherit');
+$assert(1 !== preg_match('/ button\{[^}]*flex-grow:/', $stretchCss) && 1 !== preg_match('/ button\{[^}]*flex-basis:/', $stretchCss) && 1 !== preg_match('/ button\{[^}]*[; ]flex:/', $stretchCss), 'the stretch is not set on the buttons, where core overrides it with inherit !important');
+
 $sideBySideActive = '<div class="panel"><h2>Gamma</h2><p>Gamma specification details</p></div>';
 $sideBySideTrigger = static fn(int $index, string $label, string $html, int $size): array => array(
     'status' => 'captured',
