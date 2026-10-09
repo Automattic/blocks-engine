@@ -17,8 +17,9 @@ final class SocialAnchorSelectorProjector
         if (!$tokens['supported']) return null;
         $last = count($tokens['compounds']) - 1;
         $compound = $tokens['compounds'][$last];
-        $declared = self::declaredCompound($compound);
-        $parsed = CssSelectorMatcher::parse($declared);
+        // Match the whole authored selector against the source, not only its
+        // subject: `.strip > *` must not claim anchors nested deeper in .strip.
+        $parsed = CssSelectorMatcher::parse(self::declaredSelector($selector));
         if (!$parsed['supported']) return null;
         $markers = array();
         $otherSubjects = false;
@@ -57,20 +58,20 @@ final class SocialAnchorSelectorProjector
         return substr($selector, 0, $span['start']) . $sourceCompound . ':not(' . $guard . ')' . $pseudo . ',' . $native;
     }
 
-    /** Match the declared subject, while leaving every live state in emitted CSS. */
-    private static function declaredCompound(string $compound): string
+    /** Match the declared selector, while leaving every live state in emitted CSS. */
+    private static function declaredSelector(string $selector): string
     {
         $state = CssSyntaxScanner::state();
         $result = '';
-        for ($offset = 0, $length = strlen($compound); $offset < $length;) {
-            if (CssSyntaxScanner::isTopLevel($state) && ':' === $compound[$offset]
-                && preg_match('/^:(?:hover|focus-visible|focus-within|focus|active|visited)\b/', substr($compound, $offset), $match)) {
+        for ($offset = 0, $length = strlen($selector); $offset < $length;) {
+            if (CssSyntaxScanner::isTopLevel($state) && ':' === $selector[$offset]
+                && preg_match('/^:(?:hover|focus-visible|focus-within|focus|active|visited)\b/', substr($selector, $offset), $match)) {
                 $offset += strlen($match[0]);
                 continue;
             }
-            $next = CssSyntaxScanner::consume($compound, $offset, $state);
-            if (null === $next) return $compound;
-            $result .= substr($compound, $offset, $next - $offset);
+            $next = CssSyntaxScanner::consume($selector, $offset, $state);
+            if (null === $next) return $selector;
+            $result .= substr($selector, $offset, $next - $offset);
             $offset = $next;
         }
         return preg_replace('/::?(?:before|after)$/', '', $result) ?? $result;
