@@ -2097,6 +2097,45 @@ PHP;
         $reference = '' === $rooted ? null : $references->reference('/' . $rooted, $sourcePath);
         return $reference ?? $references->reference($url, '');
     }
+    /**
+     * Article markers alone (no publication date) are weak: page builders stamp
+     * Article JSON-LD on ordinary service pages. They only count as publication
+     * evidence when the page also looks like it belongs to a blog.
+     *
+     * @param array<int,array<string,string>> $evidence
+     * @param array<string,mixed> $document
+     * @param array<string,mixed>|null $parent
+     * @return array<int,array<string,string>>
+     */
+    private static function withoutUnsupportedArticleMarkers(array $evidence, array $document, string $route, ?array $parent): array
+    {
+        foreach ($evidence as $row) {
+            if (isset($row['publication_timestamp']) || !in_array($row['source'] ?? null, array('json-ld:Article', 'json-ld:BlogPosting', 'microdata:itemtype'), true)) {
+                return $evidence;
+            }
+        }
+        return self::hasBlogContext($document, $route, $parent) ? $evidence : array();
+    }
+    /** @param array<string,mixed> $document @param array<string,mixed>|null $parent */
+    private static function hasBlogContext(array $document, string $route, ?array $parent): bool
+    {
+        if (1 === preg_match('~/(?:blog|news|posts?|articles?|journal|stories|insights)(?:/|$)~i', $route)) return true;
+        foreach (array_filter(array($document, $parent)) as $candidate) {
+            $html = is_string($candidate['html'] ?? null) ? $candidate['html'] : (is_string($candidate['block_markup'] ?? null) ? $candidate['block_markup'] : '');
+            foreach (($candidate['document_metadata']['meta'] ?? array()) as $meta) {
+                if (is_array($meta) && 'og:type' === strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')) && 'article' === strtolower(trim((string) ($meta['content'] ?? '')))) return true;
+            }
+            foreach (($candidate['document_metadata']['links'] ?? array()) as $link) {
+                $rel = is_array($link) ? preg_split('/\s+/', strtolower((string) ($link['rel'] ?? ''))) : array();
+                $type = is_array($link) ? strtolower((string) ($link['type'] ?? '')) : '';
+                if (in_array('alternate', $rel, true) && (str_contains($type, 'rss') || str_contains($type, 'atom'))) return true;
+                if (in_array('prev', $rel, true) || in_array('next', $rel, true)) return true;
+            }
+            if (1 === preg_match('~<link\b[^>]*\brel=["\']?(?:prev|next)\b|<link\b[^>]*type=["\']?application/(?:rss|atom)\+xml~i', $html)) return true;
+        }
+        $html = is_array($parent) ? (is_string($parent['html'] ?? null) ? $parent['html'] : (string) ($parent['block_markup'] ?? '')) : '';
+        return preg_match_all('~<article\b~i', $html) >= 2 || 1 === preg_match('~read\s+more|continue\s+reading~i', strip_tags($html));
+    }
     /** @param mixed $documents @return array<int,array<string,mixed>> */
     private function decideDocuments(mixed $documents): array
     {
@@ -2110,6 +2149,11 @@ PHP;
             $path = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path'] ? $metadata['route_path'] : self::pageRoutePath((string) $document['source_path'], $entryRoot);
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
             $evidenceByIndex[$index] = $this->publicationEvidence($document);
+        }
+        $indexByRoute = array_flip($routes);
+        foreach ($evidenceByIndex as $index => $evidence) {
+            $parentIndex = $indexByRoute[self::parentRoutePath($routes[$index])] ?? null;
+            $evidenceByIndex[$index] = self::withoutUnsupportedArticleMarkers($evidence, $documents[$index], $routes[$index], null === $parentIndex ? null : $documents[$parentIndex]);
         }
         $datedByParent = array();
         foreach ($evidenceByIndex as $index => $evidence) {
