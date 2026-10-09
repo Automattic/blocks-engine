@@ -2422,7 +2422,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return '';
         }
 
-        return ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}';
+        // Zero specificity: the reset only undoes the user agent's <mark> paint,
+        // so any author rule wins wherever its stylesheet lands. A captured
+        // document can keep author styles in its own <head>, ahead of this
+        // before-author asset, where an equal-specificity reset would win.
+        return ':where(mark[style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}';
     }
 
     /** @param array<string, mixed> $options */
