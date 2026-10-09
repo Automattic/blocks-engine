@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "artifact-responsive-image-assets",
-  "description": "Preserves nested artifact responsive image sources through a valid core/html fallback when core/image cannot serialize them.",
+  "description": "Preserves nested authored image selection through responsive-media and resolves every candidate with the existing asset plan.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/artifact-responsive-image-assets.json",
@@ -36,7 +36,7 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image" }
+    { "path": "blocks.0", "name": "custom/responsive-media" }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -46,13 +46,15 @@
     { "path": "source_reports.artifact.image_references.0.resolved_path", "assert": "equals", "value": "assets/images/hero.png" },
     { "path": "source_reports.artifact.image_references.1.attribute", "assert": "equals", "value": "srcset" },
     { "path": "source_reports.artifact.image_references.1.resolved_path", "assert": "equals", "value": "assets/images/hero-small.png" },
-    { "path": "source_reports.materialization_plan.assets", "assert": "count", "count": 2 },
+    { "path": "source_reports.wordpress_site_plan.assets", "assert": "count", "count": 3 },
     { "path": "source_reports.materialization_plan.assets.0.path", "assert": "equals", "value": "assets/images/hero.png" },
     { "path": "source_reports.materialization_plan.assets.1.path", "assert": "equals", "value": "assets/images/hero-small.png" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "src=\"assets/images/hero.png\"" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "srcset=" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "sizes=" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "../../missing/ghost.png" },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "src=\"../../assets/images/hero.png\"" },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "srcset=\"../../assets/images/hero-small.png 480w, ../../missing/ghost.png 960w, https://cdn.example.test/hero.png 1200w\"" },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "sizes=\"(max-width: 600px) 100vw, 600px\"" },
+    { "path": "source_reports.wordpress_site_plan.assets.2.source_role", "assert": "equals", "value": "missing_media_placeholder" },
+    { "path": "source_reports.wordpress_site_plan.pages.0.canonical_block_markup", "assert": "not_contains", "value": "../../missing/ghost.png" },
+    { "path": "source_reports.wordpress_site_plan.pages.0.canonical_block_markup", "assert": "contains", "value": "https://cdn.example.test/hero.png 1200w" },
     { "path": "metrics.block_count", "assert": "equals", "value": 1 }
   ]
 }

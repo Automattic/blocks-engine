@@ -3,6 +3,7 @@ set -euo pipefail
 
 # This runner owns a disposable Docker project and never addresses an existing site.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+plugin_root="${BE_EDITOR_PLUGIN_SOURCE:-$root}"
 for command in docker curl php timeout sha256sum tar git; do command -v "$command" >/dev/null || { printf 'Missing %s\n' "$command" >&2; exit 2; }; done
 test -d "$root/vendor" || { printf 'Run composer install in php-transformer first.\n' >&2; exit 2; }
 test -d "$root/tools/visual-parity/node_modules" || { printf 'Run npm install in php-transformer/tools/visual-parity first.\n' >&2; exit 2; }
@@ -20,6 +21,10 @@ wordpress_image="${BE_EDITOR_WORDPRESS_IMAGE:-wordpress:7.0.4-php8.2-apache}"
 cli_image="${BE_EDITOR_CLI_IMAGE:-wordpress:cli-php8.2}"
 wordpress_core_archive="${BE_EDITOR_WORDPRESS_CORE_ARCHIVE:-}"
 core_archive_mount=()
+responsive_mounts=()
+if [[ -n "${BE_EDITOR_SSI_SOURCE:-}" ]]; then
+	responsive_mounts=(-v "${BE_EDITOR_SSI_SOURCE}:/ssi:ro" -v "${BE_EDITOR_BASELINE_SOURCE:?Set baseline php-transformer path}:/baseline:ro")
+fi
 if [[ -n "$wordpress_core_archive" ]]; then
 	wordpress_core_sha="a874a9c66927ba4e21f30dd88b31c1df12f5a25049e81efb4ceab856da43c27b"
 	actual_core_sha="$(sha256sum "$wordpress_core_archive" | cut -d ' ' -f 1)"
@@ -55,8 +60,8 @@ run docker network create "$network" >/dev/null
 run docker volume create "$volume" >/dev/null
 run docker run --detach --name "${project}_db" --network "$network" --network-alias "$db_host" -e MYSQL_DATABASE="$db_name" -e MYSQL_USER="$db_user" -e MYSQL_PASSWORD="$db_password" -e MYSQL_RANDOM_ROOT_PASSWORD=yes mysql:8.4 --innodb-use-native-aio=0 >/dev/null
 wait_for 'MySQL' "run docker exec ${project}_db mysqladmin ping -u${db_user} -p${db_password}"
-run docker run --detach --name "${project}_wordpress" --network "$network" --publish "127.0.0.1:${port}:80" -e WORDPRESS_DB_HOST="$db_host" -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -v "${volume}:/var/www/html" -v "${root}:/var/www/html/wp-content/plugins/blocks-engine-php-transformer:ro" "${core_archive_mount[@]}" "${ssi_plugin_mount[@]}" "$wordpress_image" >/dev/null
-wp=(run docker run --rm --network "$network" --user 33:33 -e WORDPRESS_DB_HOST="$db_host" -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -v "${volume}:/var/www/html" -v "${root}:/var/www/html/wp-content/plugins/blocks-engine-php-transformer:ro" -v "${work}:/work" "${core_archive_mount[@]}" "${source_archive_mount[@]}" "${ssi_plugin_mount[@]}" "$cli_image" wp --allow-root)
+run docker run --detach --name "${project}_wordpress" --network "$network" --publish "127.0.0.1:${port}:80" -e WORDPRESS_DB_HOST="$db_host" -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -v "${volume}:/var/www/html" -v "${plugin_root}:/var/www/html/wp-content/plugins/blocks-engine-php-transformer:ro" "${core_archive_mount[@]}" "${ssi_plugin_mount[@]}" "$wordpress_image" >/dev/null
+wp=(run docker run --rm --network "$network" --user 33:33 -e WORDPRESS_DB_HOST="$db_host" -e WORDPRESS_DB_NAME="$db_name" -e WORDPRESS_DB_USER="$db_user" -e WORDPRESS_DB_PASSWORD="$db_password" -v "${volume}:/var/www/html" -v "${plugin_root}:/var/www/html/wp-content/plugins/blocks-engine-php-transformer:ro" -v "${root}/tools:/var/www/html/wp-content/plugins/blocks-engine-php-transformer/tools:ro" -v "${work}:/work" "${core_archive_mount[@]}" "${source_archive_mount[@]}" "${ssi_plugin_mount[@]}" "${responsive_mounts[@]}" "$cli_image" wp --allow-root)
 
 if [[ -n "$wordpress_core_archive" ]]; then
 	wait_for 'WordPress base files' "docker exec ${project}_wordpress test -f /var/www/html/wp-includes/version.php"
@@ -96,6 +101,12 @@ if [[ -n "$source_archive" ]]; then
 	"${wp[@]}" eval-file wp-content/plugins/blocks-engine-php-transformer/tools/editor-image-acceptance-materialize-companion.php /var/www/html/wp-content/uploads/blocks-engine-captured-source-companion.json | tee "$evidence/captured-source-companion-materialization.json"
 fi
 
+if [[ -n "${BE_EDITOR_SSI_SOURCE:-}" ]]; then
+	"${wp[@]}" eval-file wp-content/plugins/blocks-engine-php-transformer/tools/responsive-image-acceptance-build-page.php "$second_id" | tee "$evidence/responsive-source-and-pages.json"
+	BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR="$evidence" run node "$root/tests/responsive-image-acceptance.mjs" | tee "$evidence/responsive-browser.json"
+	initial_theme="$(php -r '$x=json_decode(file_get_contents($argv[1]),true); echo $x["initial_theme"];' "$evidence/responsive-source-and-pages.json")"
+	"${wp[@]}" theme activate "$initial_theme"
+fi
 if command -v node >/dev/null; then
 	if [[ "${BE_EDITOR_SKIP_COMPACT_ROW:-0}" != 1 ]]; then
 		BE_EDITOR_WP_URL="http://127.0.0.1:${port}" BE_EDITOR_COMPACT_POST_ID="$compact_post_id" BE_EDITOR_USER=admin BE_EDITOR_PASSWORD=password BE_EDITOR_EVIDENCE_DIR="$evidence" run node "$root/tests/compact-row-editor-acceptance.mjs" | tee "$evidence/compact-row-browser.json"

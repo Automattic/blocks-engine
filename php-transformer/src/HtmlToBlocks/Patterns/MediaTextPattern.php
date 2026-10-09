@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use DOMElement;
 
 /**
@@ -108,6 +109,12 @@ final class MediaTextPattern implements PatternRecognizerInterface
         }
 
         $mediaType = strtolower($resolution['media']->tagName);
+        // core/media-text also regenerates attachment candidates; it cannot
+        // serialize authored selection. Let ordinary image lowering retain the
+        // responsive-media primitive inside the source layout instead.
+        if ( 'img' === $mediaType && (new SourceElementClassifier())->hasResponsiveImageSources($resolution['media']) ) {
+            return null;
+        }
         if ( 'video' === $mediaType && $resolution['anchor'] instanceof DOMElement ) {
             return null;
         }

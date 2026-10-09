@@ -67,6 +67,20 @@ $result = ( new HtmlTransformer() )->transform($source)->toArray();
 $assert('custom/responsive-media' === ($result['blocks'][0]['blockName'] ?? null), 'linked responsive media uses the companion');
 $linkedImage = ( new HtmlTransformer() )->transform('<a href="/item"><img src="item.jpg" alt="Item 1"></a>')->toArray();
 $assert('core/image' === ($linkedImage['blocks'][0]['blockName'] ?? null) && '/item' === ($linkedImage['blocks'][0]['attrs']['href'] ?? null) && 'custom' === ($linkedImage['blocks'][0]['attrs']['linkDestination'] ?? null), 'a plain image-only link promotes to core/image with its native destination');
+foreach (array(
+    '<img src="small.jpg" srcset="small.jpg 480w, large.jpg 1920w" sizes="(min-width: 1000px) 570px, 100vw" width="1920" height="700" alt="Width">',
+    '<a href="/item"><img src="small.jpg" srcset="small.jpg 1x, retina.jpg 2x" width="40" height="20" alt="Density"></a>',
+    '<figure><img src="fallback.jpg" srcset="first,w_320.jpg, second,w_640.jpg" alt="Descriptorless"><figcaption>Caption</figcaption></figure>',
+) as $plainSource) {
+    $plain = ( new HtmlTransformer() )->transform($plainSource)->toArray();
+    $assert('custom/responsive-media' === ($plain['blocks'][0]['blockName'] ?? null), 'authored plain-img selection uses the existing responsive-media boundary');
+    $assert($plainSource === ($plain['blocks'][0]['attrs']['content'] ?? null), 'selection, source URL identity and authored geometry survive together');
+    $assert(array() === ($plain['fallbacks'] ?? array()), 'safe authored selection needs no HTML fallback');
+}
+$unsafePlain = ( new HtmlTransformer() )->transform('<img src="safe.jpg" srcset="javascript:alert(1) 2x" alt="Unsafe">')->toArray();
+$assert(!str_contains((string) ($unsafePlain['serialized_blocks'] ?? ''), 'javascript:'), 'plain-img admission retains the existing unsafe-source policy');
+$responsivePair = ( new HtmlTransformer() )->transform('<div style="display:flex"><img src="small.jpg" srcset="small.jpg 480w, large.jpg 1920w" sizes="50vw"><div><p>Editable description</p></div></div>')->toArray();
+$assert(str_contains($responsivePair['serialized_blocks'], '<!-- wp:custom/responsive-media') && str_contains($responsivePair['serialized_blocks'], '<!-- wp:paragraph') && !str_contains($responsivePair['serialized_blocks'], '<!-- wp:media-text'), 'media-text recognition leaves authored source selection on ordinary responsive image lowering');
 $linkedDensityPicture = ( new HtmlTransformer() )->transform('<a href="/item"><picture><source srcset="item.jpg 1x, item-large.jpg 2x"><img src="item.jpg" alt="Item 1"></picture></a>')->toArray();
 $assert('core/image' === ($linkedDensityPicture['blocks'][0]['blockName'] ?? null) && '/item' === ($linkedDensityPicture['blocks'][0]['attrs']['href'] ?? null), 'density-only picture candidates including the fallback retain native image-link promotion');
 $eventLinkedImage = ( new HtmlTransformer() )->transform('<a href="/item" onclick="return false"><img src="item.jpg" alt="Item 1"></a>')->toArray();
