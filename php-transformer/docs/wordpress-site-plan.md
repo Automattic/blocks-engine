@@ -169,7 +169,7 @@ Header/footer content ownership and its rendered position are separate decisions
 An extracted region with layout ancestors uses `inline_shared_shell`: the
 template-part reference sits at its exact source position inside those ancestors.
 For a page, the ancestors, the references and the chrome around the main content
-live in the route's template. The generic `page` template takes the frame most inner pages share (compared without per-document marker seeds and dialog ids), so a page made later in WordPress gets the site chrome. A page with another frame, or none, gets `page-{slug}`; the home page gets `front-page`, with
+live in the route's template. The generic `page` template carries the frame most inner pages share in structure (compared without per-document marker seeds and dialog ids), so a page made later in WordPress gets the site chrome. A page uses it only when its frame is byte-identical, because the seeded markers in a frame are what that page's own stylesheet targets. Any other page gets `page-{slug}`; the home page gets `front-page`, with
 `post-content` in the gap, and the page keeps only the blocks between the header
 and the footer (`ShellExtraction::hoistInlineShellFrames`). The theme drops Core's
 post-content wrapper element for that marked block, so the rendered tree matches

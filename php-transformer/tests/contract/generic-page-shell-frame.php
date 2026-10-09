@@ -32,6 +32,16 @@ $assert(isset($templates['page-odd']) && str_contains($templates['page-odd'], 'o
 $assert(isset($templates['page-bare']) && !str_contains($templates['page-bare'], 'wp:template-part') && !str_contains($templates['page-bare'], 'Call'), 'A page without the shared chrome gets a plain template of its own.');
 foreach ($plan['pages'] as $row) if (in_array($row['slug'], array('a', 'b', 'c', 'odd'), true)) $assert(!str_contains($row['canonical_block_markup'], 'wp:template-part'), $row['slug'] . ' content holds no template part.');
 
+// When every inner page has its own frame, the generic template still carries
+// one of them, so a page added later is not left without header and footer.
+$distinct = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $page($chrome('Home')),
+    'a.html' => $page($chrome('A')),
+    'b.html' => $page('<div class="outer">' . $chrome('B') . '</div>'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$distinctTemplates = array_column($distinct['templates'], 'canonical_block_markup', 'slug');
+$assert(1 === substr_count($distinctTemplates['page'] ?? '', '"slug":"header"') && isset($distinctTemplates['page-b']), 'The generic page template keeps the chrome even when inner pages differ.');
+
 // Frames compare without per-document marker seeds and dialog ids.
 $identity = new ReflectionMethod(ShellExtraction::class, 'frameIdentity');
 $frame = static fn (string $seed, string $dialog): array => array('opening' => '<!-- wp:group {"className":"min-h-screen blocks-engine-source-div-' . $seed . '-4"} --><div id="blocks-engine-dialog-' . $dialog . '">', 'closing' => '</div><!-- /wp:group -->');
