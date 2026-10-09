@@ -4047,7 +4047,26 @@ final class ArtifactCompiler
     private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = '', array $siteNameSegments = array(), string $siteNameEdge = '', string $navigationLabel = '', string $entryDocumentTitle = ''): string
     {
         $normalize = static function (string $titleHtml): string {
-            $titleHtml = preg_replace('/<\s*(?:br|\/\s*(?:div|h[1-6]|p))\b[^>]*>/i', ' ', $titleHtml) ?? $titleHtml;
+            $titleHtml = preg_replace('/<\s*(?:br|\/?\s*(?:div|h[1-6]|p|li|ul|ol|section|article|header|footer|blockquote))\b[^>]*>/i', ' ', $titleHtml) ?? $titleHtml;
+            // Inline elements shown as blocks (a `display:block` style or a
+            // `block`/`flex`/`grid` utility class) start a new line, but the
+            // markup has no whitespace between them. Pad both tag edges.
+            $blockDisplay = '/<(span|a|em|strong|b|i|small|mark|label)\b(?=[^>]*(?:style\s*=\s*["\'][^"\']*display\s*:\s*(?:block|flex|grid|list-item|table)|class\s*=\s*["\'](?:[^"\']*\s)?(?:block|flex|grid|d-block)(?:\s[^"\']*)?["\']))[^>]*>/i';
+            $stack = array();
+            $parts = preg_split('/(<\/?[a-z][^>]*>)/i', $titleHtml, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array($titleHtml);
+            $titleHtml = '';
+            foreach ( $parts as $part ) {
+                if ( preg_match('/^<\/\s*([a-z0-9]+)/i', $part, $closing) ) {
+                    $isBlock = array() !== $stack && end($stack)['tag'] === strtolower($closing[1]) ? array_pop($stack)['block'] : false;
+                    $titleHtml .= $isBlock ? $part . ' ' : $part;
+                } elseif ( preg_match('/^<([a-z0-9]+)\b/i', $part, $opening) && ! preg_match('/\/\s*>$/', $part) && ! in_array(strtolower($opening[1]), array('br', 'img', 'hr', 'input', 'wbr'), true) ) {
+                    $isBlock = (bool) preg_match($blockDisplay, $part);
+                    $stack[] = array('tag' => strtolower($opening[1]), 'block' => $isBlock);
+                    $titleHtml .= $isBlock ? ' ' . $part : $part;
+                } else {
+                    $titleHtml .= $part;
+                }
+            }
             $titleHtml = str_replace("\u{00A0}", ' ', html_entity_decode(strip_tags($titleHtml), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
 
             return trim(preg_replace('/\s+/', ' ', $titleHtml) ?? '');
