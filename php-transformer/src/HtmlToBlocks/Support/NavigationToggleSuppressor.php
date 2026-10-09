@@ -1525,7 +1525,6 @@ final class NavigationToggleSuppressor
     {
         if ( ! NavigationPattern::ownsCapturedSubmenuTrigger($control)
             && 'dialog' === strtolower(trim(SourceDom::attr($control, 'aria-haspopup')))
-            && SourceDom::controlsSourceNavigation($control)
             && ! $this->isHiddenAtDefaultViewport($control)
             && ! $this->hasDefaultViewportVisibleNavigationTwin($control)
         ) {
