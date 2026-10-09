@@ -1933,7 +1933,21 @@ final class AuthorStylesheetProjector
                 }
                 $target = '.' . $marker;
             }
-            $projected[] = $scope . ':where(' . $target . ')' . $this->selectorSpecificityShims($parsed, $context);
+            $shims = $this->selectorSpecificityShims($parsed, $context);
+            if ( '' !== $context->selectorProjections->controlMarker($element->getNodePath() ?? '') ) {
+                // A source control converted to core/button carries its marker on
+                // the generated core/buttons wrapper, and on core/button when that
+                // block is built from the control itself. The authored surface is
+                // the inner link either way, so the wrappers never take the rule.
+                // A control that keeps the marker on itself (a materialized form
+                // submit) still matches the first arm.
+                $base = $scope . ':where(' . $target . ')' . $shims;
+                $projected[] = $scope . ':where(' . $target . ':not(.wp-block-buttons,.wp-block-button))' . $shims;
+                $projected[] = $base . '> :where(.wp-block-button__link)';
+                $projected[] = $base . '> :where(.wp-block-button)> :where(.wp-block-button__link)';
+                continue;
+            }
+            $projected[] = $scope . ':where(' . $target . ')' . $shims;
         }
         return array_values(array_unique($projected));
     }
