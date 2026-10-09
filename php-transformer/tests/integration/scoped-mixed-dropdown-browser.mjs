@@ -94,6 +94,10 @@ try {
         const themes=await wp.apiFetch({path:'/wp/v2/themes?status=active'});
         const activeParts=parts.filter(p=>p.theme===themes[0].stylesheet);
         const all=[...flatten(wp.data.select('core/block-editor').getBlocks()),...activeParts.flatMap(p=>flatten(wp.blocks.parse(p.content.raw)))];
+        for(const ref of new Set(all.filter(b=>b.name==='core/navigation'&&b.attributes.ref).map(b=>b.attributes.ref))) {
+            const menu=await wp.apiFetch({path:`/wp/v2/navigation/${ref}?context=edit`});
+            all.push(...flatten(wp.blocks.parse(menu.content.raw)));
+        }
         const invalid=all.filter(b=>b.isValid===false||['core/html','core/freeform'].includes(b.name));
         if(invalid.length)throw new Error(JSON.stringify(invalid.map(b=>({name:b.name,errors:b.validationIssues}))));
         const dialogs=all.filter(b=>b.name.endsWith('/captured-dialog')&&b.attributes.presentation==='dropdown');
