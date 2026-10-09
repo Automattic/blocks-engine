@@ -237,6 +237,10 @@ final class CapturedSelectableSetConverter implements ElementConverter
         }
 
         $declarations = $this->safeDeclarations($this->presentation->presentationDeclarations($triggers[0]));
+        // core/tab-list sets `flex-grow` and `flex-basis` on its buttons to
+        // `inherit !important`, so a source trigger that stretches (flex: 1) can
+        // only do so through the tab list element itself.
+        [$declarations, $listFlex] = $this->splitInheritedFlex($declarations);
         $gap = trim((string) ($rowDeclarations['row-gap'] ?? $rowDeclarations['gap'] ?? ''));
         if ('' === $gap && isset($items[1])) {
             $gap = trim((string) ($this->presentation->presentationDeclarations($items[1])['margin-top'] ?? ''));
@@ -248,6 +252,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
                 $listRule['row-gap'] = $gap;
             }
         }
+        $listRule = array_merge($listRule, $listFlex);
         if (array() === $listRule && array() === $declarations) {
             return '';
         }
@@ -263,6 +268,56 @@ final class CapturedSelectableSetConverter implements ElementConverter
         ($this->registerRule)($className, implode("\n", $css));
 
         return $className;
+    }
+
+    /**
+     * Split the flex sizing core/tab-list takes from its own element
+     * (`flex-grow`, `flex-basis`) from the declarations that stay on a button.
+     *
+     * @param array<string, string> $declarations
+     * @return array{0: array<string, string>, 1: array<string, string>}
+     */
+    private function splitInheritedFlex(array $declarations): array
+    {
+        $list = array();
+        if (isset($declarations['flex'])) {
+            $tokens = preg_split('/\s+/', strtolower(trim($declarations['flex']))) ?: array();
+            $grow = null;
+            $shrink = null;
+            $basis = null;
+            if (array('none') === $tokens) {
+                $grow = '0';
+                $shrink = '0';
+                $basis = 'auto';
+            } elseif (array('auto') === $tokens) {
+                $grow = '1';
+                $shrink = '1';
+                $basis = 'auto';
+            } elseif (isset($tokens[0]) && 1 === preg_match('/^[0-9.]+$/', $tokens[0])) {
+                $grow = $tokens[0];
+                $rest = array_slice($tokens, 1);
+                if (isset($rest[0]) && 1 === preg_match('/^[0-9.]+$/', $rest[0])) {
+                    $shrink = array_shift($rest);
+                }
+                $basis = array() === $rest ? '0%' : implode(' ', $rest);
+            }
+            if (null !== $grow) {
+                $list['flex-grow'] = $grow;
+                $list['flex-basis'] = $basis;
+                if (null !== $shrink) {
+                    $declarations['flex-shrink'] = $shrink;
+                }
+            }
+            unset($declarations['flex']);
+        }
+        foreach (array('flex-grow', 'flex-basis') as $property) {
+            if (isset($declarations[$property])) {
+                $list[$property] = $declarations[$property];
+                unset($declarations[$property]);
+            }
+        }
+
+        return array($declarations, $list);
     }
 
     /**
