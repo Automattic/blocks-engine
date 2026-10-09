@@ -41,4 +41,6 @@ wp eval 'putenv("NAVIGATION_OWNERSHIP_TEST=1"); putenv("NAVIGATION_LIST_PANEL_TE
 NAVIGATION_LIST_PANEL_TEST=1 NAVIGATION_OWNERSHIP_TEST=1 NAVIGATION_OPENER_TEST=1 NAVIGATION_TEST_URL="$url" node "$root/tests/integration/navigation-inventory-browser.mjs"
 wp eval 'require "/engine/tests/integration/navigation-anchor-subject.php";'
 NAVIGATION_TEST_URL="$url" node "$root/tests/integration/navigation-anchor-subject-browser.mjs"
+wp eval 'putenv("SCOPED_DROPDOWN_TEST=1"); require "/engine/tests/integration/navigation-anchor-subject.php";'
+DROPDOWN_TEST_URL="$url" node "$root/tests/integration/scoped-mixed-dropdown-browser.mjs"
 exit "$runtime_status"

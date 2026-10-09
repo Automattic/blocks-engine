@@ -12,6 +12,9 @@ final class CapturedDialogBlockGenerator
     public function definition(string $blockName): array
     {
         $attributes = array(
+            'tagName' => array('type' => 'string', 'default' => 'dialog'),
+            'sourceStyle' => array('type' => 'string', 'default' => ''),
+            'ancestorUnverified' => array('type' => 'string', 'default' => ''),
             'dialogId' => array('type' => 'string', 'default' => ''),
             'triggerIds' => array('type' => 'array', 'default' => array(), 'items' => array('type' => 'string')),
             'ariaLabel' => array('type' => 'string', 'default' => ''),
@@ -28,14 +31,15 @@ final class CapturedDialogBlockGenerator
 ( function( blocks, blockEditor, element ) {
     var createElement = element.createElement;
     var InnerBlocks = blockEditor.InnerBlocks;
+    function styleObject( value ) { if ( ! value ) return undefined; return String( value ).split( ';' ).reduce( function( output, declaration ) { var separator = declaration.indexOf( ':' ); if ( separator < 1 ) return output; var name = declaration.slice( 0, separator ).trim(); var property = name.indexOf( '--' ) === 0 ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); output[ property ] = declaration.slice( separator + 1 ).trim(); return output; }, {} ); }
     function dialogProps( attrs ) {
-        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'data-blocks-engine-placement': attrs.placement || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined, 'data-blocks-engine-ancestor-state': attrs.ancestorState && attrs.ancestorState.length ? JSON.stringify( attrs.ancestorState ) : undefined };
+        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, style: styleObject( attrs.sourceStyle ), 'data-dla-dialog-ancestor-unverified': attrs.ancestorUnverified || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'data-blocks-engine-placement': attrs.placement || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined, 'data-blocks-engine-ancestor-state': attrs.ancestorState && attrs.ancestorState.length ? JSON.stringify( attrs.ancestorState ) : undefined };
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
         supports: { html: false, customClassName: false },
         edit: function( props ) { return createElement( 'div', { className: 'blocks-engine-captured-dialog-editor' }, createElement( 'strong', null, props.attributes.ariaLabel || 'Dialog' ), createElement( InnerBlocks ) ); },
-        save: function( props ) { return createElement( 'dialog', dialogProps( props.attributes ), props.attributes.addCloseButton ? createElement( 'button', { type: 'button', 'data-blocks-engine-dialog-close': 'true', 'aria-label': 'Close' }, 'Close' ) : null, createElement( InnerBlocks.Content ) ); }
+        save: function( props ) { return createElement( props.attributes.tagName === 'div' && props.attributes.presentation === 'dropdown' ? 'div' : 'dialog', dialogProps( props.attributes ), props.attributes.addCloseButton ? createElement( 'button', { type: 'button', 'data-blocks-engine-dialog-close': 'true', 'aria-label': 'Close' }, 'Close' ) : null, createElement( InnerBlocks.Content ) ); }
     } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
 JS;
@@ -171,11 +175,19 @@ JS;
         expanded( false );
         dialog.addEventListener( 'close', function() { expanded( false ); } );
         if ( dropdown ) document.addEventListener( 'keydown', function( event ) {
-            if ( 'Escape' !== event.key || ! dialog.open ) return;
+            if ( 'Escape' !== event.key || ! dialog.hasAttribute( 'open' ) ) return;
             event.preventDefault();
             close();
             if ( opener ) control( opener ).focus();
         } );
+        if ( dropdown ) window.addEventListener( 'resize', function() {
+            if ( dialog.hasAttribute( 'open' ) && opener && ! control( opener ).getClientRects().length ) close();
+        } );
+        triggers.forEach( function( trigger ) { control( trigger ).addEventListener( 'keydown', function( event ) {
+            if ( event.target !== control( trigger ) || control( trigger ).matches( 'button,a' ) || [ 'Enter', ' ' ].indexOf( event.key ) < 0 ) return;
+            event.preventDefault();
+            control( trigger ).click();
+        } ); } );
         var selection = JSON.parse( dialog.getAttribute( 'data-blocks-engine-gallery-selection' ) || '[]' );
         triggers.forEach( function( trigger ) { trigger.addEventListener( 'click', function( event ) {
             var binding = selection.find( function( item ) { return item.triggerId === trigger.id; } );
@@ -191,7 +203,7 @@ JS;
             }
             event.preventDefault();
             if ( dropdown ) {
-                if ( dialog.open ) { close(); return; }
+                if ( dialog.hasAttribute( 'open' ) ) { close(); return; }
                 opener = trigger;
                 applyAncestors( dialog, trigger );
                 if ( 'under-header' === dialog.getAttribute( 'data-blocks-engine-placement' ) ) placeDropdown( dialog, trigger );
@@ -210,7 +222,7 @@ JS;
         // clicks are not given a meaning the capture did not observe.
         dialog.addEventListener( 'click', function( event ) { if ( ( ! dropdown && event.target === dialog ) || closeControl( event.target ) ) close(); } );
     }
-    function mountAll() { document.querySelectorAll( 'dialog[data-blocks-engine-triggers]' ).forEach( mount ); }
+    function mountAll() { document.querySelectorAll( 'dialog[data-blocks-engine-triggers],div[data-blocks-engine-presentation="dropdown"][data-blocks-engine-triggers]' ).forEach( mount ); }
     if ( 'loading' === document.readyState ) document.addEventListener( 'DOMContentLoaded', mountAll ); else mountAll();
 } )();
 JS;
@@ -225,6 +237,7 @@ JS;
         // A dropdown kept at its observed source place flows there like the
         // source panel did: only the user agent's dialog box is reset.
         $style = 'dialog[data-blocks-engine-triggers]:not([open]){display:none!important}'
+            . 'div[data-blocks-engine-presentation="dropdown"][data-blocks-engine-triggers]:not([open]){display:none!important}'
             . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="under-header"]){position:fixed;top:var(--blocks-engine-dropdown-top,0px);left:0;width:100%;max-width:none;max-height:calc(100vh - var(--blocks-engine-dropdown-top,0px));margin:0;overflow-y:auto;z-index:var(--blocks-engine-dropdown-layer,auto);background-color:var(--blocks-engine-dropdown-background,Canvas);-webkit-backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);color:inherit}'
             . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="in-place"]){position:static;inset:auto;width:auto;height:auto;max-width:none;max-height:none;margin:0;padding:0;border-width:0;background-color:transparent;color:inherit;overflow:visible}';
 

@@ -46,4 +46,28 @@ $report['pages'][0]['states'][0]['gallery']['selection'] = array(0, 1, 2);
 $rows = array(); foreach ($files as $path => $content) $rows[] = array('path' => $path, 'content' => 'interaction-states.json' === $path ? json_encode($report) : $content);
 $invalid = (new CapturedDialogProjector())->project($rows);
 $assert(in_array('captured_gallery_selection_invalid', array_column($invalid['diagnostics'], 'code'), true), 'A shape-valid selection with mismatched image identities remains diagnosed');
+
+// An already-proven native gallery must coexist with a different scope's mixed
+// dropdown. A partial gallery remains a source-owned binding, not a forged
+// native endpoint merely because another scope has a replaceable menu.
+$mixed = (static fn(): string => require dirname(__DIR__) . '/fixtures/scoped-mixed-dropdown.php')();
+libxml_use_internal_errors(true);
+$document = new DOMDocument();
+$document->loadHTML($mixed);
+$mobile = (new DOMXPath($document))->query('//*[contains(@class,"data-liberation-mobile-document")]')->item(0);
+$mobileHtml = $document->saveHTML($mobile);
+$knownRuntime = trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/dla-disclosure-runtime.js'));
+$coexistHtml = str_replace('<script data-dla-gallery-runtime>window.captureGallery=true;</script>', '<script data-dla-disclosure-runtime>' . $knownRuntime . '</script>', $html);
+$coexistHtml = str_replace(array('<body>', '</body>'), array('<body><div class="data-liberation-desktop-document" data-dla-document-scope="">', '</div>' . $mobileHtml . '</body>'), $coexistHtml);
+$coexistReport = array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://neutral.test/', 'states' => array($state))));
+$coexistFiles = array('website/index.html' => $coexistHtml, 'interaction-states.json' => json_encode($coexistReport), 'capture-receipt.json' => json_encode($receipt));
+$coexist = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $coexistFiles))->toArray();
+$coexistTree = $visit($runtime->parseBlocks($coexist['serialized_blocks']));
+$assert(2 === count(array_filter($coexistTree, static fn(array $block): bool => str_ends_with($block['blockName'] ?? '', '/captured-dialog'))), 'complete gallery and mixed dropdown each retain their native scoped endpoint');
+$assert(!str_contains(json_encode($coexist['assets']), 'function triggers()'), 'all proven gallery/dropdown bindings allow generated disclosure retirement');
+$assert('pass' === $coexist['source_reports']['runtime_dependency_parity']['status'], 'updated native aria-controls target identities remain present');
+$coexistReport['pages'][0]['states'][0]['status'] = 'observed-incomplete';
+$coexistFiles['interaction-states.json'] = json_encode($coexistReport);
+$partial = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $coexistFiles))->toArray();
+$assert(array() === array_filter($partial['source_reports']['native_runtime_replacements'] ?? array(), static fn(array $proof): bool => 'data-dla-disclosure-runtime' === $proof['attribute']), 'an incomplete gallery prevents an all-native disclosure retirement claim');
 echo "Captured gallery producer/consumer contract passed (12 assertions)\n";
