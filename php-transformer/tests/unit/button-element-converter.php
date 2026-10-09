@@ -104,6 +104,10 @@ $iconButton = ( new HtmlTransformer() )->transform('<main><button type="button" 
 $iconMarkup = (string) ($iconButton['serialized_blocks'] ?? '');
 $assert(str_contains($iconMarkup, 'ariaLabel') && str_contains($iconMarkup, 'Previous photograph'), 'icon-only button accessible name is retained in authored button attributes');
 $assert((bool) preg_match('/<button\b[^>]*aria-label="Previous photograph"[^>]*><img\b/', $iconMarkup), 'icon-only button saves as a named native button with its image');
+$svgIconButton = ( new HtmlTransformer() )->transform('<main><button class="gallery-arrow gallery-arrow-left" id="previousButton" type="button" aria-label="Previous photograph"><svg viewBox="0 0 32 64" aria-hidden="true"><path d="M25 5L7 32L25 59"></path></svg></button></main>')->toArray();
+$svgIconMarkup = (string) ($svgIconButton['serialized_blocks'] ?? '');
+$assert(str_contains($svgIconMarkup, 'ariaLabel') && str_contains($svgIconMarkup, 'Previous photograph'), 'decorative SVG button keeps its accessible name in authored button attributes');
+$assert((bool) preg_match('/<button\b[^>]*aria-label="Previous photograph"[^>]*><svg\b/', $svgIconMarkup), 'decorative SVG button saves as a named native button with SVG artwork');
 
 $genericBlock = null;
 $null = $converter->convert($button, 'button', $fallbacks);
