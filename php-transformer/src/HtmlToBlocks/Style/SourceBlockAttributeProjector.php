@@ -132,9 +132,12 @@ final class SourceBlockAttributeProjector
                 }
             }
         }
-        $projectionClassName = $this->sourceProjectionClassName($sourceElement, $context, (string) ($attrs['className'] ?? ''));
+        $baseClassName = (string) ($attrs['className'] ?? '');
+        $projectionClassName = $this->sourceProjectionClassName($sourceElement, $context, $baseClassName);
         if ( '' !== $projectionClassName ) {
-            $attrs['className'] = $projectionClassName;
+            $attrs['className'] = 'core/paragraph' === $name && 'a' === $sourceTagName && $facts->isInlineSourceElement
+                ? self::withoutContentAnchorClasses($projectionClassName, $baseClassName, (string) ($attrs['content'] ?? ''))
+                : $projectionClassName;
         }
         if ( 'core/group' === $name && $facts->isAuthorLayoutItem ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_LAYOUT_ITEM_CLASS);
@@ -256,6 +259,27 @@ final class SourceBlockAttributeProjector
 
         $style = strtolower(SourceDom::attr($element, 'style'));
         return 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important)?\s*(?:;|$)/', $style);
+    }
+
+    /**
+     * A synthetic paragraph only makes an inline source anchor valid block
+     * markup: the anchor itself stays in the paragraph's content with its
+     * own projection classes. Repeating those classes on the paragraph would
+     * paint the anchor's author box (border, background, flex display) a
+     * second time around it and take the carrier out of `display:contents`.
+     */
+    private static function withoutContentAnchorClasses(string $projectionClassName, string $baseClassName, string $content): string
+    {
+        if ( 1 !== preg_match('/^\s*<a\b[^>]*?\sclass="([^"]*)"/i', $content, $match) ) {
+            return $projectionClassName;
+        }
+        $carried = array_flip(preg_split('/\s+/', trim($match[1])) ?: array());
+        $base = array_flip(preg_split('/\s+/', trim($baseClassName)) ?: array());
+        $kept = array_filter(
+            preg_split('/\s+/', trim($projectionClassName)) ?: array(),
+            static fn (string $class): bool => isset($base[$class]) || ! isset($carried[$class])
+        );
+        return implode(' ', $kept);
     }
 
     public function sourceProjectionClassName(DOMElement $element, SourceBlockAttributeProjectionContext $context, string $className = ''): string
