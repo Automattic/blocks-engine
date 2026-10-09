@@ -2008,7 +2008,6 @@ final class ShellExtraction
                 // Stable item classes stay; a homepage marker is not current-page state.
                 $own = array_diff_key($attrs, array_flip(array('className', 'style', 'color', 'typography', 'anchor', 'anchorClassName')));
                 $attrs = array_merge($peer, $own);
-                if ($semanticIdentity) unset($attrs['color'], $attrs['style'], $attrs['typography']);
                 $peerClasses = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
                 $stable = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && !self::isCurrentPageClass($class, $peerClasses) && !preg_match('/^blocks-engine-navigation-(?:current|link)-color-[a-f0-9]{64}$/', $class) && !preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class) && !preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class) && !in_array($class, $peerClasses, true)));
                 // The part keeps the item's own link-state carrier, which the
@@ -2045,11 +2044,12 @@ final class ShellExtraction
             }
             $attrs['className'] = implode(' ', $classes);
             if ('' === $attrs['className']) unset($attrs['className']);
-            // Any link to a route can be the current one on some page, and the
-            // current item's colour and type are not kept. A lone top-level link
-            // has no resting peer to take them from, so identity ignores them
-            // on every link rather than splitting the header by which page it is.
-            if ($current || ($semanticIdentity && $isLink)) unset($attrs['color'], $attrs['style'], $attrs['typography']);
+            // A link with no resting peer beside it (a lone top-level link) cannot
+            // take its presentation from them on the page where it is current,
+            // and the current item's own colour and type are not kept. Identity
+            // ignores them for such a link on every page, so one header is not
+            // split by which page happens to be current.
+            if ($current || ($semanticIdentity && $isLink && false === $peer)) unset($attrs['color'], $attrs['style'], $attrs['typography']);
             if ($current || ($semanticIdentity && $isLink)) unset($attrs['anchor'], $attrs['anchorClassName']);
             return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
         }, $markup) ?? $markup;
@@ -2073,11 +2073,11 @@ final class ShellExtraction
      * `index:depth`, the presentation shared by at least two of its non-current
      * links: className plus color/style attrs.
      *
-     * @return array<string,array<string,mixed>|null>
+     * @return array<string,array<string,mixed>|false|null> false marks a level with a single link
      */
     private static function restingNavigationPeers(string $markup): array
     {
-        $peers = array(); $index = -1; $groups = array(); $currentSignatures = array(); $depth = 0;
+        $peers = array(); $index = -1; $groups = array(); $currentSignatures = array(); $depth = 0; $linkCounts = array();
         preg_match_all('/<!--\s*(\/)?wp:(navigation(?:-link|-submenu)?)(?:\s+(\{.*?\}))?\s*(\/)?-->/s', $markup, $matches, PREG_SET_ORDER);
         foreach ($matches as $match) {
             if ('navigation-submenu' === $match[2]) {
@@ -2091,6 +2091,7 @@ final class ShellExtraction
             // A link is only a peer of the links beside it. The items of a
             // submenu style differently from the top-level items.
             $level = $index . ':' . $depth;
+            $linkCounts[$level] = ($linkCounts[$level] ?? 0) + 1;
             $attrs = json_decode($match[3] ?? '', true);
             if (!is_array($attrs)) continue;
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
@@ -2115,6 +2116,8 @@ final class ShellExtraction
                 && array(self::navigationClassSignature(preg_split('/\s+/', trim((string) ($top['presentation']['className'] ?? ''))) ?: array())) === array_values(array_unique($currentSignatures[$navigation]));
             $peers[$navigation] = is_array($top) && (2 <= $top['count'] || $singlePeerMatches) ? $top['presentation'] : null;
         }
+        // A level holding one link has no peers at all.
+        foreach ($linkCounts as $level => $count) if (1 === $count && !is_array($peers[$level] ?? null)) $peers[$level] = false;
         return $peers;
     }
 
