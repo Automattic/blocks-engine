@@ -29,6 +29,8 @@ $cases = array(
     'framework text-split comments in RichText' => '<div class="row"><span class="eyebrow">Brand Identity<!-- --> <span class="star">*</span></span><span class="eyebrow">Two</span></div>',
     'card links propagated into their content' => '<div class="grid"><a class="card" href="/work/one/"><div class="p-6"><span class="eyebrow">Brand</span><h3>One</h3></div></a></div>',
     'accordion headings built from disclosure toggles' => '<div class="faq"><div class="item"><h2><button type="button" aria-expanded="false" class="flex w-full justify-between"><span class="q">What do you do?</span><span class="icon"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M5 12h14"></path></svg></span></button></h2></div><div class="item"><h2><button type="button" aria-expanded="false" class="flex w-full justify-between"><span class="q">Second?</span><span class="icon"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M5 12h14"></path></svg></span></button></h2></div></div>',
+    'tables keep the engine marker their saved figure carries' => '<table><tr><td>a</td><td>b</td></tr></table>',
+    'styled tables keep the engine marker their saved figure carries' => '<style>.prices td{padding:8px}</style><table class="prices"><thead><tr><th>Plan</th><th>Price</th></tr></thead><tbody><tr><td>Basic</td><td>$5</td></tr></tbody></table>',
     'wrappers preserved for source-only data attributes' => '<div class="grid"><div class="reveal" data-visible="true"><div class="card"><h3>One</h3><p>Body</p></div></div><div class="reveal" data-visible="true"><div class="card"><h3>Two</h3><p>Body</p></div></div></div>',
 );
 

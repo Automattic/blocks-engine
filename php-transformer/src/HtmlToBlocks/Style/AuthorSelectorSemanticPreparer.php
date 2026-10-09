@@ -735,7 +735,7 @@ final class AuthorSelectorSemanticPreparer
                 }
                 $path = $table->getNodePath() ?? '';
                 if ( '' !== $path ) {
-                    $projections->ensureTableMarker($path);
+                    $projections->ensureTableMarker($path, $table);
                 }
             }
         }

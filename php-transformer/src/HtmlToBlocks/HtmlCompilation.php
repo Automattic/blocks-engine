@@ -7964,7 +7964,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function registerTablePresentationNormalization(DOMElement $table): void
     {
         $path = $this->sourceElementIdentity($table);
-        $marker = $this->authorSelectorProjections()->ensureTableMarker($path);
+        $marker = $this->authorSelectorProjections()->ensureTableMarker($path, $table);
         $tableDeclarations = $this->styleResolver->structuralPresentationDeclarations($table);
         // A single marker class ties core's .wp-block-table margin while later
         // source classes promoted onto the figure retain their authored margins.
@@ -8035,7 +8035,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $path = $this->sourceElementIdentity($table);
-        $marker = $this->authorSelectorProjections()->ensureTableMarker($path);
+        $marker = $this->authorSelectorProjections()->ensureTableMarker($path, $table);
         $scopedRules = array_map(static fn (string $rule): string => '.' . $marker . '>table>' . $rule, $rules);
         $this->layoutGeometry()->appendRule($marker, implode("\n", $scopedRules));
     }
