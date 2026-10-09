@@ -13,7 +13,7 @@ const rows = [];
 const geometryDeltas = [];
 const panelBox = async (page, selector) => page.locator(selector).evaluate(e => {
     const r=e.getBoundingClientRect(),s=getComputedStyle(e);
-    return {x:r.x,y:r.y,width:r.width,height:r.height,display:s.display,padding:s.padding,background:s.backgroundColor};
+    return {x:r.x,y:r.y,width:r.width,height:r.height,display:s.display,padding:s.padding,background:s.backgroundColor,children:Array.from(e.firstElementChild?.children||[]).map(child=>({tag:child.tagName,height:child.getBoundingClientRect().height,border:getComputedStyle(child).border,margin:getComputedStyle(child).margin}))};
 });
 try {
     for (const width of [390,768,1440]) {
@@ -102,10 +102,10 @@ try {
         const kind=part?'wp_template_part':'page',entity=part||current;
         await wp.data.resolveSelect('core').getEntityRecord('postType',kind,entity.id);
         const original=entity.content.raw,blocks=wp.blocks.parse(original);
-        const text=flatten(blocks).find(b=>['content','text','label'].some(key=>typeof b.attributes[key]==='string'&&b.attributes[key].includes('Contact')));
-        if(!text)throw new Error('Editable native contact content missing');
-        const key=['content','text','label'].find(key=>typeof text.attributes[key]==='string'&&text.attributes[key].includes('Contact'));
-        text.attributes[key]=text.attributes[key].replace('Contact','Contact edited once');
+        const text=flatten(blocks).find(b=>['content','text','label'].some(key=>String(b.attributes[key]||'').includes('Contact')));
+        if(!text)throw new Error('Editable native contact content missing: '+JSON.stringify(flatten(blocks).map(b=>({name:b.name,content:b.attributes.content,text:b.attributes.text,label:b.attributes.label}))));
+        const key=['content','text','label'].find(key=>String(text.attributes[key]||'').includes('Contact'));
+        text.attributes[key]=String(text.attributes[key]).replace('Contact','Contact edited once');
         wp.data.dispatch('core').editEntityRecord('postType',kind,entity.id,{content:wp.blocks.serialize(blocks)});
         await wp.data.dispatch('core').saveEditedEntityRecord('postType',kind,entity.id);
         return{kind,id:entity.id,original,validBlocks:all.length};

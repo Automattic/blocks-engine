@@ -48,14 +48,22 @@ $assert('pass' === $result['source_reports']['runtime_dependency_parity']['statu
 $projector = new CapturedDialogProjector();
 foreach (array(
     str_replace('data-dla-disclosure-runtime="true"', 'data-unknown-runtime="true"', $html),
+    str_replace('function triggers(){', 'window.unknownSourceControl=true;function triggers(){', $html),
     str_replace('</head>', '<script>document.querySelector("[data-dla-dialog-trigger]").addEventListener("click",function(){window.sourceAction=true;});</script></head>', $html),
+    str_replace('</head>', '<script src="https://example.test/native-control.js"></script></head>', $html),
     str_replace('role="button"', 'role="region"', $html),
-    str_replace('<div id="menu-panel"', '<div id="menu-panel"></div><div id="menu-panel"', $html),
+    str_replace('<div id="mobile-menu-panel"', '<div id="mobile-menu-panel"></div><div id="mobile-menu-panel"', $html),
     str_replace('Ordinary action</button>', 'Ordinary action</button><button onclick="window.sourceAction=true">Source action</button>', $html),
 ) as $negative) {
     $projected = $projector->project($files($negative));
     $assert(0 === $projected['projected_count'] && str_contains($projected['files'][0]['content'], 'function triggers()'), 'unknown/competing runtime, non-control, ambiguous endpoint and native JS controls are not falsely adopted');
 }
+$duplicateCopies = str_replace(array('desktop-menu-panel', 'mobile-menu-panel'), 'shared-menu-panel', $html);
+$duplicateResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $files($duplicateCopies)))->toArray();
+$duplicateDom = new DOMDocument();
+$duplicateDom->loadHTML('<body>' . $duplicateResult['serialized_blocks'] . '</body>');
+$duplicatePanels = (new DOMXPath($duplicateDom))->query('//*[@data-blocks-engine-triggers]');
+$assert(2 === $duplicatePanels->length && $duplicatePanels->item(0)->getAttribute('id') !== $duplicatePanels->item(1)->getAttribute('id'), 'duplicate captured endpoint IDs are disambiguated by native source-scope ownership');
 $reporter = new RuntimeDependencyParityReport();
 $source = '<div id="control" role="button" aria-controls="target"></div><div id="target"><p>Panel</p></div>';
 $missing = $reporter->fromArtifact(array(), $source, '<div id="control" role="button" aria-controls="target"></div>', 'index.html');

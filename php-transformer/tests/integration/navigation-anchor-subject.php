@@ -19,7 +19,27 @@ if ($scopedDropdown) {
     foreach (array('https://example.test/', 'https://example.test/other') as $url) $pages[] = array('sourceUrl' => $url, 'states' => array(array('status' => 'captured', 'trigger' => array('selector' => 'missing', 'label' => 'Open menu', 'tag' => 'div', 'ariaHaspopup' => 'menu'), 'dialog' => array('html' => '<div>Panel</div>', 'htmlBytes' => 16, 'htmlTruncated' => false, 'presentation' => 'dropdown'))));
     $files['interaction-states.json'] = json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => $pages));
 }
-$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
+$compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files));
+$plan = $compiled->toWordPressSitePlanView()['wordpress_site_plan'];
+if ($scopedDropdown) {
+    // The neutral HTTP fixture uses the same native generated definitions as
+    // materialization. Register them through WordPress' plugin entrypoint.
+    $plugin = WP_PLUGIN_DIR . '/scoped-dropdown-proof';
+    wp_mkdir_p($plugin);
+    foreach ($compiled->sourceReports['companion_plugin_payload']['blocks'] as $index => $definition) {
+        $block = $plugin . '/block-' . $index;
+        wp_mkdir_p($block);
+        file_put_contents($block . '/block.json', wp_json_encode($definition['block_json']));
+        foreach ($definition['assets'] ?? array() as $name => $contents) file_put_contents($block . '/' . $name, $contents);
+        if (!empty($definition['view_js'])) file_put_contents($block . '/view.js', $definition['view_js']);
+        if (!empty($definition['render'])) file_put_contents($block . '/render.php', $definition['render']);
+        foreach ($definition['script_dependencies'] ?? array() as $name => $dependencies) file_put_contents($block . '/' . pathinfo($name, PATHINFO_FILENAME) . '.asset.php', '<?php return ' . var_export(array('dependencies' => $dependencies, 'version' => '1'), true) . ';');
+    }
+    file_put_contents($plugin . '/scoped-dropdown-proof.php', '<?php /* Plugin Name: Scoped Dropdown Proof */ add_action("init", static function () { foreach (glob(__DIR__ . "/block-*/block.json") as $file) register_block_type(dirname($file)); });');
+    require_once ABSPATH . 'wp-admin/includes/plugin.php';
+    $activated = activate_plugin('scoped-dropdown-proof/scoped-dropdown-proof.php');
+    if (is_wp_error($activated)) throw new RuntimeException($activated->get_error_message());
+}
 $theme = $scopedDropdown ? 'scoped-dropdown-proof' : 'navigation-anchor-proof';
 $directory = WP_CONTENT_DIR . '/themes/' . $theme;
 $resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => home_url('/wp-content/themes/' . $theme)));
