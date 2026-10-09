@@ -132,6 +132,44 @@ $contentBoxHeight = ( new ArtifactCompiler() )->compile(array( 'files' => array(
 $contentBoxHeightCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $contentBoxHeight['assets'] ?? array()));
 $assert(str_contains($contentBoxHeightCss, '.band{display:block;height:245px;padding-right:35px;padding-bottom:35px;overflow:hidden;background:#9b9;box-sizing:content-box}'), 'definite source height plus box chrome retains the initial content-box model against the WordPress block reset');
 
+// One rule sizes a component and another pads it. The source box is the
+// content height plus both paddings; the paddings' negative margins cancel in
+// flow, so the WordPress border-box reset would shrink the parent by both.
+$splitRuleBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.frame{padding:40px 0;margin:-40px 0;overflow:hidden}#strip{height:300px}.lead{padding:12px}</style><section><div id="strip" class="frame"><p>Copy</p></div><div class="frame lead"><p>Auto</p></div></section>' ),
+) ) )->toArray();
+$splitRuleBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $splitRuleBox['assets'] ?? array()));
+$assert(1 === preg_match('/\{padding:40px 0;overflow:hidden;box-sizing:content-box\}/', $splitRuleBoxCss), 'a shared padding rule restates content-box when the cascade also sizes a matched element');
+$assert(1 === preg_match('/\{height:300px;box-sizing:content-box\}/', $splitRuleBoxCss), 'an id sizing rule restates content-box when the cascade also pads the element');
+$assert(1 !== preg_match('/\{padding:12px;box-sizing:content-box\}/', $splitRuleBoxCss), 'padding on an auto-sized element keeps the WordPress box model');
+
+// The same split cascade inside runtime-gated stylesheets: neither half reaches
+// the unconditional cascade, so each rule resolves the other within its own
+// condition domain.
+$gatedSplitRuleBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><style media="not all">.frame{padding:40px 0;margin:-40px 0;overflow:hidden}</style><style media="not all">#strip{height:300px;display:block}</style><style>.lead{height:120px}</style></head><body><section><div id="strip" class="frame"><p>Copy</p></div><div class="lead"><p>Auto</p></div></section></body></html>' ),
+) ) )->toArray();
+$gatedSplitRuleBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $gatedSplitRuleBox['assets'] ?? array()));
+$assert(1 === preg_match('/\{padding:40px 0;overflow:hidden;box-sizing:content-box\}/', $gatedSplitRuleBoxCss), 'a gated padding rule restates content-box when a rule in the same condition domain sizes the element');
+$assert(1 === preg_match('/\{height:300px;display:block;box-sizing:content-box\}/', $gatedSplitRuleBoxCss), 'a gated sizing rule restates content-box when a rule in the same condition domain pads the element');
+$assert(1 !== preg_match('/\{height:120px;box-sizing:content-box\}/', $gatedSplitRuleBoxCss), 'an unconditional sizing rule ignores chrome that only a gated stylesheet declares on other elements');
+
+// A component class that opts its own element into border-box keeps that box
+// model when an id rule sizes it, gated or not.
+foreach ( array( '', ' media="not all"' ) as $media ) {
+    $classBorderBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><style' . $media . '>.rule{box-sizing:border-box;border-top:2px solid #333;height:0}</style><style' . $media . '>#divider{width:31px;height:5px}</style></head><body><section><div id="divider" class="rule"></div></section></body></html>' ),
+    ) ) )->toArray();
+    $classBorderBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $classBorderBox['assets'] ?? array()));
+    $assert(str_contains($classBorderBoxCss, '{width:31px;height:5px}') && ! str_contains($classBorderBoxCss, 'box-sizing:content-box'), 'an element a class rule sets to border-box keeps border-box under a split size rule' . $media);
+}
+
+$splitRuleBorderBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>*{box-sizing:border-box}.frame{padding:40px 0;margin:-40px 0;overflow:hidden}#strip{height:300px}</style><section><div id="strip" class="frame"><p>Copy</p></div></section>' ),
+) ) )->toArray();
+$splitRuleBorderBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $splitRuleBorderBox['assets'] ?? array()));
+$assert(! str_contains($splitRuleBorderBoxCss, 'box-sizing:content-box'), 'a split size and padding cascade under an authored border-box reset stays border-box');
+
 $heightOnly = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.band{display:block;height:245px;overflow:hidden;background:#9b9}</style><div class="band"><p>Copy</p></div>' ),
 ) ) )->toArray();

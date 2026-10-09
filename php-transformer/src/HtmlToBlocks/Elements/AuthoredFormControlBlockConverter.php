@@ -27,7 +27,7 @@ final class AuthoredFormControlBlockConverter
     private readonly Closure $editableLabelContent;
 
     /**
-     * @param Closure(DOMElement): array<string, mixed>                                                     $structuralPresentationDeclarations
+     * @param Closure(DOMElement): array<string, mixed>                                                     $authoredPresentationDeclarations
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      * @param Closure(): GeneratedBlockRegistry                                                             $generatedBlocks
      * @param Closure(string): void                                                                         $registerEcho
@@ -38,7 +38,7 @@ final class AuthoredFormControlBlockConverter
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
-        private readonly Closure $structuralPresentationDeclarations,
+        private readonly Closure $authoredPresentationDeclarations,
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
         private readonly Closure $generatedBlocks,
@@ -101,7 +101,7 @@ final class AuthoredFormControlBlockConverter
 
         // Class/id presence alone does not justify a generated native block;
         // require authored presentation proven by the resolved cascade.
-        if ( ! $forceNative && array() === ($this->structuralPresentationDeclarations)($select) ) {
+        if ( ! $forceNative && array() === ($this->authoredPresentationDeclarations)($select) ) {
             $optionBlocks = array();
             foreach ( $options as $option ) {
                 $optionLabel = trim((string) ($option['label'] ?? ''));
@@ -235,7 +235,7 @@ final class AuthoredFormControlBlockConverter
     {
         $state = NativeControlState::attributes($input);
         $forceNative = $forceNative || null !== $state;
-        if ( ! $forceNative && array() === ($this->structuralPresentationDeclarations)($input) ) {
+        if ( ! $forceNative && array() === ($this->authoredPresentationDeclarations)($input) ) {
             return null;
         }
 
@@ -300,7 +300,7 @@ final class AuthoredFormControlBlockConverter
     {
         $state = NativeControlState::attributes($textarea);
         $forceNative = $forceNative || null !== $state;
-        if ( ! $forceNative && array() === ($this->structuralPresentationDeclarations)($textarea) ) {
+        if ( ! $forceNative && array() === ($this->authoredPresentationDeclarations)($textarea) ) {
             return null;
         }
 
@@ -352,7 +352,7 @@ final class AuthoredFormControlBlockConverter
      */
     public function button(DOMElement $button, bool $forceNative = false): ?array
     {
-        if ( ! $forceNative && array() === ($this->structuralPresentationDeclarations)($button) ) {
+        if ( ! $forceNative && array() === ($this->authoredPresentationDeclarations)($button) ) {
             return null;
         }
 
