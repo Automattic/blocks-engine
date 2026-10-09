@@ -1157,6 +1157,147 @@ final class ShellExtraction
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
     }
 
+    /**
+     * Move the layout frame around an in-place shared header/footer out of the
+     * page and into the route's template.
+     *
+     * An inline shell stays at its source position, so the page content held
+     * the app wrapper, the header and footer references and every sibling of
+     * the main content. Here the page keeps only the blocks that sit between
+     * the header and the footer. The wrapper, the references and the
+     * surrounding chrome become the template, with post-content in the gap. The
+     * template renders the same block tree as before, so the front end keeps
+     * its heights and positions. The post-content wrapper element is dropped
+     * at render time for the same reason (see the marker class).
+     *
+     * A page is left alone when the split is not clearly safe: no main content
+     * between the shells, a main landmark inside the frame, a second reference,
+     * or a runtime binding anchored in the frame.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return array{pages:array<int,array<string,mixed>>,frames:array<string,array{opening:string,closing:string,shells:array<int,string>}>}
+     */
+    public function hoistInlineShellFrames(array $pages, array $parts, array $runtimeDeclarations): array
+    {
+        $areas = array();
+        foreach ($parts as $part) if ('inline_shared_shell' === ($part['placement']['kind'] ?? null) && in_array($part['area'] ?? null, array('header', 'footer'), true)) $areas[(string) $part['slug']] = (string) $part['area'];
+        if (array() === $areas) return array('pages' => $pages, 'frames' => array());
+        $frames = array();
+        $split = array();
+        foreach ($pages as $index => $page) {
+            if (!empty($page['synthetic']) || 'page' !== ($page['post_type'] ?? null)) continue;
+            $frame = $this->shellFrame((string) ($page['canonical_block_markup'] ?? ''), $areas);
+            if (null === $frame) continue;
+            $ranges = array(array('offset' => 0, 'length' => strlen($frame['opening'])), array('offset' => strlen($page['canonical_block_markup']) - strlen($frame['closing']), 'length' => strlen($frame['closing'])));
+            $found = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, $ranges);
+            if ($found['blocked'] || array() !== $found['refs']) continue;
+            $split[$index] = $frame;
+        }
+        $inner = array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null) && empty($page['entrypoint']) && empty($page['synthetic']));
+        $sharedFrame = null;
+        if (array() !== $inner && count(array_intersect_key($split, $inner)) === count($inner)) {
+            $signatures = array_unique(array_map(static fn(int $index): string => serialize(array($split[$index]['opening'], $split[$index]['closing'])), array_keys($inner)));
+            if (1 === count($signatures)) $sharedFrame = array('opening' => $split[array_key_first($inner)]['opening'], 'closing' => $split[array_key_first($inner)]['closing']);
+        }
+        foreach ($split as $index => $frame) {
+            $page = $pages[$index];
+            $slug = !empty($page['entrypoint']) ? 'front-page' : (null !== $sharedFrame ? 'page' : 'page-' . $page['slug']);
+            preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
+            $frames[$slug] = array('opening' => $frame['opening'], 'closing' => $frame['closing'], 'shells' => array_values(array_unique($slugs[1])));
+            $pages[$index]['canonical_block_markup'] = $frame['content'];
+            $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($frame['content']);
+        }
+        return array('pages' => $pages, 'frames' => $frames);
+    }
+
+    /**
+     * @param array<string,string> $areas Inline shell part slug to its area.
+     * @return array{opening:string,closing:string,content:string}|null
+     */
+    private function shellFrame(string $markup, array $areas): ?array
+    {
+        $nodes = self::blockNodes($markup);
+        if (array() === $nodes) return null;
+        $refs = array();
+        foreach ($nodes as $id => $node) {
+            if ('template-part' !== $node['name'] || !preg_match('/"slug":"([^"]+)"/', $node['attributes'], $match) || !isset($areas[$match[1]])) continue;
+            if (isset($refs[$areas[$match[1]]])) return null;
+            $refs[$areas[$match[1]]] = $id;
+        }
+        if (array() === $refs) return null;
+        $level = null;
+        foreach ($refs as $id) {
+            $chain = array();
+            for ($up = $nodes[$id]['parent']; null !== $up; $up = $nodes[$up]['parent']) $chain[] = $up;
+            $level = null === $level ? $chain : array_values(array_intersect($level, $chain));
+        }
+        $parent = array() === $level ? null : $level[0];
+        // A single reference does not mark where the content is. Climb to the
+        // first level where a sibling holds the main landmark.
+        while (true) {
+            $siblings = null === $parent ? self::topLevelNodeIds($nodes) : $nodes[$parent]['children'];
+            $positions = array();
+            foreach ($refs as $area => $id) {
+                $cursor = $id;
+                while ($nodes[$cursor]['parent'] !== $parent) $cursor = $nodes[$cursor]['parent'];
+                $positions[$area] = (int) array_search($cursor, $siblings, true);
+            }
+            $from = isset($positions['header']) ? $positions['header'] + 1 : 0;
+            $to = isset($positions['footer']) ? $positions['footer'] - 1 : count($siblings) - 1;
+            if ($from <= $to && (count($refs) > 1 || self::nodesHoldMain($markup, $nodes, array_slice($siblings, $from, $to - $from + 1)))) break;
+            if (null === $parent || count($refs) > 1) return null;
+            $parent = $nodes[$parent]['parent'];
+        }
+        $start = $nodes[$siblings[$from]]['offset'];
+        $end = $nodes[$siblings[$to]]['end'];
+        $opening = substr($markup, 0, $start);
+        $closing = substr($markup, $end);
+        $content = substr($markup, $start, $end - $start);
+        if ('' === trim($content) || str_contains($content, 'wp:template-part')) return null;
+        if (preg_match('/"tagName":"main"/', $opening . $closing)) return null;
+        return array('opening' => $opening, 'closing' => $closing, 'content' => $content);
+    }
+
+    /**
+     * Block tree of a markup string: every block with its offsets, parent and children.
+     *
+     * @return array<int,array{name:string,attributes:string,offset:int,end:int,parent:?int,children:array<int,int>}>
+     */
+    private static function blockNodes(string $markup): array
+    {
+        $nodes = array(); $stack = array();
+        foreach (self::blockCommentTokens($markup) as $token) {
+            $end = $token['offset'] + strlen($token['token']);
+            if ($token['closing']) {
+                $open = array_pop($stack);
+                if (null === $open) return array();
+                $nodes[$open]['end'] = $end;
+                continue;
+            }
+            $id = count($nodes);
+            $parent = array() === $stack ? null : $stack[count($stack) - 1];
+            $nodes[$id] = array('name' => $token['name'], 'attributes' => $token['attributes'], 'offset' => $token['offset'], 'end' => $end, 'parent' => $parent, 'children' => array());
+            if (null !== $parent) $nodes[$parent]['children'][] = $id;
+            if (!$token['self_closing']) $stack[] = $id;
+        }
+        return array() === $stack ? $nodes : array();
+    }
+
+    /** @param array<int,array<string,mixed>> $nodes @return array<int,int> */
+    private static function topLevelNodeIds(array $nodes): array
+    {
+        return array_keys(array_filter($nodes, static fn(array $node): bool => null === $node['parent']));
+    }
+
+    /** @param array<int,array<string,mixed>> $nodes @param array<int,int> $ids */
+    private static function nodesHoldMain(string $markup, array $nodes, array $ids): bool
+    {
+        foreach ($ids as $id) if (preg_match('/"tagName":"main"/', substr($markup, $nodes[$id]['offset'], $nodes[$id]['end'] - $nodes[$id]['offset']))) return true;
+        return false;
+    }
+
     /** Whether a recognized occurrence has an actual block-tree ancestor. */
     private function hasLayoutAncestor(string $markup, array $candidate, string $area): bool
     {

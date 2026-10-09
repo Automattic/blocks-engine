@@ -25,13 +25,12 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
 )))->toWordPressSitePlanView()['wordpress_site_plan'];
 
 $part = array_values(array_filter($plan['template_parts'], static fn (array $row): bool => 'header' === ($row['area'] ?? null)))[0] ?? null;
-$assert(is_array($part) && 'inline_shared_shell' === $part['placement']['kind'] && 3 === count($part['placement']['source_paths']), 'Every route references one shared header owner at its source position.');
+$assert(is_array($part) && 'inline_shared_shell' === $part['placement']['kind'] && 3 === count($part['placement']['source_paths']), 'Every route shares one header owner.');
 $templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
 $home = array_values(array_filter($plan['pages'], static fn (array $row): bool => !empty($row['entrypoint'])))[0];
-$front = $home['canonical_block_markup'];
-$assert(1 === preg_match('/<!-- wp:group \{[^>]*"anchor":"pin"[^>]*--><div id="pin"[^>]*>\s*<!-- wp:template-part \{"slug":"header"[^>]*\/-->\s*<\/div><!-- \/wp:group -->/', $front), 'The source-position reference remains inside the home page\'s pinned layer: ' . substr($front, 0, 400));
-$assert(!str_contains((string) ($templates['page'] ?? ''), 'id="pin"'), 'Other templates render the shared header without that layer.');
-$assert(!str_contains((string) ($templates['front-page'] ?? ''), 'wp:template-part'), 'The front-page template does not add a detached duplicate header.');
-foreach ($plan['pages'] as $page) if (!$page['entrypoint']) $assert(!str_contains($page['canonical_block_markup'], 'id="pin"') && str_contains($page['canonical_block_markup'], '"slug":"header"'), 'Other routes share the content without inheriting the pinned layer.');
+$assert(!str_contains($home['canonical_block_markup'], 'wp:template-part') && !str_contains($home['canonical_block_markup'], 'id="pin"'), 'The home page content holds no shared header and no pinned layer.');
+$assert(1 === preg_match('/<!-- wp:group \{[^>]*"anchor":"pin"[^>]*--><div id="pin"[^>]*>\s*<!-- wp:template-part \{"slug":"header"[^>]*\/-->\s*<\/div><!-- \/wp:group -->\s*<!-- wp:post-content/', (string) ($templates['front-page'] ?? '')), 'The front-page template keeps the pinned layer around the shared header: ' . substr((string) ($templates['front-page'] ?? ''), 0, 600));
+$assert(!str_contains((string) ($templates['page'] ?? ''), 'id="pin"') && 1 === substr_count((string) ($templates['page'] ?? ''), '"slug":"header"'), 'Other templates render the shared header without that layer.');
+foreach ($plan['pages'] as $page) if (!$page['entrypoint']) $assert(!str_contains($page['canonical_block_markup'], 'id="pin"') && !str_contains($page['canonical_block_markup'], 'wp:template-part'), 'Other routes keep only their own content.');
 
 echo "Entry chrome wrapper contract passed.\n";
