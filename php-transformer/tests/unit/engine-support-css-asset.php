@@ -154,7 +154,7 @@ foreach ( $results as $result ) {
 
 $beforeFamilies = array(
     'be-inline-geometry' => '.be-inline-geometry-',
-    'richtext-marker reset' => ':where(mark[style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}',
+    'richtext-marker reset' => 'html mark:where([style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}',
     'synthetic-paragraph' => ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}',
     'synthetic-anchor-undecorated' => 'blocks-engine-synthetic-anchor-undecorated',
     'synthetic-image-figure' => '.blocks-engine-synthetic-image-figure{margin:0}',
@@ -289,7 +289,7 @@ $assert(
         && ! str_contains($richTextMarkup, 'color:inherit'),
     'G6: richtext-marker mark defers neutral background and color to engine support CSS'
 );
-$assert(str_contains($beforeCss, ':where(mark[style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}'), 'G6: richTextMarkerResetCss remains in engine-support');
+$assert(str_contains($beforeCss, 'html mark:where([style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}'), 'G6: richTextMarkerResetCss remains in engine-support');
 
 $adminBarAuthorCss = $cssFor($adminBar, 'author-css');
 $adminBarSupportCss = $cssFor($adminBar, 'engine-support', 'after-author');
