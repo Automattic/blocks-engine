@@ -84,8 +84,7 @@ final class CapturedDialogProjector
             $projection = $this->projectPage((string) $files[$index]['content'], $dialogStates, $path);
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
             if (0 < $projection['projected_count'] || array() !== $projection['retired_scripts']) {
-                $files[$index]['content'] = $projection['html'];
-                $files[$index]['bytes'] = strlen($projection['html']);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $projection['html']);
                 $projection['script_bindings']?->rebind($files, $path);
                 $projected += $projection['projected_count'];
                 foreach ($projection['retired_scripts'] as $body) {
@@ -596,8 +595,7 @@ final class CapturedDialogProjector
             $html = $document->saveHTML();
             $html = is_string($html) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $html) : null;
             if (!is_string($html)) continue;
-            $files[$index]['content'] = $html;
-            $files[$index]['bytes'] = strlen($html);
+            $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $html);
             $scriptBindings->rebind($files, $path);
             $retired[$path] = $pageRetired;
         }

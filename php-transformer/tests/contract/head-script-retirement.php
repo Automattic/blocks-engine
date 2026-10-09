@@ -29,6 +29,16 @@ $assert(str_contains(DocumentHeadContext::fromPlan($plan, 'website/third.html'),
 $whole = (new ArtifactCompiler())->compile($artifact)->toArray();
 $assert(DocumentHeadContext::fromPlan($whole['source_reports']['wordpress_site_plan'], 'website/index.html') === $head, 'Whole and staged compilation emit the same ordered head');
 
+// Files intake may transport HTML as base64. Projection must replace the
+// canonical bytes, not leave the old transport payload to revive retired tags.
+$encoded = $artifact;
+foreach ($encoded['files'] as $path => &$file) if (str_ends_with($path, '.html')) $file = array('content_base64' => base64_encode($file));
+unset($file);
+$encodedShared = $compiler->prepareShared($encoded);
+$encodedReceipts = $compiler->compilePreparedPages($encodedShared, $compiler->preparePages($encoded, $encodedShared));
+$encodedResult = $compiler->compose($encodedShared, $encodedReceipts)->toArray();
+$assert(DocumentHeadContext::fromPlan($encodedResult['source_reports']['wordpress_site_plan'], 'website/index.html') === $head, 'Base64 files intake preserves the projected canonical HTML and occurrence bindings across normalization');
+
 $unbound = $artifact;
 $unbound['files']['website/index.html'] = str_replace('/script.js', '/missing-real.js', $unbound['files']['website/index.html']);
 $missing = (new ArtifactCompiler())->compile($unbound)->toArray();
