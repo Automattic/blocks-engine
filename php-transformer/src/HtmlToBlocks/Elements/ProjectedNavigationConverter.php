@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttribu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Closure;
 use DOMElement;
 
@@ -38,11 +39,19 @@ final class ProjectedNavigationConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
-        if ( ('button' === $tagName || AuthoredButtonBlockGenerator::isRoleButton($element)) && $this->isRuntimeDomTarget instanceof Closure && ($this->isRuntimeDomTarget)($element) && $this->retainsRuntimeButtonBinding($element) ) {
+        $runtimeButton = ('button' === $tagName || AuthoredButtonBlockGenerator::isRoleButton($element))
+            && $this->isRuntimeDomTarget instanceof Closure
+            && ($this->isRuntimeDomTarget)($element)
+            && $this->retainsRuntimeButtonBinding($element);
+        $projectedNavigation = $runtimeButton ? $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element) : null;
+        if ( $runtimeButton && ! $projectedNavigation instanceof DOMElement ) {
             return ConversionOutcome::unhandled();
         }
 
-        $projectedNavigation = $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element);
+        if ($runtimeButton && $projectedNavigation instanceof DOMElement) {
+            $this->supersedeRuntimeSelectorsForControl($element);
+        }
+        $projectedNavigation ??= $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element);
         if ( $projectedNavigation instanceof DOMElement ) {
             $block = ($this->recognizePatterns)($projectedNavigation, $fallbacks, array(NavigationPattern::class));
             if ( null !== $block ) {
@@ -115,6 +124,20 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return false;
+    }
+
+    private function supersedeRuntimeSelectorsForControl(DOMElement $control): void
+    {
+        $selectors = $this->session->runtimeSelectorState();
+        $classes = SourceDom::classNames($control);
+        foreach (array_keys($selectors->domSelectors()) as $selector) {
+            $matches = str_starts_with($selector, '#')
+                ? substr($selector, 1) === SourceDom::attr($control, 'id')
+                : (str_starts_with($selector, '.')
+                    ? in_array(substr($selector, 1), $classes, true)
+                    : RuntimeSelectorVocabulary::matchesElement($control, $selector, array('button')));
+            if ($matches) $selectors->supersede($selector);
+        }
     }
 
     public function responsiveNavigationToggleMarker(DOMElement $navigation): string

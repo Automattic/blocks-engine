@@ -26,6 +26,64 @@ $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? 
 $serialized = (new Runtime())->serializeBlocks(array($block));
 $assert('custom/authored-carousel' === ((new Runtime())->parseBlocks($serialized)[0]['blockName'] ?? null), 'the carousel and its inner blocks persist through parse and serialize');
 
+$portableGallerySource = '<script data-dla-gallery-runtime="">document.querySelectorAll("[data-dla-gallery]");</script>'
+    . '<div class="neutral-gallery" id="neutral-gallery" data-dla-gallery-capture-width="1440" data-dla-gallery="" data-dla-gallery-source="#neutral-gallery" data-dla-gallery-sequence="[&quot;/media/photo-a.jpeg&quot;,&quot;/media/photo-b.jpeg&quot;,&quot;/media/photo-c.jpeg&quot;,&quot;/media/photo-d.jpeg&quot;,&quot;/media/photo-e.jpeg&quot;]" data-dla-gallery-index="0">'
+    . '<!-- leading slot --><div class="gallery-side gallery-side-left" id="left-slot" aria-hidden="true"><img id="left-image" alt="" src="/media/photo-e.jpeg" data-dla-gallery-slot="-1"></div>'
+    . '<!-- previous control --><button class="gallery-arrow gallery-arrow-left" id="previous-control" type="button" aria-label="Previous image" data-dla-gallery-direction="-1"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M8 2 3 5l5 3"></path></svg></button>'
+    . '<!-- primary slot --><figure class="gallery-main" id="main-slot"><img id="main-image" alt="Gallery photo" src="/media/photo-a.jpeg" data-dla-gallery-slot="0"></figure>'
+    . '<!-- next control --><button class="gallery-arrow gallery-arrow-right" id="next-control" type="button" aria-label="Next image" data-dla-gallery-direction="1"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="m2 2 5 3-5 3"></path></svg></button>'
+    . '<!-- trailing slot --><div class="gallery-side gallery-side-right" id="right-slot" aria-hidden="true"><img id="right-image" alt="" src="/media/photo-b.jpeg" data-dla-gallery-slot="1"></div></div>';
+$portableGalleryResult = (new HtmlTransformer())->transform($portableGallerySource)->toArray();
+$portableGallery = $portableGalleryResult['blocks'][0] ?? array();
+$portableGalleryMarkup = (string) ($portableGalleryResult['serialized_blocks'] ?? '');
+$portableImageUrls = array_map(static fn(array $slide): string => (string) ($slide['attrs']['url'] ?? ''), $portableGallery['innerBlocks'] ?? array());
+$portableBlockNames = array_column($portableGalleryResult['blocks'] ?? array(), 'blockName');
+$assert(
+    'custom/authored-carousel' === ($portableGallery['blockName'] ?? null)
+        && 5 === count($portableGallery['innerBlocks'] ?? array())
+        && array('/media/photo-a.jpeg', '/media/photo-b.jpeg', '/media/photo-c.jpeg', '/media/photo-d.jpeg', '/media/photo-e.jpeg') === $portableImageUrls,
+    'portable src-swap gallery slots project to all editable image slides in sequence order'
+);
+$assert(
+    array_reduce($portableGallery['innerBlocks'] ?? array(), static fn(bool $valid, array $slide): bool => $valid && 'core/image' === ($slide['blockName'] ?? null) && str_starts_with((string) ($slide['attrs']['url'] ?? ''), '/media/'), true)
+        && array_reduce($portableGallery['innerBlocks'] ?? array(), static fn(bool $valid, array $slide): bool => $valid && !isset($slide['attrs']['anchor']), true)
+        && str_contains($portableGalleryMarkup, 'actions.previous') && str_contains($portableGalleryMarkup, 'actions.next')
+        && !str_contains($portableGalleryMarkup, 'core/html') && !str_contains($portableGalleryMarkup, 'wp-block-freeform')
+        && !in_array('core/html', $portableBlockNames, true) && !in_array('core/freeform', $portableBlockNames, true)
+        && str_contains($portableGalleryMarkup, 'data-dla-gallery=""')
+        && 'src-swap' === ($portableGallery['attrs']['presentation'] ?? null)
+        && str_contains($portableGalleryMarkup, 'gallery-side-left')
+        && str_contains($portableGalleryMarkup, 'gallery-main')
+        && str_contains($portableGalleryMarkup, 'gallery-side-right')
+        && str_contains($portableGalleryMarkup, 'data-dla-gallery-slot="-1"')
+        && str_contains($portableGalleryMarkup, 'data-dla-gallery-slot="1"'),
+    'portable gallery keeps its source three-slot layout, editable attachments, and functional controls without fallback blocks'
+);
+
+$compoundMenuResult = (new HtmlTransformer())->transform(
+    '<script>document.querySelectorAll("[data-x-stage][data-x-trigger]");</script>'
+        . '<button type="button" id="neutral-menu-toggle" aria-label="Open menu" data-x-trigger><span>Menu</span></button>'
+)->toArray();
+$assert(
+    !str_contains((string) ($compoundMenuResult['serialized_blocks'] ?? ''), 'wp:html')
+        && str_contains((string) ($compoundMenuResult['serialized_blocks'] ?? ''), 'neutral-menu-toggle')
+        && str_contains((string) ($compoundMenuResult['serialized_blocks'] ?? ''), 'Menu'),
+    'a button matching only one part of a compound script selector remains convertible'
+);
+$runtimeNavigation = (new HtmlTransformer())->transform(
+    '<button type="button" id="neutral-toggle" class="menu-toggle" aria-label="Open menu" aria-controls="neutral-panel" aria-haspopup="dialog" data-x-trigger><span></span></button>'
+        . '<div id="neutral-panel" class="menu-panel dla-dialog" role="dialog" hidden data-x-panel><nav aria-label="Site navigation"><a href="/social">Instagram</a><a href="/contact">Contact</a></nav></div>'
+        . '<script>document.querySelectorAll("[data-x-trigger]");</script>',
+    array('runtime_dom_selectors' => array('[data-x-trigger]'), 'runtime_behavioral_selectors' => array('[data-x-trigger]'))
+)->toArray();
+$assert(
+    str_contains((string) ($runtimeNavigation['serialized_blocks'] ?? ''), 'wp:navigation')
+        && str_contains((string) ($runtimeNavigation['serialized_blocks'] ?? ''), 'Instagram')
+        && str_contains((string) ($runtimeNavigation['serialized_blocks'] ?? ''), 'Contact')
+        && in_array('[data-x-trigger]', $runtimeNavigation['source_reports']['superseded_selectors'] ?? array(), true),
+    'a native navigation projection replaces its retained dialog trigger runtime contract while keeping menu links'
+);
+
 $scopedPresentation = (new HtmlTransformer())->transform(
     '<style>@supports (--test-custom-property:true){.review-frame[data-section-id="review-42"]{--title-font-size-value:1.6}}'
         . '.review-frame[data-section-id="review-42"] .quote{font-size:calc((var(--title-font-size-value) - 1) * 1.2vw + 1rem);text-align:center}'
@@ -90,7 +148,7 @@ $assert('file:./view.js' === ($definition['block_json']['viewScriptModule'] ?? n
 $assert(str_contains($view, "from '@wordpress/interactivity'") && str_contains($view, "store( 'blocks-engine/carousel'"), 'frontend behavior is a script module built on the WordPress Interactivity API');
 $assert(str_contains($view, "'ArrowLeft'") && str_contains($view, "'ArrowRight'") && str_contains($view, 'requested > maximum ? 0'), 'frontend behavior supports keyboard navigation and deterministic wrapping');
 $assert(str_contains($style, 'grid-auto-flow:column') && str_contains($style, '@media(max-width:600px)') && str_contains($style, 'prefers-reduced-motion:reduce'), 'carousel layout is bounded and responsive with reduced-motion handling');
-$assert(str_contains($style, '.blocks-engine-authored-carousel{--blocks-engine-carousel-gap:1rem;position:relative;') && ! str_contains($style, '--slideshow{position:static'), 'every carousel presentation keeps a positioned root so a source background layer cannot paint over the rebuilt rail');
+$assert(str_contains($style, '.blocks-engine-authored-carousel{--blocks-engine-carousel-gap:1rem;position:relative;') && ! str_contains($style, '--slideshow{position:static'), 'the established carousel root presentation remains unchanged for ordinary authored slideshows');
 $assert(str_contains($style, 'pointer-events:auto'), 'slideshow controls and viewport remain interactive inside source layers that disable pointer events');
 $assert(
     ! str_contains($style, 'mobile-arrows') && ! str_contains($style, 'desktop-arrows') && ! str_contains($style, 'arrows-bottom')

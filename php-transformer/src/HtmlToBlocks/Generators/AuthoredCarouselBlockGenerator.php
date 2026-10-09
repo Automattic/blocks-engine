@@ -53,6 +53,7 @@ final class AuthoredCarouselBlockGenerator
             'sourceControlAttributes' => array('type' => 'object', 'default' => array()),
             'sourceControlTopology' => array('type' => 'string', 'default' => ''),
             'sourceIdentityAttributes' => array('type' => 'object', 'default' => array()),
+            'srcSwapMarkup' => array('type' => 'string', 'default' => ''),
             'sourceCustomProperties' => array('type' => 'object', 'default' => array()),
             'previousControlClasses' => array('type' => 'string', 'default' => ''),
             'nextControlClasses' => array('type' => 'string', 'default' => ''),
@@ -106,7 +107,7 @@ final class AuthoredCarouselBlockGenerator
         var items = normalizedItems( attributes.itemsPerView );
         var thumbnails = normalizedThumbnails( attributes.thumbnails );
         var thumbnailModifier = thumbnails.length > 1 ? ' blocks-engine-authored-carousel--thumbnails blocks-engine-authored-carousel--thumbnails-' + normalizedPosition( attributes.thumbnailPosition ) : '';
-        var presentation = 'slideshow' === attributes.presentation ? 'slideshow' : 'track';
+        var presentation = -1 !== [ 'slideshow', 'src-swap' ].indexOf( attributes.presentation ) ? attributes.presentation : 'track';
         var initial = Math.min( Math.max( 0, Math.round( Number( attributes.initialSlide ) || 0 ) ), Math.max( 0, normalizedCount( attributes.slideCount ) - 1 ) );
         var aspect = attributes.viewportHeight > 0 ? '' : normalizedAspect( attributes.stageAspectRatio );
         var style = { position: 'relative' };
@@ -117,7 +118,9 @@ final class AuthoredCarouselBlockGenerator
             if ( stageWidth > 0 ) { style[ '--blocks-engine-carousel-stage-width' ] = stageWidth + 'px'; }
         }
         if ( attributes.stageMinHeight ) { style = style || {}; style[ '--blocks-engine-carousel-stage-min-height' ] = attributes.stageMinHeight; }
-        var props = { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle ) + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        var carouselClasses = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle );
+        if ( 'src-swap' === presentation ) carouselClasses = 'blocks-engine-authored-carousel--src-swap';
+        var props = { className: carouselClasses + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
         Object.keys( attributes.sourceIdentityAttributes || {} ).forEach( function( name ) { props[ name ] = attributes.sourceIdentityAttributes[ name ]; } );
         if ( attributes.sourceControlArtwork ) { props.className += ' blocks-engine-authored-carousel--source-control-artwork'; }
         if ( attributes.showStatus ) { props.className += ' blocks-engine-authored-carousel--show-status'; }
@@ -198,6 +201,33 @@ final class AuthoredCarouselBlockGenerator
                 return createElement( 'div', wrapperProps, child );
             }, stageContent );
             stage = createElement( 'div', { className: 'blocks-engine-authored-carousel__source-stage' }, stage );
+            if ( 'src-swap' === props.attributes.presentation && props.attributes.srcSwapMarkup ) {
+                var sourceMarkup = props.attributes.srcSwapMarkup;
+                var marker = '<!-- blocks-engine-src-swap-sequence -->';
+                var sourceParts = sourceMarkup.split( marker );
+                var sourceNodes = function( html ) {
+                    var holder = document.createElement( 'div' );
+                    holder.innerHTML = html;
+                    var render = function( node, key ) {
+                        if ( 8 === node.nodeType ) return null;
+                        if ( 3 === node.nodeType ) return node.nodeValue;
+                        if ( 1 !== node.nodeType ) return null;
+                        var props = { key: key };
+                        Array.from( node.attributes ).forEach( function( attribute ) {
+                            var name = 'class' === attribute.name ? 'className' : 'viewbox' === attribute.name ? 'viewBox' : 'tabindex' === attribute.name ? 'tabIndex' : attribute.name;
+                            if ( 'style' === name ) props.style = inlineStyle( attribute.value );
+                            else props[ name ] = attribute.value;
+                        } );
+                        return createElement.apply( null, [ node.tagName.toLowerCase(), props ].concat( Array.from( node.childNodes ).map( render ) ) );
+                    };
+                    return Array.from( holder.childNodes ).map( render );
+                };
+                var authoredChildren = sourceNodes( sourceParts[ 0 ] || '' );
+                authoredChildren.push( createElement( 'div', { key: 'sequence', className: 'blocks-engine-authored-carousel__sequence' }, createElement( InnerBlocks.Content ) ) );
+                if ( sourceParts.length > 1 && sourceParts[ 1 ] ) authoredChildren = authoredChildren.concat( sourceNodes( sourceParts[ 1 ] ) );
+                authoredChildren.push( createElement( 'span', { key: 'status', className: 'blocks-engine-authored-carousel__status', 'aria-live': 'polite', 'aria-atomic': 'true', 'data-wp-text': 'state.statusText' } ) );
+                return createElement.apply( null, [ 'div', rootProps( props.attributes ) ].concat( authoredChildren ) );
+            }
             return createElement( 'div', rootProps( props.attributes ),
                 controls,
                 stage,
@@ -218,9 +248,11 @@ JS;
         $view = <<<'JS'
 import { store, getContext, getElement, withScope } from '@wordpress/interactivity';
 
-const slidesOf = ( ref ) => Array.from( ref.querySelectorAll( '.blocks-engine-authored-carousel__track > *' ) );
+const slidesOf = ( ref ) => 'src-swap' === getContext().presentation
+    ? Array.from( ref.querySelectorAll( '.blocks-engine-authored-carousel__sequence > *' ) )
+    : Array.from( ref.querySelectorAll( '.blocks-engine-authored-carousel__track > *' ) );
 
-const rootOf = ( ref ) => ref.closest( '.blocks-engine-authored-carousel' );
+const rootOf = ( ref ) => ref.closest( '.blocks-engine-authored-carousel' ) || ref.closest( '[data-wp-interactive="blocks-engine/carousel"]' );
 
 const visibleCount = ( ref ) => {
     const viewport = ref.querySelector( '.blocks-engine-authored-carousel__viewport' );
@@ -290,6 +322,19 @@ const syncSlideshow = ( root, context ) => {
     } );
 };
 
+const syncSrcSwap = ( root, context ) => {
+    const slides = slidesOf( root );
+    const images = slides.map( ( slide ) => slide.querySelector( 'img' ) );
+    if ( images.some( ( image ) => ! image ) ) return;
+    root.querySelectorAll( '[data-dla-gallery-slot]' ).forEach( ( slot ) => {
+        const offset = Number( slot.getAttribute( 'data-dla-gallery-slot' ) );
+        if ( ! Number.isInteger( offset ) ) return;
+        const index = ( context.index + offset + images.length ) % images.length;
+        slot.setAttribute( 'src', images[ index ].getAttribute( 'src' ) );
+        slot.removeAttribute( 'srcset' );
+    } );
+};
+
 const show = ( requested ) => {
     const context = getContext();
     const { ref } = getElement();
@@ -303,6 +348,10 @@ const show = ( requested ) => {
         ? ( requested < 0 ? maximum : requested > maximum ? 0 : requested )
         : Math.max( 0, Math.min( maximum, requested ) );
     root.dataset.direction = context.index < previousIndex ? 'backward' : 'forward';
+    if ( 'src-swap' === context.presentation ) {
+        syncSrcSwap( root, context );
+        return;
+    }
     syncSlideshow( root, context );
     if ( 'slideshow' === context.presentation ) {
         return;
@@ -344,10 +393,11 @@ store( 'blocks-engine/carousel', {
             const context = getContext();
             const { ref } = getElement();
             context.count = slidesOf( ref ).length;
-            context.visible = 'slideshow' === context.presentation ? 1 : visibleCount( ref );
+            context.visible = 'slideshow' === context.presentation || 'src-swap' === context.presentation ? 1 : visibleCount( ref );
             context.index = Math.min( context.index, maximumIndex( context ) );
             syncSlideshow( ref, context );
             const root = rootOf( ref ) ?? ref;
+            if ( 'src-swap' === context.presentation ) syncSrcSwap( root, context );
             const select = withScope( ( event ) => {
                 const index = event.detail?.index;
                 if ( Number.isInteger( index ) && index >= 0 && index < context.count ) show( index );
@@ -397,7 +447,7 @@ JS;
         // rebuilt rail paints as non-positioned in-flow content and any
         // absolutely positioned background layer the source container puts
         // before it covers the slides completely.
-        $style = '.blocks-engine-authored-carousel{--blocks-engine-carousel-gap:1rem;position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--blocks-engine-carousel-gap);align-items:center;max-width:100%;min-width:0}.blocks-engine-authored-carousel__viewport{min-width:0;overflow:hidden;scroll-behavior:smooth}.blocks-engine-authored-carousel__track{display:grid;grid-auto-flow:column;grid-auto-columns:calc((100% - 3rem)/4);gap:var(--blocks-engine-carousel-gap)}.blocks-engine-authored-carousel--items-1 .blocks-engine-authored-carousel__track{grid-auto-columns:100%}.blocks-engine-authored-carousel--items-2 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 1rem)/2)}.blocks-engine-authored-carousel--items-3 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 2rem)/3)}.blocks-engine-authored-carousel--items-5 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 4rem)/5)}.blocks-engine-authored-carousel--items-6 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 5rem)/6)}.blocks-engine-authored-carousel__track>*{box-sizing:border-box;min-width:0;margin:0}.blocks-engine-authored-carousel__track>.wp-block-image img{display:block;width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:inherit}.blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel__next{cursor:pointer}.blocks-engine-authored-carousel__previous:disabled,.blocks-engine-authored-carousel__next:disabled{cursor:default;opacity:.45}.blocks-engine-authored-carousel__status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(max-width:900px){.blocks-engine-authored-carousel .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 1rem)/2)}}@media(max-width:600px){.blocks-engine-authored-carousel .blocks-engine-authored-carousel__track{grid-auto-columns:100%}}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel__viewport{scroll-behavior:auto}}';
+        $style = '.blocks-engine-authored-carousel{--blocks-engine-carousel-gap:1rem;position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--blocks-engine-carousel-gap);align-items:center;max-width:100%;min-width:0}.blocks-engine-authored-carousel__viewport{min-width:0;overflow:hidden;scroll-behavior:smooth}.blocks-engine-authored-carousel__track{display:grid;grid-auto-flow:column;grid-auto-columns:calc((100% - 3rem)/4);gap:var(--blocks-engine-carousel-gap)}.blocks-engine-authored-carousel--items-1 .blocks-engine-authored-carousel__track{grid-auto-columns:100%}.blocks-engine-authored-carousel--items-2 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 1rem)/2)}.blocks-engine-authored-carousel--items-3 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 2rem)/3)}.blocks-engine-authored-carousel--items-5 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 4rem)/5)}.blocks-engine-authored-carousel--items-6 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 5rem)/6)}.blocks-engine-authored-carousel__track>*{box-sizing:border-box;min-width:0;margin:0}.blocks-engine-authored-carousel__track>.wp-block-image img{display:block;width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:inherit}.blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel__next{cursor:pointer}.blocks-engine-authored-carousel__previous:disabled,.blocks-engine-authored-carousel__next:disabled{cursor:default;opacity:.45}.blocks-engine-authored-carousel__status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.blocks-engine-authored-carousel--src-swap .blocks-engine-authored-carousel__sequence{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;clip-path:inset(50%)!important}@media(max-width:900px){.blocks-engine-authored-carousel .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 1rem)/2)}}@media(max-width:600px){.blocks-engine-authored-carousel .blocks-engine-authored-carousel__track{grid-auto-columns:100%}}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel__viewport{scroll-behavior:auto}}';
         $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0;transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
         $style .= '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__dot{pointer-events:auto}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{visibility:hidden!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{visibility:visible!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){visibility:hidden!important}';
 
@@ -488,7 +538,7 @@ JS;
         $label = htmlspecialchars((string) ($attributes['ariaLabel'] ?? 'Carousel'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $items = min(6, max(1, (int) ($attributes['itemsPerView'] ?? 4)));
         $wrap = false === ($attributes['wrap'] ?? true) ? 'false' : 'true';
-        $presentation = 'slideshow' === ($attributes['presentation'] ?? 'track') ? 'slideshow' : 'track';
+        $presentation = in_array(($attributes['presentation'] ?? 'track'), array('slideshow', 'src-swap'), true) ? (string) $attributes['presentation'] : 'track';
         $slideCount = max(0, (int) ($attributes['slideCount'] ?? 0));
         $initialSlide = min(max(0, (int) ($attributes['initialSlide'] ?? 0)), max(0, $slideCount - 1));
         $viewportHeight = max(0, (int) ($attributes['viewportHeight'] ?? 0));
@@ -507,6 +557,7 @@ JS;
             ? ' ' . implode(' ', SourceDom::boundedClassTokens((string) $attributes['sourcePresentationClasses']))
             : '';
         if (!empty($attributes['showStatus'])) $classes .= ' blocks-engine-authored-carousel--show-status';
+        if ('src-swap' === $presentation) $classes = 'blocks-engine-authored-carousel--src-swap' . ('' !== trim((string) ($attributes['sourcePresentationClasses'] ?? '')) ? ' ' . implode(' ', SourceDom::boundedClassTokens((string) $attributes['sourcePresentationClasses'])) : '');
         $stageAspect = 0 < $viewportHeight ? '' : $this->normalizedAspectRatio($attributes['stageAspectRatio'] ?? '');
         if ( '' !== $stageAspect ) {
             $classes .= ' blocks-engine-authored-carousel--stage-aspect';
@@ -607,6 +658,17 @@ JS;
                 $controlIdentityAttributes .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
             }
         }
+        if ('src-swap' === $presentation && is_string($attributes['srcSwapMarkup'] ?? null)) {
+            $parts = explode('<!-- blocks-engine-src-swap-sequence -->', $attributes['srcSwapMarkup'], 2);
+            $sourceMarkup = $parts[0];
+            $sourceTail = $parts[1] ?? '';
+            $rootOpen = '<div class="' . $classes . '"' . $identityAttributes . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="true" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume">';
+            $status = '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span>';
+            return array(
+                'opening' => $rootOpen . $sourceMarkup . '<div class="blocks-engine-authored-carousel__sequence">',
+                'closing' => '</div>' . $sourceTail . $status . '</div>',
+            );
+        }
         $previousButton = $this->navigationButtonMarkup(false, (string) ($attributes['previousControlClasses'] ?? ''), (string) ($attributes['previousControlVisual'] ?? ''), is_array($attributes['previousControlPresentation'] ?? null) ? $attributes['previousControlPresentation'] : array());
         $nextButton = $this->navigationButtonMarkup(true, (string) ($attributes['nextControlClasses'] ?? ''), (string) ($attributes['nextControlVisual'] ?? ''), is_array($attributes['nextControlPresentation'] ?? null) ? $attributes['nextControlPresentation'] : array());
         $controlTopology = $this->safeControlTopologyMarkup((string) ($attributes['sourceControlTopology'] ?? ''));
@@ -665,6 +727,83 @@ JS;
         $convertChildren = $this->convertChildren ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
         $registry = $session->generatedBlockRegistry()
             ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
+
+        // Portable src-swap galleries expose a handful of live frame slots,
+        // not one DOM node per slide. Their ordered sequence is the authored
+        // slide collection; use the offset-zero image only as an image template.
+        if ($element->hasAttribute('data-dla-gallery-sequence')) {
+            $sequence = json_decode($element->getAttribute('data-dla-gallery-sequence'), true);
+            $primary = null;
+            foreach ($element->getElementsByTagName('img') as $slot) {
+                if ($slot instanceof DOMElement && '0' === trim($slot->getAttribute('data-dla-gallery-slot'))) {
+                    $primary = $slot;
+                    break;
+                }
+            }
+            if (is_array($sequence) && count($sequence) >= 2 && $primary instanceof DOMElement
+                && count(array_filter($sequence, static fn($url): bool => is_string($url) && '' !== trim($url))) === count($sequence)
+            ) {
+                $slides = array();
+                foreach ($sequence as $url) {
+                    $image = $primary->cloneNode(true);
+                    if (!$image instanceof DOMElement) return null;
+                    $image->setAttribute('src', $url);
+                    $image->removeAttribute('srcset');
+                    $image->removeAttribute('id');
+                    $image->removeAttribute('data-dla-gallery-slot');
+                    $slide = $convertImage($image);
+                    if (null === $slide || 'core/image' !== ($slide['blockName'] ?? null)) return null;
+                    $slides[] = $slide;
+                }
+                $sourceClone = $element->cloneNode(true);
+                if (!$sourceClone instanceof DOMElement) return null;
+                foreach ($sourceClone->getElementsByTagName('button') as $control) {
+                    if (!$control instanceof DOMElement) continue;
+                    $direction = trim($control->getAttribute('data-dla-gallery-direction'));
+                    if (!in_array($direction, array('-1', '1'), true)) continue;
+                    $next = '1' === $direction;
+                    $control->setAttribute('data-carousel-' . ($next ? 'next' : 'previous'), 'true');
+                    $control->setAttribute('data-wp-on--click', $next ? 'actions.next' : 'actions.previous');
+                    $control->removeAttribute('data-dla-gallery-direction');
+                }
+                $sourceMarkup = '';
+                foreach ($sourceClone->childNodes as $child) $sourceMarkup .= $sourceClone->ownerDocument?->saveHTML($child) ?: '';
+                $sourceMarkup = SourceDom::safeFallbackHtmlString($sourceMarkup);
+                $sourceMarkup = preg_replace('/<!--.*?-->/s', '', $sourceMarkup) ?? $sourceMarkup;
+                $sourceMarkup .= '<!-- blocks-engine-src-swap-sequence -->';
+                $sourceIdentityAttributes = array();
+                foreach ($element->attributes as $attribute) {
+                    $name = strtolower($attribute->name);
+                    if ('id' === $name || str_starts_with($name, 'data-') || str_starts_with($name, 'aria-')) $sourceIdentityAttributes[$name] = $attribute->value;
+                }
+                $sourceIdentityAttributes['data-dla-gallery-index'] = '0';
+                $registry->register(self::class, $this->definition($registry->namespace()));
+                $attributes = array(
+                    'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
+                    'sourceIdentityAttributes' => $sourceIdentityAttributes,
+                    'sourcePresentationClasses' => implode(' ', SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'))),
+                    'srcSwapMarkup' => $sourceMarkup,
+                    'itemsPerView' => 1,
+                    'wrap' => true,
+                    'presentation' => 'src-swap',
+                    'slideCount' => count($slides),
+                    'initialSlide' => 0,
+                    'showDots' => false,
+                    'transitionStyle' => 'fade',
+                );
+                $shell = $this->shell($attributes);
+                $innerContent = array($shell['opening']);
+                foreach ($slides as $_) $innerContent[] = null;
+                $innerContent[] = $shell['closing'];
+                return array(
+                    'blockName' => $registry->blockName(self::LOCAL_NAME),
+                    'attrs' => $attributes,
+                    'innerBlocks' => $slides,
+                    'innerHTML' => $shell['opening'] . $shell['closing'],
+                    'innerContent' => $innerContent,
+                );
+            }
+        }
 
         if ( ! $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
             [$identityList] = $this->richestCarouselList($element);

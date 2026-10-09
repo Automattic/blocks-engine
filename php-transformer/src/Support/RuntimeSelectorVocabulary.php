@@ -31,7 +31,8 @@ final class RuntimeSelectorVocabulary
     public static function scriptSelectorPattern(): string
     {
         $name = '[A-Za-z][A-Za-z0-9_-]*';
-        return '(?:[#.]' . $name . '|' . $name . '\\.' . $name . '|\\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\\]|' . $name . '\\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\\]|canvas|svg|' . implode('|', self::RUNTIME_TAG_SELECTORS) . ')';
+        $attribute = '\\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\\]';
+        return '(?:' . $name . ')?(?:' . $attribute . '){2,}|(?:[#.]' . $name . '|' . $name . '\\.' . $name . '|' . $attribute . '|' . $name . $attribute . '|canvas|svg|' . implode('|', self::RUNTIME_TAG_SELECTORS) . ')';
     }
 
     /**
@@ -117,21 +118,14 @@ final class RuntimeSelectorVocabulary
         if ( preg_match('/^([a-z][a-z0-9-]*)\.([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
             return $tag === strtolower((string) $match[1]) && in_array((string) $match[2], preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), true);
         }
-        $parsed = self::parseAttributeSelector($selector);
-        if ( null === $parsed ) {
-            return false;
+        $parts = self::parseCompoundAttributeSelector($selector);
+        if (null === $parts || ('' !== $parts['tag'] && $tag !== $parts['tag'])) return false;
+        foreach ($parts['attributes'] as $attribute) {
+            if (!$element->hasAttribute($attribute['attribute'])
+                || (null !== $attribute['value'] && $element->getAttribute($attribute['attribute']) !== $attribute['value'])
+            ) return false;
         }
-        if ( '' !== $parsed['tag'] && $tag !== $parsed['tag'] ) {
-            return false;
-        }
-        if ( ! $element->hasAttribute($parsed['attribute']) ) {
-            return false;
-        }
-        if ( null === $parsed['value'] ) {
-            return true;
-        }
-
-        return $element->getAttribute($parsed['attribute']) === $parsed['value'];
+        return true;
     }
 
     /**
@@ -139,16 +133,16 @@ final class RuntimeSelectorVocabulary
      */
     public static function canonicalScriptSelector(string $selector): string
     {
-        $parsed = self::parseAttributeSelector(trim($selector));
-        if ( null === $parsed ) {
-            return trim($selector);
+        $selector = trim($selector);
+        $parsed = self::parseCompoundAttributeSelector($selector);
+        if (null === $parsed) return $selector;
+        $canonical = $parsed['tag'];
+        foreach ($parsed['attributes'] as $attribute) {
+            $canonical .= '[' . $attribute['attribute'];
+            if (null !== $attribute['value']) $canonical .= '="' . str_replace(array('\\', '"'), array('\\\\', '\\"'), $attribute['value']) . '"';
+            $canonical .= ']';
         }
-        $canonical = $parsed['tag'] . '[' . $parsed['attribute'];
-        if ( null === $parsed['value'] ) {
-            return $canonical . ']';
-        }
-
-        return $canonical . '="' . str_replace(array( '\\', '"' ), array( '\\\\', '\\"' ), $parsed['value']) . '"]';
+        return $canonical;
     }
 
     /**
@@ -178,6 +172,21 @@ final class RuntimeSelectorVocabulary
             'attribute' => strtolower((string) $match[2]),
             'value' => $value,
         );
+    }
+
+    /** @return array{tag:string,attributes:array<int,array{attribute:string,value:?string}>}|null */
+    public static function parseCompoundAttributeSelector(string $selector): ?array
+    {
+        if (1 !== preg_match('/^(?:([a-z][a-z0-9-]*))?(?:\\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\\s*=\\s*(?:"((?:\\\\.|[^"\\\\])*)"|\'((?:\\\\.|[^\'\\\\])*)\'|([^\\s"\'\\]]{1,80})))?\\])+$/i', $selector, $match)) return null;
+        $attributes = array();
+        $attributePattern = '/\\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\\s*=\\s*(?:"((?:\\\\.|[^"\\\\])*)"|\'((?:\\\\.|[^\'\\\\])*)\'|([^\\s"\'\\]]{1,80})))?\\]/i';
+        if (!preg_match_all($attributePattern, $selector, $matches, PREG_SET_ORDER)) return null;
+        foreach ($matches as $attributeMatch) {
+            $hasValue = str_contains($attributeMatch[0], '=');
+            $raw = (string) (($attributeMatch[2] ?? '') ?: (($attributeMatch[3] ?? '') ?: ($attributeMatch[4] ?? '')));
+            $attributes[] = array('attribute' => strtolower($attributeMatch[1]), 'value' => $hasValue ? self::unescapeCssString($raw) : null);
+        }
+        return array('tag' => strtolower((string) ($match[1] ?? '')), 'attributes' => $attributes);
     }
 
     private static function unescapeCssString(string $value): string

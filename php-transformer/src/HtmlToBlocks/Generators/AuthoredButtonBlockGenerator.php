@@ -111,7 +111,7 @@ final class AuthoredButtonBlockGenerator
     function sourceAttributes( attrs ) { return ( Array.isArray( attrs.sourceAttributes ) ? attrs.sourceAttributes : [] ).filter( function( item ) { return item && isSourceAttributeName( String( item.name || '' ) ); } ).sort( function( a, b ) { return String( a.name ).localeCompare( String( b.name ) ); } ); }
     function labelWrappers( attrs ) { return ( Array.isArray( attrs.labelWrappers ) ? attrs.labelWrappers : [] ).slice( 0, 16 ).filter( function( wrapper ) { return wrapper && labelTags.indexOf( String( wrapper.tagName || '' ).toLowerCase() ) !== -1; } ); }
     function labelProps( wrapper ) { var props = {}; Object.keys( wrapper.attributes || {} ).forEach( function( name ) { if ( /^(?:class|id|style|data-(?!wp-)[a-z0-9_.:-]+)$/.test( name ) ) props[ name ] = String( wrapper.attributes[ name ] ); } ); return props; }
-    function isSourceAttributeName( name ) { return /^(?:role|tabindex|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/.test( name ) && name !== 'data-action' && name !== 'jsaction'; }
+    function isSourceAttributeName( name ) { return /^(?:role|tabindex|hidden|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/.test( name ) && name !== 'data-action' && name !== 'jsaction'; }
     function rootTag( attrs ) { var tag = String( attrs.tagName || 'button' ).toLowerCase(); return [ 'div', 'span' ].indexOf( tag ) !== -1 && sourceAttributes( attrs ).some( function( item ) { return item.name === 'role' && String( item.value ).toLowerCase() === 'button'; } ) ? tag : 'button'; }
     function sourceAttributeMarkup( attrs ) { var output = ''; sourceAttributes( attrs ).forEach( function( item ) { output += ' ' + item.name + '="' + escapeAttribute( item.value ) + '"'; } ); return output; }
     function contentParts( attrs ) { return ( Array.isArray( attrs.contentParts ) ? attrs.contentParts : [] ).slice( 0, 32 ); }
@@ -292,7 +292,7 @@ JS;
 
     public static function isSourceAttributeName(string $name): bool
     {
-        return 1 === preg_match('/^(?:role|tabindex|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/', $name)
+        return 1 === preg_match('/^(?:role|tabindex|hidden|data-(?!wp-)[a-z0-9_.:-]+|aria-(?!label$)[a-z0-9-]+)$/', $name)
             && ! in_array($name, array( 'data-action', 'jsaction' ), true);
     }
 

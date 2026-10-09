@@ -254,6 +254,9 @@ JS;
                     $sizingClassName,
                     SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS
                 );
+                if (str_contains($sizingClassName, 'wp-has-aspect-ratio')) {
+                    $embedAttrs['responsive'] = true;
+                }
             }
             $block = $createBlock->createBlock('core/embed', array_filter($embedAttrs, static fn ($value): bool => '' !== $value), array(), $surface);
             return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block, $styleResolver, $createBlock) : $block;
@@ -568,8 +571,10 @@ JS;
         $height = $this->explicitPixelIframeDimension($iframe, 'height', $styleResolver);
         if ( null !== $height && 0.0 < $height ) {
             $carrier = $styleResolver->embedWrapperHeightClassName($iframe, $this->cssPixelValue($height));
-
-            return '' === $carrier ? '' : $carrier . ' wp-has-aspect-ratio';
+            if ('' === $carrier) return '';
+            $width = $this->explicitPixelIframeDimension($iframe, 'width', $styleResolver);
+            $ratio = null !== $width && 0.0 < $width ? $width / $height : 16 / 9;
+            return SourceDom::mergeClassNames($carrier, $this->nearestEmbedAspectRatioClassName($ratio));
         }
 
         $ratio = $this->embedAspectRatioCssValue($iframe, $styleResolver);
