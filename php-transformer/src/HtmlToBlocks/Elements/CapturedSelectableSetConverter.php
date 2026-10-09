@@ -236,7 +236,31 @@ final class CapturedSelectableSetConverter implements ElementConverter
                 : in_array($itemTag, array('li', 'div', 'p', 'section', 'article'), true);
         }
 
-        $declarations = $this->safeDeclarations($this->presentation->presentationDeclarations($triggers[0]));
+        // The source marks the selected trigger with state attributes its own CSS
+        // keys on (aria-selected, data-state). Carry the unselected look to every
+        // button and only the selected trigger's differences to the active one.
+        $active = null;
+        $base = $triggers[0];
+        foreach ($triggers as $trigger) {
+            if ('true' === strtolower(trim(SourceDom::attr($trigger, 'aria-selected')))
+                || 'active' === strtolower(trim(SourceDom::attr($trigger, 'data-state')))) {
+                $active ??= $trigger;
+            }
+        }
+        foreach ($triggers as $trigger) {
+            if (null === $active || ! $trigger->isSameNode($active)) {
+                $base = $trigger;
+                break;
+            }
+        }
+        $declarations = $this->safeDeclarations($this->presentation->presentationDeclarations($base));
+        $activeDeclarations = array();
+        if ($active instanceof DOMElement && ! $active->isSameNode($base)) {
+            $activeDeclarations = array_diff_assoc(
+                $this->safeDeclarations($this->presentation->presentationDeclarations($active)),
+                $declarations
+            );
+        }
         $gap = trim((string) ($rowDeclarations['row-gap'] ?? $rowDeclarations['gap'] ?? ''));
         if ('' === $gap && isset($items[1])) {
             $gap = trim((string) ($this->presentation->presentationDeclarations($items[1])['margin-top'] ?? ''));
@@ -248,17 +272,22 @@ final class CapturedSelectableSetConverter implements ElementConverter
                 $listRule['row-gap'] = $gap;
             }
         }
-        if (array() === $listRule && array() === $declarations) {
+        if (array() === $listRule && array() === $declarations && array() === $activeDeclarations) {
             return '';
         }
         $body = static fn (array $rules): string => implode(';', array_map(static fn (string $property, string $value): string => $property . ':' . $value, array_keys($rules), $rules));
-        $className = 'blocks-engine-tab-list-' . substr(md5($body($listRule) . '|' . $body($declarations)), 0, 10);
+        $className = 'blocks-engine-tab-list-' . substr(md5($body($listRule) . '|' . $body($declarations) . '|' . $body($activeDeclarations)), 0, 10);
         $css = array();
         if (array() !== $listRule) {
             $css[] = '.wp-block-tab-list.' . $className . '{' . $body($listRule) . '}';
         }
         if (array() !== $declarations) {
             $css[] = '.wp-block-tab-list.' . $className . ' button{' . $body($declarations) . '}';
+        }
+        if (array() !== $activeDeclarations) {
+            // A pill-style selected state replaces core's underline marker.
+            $css[] = '.wp-block-tab-list.' . $className . ' button[aria-selected="true"]{' . $body($activeDeclarations) . '}';
+            $css[] = '.wp-block-tab-list.' . $className . ' button[aria-selected="true"]::before{display:none}';
         }
         ($this->registerRule)($className, implode("\n", $css));
 
