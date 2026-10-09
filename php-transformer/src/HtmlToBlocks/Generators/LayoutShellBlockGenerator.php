@@ -136,22 +136,31 @@ final class LayoutShellBlockGenerator
         if ( ! value || 40 < value.length ) { return ''; }
         return value.replace( /\b\w/g, function( letter ) { return letter.toUpperCase(); } );
     }
+    // Tailwind-style utility tokens say how an element looks, not what it is,
+    // so they never make a useful label. Prefixes that also begin ordinary
+    // names (text, bg, border, font, grid) only count with a utility-shaped tail.
+    var utilityClass = /^(?:-?(?:m|p)[xytrbl]?-\S+|(?:w|h|min-w|min-h|max-w|max-h|gap|space-x|space-y|items|justify|self|z|top|right|bottom|left|inset|overflow|transition|duration|ease|delay|opacity|translate|scale|rotate|transform|animate|col|row|order|leading|tracking|cursor|pointer-events|ring|outline|fill|stroke|object|aspect|basis|grow|shrink|rounded|shadow|flex)(?:-\S+)?|(?:text|bg|border|font|grid)-(?:\S{1,3}|\d\S*|center|left|right|justify|white|black|transparent|current|inherit|foreground|background|primary|secondary|accent|muted\S*|cols-\d+)|block|inline|inline-block|inline-flex|grid|hidden|relative|absolute|fixed|sticky|static|truncate|italic|underline|uppercase|lowercase|capitalize|border|rounded|shadow|transition|transform|flex)$/;
+    function isUtilityClass( className ) {
+        return className.indexOf( ':' ) !== -1 || className.indexOf( '[' ) !== -1 || utilityClass.test( className );
+    }
     function shellLabel( wrappers ) {
-        var semanticTags = { header: 'Header', nav: 'Navigation', main: 'Main', section: 'Section', article: 'Article', aside: 'Aside', footer: 'Footer' };
+        var semanticTags = { header: 'Header', li: 'List item', nav: 'Navigation', main: 'Main', section: 'Section', article: 'Article', aside: 'Aside', footer: 'Footer' };
         var genericClasses = { container: true, root: true, section: true, responsive: true, background: true, item: true, undefined: true, 'builder-root': true, 'wp-block-group': true };
         var semantic = '';
         var detail = '';
         var component = false;
+        var reveal = false;
         ( wrappers || [] ).forEach( function( wrapper ) {
             var tagName = String( wrapper.tagName || 'div' ).toLowerCase();
             var attributes = wrapper.attributes || {};
+            if ( attributes[ 'data-dla-viewport-entrance' ] ) { reveal = true; }
             if ( ! semantic && semanticTags[ tagName ] ) { semantic = semanticTags[ tagName ]; }
             if ( ! detail ) { detail = readableName( attributes.id ); }
             if ( ! detail ) {
                 var classNames = String( attributes.class || '' ).split( /\s+/ );
                 if ( -1 !== classNames.indexOf( 'builder-root' ) ) { component = true; }
                 classNames.some( function( className ) {
-                    if ( genericClasses[ className ] ) { return false; }
+                    if ( genericClasses[ className ] || isUtilityClass( className ) ) { return false; }
                     if ( /^[A-Za-z]+$/.test( className ) && /[a-z][A-Z]/.test( className ) ) { return false; }
                     var candidate = readableName( className );
                     if ( candidate === 'Root' || candidate === 'Internal Container Root' ) { return false; }
@@ -160,6 +169,7 @@ final class LayoutShellBlockGenerator
                 } );
             }
         } );
+        if ( reveal ) { return semantic ? semantic + ': Scroll reveal' : 'Scroll reveal'; }
         if ( semantic && detail && semantic.toLowerCase() !== detail.toLowerCase() ) { return semantic + ': ' + detail; }
         if ( semantic ) { return semantic; }
         if ( detail ) { return 'Layout: ' + detail; }
