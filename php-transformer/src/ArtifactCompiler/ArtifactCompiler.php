@@ -3835,6 +3835,9 @@ final class ArtifactCompiler
             // A static-site interpreter of the inert motion markers is replaced by
             // the view scripts of the blocks those markers lower to.
             if ($this->hasHtmlAttribute($open, 'data-blocks-engine-marker-runtime')) continue;
+            // The native control replay interpreter is discarded at normalization
+            // (its state is adapted into control blocks), so it has no asset to load.
+            if (NativeControlState::isReplayScript($open)) continue;
             $async = $this->hasHtmlAttribute($open, 'async'); $defer = $this->hasHtmlAttribute($open, 'defer'); $module = 'module' === strtolower($this->htmlAttribute($open, 'type'));
             $supersededBy = $this->htmlAttribute($open, 'data-blocks-engine-superseded-by');
             $inlineBodyHash = hash('sha256', trim($script['content']));
