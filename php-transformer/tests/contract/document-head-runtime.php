@@ -143,6 +143,21 @@ $unboundLink['files']['index.html'] = str_replace('<meta charset="utf-8">', '<me
 $unboundLinkResult = (new ArtifactCompiler())->compile($unboundLink)->toArray();
 $assert(!isset($unboundLinkResult['source_reports']['wordpress_site_plan']) && in_array('wordpress_site_plan_not_self_contained', array_column($unboundLinkResult['diagnostics'], 'code'), true), 'A local head link without a declared write still fails closed.');
 
+// A link with no href, or an empty one, has no URL to bind. Document link
+// metadata already skips it, so the head context skips it too instead of
+// failing the plan. Example: an image preload that names its image only in
+// imagesrcset, which no write or route binds.
+$noUrlLinks = $artifact;
+$noUrlLinks['files']['index.html'] = str_replace('<meta charset="utf-8">', '<meta charset="utf-8"><link rel="preload" as="image" imagesrcset="hero-1x.png 1x, hero-2x.png 2x"><link rel="preconnect" href="">', $noUrlLinks['files']['index.html']);
+$noUrlLinksResult = (new ArtifactCompiler())->compile($noUrlLinks)->toArray();
+$noUrlLinksErrors = array_values(array_filter($noUrlLinksResult['diagnostics'], static fn(array $row): bool => 'error' === ($row['severity'] ?? '')));
+$assert(array() === $noUrlLinksErrors && isset($noUrlLinksResult['source_reports']['wordpress_site_plan']), 'Head links without a URL produce a materializable plan: ' . json_encode($noUrlLinksErrors, JSON_UNESCAPED_SLASHES));
+$noUrlLinksPage = $noUrlLinksResult['source_reports']['wordpress_site_plan']['pages'][0];
+$assert(array('meta', 'meta', 'script', 'style', 'style', 'link', 'script') === array_column($noUrlLinksPage['document_metadata']['head']['elements'], 'tag') && array('link:nth-of-type(3)') === array_values(array_filter(array_column($noUrlLinksPage['document_metadata']['head']['elements'], 'selector'))), 'Head links without a URL are skipped and later links keep their source occurrence.');
+$assert(array('stylesheet') === array_column($noUrlLinksPage['document_metadata']['links'], 'rel'), 'Document link metadata skips the same links.');
+$noUrlLinksHead = DocumentHeadContext::fromPlan((new WordPressSitePlanResolver())->resolve($noUrlLinksResult['source_reports']['wordpress_site_plan'], array('theme_uri' => 'https://example.test/theme', 'require_proven_dynamic_client_assets' => true)), 'index.html');
+$assert(1 === substr_count($noUrlLinksHead, '<link ') && !str_contains($noUrlLinksHead, 'imagesrcset') && !str_contains($noUrlLinksHead, 'href=""'), 'The emitted head has no link without a URL.');
+
 // Execute the actual emitted PHP registration and template/head hook path.
 // This proves bootstrap behavior, not a claim of a full WordPress installation.
 $hooks = array(); $enqueuedStyles = array(); $enqueuedScripts = array();
