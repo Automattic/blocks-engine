@@ -648,14 +648,37 @@ $assert(! str_contains($authoredParagraphMarkup, 'blocks-engine-synthetic-paragr
 $richTextColor = $transform('<style>:root{--amber:#e8a020}.quote-mark{font-size:4rem;color:var(--amber)}</style><p><span class="quote-mark">&quot;</span>Testimonial</p>');
 $richTextColorMarkup = (string) ($richTextColor['serialized_blocks'] ?? '');
 $richTextColorCss = $css($richTextColor);
-$assert(str_contains($richTextColorMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && ! str_contains($richTextColorMarkup, 'color:inherit') && ! str_contains($richTextColorMarkup, 'background-color:transparent') && str_contains($richTextColorCss, ':where(mark[style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}') && str_contains($richTextColorCss, '{font-size:4rem;color:var(--amber)}') && strpos($richTextColorCss, 'color:inherit') < strpos($richTextColorCss, 'color:var(--amber)'), 'RichText marker defers transparent background to the preceding reset CSS while explicit author color remains authoritative');
+$assert(str_contains($richTextColorMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && ! str_contains($richTextColorMarkup, 'color:inherit') && ! str_contains($richTextColorMarkup, 'background-color:transparent') && str_contains($richTextColorCss, 'html mark:where([style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}') && str_contains($richTextColorCss, '{font-size:4rem;color:var(--amber)}') && strpos($richTextColorCss, 'color:inherit') < strpos($richTextColorCss, 'color:var(--amber)'), 'RichText marker defers transparent background to the preceding reset CSS while explicit author color remains authoritative');
 
-// The reset only undoes user-agent <mark> paint. A captured document can keep
-// its author styles in its own <head>, ahead of the before-author reset, so
-// the reset must lose to any author selector by specificity, not by order.
-preg_match('/([^{}]*--blocks-engine-richtext-marker:[^{}]*)\{background-color:transparent;color:inherit\}/', $richTextColorCss, $markerResetRule);
-$markerResetSpecificity = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::specificityCounts(\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::parse(trim($markerResetRule[1] ?? '')));
-$assert(isset($markerResetRule[1]) && array( 'ids' => 0, 'classes' => 0, 'types' => 0 ) === $markerResetSpecificity, 'RichText marker reset has zero specificity so author paint wins even when the author stylesheet precedes it', json_encode($markerResetSpecificity));
+// The reset undoes user-agent <mark> paint on the marker that replaced a
+// source span. Resolve the real cascade over the emitted reset: an author rule
+// that selects `mark` by tag alone (Bootstrap's reboot) never matched the span,
+// so it must not paint the marker even though it loads later; an author class
+// rule must win even when a captured document keeps it in its own <head>,
+// ahead of the before-author reset.
+preg_match('/[^{}]*--blocks-engine-richtext-marker:[^{}]*\{background-color:transparent;color:inherit\}/', $richTextColorCss, $markerResetRule);
+$markerReset = $markerResetRule[0] ?? '';
+$markerDocument = new DOMDocument();
+$markerDocument->loadHTML('<!doctype html><html><body><div data-dla-device-document="desktop"><h2><mark class="color_11" style="--blocks-engine-richtext-marker:blocks-engine-richtext-x-1" role="none">Get in Touch</mark></h2></div></body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$marker = $markerDocument->getElementsByTagName('mark')->item(0);
+$markerPaint = static function (array $sheets) use ($marker): array {
+    $analysis = ( new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer() )->analyze(array_map(static fn (string $content): array => array( 'content' => $content ), $sheets), '', array( 'color', 'background-color' ), 1000000, 1000, 1000, 4);
+    $facts = array();
+    foreach ( $analysis['rules'] as $rule ) {
+        $match = CssSelectorMatcher::matches($marker, $rule['parsed_selector']);
+        if ( ! $match['supported'] || ! $match['matches'] ) {
+            continue;
+        }
+        foreach ( $rule['declarations'] as $declarationOrder => $declaration ) {
+            \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade::apply($facts, $declaration['name'], array( 'value' => $declaration['value'], 'order' => $rule['order'], 'declaration_order' => $declarationOrder, 'specificity' => $rule['specificity'], 'important' => false, 'layer' => null ));
+        }
+    }
+    return array_map(static fn (array $fact): string => (string) $fact['value'], $facts);
+};
+$bootstrapMark = $markerPaint(array( $markerReset, 'mark,.mark{padding:.2em;background-color:#fcf8e3}', 'mark{background-color:#ff0;color:#000}' ));
+$assert('' !== $markerReset && 'transparent' === ( $bootstrapMark['background-color'] ?? '' ) && 'inherit' === ( $bootstrapMark['color'] ?? '' ), 'RichText marker reset beats later author rules that select mark by tag alone', json_encode($bootstrapMark));
+$headOrderedClass = $markerPaint(array( ':where([data-dla-device-document="desktop"]) .color_11{color:rgb(255,255,255)}', $markerReset ));
+$assert('rgb(255,255,255)' === ( $headOrderedClass['color'] ?? '' ), 'an author class rule that loads before the RichText marker reset still paints the marker', json_encode($headOrderedClass));
 
 $markerPrefixDocument = new DOMDocument();
 $markerPrefixDocument->loadHTML('<!doctype html><body><mark id="terminal" style="--blocks-engine-richtext-marker:marker-19">Terminal</mark><mark id="middle" style="--blocks-engine-richtext-marker:marker-19;color:red">Middle</mark><mark id="long" style="--blocks-engine-richtext-marker:marker-1928">Long</mark></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
