@@ -23,6 +23,9 @@ final class CapturedDialogProjector
     // A marker alone does not establish ownership of an arbitrary source script.
     private const SCOPED_DISCLOSURE_HASH = 'db750332c5e6db4d359188bc5217f5fab88e4badc5e9911bf6fd95f3d8624614';
 
+    /** @var list<DOMElement> Panels proven by the existing complete gallery contract. */
+    private array $nativeGalleryPanels = array();
+
     /**
      * @param array<int, array<string, mixed>> $files
      * @return array{files:array<int, array<string, mixed>>, diagnostics:array<int, array<string, mixed>>, projected_count:int}
@@ -157,6 +160,7 @@ final class CapturedDialogProjector
 
         $scriptBindings = new ScriptOccurrenceBindings($document);
         $diagnostics = array();
+        $this->nativeGalleryPanels = array();
         $galleryCount = $this->prepareGalleries($document, $states, $sourcePath, $diagnostics);
         $adoption = $this->adoptWiredPanels($document, $sourcePath);
         $adopted = $adoption['triggers'];
@@ -343,6 +347,7 @@ final class CapturedDialogProjector
             $close->setAttribute('data-blocks-engine-dialog-close', 'true');
             $panel->appendChild($close);
             $panel->setAttribute('data-blocks-engine-gallery-selection', json_encode($selection, JSON_THROW_ON_ERROR));
+            $this->nativeGalleryPanels[] = $panel;
         }
         return $count;
     }
@@ -365,6 +370,7 @@ final class CapturedDialogProjector
             foreach ($triggers as $trigger) $trigger->setAttribute('aria-controls', $dialogId);
         }
         $dialogElement->setAttribute('id', $dialogId);
+        foreach ($triggers as $trigger) if ($trigger->hasAttribute('aria-controls')) $trigger->setAttribute('aria-controls', $dialogId);
         $dialogElement->setAttribute('data-blocks-engine-captured-dialog', 'true');
         $dialogElement->setAttribute('data-blocks-engine-triggers', implode(' ', $triggerIds));
         if (is_string($fragment['class']) && '' !== $fragment['class']) $dialogElement->setAttribute('class', $fragment['class']);
@@ -499,8 +505,8 @@ final class CapturedDialogProjector
                 $dropdown = in_array('dla-dropdown', preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), true);
                 // The producer placed a dropdown panel where the source rendered
                 // it (`data-dla-observed-placement`); the dialog stays there.
-                $scopedPanel = $nativeScopedWiring && $scope->hasAttribute('data-dla-document-scope');
-                $sourcePlace = $dropdown && ($scopedPanel || $panel->hasAttribute('data-dla-observed-placement')) ? $panel : null;
+                $scopedPanel = $nativeScopedWiring && $scope->hasAttribute('data-dla-document-scope') && $dropdown;
+                $sourcePlace = ($dropdown && ($scopedPanel || $panel->hasAttribute('data-dla-observed-placement'))) || $this->isNativeGalleryPanel($panel) ? $panel : null;
                 $dialog = $this->appendProjectedDialog($document, $fragment, $triggers, $triggerIds, $identity, $dropdown, $sourcePlace, $scopedPanel);
                 if ($scopedPanel) {
                     foreach ($triggers as $trigger) {
@@ -554,16 +560,18 @@ final class CapturedDialogProjector
             if (!$triggers || $triggers->length > self::MAX_STATES_PER_PAGE) return false;
             $snapshots = array();
             foreach ($triggers as $trigger) {
-                if (!$trigger instanceof DOMElement || (!in_array(strtolower($trigger->tagName), array('button', 'a', 'summary'), true) && 'button' !== strtolower($trigger->getAttribute('role')))) return false;
+                if (!$trigger instanceof DOMElement) return false;
                 $key = $trigger->getAttribute('data-dla-dialog-trigger');
                 if (1 !== preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key) || $key !== $trigger->getAttribute('aria-controls')) return false;
                 $panels = $xpath->query('.//*[@id=' . $this->xpathLiteral($key) . ']', $scope);
                 $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
+                $gallery = $panel instanceof DOMElement && $this->isNativeGalleryPanel($panel);
+                if (!$gallery && !in_array(strtolower($trigger->tagName), array('button', 'a', 'summary'), true) && 'button' !== strtolower($trigger->getAttribute('role'))) return false;
                 if (!$panel instanceof DOMElement || 'div' !== strtolower($panel->tagName)
                     || $key !== $panel->getAttribute('data-dla-dialog-panel')
-                    || !SourceDom::hasClass($panel, 'dla-dropdown')
+                    || (!$gallery && !SourceDom::hasClass($panel, 'dla-dropdown'))
                     || !$panel->hasAttribute('hidden')
-                    || !$trigger->parentNode?->isSameNode($panel->parentNode)
+                    || (!$gallery && !$trigger->parentNode?->isSameNode($panel->parentNode))
                     || strlen((string) $document->saveHTML($panel)) > self::MAX_DIALOG_BYTES
                     || 0 < $panel->getElementsByTagName('script')->length
                 ) return false;
@@ -576,6 +584,12 @@ final class CapturedDialogProjector
             }
         }
         return true;
+    }
+
+    private function isNativeGalleryPanel(DOMElement $panel): bool
+    {
+        foreach ($this->nativeGalleryPanels as $owned) if ($owned->isSameNode($panel)) return true;
+        return false;
     }
 
     /** @param array<int, DOMElement> $adopted */
