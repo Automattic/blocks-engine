@@ -2159,7 +2159,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function labelHtml(DOMElement $anchor, callable $innerHtml, ?NavigationPatternContext $navigationContext): string
     {
         if ( ! $navigationContext instanceof NavigationPatternContext ) {
-            return $innerHtml($anchor);
+            return preg_replace('/<!--[\s\S]*?-->/', '', $innerHtml($anchor)) ?? $innerHtml($anchor);
         }
 
         $markered = SourceDom::innerHtmlWithProjectedMarkers(
@@ -2172,7 +2172,8 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         // The transformer's own serializer performs rich-text lowering the plain
         // clone cannot. Prefer it whenever no marker had to be carried.
-        return $markered === SourceDom::innerHtml($anchor) ? $innerHtml($anchor) : $markered;
+        $html = $markered === SourceDom::innerHtml($anchor) ? $innerHtml($anchor) : $markered;
+        return preg_replace('/<!--[\s\S]*?-->/', '', $html) ?? $html;
     }
 
     private function navigationLabel(string $html): string

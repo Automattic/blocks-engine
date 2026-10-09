@@ -42,6 +42,10 @@ final class ButtonElementConverter implements ElementConverter
             }
         }
 
+        if ( $this->context->isImageCarrierButton($element) && '' !== trim(SourceDom::attr($element, 'aria-label')) ) {
+            return ConversionOutcome::handled($this->context->runtimeButton($element));
+        }
+
         if ( $this->context->isImageCarrierButton($element) || ! $this->context->isRichTextButtonLabel($element) ) {
             $children = $this->context->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {

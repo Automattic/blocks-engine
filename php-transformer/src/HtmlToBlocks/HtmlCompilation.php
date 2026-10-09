@@ -629,7 +629,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector);
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
-            fn (DOMElement $element): array => $this->styleResolver->structuralPresentationDeclarations($element),
+            fn (DOMElement $element): array => $this->styleResolver->authoredPresentationDeclarations($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             $this,
             fn (): GeneratedBlockRegistry => $this->generatedBlocks(),
@@ -869,7 +869,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->blockFactory,
             $this->runtime,
             $this->session,
-            fn (DOMElement $element): ?array => $this->convertImageElement($element),
+            // Carousel slides are editable native images inside authored
+            // holders; the carousel owns slide presentation.
+            fn (DOMElement $element): ?array => $this->convertImageElement($element, nativeImage: true),
             function (DOMElement $element, array &$fallbacks): array {
                 return $this->convertChildren($element, $fallbacks, true);
             }
@@ -7962,7 +7964,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function registerTablePresentationNormalization(DOMElement $table): void
     {
         $path = $this->sourceElementIdentity($table);
-        $marker = $this->authorSelectorProjections()->ensureTableMarker($path);
+        $marker = $this->authorSelectorProjections()->ensureTableMarker($path, $table);
         $tableDeclarations = $this->styleResolver->structuralPresentationDeclarations($table);
         // A single marker class ties core's .wp-block-table margin while later
         // source classes promoted onto the figure retain their authored margins.
@@ -8033,7 +8035,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $path = $this->sourceElementIdentity($table);
-        $marker = $this->authorSelectorProjections()->ensureTableMarker($path);
+        $marker = $this->authorSelectorProjections()->ensureTableMarker($path, $table);
         $scopedRules = array_map(static fn (string $rule): string => '.' . $marker . '>table>' . $rule, $rules);
         $this->layoutGeometry()->appendRule($marker, implode("\n", $scopedRules));
     }
@@ -9587,10 +9589,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return 1 === $imageChildren;
     }
 
-    private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array
+    private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null, bool $nativeImage = false): ?array
     {
         $this->imageDimensions()->fillParentImageViewportPair($image);
         if ( $picture instanceof DOMElement && $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
+            return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
+        }
+        // Core's image save contract has no srcset/sizes attributes. Its
+        // attachment-generated candidates cannot reproduce an authored family
+        // (including density-corrected intrinsic sizing). Keep the same bounded
+        // media carrier used for picture selection, before choosing a fallback.
+        if ( ! $nativeImage && $this->sourceElementClassifier->hasResponsiveImageSources($image) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
 
@@ -11199,7 +11208,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function hasUnsafeResponsiveImageSources(DOMElement $element): bool
     {
-        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+        foreach ( array_merge(array($element), $this->descendantElements($element)) as $candidate ) {
             if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array( 'img', 'source' ), true) ) {
                 continue;
             }

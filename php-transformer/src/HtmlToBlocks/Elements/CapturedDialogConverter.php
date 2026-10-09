@@ -29,7 +29,29 @@ final class CapturedDialogConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
 
+        if ( $this->hasSourceNavigationOwner($element) ) {
+            return ConversionOutcome::handled(null);
+        }
+
         return ConversionOutcome::handled($this->block($element, $fallbacks));
+    }
+
+    private function hasSourceNavigationOwner(DOMElement $dialog): bool
+    {
+        $document = $dialog->ownerDocument;
+        if ( null === $document || 0 === $dialog->getElementsByTagName('nav')->length ) return false;
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($dialog, 'data-blocks-engine-triggers'))) ?: array() as $triggerId ) {
+            foreach ( $document->getElementsByTagName('*') as $trigger ) {
+                if ( ! $trigger instanceof DOMElement || SourceDom::attr($trigger, 'id') !== $triggerId ) continue;
+                $targetId = trim(SourceDom::attr($trigger, 'aria-controls'));
+                if ( '' === $targetId || preg_match('/\s/', $targetId) ) continue;
+                foreach ( $document->getElementsByTagName('*') as $target ) {
+                    if ( ! $target instanceof DOMElement || SourceDom::attr($target, 'id') !== $targetId ) continue;
+                    if ( 'nav' === strtolower($target->tagName) || 0 < $target->getElementsByTagName('nav')->length ) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

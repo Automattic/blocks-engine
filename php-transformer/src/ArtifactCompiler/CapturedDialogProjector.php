@@ -186,6 +186,12 @@ final class CapturedDialogProjector
             if (array() !== $triggers && array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isAdopted($adopted, $trigger))) {
                 continue;
             }
+            // A captured overlay menu already present in the source document is
+            // projected by NavigationToggleSuppressor onto its trigger. Do not
+            // also wrap that same navigation in a captured-dialog companion.
+            if ($this->controlsSourceNavigation($document, $triggers)) {
+                continue;
+            }
             // A navigation button with its dropdown panel of links stays in place:
             // it becomes a navigation submenu, not a dialog opened from a button.
             if (array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isNavigationDropdownTrigger($trigger))) {
@@ -533,6 +539,20 @@ final class CapturedDialogProjector
     private function isNavigationDropdownTrigger(DOMElement $trigger): bool
     {
         return NavigationPattern::ownsCapturedSubmenuTrigger($trigger);
+    }
+
+    /** @param array<int, DOMElement> $triggers */
+    private function controlsSourceNavigation(DOMDocument $document, array $triggers): bool
+    {
+        foreach ($triggers as $trigger) {
+            $id = trim($trigger->getAttribute('aria-controls'));
+            if ('' === $id || preg_match('/\s/', $id)) continue;
+            foreach ($document->getElementsByTagName('*') as $target) {
+                if (!$target instanceof DOMElement || $target->getAttribute('id') !== $id) continue;
+                if ('nav' === strtolower($target->tagName) || 0 < $target->getElementsByTagName('nav')->length) return true;
+            }
+        }
+        return false;
     }
 
     private function hasNavigationOwnedDialogTrigger(DOMDocument $document): bool
