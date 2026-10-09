@@ -29,6 +29,8 @@ final class FormPresentationGraphBuilder
     private const MAX_VISUAL_BYTES = 12288;
     private const MAX_VISUAL_DIMENSION = 4096;
     private const MAX_PROVENANCE = 32;
+    /** Authored values such as system font stacks exceed a few hundred bytes; bound like selectors and conditions. */
+    private const MAX_STYLE_VALUE_BYTES = 1024;
     private const MAX_DIAGNOSTICS = 32;
     /** The text properties a label role reads from its text carrier when the label declares none itself. */
     private const TYPOGRAPHY_PROPERTIES = array(
@@ -866,7 +868,7 @@ final class FormPresentationGraphBuilder
 
     private static function assertStyles(array $styles): void
     {
-        foreach ( $styles as $key => $value ) if ( ! is_string($key) || ! in_array($key, array_map(self::key(...), self::PROPERTIES), true) || ! is_string($value) || '' === trim($value) || strlen($value) > 160 ) throw new InvalidArgumentException('Form presentation style is invalid.');
+        foreach ( $styles as $key => $value ) if ( ! is_string($key) || ! in_array($key, array_map(self::key(...), self::PROPERTIES), true) || ! is_string($value) || '' === trim($value) || strlen($value) > self::MAX_STYLE_VALUE_BYTES ) throw new InvalidArgumentException('Form presentation style is invalid.');
     }
 
     private static function assertProvenance(array $provenance, array $styles, ?array $condition): void
