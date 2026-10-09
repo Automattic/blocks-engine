@@ -188,7 +188,7 @@ final class CapturedDialogProjector
             // A captured overlay menu already present in the source document is
             // projected by NavigationToggleSuppressor onto its trigger. Do not
             // also wrap that same navigation in a captured-dialog companion.
-            if ($this->controlsSourceNavigation($document, $triggers)) {
+            if (array() !== array_filter($triggers, fn (DOMElement $trigger): bool => $this->isCapturedNavigationOverlayTrigger($trigger))) {
                 continue;
             }
             // A navigation button with its dropdown panel of links stays in place:
@@ -456,6 +456,7 @@ final class CapturedDialogProjector
                 $panels = $xpath->query('.//*[@data-dla-dialog-panel=' . $this->xpathLiteral((string) $key) . ']', $scope);
                 $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
                 if (! $panel instanceof DOMElement || array() !== array_filter($triggers, static fn(DOMElement $trigger): bool => SourceDom::elementContains($panel, $trigger))) continue;
+                if (array() !== array_filter($triggers, fn(DOMElement $trigger): bool => $this->isCapturedNavigationOverlayTrigger($trigger))) continue;
                 // Sanitize the panel envelope, retaining its content wrapper:
                 // that wrapper can own a menu's hierarchy and presentation.
                 $html = (string) $document->saveHTML($panel);
@@ -540,18 +541,10 @@ final class CapturedDialogProjector
         return NavigationPattern::ownsCapturedSubmenuTrigger($trigger);
     }
 
-    /** @param array<int, DOMElement> $triggers */
-    private function controlsSourceNavigation(DOMDocument $document, array $triggers): bool
+    private function isCapturedNavigationOverlayTrigger(DOMElement $trigger): bool
     {
-        foreach ($triggers as $trigger) {
-            $id = trim($trigger->getAttribute('aria-controls'));
-            if ('' === $id || preg_match('/\s/', $id)) continue;
-            foreach ($document->getElementsByTagName('*') as $target) {
-                if (!$target instanceof DOMElement || $target->getAttribute('id') !== $id) continue;
-                if ('nav' === strtolower($target->tagName) || 0 < $target->getElementsByTagName('nav')->length) return true;
-            }
-        }
-        return false;
+        return 'dialog' === strtolower(trim($trigger->getAttribute('aria-haspopup')))
+            && SourceDom::controlsSourceNavigation($trigger);
     }
 
     private function hasNavigationOwnedDialogTrigger(DOMDocument $document): bool

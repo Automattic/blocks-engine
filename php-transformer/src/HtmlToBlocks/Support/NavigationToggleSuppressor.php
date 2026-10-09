@@ -1523,6 +1523,14 @@ final class NavigationToggleSuppressor
      */
     public function projectedOverlayMenu(DOMElement $control): string
     {
+        if ( ! NavigationPattern::ownsCapturedSubmenuTrigger($control)
+            && 'dialog' === strtolower(trim(SourceDom::attr($control, 'aria-haspopup')))
+            && SourceDom::controlsSourceNavigation($control)
+            && ! $this->isHiddenAtDefaultViewport($control)
+            && ! $this->hasDefaultViewportVisibleNavigationTwin($control)
+        ) {
+            return 'always';
+        }
         // The enclosing document branch already owns its viewport visibility.
         // A control visible throughout that branch must keep its opener above
         // Core's fixed mobile breakpoint as well.

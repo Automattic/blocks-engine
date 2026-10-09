@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
@@ -43,12 +44,10 @@ final class CapturedDialogConverter implements ElementConverter
         foreach ( preg_split('/\s+/', trim(SourceDom::attr($dialog, 'data-blocks-engine-triggers'))) ?: array() as $triggerId ) {
             foreach ( $document->getElementsByTagName('*') as $trigger ) {
                 if ( ! $trigger instanceof DOMElement || SourceDom::attr($trigger, 'id') !== $triggerId ) continue;
-                $targetId = trim(SourceDom::attr($trigger, 'aria-controls'));
-                if ( '' === $targetId || preg_match('/\s/', $targetId) ) continue;
-                foreach ( $document->getElementsByTagName('*') as $target ) {
-                    if ( ! $target instanceof DOMElement || SourceDom::attr($target, 'id') !== $targetId ) continue;
-                    if ( 'nav' === strtolower($target->tagName) || 0 < $target->getElementsByTagName('nav')->length ) return true;
-                }
+                if ( 'dialog' === strtolower(trim(SourceDom::attr($trigger, 'aria-haspopup')))
+                    && SourceDom::controlsSourceNavigation($trigger)
+                    && ! NavigationPattern::ownsCapturedSubmenuTrigger($trigger)
+                ) return true;
             }
         }
         return false;

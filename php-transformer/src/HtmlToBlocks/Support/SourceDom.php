@@ -1025,6 +1025,19 @@ final class SourceDom
         return false;
     }
 
+    /** Whether an id-referenced control target owns a navigation landmark. */
+    public static function controlsSourceNavigation(DOMElement $control): bool
+    {
+        $document = $control->ownerDocument;
+        $targetId = trim(self::attr($control, 'aria-controls'));
+        if ( null === $document || '' === $targetId || preg_match('/\s/', $targetId) ) return false;
+        foreach ( $document->getElementsByTagName('*') as $target ) {
+            if ( ! $target instanceof DOMElement || self::attr($target, 'id') !== $targetId ) continue;
+            return 'nav' === strtolower($target->tagName) || 0 < $target->getElementsByTagName('nav')->length;
+        }
+        return false;
+    }
+
     /**
      * The single image an autonomous custom element host renders, when the host
      * contains nothing but that image (optionally inside picture/source).
