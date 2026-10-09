@@ -48,7 +48,8 @@ $assert(
     array_reduce($portableGallery['innerBlocks'] ?? array(), static fn(bool $valid, array $slide): bool => $valid && 'core/image' === ($slide['blockName'] ?? null) && str_starts_with((string) ($slide['attrs']['url'] ?? ''), '/media/'), true)
         && str_contains($portableGalleryMarkup, 'actions.previous') && str_contains($portableGalleryMarkup, 'actions.next')
         && !str_contains($portableGalleryMarkup, 'core/html') && !str_contains($portableGalleryMarkup, 'wp-block-freeform')
-        && !in_array('core/html', $portableBlockNames, true) && !in_array('core/freeform', $portableBlockNames, true),
+        && !in_array('core/html', $portableBlockNames, true) && !in_array('core/freeform', $portableBlockNames, true)
+        && str_contains($portableGalleryMarkup, 'data-dla-gallery=""'),
     'portable gallery keeps Media Library image attachments and functional carousel controls without fallback blocks'
 );
 

@@ -695,6 +695,14 @@ JS;
                 $registry->register(self::class, $this->definition($registry->namespace()));
                 $attributes = array(
                     'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
+                    // The source runtime still addresses the gallery root. Keep
+                    // its portable identity while omitting the mutable slot
+                    // images and source controls that the block now owns.
+                    'sourceIdentityAttributes' => array(
+                        'data-dla-gallery' => '',
+                        'data-dla-gallery-sequence' => $element->getAttribute('data-dla-gallery-sequence'),
+                        'data-dla-gallery-index' => '0',
+                    ),
                     'itemsPerView' => 1,
                     'wrap' => true,
                     'presentation' => 'slideshow',
