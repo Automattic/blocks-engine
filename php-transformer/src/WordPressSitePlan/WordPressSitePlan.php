@@ -380,9 +380,17 @@ PHP;
         $shells['pages'] = $footerContent['pages'];
         $shells['parts'] = $footerContent['parts'];
         $shells['diagnostics'] = array_merge($shells['diagnostics'], $footerContent['diagnostics']);
-        $pages = $shells['pages'];
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
-        $assets = self::projectSharedChromeStylesheets($assets, $parts, $pages, $references);
+        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($shells['pages'], $parts, $shells['runtime_declarations']);
+        $pages = $shellFrames['pages'];
+        // The generic page template is shared by routes that did not author it,
+        // so the rules aimed at its markers are site-wide chrome rules.
+        $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
+        $assets = self::projectSharedChromeStylesheets($assets, array_merge($parts, $frameParts), $pages, $references);
+        // A page made later in WordPress renders in the generic page template but
+        // owns no stylesheet. The page that authored the frame lends its own as
+        // the fallback that routes without styles of their own already use.
+        if (isset($shellFrames['frames']['page']) && is_string($shellFrames['generic_source'])) foreach ($assets as &$asset) if ('css' === ($asset['kind'] ?? null) && array() !== array_filter($asset['scopes'] ?? array(), static fn(array $scope): bool => 'page' === ($scope['kind'] ?? null) && ($scope['source_path'] ?? null) === $shellFrames['generic_source'])) $asset['frame_fallback'] = true; unset($asset);
         $assets = self::projectDetachedChromePaintOrder($assets, $parts, $pages);
         $assets = self::orderPageStylesheetProjections($assets);
         $assets = self::placeSharedStylesheetProjections($assets, $pages);
@@ -399,8 +407,6 @@ PHP;
          $pages = $articleChrome['pages'];
           $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations, $taxonomyProjection['entities']);
           $assets = ListingQueryPresentation::project($assets, $this->listingQueryContainers);
-         $shellFrames = $this->shellExtraction->hoistInlineShellFrames($pages, $parts, $runtimeDeclarations);
-         $pages = $shellFrames['pages'];
          // Query Loop projection can shorten page markup after shell extraction.
          // Rebase retained runtime anchors on the final page before validation.
          $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $parts);
@@ -4006,6 +4012,10 @@ PHP;
                 if (!array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind'] || ($scope['source_path'] ?? null) === $source)) continue;
                 $scope = self::stylesheetPageScope($pagesBySource[$source]);
                 $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index);
+            }
+            if (!empty($asset['frame_fallback'])) {
+                $row = array('asset' => $asset, 'scope' => array('kind' => 'global'), 'condition' => 'true', 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-frame-fallback-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => true);
+                if ('before-author' === ($asset['stylesheet_placement'] ?? '')) $before[] = $row; else $after[] = $row;
             }
             foreach ($asset['scopes'] as $scope) {
                 if (array() !== $occurrences && 'global' !== $scope['kind']) continue;

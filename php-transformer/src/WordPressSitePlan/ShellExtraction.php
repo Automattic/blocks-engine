@@ -1177,13 +1177,13 @@ final class ShellExtraction
      * @param array<int,array<string,mixed>> $pages
      * @param array<int,array<string,mixed>> $parts
      * @param array<int,array<string,mixed>> $runtimeDeclarations
-     * @return array{pages:array<int,array<string,mixed>>,frames:array<string,array{opening:string,closing:string,shells:array<int,string>}>}
+     * @return array{pages:array<int,array<string,mixed>>,frames:array<string,array{opening:string,closing:string,shells:array<int,string>}>,generic_source:?string}
      */
     public function hoistInlineShellFrames(array $pages, array $parts, array $runtimeDeclarations): array
     {
         $areas = array();
         foreach ($parts as $part) if ('inline_shared_shell' === ($part['placement']['kind'] ?? null) && in_array($part['area'] ?? null, array('header', 'footer'), true)) $areas[(string) $part['slug']] = (string) $part['area'];
-        if (array() === $areas) return array('pages' => $pages, 'frames' => array());
+        if (array() === $areas) return array('pages' => $pages, 'frames' => array(), 'generic_source' => null);
         $frames = array();
         $split = array();
         foreach ($pages as $index => $page) {
@@ -1193,24 +1193,23 @@ final class ShellExtraction
             $ranges = array(array('offset' => 0, 'length' => strlen($frame['opening'])), array('offset' => strlen($page['canonical_block_markup']) - strlen($frame['closing']), 'length' => strlen($frame['closing'])));
             $found = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, $ranges);
             if ($found['blocked'] || array() !== $found['refs']) continue;
-            $split[$index] = $frame;
+            $split[$index] = self::withSharedDialogId($frame, $parts);
         }
         // The generic page template carries the frame most inner pages share in
         // structure (compared without per-document marker seeds and dialog ids),
-        // so a page made later in WordPress gets the site chrome. A page uses it
-        // only when its frame is byte-identical to that one: the seeded markers
-        // in a frame are what the page's own stylesheet targets, so a frame with
-        // other seeds stays in its own route template. A page with another
-        // structure, or none, gets a route template as well.
+        // so a page made later in WordPress gets the site chrome. Its marker
+        // rules are site-wide chrome rules, so any page of that shape can use it.
+        // A page with another structure, or none, gets a route template.
         $inner = array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null) && empty($page['entrypoint']) && empty($page['synthetic']));
         $groups = array();
         foreach (array_intersect_key($split, $inner) as $index => $frame) $groups[self::frameIdentity($frame)][] = $index;
         $generic = null;
         foreach ($groups as $indexes) if (null === $generic || count($indexes) > count($generic)) $generic = $indexes;
+        $genericSource = null !== $generic ? (string) $pages[$generic[0]]['source_path'] : null;
         $generic = null !== $generic ? $split[$generic[0]] : null;
         foreach ($split as $index => $frame) {
             $page = $pages[$index];
-            $shared = null !== $generic && isset($inner[$index]) && $frame['opening'] === $generic['opening'] && $frame['closing'] === $generic['closing'];
+            $shared = null !== $generic && isset($inner[$index]) && self::frameIdentity($frame) === self::frameIdentity($generic);
             $slug = !empty($page['entrypoint']) ? 'front-page' : ($shared ? 'page' : 'page-' . $page['slug']);
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
             $frames[$slug] = array('opening' => $frame['opening'], 'closing' => $frame['closing'], 'shells' => array_values(array_unique($slugs[1])));
@@ -1224,7 +1223,27 @@ final class ShellExtraction
         // A page that keeps its chrome in its own content must not also get the
         // generic frame, so it renders through a plain route template.
         if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames['page-' . $page['slug']] = array('opening' => '', 'closing' => '', 'shells' => array());
-        return array('pages' => $pages, 'frames' => $frames);
+        return array('pages' => $pages, 'frames' => $frames, 'generic_source' => $genericSource);
+    }
+
+    /**
+     * The captured dialog and its trigger are linked by id. The shared header
+     * part holds one trigger, so a frame's dialog takes that trigger's id.
+     *
+     * @param array{opening:string,closing:string,content:string} $frame
+     * @param array<int,array<string,mixed>> $parts
+     * @return array{opening:string,closing:string,content:string}
+     */
+    private static function withSharedDialogId(array $frame, array $parts): array
+    {
+        $triggers = array();
+        foreach ($parts as $part) if ('inline_shared_shell' === ($part['placement']['kind'] ?? null) && preg_match_all('/blocks-engine-dialog-trigger-([0-9a-f]{16})-/', (string) ($part['canonical_block_markup'] ?? ''), $found)) $triggers = array_merge($triggers, $found[1]);
+        $triggers = array_unique($triggers);
+        $framed = $frame['opening'] . $frame['closing'];
+        if (1 !== count($triggers) || !preg_match_all('/blocks-engine-dialog-(?!trigger-)([0-9a-f]{16})\b/', $framed, $dialogs) || 1 !== count(array_unique($dialogs[1]))) return $frame;
+        $frame['opening'] = str_replace($dialogs[1][0], reset($triggers), $frame['opening']);
+        $frame['closing'] = str_replace($dialogs[1][0], reset($triggers), $frame['closing']);
+        return $frame;
     }
 
     /** @param array{opening:string,closing:string} $frame */
