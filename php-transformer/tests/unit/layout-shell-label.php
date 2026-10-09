@@ -14,7 +14,7 @@ file_put_contents($dir . '/index.js', (string) $definition['assets']['index.js']
 $cases = array(
     'entrance' => array( array( 'tagName' => 'div', 'attributes' => array( 'class' => 'transition-all duration-700 opacity-100 translate-y-0', 'data-dla-viewport-entrance' => '{}' ) ) ),
     'entrance in section' => array( array( 'tagName' => 'section', 'attributes' => array( 'class' => 'transition-all', 'data-dla-viewport-entrance' => '{}' ) ) ),
-    'utility only' => array( array( 'tagName' => 'div', 'attributes' => array( 'class' => 'flex items-center gap-4 mt-2 md:flex-row w-full text-lg' ) ) ),
+    'utility only' => array( array( 'tagName' => 'div', 'attributes' => array( 'class' => 'flex items-center gap-4 mt-2 md:flex-row w-full text-lg border border-border rounded-2xl' ) ) ),
     'utility then name' => array( array( 'tagName' => 'div', 'attributes' => array( 'class' => 'flex transition-all hero-card' ) ) ),
     'plain name' => array( array( 'tagName' => 'div', 'attributes' => array( 'class' => 'pricing-table' ) ) ),
     'text-based name' => array( array( 'tagName' => 'div', 'attributes' => array( 'class' => 'text-block' ) ) ),
