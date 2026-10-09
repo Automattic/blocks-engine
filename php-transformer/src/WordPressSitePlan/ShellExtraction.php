@@ -222,11 +222,16 @@ final class ShellExtraction
     private function collectNestedChrome(string $markup, int $baseOffset, array &$headers, array &$footers): void
     {
         $ranges = self::topLevelBlockRanges($markup);
-        if (2 <= count($ranges)) {
-            $first = substr($markup, $ranges[0]['offset'], $ranges[0]['length']);
+        // Empty decoration groups ahead of the header do not move it: the first
+        // block that holds anything is the one that may be the header.
+        $lead = 0;
+        while ($lead < count($ranges) - 1 && self::isEmptyVisualGroup(substr($markup, $ranges[$lead]['offset'], $ranges[$lead]['length']))) ++$lead;
+        if (2 <= count($ranges) - $lead) {
+            $head = $ranges[$lead];
+            $first = substr($markup, $head['offset'], $head['length']);
             if (self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($first)) {
                 $restHasContent = false;
-                foreach (array_slice($ranges, 1) as $range) {
+                foreach (array_slice($ranges, $lead + 1) as $range) {
                     $sibling = substr($markup, $range['offset'], $range['length']);
                     if (!self::isEmptyVisualGroup($sibling)) {
                         $restHasContent = true;
@@ -234,10 +239,10 @@ final class ShellExtraction
                     }
                 }
                 if ($restHasContent) {
-                    $headers[] = $this->nestedChromeRow($first, $baseOffset + $ranges[0]['offset'], $ranges[0]['length']);
+                    $headers[] = $this->nestedChromeRow($first, $baseOffset + $head['offset'], $head['length']);
                     $last = $ranges[count($ranges) - 1];
                     $lastMarkup = substr($markup, $last['offset'], $last['length']);
-                    if ($last !== $ranges[0] && self::isFooterChrome($lastMarkup)) {
+                    if ($last !== $head && self::isFooterChrome($lastMarkup)) {
                         $footers[] = $this->nestedChromeRow($lastMarkup, $baseOffset + $last['offset'], $last['length']);
                     }
                     return;

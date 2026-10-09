@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedMenuDialogFold;
 use DOMElement;
 
 /**
@@ -27,6 +28,12 @@ final class NavigationProjectionState
 
     /** @var array<string, true> */
     private array $implicitDialogControlPaths = array();
+
+    /** @var array<string, CapturedMenuDialogFold> menu row path => the captured menu dialog it absorbs */
+    private array $foldsByRowPath = array();
+
+    /** @var array<string, CapturedMenuDialogFold> hamburger path => the fold it opens */
+    private array $foldsByTriggerPath = array();
 
     public function hasProjection(): bool
     {
@@ -66,5 +73,38 @@ final class NavigationProjectionState
     public function isImplicitDialogControl(DOMElement $control): bool
     {
         return isset($this->implicitDialogControlPaths[$control->getNodePath()]);
+    }
+
+    public function foldMenuDialog(CapturedMenuDialogFold $fold): void
+    {
+        $this->foldsByRowPath[$fold->row->getNodePath()] = $fold;
+        foreach ( $fold->triggers as $trigger ) {
+            $this->foldsByTriggerPath[$trigger->getNodePath()] = $fold;
+        }
+        foreach ( $fold->suppressed as $element ) {
+            $this->suppress($element);
+        }
+    }
+
+    public function foldForRow(DOMElement $row): ?CapturedMenuDialogFold
+    {
+        return $this->foldsByRowPath[$row->getNodePath()] ?? null;
+    }
+
+    public function foldForTrigger(DOMElement $trigger): ?CapturedMenuDialogFold
+    {
+        return $this->foldsByTriggerPath[$trigger->getNodePath()] ?? null;
+    }
+
+    /** Give the dialog and hamburger back to the output when the row could not absorb them. */
+    public function releaseFold(CapturedMenuDialogFold $fold): void
+    {
+        unset($this->foldsByRowPath[$fold->row->getNodePath()]);
+        foreach ( $fold->triggers as $trigger ) {
+            unset($this->foldsByTriggerPath[$trigger->getNodePath()]);
+        }
+        foreach ( $fold->suppressed as $element ) {
+            unset($this->suppressedPaths[$element->getNodePath()]);
+        }
     }
 }
