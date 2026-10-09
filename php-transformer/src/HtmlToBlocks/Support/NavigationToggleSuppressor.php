@@ -1523,6 +1523,9 @@ final class NavigationToggleSuppressor
      */
     public function projectedOverlayMenu(DOMElement $control): string
     {
+        if ( $control->hasAttribute('data-dla-dialog-trigger') ) {
+            return 'always';
+        }
         if ( ! NavigationPattern::ownsCapturedSubmenuTrigger($control)
             && ( $control->hasAttribute('data-dla-dialog-trigger') || 'dialog' === strtolower(trim(SourceDom::attr($control, 'aria-haspopup'))) )
             && ! $this->isHiddenAtDefaultViewport($control)
