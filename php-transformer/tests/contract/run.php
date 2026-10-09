@@ -6006,6 +6006,32 @@ $assert(! str_contains($triggerRowMarkup, '<!-- wp:button'), 'the source trigger
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($triggerRowSelectableSet['blocks'] ?? array()), 'trigger-row selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($triggerRowSelectableSet['blocks'] ?? array())['status'] ?? ''), 'trigger-row selectable-set tabs remain Gutenberg-valid');
 
+$keyedSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Keyed Tabs Site', 'slug' => 'captured-keyed-tabs-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><div><button type="button">Alpha</button><button type="button">Beta</button></div><div><p>Select an item</p></div></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(
+                    array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'tabKey' => 'alpha-key', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0)),
+                    array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'tabKey' => 'beta-key', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1)),
+                ),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$keyedMarkup = (string) ($keyedSelectableSet['serialized_blocks'] ?? '');
+$assert(1 === substr_count($keyedMarkup, '<!-- wp:tab-list') && 2 === substr_count($keyedMarkup, '<!-- wp:tab-panel '), 'keyed tabs stay native core/tabs blocks');
+$assert(str_contains($keyedMarkup, 'id="alpha-key"') && str_contains($keyedMarkup, 'id="beta-key"'), 'each tab panel carries its source key as its id so #key selects the tab in core Tabs');
+$assert(! str_contains($keyedMarkup, 'blocks-engine-set-') || 1 !== preg_match('/id="blocks-engine-set-[^"]*-panel-/', $keyedMarkup), 'keyed panels do not keep generated ids');
+
 $sideBySideActive = '<div class="panel"><h2>Gamma</h2><p>Gamma specification details</p></div>';
 $sideBySideTrigger = static fn(int $index, string $label, string $html, int $size): array => array(
     'status' => 'captured',
