@@ -254,6 +254,10 @@ final class GeneratedBlockStyleProjector
                 $wrapperDeclarations[] = 'width:100%';
                 $declarations[] = 'box-sizing:border-box';
                 $declarations[] = 'width:100%';
+            } elseif ( ! $hasAuthoredWidth && $this->sourceControlFillsGridCell($sourceControl, $sourceDeclarations) ) {
+                // A block-level control in a grid cell stretches to the cell by
+                // default. The wrapper is already a block there, so it needs no
+                // width; an intrinsic one would shrink it to its label.
             } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
                 if ( 'center' === $inheritedTextAlignment ) {
                     $outerWrapperDeclarations[] = 'width:100%';
@@ -650,7 +654,9 @@ final class GeneratedBlockStyleProjector
     /** A display:block control whose parent lays it out in normal block flow. */
     private function sourceControlFillsFlowLine(DOMElement $sourceControl, array $sourceDeclarations): bool
     {
-        if ( 'block' !== CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')) ) {
+        // `display:flex` and friends are block-level too: they span the line
+        // exactly like a block. Only the `inline-*` forms size to content.
+        if ( ! in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'block', 'flex', 'grid', 'table' ), true) ) {
             return false;
         }
         $float = CssValueInspector::comparable((string) ($sourceDeclarations['float'] ?? ''));
@@ -664,6 +670,26 @@ final class GeneratedBlockStyleProjector
         }
         $parentDisplay = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? 'block'));
         return in_array($parentDisplay, array( '', 'block', 'flow-root', 'list-item' ), true);
+    }
+
+    private function sourceControlFillsGridCell(DOMElement $sourceControl, array $sourceDeclarations): bool
+    {
+        if ( ! in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'grid', 'table' ), true) ) {
+            return false;
+        }
+        if ( in_array(CssValueInspector::comparable((string) ($sourceDeclarations['position'] ?? '')), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        if ( ! in_array(CssValueInspector::comparable((string) ($sourceDeclarations['justify-self'] ?? '')), array( '', 'auto', 'normal', 'stretch' ), true) ) {
+            return false;
+        }
+        $parent = $sourceControl->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $parentDisplay = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? ''));
+
+        return 'grid' === $parentDisplay;
     }
 
     private function sourceControlStretchesFlex(array $sourceDeclarations): bool
