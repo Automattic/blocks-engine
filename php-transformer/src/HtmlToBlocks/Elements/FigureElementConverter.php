@@ -100,6 +100,18 @@ final class FigureElementConverter implements ElementConverter
         if ( ! $table instanceof DOMElement ) {
             return;
         }
+        // core/table saves its caption attribute as the figure's figcaption.
+        // Reading it back as the table's caption keeps it on the table block
+        // instead of splitting it into a sibling paragraph inside a new group.
+        $figcaption = SourceDom::firstChildElement($figure, 'figcaption');
+        if ( $figcaption instanceof DOMElement && null === SourceDom::firstChildElement($table, 'caption') && $figure->ownerDocument instanceof \DOMDocument ) {
+            $caption = $figure->ownerDocument->createElement('caption');
+            while ( null !== $figcaption->firstChild ) {
+                $caption->appendChild($figcaption->firstChild);
+            }
+            $table->insertBefore($caption, $table->firstChild);
+            $figure->removeChild($figcaption);
+        }
         $kept = array();
         $moved = array();
         foreach ( $classes as $class ) {
