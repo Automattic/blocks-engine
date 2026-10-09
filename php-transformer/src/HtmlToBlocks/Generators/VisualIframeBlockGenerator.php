@@ -569,6 +569,14 @@ JS;
     private function embedSizingClassName(DOMElement $iframe, StyleResolver $styleResolver): string
     {
         $height = $this->explicitPixelIframeDimension($iframe, 'height', $styleResolver);
+        if ( null !== $height && 0.0 < $height && $this->iframeFillsContainerHeight($iframe, $styleResolver) ) {
+            // The frame stretches to its parent (`height:100%`), so its width and
+            // height attributes only record the box it had when it was captured at
+            // one viewport. Keep that box as a ratio, never as a fixed height.
+            $width = $this->explicitPixelIframeDimension($iframe, 'width', $styleResolver);
+
+            return $this->nearestEmbedAspectRatioClassName(null !== $width && 0.0 < $width ? $width / $height : 16 / 9);
+        }
         if ( null !== $height && 0.0 < $height ) {
             $carrier = $styleResolver->embedWrapperHeightClassName($iframe, $this->cssPixelValue($height));
             if ('' === $carrier) return '';
@@ -580,6 +588,12 @@ JS;
         $ratio = $this->embedAspectRatioCssValue($iframe, $styleResolver);
 
         return null === $ratio ? '' : $this->nearestEmbedAspectRatioClassName($ratio);
+    }
+
+    /** True when the source CSS makes the frame as tall as its parent (`height:100%`). */
+    private function iframeFillsContainerHeight(DOMElement $iframe, StyleResolver $styleResolver): bool
+    {
+        return '100%' === preg_replace('/\s+/', '', (string) ($styleResolver->authoredPresentationDeclarations($iframe)['height'] ?? ''));
     }
 
     /**
