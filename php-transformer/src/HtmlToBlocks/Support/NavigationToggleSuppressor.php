@@ -1263,7 +1263,6 @@ final class NavigationToggleSuppressor
         foreach ( $document->getElementsByTagName('*') as $toggle ) {
             if ( ! $toggle instanceof DOMElement
                 || $this->isCapturedDialogControl($toggle)
-                || $this->isBoundCapturedDialogTrigger($toggle)
                 || ( ! $this->isHamburgerMenuToggleControl($toggle) && ! $this->isProjectableHashAnchorMenuToggle($toggle) )
             ) {
                 continue;
@@ -1274,6 +1273,10 @@ final class NavigationToggleSuppressor
                 if ( $projectedTarget->isSameNode($navigation) ) {
                     return $this->concreteToggleControl($toggle);
                 }
+                continue;
+            }
+
+            if ( $this->isBoundCapturedDialogTrigger($toggle) ) {
                 continue;
             }
 
