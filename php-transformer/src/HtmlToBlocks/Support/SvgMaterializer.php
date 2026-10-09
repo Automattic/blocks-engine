@@ -135,6 +135,30 @@ final class SvgMaterializer implements SvgElementMaterializer
             $target->setAttribute('style', $style);
             $baked = true;
         }
+        // Paint is inherited. An icon wrapper commonly sets `fill` for the
+        // <svg> it holds (Wix: `.StylableButton__icon{fill:...}`, often under a
+        // width query); the image no longer has that ancestor, so carry the
+        // paint the root inherits at the reference viewport.
+        $rootPaint = array();
+        foreach ( array( 'fill', 'stroke' ) as $property ) {
+            if ( '' !== trim(SourceDom::attr($element, $property)) ) {
+                continue;
+            }
+            for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+                $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', (string) ($this->styleResolver->referenceViewportAuthorDeclarations($node, array( $property ))[$property] ?? '')) ?? '');
+                if ( '' === $value ) {
+                    continue;
+                }
+                if ( ! preg_match('/var\s*\(|currentcolor|inherit|[<>@\\\\]/i', $value) ) {
+                    $rootPaint[$property] = $value;
+                }
+                break;
+            }
+        }
+        if ( array() !== $rootPaint ) {
+            $clone->setAttribute('style', $this->styleResolver->cssDeclarationString(array_merge($rootPaint, $this->styleResolver->cssDeclarations(SourceDom::attr($clone, 'style')))));
+            $baked = true;
+        }
         if ( ! $baked ) {
             return $html;
         }
@@ -1568,7 +1592,12 @@ final class SvgMaterializer implements SvgElementMaterializer
             return $html;
         }
 
-        $existingDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        // Start from the markup's own root style: it may already carry paint
+        // baked for the standalone image, which the source attribute lacks.
+        $rootStyle = preg_match('/<svg\b[^>]*\sstyle\s*=\s*(["\'])(.*?)\1/i', $html, $rootMatch)
+            ? html_entity_decode($rootMatch[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')
+            : SourceDom::attr($element, 'style');
+        $existingDeclarations = $this->styleResolver->cssDeclarations($rootStyle);
         foreach ( array_keys($existingDeclarations) as $name ) {
             unset($boxDeclarations[$name]);
         }
