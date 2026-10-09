@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\SourceTargetProj
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedMenuDialogFold;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
@@ -497,6 +498,27 @@ final class NavigationPatternContext
     public function overlayMenu(DOMElement $element): string
     {
         return $this->navigationToggleSuppressor?->navigationOverlayMenu($element) ?? 'never';
+    }
+
+    public function capturedMenuFold(DOMElement $row): ?CapturedMenuDialogFold
+    {
+        return $this->navigationToggleSuppressor?->capturedMenuFoldForRow($row);
+    }
+
+    public function releaseCapturedMenuFold(CapturedMenuDialogFold $fold): void
+    {
+        $this->navigationToggleSuppressor?->releaseCapturedMenuFold($fold);
+    }
+
+    /** The width (px) at and below which the source shows the hamburger instead of the row. */
+    public function menuCollapseBreakpoint(DOMElement $row, DOMElement $trigger): ?float
+    {
+        return $this->navigationToggleSuppressor?->sourceCollapseBreakpoint($row, $trigger);
+    }
+
+    public function registerMenuFoldRule(string $marker, string $rule): void
+    {
+        $this->session?->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker, $rule);
     }
 
     public function responsiveToggleMarker(DOMElement $element): string

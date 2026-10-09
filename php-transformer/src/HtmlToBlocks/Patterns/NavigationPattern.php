@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocab
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedMenuDialogFold;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
@@ -54,6 +55,15 @@ final class NavigationPattern implements PatternRecognizerInterface
      * {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss::listNavigationHostRepairCss()}.
      */
     private const LIST_NAVIGATION_CLASS = 'blocks-engine-list-navigation';
+
+    /** The navigation that took over an absorbed menu dialog. */
+    private const MENU_FOLD_NAVIGATION_CLASS = 'blocks-engine-menu-fold-navigation';
+
+    /** A row control the absorbed menu dialog repeats; hidden where the hamburger takes over. */
+    private const MENU_FOLD_HIDE_CLASS = 'blocks-engine-menu-fold-hide';
+
+    /** A dialog entry carried into the overlay; hidden where the row shows in full. */
+    private const MENU_FOLD_OVERLAY_ONLY_CLASS = 'blocks-engine-menu-fold-overlay-only';
 
     public function claimsBeforeAuthorOwnedLayout(DOMElement $element): bool
     {
@@ -851,6 +861,20 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // A captured mobile menu that repeats this row belongs to the row's
+        // own navigation. It stays only if the row can take it over whole.
+        $fold = $navigationContext?->capturedMenuFold($row);
+        $result = $this->menuRowSlots($row, $converter, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $fold);
+        if ( null === $result && $fold instanceof CapturedMenuDialogFold ) {
+            $navigationContext?->releaseCapturedMenuFold($fold);
+            return $this->menuRowSlots($row, $converter, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, null);
+        }
+
+        return $result;
+    }
+
+    private function menuRowSlots(DOMElement $row, PatternTreeConverter $converter, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext, ?CapturedMenuDialogFold $fold): ?PatternRecognitionResult
+    {
         $buttonSignals = new ButtonSignalClassifier();
         $slots = array();
         foreach ( $row->childNodes as $child ) {
@@ -872,21 +896,37 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
+        // One run of items can take the overlay; a row split into several runs
+        // keeps its dialog the way it was captured.
+        $itemRuns = count(array_filter($slots, static fn (array $slot): bool => 'items' === $slot['kind']));
+        if ( $fold instanceof CapturedMenuDialogFold && 1 !== $itemRuns ) {
+            return null;
+        }
+
         $fallbacks = array();
         $children = array();
         $collected = array();
         $linkSets = array();
+        $foldMarker = '';
         foreach ( $slots as $slot ) {
             if ( 'control' === $slot['kind'] ) {
                 $block = $converter->element($slot['elements'][0], $fallbacks, true);
                 if ( ! is_array($block) || in_array((string) ( $block['blockName'] ?? '' ), array( '', 'core/html' ), true) ) {
                     return null;
                 }
+                // The dialog lists this control too, and carries its own copy
+                // into the overlay, so the row's copy is hidden below the
+                // breakpoint where the hamburger takes over.
+                if ( $fold instanceof CapturedMenuDialogFold && $fold->listsControl($slot['elements'][0]) ) {
+                    $block = $this->withBlockClassName($block, self::MENU_FOLD_HIDE_CLASS, $createBlock, $slot['elements'][0]);
+                }
                 $children[] = $block;
                 continue;
             }
 
             $links = array();
+            $itemLinks = array();
+            $overlayExtras = array();
             foreach ( $slot['elements'] as $item ) {
                 $link = 'a' === strtolower($item->tagName)
                     ? $this->navigationLinkBlock($item, $presentationAttributes, $innerHtml, $createBlock, $item, $navigationContext)
@@ -895,15 +935,27 @@ final class NavigationPattern implements PatternRecognizerInterface
                     return null;
                 }
                 $links[] = $link;
+                if ( 'a' === strtolower($item->tagName) ) {
+                    $itemLinks[CapturedMenuDialogFold::signature('link', CapturedMenuDialogFold::label($item), trim($item->getAttribute('href')))] = true;
+                }
             }
             $attrs = array( 'overlayMenu' => 'never' );
             $gap = trim((string) ( $this->resolvedNavigationSpacing($navigationContext?->resolvedStyle($row) ?? '')['blockGap'] ?? '' ));
             if ( '' !== $gap ) {
                 $attrs['style']['spacing']['blockGap'] = $gap;
             }
+            if ( $fold instanceof CapturedMenuDialogFold ) {
+                $overlay = $this->foldedOverlayAttributes($row, $fold, $attrs, $itemLinks, $converter, $createBlock, $navigationContext, $fallbacks);
+                if ( null === $overlay ) {
+                    return null;
+                }
+                [ $attrs, $overlayExtras, $foldMarker ] = $overlay;
+            }
+            // Shared link text settings are read from the menu's own items; the
+            // overlay-only extras are not items and must not dilute them.
             $attrs = array_replace_recursive($attrs, $this->commonNavigationLinkTextAttributes($links));
             $linkSets[] = $links;
-            $children[] = $createBlock('core/navigation', $attrs, $links, $slot['elements'][0]);
+            $children[] = $createBlock('core/navigation', $attrs, array_merge($links, $overlayExtras), $slot['elements'][0]);
         }
         if ( array() === $linkSets ) {
             return null;
@@ -911,10 +963,109 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $this->recordNavigationSources(array(), array(), $collected, $row, $navigationContext);
 
+        $groupAttrs = array_merge($presentationAttributes($row), array( 'tagName' => 'div' ));
+        if ( '' !== $foldMarker ) {
+            $groupAttrs = $this->withClassName($groupAttrs, $foldMarker);
+        }
+
         return new PatternRecognitionResult(
-            $createBlock('core/group', array_merge($presentationAttributes($row), array( 'tagName' => 'div' )), $children, $row),
+            $createBlock('core/group', $groupAttrs, $children, $row),
             $fallbacks
         );
+    }
+
+    /**
+     * Turn the row's single navigation into the responsive one that replaces
+     * the hamburger and the dialog.
+     *
+     * The navigation takes core's overlay and the hamburger's look. Dialog
+     * entries the row shows outside its items (a call-to-action link, say) go
+     * into the overlay as well, hidden once the row is back to its wide layout.
+     * Below the breakpoint the row is shown again, with the controls the dialog
+     * lists hidden, so the page keeps one hamburger and one copy of each
+     * control. Returns null when an overlay entry cannot be converted.
+     *
+     * @param array<string, mixed> $attrs
+     * @param array<string, true> $itemLinks
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array{0: array<string, mixed>, 1: array<int, array<string, mixed>>, 2: string}|null The attributes, the overlay-only blocks, and the row marker.
+     */
+    private function foldedOverlayAttributes(DOMElement $row, CapturedMenuDialogFold $fold, array $attrs, array $itemLinks, PatternTreeConverter $converter, callable $createBlock, ?NavigationPatternContext $navigationContext, array &$fallbacks): ?array
+    {
+        if ( null === $navigationContext ) {
+            return null;
+        }
+
+        $extras = array();
+        foreach ( $fold->dialog->getElementsByTagName('a') as $anchor ) {
+            if ( ! $anchor instanceof DOMElement
+                || isset($itemLinks[CapturedMenuDialogFold::signature('link', CapturedMenuDialogFold::label($anchor), trim($anchor->getAttribute('href')))])
+            ) {
+                continue;
+            }
+            $block = $converter->element($anchor, $fallbacks, true);
+            if ( ! is_array($block) || in_array((string) ( $block['blockName'] ?? '' ), array( '', 'core/html' ), true) ) {
+                return null;
+            }
+            $extras[] = $this->withBlockClassName($block, self::MENU_FOLD_OVERLAY_ONLY_CLASS, $createBlock, $anchor);
+        }
+
+        $attrs['overlayMenu'] = 'mobile';
+        // The source's dropdown buttons and its mobile accordions both open on
+        // click; Core keeps overlay submenus collapsed until then only in click mode.
+        $attrs['openSubmenusOnClick'] = true;
+        $attrs = $this->withClassName($attrs, 'blocks-engine-native-responsive-navigation ' . self::MENU_FOLD_NAVIGATION_CLASS);
+        $attrs = $this->withResponsiveToggleMarker($attrs, $row, $navigationContext);
+        // The open overlay is the dialog's panel, so its paint comes from the dialog.
+        $attrs = $this->withResponsiveOverlayMarker($attrs, $fold->dialog, $navigationContext);
+
+        $boundary = $navigationContext->menuCollapseBreakpoint($row, $fold->triggers[0]);
+        $below = null === $boundary || $boundary <= 600 ? 599 : (int) floor($boundary);
+        $display = 'flex';
+        if ( 1 === preg_match('/(?:^|;)\s*display\s*:\s*(flex|inline-flex|grid|block)\b/i', $navigationContext->resolvedStyle($row), $match) ) {
+            $display = strtolower($match[1]);
+        }
+        $hostRule = '.wp-block-group.%s{display:' . $display . '!important}'
+            . '.wp-block-group.%s>.' . self::MENU_FOLD_HIDE_CLASS . '{display:none!important}';
+        $groupGap = $fold->group instanceof DOMElement
+            ? trim((string) ( $this->resolvedNavigationSpacing($navigationContext->resolvedStyle($fold->group))['blockGap'] ?? '' ))
+            : '';
+        if ( '' !== $groupGap ) {
+            $hostRule .= '.wp-block-group.%s{gap:' . $groupGap . '!important}';
+        }
+        if ( $fold->hamburgerLast ) {
+            $hostRule .= '.wp-block-group.%s>.wp-block-navigation{order:99}';
+        }
+        $marker = 'blocks-engine-menu-fold-' . substr(hash('sha256', $below . $display . $groupGap . ( $fold->hamburgerLast ? 'last' : '' )), 0, 12);
+        $host = '.wp-block-navigation.' . self::MENU_FOLD_NAVIGATION_CLASS;
+        $rule = '@media(max-width:' . $below . 'px){' . str_replace('%s', $marker, $hostRule) . '}'
+            . '@media(min-width:' . ( $below + 1 ) . 'px){.wp-block-group.' . $marker . ' .' . self::MENU_FOLD_OVERLAY_ONLY_CLASS . '{display:none!important}}'
+            // The engine's list-navigation repairs lay items out as list items.
+            // These items are the row's own dropdown entries, which Core already
+            // lays out as flex items, so keep that.
+            . $host . ' .wp-block-navigation-item{display:flex}'
+            . $host . ' .wp-block-navigation-item__content{display:block}'
+            // A header that blurs what is behind it becomes the containing block
+            // for fixed descendants. While the overlay is open the header gives
+            // that up so the overlay covers the screen the way Core draws it.
+            . ':is(nav,header,div,section):has(' . $host . ' .wp-block-navigation__responsive-container.is-menu-open){backdrop-filter:none!important;-webkit-backdrop-filter:none!important;filter:none!important}';
+        $navigationContext->registerMenuFoldRule($marker, $rule);
+
+        return array( $attrs, $extras, $marker );
+    }
+
+    /**
+     * Add a class to a block that is already built. The block is created again
+     * from its own attributes, so the saved markup carries the class too.
+     *
+     * @param array<string, mixed> $block
+     * @return array<string, mixed>
+     */
+    private function withBlockClassName(array $block, string $className, callable $createBlock, DOMElement $source): array
+    {
+        $attrs = $this->withClassName(is_array($block['attrs'] ?? null) ? $block['attrs'] : array(), $className);
+
+        return $createBlock((string) $block['blockName'], $attrs, is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $source);
     }
 
     /**

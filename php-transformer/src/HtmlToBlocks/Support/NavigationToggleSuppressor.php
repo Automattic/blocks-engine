@@ -63,6 +63,13 @@ final class NavigationToggleSuppressor
      */
     public function collectProjectedNavigationRelationships(DOMElement $root): void
     {
+        // A captured menu dialog that repeats a dropdown row belongs to that
+        // row's navigation. Record it first so the hamburger and the panel are
+        // never offered to the projections below.
+        foreach ( CapturedMenuDialogFold::detect($root) as $fold ) {
+            $this->context->navigationProjection()->foldMenuDialog($fold);
+        }
+
         $elementsById = array();
         foreach ( $root->getElementsByTagName('*') as $element ) {
             if ( $element instanceof DOMElement && '' !== trim(SourceDom::attr($element, 'id')) ) {
@@ -1252,8 +1259,23 @@ final class NavigationToggleSuppressor
         return $this->navigationToggleControl($navigation) instanceof DOMElement ? 'mobile' : 'never';
     }
 
+    /** The captured menu dialog a dropdown row has absorbed, if any. */
+    public function capturedMenuFoldForRow(DOMElement $row): ?CapturedMenuDialogFold
+    {
+        return $this->context->navigationProjection()->foldForRow($row);
+    }
+
+    public function releaseCapturedMenuFold(CapturedMenuDialogFold $fold): void
+    {
+        $this->context->navigationProjection()->releaseFold($fold);
+    }
+
     public function navigationToggleControl(DOMElement $navigation): ?DOMElement
     {
+        $fold = $this->context->navigationProjection()->foldForRow($navigation);
+        if ( $fold instanceof CapturedMenuDialogFold ) {
+            return $fold->triggers[0];
+        }
 
         $document = $navigation->ownerDocument;
         if ( ! $document instanceof DOMDocument ) {
@@ -1526,6 +1548,12 @@ final class NavigationToggleSuppressor
      */
     public function projectedOverlayMenu(DOMElement $control): string
     {
+        // The hamburger of an absorbed menu dialog is hidden at the wide
+        // reference viewport, so the navigation that takes it over shows its
+        // own button only on narrow screens.
+        if ( $this->context->navigationProjection()->foldForTrigger($control) instanceof CapturedMenuDialogFold ) {
+            return 'mobile';
+        }
         if ( $control->hasAttribute('data-dla-dialog-trigger') ) {
             return 'always';
         }
