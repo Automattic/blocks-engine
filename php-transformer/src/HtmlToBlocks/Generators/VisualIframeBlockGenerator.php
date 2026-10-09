@@ -254,6 +254,9 @@ JS;
                     $sizingClassName,
                     SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS
                 );
+                if (str_contains($sizingClassName, 'wp-has-aspect-ratio')) {
+                    $embedAttrs['responsive'] = true;
+                }
             }
             $block = $createBlock->createBlock('core/embed', array_filter($embedAttrs, static fn ($value): bool => '' !== $value), array(), $surface);
             return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block, $styleResolver, $createBlock) : $block;

@@ -46,6 +46,7 @@ $authoredHeightClassName = (string) ($authoredHeightBlock['attrs']['className'] 
 $authoredHeightMarkup = (string) ($authoredHeight['serialized_blocks'] ?? '');
 $assert('core/embed' === ($authoredHeightBlock['blockName'] ?? ''), 'authored-height Spotify iframe converts to core/embed');
 $assert('spotify' === ($authoredHeightBlock['attrs']['providerNameSlug'] ?? ''), 'authored-height Spotify iframe records its provider slug');
+$assert(true === ($authoredHeightBlock['attrs']['responsive'] ?? null), 'the embed block declares responsive sizing so Gutenberg save() owns the aspect-ratio class');
 $assert(
     str_contains($authoredHeightClassName, 'wp-has-aspect-ratio')
     && ! str_contains($authoredHeightClassName, 'wp-embed-aspect-'),
@@ -81,7 +82,8 @@ $youtubeAbsolute = ( new HtmlTransformer() )->transform(
 $youtubeAbsoluteBlock = $youtubeAbsolute['blocks'][0] ?? array();
 $youtubeAbsoluteClassName = (string) ($youtubeAbsoluteBlock['attrs']['className'] ?? '');
 $assert(
-    str_contains($youtubeAbsoluteClassName, 'wp-has-aspect-ratio') && ! str_contains($youtubeAbsoluteClassName, 'wp-embed-aspect-'),
+    str_contains($youtubeAbsoluteClassName, 'wp-has-aspect-ratio') && ! str_contains($youtubeAbsoluteClassName, 'wp-embed-aspect-')
+        && true === ($youtubeAbsoluteBlock['attrs']['responsive'] ?? null),
     'a 560x315 authored YouTube iframe also carries its absolute height, not the wp-embed-aspect-16-9 preset it happens to be exact for'
 );
 $assert(

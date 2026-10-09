@@ -765,7 +765,9 @@ JS;
                 }
                 $sourceMarkup = '';
                 foreach ($sourceClone->childNodes as $child) $sourceMarkup .= $sourceClone->ownerDocument?->saveHTML($child) ?: '';
-                $sourceMarkup = SourceDom::safeFallbackHtmlString($sourceMarkup) . '<!-- blocks-engine-src-swap-sequence -->';
+                $sourceMarkup = SourceDom::safeFallbackHtmlString($sourceMarkup);
+                $sourceMarkup = preg_replace('/<!--.*?-->/s', '', $sourceMarkup) ?? $sourceMarkup;
+                $sourceMarkup .= '<!-- blocks-engine-src-swap-sequence -->';
                 $sourceIdentityAttributes = array();
                 foreach ($element->attributes as $attribute) {
                     $name = strtolower($attribute->name);
