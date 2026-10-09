@@ -240,12 +240,16 @@ final class AuthorStylesheetProjector
                     $editorSelectors[] = ':root .editor-styles-wrapper ' . $selector;
                 }
                 if ( 'fixed' === strtolower($position) ) {
-                    // Core's editor canvas is position:relative. Re-forcing
-                    // source `position:fixed` with !important pins site chrome
-                    // (sticky headers, FABs) over the document being edited.
+                    // Re-forcing source `position:fixed` would pin site chrome
+                    // (headers, FABs) over the document being edited. The
+                    // author rule itself still reaches the editor, so a fixed
+                    // header would keep covering the first blocks and could not
+                    // be clicked. Put it back in the flow inside the editor only.
                     // Absolute layers still need the override so hero overlays
                     // keep stacking; leave relative/sticky unforced.
-                    return '';
+                    return array() === $editorSelectors
+                        ? ''
+                        : implode(',', $editorSelectors) . '{position:relative;inset:auto}';
                 }
 
                 return array() === $editorSelectors

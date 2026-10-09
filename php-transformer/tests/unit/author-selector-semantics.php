@@ -373,6 +373,20 @@ $assert(
         && str_contains($stickyHeaderCss, ':root .editor-styles-wrapper .hero-image,:root .editor-styles-wrapper .hero-overlay{position:absolute!important}'),
     'editor canvas does not re-force position:fixed site chrome over the document while absolute hero layers still beat Core positioning'
 );
+$assert(
+    str_contains($stickyHeaderCss, ':root .editor-styles-wrapper .site-header{position:relative;inset:auto}')
+        && ! str_contains($stickyHeaderCss, '.hero-image{position:relative'),
+    'editor canvas returns position:fixed site chrome to the flow so it cannot cover the first blocks, and leaves absolute layers alone'
+);
+$fixedUtility = $transform('<style>.fixed{position:fixed}.top-0{top:0}.z-50{z-index:50}.bar{position:fixed;bottom:1rem;right:1rem}@media (min-width:768px){.md-fixed{position:fixed}}</style><nav class="fixed top-0 z-50">Menu</nav><div class="bar">Chat</div><div class="md-fixed">Wide</div><h1>Title</h1>');
+$fixedUtilityCss = $css($fixedUtility);
+$assert(
+    str_contains($fixedUtilityCss, ':root .editor-styles-wrapper .fixed{position:relative;inset:auto}')
+        && str_contains($fixedUtilityCss, ':root .editor-styles-wrapper .bar{position:relative;inset:auto}')
+        && str_contains($fixedUtilityCss, ':root .editor-styles-wrapper .md-fixed{position:relative;inset:auto}')
+        && str_contains($fixedUtilityCss, '.fixed{position:fixed}'),
+    'every fixed rule gets an editor-only flow override while the frontend rule is unchanged'
+);
 
 $wrapper = $transform('<style>.wrap a.cta:hover{padding:1rem}.wrap a.cta:focus{color:red}</style><div class="wrap" role="button"><a class="cta" href="/go">Go</a></div>');
 $wrapperCss = $css($wrapper);
