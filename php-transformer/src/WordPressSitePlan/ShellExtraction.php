@@ -1193,15 +1193,13 @@ final class ShellExtraction
             $ranges = array(array('offset' => 0, 'length' => strlen($frame['opening'])), array('offset' => strlen($page['canonical_block_markup']) - strlen($frame['closing']), 'length' => strlen($frame['closing'])));
             $found = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, $ranges);
             if ($found['blocked'] || array() !== $found['refs']) continue;
-            $split[$index] = $frame;
+            $split[$index] = self::withSharedDialogId($frame, $parts);
         }
         // The generic page template carries the frame most inner pages share in
         // structure (compared without per-document marker seeds and dialog ids),
-        // so a page made later in WordPress gets the site chrome. A page uses it
-        // only when its frame is byte-identical to that one: the seeded markers
-        // in a frame are what the page's own stylesheet targets, so a frame with
-        // other seeds stays in its own route template. A page with another
-        // structure, or none, gets a route template as well.
+        // so a page made later in WordPress gets the site chrome. Its marker
+        // rules are site-wide chrome rules, so any page of that shape can use it.
+        // A page with another structure, or none, gets a route template.
         $inner = array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null) && empty($page['entrypoint']) && empty($page['synthetic']));
         $groups = array();
         foreach (array_intersect_key($split, $inner) as $index => $frame) $groups[self::frameIdentity($frame)][] = $index;
@@ -1210,7 +1208,7 @@ final class ShellExtraction
         $generic = null !== $generic ? $split[$generic[0]] : null;
         foreach ($split as $index => $frame) {
             $page = $pages[$index];
-            $shared = null !== $generic && isset($inner[$index]) && $frame['opening'] === $generic['opening'] && $frame['closing'] === $generic['closing'];
+            $shared = null !== $generic && isset($inner[$index]) && self::frameIdentity($frame) === self::frameIdentity($generic);
             $slug = !empty($page['entrypoint']) ? 'front-page' : ($shared ? 'page' : 'page-' . $page['slug']);
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
             $frames[$slug] = array('opening' => $frame['opening'], 'closing' => $frame['closing'], 'shells' => array_values(array_unique($slugs[1])));
@@ -1225,6 +1223,26 @@ final class ShellExtraction
         // generic frame, so it renders through a plain route template.
         if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames['page-' . $page['slug']] = array('opening' => '', 'closing' => '', 'shells' => array());
         return array('pages' => $pages, 'frames' => $frames);
+    }
+
+    /**
+     * The captured dialog and its trigger are linked by id. The shared header
+     * part holds one trigger, so a frame's dialog takes that trigger's id.
+     *
+     * @param array{opening:string,closing:string,content:string} $frame
+     * @param array<int,array<string,mixed>> $parts
+     * @return array{opening:string,closing:string,content:string}
+     */
+    private static function withSharedDialogId(array $frame, array $parts): array
+    {
+        $triggers = array();
+        foreach ($parts as $part) if ('inline_shared_shell' === ($part['placement']['kind'] ?? null) && preg_match_all('/blocks-engine-dialog-trigger-([0-9a-f]{16})-/', (string) ($part['canonical_block_markup'] ?? ''), $found)) $triggers = array_merge($triggers, $found[1]);
+        $triggers = array_unique($triggers);
+        $framed = $frame['opening'] . $frame['closing'];
+        if (1 !== count($triggers) || !preg_match_all('/blocks-engine-dialog-(?!trigger-)([0-9a-f]{16})\b/', $framed, $dialogs) || 1 !== count(array_unique($dialogs[1]))) return $frame;
+        $frame['opening'] = str_replace($dialogs[1][0], reset($triggers), $frame['opening']);
+        $frame['closing'] = str_replace($dialogs[1][0], reset($triggers), $frame['closing']);
+        return $frame;
     }
 
     /** @param array{opening:string,closing:string} $frame */

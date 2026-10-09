@@ -12,8 +12,8 @@ $assert = static function (bool $condition, string $message): void { if (! $cond
 // Most inner pages share one frame, one differs, one has no shared chrome. The
 // generic page template carries the shared frame, so a page created later in
 // WordPress renders the site chrome. The odd pages get their own templates.
-$style = '<style>.app{min-height:100vh;display:flex;flex-direction:column}.app>main{flex:1}.top{position:fixed;top:0}.cta{position:fixed;bottom:0}</style>';
-$chrome = static fn (string $title): string => '<div id="root"><div class="app"><div class="top"><header class="masthead"><nav><a href="index.html">Home</a><a href="a.html">A</a><a href="b.html">B</a></nav></header></div><main><h1>' . $title . '</h1></main><footer class="colophon"><p>Shared footer</p></footer></div><div class="cta"><a href="tel:5551234">Call</a></div></div>';
+$style = '<style>.app{min-height:100vh;display:flex;flex-direction:column}.app>main{flex:1}.top{position:fixed;top:0}.cta{position:fixed;bottom:0}.btn{display:inline-block;background:#222;color:#fff;padding:8px 16px;border-radius:99px}</style>';
+$chrome = static fn (string $title): string => '<div id="root"><div class="app"><div class="top"><header class="masthead"><nav><a href="index.html">Home</a><a href="a.html">A</a><a href="b.html">B</a></nav></header></div><main><h1>' . $title . '</h1></main><footer class="colophon"><p>Shared footer</p></footer></div><div class="cta"><a class="btn" href="tel:5551234">Call</a></div></div>';
 $page = static fn (string $body): string => '<!doctype html><html><head>' . $style . '</head><body>' . $body . '</body></html>';
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => $page($chrome('Home')),
@@ -30,6 +30,12 @@ $assert(1 === substr_count($templates['page'] ?? '', '"slug":"header"') && 1 ===
 foreach (array('a', 'b', 'c') as $slug) $assert(!isset($templates['page-' . $slug]), "Page {$slug} uses the generic page template.");
 $assert(isset($templates['page-odd']) && str_contains($templates['page-odd'], 'outer') && !str_contains($templates['page'], 'outer'), 'A page with a different frame gets its own template.');
 $assert(isset($templates['page-bare']) && !str_contains($templates['page-bare'], 'wp:template-part') && !str_contains($templates['page-bare'], 'Call'), 'A page without the shared chrome gets a plain template of its own.');
+// The button in the frame carries a marker seeded per document, so each page
+// compiled its own. The generic template keeps one set, and the rules aimed at
+// those markers are site-wide, so any page rendered in it is styled.
+preg_match('/blocks-engine-control-[0-9a-f]{12}-\d+/', $templates['page'], $marker);
+$globalRule = array_filter($plan['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null) && array(array('kind' => 'global')) === ($asset['scopes'] ?? array()) && isset($marker[0]) && str_contains((string) ($asset['content'] ?? ''), $marker[0]) && str_contains((string) $asset['content'], 'border-radius:99px'));
+$assert(isset($marker[0]) && array() !== $globalRule, 'The rules for the frame button are in a site-wide stylesheet.');
 foreach ($plan['pages'] as $row) if (in_array($row['slug'], array('a', 'b', 'c', 'odd'), true)) $assert(!str_contains($row['canonical_block_markup'], 'wp:template-part'), $row['slug'] . ' content holds no template part.');
 
 // When every inner page has its own frame, the generic template still carries
@@ -43,6 +49,11 @@ $distinctTemplates = array_column($distinct['templates'], 'canonical_block_marku
 $assert(1 === substr_count($distinctTemplates['page'] ?? '', '"slug":"header"') && isset($distinctTemplates['page-b']), 'The generic page template keeps the chrome even when inner pages differ.');
 
 // Frames compare without per-document marker seeds and dialog ids.
+$dialog = new ReflectionMethod(ShellExtraction::class, 'withSharedDialogId');
+$part = array(array('placement' => array('kind' => 'inline_shared_shell'), 'canonical_block_markup' => '<!-- wp:button {"anchor":"blocks-engine-dialog-trigger-0123456789abcdef-1"} -->'));
+$moved = $dialog->invoke(null, array('opening' => '<dialog id="blocks-engine-dialog-fedcba9876543210">', 'closing' => 'blocks-engine-dialog-trigger-fedcba9876543210-1', 'content' => 'x'), $part);
+$assert(str_contains($moved['opening'], 'blocks-engine-dialog-0123456789abcdef') && str_contains($moved['closing'], 'trigger-0123456789abcdef-1'), 'The frame dialog takes the id of the trigger in the shared header part.');
+
 $identity = new ReflectionMethod(ShellExtraction::class, 'frameIdentity');
 $frame = static fn (string $seed, string $dialog): array => array('opening' => '<!-- wp:group {"className":"min-h-screen blocks-engine-source-div-' . $seed . '-4"} --><div id="blocks-engine-dialog-' . $dialog . '">', 'closing' => '</div><!-- /wp:group -->');
 $assert($identity->invoke(null, $frame('aaaaaaaaaaaa', '0123456789abcdef')) === $identity->invoke(null, $frame('bbbbbbbbbbbb', 'fedcba9876543210')), 'Per-page marker seeds and dialog ids do not make frames differ.');

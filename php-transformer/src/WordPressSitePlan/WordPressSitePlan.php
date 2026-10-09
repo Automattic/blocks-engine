@@ -380,9 +380,13 @@ PHP;
         $shells['pages'] = $footerContent['pages'];
         $shells['parts'] = $footerContent['parts'];
         $shells['diagnostics'] = array_merge($shells['diagnostics'], $footerContent['diagnostics']);
-        $pages = $shells['pages'];
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
-        $assets = self::projectSharedChromeStylesheets($assets, $parts, $pages, $references);
+        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($shells['pages'], $parts, $shells['runtime_declarations']);
+        $pages = $shellFrames['pages'];
+        // The generic page template is shared by routes that did not author it,
+        // so the rules aimed at its markers are site-wide chrome rules.
+        $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
+        $assets = self::projectSharedChromeStylesheets($assets, array_merge($parts, $frameParts), $pages, $references);
         $assets = self::projectDetachedChromePaintOrder($assets, $parts, $pages);
         $assets = self::orderPageStylesheetProjections($assets);
         $assets = self::placeSharedStylesheetProjections($assets, $pages);
@@ -399,8 +403,6 @@ PHP;
          $pages = $articleChrome['pages'];
           $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations, $taxonomyProjection['entities']);
           $assets = ListingQueryPresentation::project($assets, $this->listingQueryContainers);
-         $shellFrames = $this->shellExtraction->hoistInlineShellFrames($pages, $parts, $runtimeDeclarations);
-         $pages = $shellFrames['pages'];
          // Query Loop projection can shorten page markup after shell extraction.
          // Rebase retained runtime anchors on the final page before validation.
          $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $parts);
