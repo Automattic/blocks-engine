@@ -108,7 +108,14 @@ final class CapturedChoiceGroupProjector
             $selectedIndex = is_int($evidence['transition']['selectedIndex'] ?? null) ? $evidence['transition']['selectedIndex'] : -1;
             $selected = $evidence['transition']['selected'] ?? null;
             if ('activation-determined' !== $replay || 'verified' !== $restoration || 'complete' !== $coverage) {
-                $diagnostics[] = $this->diagnostic('captured_choice_group_ineligible', 'warning', 'A captured choice group was omitted because its producer replay, restoration, or coverage evidence is not eligible for offline replay.', array('source_url' => $sourceUrl, 'selector' => $selector));
+                $diagnostics[] = array_merge(
+                    $this->diagnostic('captured_choice_group_ineligible', 'warning', 'A captured choice group was omitted because its producer replay, restoration, or coverage evidence is not eligible for offline replay.', array('source_url' => $sourceUrl, 'selector' => $selector)),
+                    array(
+                        'conversion_classification' => 'behavior_loss',
+                        'loss_class' => 'interactive_behavior_loss',
+                        'diagnostic_class' => 'interactive_behavior_loss',
+                    )
+                );
                 continue;
             }
             if ('' === $selector || '' === $html || ! empty($evidence['transition']['htmlTruncated']) || strlen($html) !== $declaredBytes || strlen($html) > self::MAX_STATE_BYTES || ! is_array($selected)) {
