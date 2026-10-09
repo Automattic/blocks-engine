@@ -569,9 +569,30 @@ final class AuthorSelectorProjectionState
         ), static fn (string $marker): bool => '' !== $marker));
     }
 
-    public function ensureTableMarker(string $path): string
+    /**
+     * The table's engine marker. A table converted from the engine's own saved
+     * markup already carries one on its figure, and keeping it is what makes
+     * that conversion a fixed point: allocating again would re-seed from a page
+     * that gained the figure, and the collision check would see the table's own
+     * previous marker as taken and step the counter on every pass.
+     */
+    public function ensureTableMarker(string $path, ?\DOMElement $table = null): string
     {
-        return $this->tableMarkers[$path] ??= $this->allocateMarker('table');
+        return $this->tableMarkers[$path] ??= self::existingTableMarker($table) ?? $this->allocateMarker('table');
+    }
+
+    private static function existingTableMarker(?\DOMElement $table): ?string
+    {
+        $figure = $table?->parentNode;
+        foreach (array($table, $figure) as $carrier) {
+            if ( ! $carrier instanceof \DOMElement ) {
+                continue;
+            }
+            if ( 1 === preg_match('/(?:^|\s)(blocks-engine-table-[a-f0-9]{12}-\d+)(?:\s|$)/', $carrier->getAttribute('class'), $match) ) {
+                return $match[1];
+            }
+        }
+        return null;
     }
 
     public function tableMarker(string $path): string
