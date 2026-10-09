@@ -58,8 +58,15 @@ final class CapturedSelectableSetConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
+        // The surviving source trigger row shares the projected tab list's row
+        // identity and is replaced by it. A source row can itself be role=tablist
+        // (ARIA tab widgets), so only the tab list projected inside the region
+        // is kept; the source row is dropped either way.
+        $parent = $element->parentNode;
+        $projected = $parent instanceof DOMElement
+            && 'true' === SourceDom::attr($parent, 'data-blocks-engine-captured-selectable-set');
         if ('' !== SourceDom::attr($element, self::TABLIST_ROW_ATTRIBUTE)
-            && 'tablist' !== strtolower(trim(SourceDom::attr($element, 'role')))
+            && ! $projected
             && 'true' !== SourceDom::attr($element, 'data-blocks-engine-captured-selectable-set')
         ) {
             return ConversionOutcome::handled(null);
