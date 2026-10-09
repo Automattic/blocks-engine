@@ -84,8 +84,8 @@ final class CapturedDialogProjector
             $projection = $this->projectPage((string) $files[$index]['content'], $dialogStates, $path);
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
             if (0 < $projection['projected_count'] || array() !== $projection['retired_scripts']) {
-                $files[$index]['content'] = $projection['html'];
-                $files[$index]['bytes'] = strlen($projection['html']);
+                $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $projection['html']);
+                $projection['script_bindings']?->rebind($files, $path);
                 $projected += $projection['projected_count'];
                 foreach ($projection['retired_scripts'] as $body) {
                     $retired[$path][] = $body;
@@ -138,7 +138,7 @@ final class CapturedDialogProjector
 
     /**
      * @param array<int, mixed> $states
-     * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int, retired_scripts:array<int, array{body:string, attribute:string, reason:string}>}
+     * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int, retired_scripts:array<int, array{body:string, attribute:string, reason:string}>, script_bindings:?ScriptOccurrenceBindings}
      */
     private function projectPage(string $html, array $states, string $sourcePath): array
     {
@@ -148,9 +148,10 @@ final class CapturedDialogProjector
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
         if (! $loaded) {
-            return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_interaction_source_invalid', 'warning', 'Captured dialogs were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0, 'retired_scripts' => array());
+            return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_interaction_source_invalid', 'warning', 'Captured dialogs were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0, 'retired_scripts' => array(), 'script_bindings' => null);
         }
 
+        $scriptBindings = new ScriptOccurrenceBindings($document);
         $diagnostics = array();
         $galleryCount = $this->prepareGalleries($document, $states, $sourcePath, $diagnostics);
         $adoption = $this->adoptWiredPanels($document, $sourcePath);
@@ -259,7 +260,7 @@ final class CapturedDialogProjector
 
         $output = $document->saveHTML();
         $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
-        return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired);
+        return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired, 'script_bindings' => is_string($output) ? $scriptBindings : null);
     }
 
     /** Consume viewport-scoped, observed image selection before the ordinary dialog adoption. */
@@ -606,6 +607,7 @@ final class CapturedDialogProjector
             libxml_clear_errors();
             libxml_use_internal_errors($previous);
             if (!$loaded || !$this->hasNavigationOwnedDialogTrigger($document) || !$this->everyDialogTriggerIsBound($document)) continue;
+            $scriptBindings = new ScriptOccurrenceBindings($document);
             $this->consumeNavigationOwnedCloseHelpers($document);
             if ($this->hasDialogCloseHelper($document)) continue;
             $pageRetired = $this->removeDisclosureRuntime($document, 'native_navigation_submenu_replaces_capture_disclosure');
@@ -613,8 +615,8 @@ final class CapturedDialogProjector
             $html = $document->saveHTML();
             $html = is_string($html) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $html) : null;
             if (!is_string($html)) continue;
-            $files[$index]['content'] = $html;
-            $files[$index]['bytes'] = strlen($html);
+            $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $html);
+            $scriptBindings->rebind($files, $path);
             $retired[$path] = $pageRetired;
         }
 

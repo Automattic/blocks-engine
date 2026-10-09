@@ -48,6 +48,23 @@ final class ArtifactNormalizer
     private const SAMPLE_TYPES = array('html', 'css', 'js', 'jsx', 'tsx', 'json', 'markdown', 'mdx', 'blocks', 'asset');
 
     /**
+     * Publish projected text as the sole payload before another normalization.
+     * Source provenance remains source-owned; old transport bytes no longer
+     * describe this file and must not overwrite the projection on rehydration.
+     * @param array<string,mixed> $file
+     * @return array<string,mixed>
+     */
+    public static function withTextPayload(array $file, string $content): array
+    {
+        unset($file['content_base64'], $file['payload_reference']);
+        $file['content'] = $content;
+        $file['bytes'] = strlen($content);
+        $file['encoding'] = 'text';
+        $file['binary'] = false;
+        return $file;
+    }
+
+    /**
      * @param array<string, mixed> $artifact
      * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, source_hash: string, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>, truncation_impact: array<string,mixed>|null}
      */
