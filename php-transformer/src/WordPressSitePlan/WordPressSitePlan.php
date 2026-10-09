@@ -39,6 +39,8 @@ final class WordPressSitePlan
     public const ROUTE_URL_BLOCKS = array('navigation-link', 'navigation-submenu', 'button', 'social-link');
     public const MAX_DOCUMENT_IDENTITY_DIAGNOSTICS = 50;
     /** Generated, document-namespaced class names the projected author CSS selects on. */
+    /** Marks the post-content block of a template that holds a page's hoisted layout frame. */
+    public const FRAME_CONTENT_CLASS = 'blocks-engine-frame-content';
     private const GENERATED_CLASS_PATTERN = '/blocks-engine-[a-z-]+-[0-9a-f]{12}-\d+/';
     public const EDITOR_CORE_IMAGE_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-image img{pointer-events:auto!important}';
     public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
@@ -397,6 +399,8 @@ PHP;
          $pages = $articleChrome['pages'];
           $pages = $this->materializeListingQueryLoops($pages, $runtimeDeclarations, $taxonomyProjection['entities']);
           $assets = ListingQueryPresentation::project($assets, $this->listingQueryContainers);
+         $shellFrames = $this->shellExtraction->hoistInlineShellFrames($pages, $parts, $runtimeDeclarations);
+         $pages = $shellFrames['pages'];
          // Query Loop projection can shorten page markup after shell extraction.
          // Rebase retained runtime anchors on the final page before validation.
          $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $parts);
@@ -417,7 +421,7 @@ PHP;
          }
          $taxonomyProjection['entities'] = $projectedTaxonomyEntities;
          unset($taxonomyEntity);
-         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single'], $taxonomyProjection['entities']);
+         $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap, $articleChrome['single'], $taxonomyProjection['entities'], $shellFrames['frames']);
          foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if ('category-' . $taxonomyEntity['slug'] === ($template['slug'] ?? null)) {
              $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
              continue 2;
@@ -660,6 +664,7 @@ PHP;
             $boundTemplates = in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true) ? $part['placement']['template_slugs'] : array();
             if (in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true)) foreach (array_keys($overrideTemplateSlugs) as $slug) if (!in_array($slug, $part['placement']['excluded_template_slugs'] ?? array(), true)) $boundTemplates[] = $slug;
             if (in_array('archive', $part['placement']['template_slugs'] ?? array(), true)) foreach ($plan['taxonomy_entities'] as $entity) $boundTemplates[] = 'category-' . $entity['slug'];
+            if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach ($plan['templates'] as $template) if (in_array($part['slug'], $template['shell_frame'] ?? array(), true)) $boundTemplates[] = $template['slug'];
             if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach ($plan['taxonomy_entities'] as $entity) if (in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ('category-' . $entity['slug'] === ($template['slug'] ?? null) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
             foreach ( $plan['templates'] as $template ) {
                 $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
@@ -2505,7 +2510,7 @@ PHP;
     private function routesForPages(array $pages): array { $routes = array(); foreach ($pages as $page) $routes[] = array('kind' => 'route', 'source_path' => $page['source_path'], 'target_path' => $page['route']['path'], 'target_slug' => $page['slug'], 'title' => $page['title'], 'parent_source_path' => $page['parent_source_path'], 'source_relation' => !empty($page['synthetic']) ? 'synthetic_parent' : (!empty($page['entrypoint']) ? 'entrypoint' : 'document'), 'order' => count($routes)); return $routes; }
 
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,string>> */
-     private function templates(array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array(), ?string $singleContent = null, array $taxonomyEntities = array()): array
+     private function templates(array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array(), ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array()): array
      {
          $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
          usort($bound, static function (array $left, array $right): int {
@@ -2513,7 +2518,7 @@ PHP;
              return (($priority[$left['area']] ?? 1) <=> ($priority[$right['area']] ?? 1)) ?: strcmp($left['slug'], $right['slug']);
          });
          $hasCapturedPosts = (bool) array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null));
-         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts): string {
+         $markup = static function (string $templateSlug) use ($bound, $singleContent, $hasCapturedPosts, $frames): string {
              $before = ''; $after = '';
              $container = null;
              foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $templateSlug) && !in_array($templateSlug, $part['placement']['excluded_template_slugs'] ?? array(), true))) {
@@ -2531,6 +2536,9 @@ PHP;
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
                  $content = ('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->';
+                 // The page keeps only its own content. The app wrapper and the
+                 // shared header and footer around it live in this template.
+                 if (isset($frames[$templateSlug])) $content = $frames[$templateSlug]['opening'] . '<!-- wp:post-content {"className":"' . self::FRAME_CONTENT_CLASS . '"} /-->' . $frames[$templateSlug]['closing'];
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
@@ -2549,7 +2557,9 @@ PHP;
         $overrides = array();
         foreach ($bound as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
         foreach ($bound as $part) foreach (array_keys($part['placement']['template_wrappers'] ?? array()) as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
+        foreach (array_keys($frames) as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
+        foreach ($templates as &$template) if (isset($frames[$template['slug']])) $template['shell_frame'] = $frames[$template['slug']]['shells']; unset($template);
          $explicitSlugs = array_fill_keys(array_map(static fn(array $surface): string => $surface['template_surface']['slug'], $surfaces), true);
          $templates = array_values(array_filter($templates, static fn(array $template): bool => !isset($explicitSlugs[$template['slug']])));
          foreach ($surfaces as $surface) {
@@ -3801,6 +3811,17 @@ PHP;
             $lines[] = "    if ( ! in_array( (string) ( \$block['attrs']['slug'] ?? '' ), \$slugs, true ) || ! preg_match( '/^<([a-z][a-z0-9-]*)\\b[^>]*>(.*)<\\/\\1>$/s', \$content, \$match ) ) return \$content;";
             $lines[] = "    return \$match[2];";
             $lines[] = "}, 10, 2 );";
+        }
+        // A page's layout frame sits in its template around post-content. Core's
+        // post-content element would be an extra box in that layout, so the
+        // marked block renders only its content.
+        foreach ($templates as $template) {
+            if (!str_contains((string) ($template['canonical_block_markup'] ?? ''), self::FRAME_CONTENT_CLASS)) continue;
+            $lines[] = "add_filter( 'render_block_core/post-content', static function ( string \$content, array \$block ): string {";
+            $lines[] = "    if ( ! str_contains( (string) ( \$block['attrs']['className'] ?? '' ), '" . self::FRAME_CONTENT_CLASS . "' ) || ! preg_match( '/^<([a-z][a-z0-9-]*)\\b[^>]*>(.*)<\\/\\1>\\s*\$/s', \$content, \$match ) ) return \$content;";
+            $lines[] = "    return \$match[2];";
+            $lines[] = "}, 10, 2 );";
+            break;
         }
         $hasNavigationLink = false;
         foreach (array_merge($templates, $parts, $pages) as $document) {

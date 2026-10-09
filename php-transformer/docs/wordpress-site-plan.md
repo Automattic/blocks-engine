@@ -166,9 +166,16 @@ runtime-reference risk, but cannot pass that proof gate.
 ## Shared regions and navigation ownership
 
 Header/footer content ownership and its rendered position are separate decisions.
-An extracted region with layout ancestors uses `inline_shared_shell`: the owning
-page retains its ancestors and receives a template-part reference at each exact
-source occurrence. `placement.source_paths` accounts for the participating routes.
+An extracted region with layout ancestors uses `inline_shared_shell`: the
+template-part reference sits at its exact source position inside those ancestors.
+For a page, the ancestors, the references and the chrome around the main content
+live in the route's template (`front-page`, `page` or `page-{slug}`), with
+`post-content` in the gap, and the page keeps only the blocks between the header
+and the footer (`ShellExtraction::hoistInlineShellFrames`). The theme drops Core's
+post-content wrapper element for that marked block, so the rendered tree matches
+the source. A page that cannot be split safely (two references to one region, a
+`main` landmark in the frame, or a runtime binding in the frame) and every post
+keeps its references in the page content. `placement.source_paths` accounts for the participating routes.
 The shared part carries its authored landmark; the generated runtime unwraps
 Core's template-part transport wrapper. This preserves direct-child CSS, flex/grid
 participation, sibling order, and native disclosure containment without detached
