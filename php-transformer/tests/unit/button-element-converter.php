@@ -6,6 +6,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
@@ -98,6 +99,11 @@ $assert(0 === $genericCalls, 'block-content-button-short-circuits-generic-button
 $mode = 'generic';
 $generic = $converter->convert($button, 'button', $fallbacks);
 $assert($generic->handled && 'core/buttons' === ($generic->block['blockName'] ?? ''), 'ordinary-button-delegated');
+
+$iconButton = ( new HtmlTransformer() )->transform('<main><button type="button" aria-label="Previous photograph"><img src="icon.svg" alt=""></button></main>')->toArray();
+$iconMarkup = (string) ($iconButton['serialized_blocks'] ?? '');
+$assert(str_contains($iconMarkup, 'ariaLabel') && str_contains($iconMarkup, 'Previous photograph'), 'icon-only button accessible name is retained in authored button attributes');
+$assert((bool) preg_match('/<button\b[^>]*aria-label="Previous photograph"[^>]*><img\b/', $iconMarkup), 'icon-only button saves as a named native button with its image');
 
 $genericBlock = null;
 $null = $converter->convert($button, 'button', $fallbacks);
