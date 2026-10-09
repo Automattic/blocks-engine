@@ -71,4 +71,11 @@ $assert('warning' === $missing['status'] && '#target' === $missing['findings'][0
 $scopedSource = '<div class="data-liberation-desktop-document"><div id="target"></div></div><div class="data-liberation-mobile-document">' . $source . '</div>';
 $wrongScope = $reporter->fromArtifact(array(), $scopedSource, '<div class="data-liberation-desktop-document"><div id="target"></div></div><div class="data-liberation-mobile-document"><div id="control" aria-controls="target"></div></div>', 'index.html');
 $assert('warning' === $wrongScope['status'], 'a target in the desktop copy cannot satisfy a mobile control');
+// A phone runtime can build a control's popup only when it opens, so the
+// captured phone copy has the control without its target. Nothing was lost.
+$targetInDesktopOnly = '<div class="data-liberation-desktop-document"><div id="control" role="button" aria-controls="target"></div><div id="target"><p>Panel</p></div></div><div class="data-liberation-mobile-document"><div id="control" role="button" aria-controls="target"></div></div>';
+$unchanged = $reporter->fromArtifact(array(), $targetInDesktopOnly, $targetInDesktopOnly, 'index.html');
+$assert('pass' === $unchanged['status'], 'a control whose source document scope never had its target is not a lost target');
+$desktopLost = $reporter->fromArtifact(array(), $targetInDesktopOnly, str_replace('<div id="target"><p>Panel</p></div>', '', $targetInDesktopOnly), 'index.html');
+$assert('warning' === $desktopLost['status'] && 1 === count($desktopLost['findings']), 'the scope whose source copy had the target still reports its loss');
 echo "Scoped mixed-dropdown native binding and IDREF contracts passed\n";
