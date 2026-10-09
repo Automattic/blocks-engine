@@ -224,10 +224,7 @@ final class ShellExtraction
      */
     private function collectNestedChrome(string $markup, int $baseOffset, array &$headers, array &$footers): void
     {
-        $allRanges = self::topLevelBlockRanges($markup);
-        // Empty decorative groups before the header (backdrops, glows) are not
-        // content, so the header is the first block that holds something.
-        $ranges = self::withoutLeadingEmptyVisualGroups($markup, $allRanges);
+        $ranges = self::topLevelBlockRanges($markup);
         if (2 <= count($ranges)) {
             $first = substr($markup, $ranges[0]['offset'], $ranges[0]['length']);
             if (self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($first)) {
@@ -250,7 +247,7 @@ final class ShellExtraction
                 }
             }
         }
-        foreach ($allRanges as $range) {
+        foreach ($ranges as $range) {
             $block = substr($markup, $range['offset'], $range['length']);
             $children = self::directChildBlockRanges($block);
             if (array() === $children) {
@@ -360,21 +357,9 @@ final class ShellExtraction
      * Extra wrappers around header-only chrome have no later content child and
      * stay the header candidate.
      */
-    /**
-     * @param array<int,array{offset:int,length:int}> $ranges
-     * @return array<int,array{offset:int,length:int}>
-     */
-    private static function withoutLeadingEmptyVisualGroups(string $markup, array $ranges): array
-    {
-        while (array() !== $ranges && self::isEmptyVisualGroup(substr($markup, $ranges[0]['offset'], $ranges[0]['length']))) {
-            array_shift($ranges);
-        }
-        return $ranges;
-    }
-
     private static function chromeSplitIsInside(string $markup): bool
     {
-        $children = self::withoutLeadingEmptyVisualGroups($markup, self::directChildBlockRanges($markup));
+        $children = self::directChildBlockRanges($markup);
         if (count($children) < 2) {
             return false;
         }
