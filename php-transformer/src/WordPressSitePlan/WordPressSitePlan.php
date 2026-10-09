@@ -2097,6 +2097,18 @@ PHP;
         $reference = '' === $rooted ? null : $references->reference('/' . $rooted, $sourcePath);
         return $reference ?? $references->reference($url, '');
     }
+    /**
+     * An Article marker with no publication date is not enough to call a page a post.
+     * Page builders stamp Article JSON-LD on ordinary service pages.
+     *
+     * @param array<int,array<string,string>> $evidence
+     * @return array<int,array<string,string>>
+     */
+    private static function withoutUndatedArticleMarkers(array $evidence): array
+    {
+        $isMarker = static fn(array $row): bool => !isset($row['publication_timestamp']) && in_array($row['source'] ?? null, array('json-ld:Article', 'json-ld:BlogPosting', 'microdata:itemtype'), true);
+        return array() === array_filter($evidence, static fn(array $row): bool => !$isMarker($row)) ? array() : $evidence;
+    }
     /** @param mixed $documents @return array<int,array<string,mixed>> */
     private function decideDocuments(mixed $documents): array
     {
@@ -2109,7 +2121,7 @@ PHP;
             $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array();
             $path = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path'] ? $metadata['route_path'] : self::pageRoutePath((string) $document['source_path'], $entryRoot);
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
-            $evidenceByIndex[$index] = $this->publicationEvidence($document);
+            $evidenceByIndex[$index] = self::withoutUndatedArticleMarkers($this->publicationEvidence($document));
         }
         $datedByParent = array();
         foreach ($evidenceByIndex as $index => $evidence) {
