@@ -1467,6 +1467,11 @@ final class StyleResolver implements ElementPresentationResolver
         ) {
             return 'layout';
         }
+        // `border` and `border-width/style/color` never set a corner radius, so
+        // a breakpoint that only restates the border must not claim it either.
+        if (1 === preg_match('/^border(?:-(?:top|bottom|start|end)-(?:left|right|start|end))?-radius$/', $property)) {
+            return 'border-radius';
+        }
         foreach (array('padding', 'margin', 'border', 'background') as $family) {
             if ($property === $family || str_starts_with($property, $family . '-')) {
                 return $family;

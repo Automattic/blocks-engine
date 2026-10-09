@@ -174,6 +174,20 @@ $logicalCornerButton = ( new HtmlTransformer() )->transform(
 $logicalCornerCss = implode("\n", array_column($logicalCornerButton['assets'] ?? array(), 'content'));
 $assert(! str_contains($logicalCornerCss, 'border-radius:0!important') && str_contains($logicalCornerCss, 'border-start-start-radius:'), 'authored logical corners prevent the native square-corner fallback', $logicalCornerCss);
 
+// A breakpoint that only restates the border (Wix repeats its desktop button
+// rules under a min-width media query) does not own the corner radius.
+$wixButton = '<a class="cta wixui-button" href="/about"><span class="cta__label">About Me</span><span class="cta__icon" aria-hidden="true"><svg viewBox="0 0 10 10"><path d="M0 0h10v10H0z"/></svg></span></a>';
+$conditionalBorderButton = ( new HtmlTransformer() )->transform(
+    '<style>.cta{display:block;padding:0 10px;background:#0057e1;border:0}@media (min-width:768px){.cta{border:0}}</style>' . $wixButton
+)->toArray();
+$conditionalBorderCss = implode("\n", array_column($conditionalBorderButton['assets'] ?? array(), 'content'));
+$assert(str_contains($conditionalBorderCss, 'border-radius:0!important'), 'a conditional border reset keeps the square-corner fallback for an anchor button', $conditionalBorderCss);
+$conditionalRadiusButton = ( new HtmlTransformer() )->transform(
+    '<style>.cta{display:block;padding:0 10px;background:#0057e1;border:0}@media (min-width:768px){.cta{border-radius:8px}}</style>' . $wixButton
+)->toArray();
+$conditionalRadiusCss = implode("\n", array_column($conditionalRadiusButton['assets'] ?? array(), 'content'));
+$assert(! str_contains($conditionalRadiusCss, 'border-radius:0!important'), 'a conditional radius still owns the corner geometry', $conditionalRadiusCss);
+
 $longhandBorderButton = ( new HtmlTransformer() )->transform(
     '<style>a{border:0;background:0 0}.btn{border-top:1px solid rgb(254,126,3);border-right:1px solid rgb(254,126,3);border-bottom:1px solid rgb(254,126,3);border-left:1px solid rgb(254,126,3);border-radius:4px;padding:10px 20px}</style><a class="btn" href="/team">Meet the Team</a>'
 )->toArray();
