@@ -1558,6 +1558,17 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element);
     }
 
+    /** Carry runtime-authored inline image placement on the native image leaf. */
+    public function imageLeafPlacementClassName(DOMElement $image): string
+    {
+        $declarations = $this->cssDeclarations(SourceDom::attr($image, 'style'));
+        $placement = array_keys(array_filter($declarations, NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
+        if ( array() === $placement ) {
+            return '';
+        }
+        return $this->inlineGeometry()->className($image, array_values(array_diff(array_keys($declarations), $placement)), $placement, array(), false, true);
+    }
+
     /**
      * `core/embed`'s save() is a rigid, two-level `<figure><div
      * class="wp-block-embed__wrapper">` shape with no attribute path onto

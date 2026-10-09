@@ -171,6 +171,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedBlockStyl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DisclosureControlPresentation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ImageDimensionResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NativeImageLeafPresentation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionFacts;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
@@ -11980,7 +11981,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function imagePresentationAttributes(DOMElement $image, ?DOMElement $figure): array
     {
-        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image);
+        $inlineImagePlacement = array_keys(array_filter($this->styleResolver->cssDeclarations(SourceDom::attr($image, 'style')), NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
+        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image, $figure instanceof DOMElement ? array() : $inlineImagePlacement);
+        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->imageLeafPlacementClassName($image));
         if ( $figure instanceof DOMElement ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), $this->nonCoreImageClassName($image), ...$this->authorSemanticMarkersForElement($image));
         } else {
