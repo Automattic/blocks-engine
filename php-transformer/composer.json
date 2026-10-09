@@ -127,6 +127,7 @@
       "php tests/contract/empty-visual-figure.php",
       "php tests/contract/layout-geometry-proof.php",
       "php tests/contract/core-code-save-supports.php",
+      "php tests/contract/core-code-literal-markup-text.php",
       "@test:unit"
     ],
     "test:unit": [

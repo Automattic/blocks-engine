@@ -32,7 +32,7 @@
     { "path": "blocks.0.innerBlocks.5.innerBlocks.1", "name": "core/code", "attrs": { "className": "language-json", "content": "{\"version\":2}" } },
     { "path": "blocks.0.innerBlocks.6", "name": "core/group", "attrs": { "className": "code-frame" } },
     { "path": "blocks.0.innerBlocks.6.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "functions.php" } },
-    { "path": "blocks.0.innerBlocks.6.innerBlocks.1", "name": "core/code", "attrs": { "className": "language-php", "content": "<?php add_action();" } }
+    { "path": "blocks.0.innerBlocks.6.innerBlocks.1", "name": "core/code", "attrs": { "className": "language-php", "content": "&lt;?php add_action();" } }
   ],
   "expected_fallbacks": [
     { "type": "html", "reason": "script_requires_runtime", "tag": "script", "diagnostic_code": "html_script_fallback" }

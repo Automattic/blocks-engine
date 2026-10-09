@@ -12199,6 +12199,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
     }
 
+    /**
+     * core/code content is a RichText value: always HTML. Plain code text is
+     * escaped here, so text that mentions markup (`&lt;span&gt;`) stays text.
+     */
     private function codeContent(DOMElement $code): string
     {
         foreach ( $code->childNodes as $child ) {
@@ -12207,7 +12211,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        return $code->textContent ?? '';
+        return htmlspecialchars($code->textContent ?? '', ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
     private function sanitizedSyntaxHtml(DOMElement $element): string
