@@ -343,6 +343,7 @@
       "php tests/unit/navigation-nested-authored-anchor.php",
       "php tests/unit/navigation-anchor-cluster-submenu.php",
       "php tests/unit/navigation-button-dropdown-submenu.php",
+      "php tests/unit/navigation-menu-row-beside-controls.php",
       "php tests/unit/paragraph-label-desktop-menu.php",
       "php tests/unit/button-signal-classifier.php",
       "php tests/unit/pill-button-anchor.php",

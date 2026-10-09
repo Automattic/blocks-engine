@@ -228,7 +228,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, false, false, $directAnchors, $listItems);
 
         if ( array() === $links ) {
-            return null;
+            return $this->menuRowBesideControls($element, $context, $presentationAttributes, $innerHtml, $createBlock, $navigationContext);
         }
 
         $label = $this->directSectionLabel($element);
@@ -834,6 +834,87 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $createBlock('core/group', $carrierAttrs, $children, $element);
+    }
+
+    /**
+     * A menu row that also holds controls which are not menu items, such as a
+     * language switcher made of buttons. A dropdown button item proves the row
+     * is a menu, so each run of menu items becomes one core/navigation and the
+     * other children are converted on their own, in authored order, inside the
+     * row's group. A row whose other children cannot convert natively is left
+     * alone.
+     */
+    private function menuRowBesideControls(DOMElement $row, PatternContext $context, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext): ?PatternRecognitionResult
+    {
+        $converter = $context->recursiveConverter();
+        if ( null === $converter || ! $this->hasButtonDropdownChild($row) ) {
+            return null;
+        }
+
+        $buttonSignals = new ButtonSignalClassifier();
+        $slots = array();
+        foreach ( $row->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+            $isItem = null !== $this->buttonDropdownItem($child)
+                || ( 'a' === strtolower($child->tagName)
+                    && '' !== $this->anchorLabel($child, $innerHtml)
+                    && ! $buttonSignals->hasTransformSignal($child, $navigationContext?->resolvedStyle($child) ?? '') );
+            $last = count($slots) - 1;
+            if ( $isItem && 0 <= $last && 'items' === $slots[$last]['kind'] ) {
+                $slots[$last]['elements'][] = $child;
+            } else {
+                $slots[] = array( 'kind' => $isItem ? 'items' : 'control', 'elements' => array( $child ) );
+            }
+        }
+
+        $fallbacks = array();
+        $children = array();
+        $collected = array();
+        $linkSets = array();
+        foreach ( $slots as $slot ) {
+            if ( 'control' === $slot['kind'] ) {
+                $block = $converter->element($slot['elements'][0], $fallbacks, true);
+                if ( ! is_array($block) || in_array((string) ( $block['blockName'] ?? '' ), array( '', 'core/html' ), true) ) {
+                    return null;
+                }
+                $children[] = $block;
+                continue;
+            }
+
+            $links = array();
+            foreach ( $slot['elements'] as $item ) {
+                $link = 'a' === strtolower($item->tagName)
+                    ? $this->navigationLinkBlock($item, $presentationAttributes, $innerHtml, $createBlock, $item, $navigationContext)
+                    : $this->navigationBlockFromItem($item, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $collected);
+                if ( null === $link ) {
+                    return null;
+                }
+                $links[] = $link;
+            }
+            $attrs = array( 'overlayMenu' => 'never' );
+            $gap = trim((string) ( $this->resolvedNavigationSpacing($navigationContext?->resolvedStyle($row) ?? '')['blockGap'] ?? '' ));
+            if ( '' !== $gap ) {
+                $attrs['style']['spacing']['blockGap'] = $gap;
+            }
+            $attrs = array_replace_recursive($attrs, $this->commonNavigationLinkTextAttributes($links));
+            $linkSets[] = $links;
+            $children[] = $createBlock('core/navigation', $attrs, $links, $slot['elements'][0]);
+        }
+        if ( array() === $linkSets ) {
+            return null;
+        }
+
+        $this->recordNavigationSources(array(), array(), $collected, $row, $navigationContext);
+
+        return new PatternRecognitionResult(
+            $createBlock('core/group', array_merge($presentationAttributes($row), array( 'tagName' => 'div' )), $children, $row),
+            $fallbacks
+        );
     }
 
     /**
