@@ -281,11 +281,9 @@ final class BlockFactory
         }
 
         if ( 'core/code' === $name ) {
-            $content = (string) ($attrs['content'] ?? '');
-            if ( ! preg_match('/<(?:span|mark|b|strong|i|em)\b/i', $content) ) {
-                $content = htmlspecialchars($content, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            }
-            return '<pre' . $this->blockSupportAttrs($attrs, 'wp-block-code') . '><code>' . $content . '</code></pre>';
+            // `content` is the escaped RichText value (see codeContent()); never
+            // guess from its bytes, or code text that mentions a tag becomes one.
+            return '<pre' . $this->blockSupportAttrs($attrs, 'wp-block-code') . '><code>' . (string) ($attrs['content'] ?? '') . '</code></pre>';
         }
 
         if ( 'core/math' === $name ) {

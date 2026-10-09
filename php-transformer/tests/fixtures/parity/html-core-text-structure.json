@@ -24,7 +24,7 @@
     { "path": "blocks.0.innerBlocks.2.innerBlocks.1", "name": "core/list-item", "attrs": { "content": "<strong>Two</strong>" } },
     { "path": "blocks.0.innerBlocks.3", "name": "core/quote", "attrs": { "citation": "Author" } },
     { "path": "blocks.0.innerBlocks.4", "name": "core/pullquote", "attrs": { "citation": "Source", "value": "<p>Pull me</p>" } },
-    { "path": "blocks.0.innerBlocks.5", "name": "core/code", "attrs": { "content": "<strong>Code</strong>" } },
+    { "path": "blocks.0.innerBlocks.5", "name": "core/code", "attrs": { "content": "&lt;strong&gt;Code&lt;/strong&gt;" } },
     { "path": "blocks.0.innerBlocks.6", "name": "core/preformatted", "attrs": { "content": "Line one<br>Line two" } }
   ],
   "expected_fallbacks": [],
@@ -36,6 +36,7 @@
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<h2 class=\"wp-block-heading\">Section title</h2>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<ul class=\"wp-block-list\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<code>&lt;strong&gt;Code&lt;/strong&gt;</code>" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
   ]
 }
