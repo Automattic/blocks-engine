@@ -48,4 +48,19 @@ foreach ($cases as $name => $source) {
     $assert($first === $second, 'Transforming the saved markup of ' . $name . ' is a fixed point.', "first:  {$first}\nsecond: {$second}");
 }
 
+// core/table markup saved by the WordPress editor must come back as the same
+// block: hasFixedLayout from its class, core's own table styling (no engine
+// normalization marker), block style variations, and its figcaption caption.
+$nativeTables = array(
+    'fixed layout (the editor default)' => '<figure class="wp-block-table"><table class="has-fixed-layout"><tbody><tr><td>a</td><td>b</td></tr></tbody></table></figure>',
+    'auto layout' => '<figure class="wp-block-table"><table><tbody><tr><td>a</td><td>b</td></tr></tbody></table></figure>',
+    'style variation, header and caption' => '<figure class="wp-block-table is-style-stripes"><table class="has-fixed-layout"><thead><tr><th>A</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table><figcaption class="wp-element-caption">Cap</figcaption></figure>',
+);
+foreach ($nativeTables as $name => $saved) {
+    $blocks = $transform($saved);
+    $assert($savedHtml($blocks) === $saved, 'A native core/table with ' . $name . ' saves back unchanged.', "saved:  {$saved}\nresult: {$blocks}");
+    $assert(1 === preg_match('/^<!-- wp:table[ \{]/', $blocks) && ! str_contains($blocks, 'blocks-engine-table-'), 'A native core/table with ' . $name . ' stays one core/table without an engine marker.', $blocks);
+}
+$assert(str_contains($transform($nativeTables['fixed layout (the editor default)']), '"hasFixedLayout":true'), 'has-fixed-layout reads back as hasFixedLayout.');
+
 echo 'Own output round trip tests: ' . $assertions . ' passed' . PHP_EOL;

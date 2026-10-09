@@ -7914,10 +7914,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function tableAttributes(DOMElement $table): array
     {
+        $native = self::isNativeSavedTable($table);
         $attrs = array(
-            'hasFixedLayout' => 'fixed' === strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($table)['table-layout'] ?? ''))),
+            'hasFixedLayout' => $native
+                ? in_array('has-fixed-layout', self::classTokens($table), true)
+                : 'fixed' === strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($table)['table-layout'] ?? ''))),
         );
-        $this->registerTablePresentationNormalization($table);
+        // core/table's own saved markup already looks the way core styles it, so
+        // only captured tables are normalized away from core's table defaults.
+        if ( ! $native ) {
+            $this->registerTablePresentationNormalization($table);
+        }
         $this->registerTableCellGeometry($table);
         foreach ( array( 'thead' => 'head', 'tbody' => 'body', 'tfoot' => 'foot' ) as $sectionTag => $attrName ) {
             $rows = array();
@@ -7959,6 +7966,34 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $attrs;
+    }
+
+    /**
+     * A table inside the figure core/table saves that the engine did not
+     * produce: WordPress's own markup. Engine output carries its table marker
+     * and keeps the normalization that marker scopes.
+     */
+    public static function isNativeSavedTable(DOMElement $table): bool
+    {
+        $figure = $table->parentNode;
+        if ( ! $figure instanceof DOMElement
+            || 'figure' !== strtolower($figure->tagName)
+            || ! in_array('wp-block-table', self::classTokens($figure), true)
+        ) {
+            return false;
+        }
+        foreach ( array_merge(self::classTokens($figure), self::classTokens($table)) as $class ) {
+            if ( str_starts_with($class, 'blocks-engine-table-') ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** @return list<string> */
+    private static function classTokens(DOMElement $element): array
+    {
+        return array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn (string $class): bool => '' !== $class));
     }
 
     private function registerTablePresentationNormalization(DOMElement $table): void
