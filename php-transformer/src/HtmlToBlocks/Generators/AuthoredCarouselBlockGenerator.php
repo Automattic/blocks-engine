@@ -687,6 +687,7 @@ JS;
                     if (!$image instanceof DOMElement) return null;
                     $image->setAttribute('src', $url);
                     $image->removeAttribute('srcset');
+                    $image->removeAttribute('id');
                     $image->removeAttribute('data-dla-gallery-slot');
                     $slide = $convertImage($image);
                     if (null === $slide || 'core/image' !== ($slide['blockName'] ?? null)) return null;

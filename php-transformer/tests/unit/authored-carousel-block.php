@@ -46,6 +46,7 @@ $assert(
 );
 $assert(
     array_reduce($portableGallery['innerBlocks'] ?? array(), static fn(bool $valid, array $slide): bool => $valid && 'core/image' === ($slide['blockName'] ?? null) && str_starts_with((string) ($slide['attrs']['url'] ?? ''), '/media/'), true)
+        && array_reduce($portableGallery['innerBlocks'] ?? array(), static fn(bool $valid, array $slide): bool => $valid && !isset($slide['attrs']['anchor']), true)
         && str_contains($portableGalleryMarkup, 'actions.previous') && str_contains($portableGalleryMarkup, 'actions.next')
         && !str_contains($portableGalleryMarkup, 'core/html') && !str_contains($portableGalleryMarkup, 'wp-block-freeform')
         && !in_array('core/html', $portableBlockNames, true) && !in_array('core/freeform', $portableBlockNames, true)
