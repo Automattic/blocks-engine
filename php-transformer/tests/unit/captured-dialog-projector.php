@@ -72,6 +72,11 @@ $assert(1 === ($binding['projected_count'] ?? 0), 'declarative bindings still pr
 $assert(! in_array('captured_dialog_trigger_unmatched', $codes($binding), true), 'declarative bindings do not emit unmatched diagnostics');
 $assert(str_contains((string) $binding['files'][0]['content'], 'data-blocks-engine-captured-dialog="true"'), 'declarative bindings inject a captured dialog');
 
+$overlaySource = '<html><body><header><button id="menu" aria-controls="overlay" aria-label="Open menu"><span></span><span></span><span></span></button></header><div id="overlay" hidden><nav><a href="/social">Social</a><a href="mailto:hello@example.test">Contact</a></nav></div></body></html>';
+$overlayState = $state(array('selector' => '#menu', 'tag' => 'button', 'label' => 'Open menu', 'ariaHaspopup' => '', 'dataBindings' => array()));
+$overlayProjection = $project($files(array('https://example.test/overlay' => $overlaySource), array('https://example.test/overlay' => array($overlayState))));
+$assert(0 === ($overlayProjection['projected_count'] ?? -1) && !str_contains((string) $overlayProjection['files'][0]['content'], 'data-blocks-engine-captured-dialog'), 'an aria-controls source navigation is left for native navigation promotion');
+
 $runtimeForm = $project($files(array('https://example.test/runtime-form' => '<html><body><header><nav><a href="/">Home</a><a role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a></nav></header></body></html>'), array('https://example.test/runtime-form' => array(array(
     'status' => 'captured',
     'trigger' => $bindingTrigger,

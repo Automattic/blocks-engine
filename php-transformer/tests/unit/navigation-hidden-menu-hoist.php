@@ -65,6 +65,15 @@ $assertions = array(
     array(! str_contains($ambiguousMarkup, '"overlayMenu":"mobile"'), 'ambiguous candidates do not fabricate a responsive menu association'),
 );
 
+$capturedMenu = ( new HtmlTransformer() )->transform(
+    '<header><a href="/">Northwind</a><button id="menu-trigger" aria-label="Open menu" aria-controls="overlay" aria-expanded="false"><span></span><span></span><span></span></button></header>'
+    . '<div id="overlay" hidden><nav aria-label="Site"><a href="https://example.test/social"><!-- destination note --><span>Social</span></a><a href="mailto:hello@example.test">Contact</a></nav></div>'
+    . '<dialog data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="menu-trigger"><nav><a href="/social">Social</a><a href="mailto:hello@example.test">Contact</a></nav></dialog>'
+)->toArray();
+$capturedMenuMarkup = (string) ($capturedMenu['serialized_blocks'] ?? '');
+$assertions[] = array(str_contains($capturedMenuMarkup, '"overlayMenu":"mobile"') && str_contains($capturedMenuMarkup, 'Social') && str_contains($capturedMenuMarkup, 'Contact') && !str_contains($capturedMenuMarkup, '/captured-dialog'), 'an aria-controls CSS-bar trigger owns its hidden overlay navigation');
+$assertions[] = array(!str_contains($capturedMenuMarkup, '<!-- destination note -->') && !str_contains($capturedMenuMarkup, '&lt;!-- destination note'), 'navigation labels exclude HTML comments');
+
 $failures = array_map(
     static fn (array $assertion): string => $assertion[1],
     array_filter($assertions, static fn (array $assertion): bool => ! $assertion[0])
