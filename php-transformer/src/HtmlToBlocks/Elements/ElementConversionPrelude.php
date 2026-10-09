@@ -164,7 +164,10 @@ final class ElementConversionPrelude
             return ConversionOutcome::handled($this->formDispatcher->convert($element, $fallbacks));
         }
 
-        if ( ! $this->containsCapturedProviderForm($element) && $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element) ) {
+        if ( ! $this->containsCapturedProviderForm($element)
+            && ! $this->isPortableSrcSwapGallery($element)
+            && $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element)
+        ) {
             return ConversionOutcome::handled(($this->htmlPreservationBlock)($element));
         }
 
@@ -307,6 +310,26 @@ final class ElementConversionPrelude
             }
         }
 
+        return false;
+    }
+
+    private function isPortableSrcSwapGallery(DOMElement $element): bool
+    {
+        if (!$element->hasAttribute('data-dla-gallery') || !$element->hasAttribute('data-dla-gallery-sequence')) {
+            return false;
+        }
+        $sequence = json_decode($element->getAttribute('data-dla-gallery-sequence'), true);
+        if (!is_array($sequence) || count($sequence) < 2) {
+            return false;
+        }
+        foreach ($sequence as $url) {
+            if (!is_string($url) || '' === trim($url)) return false;
+        }
+        foreach ($element->getElementsByTagName('img') as $image) {
+            if ($image instanceof DOMElement && preg_match('/^-?[0-9]+$/D', trim($image->getAttribute('data-dla-gallery-slot')))) {
+                return true;
+            }
+        }
         return false;
     }
 }
