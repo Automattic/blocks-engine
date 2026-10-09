@@ -1263,7 +1263,6 @@ final class NavigationToggleSuppressor
         foreach ( $document->getElementsByTagName('*') as $toggle ) {
             if ( ! $toggle instanceof DOMElement
                 || $this->isCapturedDialogControl($toggle)
-                || $this->isBoundCapturedDialogTrigger($toggle)
                 || ( ! $this->isHamburgerMenuToggleControl($toggle) && ! $this->isProjectableHashAnchorMenuToggle($toggle) )
             ) {
                 continue;
@@ -1274,6 +1273,10 @@ final class NavigationToggleSuppressor
                 if ( $projectedTarget->isSameNode($navigation) ) {
                     return $this->concreteToggleControl($toggle);
                 }
+                continue;
+            }
+
+            if ( $this->isBoundCapturedDialogTrigger($toggle) ) {
                 continue;
             }
 
@@ -1523,6 +1526,16 @@ final class NavigationToggleSuppressor
      */
     public function projectedOverlayMenu(DOMElement $control): string
     {
+        if ( $control->hasAttribute('data-dla-dialog-trigger') ) {
+            return 'always';
+        }
+        if ( ! NavigationPattern::ownsCapturedSubmenuTrigger($control)
+            && ( $control->hasAttribute('data-dla-dialog-trigger') || 'dialog' === strtolower(trim(SourceDom::attr($control, 'aria-haspopup'))) )
+            && ! $this->isHiddenAtDefaultViewport($control)
+            && ! $this->hasDefaultViewportVisibleNavigationTwin($control)
+        ) {
+            return 'always';
+        }
         // The enclosing document branch already owns its viewport visibility.
         // A control visible throughout that branch must keep its opener above
         // Core's fixed mobile breakpoint as well.

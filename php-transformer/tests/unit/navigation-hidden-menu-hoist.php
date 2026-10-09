@@ -66,13 +66,19 @@ $assertions = array(
 );
 
 $capturedMenu = ( new HtmlTransformer() )->transform(
-    '<header><a href="/">Northwind</a><button id="menu-trigger" aria-label="Open menu" aria-controls="overlay" aria-expanded="false"><span></span><span></span><span></span></button></header>'
-    . '<div id="overlay" hidden><nav aria-label="Site"><a href="https://example.test/social"><!-- destination note --><span>Social</span></a><a href="mailto:hello@example.test">Contact</a></nav></div>'
+    '<header><a href="/">Northwind</a><button class="menu-toggle" id="menu-trigger" type="button" aria-label="Open menu" aria-controls="overlay" aria-expanded="false" data-dla-disclosure-label="Open menu" data-dla-dialog-trigger="overlay" aria-haspopup="dialog"><span></span><span></span><span></span></button>'
+    . '<div class="dla-dialog" role="dialog" aria-modal="true" hidden id="overlay" data-dla-dialog-panel="overlay"><div class="menu is-open" id="menu"><button type="button" aria-label="Close menu">Close</button><nav aria-label="Site"><a href="https://example.test/social"><!-- destination note --><span>Social</span></a><a href="mailto:hello@example.test">Contact</a></nav></div></div><button type="button" hidden data-dla-dialog-close="overlay">Close</button></header>'
     . '<dialog data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="menu-trigger"><nav><a href="/social">Social</a><a href="mailto:hello@example.test">Contact</a></nav></dialog>'
 )->toArray();
 $capturedMenuMarkup = (string) ($capturedMenu['serialized_blocks'] ?? '');
-$assertions[] = array(str_contains($capturedMenuMarkup, '"overlayMenu":"mobile"') && str_contains($capturedMenuMarkup, 'Social') && str_contains($capturedMenuMarkup, 'Contact') && !str_contains($capturedMenuMarkup, '/captured-dialog'), 'an aria-controls CSS-bar trigger owns its hidden overlay navigation');
+$assertions[] = array(str_contains($capturedMenuMarkup, '"overlayMenu":"always"') && str_contains($capturedMenuMarkup, 'Social') && str_contains($capturedMenuMarkup, 'Contact') && !str_contains($capturedMenuMarkup, '/captured-dialog') && !str_contains($capturedMenuMarkup, '<!-- wp:button'), 'a DLA-wired CSS-bar trigger owns its hidden overlay navigation at every width');
 $assertions[] = array(!str_contains($capturedMenuMarkup, '<!-- destination note -->') && !str_contains($capturedMenuMarkup, '&lt;!-- destination note'), 'navigation labels exclude HTML comments');
+$capturedFallback = ( new HtmlTransformer() )->transform(
+    '<header><button id="menu-trigger" type="button" aria-label="Open menu" aria-controls="overlay" aria-haspopup="dialog"><span></span><span></span><span></span></button><div id="overlay" hidden></div></header>'
+    . '<dialog data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="menu-trigger"><nav><a href="/social">Social</a><a href="mailto:hello@example.test">Contact</a></nav></dialog>'
+)->toArray();
+$capturedFallbackMarkup = (string) ($capturedFallback['serialized_blocks'] ?? '');
+$assertions[] = array(str_contains($capturedFallbackMarkup, '/captured-dialog') && str_contains($capturedFallbackMarkup, 'Social') && str_contains($capturedFallbackMarkup, 'Contact'), 'captured dialog content remains when no native navigation relationship is found');
 
 $failures = array_map(
     static fn (array $assertion): string => $assertion[1],
