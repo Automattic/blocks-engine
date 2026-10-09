@@ -273,6 +273,26 @@ $assert(
     json_encode($responsiveCopy)
 );
 
+// `media="all"` gates nothing, including when a capture declares it as the
+// authored media of a per-device stylesheet whose serialized `media="not all"`
+// is only its inactive activation state. Status copy hidden that way in every
+// device document is still hidden in every condition.
+foreach ( array(
+    'plain all' => '<style media="all">#msg{visibility:hidden !important}</style>',
+    'declared device sheets' => '<style data-dla-device-style="desktop" data-dla-source-media="all" media="not all">:where([data-dla-device-document="desktop"]) #msg{visibility:hidden !important}</style>'
+        . '<style data-dla-device-style="mobile" data-dla-source-media="all" media="not all">:where([data-dla-device-document="mobile"]) #msg{visibility:hidden !important}</style>',
+) as $case => $sheets ) {
+    $allMedia = $formContext(
+        $sheets . '<div data-dla-device-document="desktop" data-dla-document-scope=""><main><form method="post"><input type="email" name="email"><input type="submit" value="Send">'
+        . '<div id="msg"><p>Thanks for submitting!</p></div></form></main></div>'
+    );
+    $assert(
+        'hidden' === ( $allMedia['context_after'][0]['hidden']['value'] ?? null ),
+        'copy hidden by a media="all" stylesheet is hidden in every condition (' . $case . ')',
+        json_encode($allMedia)
+    );
+}
+
 $unrelatedCss = '';
 for ($index = 0; $index < 8300; ++$index) {
     $unrelatedCss .= '.unrelated-' . $index . '{display:block;padding:0;font-size:12px}';

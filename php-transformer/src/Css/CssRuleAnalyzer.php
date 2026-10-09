@@ -69,8 +69,9 @@ final class CssRuleAnalyzer
     /** @param array<string, mixed> $sheet */
     private function linkCondition(array $sheet): ?array
     {
+        // `media="all"` matches every medium, so it gates nothing.
         $media = trim((string) ($sheet['media'] ?? ''));
-        return '' === $media ? null : array( 'kind' => 'media', 'query' => $media );
+        return '' === $media || 'all' === strtolower($media) ? null : array( 'kind' => 'media', 'query' => $media );
     }
 
     /**
