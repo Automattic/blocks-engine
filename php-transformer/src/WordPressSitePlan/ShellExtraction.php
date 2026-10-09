@@ -81,7 +81,10 @@ final class ShellExtraction
         $occupiedAreas = array_column($candidates, 'area');
         $nestedLandmarks = $this->nestedLandmarkShellCandidates($canonical, $sourcePath, $occupiedAreas);
         if (array() !== $nestedLandmarks) {
-            return array_merge($candidates, $nestedLandmarks);
+            // A landmark found for one area does not settle the other. A page
+            // with a labelled footer can still have an unlabelled header.
+            $occupiedAreas = array_merge($occupiedAreas, array_column($nestedLandmarks, 'area'));
+            return array_merge($candidates, $nestedLandmarks, $this->unlabeledChromeCandidates($canonical, $sourcePath, $occupiedAreas));
         }
         return array_merge($candidates, $this->nestedChromeCandidates($canonical, $sourcePath, $occupiedAreas));
     }
@@ -1840,6 +1843,8 @@ final class ShellExtraction
         $markup = self::withoutScrollStateCarrierIdentity($markup);
         $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*blocks-engine-(?:specificity-class|disclosure-summary)-[a-f0-9]{6,}(?:-\d+)?/', '', $markup) ?? $markup;
+        // A captured dialog trigger's generated id carries a per-document hash.
+        $markup = preg_replace('/blocks-engine-dialog-trigger-[a-f0-9]+-(\d+)/', 'blocks-engine-dialog-trigger-$1', $markup) ?? $markup;
         $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
         $markup = preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
         $markup = preg_replace('/(?:\.\.\/)+assets\//', 'assets/', $markup) ?? $markup;
@@ -1981,14 +1986,17 @@ final class ShellExtraction
             arsort($counts, SORT_NUMERIC);
             $restingColorBySignature[$signature] = (string) array_key_first($counts);
         }
-        $navigationIndex = -1;
-        $markup = preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature, $restingPeers, &$navigationIndex): string {
-            if ('navigation' === $match[1]) ++$navigationIndex;
+        $navigationIndex = -1; $submenuDepth = 0;
+        $markup = preg_replace_callback('/<!--\s*(?:\/wp:navigation-submenu|wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?)\s*-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature, $restingPeers, &$navigationIndex, &$submenuDepth): string {
+            if (!isset($match[1])) { $submenuDepth = max(0, $submenuDepth - 1); return $match[0]; }
+            if ('navigation' === $match[1]) { ++$navigationIndex; $submenuDepth = 0; }
+            $depth = $submenuDepth;
+            if ('navigation-submenu' === $match[1] && empty($match[3])) ++$submenuDepth;
             $attrs = json_decode($match[2], true);
             if (!is_array($attrs)) return $match[0];
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
             $current = in_array('blocks-engine-current-navigation-item', $classes, true);
-            $peer = $restingPeers[$navigationIndex] ?? null;
+            $peer = $restingPeers[$navigationIndex . ':' . $depth] ?? null;
             if ($current && 'navigation-link' === $match[1] && is_array($peer)) {
                 // A client router can paint the current item through its own
                 // utility classes instead of an aria-current hook. The shared part
@@ -2036,7 +2044,12 @@ final class ShellExtraction
             }
             $attrs['className'] = implode(' ', $classes);
             if ('' === $attrs['className']) unset($attrs['className']);
-            if ($current) unset($attrs['color'], $attrs['style'], $attrs['typography']);
+            // A link with no resting peer beside it (a lone top-level link) cannot
+            // take its presentation from them on the page where it is current,
+            // and the current item's own colour and type are not kept. Identity
+            // ignores them for such a link on every page, so one header is not
+            // split by which page happens to be current.
+            if ($current || ($semanticIdentity && $isLink && false === $peer)) unset($attrs['color'], $attrs['style'], $attrs['typography']);
             if ($current || ($semanticIdentity && $isLink)) unset($attrs['anchor'], $attrs['anchorClassName']);
             return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
         }, $markup) ?? $markup;
@@ -2056,23 +2069,34 @@ final class ShellExtraction
     }
 
     /**
-     * Per navigation block (document order), the presentation shared by at
-     * least two of its non-current links: className plus color/style attrs.
+     * Per navigation block (document order) and submenu depth, keyed
+     * `index:depth`, the presentation shared by at least two of its non-current
+     * links: className plus color/style attrs.
      *
-     * @return array<int,array<string,mixed>|null>
+     * @return array<string,array<string,mixed>|false|null> false marks a level with a single link
      */
     private static function restingNavigationPeers(string $markup): array
     {
-        $peers = array(); $index = -1; $groups = array(); $currentSignatures = array();
-        preg_match_all('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(?:\/)?-->/s', $markup, $matches, PREG_SET_ORDER);
+        $peers = array(); $index = -1; $groups = array(); $currentSignatures = array(); $depth = 0; $linkCounts = array();
+        preg_match_all('/<!--\s*(\/)?wp:(navigation(?:-link|-submenu)?)(?:\s+(\{.*?\}))?\s*(\/)?-->/s', $markup, $matches, PREG_SET_ORDER);
         foreach ($matches as $match) {
-            if ('navigation' === $match[1]) { ++$index; $groups[$index] = array(); continue; }
-            if ('navigation-link' !== $match[1] || $index < 0) continue;
-            $attrs = json_decode($match[2], true);
+            if ('navigation-submenu' === $match[2]) {
+                if ('' !== $match[1]) { $depth = max(0, $depth - 1); continue; }
+                if (empty($match[4])) ++$depth;
+                continue;
+            }
+            if ('' !== $match[1]) continue;
+            if ('navigation' === $match[2]) { ++$index; $depth = 0; continue; }
+            if ($index < 0) continue;
+            // A link is only a peer of the links beside it. The items of a
+            // submenu style differently from the top-level items.
+            $level = $index . ':' . $depth;
+            $linkCounts[$level] = ($linkCounts[$level] ?? 0) + 1;
+            $attrs = json_decode($match[3] ?? '', true);
             if (!is_array($attrs)) continue;
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
             if (in_array('blocks-engine-current-navigation-item', $classes, true)) {
-                $currentSignatures[$index][] = self::navigationClassSignature($classes);
+                $currentSignatures[$level][] = self::navigationClassSignature($classes);
                 continue;
             }
             $presentation = array_intersect_key($attrs, array_flip(array('className', 'style', 'color', 'typography')));
@@ -2082,7 +2106,7 @@ final class ShellExtraction
                 $presentation['className'] = implode(' ', $classes);
             }
             $key = json_encode($presentation);
-            $groups[$index][$key] = array('count' => ($groups[$index][$key]['count'] ?? 0) + 1, 'presentation' => $presentation);
+            $groups[$level][$key] = array('count' => ($groups[$level][$key]['count'] ?? 0) + 1, 'presentation' => $presentation);
         }
         foreach ($groups as $navigation => $candidates) {
             uasort($candidates, static fn(array $left, array $right): int => $right['count'] <=> $left['count']);
@@ -2092,6 +2116,8 @@ final class ShellExtraction
                 && array(self::navigationClassSignature(preg_split('/\s+/', trim((string) ($top['presentation']['className'] ?? ''))) ?: array())) === array_values(array_unique($currentSignatures[$navigation]));
             $peers[$navigation] = is_array($top) && (2 <= $top['count'] || $singlePeerMatches) ? $top['presentation'] : null;
         }
+        // A level holding one link has no peers at all.
+        foreach ($linkCounts as $level => $count) if (1 === $count && !is_array($peers[$level] ?? null)) $peers[$level] = false;
         return $peers;
     }
 
