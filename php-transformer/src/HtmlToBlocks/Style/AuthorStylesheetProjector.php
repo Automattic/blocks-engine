@@ -1357,6 +1357,10 @@ final class AuthorStylesheetProjector
         }
         $rewritten = array();
         foreach ( $selectors as $selector ) {
+            if ( $context->selectorProjections->retainsRuntimeOwnedSelector($selector) ) {
+                $rewritten[] = trim($selector);
+                continue;
+            }
             $socialAnchor = SocialAnchorSelectorProjector::project($selector, $context);
             if (null !== $socialAnchor) {
                 $rewritten[] = $socialAnchor;
