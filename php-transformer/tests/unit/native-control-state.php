@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredControlState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $count = 0;
 $assert = static function (bool $condition, string $message) use (&$count): void { ++$count; if (!$condition) throw new RuntimeException($message); };
@@ -52,6 +53,13 @@ $payload = $artifact['source_reports']['companion_plugin_payload'];
 $assert(array() === $payload['preserved_js'], 'no captured source executable is needed by companion payload');
 $assert(!str_contains($artifact['serialized_blocks'], 'capturedReplayExecuted'), 'even a forged producer interpreter is discarded rather than trusted/copied');
 $assert(!str_contains(json_encode($artifact['assets']), 'capturedReplayExecuted'), 'producer replay code is not emitted as a source JS asset');
+$replayPlan = $artifact['source_reports']['wordpress_site_plan'];
+$assert(array() === $replayPlan['pages'][0]['document_metadata']['scripts'], 'discarded producer replay code is not declared as a page script');
+$assert('proven' === $replayPlan['reference_semantics']['dynamic_client_assets']['status'], 'discarded producer replay code leaves dynamic client assets proven');
+(new WordPressSitePlanResolver())->resolve($replayPlan, array('theme_uri' => 'https://example.test/theme', 'require_proven_dynamic_client_assets' => true));
+$sourceWithScripts = '<script>window.before=1;</script>' . $sourceWithReplay . '<script>window.after=1;</script>';
+$scriptsPlan = (new ArtifactCompiler())->compile(array('block_namespace' => 'neutral', 'files' => array('index.html' => $sourceWithScripts)))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(2 === count($scriptsPlan['pages'][0]['document_metadata']['scripts']) && 'proven' === $scriptsPlan['reference_semantics']['dynamic_client_assets']['status'], 'scripts around the discarded replay keep their own bound assets');
 $assert('<textarea>&lt;script data-dla-native-control-runtime&gt;text&lt;/script&gt;</textarea>' === NativeControlState::withoutReplayScript('<textarea>&lt;script data-dla-native-control-runtime&gt;text&lt;/script&gt;</textarea>'), 'source-preserving scan keeps script examples in textarea context');
 $assert(!str_contains(AuthoredControlState::viewScript(), 'eval(') && !str_contains(AuthoredControlState::viewScript(), 'new Function'), 'owned interpreter has no dynamic code execution');
 // A1: typed state never admits a form; submission semantics alone decide native ownership.
