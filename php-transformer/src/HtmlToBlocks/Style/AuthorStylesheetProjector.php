@@ -37,15 +37,6 @@ final class AuthorStylesheetProjector
      */
     private const NAVIGATION_TOGGLE_CHROME_EXCLUSION = ':not(:where(.wp-block-navigation__responsive-container-open,.wp-block-navigation__responsive-container-open *,.wp-block-navigation__responsive-container-close,.wp-block-navigation__responsive-container-close *))';
 
-    /**
-     * Every path from a generated image wrapper down to the <img> it holds.
-     * An unlinked image is the wrapper's direct child; a linked one sits
-     * inside the anchor the native block serializes for the link.
-     *
-     * @var list<string>
-     */
-    private const GENERATED_IMAGE_LEAF_PATHS = array( ' > img', ' > a > img' );
-
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer,
@@ -136,6 +127,11 @@ final class AuthorStylesheetProjector
             return $mediaTextImagePrelude . '{' . $body . '}';
         }
         $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context);
+        $imagePlacement = $this->imageLeafPlacementProjection($prelude, $body, $declarations, $imagePrelude, $context);
+        $body = $imagePlacement['body'];
+        if ( '' !== $imagePlacement['rules'] ) {
+            $declarations = array_filter($declarations, static fn (string $property): bool => ! NativeImageLeafPresentation::isPlacementProperty($property), ARRAY_FILTER_USE_KEY);
+        }
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
         $imageRule = '' === $imagePrelude
             ? ''
@@ -158,7 +154,7 @@ final class AuthorStylesheetProjector
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context);
         $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
-            $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
+            $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
 
             return $this->withEditorProjectionRules($css, $prelude, $body);
         }
@@ -170,6 +166,7 @@ final class AuthorStylesheetProjector
         $css = $rules
             . $this->marginSelectorPrelude($prelude, $context) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
             . $imageRule
+            . $imagePlacement['rules']
             . $svgImageRule
             . $editorDocumentRootRule
             . $navigationItemSpaceRule;
@@ -1161,6 +1158,47 @@ final class AuthorStylesheetProjector
     }
 
     /**
+     * A source img's percentage transforms reference its own used image box.
+     * The synthetic native figure may have zero height and a different origin;
+     * carry placement to the recorded image leaf instead of that new wrapper.
+     * Other source subjects (including authored figures) keep their own rules.
+     *
+     * @param array<string, string> $declarations
+     * @return array{body: string, rules: string}
+     */
+    private function imageLeafPlacementProjection(string $prelude, string $body, array $declarations, string $imagePrelude, AuthorStylesheetProjectionContext $context): array
+    {
+        $placement = array_filter($declarations, NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY);
+        if ( '' === $imagePrelude || array() === $placement ) {
+            return array( 'body' => $body, 'rules' => '' );
+        }
+        $retained = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array(';')) as $declaration ) {
+            $property = strtolower(trim((string) strtok($declaration, ':')));
+            if ( ! isset($placement[$property]) ) {
+                $retained[] = $declaration;
+            }
+        }
+        $original = CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context)) ?? array();
+        $original = array_map(static fn (string $selector): string => rtrim($selector) . ':not(:where(.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '))', $original);
+        $leaves = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            $projected = $this->projectAuthorImageSelectorPrelude($selector, $context);
+            foreach ( CssStylesheetTransformer::splitSelectorList($projected) ?? array() as $leaf ) {
+                // Native transport contributes no weight. Dynamic state stays
+                // inside the target gate, so restore its authored weight too.
+                $leaves[] = ':where(' . $leaf . ')' . $this->selectorSpecificityShims($parsed, $context, true);
+            }
+        }
+        $placed = $this->styleResolver->cssDeclarationString($placement);
+        return array(
+            'body' => implode(';', $retained),
+            'rules' => implode(',', $original) . '{' . $placed . '}' . implode(',', $leaves) . '{' . $placed . '}',
+        );
+    }
+
+    /**
      * Custom properties consumed by a placement declaration belong on the same
      * box. `translate: var(--shift)` on the wrapper is inert if `--shift` is
      * left on the inner link.
@@ -2015,7 +2053,7 @@ final class AuthorStylesheetProjector
                 foreach ( $imageMatches as $element ) {
                     $marker = $context->selectorProjections->rootChildMarker($element->getNodePath() ?? '');
                     if ( '' !== $marker ) {
-                        $projected[] = $this->imageLeafSelectorList($this->projectSemanticLeafSelector($selector, $parsed, $marker, $context) . '.wp-block-image');
+                        $projected[] = NativeImageLeafPresentation::selectors($this->projectSemanticLeafSelector($selector, $parsed, $marker, $context) . '.wp-block-image');
                     }
                 }
                 continue;
@@ -2053,7 +2091,7 @@ final class AuthorStylesheetProjector
                 // The source link's ID now belongs to the native figure. A
                 // descendant selector cannot retain that former ancestry.
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-                $projected[] = $this->imageLeafSelectorList(':where(.' . $marker . ').wp-block-image', $this->selectorSpecificityShims($parsed, $context) . $suffix);
+                $projected[] = NativeImageLeafPresentation::selectors(':where(.' . $marker . ').wp-block-image', $this->selectorSpecificityShims($parsed, $context) . $suffix);
             }
             if ( $hasUnmarkedImage ) {
                 $projected[] = $this->projectImageSelector($selector, $parsed, $context);
@@ -2085,7 +2123,7 @@ final class AuthorStylesheetProjector
                 }
                 $projected[] = $parsed['supported']
                     ? $this->projectImageSelector($selector, $parsed, $context, false, true, $marker)
-                    : $this->imageLeafSelectorList(':where(.' . $marker . ') .wp-block-media-text__media');
+                    : NativeImageLeafPresentation::selectors(':where(.' . $marker . ') .wp-block-media-text__media');
             }
         }
 
@@ -2445,13 +2483,13 @@ final class AuthorStylesheetProjector
             // whole text/image row. The marker is installed on the exact
             // generated media-text wrapper for this source image, so project
             // the declaration directly to its generated image.
-            return $this->imageLeafSelectorList(
+            return NativeImageLeafPresentation::selectors(
                 ':where(.' . $mediaTextMarker . ') .wp-block-media-text__media',
                 $this->selectorSpecificityShims($parsed, $context)
             );
         }
         $projected = array();
-        foreach ( $wrapperOnly ? array( '' ) : self::GENERATED_IMAGE_LEAF_PATHS as $leafPath ) {
+        foreach ( $wrapperOnly ? array( '' ) : NativeImageLeafPresentation::LEAF_PATHS as $leafPath ) {
             $replacements = array(
                 (int) $parsed['rightmost_rewrite_end'] => array(
                     'end' => (int) $parsed['rightmost_rewrite_end'],
@@ -2473,37 +2511,20 @@ final class AuthorStylesheetProjector
         return implode(',', $projected);
     }
 
-    /**
-     * The generated <img> under `$wrapper`, reached through every shape the
-     * native block markup can take. A linked image nests the <img> one level
-     * deeper inside the anchor core/image and core/media-text serialize for
-     * the link, and a rule projected onto the wrapper has to keep reaching it
-     * there: the bridge declarations are what give the generated <img> the
-     * box the source rule sized, so losing them collapses a linked image to
-     * its intrinsic ratio while the identical unlinked image is fine.
-     */
-    private function imageLeafSelectorList(string $wrapper, string $suffix = ''): string
-    {
-        $selectors = array();
-        foreach ( self::GENERATED_IMAGE_LEAF_PATHS as $leafPath ) {
-            $selectors[] = $wrapper . $leafPath . $suffix;
-        }
-        return implode(',', $selectors);
-    }
-
     private function typeSpecificityShim(AuthorStylesheetProjectionContext $context): string
     {
         return '' === $context->authorStyles->specificityShim() ? '' : ':not(' . $context->authorStyles->specificityShim() . ')';
     }
 
     /** @param array<string, mixed> $parsed */
-    private function selectorSpecificityShims(array $parsed, AuthorStylesheetProjectionContext $context): string
+    private function selectorSpecificityShims(array $parsed, AuthorStylesheetProjectionContext $context, bool $includeState = false): string
     {
         return CssSpecificityProjection::shims(
             $parsed,
             $context->authorStyles->specificityShim(),
             $context->authorStyles->classSpecificityShim(),
-            $context->authorStyles->idSpecificityShim()
+            $context->authorStyles->idSpecificityShim(),
+            $includeState
         );
     }
 

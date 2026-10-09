@@ -352,7 +352,8 @@ final class InlineGeometry
         array $excludedProperties = array(),
         array $forcedProperties = array(),
         array $forcedDeclarations = array(),
-        bool $carrierOwnsInlineGeometry = false
+        bool $carrierOwnsInlineGeometry = false,
+        bool $imageLeaf = false
     ): string {
         $declarations = $carrierOwnsInlineGeometry
             ? $this->mediaTextInlineCascadeDeclarations(SourceDom::attr($element, 'style'))
@@ -527,13 +528,15 @@ final class InlineGeometry
             $importantDeclarations[] = $property . ':' . $value . ' !important';
         }
         $signature = implode(';', array_merge($normalPriorityDeclarations, $importantDeclarations));
-        $className = $this->context->layoutGeometry()->allocateCarrier(($this->geometryStructuralPath)($element) . "\n" . $signature);
+        $className = $this->context->layoutGeometry()->allocateCarrier(($this->geometryStructuralPath)($element) . "\n" . $signature . ($imageLeaf ? "\nimage-leaf" : ''));
         $rules = array();
         if ( array() !== $normalPriorityDeclarations ) {
-            $rules[] = ':root .' . $className . '{' . implode(';', $normalPriorityDeclarations) . '}';
+            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors(':root .' . $className) : ':root .' . $className;
+            $rules[] = $selector . '{' . implode(';', $normalPriorityDeclarations) . '}';
         }
         if ( array() !== $importantDeclarations ) {
-            $rules[] = '.' . $className . '{' . implode(';', $importantDeclarations) . '}';
+            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors('.' . $className) : '.' . $className;
+            $rules[] = $selector . '{' . implode(';', $importantDeclarations) . '}';
         }
         if ('video' === strtolower($element->tagName) && isset($geometry['object-fit'], $geometry['width'], $geometry['height'])) {
             // core/video places the source box carrier on a new figure. Its
