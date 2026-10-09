@@ -2538,7 +2538,7 @@ PHP;
                  $content = ('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->';
                  // The page keeps only its own content. The app wrapper and the
                  // shared header and footer around it live in this template.
-                 if (isset($frames[$templateSlug])) $content = $frames[$templateSlug]['opening'] . '<!-- wp:post-content {"className":"' . self::FRAME_CONTENT_CLASS . '"} /-->' . $frames[$templateSlug]['closing'];
+                 if (isset($frames[$templateSlug]) && array() !== $frames[$templateSlug]['shells']) $content = $frames[$templateSlug]['opening'] . '<!-- wp:post-content {"className":"' . self::FRAME_CONTENT_CLASS . '"} /-->' . $frames[$templateSlug]['closing'];
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }

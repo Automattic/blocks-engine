@@ -119,6 +119,7 @@
       "php tests/contract/render-equivalent-chrome.php",
       "php tests/contract/entry-chrome-wrapper.php",
       "php tests/contract/shell-frame-hoist.php",
+      "php tests/contract/generic-page-shell-frame.php",
       "php tests/contract/navigation-entity-label-identity.php",
       "php tests/contract/footer-content-bound-blocks.php",
       "php tests/contract/footer-content-real-markup.php",

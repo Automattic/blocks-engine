@@ -1195,21 +1195,38 @@ final class ShellExtraction
             if ($found['blocked'] || array() !== $found['refs']) continue;
             $split[$index] = $frame;
         }
+        // The generic page template takes the frame most inner pages share, so a
+        // page made later in WordPress gets the site chrome too. Frames compare
+        // without per-document marker seeds and dialog ids. An inner page with a
+        // different frame, or none, gets its own route template.
         $inner = array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null) && empty($page['entrypoint']) && empty($page['synthetic']));
-        $sharedFrame = null;
-        if (array() !== $inner && count(array_intersect_key($split, $inner)) === count($inner)) {
-            $signatures = array_unique(array_map(static fn(int $index): string => serialize(array($split[$index]['opening'], $split[$index]['closing'])), array_keys($inner)));
-            if (1 === count($signatures)) $sharedFrame = array('opening' => $split[array_key_first($inner)]['opening'], 'closing' => $split[array_key_first($inner)]['closing']);
-        }
+        $groups = array();
+        foreach (array_intersect_key($split, $inner) as $index => $frame) $groups[self::frameIdentity($frame)][] = $index;
+        $sharedIdentity = null;
+        foreach ($groups as $identity => $indexes) if (null === $sharedIdentity || count($indexes) > count($groups[$sharedIdentity])) $sharedIdentity = $identity;
+        $hasSharedFrame = null !== $sharedIdentity && (count($groups[$sharedIdentity]) > 1 || 1 === count($inner));
         foreach ($split as $index => $frame) {
             $page = $pages[$index];
-            $slug = !empty($page['entrypoint']) ? 'front-page' : (null !== $sharedFrame ? 'page' : 'page-' . $page['slug']);
-            preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
-            $frames[$slug] = array('opening' => $frame['opening'], 'closing' => $frame['closing'], 'shells' => array_values(array_unique($slugs[1])));
+            $shared = $hasSharedFrame && isset($inner[$index]) && self::frameIdentity($frame) === $sharedIdentity;
+            if ($shared && isset($frames['page'])) $slug = null;
+            else $slug = !empty($page['entrypoint']) ? 'front-page' : ($shared ? 'page' : 'page-' . $page['slug']);
+            if (null !== $slug) {
+                preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
+                $frames[$slug] = array('opening' => $frame['opening'], 'closing' => $frame['closing'], 'shells' => array_values(array_unique($slugs[1])));
+            }
             $pages[$index]['canonical_block_markup'] = $frame['content'];
             $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($frame['content']);
         }
+        // A page that keeps its chrome in its own content must not also get the
+        // generic frame, so it renders through a plain route template.
+        if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames['page-' . $page['slug']] = array('opening' => '', 'closing' => '', 'shells' => array());
         return array('pages' => $pages, 'frames' => $frames);
+    }
+
+    /** @param array{opening:string,closing:string} $frame */
+    private static function frameIdentity(array $frame): string
+    {
+        return (string) preg_replace('/blocks-engine-dialog(?:-trigger)?-[0-9a-f]{16}/', 'blocks-engine-dialog', EngineMarker::withoutDocumentSeeds($frame['opening'] . "\0" . $frame['closing']));
     }
 
     /**
