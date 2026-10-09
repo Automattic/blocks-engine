@@ -666,6 +666,57 @@ JS;
         $registry = $session->generatedBlockRegistry()
             ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
 
+        // Portable src-swap galleries expose a handful of live frame slots,
+        // not one DOM node per slide. Their ordered sequence is the authored
+        // slide collection; use the offset-zero image only as an image template.
+        if ($element->hasAttribute('data-dla-gallery-sequence')) {
+            $sequence = json_decode($element->getAttribute('data-dla-gallery-sequence'), true);
+            $primary = null;
+            foreach ($element->getElementsByTagName('img') as $slot) {
+                if ($slot instanceof DOMElement && '0' === trim($slot->getAttribute('data-dla-gallery-slot'))) {
+                    $primary = $slot;
+                    break;
+                }
+            }
+            if (is_array($sequence) && count($sequence) >= 2 && $primary instanceof DOMElement
+                && count(array_filter($sequence, static fn($url): bool => is_string($url) && '' !== trim($url))) === count($sequence)
+            ) {
+                $slides = array();
+                foreach ($sequence as $url) {
+                    $image = $primary->cloneNode(true);
+                    if (!$image instanceof DOMElement) return null;
+                    $image->setAttribute('src', $url);
+                    $image->removeAttribute('srcset');
+                    $image->removeAttribute('data-dla-gallery-slot');
+                    $slide = $convertImage($image);
+                    if (null === $slide || 'core/image' !== ($slide['blockName'] ?? null)) return null;
+                    $slides[] = $slide;
+                }
+                $registry->register(self::class, $this->definition($registry->namespace()));
+                $attributes = array(
+                    'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
+                    'itemsPerView' => 1,
+                    'wrap' => true,
+                    'presentation' => 'slideshow',
+                    'slideCount' => count($slides),
+                    'initialSlide' => 0,
+                    'showDots' => false,
+                    'transitionStyle' => 'fade',
+                );
+                $shell = $this->shell($attributes);
+                $innerContent = array($shell['opening']);
+                foreach ($slides as $_) $innerContent[] = null;
+                $innerContent[] = $shell['closing'];
+                return array(
+                    'blockName' => $registry->blockName(self::LOCAL_NAME),
+                    'attrs' => $attributes,
+                    'innerBlocks' => $slides,
+                    'innerHTML' => $shell['opening'] . $shell['closing'],
+                    'innerContent' => $innerContent,
+                );
+            }
+        }
+
         if ( ! $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
             [$identityList] = $this->richestCarouselList($element);
             $hasIdentity = false;

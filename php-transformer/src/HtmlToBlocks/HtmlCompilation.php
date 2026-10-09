@@ -5651,6 +5651,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             );
         }
 
+        if ( 'custom/authored-carousel' === $blockName && $element->hasAttribute('data-dla-gallery-sequence') ) {
+            return array(
+                'conversion_classification' => 'editable_approximation',
+                'preservation_strategy'     => 'single_visible_slide_gallery_approximation',
+            );
+        }
+
         if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             return array(
                 'conversion_classification' => 'runtime_island_preserved',

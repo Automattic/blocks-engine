@@ -26,6 +26,30 @@ $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? 
 $serialized = (new Runtime())->serializeBlocks(array($block));
 $assert('custom/authored-carousel' === ((new Runtime())->parseBlocks($serialized)[0]['blockName'] ?? null), 'the carousel and its inner blocks persist through parse and serialize');
 
+$portableGallerySource = '<section data-dla-gallery="" data-dla-gallery-source=".gallery" data-dla-gallery-sequence="[&quot;/media/photo-a.jpeg&quot;,&quot;/media/photo-b.jpeg&quot;,&quot;/media/photo-c.jpeg&quot;,&quot;/media/photo-d.jpeg&quot;,&quot;/media/photo-e.jpeg&quot;]" data-dla-gallery-index="0">'
+    . '<button type="button" aria-label="Previous image" data-dla-gallery-direction="-1"><svg aria-hidden="true"><path d="M8 2 3 5l5 3"></path></svg></button>'
+    . '<img data-dla-gallery-slot="-1" src="/media/photo-e.jpeg" alt="Photo E">'
+    . '<img data-dla-gallery-slot="0" src="/media/photo-a.jpeg" alt="Gallery photo">'
+    . '<img data-dla-gallery-slot="1" src="/media/photo-b.jpeg" alt="Photo B">'
+    . '<button type="button" aria-label="Next image" data-dla-gallery-direction="1"><svg aria-hidden="true"><path d="m2 2 5 3-5 3"></path></svg></button></section>';
+$portableGalleryResult = (new HtmlTransformer())->transform($portableGallerySource)->toArray();
+$portableGallery = $portableGalleryResult['blocks'][0] ?? array();
+$portableGalleryMarkup = (string) ($portableGalleryResult['serialized_blocks'] ?? '');
+$portableImageUrls = array_map(static fn(array $slide): string => (string) ($slide['attrs']['url'] ?? ''), $portableGallery['innerBlocks'] ?? array());
+$assert(
+    'custom/authored-carousel' === ($portableGallery['blockName'] ?? null)
+        && 5 === count($portableGallery['innerBlocks'] ?? array())
+        && array('/media/photo-a.jpeg', '/media/photo-b.jpeg', '/media/photo-c.jpeg', '/media/photo-d.jpeg', '/media/photo-e.jpeg') === $portableImageUrls,
+    'portable src-swap gallery slots project to all editable image slides in sequence order'
+);
+$assert(
+    array_reduce($portableGallery['innerBlocks'] ?? array(), static fn(bool $valid, array $slide): bool => $valid && 'core/image' === ($slide['blockName'] ?? null) && str_starts_with((string) ($slide['attrs']['url'] ?? ''), '/media/'), true)
+        && str_contains($portableGalleryMarkup, 'actions.previous') && str_contains($portableGalleryMarkup, 'actions.next')
+        && !str_contains($portableGalleryMarkup, 'core/html') && !str_contains($portableGalleryMarkup, 'wp-block-freeform')
+        && array() === ($portableGalleryResult['fallbacks'] ?? array()),
+    'portable gallery keeps Media Library image attachments and functional carousel controls without fallback blocks'
+);
+
 $scopedPresentation = (new HtmlTransformer())->transform(
     '<style>@supports (--test-custom-property:true){.review-frame[data-section-id="review-42"]{--title-font-size-value:1.6}}'
         . '.review-frame[data-section-id="review-42"] .quote{font-size:calc((var(--title-font-size-value) - 1) * 1.2vw + 1rem);text-align:center}'
