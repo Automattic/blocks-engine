@@ -211,7 +211,7 @@ $richText = ( new ArtifactCompiler() )->compile(array(
     ),
 ) )->toArray();
 $richTextAssets = $richText['assets'] ?? array();
-$assert('engine-support' === ($richTextAssets[0]['source'] ?? '') && 'before-author' === ($richTextAssets[0]['stylesheet_placement'] ?? '') && str_starts_with((string) ($richTextAssets[0]['content'] ?? ''), ':where(mark[style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}') && str_contains((string) ($richTextAssets[1]['content'] ?? ''), '{color:#e8a020}') && ! str_contains((string) ($richTextAssets[1]['content'] ?? ''), 'background-color:transparent;color:inherit'), 'artifact projection emits one marker-reset support asset before the first projected author stylesheet');
+$assert('engine-support' === ($richTextAssets[0]['source'] ?? '') && 'before-author' === ($richTextAssets[0]['stylesheet_placement'] ?? '') && str_starts_with((string) ($richTextAssets[0]['content'] ?? ''), 'html mark:where([style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}') && str_contains((string) ($richTextAssets[1]['content'] ?? ''), '{color:#e8a020}') && ! str_contains((string) ($richTextAssets[1]['content'] ?? ''), 'background-color:transparent;color:inherit'), 'artifact projection emits one marker-reset support asset before the first projected author stylesheet');
 
 $importedFont = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><p><span class="accent">Text</span></p></body></html>' ),
@@ -219,7 +219,7 @@ $importedFont = ( new ArtifactCompiler() )->compile(array( 'files' => array(
 ) ) )->toArray();
 $importedFontAssets = array_column($importedFont['assets'] ?? array(), null, 'path');
 $importedFontCss = (string) ($importedFontAssets['style.css']['content'] ?? '');
-$assert(str_starts_with($importedFontCss, '@import url("https://fonts.googleapis.com/css2?family=Inter");') && ! str_contains($importedFontCss, ':where(mark[style*="--blocks-engine-richtext-marker:"])') && 'before-author' === ($importedFont['assets'][0]['stylesheet_placement'] ?? '') && 'style.css' === ($importedFont['assets'][1]['path'] ?? ''), 'author stylesheet imports retain their leading preamble while marker support loads from a preceding asset');
+$assert(str_starts_with($importedFontCss, '@import url("https://fonts.googleapis.com/css2?family=Inter");') && ! str_contains($importedFontCss, 'html mark:where([style*="--blocks-engine-richtext-marker:"])') && 'before-author' === ($importedFont['assets'][0]['stylesheet_placement'] ?? '') && 'style.css' === ($importedFont['assets'][1]['path'] ?? ''), 'author stylesheet imports retain their leading preamble while marker support loads from a preceding asset');
 
 $inlineLayoutLeaves = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="layout.css"><div class="artifact-card"><span class="card-label">Input</span><strong>index.html</strong><span class="card-label">styles.css</span><span class="card-label">assets/</span></div><p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>' ),

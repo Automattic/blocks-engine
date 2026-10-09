@@ -2422,11 +2422,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return '';
         }
 
-        // Zero specificity: the reset only undoes the user agent's <mark> paint,
-        // so any author rule wins wherever its stylesheet lands. A captured
-        // document can keep author styles in its own <head>, ahead of this
-        // before-author asset, where an equal-specificity reset would win.
-        return ':where(mark[style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}';
+        // Specificity (0,0,2): above an author rule that selects `mark` by tag
+        // alone (Bootstrap's reboot, older normalize.css), which never matched
+        // the source span a marker replaces, and below any author class rule
+        // wherever its stylesheet lands. A captured document can keep author
+        // styles in its own <head>, ahead of this before-author asset.
+        return 'html mark:where([style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}';
     }
 
     /** @param array<string, mixed> $options */
