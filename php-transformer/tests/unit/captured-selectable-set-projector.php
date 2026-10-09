@@ -236,4 +236,21 @@ if (0 !== $failures) {
     fwrite(STDERR, "captured-selectable-set-projector failed: {$failures} failure(s), {$passes} pass(es)\n");
     exit(1);
 }
+// Inactive panels a tab library leaves behind (empty, hidden, labelled by this set's own triggers) are removed.
+$leftoverSource = '<html><body><main><div class="root"><div role="tablist"><button type="button" role="tab" id="t-alpha">Alpha</button><button type="button" role="tab" id="t-beta">Beta</button><button type="button" role="tab" id="t-gamma">Gamma</button></div><div role="tabpanel" aria-labelledby="t-alpha"><p>Select an item</p></div><div role="tabpanel" aria-labelledby="t-beta" hidden=""></div><div role="tabpanel" aria-labelledby="t-gamma" hidden=""><p>Kept: has text</p></div><div role="tabpanel" aria-labelledby="other-set" hidden=""></div></div></main></body></html>';
+$leftoverStates = array(
+    $member(0, 'Alpha', '<div><h2>Alpha</h2></div>', 'captured', false, array('selector' => '#t-alpha', 'id' => 't-alpha', 'role' => 'tab'), array('selector' => 'body > main > div > div:nth-of-type(1)')),
+    $member(1, 'Beta', '<div><h2>Beta</h2></div>', 'captured', false, array('selector' => '#t-beta', 'id' => 't-beta', 'role' => 'tab'), array('selector' => 'body > main > div > div:nth-of-type(1)')),
+);
+foreach ($leftoverStates as &$leftoverState) {
+    $leftoverState['dialog']['selector'] = 'body > main > div > div:nth-of-type(2)';
+}
+unset($leftoverState);
+$leftover = $project($files($leftoverSource, $leftoverStates));
+$leftoverMarkup = (string) $leftover['files'][0]['content'];
+$assert(str_contains($leftoverMarkup, 'aria-label="Items"'), 'the set still projects its own native tab list');
+$assert(! str_contains($leftoverMarkup, 'aria-labelledby="t-beta"'), 'an empty hidden source panel labelled by a member trigger is removed');
+$assert(str_contains($leftoverMarkup, 'aria-labelledby="t-gamma"'), 'a labelled source panel that holds text is kept');
+$assert(str_contains($leftoverMarkup, 'aria-labelledby="other-set"'), 'an empty panel labelled by an unrelated trigger is kept');
+
 echo "OK: captured-selectable-set-projector passed ({$passes} assertions)\n";
