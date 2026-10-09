@@ -6,13 +6,21 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
-$source = require dirname(__DIR__) . '/fixtures/navigation-anchor-subject.php';
+$scopedDropdown = '1' === getenv('SCOPED_DROPDOWN_TEST');
+$source = require dirname(__DIR__) . ($scopedDropdown ? '/fixtures/scoped-mixed-dropdown.php' : '/fixtures/navigation-anchor-subject.php');
 if (!username_exists('navigation-proof')) {
     $user = wp_insert_user(array('user_login' => 'navigation-proof', 'user_pass' => 'navigation-test-password', 'user_email' => 'navigation-proof@example.test', 'role' => 'administrator'));
     if (is_wp_error($user)) throw new RuntimeException($user->get_error_message());
 }
-$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $source, 'other.html' => $source)))->toWordPressSitePlanView()['wordpress_site_plan'];
-$theme = 'navigation-anchor-proof';
+$files = array('index.html' => $source, 'other.html' => $source);
+if ($scopedDropdown) {
+    $files['capture-receipt.json'] = json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'index.html'), array('url' => 'https://example.test/other', 'path' => 'other.html'))));
+    $pages = array();
+    foreach (array('https://example.test/', 'https://example.test/other') as $url) $pages[] = array('sourceUrl' => $url, 'states' => array(array('status' => 'captured', 'trigger' => array('selector' => 'missing', 'label' => 'Open menu', 'tag' => 'div', 'ariaHaspopup' => 'menu'), 'dialog' => array('html' => '<div>Panel</div>', 'htmlBytes' => 16, 'htmlTruncated' => false, 'presentation' => 'dropdown'))));
+    $files['interaction-states.json'] = json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => $pages));
+}
+$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
+$theme = $scopedDropdown ? 'scoped-dropdown-proof' : 'navigation-anchor-proof';
 $directory = WP_CONTENT_DIR . '/themes/' . $theme;
 $resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => home_url('/wp-content/themes/' . $theme)));
 $references = array();

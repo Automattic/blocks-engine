@@ -18,7 +18,7 @@ final class ButtonElementConverter implements ElementConverter
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
         $roleButton = AuthoredButtonBlockGenerator::isRoleButton($element);
-        if ( 'button' !== $tagName && (!$roleButton || !$this->context->isRuntimeDomTarget($element)) ) {
+        if ( 'button' !== $tagName && (!$roleButton || (!$this->context->isRuntimeDomTarget($element) && !SourceDom::isBoundCapturedDialogTrigger($element))) ) {
             return ConversionOutcome::unhandled();
         }
 

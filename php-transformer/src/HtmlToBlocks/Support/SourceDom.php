@@ -1013,7 +1013,7 @@ final class SourceDom
         if ( '' === $id || null === $document ) {
             return false;
         }
-        foreach ( $document->getElementsByTagName('dialog') as $dialog ) {
+        foreach ( $document->getElementsByTagName('*') as $dialog ) {
             if ( $dialog instanceof DOMElement
                 && 'true' === self::attr($dialog, 'data-blocks-engine-captured-dialog')
                 && in_array($id, preg_split('/\s+/', trim(self::attr($dialog, 'data-blocks-engine-triggers'))) ?: array(), true)

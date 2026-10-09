@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
 
@@ -168,6 +169,13 @@ final class RuntimeDependencyParityReport
             $findings[] = $this->withSupersededDisposition($finding, $superseded);
         }
 
+        // An explicit DOM IDREF is evidence without interpreting JavaScript.
+        // A delegated helper can find its trigger while the trigger's panel has
+        // disappeared; checking only the script's literal selector misses that.
+        foreach ($this->controlledTargetFindings($sourceTargets, $generatedHtml, $sourcePath) as $finding) {
+            $findings[] = $this->withSupersededDisposition($finding, $superseded);
+        }
+
         // Stamp the canonical classification triplet so each runtime-dependency
         // finding carries a reason_code and pattern_family alongside the
         // repair_bucket it already sets, clustering by root cause downstream. The
@@ -187,6 +195,47 @@ final class RuntimeDependencyParityReport
         $report['findings'] = $findings;
 
         return $report;
+    }
+
+    /** @param array<string, array<string, mixed>> $sourceTargets
+     * @return list<array<string, mixed>>
+     */
+    private function controlledTargetFindings(array $sourceTargets, string $generatedHtml, string $sourcePath): array
+    {
+        $previous = libxml_use_internal_errors(true);
+        $document = new DOMDocument();
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $generatedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if (!$loaded) return array();
+        $findings = array();
+        $scopedTargets = array();
+        foreach ($document->getElementsByTagName('*') as $control) {
+            if (!$control->hasAttribute('aria-controls')) continue;
+            $scope = SourceDom::documentVariantRoot($control) ?? $document->documentElement;
+            if (!$scope instanceof DOMElement) continue;
+            $scopeKey = $scope->getNodePath();
+            if (!isset($scopedTargets[$scopeKey])) {
+                $scopedTargets[$scopeKey] = $this->withBlockCommentAnchorTargets($this->htmlTargets((string) $document->saveHTML($scope)), (string) $document->saveHTML($scope));
+            }
+            foreach (preg_split('/\s+/', trim($control->getAttribute('aria-controls'))) ?: array() as $id) {
+                if ('' === $id || !isset($sourceTargets['#' . $id]) || isset($scopedTargets[$scopeKey]['ids'][$id])) continue;
+                $findings[] = array(
+                    'code' => 'runtime_dependency_target_missing',
+                    'severity' => 'warning',
+                    'source_path' => $sourcePath,
+                    'selector' => '#' . $id,
+                    'target_id' => $id,
+                    'target_kind' => $sourceTargets['#' . $id]['tag'],
+                    'dependency_kind' => 'idref',
+                    'attribute' => 'aria-controls',
+                    'repair_bucket' => 'runtime_dom_target_preservation',
+                    'actionability' => 'preserve_or_recreate_the_referenced_dom_target_for_script_runtime',
+                    'message' => 'An emitted aria-controls binding has no target in its source document scope: #' . $id . '.',
+                );
+            }
+        }
+        return $findings;
     }
 
     /** Scan real start tags, never markup examples inside raw script/style text. */
