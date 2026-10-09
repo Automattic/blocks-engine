@@ -172,7 +172,13 @@ final class RuntimeScriptEvidenceAnalyzer
             if (preg_match_all($expression, $script, $matches)) foreach ($matches[2] as $selector) $selectors[$this->canonicalSelector($selector)] = true;
         }
         if (preg_match_all('/(?:querySelector(?:All)?|closest)\s*\(\s*(["\'`])(.{1,240}?)\1\s*\)/s', $script, $calls, PREG_SET_ORDER)) {
-            foreach ($calls as $call) foreach ($this->dataSelectors($call[2]) as $selector) $selectors[$selector] = true;
+            foreach ($calls as $call) {
+                // The bounded selector pass above retains an adjacent-attribute
+                // compound as one selector. Do not then split it into independent
+                // data-attribute targets here: every simple selector is required.
+                if (preg_match('/\]\s*\[/', $call[2])) continue;
+                foreach ($this->dataSelectors($call[2]) as $selector) $selectors[$selector] = true;
+            }
         }
         foreach (array('canvas', 'svg') as $tag) foreach ($this->scopedElementSelectors($script, $tag) as $selector) $selectors[$selector] = true;
         foreach ($this->appendedRootSelectors($script) as $selector) $selectors[$selector] = true;

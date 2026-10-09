@@ -117,6 +117,7 @@ $grammar = $makeAnalyzer();
 foreach (array('#app', '.panel', 'div.panel', '[data-widget]', 'div[data-widget]', 'canvas', 'svg', 'button') as $ok) {
     $assert($grammar->isBoundedRuntimeSelector($ok), 'bounded-selector-' . $ok);
 }
+$assert($grammar->isBoundedRuntimeSelector('[data-x-stage][data-x-trigger]'), 'bounded-compound-data-selector');
 foreach (array('div > span', '*', 'div:hover', '', 'div p') as $bad) {
     $assert(! $grammar->isBoundedRuntimeSelector($bad), 'unbounded-selector-rejected-' . ($bad === '' ? 'empty' : $bad));
 }
@@ -128,6 +129,12 @@ $assert($dataAttr->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<div d
 $assert(! $dataAttr->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<canvas data-widget="1"></canvas>')), 'canvas-excluded-from-data-attribute-preservation');
 $assert(! $dataAttr->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<form data-widget="1"></form>')), 'form-excluded-from-data-attribute-preservation');
 $assert(! $dataAttr->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<input data-widget="1">')), 'form-control-excluded-from-data-attribute-preservation');
+$compoundTarget = $makeAnalyzer(array('[data-x-stage][data-x-trigger]'));
+$assert(
+    ! $compoundTarget->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<button type="button" data-x-trigger>Open menu</button>'))
+        && $compoundTarget->shouldPreserveDataAttributeRuntimeTarget($elementFrom('<div data-x-stage data-x-trigger></div>')),
+    'compound data selectors require every simple selector before preserving a runtime target'
+);
 
 // Bounded attribute capture is truncated and keeps data-* alongside identity.
 $attrs = $makeAnalyzer()->boundedRuntimeTargetAttributes($elementFrom('<div id="i" class="c" role="tab" data-k="' . str_repeat('x', 300) . '"></div>'));

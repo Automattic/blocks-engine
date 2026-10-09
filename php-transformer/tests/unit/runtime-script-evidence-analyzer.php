@@ -41,6 +41,8 @@ $idLookup = array_column($analyzer->analyze('document.getElementById("fade-in");
 $assert(false === $idLookup['#fade-in']['presentation_only'], 'Presentational IDs reached outside querySelector remain fail-closed runtime dependencies.');
 $closestLookup = array_column($analyzer->analyze('target.closest(".fade-in");')['dependencies'], null, 'selector');
 $assert(false === $closestLookup['.fade-in']['presentation_only'], 'Presentational closest selectors remain fail-closed runtime dependencies.');
+$compoundSelectors = $analyzer->analyze('document.querySelectorAll("[data-x-stage][data-x-trigger]");')['selectors'];
+$assert(array('[data-x-stage][data-x-trigger]') === $compoundSelectors, 'Adjacent data-attribute selectors remain one compound target instead of independent targets.');
 
 $cachedScript = 'document.querySelector("#runtime-root");';
 $analyzer->analyze($cachedScript, 'first.html', 'assets/runtime.js');

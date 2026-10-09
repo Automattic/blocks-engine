@@ -572,8 +572,6 @@ final class RuntimeIslandAnalyzer
 
     public function isBoundedRuntimeSelector(string $selector): bool
     {
-        $name = '[A-Za-z][A-Za-z0-9_-]*';
-        $runtimeTags = implode('|', self::RUNTIME_TAG_SELECTORS);
-        return 1 === preg_match('/^(?:[#.]' . $name . '|' . $name . '\.' . $name . '|\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\]|' . $name . '\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\]|canvas|svg|' . $runtimeTags . ')$/', $selector);
+        return 1 === preg_match('/^' . RuntimeSelectorVocabulary::scriptSelectorPattern() . '$/', $selector);
     }
 }

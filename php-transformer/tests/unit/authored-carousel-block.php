@@ -50,8 +50,25 @@ $assert(
         && str_contains($portableGalleryMarkup, 'actions.previous') && str_contains($portableGalleryMarkup, 'actions.next')
         && !str_contains($portableGalleryMarkup, 'core/html') && !str_contains($portableGalleryMarkup, 'wp-block-freeform')
         && !in_array('core/html', $portableBlockNames, true) && !in_array('core/freeform', $portableBlockNames, true)
-        && str_contains($portableGalleryMarkup, 'data-dla-gallery=""'),
-    'portable gallery keeps Media Library image attachments and functional carousel controls without fallback blocks'
+        && str_contains($portableGalleryMarkup, 'data-dla-gallery=""')
+        && 'src-swap' === ($portableGallery['attrs']['presentation'] ?? null)
+        && str_contains($portableGalleryMarkup, 'gallery-side-left')
+        && str_contains($portableGalleryMarkup, 'gallery-main')
+        && str_contains($portableGalleryMarkup, 'gallery-side-right')
+        && str_contains($portableGalleryMarkup, 'data-dla-gallery-slot="-1"')
+        && str_contains($portableGalleryMarkup, 'data-dla-gallery-slot="1"'),
+    'portable gallery keeps its source three-slot layout, editable attachments, and functional controls without fallback blocks'
+);
+
+$compoundMenuResult = (new HtmlTransformer())->transform(
+    '<script>document.querySelectorAll("[data-x-stage][data-x-trigger]");</script>'
+        . '<button type="button" id="neutral-menu-toggle" aria-label="Open menu" data-x-trigger><span>Menu</span></button>'
+)->toArray();
+$assert(
+    !str_contains((string) ($compoundMenuResult['serialized_blocks'] ?? ''), 'wp:html')
+        && str_contains((string) ($compoundMenuResult['serialized_blocks'] ?? ''), 'neutral-menu-toggle')
+        && str_contains((string) ($compoundMenuResult['serialized_blocks'] ?? ''), 'Menu'),
+    'a button matching only one part of a compound script selector remains convertible'
 );
 
 $scopedPresentation = (new HtmlTransformer())->transform(
@@ -118,7 +135,7 @@ $assert('file:./view.js' === ($definition['block_json']['viewScriptModule'] ?? n
 $assert(str_contains($view, "from '@wordpress/interactivity'") && str_contains($view, "store( 'blocks-engine/carousel'"), 'frontend behavior is a script module built on the WordPress Interactivity API');
 $assert(str_contains($view, "'ArrowLeft'") && str_contains($view, "'ArrowRight'") && str_contains($view, 'requested > maximum ? 0'), 'frontend behavior supports keyboard navigation and deterministic wrapping');
 $assert(str_contains($style, 'grid-auto-flow:column') && str_contains($style, '@media(max-width:600px)') && str_contains($style, 'prefers-reduced-motion:reduce'), 'carousel layout is bounded and responsive with reduced-motion handling');
-$assert(str_contains($style, '.blocks-engine-authored-carousel{--blocks-engine-carousel-gap:1rem;position:relative;') && ! str_contains($style, '--slideshow{position:static'), 'every carousel presentation keeps a positioned root so a source background layer cannot paint over the rebuilt rail');
+$assert(str_contains($style, '.blocks-engine-authored-carousel:not(.blocks-engine-authored-carousel--src-swap){--blocks-engine-carousel-gap:1rem;position:relative;') && ! str_contains($style, '--slideshow{position:static'), 'the authored carousel layout rules leave the source-layout src-swap presentation to its own stylesheet');
 $assert(str_contains($style, 'pointer-events:auto'), 'slideshow controls and viewport remain interactive inside source layers that disable pointer events');
 $assert(
     ! str_contains($style, 'mobile-arrows') && ! str_contains($style, 'desktop-arrows') && ! str_contains($style, 'arrows-bottom')
