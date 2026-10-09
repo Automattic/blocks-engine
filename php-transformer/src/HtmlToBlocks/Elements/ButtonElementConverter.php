@@ -82,7 +82,10 @@ final class ButtonElementConverter implements ElementConverter
             if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array('img', 'svg'), true) ) {
                 return false;
             }
-            if ( 'svg' === strtolower($child->tagName) && 'true' !== strtolower(trim(SourceDom::attr($child, 'aria-hidden'))) ) {
+            if ( 'svg' === strtolower($child->tagName)
+                && ( 'true' !== strtolower(trim(SourceDom::attr($child, 'aria-hidden')))
+                    || '' === trim(SourceDom::attr($child, 'viewbox'))
+                    || 0 === SourceDom::childElementCount($child) ) ) {
                 return false;
             }
             $hasArtwork = true;
