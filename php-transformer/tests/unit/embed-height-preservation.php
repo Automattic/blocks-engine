@@ -49,16 +49,16 @@ $assert('spotify' === ($authoredHeightBlock['attrs']['providerNameSlug'] ?? ''),
 $assert(true === ($authoredHeightBlock['attrs']['responsive'] ?? null), 'the embed block declares responsive sizing so Gutenberg save() owns the aspect-ratio class');
 $assert(
     str_contains($authoredHeightClassName, 'wp-has-aspect-ratio')
-    && ! str_contains($authoredHeightClassName, 'wp-embed-aspect-'),
-    'an authored absolute height carries wp-has-aspect-ratio WITHOUT a proportional wp-embed-aspect-* preset — the box is fixed, not approximated'
+    && str_contains($authoredHeightClassName, 'wp-embed-aspect-18-9'),
+    'an authored absolute height declares a responsive core ratio while its exact pixel carrier remains authoritative'
 );
 $assert(
     1 === preg_match('/\bbe-inline-geometry-[0-9a-f]{16,}\b/', $authoredHeightClassName, $carrierMatch),
     'an authored absolute height mints a generated-stylesheet carrier class on the figure'
 );
 $assert(
-    str_contains($authoredHeightMarkup, '<figure class="wp-block-embed is-type-rich is-provider-spotify wp-block-embed-spotify block w-full border-0 ' . $carrierMatch[0] . ' wp-has-aspect-ratio blocks-engine-synthetic-embed-figure">'),
-    'the carrier and wp-has-aspect-ratio classes land on the saved <figure>, which autoembed() never touches'
+    str_contains($authoredHeightMarkup, '<figure class="wp-block-embed is-type-rich is-provider-spotify wp-block-embed-spotify block w-full border-0 ' . $carrierMatch[0] . ' wp-embed-aspect-18-9 wp-has-aspect-ratio blocks-engine-synthetic-embed-figure">'),
+    'the carrier and responsive core aspect classes land on the saved <figure>, which autoembed() never touches'
 );
 $assert(
     str_contains($combinedAssetCss($authoredHeight), '.' . $carrierMatch[0] . ' .wp-block-embed__wrapper{height:520px!important}'),
@@ -82,9 +82,9 @@ $youtubeAbsolute = ( new HtmlTransformer() )->transform(
 $youtubeAbsoluteBlock = $youtubeAbsolute['blocks'][0] ?? array();
 $youtubeAbsoluteClassName = (string) ($youtubeAbsoluteBlock['attrs']['className'] ?? '');
 $assert(
-    str_contains($youtubeAbsoluteClassName, 'wp-has-aspect-ratio') && ! str_contains($youtubeAbsoluteClassName, 'wp-embed-aspect-')
+    str_contains($youtubeAbsoluteClassName, 'wp-has-aspect-ratio') && str_contains($youtubeAbsoluteClassName, 'wp-embed-aspect-16-9')
         && true === ($youtubeAbsoluteBlock['attrs']['responsive'] ?? null),
-    'a 560x315 authored YouTube iframe also carries its absolute height, not the wp-embed-aspect-16-9 preset it happens to be exact for'
+    'a 560x315 authored YouTube iframe carries both its absolute height and the responsive core aspect preset'
 );
 $assert(
     str_contains($combinedAssetCss($youtubeAbsolute), '.wp-block-embed__wrapper{height:315px!important}'),
