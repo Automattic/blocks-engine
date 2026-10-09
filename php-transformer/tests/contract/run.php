@@ -6006,6 +6006,32 @@ $assert(! str_contains($triggerRowMarkup, '<!-- wp:button'), 'the source trigger
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($triggerRowSelectableSet['blocks'] ?? array()), 'trigger-row selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($triggerRowSelectableSet['blocks'] ?? array())['status'] ?? ''), 'trigger-row selectable-set tabs remain Gutenberg-valid');
 
+$pillSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Pill Tabs Site', 'slug' => 'captured-pill-tabs-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><div class="step-row" role="tablist"><button type="button" role="tab" aria-selected="true" data-state="active" style="padding:12px;border-radius:8px;background-color:#497969;color:#ffffff">Alpha</button><button type="button" role="tab" aria-selected="false" data-state="inactive" style="padding:12px;border-radius:8px;color:#737373">Beta</button></div><div class="detail"><p>Select an item to view details</p></div></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(
+                    array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0)),
+                    array('status' => 'captured', 'kind' => 'selectable-set', 'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'ariaHaspopup' => '', 'dataBindings' => array()), 'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false), 'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1)),
+                ),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$pillCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $pillSelectableSet['assets'] ?? array()));
+$assert(1 === preg_match('/\.wp-block-tab-list\.blocks-engine-tab-list-[a-f0-9]+ button\{[^}]*border-radius:8px[^}]*\}/', $pillCss), 'plain-text source triggers still carry their box styling onto the tab buttons');
+$assert(1 === preg_match('/button\[aria-selected="true"\]\{[^}]*background-color:#497969[^}]*\}/', $pillCss), 'the selected source trigger look is carried onto the selected tab');
+$assert(1 !== preg_match('/button\{[^}]*background-color:#497969/', $pillCss), 'the selected look is not applied to every tab');
+
 $sideBySideActive = '<div class="panel"><h2>Gamma</h2><p>Gamma specification details</p></div>';
 $sideBySideTrigger = static fn(int $index, string $label, string $html, int $size): array => array(
     'status' => 'captured',

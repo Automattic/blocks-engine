@@ -347,9 +347,13 @@ final class CapturedSelectableSetProjector
             if ($markup instanceof \DOMDocumentFragment) {
                 $button->setAttribute(self::LABEL_ATTRIBUTE, $member['label']);
                 $button->appendChild($markup);
-                $member['element']->setAttribute(self::TRIGGER_ATTRIBUTE, $identity);
             } else {
                 $button->appendChild($document->createTextNode($member['label']));
+            }
+            // Mark every source trigger, plain-text ones included, so the tab
+            // list can carry the source trigger's box styling.
+            if ($triggerRow instanceof DOMElement && ($member['element'] ?? null) instanceof DOMElement) {
+                $member['element']->setAttribute(self::TRIGGER_ATTRIBUTE, $identity);
             }
             $tabList->appendChild($button);
         }
