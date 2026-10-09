@@ -81,7 +81,10 @@ final class ShellExtraction
         $occupiedAreas = array_column($candidates, 'area');
         $nestedLandmarks = $this->nestedLandmarkShellCandidates($canonical, $sourcePath, $occupiedAreas);
         if (array() !== $nestedLandmarks) {
-            return array_merge($candidates, $nestedLandmarks);
+            // A landmark found for one area does not settle the other. A page
+            // with a labelled footer can still have an unlabelled header.
+            $occupiedAreas = array_merge($occupiedAreas, array_column($nestedLandmarks, 'area'));
+            return array_merge($candidates, $nestedLandmarks, $this->unlabeledChromeCandidates($canonical, $sourcePath, $occupiedAreas));
         }
         return array_merge($candidates, $this->nestedChromeCandidates($canonical, $sourcePath, $occupiedAreas));
     }
@@ -221,7 +224,10 @@ final class ShellExtraction
      */
     private function collectNestedChrome(string $markup, int $baseOffset, array &$headers, array &$footers): void
     {
-        $ranges = self::topLevelBlockRanges($markup);
+        $allRanges = self::topLevelBlockRanges($markup);
+        // Empty decorative groups before the header (backdrops, glows) are not
+        // content, so the header is the first block that holds something.
+        $ranges = self::withoutLeadingEmptyVisualGroups($markup, $allRanges);
         if (2 <= count($ranges)) {
             $first = substr($markup, $ranges[0]['offset'], $ranges[0]['length']);
             if (self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($first)) {
@@ -244,7 +250,7 @@ final class ShellExtraction
                 }
             }
         }
-        foreach ($ranges as $range) {
+        foreach ($allRanges as $range) {
             $block = substr($markup, $range['offset'], $range['length']);
             $children = self::directChildBlockRanges($block);
             if (array() === $children) {
@@ -354,9 +360,21 @@ final class ShellExtraction
      * Extra wrappers around header-only chrome have no later content child and
      * stay the header candidate.
      */
+    /**
+     * @param array<int,array{offset:int,length:int}> $ranges
+     * @return array<int,array{offset:int,length:int}>
+     */
+    private static function withoutLeadingEmptyVisualGroups(string $markup, array $ranges): array
+    {
+        while (array() !== $ranges && self::isEmptyVisualGroup(substr($markup, $ranges[0]['offset'], $ranges[0]['length']))) {
+            array_shift($ranges);
+        }
+        return $ranges;
+    }
+
     private static function chromeSplitIsInside(string $markup): bool
     {
-        $children = self::directChildBlockRanges($markup);
+        $children = self::withoutLeadingEmptyVisualGroups($markup, self::directChildBlockRanges($markup));
         if (count($children) < 2) {
             return false;
         }
@@ -1840,6 +1858,8 @@ final class ShellExtraction
         $markup = self::withoutScrollStateCarrierIdentity($markup);
         $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;
         $markup = preg_replace('/\s*blocks-engine-(?:specificity-class|disclosure-summary)-[a-f0-9]{6,}(?:-\d+)?/', '', $markup) ?? $markup;
+        // A captured dialog trigger's generated id carries a per-document hash.
+        $markup = preg_replace('/blocks-engine-dialog-trigger-[a-f0-9]+-(\d+)/', 'blocks-engine-dialog-trigger-$1', $markup) ?? $markup;
         $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?/', '', $markup) ?? $markup;
         $markup = preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
         $markup = preg_replace('/(?:\.\.\/)+assets\//', 'assets/', $markup) ?? $markup;
@@ -1981,14 +2001,17 @@ final class ShellExtraction
             arsort($counts, SORT_NUMERIC);
             $restingColorBySignature[$signature] = (string) array_key_first($counts);
         }
-        $navigationIndex = -1;
-        $markup = preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature, $restingPeers, &$navigationIndex): string {
-            if ('navigation' === $match[1]) ++$navigationIndex;
+        $navigationIndex = -1; $submenuDepth = 0;
+        $markup = preg_replace_callback('/<!--\s*(?:\/wp:navigation-submenu|wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?)\s*-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature, $restingPeers, &$navigationIndex, &$submenuDepth): string {
+            if (!isset($match[1])) { $submenuDepth = max(0, $submenuDepth - 1); return $match[0]; }
+            if ('navigation' === $match[1]) { ++$navigationIndex; $submenuDepth = 0; }
+            $depth = $submenuDepth;
+            if ('navigation-submenu' === $match[1] && empty($match[3])) ++$submenuDepth;
             $attrs = json_decode($match[2], true);
             if (!is_array($attrs)) return $match[0];
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
             $current = in_array('blocks-engine-current-navigation-item', $classes, true);
-            $peer = $restingPeers[$navigationIndex] ?? null;
+            $peer = $restingPeers[$navigationIndex . ':' . $depth] ?? null;
             if ($current && 'navigation-link' === $match[1] && is_array($peer)) {
                 // A client router can paint the current item through its own
                 // utility classes instead of an aria-current hook. The shared part
@@ -2000,6 +2023,7 @@ final class ShellExtraction
                 // Stable item classes stay; a homepage marker is not current-page state.
                 $own = array_diff_key($attrs, array_flip(array('className', 'style', 'color', 'typography', 'anchor', 'anchorClassName')));
                 $attrs = array_merge($peer, $own);
+                if ($semanticIdentity) unset($attrs['color'], $attrs['style'], $attrs['typography']);
                 $peerClasses = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
                 $stable = array_values(array_filter($classes, static fn(string $class): bool => '' !== $class && !self::isCurrentPageClass($class, $peerClasses) && !preg_match('/^blocks-engine-navigation-(?:current|link)-color-[a-f0-9]{64}$/', $class) && !preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class) && !preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class) && !in_array($class, $peerClasses, true)));
                 // The part keeps the item's own link-state carrier, which the
@@ -2036,7 +2060,11 @@ final class ShellExtraction
             }
             $attrs['className'] = implode(' ', $classes);
             if ('' === $attrs['className']) unset($attrs['className']);
-            if ($current) unset($attrs['color'], $attrs['style'], $attrs['typography']);
+            // Any link to a route can be the current one on some page, and the
+            // current item's colour and type are not kept. A lone top-level link
+            // has no resting peer to take them from, so identity ignores them
+            // on every link rather than splitting the header by which page it is.
+            if ($current || ($semanticIdentity && $isLink)) unset($attrs['color'], $attrs['style'], $attrs['typography']);
             if ($current || ($semanticIdentity && $isLink)) unset($attrs['anchor'], $attrs['anchorClassName']);
             return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
         }, $markup) ?? $markup;
@@ -2056,23 +2084,33 @@ final class ShellExtraction
     }
 
     /**
-     * Per navigation block (document order), the presentation shared by at
-     * least two of its non-current links: className plus color/style attrs.
+     * Per navigation block (document order) and submenu depth, keyed
+     * `index:depth`, the presentation shared by at least two of its non-current
+     * links: className plus color/style attrs.
      *
-     * @return array<int,array<string,mixed>|null>
+     * @return array<string,array<string,mixed>|null>
      */
     private static function restingNavigationPeers(string $markup): array
     {
-        $peers = array(); $index = -1; $groups = array(); $currentSignatures = array();
-        preg_match_all('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(?:\/)?-->/s', $markup, $matches, PREG_SET_ORDER);
+        $peers = array(); $index = -1; $groups = array(); $currentSignatures = array(); $depth = 0;
+        preg_match_all('/<!--\s*(\/)?wp:(navigation(?:-link|-submenu)?)(?:\s+(\{.*?\}))?\s*(\/)?-->/s', $markup, $matches, PREG_SET_ORDER);
         foreach ($matches as $match) {
-            if ('navigation' === $match[1]) { ++$index; $groups[$index] = array(); continue; }
-            if ('navigation-link' !== $match[1] || $index < 0) continue;
-            $attrs = json_decode($match[2], true);
+            if ('navigation-submenu' === $match[2]) {
+                if ('' !== $match[1]) { $depth = max(0, $depth - 1); continue; }
+                if (empty($match[4])) ++$depth;
+                continue;
+            }
+            if ('' !== $match[1]) continue;
+            if ('navigation' === $match[2]) { ++$index; $depth = 0; continue; }
+            if ($index < 0) continue;
+            // A link is only a peer of the links beside it. The items of a
+            // submenu style differently from the top-level items.
+            $level = $index . ':' . $depth;
+            $attrs = json_decode($match[3] ?? '', true);
             if (!is_array($attrs)) continue;
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
             if (in_array('blocks-engine-current-navigation-item', $classes, true)) {
-                $currentSignatures[$index][] = self::navigationClassSignature($classes);
+                $currentSignatures[$level][] = self::navigationClassSignature($classes);
                 continue;
             }
             $presentation = array_intersect_key($attrs, array_flip(array('className', 'style', 'color', 'typography')));
@@ -2082,7 +2120,7 @@ final class ShellExtraction
                 $presentation['className'] = implode(' ', $classes);
             }
             $key = json_encode($presentation);
-            $groups[$index][$key] = array('count' => ($groups[$index][$key]['count'] ?? 0) + 1, 'presentation' => $presentation);
+            $groups[$level][$key] = array('count' => ($groups[$level][$key]['count'] ?? 0) + 1, 'presentation' => $presentation);
         }
         foreach ($groups as $navigation => $candidates) {
             uasort($candidates, static fn(array $left, array $right): int => $right['count'] <=> $left['count']);
