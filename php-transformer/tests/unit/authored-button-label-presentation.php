@@ -35,6 +35,10 @@ $assert(!str_contains($generator->markup($attrs), '<script>'), 'edited label can
 $attrs['labelWrappers'][] = array('tagName' => 'script', 'attributes' => array());
 $assert(!str_contains($generator->markup($attrs), '<script>'), 'unsupported wrapper tags do not render');
 $assert('<button type="submit">Plain &amp; safe</button>' === $generator->markup(array('text' => 'Plain & safe')), 'plain labels retain their established save shape');
+$assert(
+    str_contains($generator->markup(array('type' => 'button', 'sourceAttributes' => array(array('name' => 'hidden', 'value' => '')))), 'hidden=""'),
+    'hidden native helper buttons stay hidden in the authored button save markup'
+);
 $branched = new DOMDocument();
 $branched->loadHTML('<button><span>One</span><input value="Two"></button>', LIBXML_NOERROR | LIBXML_NOWARNING);
 $assert(array() === AuthoredButtonBlockGenerator::labelWrappers($branched->getElementsByTagName('button')->item(0)), 'interactive or branching label trees are not copied as HTML');
@@ -43,4 +47,4 @@ if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);
 }
-echo "Authored button label presentation passed: 8 assertions\n";
+echo "Authored button label presentation passed: 9 assertions\n";
