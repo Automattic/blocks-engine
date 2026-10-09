@@ -574,6 +574,102 @@ final class SourceDom
     }
 
     /**
+     * A heading whose only content is one or more images, each bare or the
+     * only content of one link: a logo title such as
+     * `<h3><a href="…"><img alt="Brand" src="…"></a></h3>`.
+     *
+     * Gutenberg's heading RichText holds such an `<img>` as its `core/image`
+     * object format and the `<a>` as its `core/link` format, keeping every
+     * image attribute, so the heading can stay a native, editable block.
+     * Text beside an image, `<picture>`, and lazy placeholder images do not
+     * qualify; they keep the conservative RichText fallback.
+     */
+    public static function isImageOnlyHeading(DOMElement $heading): bool
+    {
+        if ( 1 !== preg_match('/^h[1-6]$/', strtolower($heading->tagName)) ) {
+            return false;
+        }
+
+        $images = 0;
+        foreach ( $heading->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                return false;
+            }
+
+            $image = 'a' === strtolower($child->tagName) ? self::onlyChildElement($child, 'img') : $child;
+            if ( ! $image instanceof DOMElement
+                || ! self::isRichTextImageObject($image)
+                || ! self::hasOnlySafeFallbackAttributes($child)
+                || ! self::hasOnlySafeFallbackAttributes($image) ) {
+                return false;
+            }
+
+            ++$images;
+        }
+
+        return 0 < $images;
+    }
+
+    /**
+     * An `<img>` that RichText can carry as-is: a real `src` (not a `data:`
+     * placeholder) and no lazy-load source attribute that still has to be
+     * resolved into it.
+     */
+    private static function isRichTextImageObject(DOMElement $image): bool
+    {
+        if ( 'img' !== strtolower($image->tagName) ) {
+            return false;
+        }
+
+        $src = trim(self::attr($image, 'src'));
+        if ( '' === $src || str_starts_with(strtolower($src), 'data:') ) {
+            return false;
+        }
+
+        foreach ( array( 'data-src', 'data-lazy-src', 'data-original', 'data-image-src', 'data-srcset', 'data-lazy-srcset' ) as $lazySource ) {
+            if ( $image->hasAttribute($lazySource) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * True when {@see self::safeFallbackHtmlString()} would keep every
+     * attribute as is: no event handler and no unsafe URL. Markup that would
+     * need that cleaning keeps the sanitized core/html fallback instead of
+     * entering RichText unchanged.
+     */
+    private static function hasOnlySafeFallbackAttributes(DOMElement $element): bool
+    {
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $name  = strtolower($attribute->nodeName);
+            $value = (string) $attribute->nodeValue;
+            if ( str_starts_with($name, 'on') || 'srcdoc' === $name ) {
+                return false;
+            }
+            if ( 'srcset' === $name ) {
+                foreach ( SrcsetParser::parse($value) as $candidate ) {
+                    if ( ! self::safeFallbackUrl($candidate['url'], 'src') ) {
+                        return false;
+                    }
+                }
+                continue;
+            }
+            if ( self::isFallbackUrlAttribute($name) && ! self::safeFallbackUrl($value, $name) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * @param array<int, string> $excludedTags
      */
     public static function innerHtmlWithoutTags(DOMElement $element, array $excludedTags): string
