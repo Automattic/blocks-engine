@@ -43,8 +43,11 @@ final class DocumentHeadContext
                 if ('style' === $tag && '' !== trim($declaration['content']) && in_array(strtolower($attributes['type'] ?? ''), array('', 'text/css'), true)) ++$styleIndex;
                 if ('head' !== $declaration['placement']) continue;
                 if (isset($attributes['data-blocks-engine-marker-runtime']) || isset($attributes['data-blocks-engine-superseded-by'])) continue;
+                // A link with no href, or an empty one, has no URL to bind.
+                // Document link metadata skips it too (e.g. an imagesrcset-only preload).
+                if ('link' === $tag && '' === ($attributes['href'] ?? '')) continue;
                 $row = array('tag' => $tag, 'attributes' => $attributes);
-                if ('link' === $tag) { $row['url'] = $attributes['href'] ?? ''; $row['selector'] = 'link:nth-of-type(' . ($index + 1) . ')'; unset($row['attributes']['href']); }
+                if ('link' === $tag) { $row['url'] = $attributes['href']; $row['selector'] = 'link:nth-of-type(' . ($index + 1) . ')'; unset($row['attributes']['href']); }
                 if ('script' === $tag) {
                     $row['url'] = $attributes['src'] ?? ($inline['script']['script:nth-of-type(' . ($index + 1) . ')'] ?? '');
                     $row['inline'] = !isset($attributes['src']);
