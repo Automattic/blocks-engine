@@ -340,9 +340,11 @@ final class AuthorSelectorSemanticPreparer
      *
      * The selector is kept as authored when every source subject is a
      * declared document variant root, whose source attributes the output
-     * keeps, so the authored selector still finds it. A negated predicate
-     * with no subject (a shared header compiled without the device roots)
-     * keeps it too, since the negation would otherwise still be frozen.
+     * keeps, so the authored selector still finds it. A compile with no
+     * subject (a shared header compiled without the device roots) keeps it
+     * only for the document selector's own state: a negated `data-dla-*`
+     * attribute on the root (`html` or `:root`), which a source script
+     * writes. Any other negation keeps its existing projection.
      *
      * @param array<string, mixed> $parsed
      */
@@ -352,7 +354,7 @@ final class AuthorSelectorSemanticPreparer
             return false;
         }
         $runtimeOwned = false;
-        $negatedRuntimeOwned = false;
+        $runtimeSelectedRoot = false;
         foreach ( $parsed['compounds'] ?? array() as $compound ) {
             $negated = array();
             foreach ( $compound['not'] ?? array() as $negation ) {
@@ -360,10 +362,13 @@ final class AuthorSelectorSemanticPreparer
                     array_push($negated, ...CssSelectorCompoundInspector::dataAttributeNames($nested));
                 }
             }
+            $isRoot = ($compound['root'] ?? false) || 'html' === strtolower((string) ($compound['type'] ?? ''));
             foreach ( CssSelectorCompoundInspector::dataAttributeNames($compound) as $name ) {
-                if ( $this->sourceScriptsWriteAttribute($authorStyles, $projections, strtolower($name)) ) {
+                $name = strtolower($name);
+                if ( $this->sourceScriptsWriteAttribute($authorStyles, $projections, $name) ) {
                     $runtimeOwned = true;
-                    $negatedRuntimeOwned = $negatedRuntimeOwned || in_array($name, $negated, true);
+                    $runtimeSelectedRoot = $runtimeSelectedRoot
+                        || ($isRoot && str_starts_with($name, 'data-dla-') && in_array($name, array_map('strtolower', $negated), true));
                 }
             }
         }
@@ -376,7 +381,7 @@ final class AuthorSelectorSemanticPreparer
                 return false;
             }
         }
-        return array() !== $subjects || $negatedRuntimeOwned;
+        return array() !== $subjects || $runtimeSelectedRoot;
     }
 
     private function discoverNegatedDataAttributeState(string $selector, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void

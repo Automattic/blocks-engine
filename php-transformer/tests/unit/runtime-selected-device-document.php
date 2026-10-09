@@ -83,6 +83,23 @@ $siteCss = implode("\n", array_map(
 $assert(str_contains($siteCss, 'html:not([data-dla-selected-document]) [data-dla-device-document="desktop"]'), 'Multi-page site keeps the live desktop default.');
 $assert(!str_contains($siteCss, 'html:not(.blocks-engine-attribute-state-'), 'No page or shared shell projection freezes the script-written root attribute. Got: ' . $desktopRules($siteCss));
 
+// Negative: an ordinary page script toggling a body data attribute is not a
+// device selection. A subject-less compile keeps today's projection instead of
+// also emitting the raw `body:not([data-menu-open])` rule.
+$menuPage = static fn (string $title, string $content): string => '<!doctype html><html lang="en"><head><title>' . $title . '</title>'
+    . '<style>body:not([data-menu-open]) .promo-banner{color:red}.site-header p{margin:0}</style>'
+    . '<script>document.addEventListener("click",function(){document.body.setAttribute("data-menu-open","");});</script>'
+    . '</head><body><header class="site-header"><p>Oak Hills HOA</p></header><main>' . $content . '</main></body></html>';
+$menuSite = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $menuPage('Home', '<p class="promo-banner">Spring sale</p><p>Home copy</p>'),
+    'about/index.html' => $menuPage('About', '<p>About copy</p>'),
+)))->toArray();
+$menuCss = implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    array_filter($menuSite['assets'] ?? array(), static fn ($asset): bool => is_array($asset) && 'css' === ($asset['kind'] ?? ''))
+));
+$assert(!str_contains($menuCss, 'body:not([data-menu-open]) .promo-banner'), 'A non-device negated data attribute keeps its existing projection.');
+
 // Control: without a script that writes the root attribute, the captured state
 // is the only state, and the existing projection is unchanged.
 [$staticCss] = $compile($page(''));
