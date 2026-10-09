@@ -70,6 +70,19 @@ $assert(
         && str_contains((string) ($compoundMenuResult['serialized_blocks'] ?? ''), 'Menu'),
     'a button matching only one part of a compound script selector remains convertible'
 );
+$runtimeNavigation = (new HtmlTransformer())->transform(
+    '<button type="button" id="neutral-toggle" class="menu-toggle" aria-label="Open menu" aria-controls="neutral-panel" aria-haspopup="dialog" data-x-trigger><span></span></button>'
+        . '<div id="neutral-panel" class="menu-panel dla-dialog" role="dialog" hidden data-x-panel><nav aria-label="Site navigation"><a href="/social">Instagram</a><a href="/contact">Contact</a></nav></div>'
+        . '<script>document.querySelectorAll("[data-x-trigger]");</script>',
+    array('runtime_dom_selectors' => array('[data-x-trigger]'), 'runtime_behavioral_selectors' => array('[data-x-trigger]'))
+)->toArray();
+$assert(
+    str_contains((string) ($runtimeNavigation['serialized_blocks'] ?? ''), 'wp:navigation')
+        && str_contains((string) ($runtimeNavigation['serialized_blocks'] ?? ''), 'Instagram')
+        && str_contains((string) ($runtimeNavigation['serialized_blocks'] ?? ''), 'Contact')
+        && in_array('[data-x-trigger]', $runtimeNavigation['source_reports']['superseded_selectors'] ?? array(), true),
+    'a native navigation projection replaces its retained dialog trigger runtime contract while keeping menu links'
+);
 
 $scopedPresentation = (new HtmlTransformer())->transform(
     '<style>@supports (--test-custom-property:true){.review-frame[data-section-id="review-42"]{--title-font-size-value:1.6}}'
