@@ -73,9 +73,14 @@ $assert(! in_array('captured_dialog_trigger_unmatched', $codes($binding), true),
 $assert(str_contains((string) $binding['files'][0]['content'], 'data-blocks-engine-captured-dialog="true"'), 'declarative bindings inject a captured dialog');
 
 $overlaySource = '<html><body><header><button id="menu" type="button" aria-controls="overlay" aria-label="Open menu" aria-expanded="false" data-dla-disclosure-label="Open menu" data-dla-dialog-trigger="overlay" aria-haspopup="dialog"><span></span><span></span><span></span></button><div class="dla-dialog" role="dialog" aria-modal="true" hidden id="overlay" data-dla-dialog-panel="overlay"><div><button type="button">Close</button><nav><a href="/social">Social</a><a href="mailto:hello@example.test">Contact</a></nav></div></div></header></body></html>';
-$overlayState = $state(array('selector' => '#menu', 'tag' => 'button', 'label' => 'Open menu', 'ariaHaspopup' => '', 'dataBindings' => array()));
+$overlayDialog = '<div><nav><a href="/social">Social</a><a href="mailto:hello@example.test">Contact</a></nav></div>';
+$overlayState = array(
+    'status' => 'captured',
+    'trigger' => array('selector' => '#menu', 'tag' => 'button', 'label' => 'Open menu', 'ariaHaspopup' => '', 'dataBindings' => array()),
+    'dialog' => array('html' => $overlayDialog, 'htmlBytes' => strlen($overlayDialog), 'htmlTruncated' => false),
+);
 $overlayProjection = $project($files(array('https://example.test/overlay' => $overlaySource), array('https://example.test/overlay' => array($overlayState))));
-$assert(0 === ($overlayProjection['projected_count'] ?? -1) && !str_contains((string) $overlayProjection['files'][0]['content'], '<dialog') && str_contains((string) $overlayProjection['files'][0]['content'], 'data-dla-dialog-panel="overlay"'), 'a DLA-wired source navigation is left for native navigation promotion');
+$assert(1 === ($overlayProjection['projected_count'] ?? -1) && str_contains((string) $overlayProjection['files'][0]['content'], 'data-blocks-engine-captured-dialog="true"') && str_contains((string) $overlayProjection['files'][0]['content'], 'Contact'), 'captured menu content remains available when native navigation cannot claim it');
 
 $runtimeForm = $project($files(array('https://example.test/runtime-form' => '<html><body><header><nav><a href="/">Home</a><a role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a></nav></header></body></html>'), array('https://example.test/runtime-form' => array(array(
     'status' => 'captured',

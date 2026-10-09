@@ -185,12 +185,6 @@ final class CapturedDialogProjector
             if (array() !== $triggers && array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isAdopted($adopted, $trigger))) {
                 continue;
             }
-            // A captured overlay menu already present in the source document is
-            // projected by NavigationToggleSuppressor onto its trigger. Do not
-            // also wrap that same navigation in a captured-dialog companion.
-            if (array() !== array_filter($triggers, fn (DOMElement $trigger): bool => $this->isCapturedNavigationOverlayTrigger($trigger))) {
-                continue;
-            }
             // A navigation button with its dropdown panel of links stays in place:
             // it becomes a navigation submenu, not a dialog opened from a button.
             if (array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isNavigationDropdownTrigger($trigger))) {

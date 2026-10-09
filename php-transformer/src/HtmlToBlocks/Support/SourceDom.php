@@ -1031,11 +1031,9 @@ final class SourceDom
         $document = $control->ownerDocument;
         $targetId = trim(self::attr($control, 'aria-controls'));
         if ( null === $document || '' === $targetId || preg_match('/\s/', $targetId) ) return false;
-        foreach ( $document->getElementsByTagName('*') as $target ) {
-            if ( ! $target instanceof DOMElement || self::attr($target, 'id') !== $targetId ) continue;
-            return 'nav' === strtolower($target->tagName) || 0 < $target->getElementsByTagName('nav')->length;
-        }
-        return false;
+        $target = $document->getElementById($targetId);
+        return $target instanceof DOMElement
+            && ( 'nav' === strtolower($target->tagName) || 0 < $target->getElementsByTagName('nav')->length );
     }
 
     /**

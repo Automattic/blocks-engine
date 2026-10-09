@@ -30,25 +30,25 @@ final class CapturedDialogConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
 
-        if ( $this->hasSourceNavigationOwner($element) ) {
+        if ( $this->isSupersededByNativeNavigation($element) ) {
             return ConversionOutcome::handled(null);
         }
 
         return ConversionOutcome::handled($this->block($element, $fallbacks));
     }
 
-    private function hasSourceNavigationOwner(DOMElement $dialog): bool
+    private function isSupersededByNativeNavigation(DOMElement $dialog): bool
     {
         $document = $dialog->ownerDocument;
         if ( null === $document || 0 === $dialog->getElementsByTagName('nav')->length ) return false;
         foreach ( preg_split('/\s+/', trim(SourceDom::attr($dialog, 'data-blocks-engine-triggers'))) ?: array() as $triggerId ) {
-            foreach ( $document->getElementsByTagName('*') as $trigger ) {
-                if ( ! $trigger instanceof DOMElement || SourceDom::attr($trigger, 'id') !== $triggerId ) continue;
-                if ( 'dialog' === strtolower(trim(SourceDom::attr($trigger, 'aria-haspopup')))
-                    && SourceDom::controlsSourceNavigation($trigger)
-                    && ! NavigationPattern::ownsCapturedSubmenuTrigger($trigger)
-                ) return true;
-            }
+            $trigger = $document->getElementById($triggerId);
+            if ( ! $trigger instanceof DOMElement ) continue;
+            if ( 'dialog' === strtolower(trim(SourceDom::attr($trigger, 'aria-haspopup')))
+                && SourceDom::controlsSourceNavigation($trigger)
+                && ! NavigationPattern::ownsCapturedSubmenuTrigger($trigger)
+                && $this->session->navigationProjectionState()->hasTargetForControl($trigger)
+            ) return true;
         }
         return false;
     }
