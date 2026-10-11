@@ -103,6 +103,8 @@ PHP;
     private array $omittedLinkDeclarations = array();
     /** @var array<string,array<string,bool>> */
     private array $omittedLinkDeclarationPages = array();
+    /** @var array<string,int> Earlier viewport metas dropped per source path. */
+    private array $duplicateViewports = array();
     /** @var array<string,bool> */
     private array $omittedLinkDeclarationOverflow = array();
     /** @var array<int,array<string,mixed>> */
@@ -241,6 +243,7 @@ PHP;
         $this->omittedUnresolvedNavigationDiagnostics = 0;
         $this->omittedLinkDeclarations = array();
         $this->omittedLinkDeclarationPages = array();
+        $this->duplicateViewports = array();
         $this->omittedLinkDeclarationOverflow = array();
         $editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
@@ -444,7 +447,7 @@ PHP;
         unset($taxonomyEntity);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $taxonomyProjection['entities']), $assetWrites);
-        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->missingMedia->diagnostics());
+        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->duplicateViewportDiagnostics(), $this->missingMedia->diagnostics());
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
         $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
@@ -1938,6 +1941,9 @@ PHP;
             unset($row);
         }
         if (isset($metadata['head'])) {
+            DocumentHeadContext::assertValid($metadata['head'], false, false);
+            [$metadata['head'], $droppedViewports] = DocumentHeadContext::keepLastViewport($metadata['head']);
+            if (0 < $droppedViewports) $this->recordDuplicateViewport(self::value($document, 'source_path'), $droppedViewports);
             DocumentHeadContext::assertValid($metadata['head'], false);
             foreach ($metadata['head']['elements'] as &$row) {
                 if (!isset($row['url'])) continue;
@@ -2081,6 +2087,26 @@ PHP;
      * to avoid, one layer up.
      */
     private static function clipDiagnosticField(string $value): string { return mb_strcut($value, 0, 256, 'UTF-8'); }
+    private function recordDuplicateViewport(string $sourcePath, int $dropped): void
+    {
+        $this->duplicateViewports[$sourcePath] = ($this->duplicateViewports[$sourcePath] ?? 0) + $dropped;
+    }
+    /** @return array<int,array<string,mixed>> */
+    private function duplicateViewportDiagnostics(): array
+    {
+        $diagnostics = array();
+        foreach ($this->duplicateViewports as $sourcePath => $dropped) {
+            $diagnostics[] = array(
+                'code' => 'document_head_duplicate_viewport',
+                'severity' => 'warning',
+                'message' => self::clipDiagnosticField(sprintf('Document head declared more than one viewport; kept the last and dropped %d earlier.', $dropped)),
+                'source_path' => self::clipDiagnosticField((string) $sourcePath),
+                'omitted_count' => $dropped,
+                'reason_code' => 'duplicate_viewport',
+            );
+        }
+        return $diagnostics;
+    }
     /** @return array<int,array<string,mixed>> */
     private function omittedLinkDeclarationDiagnostics(): array
     {

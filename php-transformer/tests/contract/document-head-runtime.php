@@ -84,8 +84,15 @@ $shared = $compiler->prepareShared($artifact);
 $staged = $compiler->compose($shared, $compiler->compilePreparedPages($shared, $compiler->preparePages($artifact, $shared)))->toArray();
 $assert($plan === $staged['source_reports']['wordpress_site_plan'] && $result['source_reports']['runtime_dependency_parity'] === $staged['source_reports']['runtime_dependency_parity'], 'Whole and staged builds preserve identical head contracts and proof.');
 $duplicate = $artifact;
-$duplicate['files']['index.html'] = str_replace('</head>', '<meta name="viewport" content="width=980"></head>', $duplicate['files']['index.html']);
-$assert($rejects(static fn() => (new ArtifactCompiler())->compile($duplicate)), 'Duplicate authored viewports fail closed.');
+$duplicate['files']['index.html'] = str_replace('<meta charset="utf-8">', '<meta charset="utf-8"><meta name="viewport" content="width=980">', $duplicate['files']['index.html']);
+// Two viewport metas are a page-local limit: keep the last, name the drop, import.
+$duplicateResult = (new ArtifactCompiler())->compile($duplicate)->toArray();
+$duplicatePlan = $duplicateResult['source_reports']['wordpress_site_plan'] ?? null;
+$assert(is_array($duplicatePlan), 'Duplicate authored viewports still produce a plan.');
+$duplicateViewports = array_values(array_filter($duplicatePlan['pages'][0]['document_metadata']['head']['elements'] ?? array(), static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
+$assert(1 === count($duplicateViewports) && isset($duplicateViewports[0]['attributes']['data-selected-viewport']), 'Duplicate authored viewports keep the last one.');
+$duplicateFindings = array_values(array_filter(array_merge($duplicateResult['diagnostics'], $duplicatePlan['diagnostics'] ?? array()), static fn(array $row): bool => 'document_head_duplicate_viewport' === ($row['code'] ?? '')));
+$assert(1 <= count($duplicateFindings) && 'index.html' === $duplicateFindings[0]['source_path'], 'Duplicate authored viewports record a page-attributed finding.');
 $dynamic = $artifact;
 $dynamic['files']['index.html'] = str_replace('window.firstHeadState=', 'document.head.appendChild(document.createElement("script"));window.firstHeadState=', $dynamic['files']['index.html']);
 $dynamicResult = (new ArtifactCompiler())->compile($dynamic)->toArray();

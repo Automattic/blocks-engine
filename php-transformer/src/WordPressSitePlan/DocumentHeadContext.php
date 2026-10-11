@@ -68,11 +68,33 @@ final class DocumentHeadContext
         }
         ksort($elements);
         $head = array('schema' => self::SCHEMA, 'elements' => array_values($elements));
-        self::assertValid($head, false);
+        // Duplicate viewports are a page-local limit, not an integrity failure.
+        // The site plan keeps the last one and reports it (see keepLastViewport).
+        self::assertValid($head, false, false);
         return $head;
     }
 
-    public static function assertValid(mixed $head, bool $canonical = true): void
+    /**
+     * Browsers honor the last viewport meta, so keep that one.
+     * @param array<string,mixed> $head
+     * @return array{0:array<string,mixed>,1:int} The head and how many earlier viewports were dropped.
+     */
+    public static function keepLastViewport(array $head): array
+    {
+        $isViewport = static fn(mixed $row): bool => is_array($row) && 'meta' === ($row['tag'] ?? null) && is_array($row['attributes'] ?? null) && 'viewport' === strtolower((string) ($row['attributes']['name'] ?? ''));
+        $last = null;
+        foreach (($head['elements'] ?? array()) as $index => $row) if ($isViewport($row)) $last = $index;
+        $dropped = 0;
+        $elements = array();
+        foreach (($head['elements'] ?? array()) as $index => $row) {
+            if ($isViewport($row) && $index !== $last) { ++$dropped; continue; }
+            $elements[] = $row;
+        }
+        if (0 < $dropped) $head['elements'] = $elements;
+        return array($head, $dropped);
+    }
+
+    public static function assertValid(mixed $head, bool $canonical = true, bool $uniqueViewport = true): void
     {
         if (!is_array($head) || self::SCHEMA !== ($head['schema'] ?? null) || array('schema', 'elements') !== array_keys($head) || !is_array($head['elements']) || !array_is_list($head['elements']) || count($head['elements']) > self::MAX_ELEMENTS) throw new InvalidArgumentException('Document head context is invalid or exceeds its element budget.');
         $viewports = 0;
@@ -99,7 +121,7 @@ final class DocumentHeadContext
                 if ('style' === $row['tag'] && $canonical && !isset($row['asset_reference'])) throw new InvalidArgumentException('Document head style must bind a canonical stylesheet write.');
             }
         }
-        if (1 < $viewports) throw new InvalidArgumentException('Document head must declare a unique viewport.');
+        if ($uniqueViewport && 1 < $viewports) throw new InvalidArgumentException('Document head must declare a unique viewport.');
     }
 
     /** Document navigation relationships are routes; subresource links are assets. */
