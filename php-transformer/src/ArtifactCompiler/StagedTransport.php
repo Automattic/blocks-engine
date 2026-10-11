@@ -198,7 +198,7 @@ trait StagedTransport
 
     private function preparedPageCompiler(): self
     {
-        $compiler = new self();
+        $compiler = new self(beforeDocumentTransform: $this->beforeDocumentTransform);
         $compiler->htmlTransformerAnalysisCache = $this->htmlTransformerAnalysisCache ?? new HtmlTransformerAnalysisCache();
         return $compiler;
     }
@@ -229,6 +229,7 @@ trait StagedTransport
         $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
 
         $compiledDocuments = array();
+        $omittedPages = array();
         foreach ($pageArtifact['files'] as $file) {
             if ('html' !== ($file['kind'] ?? null) || $stageCompiler->isTemplatePartFile($file)) {
                 continue;
@@ -242,17 +243,29 @@ trait StagedTransport
             $documentFiles = $files;
             $stageCompiler->glyphPayloadReader = $payloadReader;
             $stageCompiler->indexFiles($documentFiles);
-            $compiledDocuments[$path] = $stageCompiler->compileHtmlDocumentBlocks(
-                (string) ($file['content'] ?? ''),
-                $path,
-                $documentFiles,
-                $path === $entryPath ? 'artifact-entry' : 'artifact-document',
-                (string) ($sharedPlan['analysis']['block_namespace'] ?? ''),
-                true,
-                is_array($pagePlan['artifact']['runtime_declarations'] ?? null) ? $pagePlan['artifact']['runtime_declarations'] : array()
-            );
+            try {
+                $compiledDocuments[$path] = $stageCompiler->compileHtmlDocumentBlocks(
+                    (string) ($file['content'] ?? ''),
+                    $path,
+                    $documentFiles,
+                    $path === $entryPath ? 'artifact-entry' : 'artifact-document',
+                    (string) ($sharedPlan['analysis']['block_namespace'] ?? ''),
+                    true,
+                    is_array($pagePlan['artifact']['runtime_declarations'] ?? null) ? $pagePlan['artifact']['runtime_declarations'] : array()
+                );
+            } catch (\InvalidArgumentException $error) {
+                // The entrypoint is the page the whole site hangs off; losing it fails the compile.
+                if ($path === $entryPath) throw $error;
+                $omittedPages[$path] = self::omittedPageOrRethrow($path, $error);
+            }
         }
         ksort($compiledDocuments, SORT_STRING);
+        if (array() !== $omittedPages) {
+            // The receipt owns nothing of a dropped page, so composition sees the
+            // same site whole compilation produces without it.
+            $pageArtifact['files'] = $stageCompiler->withoutOmittedPageFiles($pageArtifact['files'], array_keys($omittedPages));
+            $files = $stageCompiler->withoutOmittedPageFiles($files, array_keys($omittedPages));
+        }
         $pageDocuments = $stageCompiler->compileSourceDocuments($pageArtifact);
         $entryBlocks = null;
         foreach ($pageArtifact['files'] as $file) {
@@ -278,6 +291,10 @@ trait StagedTransport
             $entryPath
         );
         unset($pagePlan['terminal_reduction']['files'], $pagePlan['terminal_reduction']['entry_blocks']);
+        if (array() !== $omittedPages) {
+            ksort($omittedPages, SORT_STRING);
+            $pagePlan['terminal_reduction']['omitted_pages'] = array_values($omittedPages);
+        }
         // Final reduction reads a non-entry document through its serialized
         // markup and precomputed editability report; its parsed block tree is
         // the largest per-page payload and composition never reads it. Only
@@ -362,6 +379,7 @@ trait StagedTransport
         usort($pagePlans, static fn(array $left, array $right): int => strcmp((string) ($left['page_id'] ?? ''), (string) ($right['page_id'] ?? '')));
         $compiledDocuments = array();
         $reductions = array();
+        $omittedPaths = array();
         $pageTotal = count($pagePlans);
         $this->reportProgress($onProgress, 'compose_pages', 0, $pageTotal);
         foreach ($pagePlans as $pagePlan) {
@@ -398,12 +416,24 @@ trait StagedTransport
                 }
                 $compiledDocuments[$path] = $document;
             }
+            $this->assertOmittedPages($reduction['omitted_pages'] ?? array(), (string) ($sharedPlan['analysis']['entry_path'] ?? ''), $omittedPaths);
             $reduction['files'] = $pageFiles;
             $reduction['entry_blocks'] = $pagePlan['compiled_documents'][(string) ($sharedPlan['analysis']['entry_path'] ?? '')] ?? null;
             $reductions[] = $reduction;
             $this->reportProgress($onProgress, 'compose_pages', count($reductions), $pageTotal);
         }
         $this->assertUniqueComposedPaths($files);
+        if (array() !== $omittedPaths) {
+            // An omitted page is a declared source document that no receipt
+            // compiled and no receipt still carries.
+            $declared = array_flip(is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array());
+            $composedPaths = array_flip(array_map(static fn(array $file): string => (string) ($file['path'] ?? ''), $files));
+            foreach (array_keys($omittedPaths) as $path) {
+                if (!isset($declared[$path]) || isset($compiledDocuments[$path]) || isset($composedPaths[$path])) {
+                    throw new \InvalidArgumentException('A compiled page receipt omits a page that is undeclared or still compiled.');
+                }
+            }
+        }
         $expectedPageIds = is_array($sharedPlan['analysis']['page_ids'] ?? null) ? $sharedPlan['analysis']['page_ids'] : array();
         if ($hasReceipts && array() !== $expectedPageIds && array_values($expectedPageIds) !== array_keys($seen)) {
             throw new \InvalidArgumentException('Composition requires exactly one compiled page plan for every page declared by the shared plan.');
@@ -428,6 +458,28 @@ trait StagedTransport
         $result = $this->finalizeArtifact($terminalReduction['artifact'], $terminalReduction);
         $this->reportProgress($onProgress, 'finalize_artifact', 1, 1);
         return $result;
+    }
+
+    /**
+     * A receipt may name the pages its worker dropped. Each row is the plan's
+     * omitted-page record, no page is omitted twice, and the entrypoint can
+     * never be one of them.
+     *
+     * @param array<string,true> $omittedPaths Omitted paths seen in earlier receipts; extended in place.
+     */
+    private function assertOmittedPages(mixed $rows, string $entryPath, array &$omittedPaths): void
+    {
+        if (!is_array($rows) || !array_is_list($rows)) throw new \InvalidArgumentException('A compiled page receipt requires its omitted pages as a list.');
+        foreach ($rows as $row) {
+            $keys = is_array($row) ? array_keys($row) : array();
+            sort($keys);
+            if (array('message', 'reason_code', 'source_path') !== $keys || !is_string($row['source_path']) || '' === $row['source_path'] || !is_string($row['reason_code']) || !is_string($row['message'])) {
+                throw new \InvalidArgumentException('A compiled page receipt carries a malformed omitted page.');
+            }
+            if ($row['source_path'] === $entryPath) throw new \InvalidArgumentException('A compiled page receipt cannot omit the entrypoint page.');
+            if (isset($omittedPaths[$row['source_path']])) throw new \InvalidArgumentException('Composition received more than one omission for the same page.');
+            $omittedPaths[$row['source_path']] = true;
+        }
     }
 
     /**
@@ -468,7 +520,9 @@ trait StagedTransport
         $componentFacts = array($sharedReduction['component_facts']);
         $blockTypes = array();
         $entryBlocks = null;
+        $omittedPages = array();
         foreach ($reductions as $reduction) {
+            foreach ($reduction['omitted_pages'] ?? array() as $omittedPage) $omittedPages[$omittedPage['source_path']] = $omittedPage;
             $files = array_merge($files, $reduction['files']);
             foreach ($reduction['source_documents']['documents'] as $document) $documents['documents'][] = $document;
             $documents['components'] = array_merge($documents['components'], $reduction['source_documents']['components']);
@@ -515,6 +569,7 @@ trait StagedTransport
             'components' => $this->finalizeComponentFacts($this->mergeComponentFacts($componentFacts), (string) ($sharedPlan['analysis']['entry_path'] ?? '')),
             'block_types' => $this->dedupeRows($blockTypes),
             'entry_blocks' => $entryBlocks,
+            'omitted_pages' => $omittedPages,
             'compiled_documents' => array_filter($compiledDocuments, fn(string $path): bool => $path !== ($sharedPlan['analysis']['entry_path'] ?? ''), ARRAY_FILTER_USE_KEY),
             'inline_shell_compilation' => $sharedReduction['inline_shell_compilation'] ?? array('artifacts' => array(), 'assets' => array(), 'author_stylesheet_projections' => array(), 'runtime_script_projections' => array()),
             'captured_dialogs' => $sharedPlan['analysis']['captured_dialogs'] ?? array('diagnostics' => array(), 'projected_count' => 0),

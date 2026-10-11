@@ -2,6 +2,10 @@
 
 `blocks-engine/wordpress-site-plan/v2` is a destination-independent materialization contract. A consumer resolves it with `WordPressSitePlanResolver` and combines the resolved plan with its own materialization receipt. Destination IDs, paths outside declared writes, and product report formats remain consumer-owned.
 
+## Omitted Pages
+
+A non-entrypoint page that cannot be compiled is omitted rather than failing the plan. Each one is a `page_compile_omitted` warning in the plan's `diagnostics` (unit `page`, with `source_path`, `reason_code` and `message`); the page is absent from `pages` and `routes`, and links to it are reported as unresolved navigation links. See [omitted-page-receipt](contracts/omitted-page-receipt.md).
+
 ## Document Metadata
 
 Every page and template part has `document_metadata`. It is normalized compiler output, not source HTML:
