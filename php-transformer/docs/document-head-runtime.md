@@ -57,6 +57,9 @@ materialization. Ordinary descriptive metadata retains its existing routing.
   selection and emits at `wp_head` priority `-1`. A declared unique viewport
   replaces Core's `_block_template_viewport_meta_tag` callback. Head-owned
   scripts/styles are not independently emitted by the theme enqueue path.
+- A page that declares more than one viewport meta keeps the last one, as
+  browsers do, and the plan records a `document_head_duplicate_viewport`
+  warning with the page's `source_path`. The import is not failed.
 - `DocumentHeadContext::fromPlan()` accepts only a validated site plan, including
   its exact generated `functions.php` write. It returns the same head DOM used by
   the materializer. Source markup, body block markup, and metadata with a missing
