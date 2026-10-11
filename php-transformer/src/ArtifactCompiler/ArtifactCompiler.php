@@ -33,6 +33,8 @@ use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentityException;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use DOMDocument;
 use DOMElement;
@@ -49,6 +51,9 @@ final class ArtifactCompiler
     public const SHARED_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-shared-plan/v1';
     public const PAGE_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-page-plan/v1';
     public const COMPACT_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v3';
+    /** Diagnostic recorded for each non-entrypoint page dropped by a page-scoped compile limit. */
+    public const PAGE_OMITTED_DIAGNOSTIC_CODE = 'page_compile_omitted';
+    public const PAGE_OMITTED_REASON_CODE = 'page_compile_representability_limit';
 
     /**
      * Tag-only script selectors whose native DOM shape can be behavior-bearing.
@@ -77,9 +82,15 @@ final class ArtifactCompiler
     /** Observational only: counts source stylesheet discovery passes. */
     private int $stylesheetAssetDiscoveryCount = 0;
 
+    /**
+     * @param null|\Closure(string,string):void $beforeDocumentTransform Called with the source path and source scope
+     *        immediately before a page document is converted. A throw is treated exactly like a throw from the
+     *        converter itself, so a consumer can prove its handling of per-page compile failures.
+     */
     public function __construct(
         private readonly bool $cacheHtmlAnalysis = true,
-        private readonly int $stylesheetSelectorBudget = CssStylesheetChunker::MAX_SELECTOR_RECORDS
+        private readonly int $stylesheetSelectorBudget = CssStylesheetChunker::MAX_SELECTOR_RECORDS,
+        private readonly ?\Closure $beforeDocumentTransform = null
     )
     {
         $this->wordpressCompat = new WordPressCompatCss();
@@ -277,10 +288,18 @@ final class ArtifactCompiler
         $normalized['files'] = $this->separateUnlinkedThemePreferenceStylesheets($normalized['files'], $normalized['runtime_declarations']);
         $this->indexFiles($normalized['files']);
         $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations']);
-        $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations']);
+        // Staged receipts carry the pages their workers omitted; whole compilation
+        // discovers them here. Both reach the same page-omitted accounting below.
+        $omittedPages = is_array($reduction['omitted_pages'] ?? null) ? $reduction['omitted_pages'] : array();
+        $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations'], $omittedPages);
         $inlineShellCompilation = is_array($reduction['inline_shell_compilation'] ?? null)
             ? $reduction['inline_shell_compilation']
             : $this->compileSharedInlineShells($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
+        if (array() !== $omittedPages) {
+            $normalized['files'] = $this->withoutOmittedPageFiles($normalized['files'], array_keys($omittedPages));
+            $inlineShellCompilation = $this->withoutOmittedInlineShellSources($inlineShellCompilation, array_keys($omittedPages));
+            $this->indexFiles($normalized['files']);
+        }
         $authorStylesheetProjections = array_merge(
             $entryBlocks['author_stylesheet_projections'],
             $inlineShellCompilation['author_stylesheet_projections'] ?? array()
@@ -380,7 +399,7 @@ final class ArtifactCompiler
         $assets = array_merge($assets, $wordpressCompatAssets);
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets, $normalized['files']);
-        $diagnostics = array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics);
+        $diagnostics = array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics, $this->omittedPageDiagnostics($omittedPages));
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
@@ -1466,6 +1485,9 @@ final class ArtifactCompiler
                 // the source script in the imported page.
                 $runtimeProjectionScriptAssets[] = array('path' => $ownerPath, 'content' => $ownership['runtime_script_content']);
             }
+        }
+        if (null !== $this->beforeDocumentTransform) {
+            ($this->beforeDocumentTransform)($sourcePath, $sourceScope);
         }
         $result = (new HtmlTransformer(analysisCache: $analysisCache))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
@@ -2658,7 +2680,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<string, array<string, mixed>>
      */
-    private function compileHtmlSourceDocuments(array $files, string $entryPath, string $generatedBlockNamespace = '', array $runtimeDeclarations = array()): array
+    private function compileHtmlSourceDocuments(array $files, string $entryPath, string $generatedBlockNamespace = '', array $runtimeDeclarations = array(), array &$omittedPages = array()): array
     {
         $documents = array();
         foreach ( $files as $file ) {
@@ -2676,7 +2698,11 @@ final class ArtifactCompiler
             // whole-artifact driver does the same so both see one conversion.
             $documentFiles = $files;
             $this->indexFiles($documentFiles);
-            $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $documentFiles, 'artifact-document', $generatedBlockNamespace, true, $runtimeDeclarations);
+            try {
+                $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $documentFiles, 'artifact-document', $generatedBlockNamespace, true, $runtimeDeclarations);
+            } catch ( \InvalidArgumentException $error ) {
+                $omittedPages[$path] = self::omittedPageOrRethrow($path, $error);
+            }
         }
         $this->indexFiles($files);
         return $documents;
@@ -5516,6 +5542,89 @@ final class ArtifactCompiler
         }
 
         return $deduped;
+    }
+
+    /**
+     * A non-entrypoint page that fails to convert is a representability limit of
+     * that page, not of the site: it is dropped and named, and the rest compiles.
+     * Identity and plan-validation failures are integrity violations and keep
+     * failing the compile, as does everything that is not an
+     * InvalidArgumentException (LogicException, runtime and engine errors).
+     *
+     * @return array{source_path:string,reason_code:string,message:string}
+     */
+    private static function omittedPageOrRethrow(string $sourcePath, \InvalidArgumentException $error): array
+    {
+        if ($error instanceof DocumentIdentityException || $error instanceof ValidationException) {
+            throw $error;
+        }
+        return array(
+            'source_path' => $sourcePath,
+            'reason_code' => self::PAGE_OMITTED_REASON_CODE,
+            'message' => mb_strcut($error->getMessage(), 0, 256, 'UTF-8'),
+        );
+    }
+
+    /**
+     * Remove everything a dropped page owns: its document and the page-scoped
+     * files expanded out of it. Shared files stay.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @param array<int,string> $omittedPaths
+     * @return array<int,array<string,mixed>>
+     */
+    private function withoutOmittedPageFiles(array $files, array $omittedPaths): array
+    {
+        $omitted = array_flip($omittedPaths);
+        return array_values(array_filter($files, function (array $file) use ($omitted): bool {
+            if (isset($omitted[(string) ($file['path'] ?? '')])) return false;
+            $ownership = $this->fileOwnership($file);
+            return !('page' === $ownership['scope'] && isset($omitted[$ownership['id']]));
+        }));
+    }
+
+    /**
+     * Shared shells were classified across every page before one was dropped; a
+     * dropped page is no longer a source of them.
+     *
+     * @param array<string,mixed> $compilation
+     * @param array<int,string> $omittedPaths
+     * @return array<string,mixed>
+     */
+    private function withoutOmittedInlineShellSources(array $compilation, array $omittedPaths): array
+    {
+        $keep = static fn(mixed $paths): mixed => is_array($paths) ? array_values(array_diff($paths, $omittedPaths)) : $paths;
+        foreach ($compilation['artifacts'] ?? array() as $index => $artifact) {
+            if (is_array($artifact['source_paths'] ?? null)) $compilation['artifacts'][$index]['source_paths'] = $keep($artifact['source_paths']);
+            if (is_array($artifact['placement']['source_paths'] ?? null)) $compilation['artifacts'][$index]['placement']['source_paths'] = $keep($artifact['placement']['source_paths']);
+        }
+        return $compilation;
+    }
+
+    /**
+     * One warning per dropped page, in source-path order. This is the only place
+     * the plan records the omitted set; a consumer reads the diagnostics whose
+     * code is PAGE_OMITTED_DIAGNOSTIC_CODE.
+     *
+     * @param array<string,array{source_path:string,reason_code:string,message:string}> $omittedPages
+     * @return array<int,array<string,mixed>>
+     */
+    private function omittedPageDiagnostics(array $omittedPages): array
+    {
+        ksort($omittedPages, SORT_STRING);
+        $diagnostics = array();
+        foreach ($omittedPages as $page) {
+            $diagnostics[] = array(
+                'code' => self::PAGE_OMITTED_DIAGNOSTIC_CODE,
+                'severity' => 'warning',
+                'message' => $page['message'],
+                'source' => self::class,
+                'unit' => 'page',
+                'source_path' => $page['source_path'],
+                'reason_code' => $page['reason_code'],
+            );
+        }
+        return $diagnostics;
     }
 
     /**
