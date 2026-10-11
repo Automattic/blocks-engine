@@ -461,17 +461,19 @@ final class ArtifactCompiler
             );
         }
         $editabilityReport = (new EditabilityReport())->fromDocuments($editabilityDocuments);
-        $editabilityPolicy = (new EditabilityPolicy())->evaluate($editabilityReport);
+        $editabilityPolicy = (new EditabilityPolicy())->evaluate($editabilityReport, $entryPath);
         $sourceReports['editability_report'] = $editabilityReport;
         $sourceReports['editability_policy'] = $editabilityPolicy;
-        foreach ($editabilityPolicy['failures'] as $failure) {
-            $diagnostics[] = $this->diagnostic('editability_policy_failed', 'error', (string) $failure['message'], array(
-                'policy_schema' => EditabilityPolicy::SCHEMA,
-                'metric' => $failure['metric'],
-                'actual' => $failure['actual'],
-                'maximum' => $failure['maximum'],
-                'source_path' => $failure['source_path'] ?? '',
-            ));
+        foreach (array('failures' => array('editability_policy_failed', 'error'), 'findings' => array('editability_policy_degraded', 'warning')) as $key => list($code, $severity)) {
+            foreach ($editabilityPolicy[$key] as $failure) {
+                $diagnostics[] = $this->diagnostic($code, $severity, (string) $failure['message'], array(
+                    'policy_schema' => EditabilityPolicy::SCHEMA,
+                    'metric' => $failure['metric'],
+                    'actual' => $failure['actual'],
+                    'maximum' => $failure['maximum'],
+                    'source_path' => $failure['source_path'] ?? '',
+                ));
+            }
         }
         $responsiveCounterpartReports = array();
         foreach (array_merge(array($entryPath => $entryBlocks), $compiledHtmlDocuments) as $reportSourcePath => $compiledDocument) {
