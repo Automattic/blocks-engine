@@ -99,7 +99,7 @@ final class ArtifactNormalizer
         }
 
         $rawFiles = $this->rawFiles($artifact);
-        $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports);
+        $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports, $diagnostics);
         $reservedPaths = array();
         foreach ( $rawFiles as $file ) {
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));

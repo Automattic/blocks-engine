@@ -764,7 +764,7 @@ trait StagedTransport
             $file = $hydratedArtifact['files'][$byPath[$path]];
             if (isset($scanned[$path]) || !preg_match('/\.html?$/i', $path) || !is_string($file['content'] ?? null)) continue;
             $scanned[$path] = true;
-            foreach (HtmlFragmentIncludes::directives($file['content'], $path) as $directive) {
+            foreach (HtmlFragmentIncludes::directives($file['content'], $path, false) as $directive) {
                 $target = $includeRoot . substr($directive['virtual'], 1);
                 if (!isset($byPath[$target])) continue;
                 $targetIndex = $byPath[$target];

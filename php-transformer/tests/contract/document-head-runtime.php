@@ -148,7 +148,11 @@ $assert($rejects(static fn() => DocumentHeadContext::assertValid($oversized)), '
 $unboundLink = $artifact;
 $unboundLink['files']['index.html'] = str_replace('<meta charset="utf-8">', '<meta charset="utf-8"><link rel="icon" href="missing-icon.png">', $unboundLink['files']['index.html']);
 $unboundLinkResult = (new ArtifactCompiler())->compile($unboundLink)->toArray();
-$assert(!isset($unboundLinkResult['source_reports']['wordpress_site_plan']) && in_array('wordpress_site_plan_not_self_contained', array_column($unboundLinkResult['diagnostics'], 'code'), true), 'A local head link without a declared write still fails closed.');
+$unboundLinkPlan = $unboundLinkResult['source_reports']['wordpress_site_plan'] ?? null;
+$unboundLinkFindings = array_values(array_filter($unboundLinkPlan['diagnostics'] ?? array(), static fn(array $row): bool => 'wordpress_site_plan_omitted_link_declaration' === ($row['code'] ?? '')));
+$assert(is_array($unboundLinkPlan) && 'failed' !== $unboundLinkResult['status'] && 1 === count($unboundLinkFindings) && 'missing-icon.png' === $unboundLinkFindings[0]['value'] && 'index.html' === $unboundLinkFindings[0]['source_path'] && !str_contains(json_encode($unboundLinkPlan['pages'][0]['document_metadata']['head']), 'missing-icon.png'), 'A local head link without a declared write is omitted from the head and reported instead of failing the plan.');
+$unboundHead = array('schema' => DocumentHeadContext::SCHEMA, 'elements' => array(array('tag' => 'link', 'attributes' => array('rel' => 'icon'), 'url' => 'missing-icon.png', 'selector' => 'link:nth-of-type(1)')));
+$assert($rejects(static fn() => DocumentHeadContext::assertValid($unboundHead)), 'The strict head validator still rejects a local head link without a declared write.');
 
 // A link with no href, or an empty one, has no URL to bind. Document link
 // metadata already skips it, so the head context skips it too instead of

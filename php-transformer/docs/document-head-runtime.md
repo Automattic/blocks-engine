@@ -60,6 +60,11 @@ materialization. Ordinary descriptive metadata retains its existing routing.
 - A page that declares more than one viewport meta keeps the last one, as
   browsers do, and the plan records a `document_head_duplicate_viewport`
   warning with the page's `source_path`. The import is not failed.
+- A local head `<link>` that names neither a captured asset nor an artifact route
+  (icon, canonical, alternate, preload, stylesheet) is dropped from the head and the
+  plan records a `wordpress_site_plan_omitted_link_declaration` warning
+  (`reason_code` `unresolved_local_url`). The import is not failed; the strict head
+  validator still rejects a head that declares such a link.
 - `DocumentHeadContext::fromPlan()` accepts only a validated site plan, including
   its exact generated `functions.php` write. It returns the same head DOM used by
   the materializer. Source markup, body block markup, and metadata with a missing

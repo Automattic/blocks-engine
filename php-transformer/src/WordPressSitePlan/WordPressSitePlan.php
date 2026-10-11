@@ -1931,7 +1931,9 @@ PHP;
                 if ('links' !== $kind) continue;
                 $route = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes);
                 if (null !== $route) { $row['url'] = $route; continue; }
-                if (!$this->isOptionalFeedLink($row) && !$this->isOptionalDiscoveryLink($row) && !$this->isOptionalResourceHint($row) && !$this->isOptionalManifestLink($row) && !$this->isVendorLink($row) && !$this->isSourceProtocolEndpointLink($row)) continue;
+                // A local link that names neither a captured asset nor a route has nothing to bind.
+                // Omit it and say so; the strict link validator stays the integrity backstop.
+                if (self::explicitUrl($row['url'])) continue;
                 $this->recordOmittedLinkDeclaration(self::value($document, 'source_path'), $row);
                 $row = null;
             }
@@ -1950,91 +1952,17 @@ PHP;
                 $reference = $this->documentAssetReference($row['url'], self::value($document, 'source_path'), $references, $routes);
                 if (null !== $reference) { $row['asset_reference'] = $reference; unset($row['url']); }
                 elseif ('link' === $row['tag'] && DocumentHeadContext::isRouteLink($row['attributes']) && null !== ($route = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes))) $row['url'] = $route;
+                elseif ('link' === $row['tag'] && !self::explicitUrl($row['url'])) {
+                    $this->recordOmittedLinkDeclaration(self::value($document, 'source_path'), array('rel' => $row['attributes']['rel'] ?? '', 'url' => $row['url']));
+                    $row = null;
+                }
             }
             unset($row);
+            $metadata['head']['elements'] = array_values(array_filter($metadata['head']['elements'], static fn(mixed $row): bool => is_array($row)));
         }
         return $metadata;
     }
 
-    /** @param array<string,mixed> $link */
-    private function isOptionalFeedLink(array $link): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
-        return !self::explicitUrl($link['url'] ?? null) && in_array('alternate', $relations, true) && in_array(strtolower(trim((string) ($link['type'] ?? ''))), array('application/atom+xml', 'application/feed+json', 'application/rss+xml'), true);
-    }
-    /** @param array<string,mixed> $link */
-    private function isOptionalResourceHint(array $link): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
-        $resourceHints = array('dns-prefetch', 'modulepreload', 'preconnect', 'prefetch', 'preload', 'prerender');
-        return !self::explicitUrl($link['url'] ?? null) && array() !== $relations && array() === array_diff($relations, $resourceHints);
-    }
-    /**
-     * HTML link types (WHATWG `rel` keywords and registered extensions). A link
-     * whose relations are all outside this set is a vendor discovery endpoint
-     * (Shopify's `ucp`, for one) that the imported site cannot serve and no
-     * page presentation depends on, so an unresolved one is omitted rather than
-     * failing the import.
-     */
-    private const HTML_LINK_TYPES = array('alternate', 'author', 'bookmark', 'canonical', 'dns-prefetch', 'expect', 'external', 'feed', 'help', 'icon', 'license', 'manifest', 'modulepreload', 'next', 'nofollow', 'noopener', 'noreferrer', 'opener', 'pingback', 'preconnect', 'prefetch', 'preload', 'prerender', 'prev', 'privacy-policy', 'search', 'shortcut', 'stylesheet', 'tag', 'terms-of-service', 'apple-touch-icon', 'apple-touch-icon-precomposed', 'apple-touch-startup-image', 'mask-icon', 'me', 'webmention', 'hub', 'amphtml', 'shortlink', 'edituri', 'wlwmanifest', 'profile', 'openid.server', 'openid.delegate', 'openid2.provider', 'openid2.local_id');
-    /** @param array<string,mixed> $link */
-    private function isVendorLink(array $link): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
-        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
-        return !self::explicitUrl($link['url'] ?? null) && array() !== $relations && array() === array_intersect($relations, self::HTML_LINK_TYPES);
-    }
-    /** @param array<string,mixed> $link */
-    private function isOptionalManifestLink(array $link): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
-        return !self::explicitUrl($link['url'] ?? null) && array('manifest') === $relations;
-    }
-    /**
-     * Discovery endpoints for server-side protocols the source application
-     * served itself: XML-RPC pingback, RSD (`EditURI`), the Live Writer
-     * manifest, WebSub hubs, Webmention receivers and OpenID delegation.
-     *
-     * WordPress publishes all of these on every page, so a captured WordPress
-     * site arrives with `<link rel="pingback" href="/xmlrpc.php">` and
-     * `<link rel="EditURI" href="/xmlrpc.php?rsd">` in its head. Neither names
-     * a captured asset, and neither can become an artifact route: `routeUrl()`
-     * rejects a dotted segment. They are not subresources either -- nothing a
-     * page renders depends on them -- and the destination site publishes its
-     * own correct endpoints. Carrying the source copies forward is stale
-     * plumbing, so an unresolved one is omitted rather than failing the import.
-     */
-    private const SOURCE_PROTOCOL_LINK_TYPES = array('pingback', 'edituri', 'wlwmanifest', 'hub', 'webmention', 'openid.server', 'openid.delegate', 'openid2.provider', 'openid2.local_id');
-    /**
-     * oEmbed discovery. WordPress core prints both of these on every singular
-     * page, and `oembed/1.0/` carries a dotted segment, so `routeUrl()` rejects
-     * it for exactly the reason it rejects `/xmlrpc.php`. A consumer fetches
-     * these to embed the page somewhere else; nothing the page renders depends
-     * on them, and the destination publishes its own.
-     *
-     * Matched on the `+oembed` media-type suffix, which is what identifies the
-     * pair, and fail-closed on the relation set the way `isOptionalManifestLink()`
-     * is -- a `rel` carrying anything besides `alternate` is not this.
-     *
-     * @param array<string,mixed> $link
-     */
-    private function isOptionalDiscoveryLink(array $link): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
-        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
-        // A media type may carry parameters -- `application/json+oembed; charset=utf-8`
-        // is the same type -- and missing one costs the whole plan, so match the
-        // essence before the first `;` rather than the raw attribute.
-        $type = strtolower(trim(explode(';', (string) ($link['type'] ?? ''))[0]));
-        return !self::explicitUrl($link['url'] ?? null) && array('alternate') === $relations && str_ends_with($type, '+oembed');
-    }
-    /** @param array<string,mixed> $link */
-    private function isSourceProtocolEndpointLink(array $link): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
-        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
-        return !self::explicitUrl($link['url'] ?? null) && array() !== $relations && array() === array_diff($relations, self::SOURCE_PROTOCOL_LINK_TYPES);
-    }
     /**
      * Records one omitted link declaration. An omission is a reportable quality
      * defect, not a silent edit: the plan keeps a bounded, deduplicated warning
@@ -4300,7 +4228,7 @@ PHP;
         return $this->unresolvedNavigationLinks($content, $origin, $routes);
     }
     /**
-     * A document-relative a/area href that names no artifact route cannot stay
+     * A document-relative a/area href or form action that names no artifact route cannot stay
      * in the plan: WordPress would resolve it against the imported page URL
      * (issue #636). It names a page on the source site, so point it there when
      * the artifact records its source URL, or neutralize it to a same-page
@@ -4312,14 +4240,16 @@ PHP;
      */
     private function unresolvedNavigationLinks(string $content, string $origin, array $routes): string
     {
-        if (!preg_match('~(?:<|\\\\u003c)(?:a|area)\b~i', $content)) return $content;
-        return preg_replace_callback('~(?:<|\\\\u003c)(?:a|area)(?=[\s/>\\\\])(?:[^>\\\\]|\\\\(?!u003e))*~i', function (array $tag) use ($origin, $routes): string {
+        if (!preg_match('~(?:<|\\\\u003c)(?:a|area|form)\b~i', $content)) return $content;
+        return preg_replace_callback('~(?:<|\\\\u003c)(?:a|area|form)(?=[\s/>\\\\])(?:[^>\\\\]|\\\\(?!u003e))*~i', function (array $tag) use ($origin, $routes): string {
             $replace = function (array $match) use ($origin, $routes): string {
                 $resolved = $this->unresolvedNavigationReference($match[2], $origin, $routes);
                 return null === $resolved ? $match[0] : $match[1] . $resolved . $match[3];
             };
             $markup = $tag[0];
-            foreach (array('~((?<![\w:-])href\s*=\s*")([^"]*)(")~i', "~((?<![\\w:-])href\\s*=\\s*')([^']*)(')~i", '~((?<![\w:-])href\s*=\s*\\\\")([^"\\\\]*)(\\\\")~i', '~((?<![\w:-])href\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~i') as $pattern) $markup = preg_replace_callback($pattern, $replace, $markup) ?? $markup;
+            // A form navigates through `action`; links navigate through `href`.
+            $attribute = 1 === preg_match('~^(?:<|\\\\u003c)form~i', $markup) ? 'action' : 'href';
+            foreach (array('~((?<![\w:-])' . $attribute . '\s*=\s*")([^"]*)(")~i', "~((?<![\\w:-])" . $attribute . "\\s*=\\s*')([^']*)(')~i", '~((?<![\w:-])' . $attribute . '\s*=\s*\\\\")([^"\\\\]*)(\\\\")~i', '~((?<![\w:-])' . $attribute . '\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~i') as $pattern) $markup = preg_replace_callback($pattern, $replace, $markup) ?? $markup;
             return $markup;
         }, $content) ?? $content;
     }
