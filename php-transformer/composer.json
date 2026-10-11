@@ -381,6 +381,7 @@
       "php tests/unit/stacked-link-panel.php",
       "php tests/unit/form-select-control-presentation.php",
       "php tests/unit/form-presentation-long-style-value.php",
+      "php tests/unit/form-presentation-unrepresentable-style-value.php",
       "php tests/unit/named-fragment-target-geometry.php",
       "php tests/unit/empty-named-fragment-target.php",
       "php tests/unit/button-wrapper-keyword-width.php",
