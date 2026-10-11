@@ -49,6 +49,9 @@ materialization. Ordinary descriptive metadata retains its existing routing.
 - A link URL that is a `data:` URL, such as an inline SVG favicon, carries its own
   bytes. It has no write to bind, so the row keeps the URL as written, bounded to
   one MiB. Scripts keep the script-loading contract.
+- A link with no `href`, or an empty one, has no URL to bind. The head context
+  skips it, the same as document link metadata. An example is an image preload
+  that names its image only in `imagesrcset`.
 - The theme bootstrap selects the route by reconciliation identity (with existing
   front-page/page-route fallback), installs the head emitter after template
   selection and emits at `wp_head` priority `-1`. A declared unique viewport
