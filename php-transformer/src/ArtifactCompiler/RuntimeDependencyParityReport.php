@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentHeadContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -172,7 +173,7 @@ final class RuntimeDependencyParityReport
         // An explicit DOM IDREF is evidence without interpreting JavaScript.
         // A delegated helper can find its trigger while the trigger's panel has
         // disappeared; checking only the script's literal selector misses that.
-        foreach ($this->controlledTargetFindings($sourceTargets, $generatedHtml, $sourcePath) as $finding) {
+        foreach ($this->controlledTargetFindings($sourceTargets, $sourceHtml, $generatedHtml, $sourcePath) as $finding) {
             $findings[] = $this->withSupersededDisposition($finding, $superseded);
         }
 
@@ -200,7 +201,7 @@ final class RuntimeDependencyParityReport
     /** @param array<string, array<string, mixed>> $sourceTargets
      * @return list<array<string, mixed>>
      */
-    private function controlledTargetFindings(array $sourceTargets, string $generatedHtml, string $sourcePath): array
+    private function controlledTargetFindings(array $sourceTargets, string $sourceHtml, string $generatedHtml, string $sourcePath): array
     {
         $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument();
@@ -210,9 +211,12 @@ final class RuntimeDependencyParityReport
         if (!$loaded) return array();
         $findings = array();
         $scopedTargets = array();
+        $sourceVariantIds = null;
         foreach ($document->getElementsByTagName('*') as $control) {
             if (!$control->hasAttribute('aria-controls')) continue;
-            $scope = SourceDom::documentVariantRoot($control) ?? $document->documentElement;
+            $variantRoot = SourceDom::documentVariantRoot($control);
+            $variant = null === $variantRoot ? null : self::documentVariantKey($variantRoot);
+            $scope = $variantRoot ?? $document->documentElement;
             if (!$scope instanceof DOMElement) continue;
             $scopeKey = $scope->getNodePath();
             if (!isset($scopedTargets[$scopeKey])) {
@@ -220,6 +224,13 @@ final class RuntimeDependencyParityReport
             }
             foreach (preg_split('/\s+/', trim($control->getAttribute('aria-controls'))) ?: array() as $id) {
                 if ('' === $id || !isset($sourceTargets['#' . $id]) || isset($scopedTargets[$scopeKey]['ids'][$id])) continue;
+                // Like an id the source never had: when the same source document
+                // scope has no such target (a phone popup built only when it
+                // opens), the emitted copy lost nothing.
+                if (null !== $variant) {
+                    $sourceVariantIds ??= $this->documentVariantIds($sourceHtml);
+                    if (isset($sourceVariantIds[$variant]) && !isset($sourceVariantIds[$variant][$id])) continue;
+                }
                 $findings[] = array(
                     'code' => 'runtime_dependency_target_missing',
                     'severity' => 'warning',
@@ -236,6 +247,44 @@ final class RuntimeDependencyParityReport
             }
         }
         return $findings;
+    }
+
+    /**
+     * Element ids per responsive document copy of the source, keyed like
+     * documentVariantKey() so an emitted copy finds its own source copy.
+     *
+     * @return array<string, array<string, true>>
+     */
+    private function documentVariantIds(string $html): array
+    {
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $documentHtml = array() !== HtmlTagScanner::scan($html, 'html') ? $html : '<body>' . $html . '</body>';
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $documentHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if (!$loaded) return array();
+        $ids = array();
+        foreach ($document->getElementsByTagName('*') as $root) {
+            if (!SourceDom::isDocumentVariantRoot($root) || null === ($key = self::documentVariantKey($root))) continue;
+            $ids[$key] ??= array();
+            foreach ($root->getElementsByTagName('*') as $element) {
+                $id = trim($element->getAttribute('id'));
+                if ('' !== $id) $ids[$key][$id] = true;
+            }
+        }
+        return $ids;
+    }
+
+    /** One responsive document copy's identity, the same on its source and emitted roots. */
+    private static function documentVariantKey(DOMElement $root): ?string
+    {
+        $device = trim($root->getAttribute('data-dla-device-document'));
+        if ('' !== $device && $root->hasAttribute('data-dla-document-scope')) return 'device:' . $device;
+        foreach (preg_split('/\s+/', trim($root->getAttribute('class'))) ?: array() as $class) {
+            if (null !== DocumentVariantIds::suffixForClass($class)) return 'class:' . $class;
+        }
+        return null;
     }
 
     /** Scan real start tags, never markup examples inside raw script/style text. */
