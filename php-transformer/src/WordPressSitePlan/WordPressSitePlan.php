@@ -333,7 +333,9 @@ PHP;
             }
             unset($asset);
         }
-        $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations);
+        $runtimeEntityRecords = $compiled['runtime_entity_records'] ?? array();
+        $eventDiagnostics = array();
+        $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations, $runtimeEntityRecords, $eventDiagnostics);
         $assets = $this->attachDocumentStylesheetInstances($assets, $pages);
         NativeListItemFallbackReconciler::reconcileBlockDocuments(
             $data['fallbacks'],
@@ -357,7 +359,6 @@ PHP;
         // Bindings anchor on the final canonical page markup before any shell
         // extraction. Asset and route projection can make source anchors equal,
         // so assign occurrences only after that shared projection is complete.
-        $runtimeEntityRecords = $compiled['runtime_entity_records'] ?? array();
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
@@ -447,7 +448,7 @@ PHP;
         unset($taxonomyEntity);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $taxonomyProjection['entities']), $assetWrites);
-        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->duplicateViewportDiagnostics(), $this->missingMedia->diagnostics());
+        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->duplicateViewportDiagnostics(), $this->missingMedia->diagnostics(), $eventDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
         $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
@@ -517,6 +518,28 @@ PHP;
                 }
             }
         }
+    }
+
+    /**
+     * Record findings measured against a finished plan, such as runtime
+     * dependency parity, without discarding the plan. The plan reports them as
+     * warnings and its identity is recomputed over the updated diagnostics.
+     *
+     * @param array<string,mixed> $plan
+     * @param array<int,array<string,mixed>> $diagnostics Warning-severity findings.
+     * @return array<string,mixed>
+     */
+    public static function withFindings(array $plan, array $diagnostics): array
+    {
+        if (array() === $diagnostics) return $plan;
+        foreach ($diagnostics as $diagnostic) {
+            $plan['diagnostics'][] = $diagnostic;
+            $plan['reporting']['diagnostic_codes'][] = (string) ($diagnostic['code'] ?? '');
+        }
+        if ('success' === $plan['quality']['status']) $plan['quality']['status'] = 'success_with_warnings';
+        $plan['plan_identity'] = self::planIdentity($plan);
+        self::assertValid($plan);
+        return $plan;
     }
 
     /** @param array<string,mixed> $plan */
@@ -4074,6 +4097,18 @@ PHP;
         return $projection['declarations'];
     }
 
+    /**
+     * The source anchor a plan keeps beside a binding's canonical anchor, so the
+     * binding can be found again after its page markup is reprojected.
+     *
+     * @param array<string,mixed> $binding
+     * @return array<string,mixed>
+     */
+    public static function projectedBindingAnchor(array $binding): array
+    {
+        return array_filter(array('schema' => 'blocks-engine/projected-binding-anchor/v1', 'source_block_markup' => $binding['search_block_markup'] ?? null, 'source_occurrence' => $binding['occurrence'] ?? null, 'source_position' => $binding['position'] ?? null), static fn(mixed $value): bool => null !== $value);
+    }
+
     private function canonicalInlineEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array()): array
     {
         // A binding owned by a shared part was re-anchored on the part's final
@@ -4095,7 +4130,7 @@ PHP;
                 foreach ( $entity['bindings'] as &$binding ) {
                     if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
                         $sourceMarkup = $binding['search_block_markup'];
-                        if (!is_array($binding['projected_anchor'] ?? null)) $binding['projected_anchor'] = array_filter(array('schema' => 'blocks-engine/projected-binding-anchor/v1', 'source_block_markup' => $sourceMarkup, 'source_occurrence' => $binding['occurrence'] ?? null, 'source_position' => $binding['position'] ?? null), static fn(mixed $value): bool => null !== $value);
+                        if (!is_array($binding['projected_anchor'] ?? null)) $binding['projected_anchor'] = self::projectedBindingAnchor($binding);
                         if (isset($partSources[$binding['source_path']])) continue;
                         $markup = $references->content($sourceMarkup, $binding['source_path']);
                         $binding['search_block_markup'] = $this->routeLinks($markup, $binding['source_path'], $routes);

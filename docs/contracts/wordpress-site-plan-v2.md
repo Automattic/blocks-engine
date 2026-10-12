@@ -48,6 +48,17 @@ and `WordPressSitePlanResolver::resolve()`.
   to 5 MiB. Resolution exposes complete records in
   `runtime_entity_resolution`, so materializers consume every entity without
   expanding or changing the canonical declaration.
+- Every generated entity collection (forms, products, events) fits these limits
+  the same way: inline, else a record manifest. One generated entity whose plan
+  record exceeds 5 MiB, or that is nested deeper than the plan identity hash
+  can walk, is dropped with its bindings and its block stays static: a
+  `runtime_entity_dropped` warning (unit `item`). A collection whose manifest
+  still exceeds 5 MiB is dropped with its dependency: a
+  `runtime_declaration_dropped` warning (unit `declaration`). The aggregate
+  declaration bounds stay fail-closed.
+- A script or `aria-controls` target missing from the emitted markup is a
+  `runtime_dependency_target_missing` warning (unit `block`). The plan is kept,
+  with `quality.status` `success_with_warnings`.
 - A producer may opt one entity row into a whole-page replacement *candidate* by
   setting `whole_page_candidate` to `blocks-engine/whole-page-candidate/v1` and
   declaring a bounded `id`, canonical `source_path`, and `source_route` equal to

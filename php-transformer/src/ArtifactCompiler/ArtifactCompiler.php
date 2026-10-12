@@ -1163,15 +1163,11 @@ final class ArtifactCompiler
             $entityKey = 'entity_collection:' . $collection['type'];
             foreach ( $collection['aliases'] as $alias ) if ( isset($keys['entity_collection:' . $alias]) ) { $entityKey = 'entity_collection:' . $alias; break; }
             if ( array() !== $collection['entities'] && ! isset($keys[$entityKey]) ) {
-                if ( 'forms' === $collection['type'] ) {
-                    $budget = $this->budgetGeneratedForms($declarations, $collection['entities'], $entryPath, $entityKey, isset($keys['dependency:' . $capability]));
-                    $collection['entities'] = $budget['entities'];
-                    if (isset($budget['records'])) $runtimeEntityRecords = array_merge($runtimeEntityRecords, $budget['records']);
-                    if (isset($budget['payload'])) $collection['payload'] = $budget['payload'];
-                    if ( null !== $budget['diagnostic'] ) $diagnostics[] = $budget['diagnostic'];
-                }
-                if ( array() === $collection['entities'] ) continue;
-                $declarations[] = array('kind' => 'entity_collection', 'type' => $collection['type'], 'source_path' => $entryPath, 'payload' => $collection['payload'] ?? array('schema' => $collection['schema'], 'entities' => $collection['entities']));
+                $budget = RuntimeEntityManifest::declareCollection($declarations, $collection['type'], $collection['schema'], $collection['entities'], $entryPath, isset($keys['dependency:' . $capability]) ? null : $capability);
+                array_push($diagnostics, ...$budget['diagnostics']);
+                if ( null === $budget['payload'] ) continue;
+                $runtimeEntityRecords = array_merge($runtimeEntityRecords, $budget['records']);
+                $declarations[] = array('kind' => 'entity_collection', 'type' => $collection['type'], 'source_path' => $entryPath, 'payload' => $budget['payload']);
                 $keys[$entityKey] = true;
             }
             $dependencyKey = 'dependency:' . $capability;
@@ -1312,36 +1308,6 @@ final class ArtifactCompiler
             'suggested_repair_class' => 'materialize_form_provider',
             'source' => self::class,
         );
-    }
-
-    /**
-     * Keep generated form declarations within the same canonical limit enforced
-     * for caller declarations, without ever trimming a JSON entity in place.
-     *
-     * @param array<int,array<string,mixed>> $declarations
-     * @param array<int,array<string,mixed>> $forms
-     * @return array{entities:array<int,array<string,mixed>>,payload?:array<string,mixed>,records?:array<int,array<string,mixed>>,diagnostic:array<string,mixed>|null}
-     */
-    private function budgetGeneratedForms(array $declarations, array $forms, string $entryPath, string $entityKey, bool $hasDependency): array
-    {
-        $fits = static function (array $entities) use ($declarations, $entryPath, $entityKey, $hasDependency): bool {
-            $candidate = array_merge($declarations, array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => $entryPath, 'payload' => array('schema' => 'generic/forms/v1', 'entities' => $entities))));
-            if ( ! $hasDependency ) $candidate[] = array('kind' => 'dependency', 'capability' => 'form', 'source_path' => $entryPath, 'required_for' => array($entityKey));
-            try {
-                RuntimeDeclarations::normalizeList($candidate);
-                return true;
-            } catch (\InvalidArgumentException $error) {
-                if (str_contains($error->getMessage(), 'payload exceeds the byte limit') || str_contains($error->getMessage(), 'aggregate canonical byte limit')) return false;
-                throw $error;
-            }
-        };
-        if ( $fits($forms) ) return array('entities' => $forms, 'diagnostic' => null);
-
-        $manifest = RuntimeEntityManifest::fromEntities('generic/forms/v1', $forms);
-        $candidate = array_merge($declarations, array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => $entryPath, 'payload' => $manifest['payload'])));
-        if (!$hasDependency) $candidate[] = array('kind' => 'dependency', 'capability' => 'form', 'source_path' => $entryPath, 'required_for' => array($entityKey));
-        RuntimeDeclarations::normalizeList($candidate);
-        return array('entities' => $forms, 'payload' => $manifest['payload'], 'records' => $manifest['records'], 'diagnostic' => null);
     }
 
     /** @param array<string,mixed> $fallback @param array<int,array<string,mixed>> $files @return array<int,array<string,string>> */

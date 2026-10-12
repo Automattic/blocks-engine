@@ -108,7 +108,7 @@ $artifact = array(
 );
 $compiled = ( new ArtifactCompiler() )->compile($artifact)->toArray();
 $compiledMarkup = (string) ($compiled['serialized_blocks'] ?? '');
-$runtimeFailures = array_values(array_filter($compiled['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? '')));
+$runtimeFailures = array_values(array_filter($compiled['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_target_missing' === ($diagnostic['code'] ?? '')));
 $planDiagnostics = $compiled['source_reports']['wordpress_site_plan_diagnostics'] ?? array();
 $scriptGateFailures = array_values(array_filter(is_array($planDiagnostics) ? $planDiagnostics : array(), static fn (array $diagnostic): bool => str_starts_with((string) ($diagnostic['code'] ?? ''), 'wordpress_site_plan_script_')));
 $assert(array() === $runtimeFailures, 'compiler script target gate passes for the dialog trigger: ' . json_encode($runtimeFailures));
@@ -195,7 +195,7 @@ $inlineCompiled = ( new ArtifactCompiler() )->compile(array(
     'files' => array( 'website/index.html' => $inlinePage ),
 ))->toArray();
 $inlineMarkup = (string) ($inlineCompiled['serialized_blocks'] ?? '');
-$inlineContractFailures = array_values(array_filter($inlineCompiled['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? '')));
+$inlineContractFailures = array_values(array_filter($inlineCompiled['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_target_missing' === ($diagnostic['code'] ?? '')));
 $assert(array() === $inlineContractFailures && str_contains($inlineMarkup, 'data-dla-dialog-trigger="dla-dialog-0"') && str_contains($inlineMarkup, '<button'), 'inline helper compilation keeps the accessible trigger and passes the script gate: ' . json_encode($inlineContractFailures) . ' ' . substr($inlineMarkup, 0, 400));
 $assert(is_array($inlineCompiled['source_reports']['wordpress_site_plan'] ?? null), 'inline helper compilation reaches a WordPress site plan');
 $inlinePlan = $inlineCompiled['source_reports']['wordpress_site_plan'] ?? array();
