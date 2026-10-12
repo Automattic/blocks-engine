@@ -192,7 +192,8 @@ PHP;
                     || !is_string($route) || $route !== $page['route']['path']) {
                     throw new InvalidArgumentException('Whole-page candidate must name one canonical source page and producer entity row.');
                 }
-                if (isset($candidates[$source]) || count($candidates) >= 100) throw new InvalidArgumentException('Whole-page candidates must be unique and bounded by source page.');
+                // One fixed-size candidate per canonical page: the page set bounds the candidate set.
+                if (isset($candidates[$source])) throw new InvalidArgumentException('Whole-page candidates must be unique by source page.');
                 $candidates[$source][] = array(
                     'schema' => 'blocks-engine/whole-page-candidate/v1',
                     'source_path' => $source,

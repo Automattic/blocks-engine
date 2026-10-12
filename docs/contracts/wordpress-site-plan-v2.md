@@ -66,7 +66,8 @@ and `WordPressSitePlanResolver::resolve()`.
   `whole_page_candidates` list. Each row carries `schema`, `source_path`,
   `source_route`, `page_reconciliation_identity`,
   `declaration_reconciliation_identity`, and `entity_id`. At most one candidate
-  may claim each nonsynthetic page, with at most 100 candidates per plan. The list is ordered,
+  may claim each nonsynthetic page, so the page set bounds the candidates; there
+  is no separate count limit. The list is ordered,
   part of `plan_identity`, and validated against the declaration entity (inline
   or content-addressed record) and the canonical nonsynthetic page. Missing,
   duplicate, detached, or stale claims fail validation. No candidate alters
