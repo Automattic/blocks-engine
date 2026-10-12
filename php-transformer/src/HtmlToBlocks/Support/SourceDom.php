@@ -831,7 +831,7 @@ final class SourceDom
         $bytes = strlen($html);
         if ( $bytes > 2000 ) {
             return array(
-                'html'      => substr($html, 0, 2000) . '...',
+                'html'      => mb_strcut($html, 0, 2000, 'UTF-8') . '...',
                 'bytes'     => $bytes,
                 'truncated' => true,
             );
@@ -852,7 +852,7 @@ final class SourceDom
         $bytes = strlen($text);
         if ( $bytes > 2000 ) {
             return array(
-                'text'      => substr($text, 0, 2000) . '...',
+                'text'      => mb_strcut($text, 0, 2000, 'UTF-8') . '...',
                 'bytes'     => $bytes,
                 'truncated' => true,
             );
