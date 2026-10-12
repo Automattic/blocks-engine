@@ -43,6 +43,7 @@ $assert(array_search($bundles[0]['target_path'], $targets, true) > array_search(
 $found = $findings($plan);
 $assert(1 === count($found) && 'warning' === $found[0]['severity'] && 'asset' === $found[0]['unit'] && 'identical_content' === $found[0]['reason_code'] && $bundles[0]['target_path'] === $found[0]['target_path'] && $found[0]['target_path'] === $found[0]['resolved_target_path'], 'The deduplicated target is reported once as an asset-unit finding.');
 $assert(in_array('wordpress_site_plan_colliding_asset_target', $plan['reporting']['diagnostic_codes'], true), 'The finding is linked to plan reporting.');
+$assert('success_with_warnings' === $plan['quality']['status'] && true === $plan['quality']['pass'], 'The finding raises the plan status to success_with_warnings.');
 $shared = $compiler->prepareShared($artifact);
 $staged = $compiler->compose($shared, $compiler->compilePreparedPages($shared, $compiler->preparePages($artifact, $shared)))->toArray();
 $assert(($staged['source_reports']['wordpress_site_plan'] ?? null) === $plan, 'Staged compilation produces the same plan.');

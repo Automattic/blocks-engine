@@ -13,7 +13,7 @@ A problem confined to one asset or binding degrades that unit and records a warn
 - `wordpress_site_plan_colliding_asset_target` (unit `asset`): two assets resolved to one theme target. Identical bytes are written once (`reason_code` `identical_content`); the later occurrence is kept so its cascade position wins. Different bytes give the later asset a deterministic numbered target such as `name-2.css`, with a token and reconciliation identity derived from it (`reason_code` `colliding_asset_target`). The row names `source_path`, `colliding_source_path`, `target_path` and `resolved_target_path`.
 - `runtime_entity_binding_unanchored` (unit `binding`): a runtime entity binding names a block the page does not emit (`anchor_not_emitted`) or a page the plan does not emit (`document_not_emitted`). The binding is dropped and the block stays static; the entity keeps its other bindings. An anchor that is emitted but cannot be told apart from an identical block still fails closed.
 
-Rows with identical fields are reported once with an `omitted_count`.
+Rows with identical fields are reported once with an `omitted_count`. A plan that carries any of these findings has `quality.status` `success_with_warnings`, the same rule `WordPressSitePlan::withFindings()` applies to findings measured after the plan is built. The `document_head_*_dropped` findings in [document-head-runtime](document-head-runtime.md) follow the same rule.
 
 ## Document Metadata
 

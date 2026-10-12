@@ -52,6 +52,7 @@ foreach (array(
     $found = $findings($plan);
     $assert(1 === count($found) && $code === $found[0]['code'] && 'warning' === $found[0]['severity'] && 'item' === $found[0]['unit'] && $reason === $found[0]['reason_code'] && $tag === $found[0]['tag'] && $attribute === ($found[0]['attribute'] ?? null) && $count === $found[0]['omitted_count'] && 'index.html' === $found[0]['source_path'], "The head {$label} is reported once: " . json_encode($found));
     $assert(in_array($code, $plan['reporting']['diagnostic_codes'], true), "The head {$label} finding is linked to plan reporting.");
+    $assert('success_with_warnings' === $plan['quality']['status'], "The head {$label} finding raises the plan status to success_with_warnings.");
 }
 
 // The handler is gone from the head the theme renders; the element stays.

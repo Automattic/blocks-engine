@@ -490,7 +490,8 @@ PHP;
             'runtime_records' => $runtimeRecords,
             'runtime_entity_records' => $runtimeEntityRecords,
             'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics),
-            'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $input->coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy),
+            // A dropped or rewritten unit is a warning on the plan, the same as withFindings().
+            'quality' => array('status' => self::statusWithFindings($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $input->coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy),
             'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), $surfaces),
         );
         $plan['reference_semantics']['navigation_entities'] = NavigationEntityProjection::REFERENCE_CONTRACT;
@@ -551,10 +552,16 @@ PHP;
             $plan['diagnostics'][] = $diagnostic;
             $plan['reporting']['diagnostic_codes'][] = (string) ($diagnostic['code'] ?? '');
         }
-        if ('success' === $plan['quality']['status']) $plan['quality']['status'] = 'success_with_warnings';
+        $plan['quality']['status'] = self::statusWithFindings($plan['quality']['status'], $diagnostics);
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
         return $plan;
+    }
+
+    /** A plan that carries warning findings is at best `success_with_warnings`. @param array<int,array<string,mixed>> $findings */
+    private static function statusWithFindings(string $status, array $findings): string
+    {
+        return 'success' === $status && array() !== $findings ? 'success_with_warnings' : $status;
     }
 
     /** @param array<string,mixed> $plan */

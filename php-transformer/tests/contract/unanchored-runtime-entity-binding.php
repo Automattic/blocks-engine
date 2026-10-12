@@ -49,6 +49,7 @@ foreach (array(
     $found = $findings($plan);
     $assert(1 === count($found) && 'warning' === $found[0]['severity'] && 'binding' === $found[0]['unit'] && $reason === $found[0]['reason_code'] && $sourcePath === $found[0]['source_path'] && 'product-1' === $found[0]['entity_id'] && 'sale' === $found[0]['role'] && 'data/products.json' === $found[0]['declaration_source_path'], "The dropped binding to {$label} is reported once: " . json_encode($found));
     $assert(in_array('runtime_entity_binding_unanchored', $plan['reporting']['diagnostic_codes'], true), "The {$label} finding is linked to plan reporting.");
+    $assert('success_with_warnings' === $plan['quality']['status'], "The {$label} finding raises the plan status to success_with_warnings.");
 }
 
 // The validator is still the backstop: a plan that declares an unanchored
