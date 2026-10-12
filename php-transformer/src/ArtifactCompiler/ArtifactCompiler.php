@@ -171,7 +171,7 @@ final class ArtifactCompiler
     /** @var array<int, array<string, mixed>> */
     private array $imageFiles = array();
 
-    /** @var array<string, string> */
+    /** @var array<string, array{color:string, undecodable:bool}> */
     private array $glyphColorByHash = array();
 
     private ?PayloadReader $glyphPayloadReader = null;
@@ -3594,17 +3594,20 @@ final class ArtifactCompiler
         return isset($result['serialized_blocks']) && is_scalar($result['serialized_blocks']) ? trim((string) $result['serialized_blocks']) : '';
     }
 
-    /** @param array<string, mixed> $file */
-    private function glyphColorForFile(array $file): string
+    /**
+     * @param array<string, mixed> $file
+     * @return array{color:string, undecodable:bool}
+     */
+    private function glyphColorForFile(array $file): array
     {
         $bytes = $this->embeddedFileBytes($file);
         if ( '' === $bytes || strlen($bytes) > 65536 ) {
-            return '';
+            return array('color' => '', 'undecodable' => false);
         }
 
         $hash = hash('sha256', $bytes);
         if ( ! isset($this->glyphColorByHash[$hash]) ) {
-            $this->glyphColorByHash[$hash] = MonochromeGlyphColor::fromBytes($bytes);
+            $this->glyphColorByHash[$hash] = MonochromeGlyphColor::inspect($bytes);
         }
 
         return $this->glyphColorByHash[$hash];
@@ -3677,9 +3680,12 @@ final class ArtifactCompiler
                 'path'      => $path,
                 'mime_type' => $mimeType,
             );
-            $glyphColor = $this->glyphColorForFile($file);
-            if ( '' !== $glyphColor ) {
-                $asset['glyph_color'] = $glyphColor;
+            $glyph = $this->glyphColorForFile($file);
+            if ( '' !== $glyph['color'] ) {
+                $asset['glyph_color'] = $glyph['color'];
+            }
+            if ( $glyph['undecodable'] ) {
+                $asset['glyph_color_undecodable'] = true;
             }
 
             foreach ( $this->assetLookupKeysForSource($path, $sourcePath) as $key ) {

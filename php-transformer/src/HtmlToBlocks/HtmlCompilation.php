@@ -414,6 +414,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private string $currentSourcePath = 'html';
 
+    /** @var array<string, array<string, mixed>> Undecodable glyph findings keyed by format and source. */
+    private array $glyphColorUndecodable = array();
+
     private readonly ReusableComponentRecognizer $reusableComponentRecognizer;
 
     private HtmlTransformerSession $session;
@@ -1516,6 +1519,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             is_array($options['theme_preference_ownership'] ?? null) ? $options['theme_preference_ownership'] : array()
         );
         $this->projectedSelectorBindings = array();
+        $this->glyphColorUndecodable = array();
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
         $this->session->installSourcePath($this->currentSourcePath);
         $this->sharedStylesheetPaths = array();
@@ -1710,6 +1714,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 'source'  => HtmlTransformer::class,
                 'message' => (string) ($finding['summary'] ?? ''),
             )));
+        }
+        foreach ( $this->glyphColorUndecodable as $finding ) {
+            $diagnostics[] = ConversionFindingContract::withClassification($finding);
         }
         $headMetadata = $this->headMetadataReport($html);
         $authorLayoutTopologyFindings = $this->transformationEvidence()->authorLayoutTopologyFindings();
@@ -3110,6 +3117,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
+    private function recordGlyphColorUndecodable(string $mimeType, string $src): void
+    {
+        $format = '' !== $mimeType ? strtolower($mimeType) : 'unknown';
+        $this->glyphColorUndecodable[$format . "\0" . $src] = array(
+            'code'        => 'glyph_color_undecodable',
+            'severity'    => 'warning',
+            'message'     => 'A social icon glyph could not be decoded by this PHP image library, so its authored icon colour was not carried and core default icon colours apply.',
+            'source'      => HtmlTransformer::class,
+            'mime_type'   => $format,
+            'src'         => $src,
+            'source_path' => $this->currentSourcePath,
+        );
+    }
+
     private function createPatternContext(): PatternContext
     {
         return new PatternContext(
@@ -3177,7 +3198,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
             fn (DOMElement $control): array => $this->disclosureControlPresentation()->accordionToggle($control),
             fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
-            fn (string $url): string => (string) ($this->materializedAssets()->metadataForUrl($url)['glyph_color'] ?? '')
+            fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array(),
+            fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src)
         );
     }
 
@@ -3268,7 +3290,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
              disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
              accordionToggle: fn (DOMElement $control): array => $this->disclosureControlPresentation()->accordionToggle($control),
              authoredIconColor: fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
-             assetGlyphColor: fn (string $url): string => (string) ($this->materializedAssets()->metadataForUrl($url)['glyph_color'] ?? '')
+             assetMetadata: fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array()
          );
     }
 
