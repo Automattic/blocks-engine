@@ -235,7 +235,12 @@ final class ShellExtraction
                 }
                 if ($restHasContent) {
                     $headers[] = $this->nestedChromeRow($first, $baseOffset + $ranges[0]['offset'], $ranges[0]['length']);
-                    $last = $ranges[count($ranges) - 1];
+                    // A projected modal dialog mounts at the end of its document;
+                    // it renders in the top layer, so the footer is the last
+                    // sibling before it.
+                    $lastIndex = count($ranges) - 1;
+                    while ($lastIndex > 0 && self::isCapturedDialogBlock(substr($markup, $ranges[$lastIndex]['offset'], $ranges[$lastIndex]['length']))) --$lastIndex;
+                    $last = $ranges[$lastIndex];
                     $lastMarkup = substr($markup, $last['offset'], $last['length']);
                     if ($last !== $ranges[0] && self::isFooterChrome($lastMarkup)) {
                         $footers[] = $this->nestedChromeRow($lastMarkup, $baseOffset + $last['offset'], $last['length']);
@@ -406,6 +411,11 @@ final class ShellExtraction
             return false;
         }
         return 1 === preg_match('/^<!--\s*wp:group(?:\s|\{)/', ltrim($markup));
+    }
+
+    private static function isCapturedDialogBlock(string $markup): bool
+    {
+        return 1 === preg_match('#^<!--\s*wp:[a-z0-9-]+/captured-dialog(?:\s|\{)#', ltrim($markup));
     }
 
     private static function isHeadingBlock(string $markup): bool
