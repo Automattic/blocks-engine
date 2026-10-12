@@ -100,6 +100,8 @@
       "php tests/contract/staged-inline-post-chrome-runtime-bindings.php",
       "php tests/contract/staged-whole-equivalence.php",
       "php tests/contract/omitted-page-receipt.php",
+      "php tests/contract/runtime-entity-budget.php",
+      "php tests/contract/runtime-dependency-target-miss.php",
       "php tests/contract/stylesheet-link-media-plan.php",
       "php tests/contract/stylesheet-activation-plan.php",
       "php tests/contract/entry-point-transform-parity.php",

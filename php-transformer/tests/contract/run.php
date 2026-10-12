@@ -4898,8 +4898,8 @@ $missingRuntimeCompile = $compiler->compile(
         ),
     )
 )->toArray();
-$missingRuntimeCompileDiagnostics = array_values(array_filter($missingRuntimeCompile['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? '')));
-$assert('failed' === ($missingRuntimeCompile['status'] ?? '') && '[data-counter]' === ($missingRuntimeCompileDiagnostics[0]['context']['selector'] ?? ''), 'ArtifactCompiler promotes required runtime selector parity failures to deterministic top-level errors');
+$missingRuntimeCompileDiagnostics = array_values(array_filter($missingRuntimeCompile['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_target_missing' === ($diagnostic['code'] ?? '')));
+$assert('success_with_warnings' === ($missingRuntimeCompile['status'] ?? '') && 'warning' === ($missingRuntimeCompileDiagnostics[0]['severity'] ?? '') && 'block' === ($missingRuntimeCompileDiagnostics[0]['unit'] ?? '') && '[data-counter]' === ($missingRuntimeCompileDiagnostics[0]['selector'] ?? '') && is_array($missingRuntimeCompile['source_reports']['wordpress_site_plan'] ?? null), 'ArtifactCompiler reports a required runtime selector parity miss as a deterministic block-level warning and keeps the site plan');
 
 $expandedRuntimeTargetsSite = $compiler->compile(
     array(
@@ -5121,7 +5121,7 @@ $authoredCanvasSite = $compiler->compile(array(
 ))->toArray();
 $authoredCanvasMarkup = (string) ($authoredCanvasSite['serialized_blocks'] ?? '');
 $assert(str_contains($authoredCanvasMarkup, 'data-blocks-engine-canvas-effect="particle-ripple"') && str_contains($authoredCanvasMarkup, 'data-blocks-engine-canvas-spacing="90"'), 'authored portable ripple settings survive as native editable canvas block attributes');
-$assert(array() === array_values(array_filter($authoredCanvasSite['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? ''))), 'authored runtime canvas selector remains present in generated block markup');
+$assert(array() === array_values(array_filter($authoredCanvasSite['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_target_missing' === ($diagnostic['code'] ?? ''))), 'authored runtime canvas selector remains present in generated block markup');
 
 $portableMarkerSite = $compiler->compile(array(
     'entrypoint' => 'index.html',
