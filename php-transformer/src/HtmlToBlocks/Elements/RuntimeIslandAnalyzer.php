@@ -343,13 +343,13 @@ final class RuntimeIslandAnalyzer
         foreach ( array( 'id', 'class', 'role', 'aria-label', 'type', 'name' ) as $name ) {
             $value = trim(SourceDom::attr($element, $name));
             if ( '' !== $value ) {
-                $attributes[$name] = substr($value, 0, 160);
+                $attributes[$name] = mb_strcut($value, 0, 160, 'UTF-8');
             }
         }
 
         foreach ( $element->attributes ?? array() as $attribute ) {
             if ( str_starts_with(strtolower($attribute->name), 'data-') ) {
-                $attributes[$attribute->name] = substr((string) $attribute->value, 0, 160);
+                $attributes[$attribute->name] = mb_strcut((string) $attribute->value, 0, 160, 'UTF-8');
             }
         }
 

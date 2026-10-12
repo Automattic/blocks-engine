@@ -400,7 +400,7 @@ final class ArtifactNormalizer
     private function rejectionSample(string $code, array $file, string $path, ?int $bytes): array
     {
         $sample = array('code' => $code);
-        if ('' !== $path) $sample['path'] = substr($path, 0, self::MAX_REJECTION_SAMPLE_PATH_BYTES);
+        if ('' !== $path) $sample['path'] = mb_strcut($path, 0, self::MAX_REJECTION_SAMPLE_PATH_BYTES, 'UTF-8');
         if (null !== $bytes) $sample['bytes'] = $bytes;
         $role = $this->sanitizeKey((string) ($file['role'] ?? ''));
         if (in_array($role, self::SAMPLE_ROLES, true)) $sample['declared_role'] = $role;

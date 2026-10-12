@@ -1194,9 +1194,9 @@ final class ArtifactCompiler
         return array(
             'code' => 'runtime_form_declaration_declined',
             'severity' => 'warning',
-            'message' => substr('Extracted form metadata was declined before the runtime form entity declaration because ' . $because . '.', 0, 256),
-            'source_path' => substr($sourcePath, 0, 256),
-            'selector' => substr($selector, 0, 256),
+            'message' => mb_strcut('Extracted form metadata was declined before the runtime form entity declaration because ' . $because . '.', 0, 256, 'UTF-8'),
+            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
+            'selector' => mb_strcut($selector, 0, 256, 'UTF-8'),
             'failed_check' => $failedCheck,
             'control_count' => count($controls),
             'entity_schema' => 'generic/forms/v1',
@@ -1225,9 +1225,9 @@ final class ArtifactCompiler
         return array(
             'code' => 'runtime_form_graph_rejected',
             'severity' => 'warning',
-            'message' => substr('A generic form ' . $graph . ' failed its structural contract and was omitted from the runtime entity because ' . $reason, 0, 256),
-            'source_path' => substr($sourcePath, 0, 256),
-            'selector' => substr($selector, 0, 256),
+            'message' => mb_strcut('A generic form ' . $graph . ' failed its structural contract and was omitted from the runtime entity because ' . $reason, 0, 256, 'UTF-8'),
+            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
+            'selector' => mb_strcut($selector, 0, 256, 'UTF-8'),
             'graph' => $graph,
             'control_count' => count($controls),
             'entity_schema' => 'generic/forms/v1',
@@ -1262,8 +1262,8 @@ final class ArtifactCompiler
             'code' => 'runtime_product_grid_binding_declined',
             'severity' => 'warning',
             'message' => 'A product grid\'s shared collection binding anchor was declined because its container could not be resolved to one page-owned emitted block.',
-            'source_path' => substr($sourcePath, 0, 256),
-            'selector' => substr($selector, 0, 256),
+            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
+            'selector' => mb_strcut($selector, 0, 256, 'UTF-8'),
             'failed_check' => 'page_owned_collection_anchor_unresolved',
             'product_count' => $productCount,
             'entity_schema' => 'generic/products/v1',
@@ -1290,15 +1290,15 @@ final class ArtifactCompiler
     private function unrepresentedFormTextDiagnostic(string $sourcePath, string $selector, array $items): array
     {
         $texts = array_values(array_unique(array_map(
-            static fn (array $item): string => substr((string) $item['text'], 0, 200),
+            static fn (array $item): string => mb_strcut((string) $item['text'], 0, 200, 'UTF-8'),
             $items
         )));
         return array(
             'code' => 'form_field_context_unrepresented',
             'severity' => 'warning',
             'message' => substr('Source copy inside a materialized form could not be attached to a control or placed as form context, so it did not reach the generic/forms/v1 entity.', 0, 256),
-            'source_path' => substr($sourcePath, 0, 256),
-            'selector' => substr($selector, 0, 256),
+            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
+            'selector' => mb_strcut($selector, 0, 256, 'UTF-8'),
             'unrepresented_text' => array_slice($texts, 0, 8),
             'unrepresented_count' => count($texts),
             'entity_schema' => 'generic/forms/v1',

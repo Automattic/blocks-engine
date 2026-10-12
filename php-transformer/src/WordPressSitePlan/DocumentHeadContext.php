@@ -175,7 +175,7 @@ final class DocumentHeadContext
                 // Scripts keep the script-loading contract, which requires a write or HTTP(S) URL.
                 $embedded = 'link' === $row['tag'] && is_string($reference) && 1 === preg_match('~^data:~i', $reference);
                 if ($canonical && $embedded && strlen($reference) > self::MAX_DATA_URL_BYTES) throw new InvalidArgumentException('Document head data URL exceeds its budget.');
-                if (!is_string($reference) || '' === $reference || ($canonical && !$route && !$embedded && !str_starts_with($reference, WordPressSitePlan::TOKEN_PREFIX) && !preg_match('~^(?:https?:)?//~i', $reference))) throw new InvalidArgumentException('Document head ' . $row['tag'] . ' asset is not bound to a declared write or external URL: ' . substr((string) $reference, 0, 160));
+                if (!is_string($reference) || '' === $reference || ($canonical && !$route && !$embedded && !str_starts_with($reference, WordPressSitePlan::TOKEN_PREFIX) && !preg_match('~^(?:https?:)?//~i', $reference))) throw new InvalidArgumentException('Document head ' . $row['tag'] . ' asset is not bound to a declared write or external URL: ' . mb_strcut((string) $reference, 0, 160, 'UTF-8'));
                 if ('style' === $row['tag'] && $canonical && !isset($row['asset_reference'])) throw new InvalidArgumentException('Document head style must bind a canonical stylesheet write.');
             }
         }

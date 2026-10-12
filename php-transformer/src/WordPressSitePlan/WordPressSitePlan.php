@@ -853,7 +853,7 @@ PHP;
      */
     private static function documentIdentityDiagnostic(array $failure, int $documentCount): array
     {
-        $path = substr($failure['source_path'], 0, 256);
+        $path = mb_strcut($failure['source_path'], 0, 256, 'UTF-8');
         $kind = 'template_part' === $failure['document_kind'] ? 'template part' : 'page';
         $named = '' === $path ? 'Compiled ' . $kind : 'Compiled ' . $kind . ' "' . $path . '"';
         $message = 'unsafe_identity' === $failure['reason']
@@ -863,7 +863,7 @@ PHP;
         return array(
             'code' => 'wordpress_site_plan_not_self_contained',
             'severity' => 'error',
-            'message' => substr($message, 0, 256),
+            'message' => mb_strcut($message, 0, 256, 'UTF-8'),
             'source_path' => $path,
             'document_kind' => substr($failure['document_kind'], 0, 64),
             'reason' => substr($failure['reason'], 0, 64),
@@ -2541,10 +2541,10 @@ PHP;
             'code' => 'wordpress_site_plan_colliding_page_route',
             'severity' => 'warning',
             'message' => substr(sprintf('%s derives the same route as %s (%s); it materializes at %s instead.', $sourcePath, $keptSourcePath, $routePath, $resolvedPath), 0, 256),
-            'source_path' => substr($sourcePath, 0, 256),
-            'colliding_source_path' => substr($keptSourcePath, 0, 256),
-            'route_path' => substr($routePath, 0, 256),
-            'resolved_route_path' => substr($resolvedPath, 0, 256),
+            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
+            'colliding_source_path' => mb_strcut($keptSourcePath, 0, 256, 'UTF-8'),
+            'route_path' => mb_strcut($routePath, 0, 256, 'UTF-8'),
+            'resolved_route_path' => mb_strcut($resolvedPath, 0, 256, 'UTF-8'),
             'reason_code' => 'colliding_page_route',
             'pattern_family' => 'site_plan_route',
             'repair_bucket' => 'restore_canonical_route_identity',
@@ -4468,11 +4468,11 @@ PHP;
             else $this->unresolvedNavigationDiagnostics[$key] = array_filter(array(
                 'code' => 'wordpress_site_plan_unresolved_navigation_link',
                 'severity' => 'warning',
-                'message' => substr(null === $absolute ? "Neutralized a link to {$url}, which names no artifact page and has no recorded source URL." : "Linked {$url} to the source site because it names no artifact page.", 0, 256),
-                'source_path' => substr($origin, 0, 256),
-                'value' => substr($url, 0, 256),
+                'message' => mb_strcut(null === $absolute ? "Neutralized a link to {$url}, which names no artifact page and has no recorded source URL." : "Linked {$url} to the source site because it names no artifact page.", 0, 256, 'UTF-8'),
+                'source_path' => mb_strcut($origin, 0, 256, 'UTF-8'),
+                'value' => mb_strcut($url, 0, 256, 'UTF-8'),
                 'resolution' => null === $absolute ? 'neutralized' : 'source_url',
-                'resolved_url' => null === $absolute ? null : substr($absolute . $suffix, 0, 512),
+                'resolved_url' => null === $absolute ? null : mb_strcut($absolute . $suffix, 0, 512, 'UTF-8'),
                 'reason_code' => 'unresolved_local_browser_reference',
             ), static fn(mixed $field): bool => null !== $field);
         }
@@ -4913,7 +4913,7 @@ PHP;
                 if (!is_string($key) || (!is_scalar($value) && null !== $value) || 20 === count($fields)) { ++$truncated; continue; }
                 $key = substr($key, 0, 64);
                 if (isset($fields[$key])) { ++$truncated; continue; }
-                $fields[$key] = is_string($value) ? substr($value, 0, 256) : $value;
+                $fields[$key] = is_string($value) ? mb_strcut($value, 0, 256, 'UTF-8') : $value;
             }
         }
         $context = array('source_path' => $sourcePath, 'document_kind' => $documentKind, 'declaration_kind' => $declarationKind, 'declaration_index' => $index, 'reason' => $reason, 'fields' => $fields);
@@ -4933,12 +4933,12 @@ PHP;
     {
         $key = strtolower($value);
         if (isset($values[$key])) {
-            $shown = substr($value, 0, 120);
+            $shown = mb_strcut($value, 0, 120, 'UTF-8');
             $prior = $values[$key];
             $message = '' !== $prior && '' !== $source
-                ? sprintf('WordPress site plan has colliding %ss: %s (%s, %s).', $kind, $shown, substr($prior, 0, 60), substr($source, 0, 60))
+                ? sprintf('WordPress site plan has colliding %ss: %s (%s, %s).', $kind, $shown, mb_strcut($prior, 0, 60, 'UTF-8'), mb_strcut($source, 0, 60, 'UTF-8'))
                 : sprintf('WordPress site plan has colliding %ss: %s.', $kind, $shown);
-            throw new InvalidArgumentException(substr($message, 0, 256));
+            throw new InvalidArgumentException(mb_strcut($message, 0, 256, 'UTF-8'));
         }
         $values[$key] = $source;
     }
