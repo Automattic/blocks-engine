@@ -230,7 +230,7 @@ $assert(2 === substr_count($copiedMarkup, 'data-blocks-engine-status-bound="empt
 $statusRuntime = 'document.querySelector("[data-dla-collection-empty]");';
 $statusHtml = str_replace('</head>', '<script data-dla-collection-runtime="true">' . $statusRuntime . '</script></head>', $statusCase['copies']);
 $statusCompiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array('website/index.html' => $statusHtml, 'capture-receipt.json' => $statusFiles($statusHtml, $statusCase['evidence'])[1]['content'], 'interaction-states.json' => $statusFiles($statusHtml, $statusCase['evidence'])[2]['content'])))->toArray();
-$statusContracts = array_values(array_filter($statusCompiled['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? '')));
+$statusContracts = array_values(array_filter($statusCompiled['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_target_missing' === ($diagnostic['code'] ?? '')));
 $statusBodies = '';
 foreach (array($statusCompiled['files'] ?? array(), $statusCompiled['assets'] ?? array()) as $group) foreach ($group as $file) if (is_array($file) && is_string($file['content'] ?? null)) $statusBodies .= $file['content'];
 $assert(array() === $statusContracts && !str_contains($statusBodies, 'data-dla-collection-empty'), 'both assembled status copies retire the extracted collection script: ' . json_encode($statusContracts));
@@ -289,7 +289,7 @@ $scriptBodies = static function (array $compiled): string {
 };
 $complete = (new ArtifactCompiler())->compile($extractedArtifact($extractedHtml('')))->toArray();
 $completeBodies = $scriptBodies($complete);
-$completeContracts = array_values(array_filter($complete['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? '')));
+$completeContracts = array_values(array_filter($complete['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_target_missing' === ($diagnostic['code'] ?? '')));
 $assert(array() === $completeContracts, 'extracted capture runtimes are omitted after every binding is native: ' . json_encode($completeContracts));
 $assert(!str_contains($completeBodies, 'data-dla-collection-category-control') && !str_contains($completeBodies, 'data-dla-local-disclosure') && str_contains($completeBodies, 'keep-me'), 'only the proven collection and disclosure script files are omitted');
 $replacements = $complete['source_reports']['native_runtime_replacements'] ?? array();

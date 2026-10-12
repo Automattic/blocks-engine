@@ -48,7 +48,7 @@ $compiled = ( new ArtifactCompiler() )->compile(array(
 ))->toArray();
 $markup = (string) ( $compiled['serialized_blocks'] ?? '' );
 $blockNames = $names($compiled['blocks'] ?? array());
-$contractFailures = array_values(array_filter($compiled['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? '')));
+$contractFailures = array_values(array_filter($compiled['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_target_missing' === ($diagnostic['code'] ?? '')));
 
 $assert('success' === ($compiled['status'] ?? ''), 'script-addressed container compiles: ' . json_encode($contractFailures));
 $assert(! in_array('core/html', $blockNames, true) && ! str_contains($markup, '<!-- wp:html'), 'a script-addressed data attribute on a plain container does not fall back to core/html: ' . $markup);
