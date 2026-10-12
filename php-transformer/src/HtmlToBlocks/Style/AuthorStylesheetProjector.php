@@ -1957,9 +1957,19 @@ final class AuthorStylesheetProjector
             $scope = trim((string) $scopeMatch[1]) . ' ';
         }
         foreach ( $matches as $element ) {
+            $navigationTarget = $context->selectorProjections->navigationSubject($element->getNodePath() ?? '');
+            if ( '' !== $navigationTarget ) {
+                // This projection binds the subject to its element identity, so
+                // the live predicates a typed item rule keeps elsewhere are gone
+                // here anyway. Bind it through the native subject instead, with
+                // the shared carrier baseline every other rule on that item gets;
+                // otherwise Core defaults and lower ranked author rules win.
+                $projected[] = ':root ' . $scope . $navigationTarget . $this->selectorSpecificityShims($parsed, $context);
+                continue;
+            }
             $id = trim($element->getAttribute('id'));
             $parent = $element->parentNode;
-            $parentMarker = $parent instanceof DOMElement && preg_match('/>\s*$/', trim($ancestry))
+            $parentMarker =$parent instanceof DOMElement && preg_match('/>\s*$/', trim($ancestry))
                 ? $context->selectorProjections->attributeMarker($parent->getNodePath() ?? '', AuthorSelectorProjectionState::parentAttributeIdentity($selector))
                 : '';
             if ( '' !== $parentMarker && preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
