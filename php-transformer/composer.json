@@ -102,6 +102,7 @@
       "php tests/contract/staged-whole-equivalence.php",
       "php tests/contract/omitted-page-receipt.php",
       "php tests/contract/runtime-entity-budget.php",
+      "php tests/contract/whole-page-candidate-count.php",
       "php tests/contract/runtime-dependency-target-miss.php",
       "php tests/contract/stylesheet-link-media-plan.php",
       "php tests/contract/stylesheet-activation-plan.php",
