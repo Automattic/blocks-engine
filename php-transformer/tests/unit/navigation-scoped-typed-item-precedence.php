@@ -41,28 +41,31 @@ $css = $scope . '.item{display:flex;min-width:100px;position:relative}'
     . $scope . '.menu>ul li{display:block}'
     . $scope . '.item .box{display:grid;height:50px;position:relative}'
     . $scope . '.item .box>.label>.link{position:absolute;inset:0}';
-$source = '<style>' . $css . '</style>'
-    . '<div class="data-liberation-mobile-document" data-dla-device-document="mobile" data-dla-document-scope="">'
-    . '<header><nav class="menu"><ul>' . $items . '</ul></nav></header><main><p>Body</p></main></div>';
-
-$result = ( new HtmlTransformer() )->transform($source, array())->toArray();
-$candidateCss = implode("\n", array_map(
-    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
-    is_array($result['assets'] ?? null) ? $result['assets'] : array()
-));
-
-$displays = array();
-foreach ( array( 'source' => $source, 'native' => StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($result['serialized_blocks']) ) as $kind => $html ) {
-    $dom = new DOMDocument();
-    $previous = libxml_use_internal_errors(true);
-    $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
-    libxml_clear_errors();
-    libxml_use_internal_errors($previous);
-    $cascade = new StaticCssCascade($dom, 'native' === $kind ? $candidateCss : '');
-    foreach ( $dom->getElementsByTagName('li') as $item ) {
-        $displays[$kind][trim($item->textContent ?? '')] = $cascade->resolve($item, array( 'display' ), array())['display'] ?? '';
+$compile = static function (string $css) use ($items): array {
+    $source = '<style>' . $css . '</style>'
+        . '<div class="data-liberation-mobile-document" data-dla-device-document="mobile" data-dla-document-scope="">'
+        . '<header><nav class="menu"><ul>' . $items . '</ul></nav></header><main><p>Body</p></main></div>';
+    $result = ( new HtmlTransformer() )->transform($source, array())->toArray();
+    $candidateCss = implode("\n", array_map(
+        static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+        is_array($result['assets'] ?? null) ? $result['assets'] : array()
+    ));
+    $displays = array();
+    foreach ( array( 'source' => $source, 'native' => StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($result['serialized_blocks']) ) as $kind => $html ) {
+        $dom = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $cascade = new StaticCssCascade($dom, 'native' === $kind ? $candidateCss : '');
+        foreach ( $dom->getElementsByTagName('li') as $item ) {
+            $displays[$kind][trim($item->textContent ?? '')] = $cascade->resolve($item, array( 'display' ), array())['display'] ?? '';
+        }
     }
-}
+    return array( $candidateCss, $displays );
+};
+
+[ $candidateCss, $displays ] = $compile($css);
 
 $assert(
     array( 'Home' => 'block', 'About' => 'block', 'Contact' => 'block' ) === ($displays['source'] ?? null),
@@ -89,6 +92,21 @@ $assert(
     3 === count($native),
     'each rendered item takes the scoped native subject baseline',
     json_encode($typedSelectors)
+);
+
+// The scope must stay on the projected rule. A typed rule scoped to another
+// device document (here desktop) never reaches the mobile items, so they keep
+// the mobile rule's `block` rather than taking the desktop `table`.
+[ $leakCss, $leakDisplays ] = $compile(':where([data-dla-device-document="desktop"]) .menu>ul li{display:table}' . $css);
+$assert(
+    array( 'Home' => 'block', 'About' => 'block', 'Contact' => 'block' ) === ($leakDisplays['native'] ?? null),
+    'a typed item rule scoped to another device document does not reach the mobile items',
+    json_encode($leakDisplays)
+);
+$assert(
+    1 !== preg_match('/:root (?!:where\(\[data-dla-device-document="desktop"\]\) )[^{}]*\.wp-block-navigation-item\.blocks-engine-navigation-item-[^{}]*\{display:table/', $leakCss),
+    'no unscoped native item selector carries the desktop declaration',
+    ''
 );
 
 if ( 0 < $failures ) {
