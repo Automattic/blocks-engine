@@ -441,11 +441,24 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             $meta = substr($url, 0, $comma);
             $payload = substr($url, $comma + 1);
             $bytes = str_contains($meta, ';base64') ? base64_decode($payload, true) : rawurldecode($payload);
+            if ( ! is_string($bytes) ) {
+                return '';
+            }
+            $glyph = MonochromeGlyphColor::inspect($bytes);
+            if ( $glyph['undecodable'] ) {
+                $mimeType = strtolower(trim(explode(';', substr($meta, 5))[0]));
+                $context->glyphColorUndecodable($mimeType, 'data:' . $mimeType);
+            }
 
-            return is_string($bytes) ? MonochromeGlyphColor::fromBytes($bytes) : '';
+            return $glyph['color'];
         }
 
-        return $this->concreteColor($context->assetGlyphColor($url));
+        $asset = $context->assetMetadata($url);
+        if ( ! empty($asset['glyph_color_undecodable']) ) {
+            $context->glyphColorUndecodable((string) ($asset['mime_type'] ?? ''), (string) ($asset['path'] ?? $url));
+        }
+
+        return $this->concreteColor((string) ($asset['glyph_color'] ?? ''));
     }
 
     private function sameDestinationGlyphColor(DOMElement $anchor, PatternContext $context): string

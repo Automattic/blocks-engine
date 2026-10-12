@@ -429,6 +429,7 @@
       "php tests/unit/social-links-source-context.php",
       "php tests/unit/social-anchor-ancestor-selector.php",
       "php tests/unit/social-links-icon-color.php",
+      "php tests/unit/monochrome-glyph-color.php",
       "php tests/unit/pattern-registry-staged-dispatch.php",
       "php tests/unit/navigation-pattern-context.php",
       "php tests/unit/navigation-inherited-item-presentation.php",
