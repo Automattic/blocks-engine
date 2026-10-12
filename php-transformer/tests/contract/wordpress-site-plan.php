@@ -790,7 +790,10 @@ $detachedLegacyResult = $legacyBindingResult;
 foreach ($detachedLegacyResult['source_reports']['compiled_site']['runtime_declarations'] as &$declaration) if ('forms' === ($declaration['type'] ?? null)) { $declaration['payload']['entities'][0]['bindings'][0]['search_block_markup'] = '<!-- wp:group -->detached<!-- /wp:group -->'; unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); }
 unset($declaration);
 $detachedLegacyResult['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeList($detachedLegacyResult['source_reports']['compiled_site']['runtime_declarations']);
-$throws(static fn() => (new WordPressSitePlan())->fromResult($detachedLegacyResult), 'A detached legacy generic block binding fails closed.');
+$detachedLegacyPlan = (new WordPressSitePlan())->fromResult($detachedLegacyResult);
+$detachedLegacyForm = current(array_filter($detachedLegacyPlan['runtime_declarations'], static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)))['payload']['entities'][0] ?? array();
+$detachedLegacyFindings = array_values(array_filter($detachedLegacyPlan['diagnostics'], static fn(array $row): bool => 'runtime_entity_binding_unanchored' === ($row['code'] ?? null)));
+$assert(array() === ($detachedLegacyForm['bindings'] ?? null) && 1 === count($detachedLegacyFindings) && 'binding' === $detachedLegacyFindings[0]['unit'], 'A detached legacy generic block binding is dropped and reported instead of failing the plan.');
 $ambiguousLegacyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form method="post"><input type="email" name="email"><button type="submit">Join</button></form><form method="post"><input type="email" name="email"><button type="submit">Join</button></form></main>')))->toArray();
 foreach ($ambiguousLegacyResult['source_reports']['compiled_site']['runtime_declarations'] as &$declaration) if ('forms' === ($declaration['type'] ?? null)) { unset($declaration['payload']['entities'][0]['bindings'][0]['position'], $declaration['payload']['entities'][0]['bindings'][0]['occurrence']); unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); }
 unset($declaration);

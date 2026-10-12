@@ -145,12 +145,13 @@ foreach ($staleSvgInput['source_reports']['compiled_site']['runtime_declarations
 }
 unset($declaration);
 $staleSvgInput['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeList($staleSvgInput['source_reports']['compiled_site']['runtime_declarations']);
-try {
-    $stalePlan = (new WordPressSitePlan())->fromCompilerResult($staleSvgInput);
-    (new WordPressSitePlanResolver())->resolve($stalePlan, array('theme_uri' => 'https://example.test/theme'));
-    throw new RuntimeException('A stale manifest binding was accepted.');
-} catch (InvalidArgumentException $error) {
-    $assert(str_contains($error->getMessage(), 'anchor') || str_contains($error->getMessage(), 'canonical block'), 'Stale manifest bindings fail exact anchor validation.');
-}
+// A stale manifest binding names a block the plan does not emit. The binding is
+// dropped and reported; the block stays static and the plan stays valid.
+$stalePlan = (new WordPressSitePlan())->fromCompilerResult($staleSvgInput);
+(new WordPressSitePlanResolver())->resolve($stalePlan, array('theme_uri' => 'https://example.test/theme'));
+$staleBindings = array();
+foreach (RuntimeDeclarations::materialize($stalePlan['runtime_declarations'], $stalePlan['runtime_records'] ?? array()) as $declaration) if ('forms' === ($declaration['type'] ?? null)) foreach ($declaration['payload']['entities'] as $entity) foreach ($entity['bindings'] ?? array() as $binding) $staleBindings[] = $binding;
+$staleFindings = array_values(array_filter($stalePlan['diagnostics'], static fn(array $row): bool => 'runtime_entity_binding_unanchored' === ($row['code'] ?? null)));
+$assert(array() === array_filter($staleBindings, static fn(array $binding): bool => str_contains((string) $binding['search_block_markup'], 'Stale')) && array() !== $staleFindings && 'binding' === $staleFindings[0]['unit'] && 'anchor_not_emitted' === $staleFindings[0]['reason_code'], 'Stale manifest bindings are dropped and reported instead of failing the plan.');
 
 echo "Shared shell entity bindings contract passed.\n";

@@ -65,6 +65,14 @@ materialization. Ordinary descriptive metadata retains its existing routing.
   plan records a `wordpress_site_plan_omitted_link_declaration` warning
   (`reason_code` `unresolved_local_url`). The import is not failed; the strict head
   validator still rejects a head that declares such a link.
+- An attribute or element over those bounds is a page-local limit. Event-handler
+  attributes (`<link onload>`), invalid or reserved names and oversized or invalid
+  values are stripped from their element (`document_head_attribute_dropped`). An
+  element still over its attribute budget, an oversized `data:` link or inline data
+  block, and elements past the element budget are dropped
+  (`document_head_element_dropped`). Each is a warning with `unit` `item`,
+  `source_path`, `reason_code`, `tag` and, for attributes, `attribute`. The import
+  is not failed; the strict head validator still rejects a head that carries them.
 - `DocumentHeadContext::fromPlan()` accepts only a validated site plan, including
   its exact generated `functions.php` write. It returns the same head DOM used by
   the materializer. Source markup, body block markup, and metadata with a missing
