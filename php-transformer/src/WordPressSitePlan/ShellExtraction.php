@@ -239,7 +239,7 @@ final class ShellExtraction
                     // it renders in the top layer, so the footer is the last
                     // sibling before it.
                     $lastIndex = count($ranges) - 1;
-                    while ($lastIndex > 0 && self::isCapturedDialogBlock(substr($markup, $ranges[$lastIndex]['offset'], $ranges[$lastIndex]['length']))) --$lastIndex;
+                    while ($lastIndex > 0 && self::isCapturedModalDialogBlock(substr($markup, $ranges[$lastIndex]['offset'], $ranges[$lastIndex]['length']))) --$lastIndex;
                     $last = $ranges[$lastIndex];
                     $lastMarkup = substr($markup, $last['offset'], $last['length']);
                     if ($last !== $ranges[0] && self::isFooterChrome($lastMarkup)) {
@@ -413,9 +413,11 @@ final class ShellExtraction
         return 1 === preg_match('/^<!--\s*wp:group(?:\s|\{)/', ltrim($markup));
     }
 
-    private static function isCapturedDialogBlock(string $markup): bool
+    private static function isCapturedModalDialogBlock(string $markup): bool
     {
-        return 1 === preg_match('#^<!--\s*wp:[a-z0-9-]+/captured-dialog(?:\s|\{)#', ltrim($markup));
+        // Only a modal: a dropdown flows in its document like a source panel.
+        return 1 === preg_match('#^<!--\s*wp:[a-z0-9-]+/captured-dialog(?:\s+(\{.*?\}))?\s*/?-->#s', ltrim($markup), $match)
+            && 'dropdown' !== ((json_decode($match[1] ?? '', true) ?: array())['presentation'] ?? null);
     }
 
     private static function isHeadingBlock(string $markup): bool
