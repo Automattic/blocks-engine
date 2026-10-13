@@ -19,10 +19,11 @@ behavior. The gate is `tests/contract/capture-evidence-equivalence.php`, run by
   renamed `html`, as a producer writing the new names would.
 - **Expectation** (`expected.json`): the pre-move source commit, with the same
   rule applied to its `src/` (and the two recognized runtime digests swapped
-  for the digests of their renamed bodies), replays each renamed case. The
+  for the currently published ones), replays each renamed case. The
   gate requires this checkout to produce a byte-identical compile result,
   WordPress site plan, projected file set or exception for every case. Only
-  the checkout path and `*_duration_ms` wall-clock timings are neutralized.
+  the checkout path, `*_duration_ms` wall-clock timings and the
+  `engine_version` release stamp are neutralized.
 
 ## Regenerating
 

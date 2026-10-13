@@ -177,9 +177,9 @@ final class CaptureEvidence
     // Recognized capture runtimes: sha256 of the trimmed `<script>` body.
 
     /** The site-independent disclosure interpreter (DISCLOSURE_RUNTIME). */
-    public const DISCLOSURE_RUNTIME_SHA256 = '3d350f5508bed44c931291f9f38e5d8d7c361d5d3ea729c51f1fe11b70ce75dc';
+    public const DISCLOSURE_RUNTIME_SHA256 = 'b545f43a77b79d075373048431101fe11d7ff8cdfe7987de6d7971512763d88f';
     /** The gallery helper (GALLERY_RUNTIME) that may coexist with a replaced disclosure interpreter. */
-    public const GALLERY_RUNTIME_SHA256 = '0a6bf62a6d9d6a04faf10e933d2362bbbdf3b5c8351c6452174f98bf29f723aa';
+    public const GALLERY_RUNTIME_SHA256 = '456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b';
 
     // Published for downstream importers; Blocks Engine does not read these.
 
