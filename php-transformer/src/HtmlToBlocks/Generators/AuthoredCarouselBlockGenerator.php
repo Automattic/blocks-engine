@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
+use DOMText;
 use LogicException;
 
 /** Builds an editable companion block for bounded authored carousels. */
@@ -845,8 +846,20 @@ JS;
         // Let the smallest complete carousel own its list and controls. An
         // enclosing gallery section still converts its heading and other copy.
         if ( $list instanceof DOMElement ) {
+            $rootControls = $this->allNavigationControls($element);
             for ( $owner = $list->parentNode; $owner instanceof DOMElement && $owner !== $element; $owner = $owner->parentNode ) {
                 if ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) {
+                    return null;
+                }
+                // A lone previous or next control is still a complete carousel
+                // when one inner owner holds it, the list and the carousel
+                // identity. Converting the outer root would replace that
+                // owner's authored siblings with slides, so let it own itself.
+                if ( array() !== $rootControls
+                    && $this->ownsCarouselIdentity($owner, $list)
+                    && array() === array_filter($rootControls, fn(DOMElement $control): bool => ! $this->containsNode($owner, $control))
+                    && $this->hasAuthoredContentOutside($element, $owner)
+                ) {
                     return null;
                 }
             }
@@ -1381,6 +1394,63 @@ JS;
         for ($current = $node; null !== $current; $current = $current->parentNode) {
             if ($ancestor->isSameNode($current)) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether $owner, or a node between $list and it, carries carousel identity. */
+    private function ownsCarouselIdentity(DOMElement $owner, DOMElement $list): bool
+    {
+        for ( $candidate = $list; $candidate instanceof DOMElement; $candidate = $candidate->parentNode ) {
+            if ( $this->sourceElementClassifier->hasCarouselIdentity($candidate) ) {
+                return true;
+            }
+            if ( $candidate === $owner ) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether $root holds readable text, media or form controls outside
+     * $owner. Carousel controls (links and buttons) are not authored content
+     * here: the carousel shell rebuilds them.
+     */
+    private function hasAuthoredContentOutside(DOMElement $root, DOMElement $owner): bool
+    {
+        $pending = array($root);
+        while ( array() !== $pending ) {
+            $node = array_pop($pending);
+            foreach ( $node->childNodes as $child ) {
+                if ( $child instanceof DOMText ) {
+                    if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->data)) ) {
+                        return true;
+                    }
+                    continue;
+                }
+                if ( ! $child instanceof DOMElement || $child === $owner ) {
+                    continue;
+                }
+                $tag = strtolower($child->tagName);
+                if ( in_array($tag, array('button', 'script', 'style', 'template', 'svg'), true) ) {
+                    continue;
+                }
+                // Text-less links are pagination or thumbnails the carousel
+                // rebuilds; a link with readable text is authored content.
+                if ( 'a' === $tag ) {
+                    if ( ! $this->sourceElementClassifier->isCarouselControl($child, $root)
+                        && '' !== trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? ''))
+                    ) {
+                        return true;
+                    }
+                    continue;
+                }
+                if ( in_array($tag, array('img', 'picture', 'video', 'iframe', 'input', 'select', 'textarea', 'form'), true) ) {
+                    return true;
+                }
+                $pending[] = $child;
             }
         }
         return false;
