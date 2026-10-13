@@ -161,7 +161,7 @@
         {
             "id": "173a88a283867dfce8eae3c9de9eec9704d5e8f6",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "5bf3b0d1cfd478956495cd99a7ebe3978bb60cf918cd8461b83031e45e2b35d2",
+            "expected_sha256": "266c15ec5c753ddadb01dee3a73eb6bb4562c227c546be9df08a75c3e8917619",
             "outcome": "output"
         },
         {
@@ -659,7 +659,7 @@
         {
             "id": "56cfc02ba8cd9ddd2f614d6be5285e1c86f03237",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "a2ccc7ae9bd636f183ae72362a60992a28fcff50c859ce0cf4de714fd14f6e2b",
+            "expected_sha256": "1f5bd357724986ba22c36890f97967b1a3dc09f8d429c3104f4704347d2c87c3",
             "outcome": "output"
         },
         {
@@ -683,13 +683,13 @@
         {
             "id": "5ad295f609ae49ec87f20beb4a484727a05736a3",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "f676e9d8d374a59571c09187e7ce9c2deebc0b5cebf1bfa44e4fc1083bb985c6",
+            "expected_sha256": "cda596877ea6100c721273f9e947231da899f0c7c9dc215e241a12ac25b284df",
             "outcome": "output"
         },
         {
             "id": "5af9c0c165a91e3af547deee936dff52660372d3",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "9a3e41275f0abdfc845414610c92b7a01347966ef4d407a653f0ad0eeb207517",
+            "expected_sha256": "643e1abb5d97dc80a0496bb915b0b47899e4225f310687e19bda59083fdc98a3",
             "outcome": "output"
         },
         {
@@ -803,7 +803,7 @@
         {
             "id": "6657cdacd444aa522207d0a457b8f29748738bea",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "2ec0ba5689e5c3212be342dd4c314f0676b813c2b065e7a4435ba35af926c269",
+            "expected_sha256": "a0aa1099c917237d366fbf3b29d700650c6cf942b0bc2fd3ebbacad2a17aaeef",
             "outcome": "output"
         },
         {
@@ -857,7 +857,7 @@
         {
             "id": "6a79dc903f5df497efc761687eabd534e3f5819f",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "5d9d26d904d51a6b01593889fc60974823597b92346b763fc3267a3ba27b6d3e",
+            "expected_sha256": "16d736b4c928333edbcae9883600d0a738ab94433f1e95fc0d1d83b674eb3fc2",
             "outcome": "output"
         },
         {
@@ -1127,7 +1127,7 @@
         {
             "id": "88ac82df0f259bc2c9588ed3ef6216a07be123b9",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "d7ab09b8c74107dace035fa59869755de14ffe606fbf596c8fbf05ca36d24fdd",
+            "expected_sha256": "bfd7070dd108539c3027cf9d0cb47ce320fa9d371ad13fc23657b8a2e89ad55c",
             "outcome": "output"
         },
         {
@@ -1139,7 +1139,7 @@
         {
             "id": "8a631c3cfa09ab74f3dfd8bc3e0c73d998137c62",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "9c06426c119a071d951ee76ce29ea9a58c9289ca0e55160f84e4ba0f31f9d062",
+            "expected_sha256": "afdd6001e2ee1181fc4474f70d92f5ab8b181c62b22057f3a7fc7cad7ceda1f8",
             "outcome": "output"
         },
         {
@@ -1163,7 +1163,7 @@
         {
             "id": "8c22a3218541e3ba5880c3a80a75f56bad927a7b",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "1ea4f586016edaea194c98dee680cbd6259a895ee9846a0f27172ef9dcd7c9bd",
+            "expected_sha256": "51175fa67e704edc91e2e8d89ebf33e561aeaa10cb5ef24f324e9fa5b47e6ca1",
             "outcome": "output"
         },
         {
@@ -1295,13 +1295,13 @@
         {
             "id": "983aa90985b87e7f473dab9e3b40b083552436b5",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "8c96c261d6630bbd125529e17b57cb4613ca9640f257087fee45b3cf913d8333",
+            "expected_sha256": "6a1282857cbb707b47763e51b00dff7161b5c6978792ee07a1d22cfede338ff4",
             "outcome": "output"
         },
         {
             "id": "9885239b939b4e2953b2124cb161eb272a33e208",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "9592e05a5a1b571b464adda1d4335a4a1832d901f9b1e1b23b9bbdc45a899ad7",
+            "expected_sha256": "99d360b04ce99e3de01e7f4344b11bdbb36542a7c2e4148558a4e7987299b395",
             "outcome": "output"
         },
         {
@@ -1619,7 +1619,7 @@
         {
             "id": "ca0b670dca5dc1fa4f907d6d4cd0519c8a21011b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "5cddf67a4886d47f95004ed62438b7b48f141f0dac4513c2f4fb4a7bef418a69",
+            "expected_sha256": "59fa9bca525908d1746177a5cce2384aaf2afc70b1cdac93c7429de54d0a1f3c",
             "outcome": "output"
         },
         {
@@ -1667,7 +1667,7 @@
         {
             "id": "d28fa8458fa6e62f7071db9c695684c53c07ae87",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "cc1525f8e7345dd3ae383982c61ff6f9d41545da541da033dbb090f6e4b66235",
+            "expected_sha256": "5b331f45a11e2ef9b969ed2e6e353c64dcf675da901b6f49343fff23dfb59615",
             "outcome": "output"
         },
         {
@@ -1715,7 +1715,7 @@
         {
             "id": "d76cc2452b7e71d7e7e389b23721168d5eed1c01",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "8ce2cd4b9c69e18bada1192b36ccf6845e445cd51fba26c651e2832692ce8d78",
+            "expected_sha256": "73e3089ec8483ea125232cbb074d7b4488c646ab54377ecdd0f3178a997b2efb",
             "outcome": "output"
         },
         {
@@ -1871,7 +1871,7 @@
         {
             "id": "e970e58c3c477747ba87b749ca7575c096199e4b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "48e3e2c1263a28e9af393c741d2a328030076073061dd4568b040d022451817e",
+            "expected_sha256": "658417c79a614ae9cd00f7c6cfa247faf10c0f8aad3103c9a264e5a30d7d4370",
             "outcome": "output"
         },
         {
@@ -1967,7 +1967,7 @@
         {
             "id": "f159a7b63a3e77af373cac9dd2100c94dced0f55",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "15078210895cb1c197b0d3d2772d7d703caf06afa7c78b90f80ba79a64a2749c",
+            "expected_sha256": "409bd0a44155eaf8030c73451e2289e1f2bc5c46a098dc6bbe2d2fb74c8f2956",
             "outcome": "output"
         },
         {
