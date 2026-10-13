@@ -3021,6 +3021,13 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
+        // The strict gates only read the grow factor of the `flex` shorthand;
+        // folding it into `flex-grow` lets source order decide between them.
+        if ('flex' === $property) {
+            $property = 'flex-grow';
+            $value = $this->flexShorthandGrowFactor($value);
+        }
+
         $current = $cascade[$property] ?? null;
         if (is_array($current)) {
             if ($current['important'] && ! $important) {
@@ -3047,6 +3054,31 @@ final class StyleResolver implements ElementPresentationResolver
             'specificity' => $specificity,
             'sequence' => $sequence,
         );
+    }
+
+    /**
+     * Grow factor of a `flex` shorthand value: `none` is 0, `auto` and a
+     * basis-only value (`flex: 30px`) are 1, otherwise the first unitless
+     * number (`flex: 30px 2` grows by 2). var() and CSS-wide keywords stay
+     * verbatim for the gates to inspect.
+     */
+    private function flexShorthandGrowFactor(string $value): string
+    {
+        $value = strtolower($value);
+        if (1 === preg_match('/var\s*\(/i', $value) || in_array($value, array('inherit', 'initial', 'revert', 'revert-layer', 'unset'), true)) {
+            return $value;
+        }
+        if ('none' === $value) {
+            return '0';
+        }
+
+        foreach (CssValueSplitter::splitTopLevelWhitespace($value) as $component) {
+            if (is_numeric($component)) {
+                return $component;
+            }
+        }
+
+        return '1';
     }
 
     /**
@@ -3960,9 +3992,11 @@ final class StyleResolver implements ElementPresentationResolver
                     'align-items',
                     'direction',
                     'display',
+                    'flex',
                     'flex-basis',
                     'flex-direction',
                     'flex-flow',
+                    'flex-grow',
                     'float',
                     'grid-template-columns',
                     'order',
