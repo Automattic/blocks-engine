@@ -53,6 +53,10 @@ replay by case:
   hashes and sizes derived from it change in `0a9c1bea`, `15082c2d`,
   `21e5cdbf`, `2915d21f`, `37284b0e`, `55b724ac`, `7a7af898`, `7c2d1217`,
   `927aa368`, `944dd63d`, `df9c24a8`, `e5ea5743`.
+- **Consumed inline custom properties.** A RichText carrier now checks which
+  of its source inline's custom properties author rules read. The emitted
+  blocks and stylesheets are unchanged; only the style-rule candidate cache
+  miss and peak-entry counters rise by one in `c7fff215` and `f025cf28`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
