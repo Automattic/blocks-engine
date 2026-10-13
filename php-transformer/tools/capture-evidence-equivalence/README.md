@@ -62,6 +62,10 @@ replay by case:
   group cannot save those attributes. The corpus input carries no CSS for its
   empty Wix background and header layers, so they no longer emit empty groups
   and their wrappers re-nest in `90234027`.
+- **Shell frame in the template.** A page whose shared header and footer sit
+  inside a layout frame keeps only the blocks between them; the frame and the
+  template-part references move to its route template around post-content.
+  Only the site plan page, template and write payloads change in `dae00d12`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.

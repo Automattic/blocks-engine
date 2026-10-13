@@ -1274,6 +1274,11 @@ final class ShellExtraction
         $content = substr($markup, $start, $end - $start);
         if ('' === trim($content) || str_contains($content, 'wp:template-part')) return null;
         if (preg_match('/"tagName":"main"/', $opening . $closing)) return null;
+        // A frame belongs to one captured device document. When the shells sit
+        // in one of several device documents, the others are page content, not
+        // chrome around it.
+        preg_match_all('/data-blocks-engine-capture-device-document(?:":"|=")([^"]+)"/', $opening . $closing, $documents);
+        if (count(array_unique($documents[1])) > 1) return null;
         return array('opening' => $opening, 'closing' => $closing, 'content' => $content);
     }
 
