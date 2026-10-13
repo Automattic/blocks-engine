@@ -66,6 +66,11 @@ replay by case:
   source trigger buttons with `data-blocks-engine-tab-trigger`, so their box
   styling carries onto native tab buttons. The projected HTML gains the marker
   and the tab-list carrier class hash changes in `173a88a2`, `56cfc02b`, `5ad295f6`, `5af9c0c1`, `6657cdac`, `6a79dc90`, `88ac82df`, `8a631c3c`, `8c22a321`, `983aa909`, `9885239b`, `ca0b670d`, `d28fa845`, `d76cc245`, `e970e58c`, `f159a7b6`.
+- **Header identity across dialog triggers.** Shell identity ignores the
+  per-document hash in a captured dialog trigger id, so pages that differ only
+  there share one header. Only the shared header's `shell_identity` and the
+  plan identity hash change in `0a9c1bea`, `15082c2d`, `37284b0e`, `55b724ac`,
+  `7c2d1217`, `927aa368`, `944dd63d`, `df9c24a8`, `e5ea5743`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
