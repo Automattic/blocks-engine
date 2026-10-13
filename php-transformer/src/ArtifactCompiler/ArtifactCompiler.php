@@ -3158,6 +3158,9 @@ final class ArtifactCompiler
     {
         $scripts = array();
         foreach ( HtmlTagScanner::scan($html, 'script') as $script ) {
+            // The native control replay interpreter addresses captured control
+            // state, not source behavior; its state lowers into control blocks.
+            if (NativeControlState::isReplayScript($script['tag'])) continue;
             $src = $this->htmlAttribute($script['tag'], 'src');
             if ( '' === $src ) {
                 $scripts[] = $script['content'];
