@@ -6012,11 +6012,11 @@ $stretchSelectableSet = $compiler->compile(array(
     'files' => array(
         array('path' => 'website/index.html', 'content' => '<main><div class="step-row" style="display:flex;gap:8px"><button type="button" style="display:flex;flex:1 1 0%;min-width:200px;padding:12px"><span>Alpha</span></button><button type="button" style="display:flex;flex:1 1 0%;min-width:200px;padding:12px"><span>Beta</span></button></div><div class="detail"><p>Select an item to view details</p></div></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/capture-receipt/v1',
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
                 'states' => array(
