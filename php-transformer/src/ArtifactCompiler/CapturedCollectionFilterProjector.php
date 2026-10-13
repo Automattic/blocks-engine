@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
@@ -19,7 +20,7 @@ final class CapturedCollectionFilterProjector
             if ('interaction-states.json' === ($file['path'] ?? '')) $report = json_decode($file['content'], true);
             if ('capture-receipt.json' === ($file['path'] ?? '')) $receipt = json_decode($file['content'], true);
         }
-        if ('data-liberation/captured-interactions/v1' !== ($report['schema'] ?? '') || 'data-liberation/capture-receipt/v1' !== ($receipt['schema'] ?? '')) return $files;
+        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? '') || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? '')) return $files;
         $routes = array();
         foreach ($receipt['routes'] ?? array() as $route) $routes[rtrim($route['url'] ?? '', '/')] = $route['path'] ?? '';
         if (count($report['pages'] ?? array()) > 128) return $files;
@@ -48,16 +49,16 @@ final class CapturedCollectionFilterProjector
                     }
                     if ('typed-search' !== ($state['kind'] ?? '') || 'captured' !== ($state['status'] ?? '') || 'verified' !== ($evidence['replay'] ?? '') || 'verified' !== ($evidence['restoration'] ?? '') || 'normalized-text-includes' !== ($evidence['predicate'] ?? '') || 'blocked' !== ($evidence['network']['dataRequests'] ?? '') || empty($evidence['items']) || count($evidence['items']) > 100 || empty($evidence['categories']) || count($evidence['categories']) > 32 || !is_int($evidence['initialCategory'] ?? null) || !isset($evidence['categories'][$evidence['initialCategory']]) || strlen(json_encode($evidence)) > 524288) continue;
                     $id = (string) $key++;
-                    $targets = $xpath->query('//*[@data-dla-collection="' . $id . '"]');
-                    $fields = $xpath->query('//*[@data-dla-collection-field="' . $id . '"]');
-                    $controls = $xpath->query('//*[@data-dla-collection-category-control="' . $id . '"]');
-                    $empty = $xpath->query('//*[@data-dla-collection-empty="' . $id . '"]');
+                    $targets = $xpath->query('//*[@' . CaptureEvidence::COLLECTION . '="' . $id . '"]');
+                    $fields = $xpath->query('//*[@' . CaptureEvidence::COLLECTION_FIELD . '="' . $id . '"]');
+                    $controls = $xpath->query('//*[@' . CaptureEvidence::COLLECTION_CATEGORY_CONTROL . '="' . $id . '"]');
+                    $empty = $xpath->query('//*[@' . CaptureEvidence::COLLECTION_EMPTY . '="' . $id . '"]');
                     if (1 !== $targets->length || 1 !== $fields->length || 1 !== $empty->length || count($evidence['categories']) !== $controls->length) continue;
                     $target = $targets->item(0);
-                    $items = $xpath->query('./*[@data-dla-collection-item]', $target);
+                    $items = $xpath->query('./*[@' . CaptureEvidence::COLLECTION_ITEM . ']', $target);
                     if (count($evidence['items']) !== $items->length) continue;
                     foreach ($items as $index => $item) {
-                        if ($item->getAttribute('data-dla-collection-item') !== (string) $evidence['items'][$index]['key'] || json_decode($item->getAttribute('data-dla-collection-members'), true) !== $evidence['items'][$index]['categories']) continue 2;
+                        if ($item->getAttribute(CaptureEvidence::COLLECTION_ITEM) !== (string) $evidence['items'][$index]['key'] || json_decode($item->getAttribute(CaptureEvidence::COLLECTION_MEMBERS), true) !== $evidence['items'][$index]['categories']) continue 2;
                     }
                     $nodes = array_merge(array($target, $fields->item(0), $empty->item(0)), iterator_to_array($controls));
                     $root = $target->parentNode;

@@ -44,8 +44,8 @@ $css = '.hidden{display:none}.flex{display:flex}.items-center{align-items:center
     . '.gap-8{gap:2rem}.gap-3{gap:.75rem}.cta{display:inline-block;padding:8px 24px;border-radius:999px;background:#036;color:#fff}'
     . '@media (min-width:768px){.md\\:flex{display:flex}.md\\:hidden{display:none}}';
 $item = static fn (string $id, string $label, string $links): string =>
-    '<div class="relative"><button id="' . $id . '" type="button" aria-haspopup="menu" aria-controls="p-' . $id . '" aria-expanded="false" data-dla-dialog-trigger="p-' . $id . '">' . $label . '</button>'
-    . '<div class="panel dla-dialog dla-dropdown" hidden id="p-' . $id . '" data-dla-dialog-panel="p-' . $id . '">' . $links . '</div></div>';
+    '<div class="relative"><button id="' . $id . '" type="button" aria-haspopup="menu" aria-controls="p-' . $id . '" aria-expanded="false" data-blocks-engine-capture-dialog-trigger="p-' . $id . '">' . $label . '</button>'
+    . '<div class="panel data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown" hidden id="p-' . $id . '" data-blocks-engine-capture-dialog-panel="p-' . $id . '">' . $links . '</div></div>';
 $switcher = '<div class="lang" aria-label="Switch language"><button type="button" aria-pressed="true">EN</button><span>|</span><button type="button" aria-pressed="false">ES</button></div>';
 $cta = '<a class="cta" href="/book">Book now</a>';
 $accordion = static fn (string $label): string => '<div><button class="acc">' . $label . '<svg viewBox="0 0 4 4"><path d="M0 0l4 4"/></svg></button></div>';
@@ -58,9 +58,9 @@ $page = static fn (string $dialog, string $mobileGroupExtra = ''): string => '<s
     . $item('shop', 'Shop', $shop) . $item('help', 'Help', $help)
     . '<a href="/about">About</a>' . $switcher . $cta . '</div>'
     . '<div class="md:hidden flex items-center gap-3">' . $switcher
-    . '<button type="button" id="burger" aria-label="Menu" aria-haspopup="menu" aria-expanded="false" aria-controls="dlg" data-dla-dialog-trigger="dla-dialog-4"><svg viewBox="0 0 4 4"><path d="M0 0h4"/></svg></button>' . $mobileGroupExtra . '</div></div>'
+    . '<button type="button" id="burger" aria-label="Menu" aria-haspopup="menu" aria-expanded="false" aria-controls="dlg" data-blocks-engine-capture-dialog-trigger="data-blocks-engine-capture-dialog-4"><svg viewBox="0 0 4 4"><path d="M0 0h4"/></svg></button>' . $mobileGroupExtra . '</div></div>'
     . $dialog . '</nav>';
-$dialog = '<dialog id="dlg" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="burger" class="md:hidden dla-dialog dla-dropdown" data-blocks-engine-presentation="dropdown" data-blocks-engine-placement="in-place" data-blocks-engine-captured-menu="true">'
+$dialog = '<dialog id="dlg" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="burger" class="md:hidden data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown" data-blocks-engine-presentation="dropdown" data-blocks-engine-placement="in-place" data-blocks-engine-captured-menu="true">'
     . $accordion('Shop') . $accordion('Help') . '<a href="/about">About</a>' . '<a class="cta" href="/book">Book now</a></dialog>';
 
 $transform = static fn (string $html): array => ( new HtmlTransformer() )->transform($html)->toArray();
@@ -85,7 +85,7 @@ $assert(1 === count($findBlocks((array) ($navigations[0]['innerBlocks'] ?? array
 $assert(str_contains($markup, 'blocks-engine-menu-fold-hide') && str_contains($markup, 'blocks-engine-menu-fold-overlay-only'), 'each copy of the call to action is marked for its own width', $markup);
 
 // A dialog that lists something the row does not have is not a copy of the row.
-$other = '<dialog id="dlg" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="burger" class="md:hidden dla-dialog dla-dropdown" data-blocks-engine-presentation="dropdown" data-blocks-engine-placement="in-place" data-blocks-engine-captured-menu="true">'
+$other = '<dialog id="dlg" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="burger" class="md:hidden data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown" data-blocks-engine-presentation="dropdown" data-blocks-engine-placement="in-place" data-blocks-engine-captured-menu="true">'
     . $accordion('Shop') . $accordion('Help') . '<a href="/about">About</a><a href="/careers">Careers</a></dialog>';
 $unmatched = $transform($page($other));
 $unmatchedMarkup = (string) ($unmatched['serialized_blocks'] ?? '');

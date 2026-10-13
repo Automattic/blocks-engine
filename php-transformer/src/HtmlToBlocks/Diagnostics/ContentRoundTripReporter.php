@@ -178,6 +178,6 @@ final class ContentRoundTripReporter
             return $text;
         }
 
-        return rtrim(substr($text, 0, self::MAX_SNIPPET)) . '…';
+        return rtrim(mb_strcut($text, 0, self::MAX_SNIPPET, 'UTF-8')) . '…';
     }
 }

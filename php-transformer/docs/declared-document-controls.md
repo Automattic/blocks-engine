@@ -1,8 +1,8 @@
 # Declared document scopes and authored controls
 
 A source document scope is an explicit body-equivalent boundary, rather than a
-fixed desktop/mobile class convention. `data-dla-document-scope` together with a
-bounded `data-dla-device-document` identifier declares that boundary. Profile
+fixed desktop/mobile class convention. `data-blocks-engine-capture-document-scope` together with a
+bounded `data-blocks-engine-capture-device-document` identifier declares that boundary. Profile
 identifiers use `[a-z][a-z0-9_-]{0,63}`; layout dispatch, ancestry, root state,
 navigation duplicate suppression and counterpart editor context use the declared
 boundary independently of class cardinality. Existing source conventions remain
@@ -27,7 +27,7 @@ target and close/focus behavior instead of converting the modal into disclosure.
 
 ## Authored media and activation
 
-`data-dla-source-media` declares the authored media condition. A serialized
+`data-blocks-engine-capture-source-media` declares the authored media condition. A serialized
 `media="not all"` can instead be the inactive document's initial activation state.
 Analysis uses the authored condition; the canonical asset carries optional
 `source_media` independently of `media`. Declared source media remains owned by

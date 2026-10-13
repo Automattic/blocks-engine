@@ -21,8 +21,8 @@ $css = '.hidden{display:none}.flex{display:flex}.items-center{align-items:center
     . '.gap-8{gap:2rem}.gap-3{gap:.75rem}.cta{display:inline-block;padding:8px 24px;border-radius:999px;background:#036;color:#fff}'
     . '@media (min-width:768px){.md\\:flex{display:flex}.md\\:hidden{display:none}}';
 $item = static fn (string $id, string $label, string $links): string =>
-    '<div class="relative"><button id="' . $id . '" type="button" aria-haspopup="menu" aria-controls="p-' . $id . '" aria-expanded="false" data-dla-dialog-trigger="p-' . $id . '">' . $label . '</button>'
-    . '<div class="panel dla-dialog dla-dropdown" hidden id="p-' . $id . '" data-dla-dialog-panel="p-' . $id . '">' . $links . '</div></div>';
+    '<div class="relative"><button id="' . $id . '" type="button" aria-haspopup="menu" aria-controls="p-' . $id . '" aria-expanded="false" data-blocks-engine-capture-dialog-trigger="p-' . $id . '">' . $label . '</button>'
+    . '<div class="panel data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown" hidden id="p-' . $id . '" data-blocks-engine-capture-dialog-panel="p-' . $id . '">' . $links . '</div></div>';
 $switcher = '<div class="lang" aria-label="Switch language"><button type="button" aria-pressed="true">EN</button><span>|</span><button type="button" aria-pressed="false">ES</button></div>';
 $accordion = static fn (string $label): string => '<div><button class="acc">' . $label . '</button></div>';
 $decor = '<style>.deco{position:absolute;top:0;left:0;width:10px;height:10px;background:#eee}</style>';
@@ -32,8 +32,8 @@ $page = static fn (string $title, bool $decorated): string => '<style>' . $css .
     . $item('shop', 'Shop', '<a href="/new">New in</a><a href="/sale">Sale</a>') . $item('help', 'Help', '<a href="/faq">FAQ</a><a href="/contact">Contact us</a>')
     . '<a href="/about">About</a>' . $switcher . '<a class="cta" href="/book">Book now</a></div>'
     . '<div class="md:hidden flex items-center gap-3">' . $switcher
-    . '<button type="button" id="burger" aria-label="Menu" aria-haspopup="menu" aria-expanded="false" aria-controls="dlg" data-dla-dialog-trigger="dla-dialog-4"><svg viewBox="0 0 4 4"><path d="M0 0h4"/></svg></button></div></div>'
-    . '<dialog id="dlg" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="burger" class="md:hidden dla-dialog dla-dropdown" data-blocks-engine-presentation="dropdown" data-blocks-engine-placement="in-place" data-blocks-engine-captured-menu="true">'
+    . '<button type="button" id="burger" aria-label="Menu" aria-haspopup="menu" aria-expanded="false" aria-controls="dlg" data-blocks-engine-capture-dialog-trigger="data-blocks-engine-capture-dialog-4"><svg viewBox="0 0 4 4"><path d="M0 0h4"/></svg></button></div></div>'
+    . '<dialog id="dlg" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="burger" class="md:hidden data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown" data-blocks-engine-presentation="dropdown" data-blocks-engine-placement="in-place" data-blocks-engine-captured-menu="true">'
     . $accordion('Shop') . $accordion('Help') . '<a href="/about">About</a><a class="cta" href="/book">Book now</a></dialog></nav>'
     . '<main><h1>' . $title . '</h1><p>' . $title . ' page.</p></main><footer><p>Acme</p></footer>';
 

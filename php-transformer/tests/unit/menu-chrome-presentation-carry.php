@@ -91,9 +91,9 @@ $disclosure = $transform(
     '<style>#comp-tog .style-btn__root'
     . '{border-radius:50px;background:#1A1A1A;width:107px;height:40px}'
     . '#comp-tog .style-btn__root .Btn__label{color:#EFFE8B;font-size:18px}</style>'
-    . '<div id="comp-tog"><nav class="Ham__nav"><details class="dla-disclosure">'
+    . '<div id="comp-tog"><nav class="Ham__nav"><details class="data-blocks-engine-capture-disclosure">'
     . '<summary class="style-btn__root"><span class="Btn__label">Menu</span></summary>'
-    . '<div class="dla-dialog" role="dialog"><ul><li><a href="/a/">A</a></li>'
+    . '<div class="data-blocks-engine-capture-dialog" role="dialog"><ul><li><a href="/a/">A</a></li>'
     . '<li><a href="/b/">B</a></li></ul></div>'
     . '</details></nav></div><p>Body copy.</p>'
 );
@@ -135,9 +135,9 @@ $assert(
 // summary itself. Retaining its classes on a content carrier lets the author CSS,
 // rather than generated pixel rules, size the nested animated icon.
 $capturedIconDisclosure = $transform(
-    '<details class="dla-disclosure"><summary class="_root_1fj1u_1 hamburger-open-button _button_1fj1u_20 button _fallbackDirection_uix1w_1 wixui-button _hasTransitions_1fj1u_52" data-testid="buttonContent" data-semantic-classname="button" aria-label="Menu">'
-    . '<div class="_animatedIcon_jg4gf_2 animatedIcon icon animated-icon _icon_1fj1u_79" id="animated-icon"><div data-dla-geometry-id="mobile-wrapper-6"><svg id="menu-icon" viewBox="0 0 24 24" width="100%" height="100%"><path d="M0 0h1v1"/></svg></div></div>'
-    . '</summary><div class="dla-dialog" role="dialog"><a href="/">Home</a></div></details>'
+    '<details class="data-blocks-engine-capture-disclosure"><summary class="_root_1fj1u_1 hamburger-open-button _button_1fj1u_20 button _fallbackDirection_uix1w_1 wixui-button _hasTransitions_1fj1u_52" data-testid="buttonContent" data-semantic-classname="button" aria-label="Menu">'
+    . '<div class="_animatedIcon_jg4gf_2 animatedIcon icon animated-icon _icon_1fj1u_79" id="animated-icon"><div data-blocks-engine-capture-geometry-id="mobile-wrapper-6"><svg id="menu-icon" viewBox="0 0 24 24" width="100%" height="100%"><path d="M0 0h1v1"/></svg></div></div>'
+    . '</summary><div class="data-blocks-engine-capture-dialog" role="dialog"><a href="/">Home</a></div></details>'
 );
 
 $assert(

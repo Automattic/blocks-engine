@@ -58,8 +58,15 @@ final class CapturedSelectableSetConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
+        // The surviving source trigger row shares the projected tab list's row
+        // identity and is replaced by it. A source row can itself be role=tablist
+        // (ARIA tab widgets), so only the tab list projected inside the region
+        // is kept; the source row is dropped either way.
+        $parent = $element->parentNode;
+        $projected = $parent instanceof DOMElement
+            && 'true' === SourceDom::attr($parent, 'data-blocks-engine-captured-selectable-set');
         if ('' !== SourceDom::attr($element, self::TABLIST_ROW_ATTRIBUTE)
-            && 'tablist' !== strtolower(trim(SourceDom::attr($element, 'role')))
+            && ! $projected
             && 'true' !== SourceDom::attr($element, 'data-blocks-engine-captured-selectable-set')
         ) {
             return ConversionOutcome::handled(null);
@@ -236,7 +243,35 @@ final class CapturedSelectableSetConverter implements ElementConverter
                 : in_array($itemTag, array('li', 'div', 'p', 'section', 'article'), true);
         }
 
-        $declarations = $this->safeDeclarations($this->presentation->presentationDeclarations($triggers[0]));
+        // The source marks the selected trigger with state attributes its own CSS
+        // keys on (aria-selected, data-state). Carry the unselected look to every
+        // button and only the selected trigger's differences to the active one.
+        $active = null;
+        $base = $triggers[0];
+        foreach ($triggers as $trigger) {
+            if ('true' === strtolower(trim(SourceDom::attr($trigger, 'aria-selected')))
+                || 'active' === strtolower(trim(SourceDom::attr($trigger, 'data-state')))) {
+                $active ??= $trigger;
+            }
+        }
+        foreach ($triggers as $trigger) {
+            if (null === $active || ! $trigger->isSameNode($active)) {
+                $base = $trigger;
+                break;
+            }
+        }
+        $declarations = $this->safeDeclarations($this->presentation->presentationDeclarations($base));
+        $activeDeclarations = array();
+        if ($active instanceof DOMElement && ! $active->isSameNode($base)) {
+            $activeDeclarations = array_diff_assoc(
+                $this->safeDeclarations($this->presentation->presentationDeclarations($active)),
+                $declarations
+            );
+        }
+        // core/tab-list sets `flex-grow` and `flex-basis` on its buttons to
+        // `inherit !important`, so a source trigger that stretches (flex: 1) can
+        // only do so through the tab list element itself.
+        [$declarations, $listFlex] = $this->splitInheritedFlex($declarations);
         $gap = trim((string) ($rowDeclarations['row-gap'] ?? $rowDeclarations['gap'] ?? ''));
         if ('' === $gap && isset($items[1])) {
             $gap = trim((string) ($this->presentation->presentationDeclarations($items[1])['margin-top'] ?? ''));
@@ -248,11 +283,12 @@ final class CapturedSelectableSetConverter implements ElementConverter
                 $listRule['row-gap'] = $gap;
             }
         }
-        if (array() === $listRule && array() === $declarations) {
+        $listRule = array_merge($listRule, $listFlex);
+        if (array() === $listRule && array() === $declarations && array() === $activeDeclarations) {
             return '';
         }
         $body = static fn (array $rules): string => implode(';', array_map(static fn (string $property, string $value): string => $property . ':' . $value, array_keys($rules), $rules));
-        $className = 'blocks-engine-tab-list-' . substr(md5($body($listRule) . '|' . $body($declarations)), 0, 10);
+        $className = 'blocks-engine-tab-list-' . substr(md5($body($listRule) . '|' . $body($declarations) . '|' . $body($activeDeclarations)), 0, 10);
         $css = array();
         if (array() !== $listRule) {
             $css[] = '.wp-block-tab-list.' . $className . '{' . $body($listRule) . '}';
@@ -260,9 +296,64 @@ final class CapturedSelectableSetConverter implements ElementConverter
         if (array() !== $declarations) {
             $css[] = '.wp-block-tab-list.' . $className . ' button{' . $body($declarations) . '}';
         }
+        if (array() !== $activeDeclarations) {
+            // A pill-style selected state replaces core's underline marker.
+            $css[] = '.wp-block-tab-list.' . $className . ' button[aria-selected="true"]{' . $body($activeDeclarations) . '}';
+            $css[] = '.wp-block-tab-list.' . $className . ' button[aria-selected="true"]::before{display:none}';
+        }
         ($this->registerRule)($className, implode("\n", $css));
 
         return $className;
+    }
+
+    /**
+     * Split the flex sizing core/tab-list takes from its own element
+     * (`flex-grow`, `flex-basis`) from the declarations that stay on a button.
+     *
+     * @param array<string, string> $declarations
+     * @return array{0: array<string, string>, 1: array<string, string>}
+     */
+    private function splitInheritedFlex(array $declarations): array
+    {
+        $list = array();
+        if (isset($declarations['flex'])) {
+            $tokens = preg_split('/\s+/', strtolower(trim($declarations['flex']))) ?: array();
+            $grow = null;
+            $shrink = null;
+            $basis = null;
+            if (array('none') === $tokens) {
+                $grow = '0';
+                $shrink = '0';
+                $basis = 'auto';
+            } elseif (array('auto') === $tokens) {
+                $grow = '1';
+                $shrink = '1';
+                $basis = 'auto';
+            } elseif (isset($tokens[0]) && 1 === preg_match('/^[0-9.]+$/', $tokens[0])) {
+                $grow = $tokens[0];
+                $rest = array_slice($tokens, 1);
+                if (isset($rest[0]) && 1 === preg_match('/^[0-9.]+$/', $rest[0])) {
+                    $shrink = array_shift($rest);
+                }
+                $basis = array() === $rest ? '0%' : implode(' ', $rest);
+            }
+            if (null !== $grow) {
+                $list['flex-grow'] = $grow;
+                $list['flex-basis'] = $basis;
+                if (null !== $shrink) {
+                    $declarations['flex-shrink'] = $shrink;
+                }
+            }
+            unset($declarations['flex']);
+        }
+        foreach (array('flex-grow', 'flex-basis') as $property) {
+            if (isset($declarations[$property])) {
+                $list[$property] = $declarations[$property];
+                unset($declarations[$property]);
+            }
+        }
+
+        return array($declarations, $list);
     }
 
     /**

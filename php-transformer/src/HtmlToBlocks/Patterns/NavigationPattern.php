@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -175,7 +177,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( $descendant instanceof DOMElement
                 && (('menu' === strtolower(trim(SourceDom::attr($descendant, 'aria-haspopup')))
                         && '' === trim($descendant->textContent ?? '')
-                        && (SourceDom::isBoundCapturedDialogTrigger($descendant) || $descendant->hasAttribute('data-dla-dialog-trigger')))
+                        && (SourceDom::isBoundCapturedDialogTrigger($descendant) || $descendant->hasAttribute(CaptureEvidence::DIALOG_TRIGGER)))
                     || 'details' === strtolower($descendant->tagName)) ) {
                 return null;
             }
@@ -260,6 +262,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
         }
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
+        if ( 'never' === $navigationAttrs['overlayMenu'] && ! $label instanceof DOMElement ) {
+            $navigationAttrs = $this->withStackedBlockListLayout($navigationAttrs, $navigationSource, $listSource, $navigationContext);
+        }
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
@@ -489,11 +494,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         $hasDialogPanel = false;
         for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
             $classes = ' ' . trim(SourceDom::attr($ancestor, 'class')) . ' ';
-            if ( str_contains($classes, ' dla-dialog ') ) {
+            if ( str_contains($classes, ' ' . CaptureEvidence::DIALOG_CLASS . ' ') ) {
                 $hasDialogPanel = true;
                 continue;
             }
-            if ( $hasDialogPanel && 'details' === strtolower($ancestor->tagName) && str_contains($classes, ' dla-disclosure ') ) {
+            if ( $hasDialogPanel && 'details' === strtolower($ancestor->tagName) && str_contains($classes, ' ' . CaptureEvidence::DISCLOSURE_CLASS . ' ') ) {
                 return true;
             }
         }
@@ -1353,6 +1358,49 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
+     * Carry a source list that stacks block items onto core's flow layout.
+     *
+     * An in-flow list navigation renders its generated list as
+     * `display:contents`, so the items lay out in the navigation host. With no
+     * layout the host is core's flex row, and items the source stacked full
+     * width shrink to their min-width instead. When neither the host nor its
+     * list declares a display, the source list is a block box; the items prove
+     * the stack only when every one declares a block-level display. Floated
+     * block items still need flow: a flex row ignores the float that the
+     * projected item rule carries. Without item evidence core's default stays.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withStackedBlockListLayout(array $attrs, DOMElement $host, ?DOMElement $list, ?NavigationPatternContext $navigationContext): array
+    {
+        if ( null === $navigationContext || ! $list instanceof DOMElement || is_array($attrs['layout'] ?? null)
+            || '' !== trim($navigationContext->resolvedDisplay($host))
+            || '' !== trim($navigationContext->resolvedDisplay($list))
+        ) {
+            return $attrs;
+        }
+
+        $items = 0;
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                continue;
+            }
+            $display = strtolower(trim($navigationContext->resolvedDisplay($child)));
+            if ( ! in_array($display, array( 'block', 'list-item', 'flow-root' ), true) ) {
+                return $attrs;
+            }
+            ++$items;
+        }
+
+        if ( 0 < $items ) {
+            $attrs['layout'] = array( 'type' => 'default' );
+        }
+
+        return $attrs;
+    }
+
+    /**
      * Carry a source menu whose cascade stacks its items in a column onto
      * core/navigation's vertical orientation.
      *
@@ -1521,7 +1569,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
             $property = strtolower(trim(substr($declaration, 0, $separator)));
             $value = trim(substr($declaration, $separator + 1));
-            if ( '' === $property || '' === $value ) {
+            if ( '' === $property || '' === $value || CssPropertyName::startsLikeNumber($property) ) {
                 continue;
             }
             $declarations[$property] = $value;
@@ -2656,7 +2704,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $depth   = 0;
         while ( $node instanceof DOMElement && ! $node->isSameNode($navigation) && $depth < 6 ) {
             ++$depth;
-            if ( 'li' === strtolower($node->tagName) ) {
+            // A wrapper that also holds another item's link is the list (or a
+            // panel of it), not a wrapper core collapsed between item and link.
+            if ( 'li' === strtolower($node->tagName) || $this->holdsAnotherLabelledAnchor($node, $anchor) ) {
                 break;
             }
             foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $candidate ) {
@@ -2668,6 +2718,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $classes;
+    }
+
+    private function holdsAnotherLabelledAnchor(DOMElement $wrapper, DOMElement $anchor): bool
+    {
+        foreach ( $wrapper->getElementsByTagName('a') as $candidate ) {
+            if ( ! $candidate->isSameNode($anchor) && '' !== trim($candidate->textContent ?? '') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -3103,8 +3164,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             // A cluster of child links that follows the item's own anchor is its
-            // submenu, not a second anchor carrier.
-            if ( array() !== $anchors && $this->isAnchorOnlyCluster($child) ) {
+            // submenu, not a second anchor carrier. An anchor found inside a
+            // sibling wrapper is a peer item's, so the next wrapper is a peer too.
+            if ( array() !== $anchors && $element->isSameNode($anchors[0]->parentNode) && $this->isAnchorOnlyCluster($child) ) {
                 continue;
             }
 
@@ -3173,7 +3235,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $tagName = strtolower($child->tagName);
             if ( in_array($tagName, array( 'nav', 'ul', 'ol' ), true)
                 || $this->hasSubmenuSignal($child)
-                || $this->isAnchorOnlyCluster($child)
+                || ( $element->isSameNode($primaryAnchor->parentNode) && $this->isAnchorOnlyCluster($child) )
                 || ( $this->isNavigationWrapperElement($child)
                     && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length ) )
             ) {
@@ -3184,8 +3246,8 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     /**
      * An item made of a labelled button and the hidden dropdown panel that
-     * button opens (`aria-haspopup="menu"`, bound by `data-dla-dialog-trigger`
-     * and `data-dla-dialog-panel`). The panel may wrap its links in single
+     * button opens (`aria-haspopup="menu"`, bound by `data-blocks-engine-capture-dialog-trigger`
+     * and `data-blocks-engine-capture-dialog-panel`). The panel may wrap its links in single
      * plain wrappers; the links themselves must be the whole content.
      *
      * @return array{label:string, cluster:DOMElement, button:DOMElement}|null
@@ -3203,7 +3265,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
             if ( 'button' === strtolower($child->tagName) && null === $button ) {
                 $button = $child;
-            } elseif ( null !== $button && null === $panel && $child->hasAttribute('data-dla-dialog-panel') ) {
+            } elseif ( null !== $button && null === $panel && $child->hasAttribute(CaptureEvidence::DIALOG_PANEL) ) {
                 $panel = $child;
             } else {
                 return null;
@@ -3211,8 +3273,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         if ( null === $button || null === $panel
             || 'menu' !== strtolower(trim($button->getAttribute('aria-haspopup')))
-            || '' === $panel->getAttribute('data-dla-dialog-panel')
-            || $button->getAttribute('data-dla-dialog-trigger') !== $panel->getAttribute('data-dla-dialog-panel')
+            || '' === $panel->getAttribute(CaptureEvidence::DIALOG_PANEL)
+            || $button->getAttribute(CaptureEvidence::DIALOG_TRIGGER) !== $panel->getAttribute(CaptureEvidence::DIALOG_PANEL)
         ) {
             return null;
         }
@@ -3259,13 +3321,13 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function capturedSubmenuTrigger(DOMElement $trigger): bool
     {
-        if ('' === trim($trigger->getAttribute('data-dla-dialog-trigger'))) return false;
+        if ('' === trim($trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER))) return false;
         for ($node = $trigger->parentNode, $depth = 0; $depth < 6 && $node instanceof DOMElement; $node = $node->parentNode, ++$depth) {
             $button = $this->buttonDropdownItem($node);
             if (null !== $button && $button['button']->isSameNode($trigger)) return true;
             $anchor = $this->primaryNavigationAnchor($node);
             if (!$anchor instanceof DOMElement || !$anchor->isSameNode($trigger)) continue;
-            $key = trim($trigger->getAttribute('data-dla-dialog-trigger'));
+            $key = trim($trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER));
             if ($key !== trim($trigger->getAttribute('aria-controls')) || !$this->navigationWillClaimItem($node)) continue;
             foreach ($this->submenuContainers($node, $anchor) as $container) {
                 if ($this->elementCarriesDialogPanel($container, $key)) return true;
@@ -3284,9 +3346,9 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function elementCarriesDialogPanel(DOMElement $element, string $key): bool
     {
-        if ($element->getAttribute('data-dla-dialog-panel') === $key || $element->getAttribute('id') === $key) return true;
+        if ($element->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $element->getAttribute('id') === $key) return true;
         foreach ($element->getElementsByTagName('*') as $descendant) {
-            if ($descendant instanceof DOMElement && ($descendant->getAttribute('data-dla-dialog-panel') === $key || $descendant->getAttribute('id') === $key)) return true;
+            if ($descendant instanceof DOMElement && ($descendant->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $descendant->getAttribute('id') === $key)) return true;
         }
         return false;
     }
@@ -3314,7 +3376,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * list semantics or a `dropdown`-style name still express it this way:
      * `<div><a>Parent</a><div><a>Child</a><a>Child</a></div></div>`. Structure
      * alone carries the parent/child relationship, so no class vocabulary is
-     * needed to read the wrapper as the item's submenu.
+     * needed to read the wrapper as the item's submenu. Only an anchor that is
+     * the wrapper's own direct child owns it: in `<div><div><a>One</a></div>
+     * <div><a>Two</a></div></div>` the wrappers are peer items of one list.
      */
     private function isAnchorOnlyCluster(DOMElement $element): bool
     {
@@ -3386,9 +3450,9 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function containsDialogCloseTarget(DOMElement $element): bool
     {
-        if ($element->hasAttribute('data-dla-dialog-close')) return true;
+        if ($element->hasAttribute(CaptureEvidence::DIALOG_CLOSE)) return true;
         foreach ($element->getElementsByTagName('*') as $node) {
-            if ($node instanceof DOMElement && $node->hasAttribute('data-dla-dialog-close')) return true;
+            if ($node instanceof DOMElement && $node->hasAttribute(CaptureEvidence::DIALOG_CLOSE)) return true;
         }
         return false;
     }
@@ -3773,15 +3837,15 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $panel instanceof DOMElement && 'dialog' === strtolower($panel->tagName) && 'true' === $panel->getAttribute('data-blocks-engine-captured-menu') ) {
             return true;
         }
-        if ( ! $panel instanceof DOMElement || ! $panel->hasAttribute('data-dla-dialog-panel') ) {
+        if ( ! $panel instanceof DOMElement || ! $panel->hasAttribute(CaptureEvidence::DIALOG_PANEL) ) {
             return false;
         }
 
-        $key = $panel->getAttribute('data-dla-dialog-panel');
+        $key = $panel->getAttribute(CaptureEvidence::DIALOG_PANEL);
         foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $button ) {
             if ( $button instanceof DOMElement
                 && ('button' === strtolower($button->tagName) || AuthoredButtonBlockGenerator::isRoleButton($button))
-                && $button->getAttribute('data-dla-dialog-trigger') === $key
+                && $button->getAttribute(CaptureEvidence::DIALOG_TRIGGER) === $key
                 && 'menu' === strtolower(trim($button->getAttribute('aria-haspopup')))
             ) {
                 return true;

@@ -2,6 +2,19 @@
 
 `blocks-engine/wordpress-site-plan/v2` is a destination-independent materialization contract. A consumer resolves it with `WordPressSitePlanResolver` and combines the resolved plan with its own materialization receipt. Destination IDs, paths outside declared writes, and product report formats remain consumer-owned.
 
+## Omitted Pages
+
+A non-entrypoint page that cannot be compiled is omitted rather than failing the plan. Each one is a `page_compile_omitted` warning in the plan's `diagnostics` (unit `page`, with `source_path`, `reason_code` and `message`); the page is absent from `pages` and `routes`, and links to it are reported as unresolved navigation links. See [omitted-page-receipt](contracts/omitted-page-receipt.md).
+
+## Degraded Units
+
+A problem confined to one asset or binding degrades that unit and records a warning in the plan's `diagnostics`; it does not fail the plan. The strict validator still rejects a plan that carries the condition.
+
+- `wordpress_site_plan_colliding_asset_target` (unit `asset`): two assets resolved to one theme target. Identical bytes are written once (`reason_code` `identical_content`); the later occurrence is kept so its cascade position wins. Different bytes give the later asset a deterministic numbered target such as `name-2.css`, with a token and reconciliation identity derived from it (`reason_code` `colliding_asset_target`). The row names `source_path`, `colliding_source_path`, `target_path` and `resolved_target_path`.
+- `runtime_entity_binding_unanchored` (unit `binding`): a runtime entity binding names a block the page does not emit (`anchor_not_emitted`) or a page the plan does not emit (`document_not_emitted`). The binding is dropped and the block stays static; the entity keeps its other bindings. An anchor that is emitted but cannot be told apart from an identical block still fails closed.
+
+Rows with identical fields are reported once with an `omitted_count`. A plan that carries any of these findings has `quality.status` `success_with_warnings`, the same rule `WordPressSitePlan::withFindings()` applies to findings measured after the plan is built. The `document_head_*_dropped` findings in [document-head-runtime](document-head-runtime.md) follow the same rule.
+
 ## Document Metadata
 
 Every page and template part has `document_metadata`. It is normalized compiler output, not source HTML:
@@ -166,9 +179,16 @@ runtime-reference risk, but cannot pass that proof gate.
 ## Shared regions and navigation ownership
 
 Header/footer content ownership and its rendered position are separate decisions.
-An extracted region with layout ancestors uses `inline_shared_shell`: the owning
-page retains its ancestors and receives a template-part reference at each exact
-source occurrence. `placement.source_paths` accounts for the participating routes.
+An extracted region with layout ancestors uses `inline_shared_shell`: the
+template-part reference sits at its exact source position inside those ancestors.
+For a page, the ancestors, the references and the chrome around the main content
+live in the route's template (`front-page`, `page` or `page-{slug}`), with
+`post-content` in the gap, and the page keeps only the blocks between the header
+and the footer (`ShellExtraction::hoistInlineShellFrames`). The theme drops Core's
+post-content wrapper element for that marked block, so the rendered tree matches
+the source. A page that cannot be split safely (two references to one region, a
+`main` landmark in the frame, or a runtime binding in the frame) and every post
+keeps its references in the page content. `placement.source_paths` accounts for the participating routes.
 The shared part carries its authored landmark; the generated runtime unwraps
 Core's template-part transport wrapper. This preserves direct-child CSS, flex/grid
 participation, sibling order, and native disclosure containment without detached

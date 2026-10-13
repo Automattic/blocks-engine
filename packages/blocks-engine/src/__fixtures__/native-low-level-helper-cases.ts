@@ -196,7 +196,7 @@ export function runNativeLowLevelParity(impl: NativeLowLevelImpl): NativeLowLeve
   return {
     version: 1,
     derivation:
-      'Mechanically generated from DLA page-reconstruct.ts low-level helpers and footer-color.ts color helpers at DLA commit 1e393c5.',
+      'Mechanically generated from the reference implementation page-reconstruct.ts low-level helpers and footer-color.ts color helpers at reference commit 1e393c5.',
     helpers: {
       MISSING_IMAGE_PLACEHOLDER: [capture('constant', () => impl.MISSING_IMAGE_PLACEHOLDER)],
       visibleText: [

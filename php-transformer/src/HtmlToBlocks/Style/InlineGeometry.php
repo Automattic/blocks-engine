@@ -396,8 +396,16 @@ final class InlineGeometry
                 )));
             }
         }
+        // Hidden declarations still present here survived the frozen-state
+        // strip, which keeps only intentional hiding (a positioned alternate
+        // layer, an inactive state, a decorative node). Carry them, or the
+        // hidden layer renders over the content it alternates with.
         if ('hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''))) {
             $properties[] = 'visibility';
+        }
+        $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+        if (is_numeric($opacity) && 0.0 === (float) $opacity) {
+            $properties[] = 'opacity';
         }
         $collapsedHeight = CssValueInspector::comparable((string) ($declarations['height'] ?? $declarations['max-height'] ?? ''));
         if (

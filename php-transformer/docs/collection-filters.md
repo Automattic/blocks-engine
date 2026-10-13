@@ -1,6 +1,6 @@
 # Verified editable collection filters
 
-The collection filter companion consumes Data Liberation Agent's bounded
+The collection filter companion consumes a capture producer's bounded
 `typed-search` evidence. It is a local collection predicate, with independently
 observed category membership, rather than a site-wide WordPress search.
 
@@ -36,17 +36,17 @@ inside/after placement and is shown only when no item matches.
 
 ## Finite bootstrap
 
-`finiteBootstrap.schema` must be `data-liberation/finite-bootstrap/v1`. That
+`finiteBootstrap.schema` must be `blocks-engine-capture/finite-bootstrap/v1`. That
 record is admitted only when restoration, replay, observed-response replay,
 intercepted verification, declared count, complete text-only coverage, observed
 answers, universal-query order, and ordered global/category probes all recompute.
 Category mode shows the selected category. A nonempty query searches the whole
 universe and hides the category strip, not the input, status, or results.
-Optional `finiteBootstrap.status` uses `data-liberation/collection-status/v1`.
+Optional `finiteBootstrap.status` uses `blocks-engine-capture/collection-status/v1`.
 Absent status is valid and adds no label. A present record is projected only
 when every node has source HTML, `{count}` or `{query}` tokens, matching binds,
 `before-items` or `after-items`, and `hidesAtZero: true`. The runtime writes
-`textContent` from the editable `data-dla-status-template` attribute. An empty
+`textContent` from the editable `data-blocks-engine-capture-status-template` attribute. An empty
 query hides those labels. At zero they stay hidden. When the source empty
 state contains that count template rendered at zero with the same tag, role,
 live attributes, and class, that node remains the collection status and the

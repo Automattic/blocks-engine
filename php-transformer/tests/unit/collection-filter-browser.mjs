@@ -108,10 +108,10 @@ const statusStates = await statusPage.evaluate(() => {
     const positiveStatus = visibleStatus();
     const cleared = run('');
     const clearedStatus = visibleStatus();
-    const zero = run('dla-no-match-7f39b2');
+    const zero = run('data-blocks-engine-capture-no-match-7f39b2');
     const zeroStatus = visibleStatus();
-    const binding = root.querySelector('[data-dla-status-template*="{query}"]');
-    binding.setAttribute('data-dla-status-template', 'Owner saw {count} for {query}');
+    const binding = root.querySelector('[data-blocks-engine-capture-status-template*="{query}"]');
+    binding.setAttribute('data-blocks-engine-capture-status-template', 'Owner saw {count} for {query}');
     const edited = run('BERRY');
     const answer = root.querySelector('[class*="blocks-engine-collection-item-"] p');
     answer.textContent = 'apricot<img> answer text';

@@ -14,7 +14,7 @@ const composeCases = (cases as ComposeFixture[]).filter((fixture) => fixture.op 
 
 describe('compose golden fixtures', () => {
   for (const fixture of composeCases) {
-    it(`${fixture.id} is byte-identical to the DLA golden`, () => {
+    it(`${fixture.id} is byte-identical to the reference golden`, () => {
       expect(compose(fixture.input, { url: 'https://x.test/' }, {})).toBe(fixture.expected);
     });
   }
