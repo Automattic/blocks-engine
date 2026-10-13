@@ -1,6 +1,6 @@
 {
     "schema": "blocks-engine/php-transformer/capture-evidence-equivalence/v1",
-    "source_commit": "84d0853a63ba2b72548be904c81574c209149064",
+    "source_commit": "44a1eb5edd7fdef6986710b94b9400664cb9d611",
     "cases": [
         {
             "id": "0044a9a82a692a866ae90a30f2fc8c49d22b1253",
@@ -35,7 +35,7 @@
         {
             "id": "06596271895ea1dd30fc3c9cc208b958f07a44ad",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "3fb5add5c0d7b03c3947c8a71e66545493c06ac199cbf4734662cc048b6ab951",
+            "expected_sha256": "db7093e2440602a11f2eb34c0438e83d64ed41c09903392042ebd149ab5f2f7e",
             "outcome": "output"
         },
         {
@@ -83,7 +83,7 @@
         {
             "id": "0a9c1bea54021ba60093b14cc124cefca0e60616",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "c44bb21d6dd9dba1a694b4a589a9e6af1eaf40c37c6f5fccbadb2ee5183c8cec",
+            "expected_sha256": "492a1b26fe529c9d79bd416603b3304e9b2d25ef6b377c4fc573f8a654cfce13",
             "outcome": "output"
         },
         {
@@ -95,13 +95,13 @@
         {
             "id": "0b294e2c7717464c3fe1233ef35f06986124c78d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "f1d6329e570bd9460428029937724fb0af360e2dd9d269d9f77e8d5e97296d25",
+            "expected_sha256": "0683ebb34397a3c3c0f59615242190feab50fc8fbf5862b6b01e4420aea4e598",
             "outcome": "output"
         },
         {
             "id": "0bf7a2ea6d25e14b83b035068d817a3c2822ba4b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "b6f37d528e0279c84edf14f91a4377e55314de16c9a1cddd3e443131d4cc35dc",
+            "expected_sha256": "c10ccc40817d9926549e95bbd2d486d606a48bdee7ceefe29d091cea873d3066",
             "outcome": "output"
         },
         {
@@ -143,7 +143,7 @@
         {
             "id": "15082c2dc6a6f26471c6b1b16a41446c0c3ed22a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "8fe341a93c8bfcc6fb16a877f9cd62cf5dfdf44b27f6f5ad9992657ab25b2d3e",
+            "expected_sha256": "573e4653db982e1369a521d9e357e900a864609602e930f17bafa3fbd367594a",
             "outcome": "output"
         },
         {
@@ -167,7 +167,7 @@
         {
             "id": "17d97f2cc668f1c6ffda89bf7497cc9b27cad37e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "9bececdc73a42ec36c01b093f0620bbaf96acf3e4b9f05d740154e9c0f73321c",
+            "expected_sha256": "fdd1ec2d81cb84e357e4047b73eae01e839ec07873d24c83e65ff3ffea9f09d9",
             "outcome": "output"
         },
         {
@@ -185,7 +185,7 @@
         {
             "id": "1cfefbc9c4826f74e82159aa064fb495c905dae9",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "65c97fe277c0ecefe7e70f6930e73cb5273619ab1625d253b58cca2ed925d143",
+            "expected_sha256": "9a2ad26c72a8525146876d20c9717a890d0da1774e77459e6b75ad69d019c135",
             "outcome": "output"
         },
         {
@@ -245,13 +245,13 @@
         {
             "id": "21e5cdbf5ec5e6081029d84c0c34ccac47171153",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "071f28240d4f41e9949e54c982799bb4aed1773eebcab70617030a7b9cd89448",
+            "expected_sha256": "e0ad7e423036844f4570437b6d749d67f0eca17ce4c3f96f966e2f769f6901b1",
             "outcome": "output"
         },
         {
             "id": "2322e02155a0da77d1bfbb1de742c7a858aba0e6",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "b063a291d0e30d514d6f5939b1eb79777c369821db16feb7e198de3b97793aac",
+            "expected_sha256": "e895b7009c8c7411f17d40122a6af02857877b2a01a0433a7847254633317166",
             "outcome": "output"
         },
         {
@@ -311,13 +311,13 @@
         {
             "id": "26f0879275d871f4ec68db391742844a74441150",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "1298fa6a7629d87290681d5738b40ec2a66d12962eddf64f7eed6ee324885234",
+            "expected_sha256": "86bfb5a842924e9d3d76413dbe21a3e216dfd13e21083c5e4120fcf34b959a9b",
             "outcome": "output"
         },
         {
             "id": "28699fde8cc7b55e46dceff5674ab9379ed8a6f8",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "0cef1e45e0dbc8051ed3b268eb80f81e9091caab1173d362f62ad1ccc16b7e6a",
+            "expected_sha256": "973c279114bbb98b452c73e38646131ed8c3fa8c4658d36412985fb6ee641864",
             "outcome": "output"
         },
         {
@@ -341,7 +341,13 @@
         {
             "id": "2915d21f717a45ad97cc901e84ead8debcb5e07b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "f733ac2eeb4c5b190eb4a7179591913dd184a48ebe4d59428412e95d38f5da04",
+            "expected_sha256": "d980fb5c63ebb95f7a28caeb7335d150fb3303cd91d4e3cd3498d20575c215cd",
+            "outcome": "output"
+        },
+        {
+            "id": "293778dc7bd285cd67ebe22023cd98b831a9de07",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "1485eb6bd87112a040dd520924b2e8a8ce2d1a0429c10da706e06e45c212cd55",
             "outcome": "output"
         },
         {
@@ -359,7 +365,7 @@
         {
             "id": "2df01069239489730e5eb069ba3ba39c848e7a1e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "682b7d609c4fa49fbeadb8828ae5a275a4ab39fe83950f51b04ac57f49426778",
+            "expected_sha256": "4deb52f5967419c2b3f05bb43a0e48a2592e0316a52eb1b6a47db021a3d39106",
             "outcome": "output"
         },
         {
@@ -377,7 +383,7 @@
         {
             "id": "2f545afa2f6cffe9b9b8fa287e1bac1c40271b17",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "6a85c3fcf9c6ade604d2536d78298cfa58d111184bc0b578f775847a79642eac",
+            "expected_sha256": "4b6ddb8f08b63f67b6c7b3d5f9e897e15b4eb2f2a8729551c6a25af887278af6",
             "outcome": "output"
         },
         {
@@ -425,13 +431,13 @@
         {
             "id": "366a6664923b3a4c3dff386af7f1da8864806998",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "fc8fac207c8e9c64726700f43cc1887a151b38315bb8f6e888faf64f2f6dee6e",
+            "expected_sha256": "50baf6d29b62720eb0d504947b4094c86a041e410143e55022212ef9f1a2f25e",
             "outcome": "output"
         },
         {
             "id": "37284b0ef56612a5ff0cda0976e9baf91af033cb",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "e7556dc8e92cc3b6c1951b7db75b3f86571e323f0d287ce5ee41fa168cd76189",
+            "expected_sha256": "45602c53d8062f42eba975d1e474df71024cb1f07fcb19f4882337a0b31047c5",
             "outcome": "output"
         },
         {
@@ -461,13 +467,13 @@
         {
             "id": "3ac0d0bbe76c13b33e1af1dddcfb90b450411f6d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "5d08f82d2f99e9dffc081f58f6b97164049d6a6a127b5d2cfaf9c6f01e1b770c",
+            "expected_sha256": "bb3cda14b87945eb2144094e31f005519b5efe47ef5abd34f38b3d35a53564ab",
             "outcome": "output"
         },
         {
             "id": "3b0aed43853d869d1ae9c0a6eb7f65fb8d41333c",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "ae11ab01751a83d8c52129e1eea46eceb894b1b3ee901565a86c64c973681afd",
+            "expected_sha256": "afd8acafb6d940fb08f75df3a608ecf3e440493fdb8e427fe31b00a43e9fde7e",
             "outcome": "output"
         },
         {
@@ -479,7 +485,7 @@
         {
             "id": "3e2836686c56a0d68490a0e9ee8c602eda3897fa",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "d6b561c53387a7be57175774f79db8969def7ff57272826e43d8a946fbc1ef8e",
+            "expected_sha256": "714f30e05b0621aa507320eb9526fd80c5be5b70e2be3b0a33f5cb24f6885cdc",
             "outcome": "output"
         },
         {
@@ -561,9 +567,15 @@
             "outcome": "output"
         },
         {
+            "id": "46f79246a3c128cd0672e296d1164e4d6882750a",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "7bd66a28531c17d5e2b7c45a491a8ab8c1acaa98f59adc4b748fbfe65afcf2b4",
+            "outcome": "output"
+        },
+        {
             "id": "477397df6188e562a6335c6530af97f177e74a8a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "a63023c33e62a5bd0dce9d7a43758c8201cea8d8c9e5738f4ce3b154e83d354a",
+            "expected_sha256": "e9c868ce5ba5bfdd2b9e702c2e889b31bfd9655e81160e5b04cc73b9cb12adae",
             "outcome": "output"
         },
         {
@@ -581,7 +593,7 @@
         {
             "id": "493ddae72217e5c7617b57d43b4bcb17772f1aa6",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "e966f46ca29cefde808d3a7fa940923d704078045cc536a60dcde219f0d6e1a6",
+            "expected_sha256": "489fc42f5bdde9ff1a65108fc5c72003a9ee9767e70049ce6b927ddfc2c65ceb",
             "outcome": "output"
         },
         {
@@ -617,7 +629,7 @@
         {
             "id": "52210e3ab333cc684b93444bf01ed39943a03c0b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "8e1c19e43999150d385fdef6cf28663fda63e3fd6b0d1186fefbb0be966b2327",
+            "expected_sha256": "1c533eb3c17d5620aba5e41380cec4fcc62efd468f4692874cabf2126e679461",
             "outcome": "output"
         },
         {
@@ -641,7 +653,7 @@
         {
             "id": "55b724ac2c76d2fde1959aeee3370f76b3d8129d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "56aca09adc8ea52be9ae38a15c33b6f336fe06d1cc0b918c85aa97d5f50ab8ed",
+            "expected_sha256": "5384d17d9295ad714306cf1dd39eeef1e175ab98c127c937d2074b171bc41a72",
             "outcome": "output"
         },
         {
@@ -653,7 +665,7 @@
         {
             "id": "587e3a2de7a175872e04413e17703cd15d55e31e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "322eefee65806995eec74d04c850f20ad09b9e4892d44b9831af76ff843f12cd",
+            "expected_sha256": "5decf9b8afe8c1cde9c61cf00272cf313cf9f9e7800aa0a4e07fad3e2ea57655",
             "outcome": "output"
         },
         {
@@ -695,7 +707,7 @@
         {
             "id": "5b83e5f74d9fdb5882a062fd51ee27523cbf5e9a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "5758443a5f59a681e803ed0ed2b618f2f8ce6434705f386894f98956735af280",
+            "expected_sha256": "c9e7b31d685c8dc27d6d78ac9120c3dcdb5d07962b4ef8cb08d896683de47440",
             "outcome": "output"
         },
         {
@@ -761,7 +773,7 @@
         {
             "id": "6220283ca7e079f9b3abcecd4b647a4fd2dcfc28",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "347772b98871825f2dbaab75d46047f150f46860cd9280042cf81715676f681f",
+            "expected_sha256": "5c4267e88645ab87dbfa7e561603acbf430f57fa0f12daa881698c892f3fa873",
             "outcome": "output"
         },
         {
@@ -801,9 +813,21 @@
             "outcome": "output"
         },
         {
+            "id": "66b1abf0f132cf02c5e9e3a75eb28d4bb0ffc697",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "5c8feb63f3541aa49d26f74399966f530035251e85bb14532f9336359c68e0a9",
+            "outcome": "output"
+        },
+        {
             "id": "683aa732f6d1d3bdbf466a568f765e97298c1e91",
             "entry": "ArtifactNormalizer::normalize",
             "expected_sha256": "00d9a284facb7b47baa815c541938dd232bc455a0c5beb7b6dc5b3e1283d3b62",
+            "outcome": "output"
+        },
+        {
+            "id": "687e653dc9c4b915423cac2bf52d47189f61f8a2",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "353152966384fdf714fc75fea60cc2aab4ec021a2fa808564f6a2ff06b985891",
             "outcome": "output"
         },
         {
@@ -821,7 +845,7 @@
         {
             "id": "6982a81d4f33075cb7aafea143e729fb62128c06",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "7b858882834d2b42136735b227220c70027cf7f2a319ccbcd5fe5a98c6066cde",
+            "expected_sha256": "5caa679060204d218103e874b0a06753398fdeb230c6cca74e671d978906f4a6",
             "outcome": "output"
         },
         {
@@ -839,7 +863,7 @@
         {
             "id": "6a7f627fd36ab7d46cb322ea56e959a6ffbb684e",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "41d2fbc159ed924924fe75e31139cefc0149686473cccec61ecad9cb0478eba4",
+            "expected_sha256": "e67e56e34e11de5a29b50687ab18c28d2757c4680b7148c058be94b82bac7ea9",
             "outcome": "output"
         },
         {
@@ -857,7 +881,7 @@
         {
             "id": "6bba1e16a1e6b77cd8346556491309ac449d0eac",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "72f419d06f3c366e2027a891a270dd41c947d3304bbd66d61e638b68693b9d53",
+            "expected_sha256": "1201cf07fede43d18062f33de8882d176f1a2aa6d4a1d45c982d49e0ac7409e1",
             "outcome": "output"
         },
         {
@@ -869,7 +893,7 @@
         {
             "id": "6ed86c41afcf40c191e8f8c33d9ab000c8b72e3f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "449c1547cb1619d61415e5c4a79de0dbb0fdf86e44c3a3949a096c05d76ab41b",
+            "expected_sha256": "5560571e794745f425bff90a3a0d91efe15097b4c64a61c49272335221d221ee",
             "outcome": "output"
         },
         {
@@ -929,7 +953,7 @@
         {
             "id": "771a8a460e63141f8b0101e7109dc8867df7272d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "eef4b77b6096c33e313438b923b7190fa4312d3143b506a2b15b8c834d19ad78",
+            "expected_sha256": "04fb5e99a2f8b34a76608d6427b31d30e6531de6b7161570e7c137cf7569dea1",
             "outcome": "output"
         },
         {
@@ -941,7 +965,7 @@
         {
             "id": "77f446a6276117581f8d93b311bea4f9e0ad4a8f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "132a60745cb78d49fb67adb12328cf1218b94862c15e25cdb633169914f6f011",
+            "expected_sha256": "9ed214be146f55595013ae3152330a1d153ac19828a3821bb285bdcb2810043f",
             "outcome": "output"
         },
         {
@@ -971,7 +995,7 @@
         {
             "id": "796065fdb0fc80934a5e6e74a1a4ed2b6c065ec1",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "502abf45b0d8575f07e607293c7c1a875a9539c5aa5b979ec6fdd9bb936bf8c7",
+            "expected_sha256": "fac749f73b62970aa76c0fec2134610913f5b01f33e1416dd86016b4bae2bd73",
             "outcome": "output"
         },
         {
@@ -1007,7 +1031,7 @@
         {
             "id": "7b02adda3739ab7727da06b8a50dd787551f9ce3",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "f15efd04ca44e5b7faf90d1cd395ffa6edd1b2795408650957f35593a1f45449",
+            "expected_sha256": "96c65ac8f682613c8b0706c27857ca5ed284a118dec4f77690547747a92cfc24",
             "outcome": "output"
         },
         {
@@ -1019,7 +1043,7 @@
         {
             "id": "7c2d1217f68f1eeed57e660c70936247d937c414",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "11a9050e9cb75a3c9498d2d97932f61aacd27200a8db54b2be9caa0f864c820e",
+            "expected_sha256": "910736ceecbac114ad992016659ce3595bf70d697955f6d27e5dda6c87978dda",
             "outcome": "output"
         },
         {
@@ -1055,7 +1079,7 @@
         {
             "id": "81a94623de887f97af99ca9fe18508f00f79b3be",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "a068d710c9efdc502bdef31d30962345fce56fb219f73da213d68136bec8d279",
+            "expected_sha256": "bb51814f1588064b84df03b8e31c75f11fafac6ed16d294ae097a9f2fa58e2c9",
             "outcome": "output"
         },
         {
@@ -1091,7 +1115,7 @@
         {
             "id": "867fe3db1fbc65a2c58a1cb3d48075f8ba0601c7",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "938323f4362b1d53895ceda02139ce4a841735c6413fcb907e1af0e164e627ea",
+            "expected_sha256": "2caa8822ee95599727a335ae9ab9eeb98d5e0f76144ee59d4f40a3b9e729daa7",
             "outcome": "output"
         },
         {
@@ -1151,7 +1175,7 @@
         {
             "id": "8d155e3be64f60344947488082b39546db16069e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "c590f9126b97ecf866b9e44a1d8b22d928b3e413514a61efe6efad0e885da8ca",
+            "expected_sha256": "9d901c2c350ed12399648d1b5c365410750d77d6af19e24e279ec2454707d018",
             "outcome": "output"
         },
         {
@@ -1169,7 +1193,7 @@
         {
             "id": "8ea9b354cdff96c5c44b732ddedc532c2795d419",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "cb1204da53b476b06e877cc2422e3385061e4295c63eed8462829db43aa6d463",
+            "expected_sha256": "b271cf67bebbfdb210d330f23982631a2688d2542c1757549e4d7c44e688d294",
             "outcome": "output"
         },
         {
@@ -1211,13 +1235,13 @@
         {
             "id": "90f2a32f33f1d649074b3c2b77964288e92b0a66",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "a687fd1d06da72c41ea3236d4545f1bfb012367e75798a1df33fecb75d389768",
+            "expected_sha256": "62ca690ce57aeaecff6cb1362346ca0aeef0a2f8e9ed292fb14ae64c85b5a699",
             "outcome": "output"
         },
         {
             "id": "927aa36875da93af28e278f37359f0c3fbbee7d8",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "437edcbab0a68e994fdce0e3b18af27241a9fc4dcac5ce2354819861b809cdbe",
+            "expected_sha256": "18ceb01b75bb3f777d03c7d24a7ac3bdb6a3f9697085104649efcc5e681b7b08",
             "outcome": "output"
         },
         {
@@ -1229,13 +1253,13 @@
         {
             "id": "9389ce06adc9858ecf2a1cef4a47a19b2c2e2d96",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "ffe261c375b55e783aad6f55473fcd4c9a1e088555d0fad431062fd679e0da7d",
+            "expected_sha256": "b023effb3ec5847b5a5d89b5d6a671f76fbd629125dfaca3d0ae174d9a85df63",
             "outcome": "output"
         },
         {
             "id": "944dd63db631afc5664d39d5f49658f016e89e27",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "831ef5499abc29584750896482fd754c267ccdf822d551aa9e4766651f372cba",
+            "expected_sha256": "825aa5edfff32a552026775566404c403c2d64b8b327812638fb4e859256c337",
             "outcome": "output"
         },
         {
@@ -1253,7 +1277,7 @@
         {
             "id": "95c8417b7eb39c48231f5fd243dbb3e22b9ee7de",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "02eae296f275b7a9aba595716c09492aa4c7fc33bdaab946b8f7d0f2c8c0dfa0",
+            "expected_sha256": "b665081a47bc37f8e9847bd294b6a5e43edd29f784e666aba9d085df2d2d5ddd",
             "outcome": "output"
         },
         {
@@ -1301,7 +1325,7 @@
         {
             "id": "9cb93b7292f65713303d2ef562f6726eaf034e33",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "959a699fae8588b92108f450a62dd45fdb6951b043baf564740523eedb0a5d00",
+            "expected_sha256": "bddc9f4eba2758c185f4db36c4798f532e5800aeef7b0d642f516c3a4fcf3a56",
             "outcome": "output"
         },
         {
@@ -1355,7 +1379,7 @@
         {
             "id": "a98742a01f9e63be4e5d0e116aaea459f221161d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "4cde2f15b98238418516b10a691cfaf8dfb382decc758acfcea3b84384dc7395",
+            "expected_sha256": "dba5c425019471e7e7d8ebafd951d1dba1a7b72e5de13f8f6f8f21510b23447b",
             "outcome": "output"
         },
         {
@@ -1373,7 +1397,7 @@
         {
             "id": "abbef1b86e0156792ef13c169694528109416298",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "f203dce9d5fe95c3736b592b1e037244fec2ac83c15591a97ea916a2976279b5",
+            "expected_sha256": "3128fbe413075879f3d067871331f4b38f16051b15f7734e6665d75cc75b685d",
             "outcome": "output"
         },
         {
@@ -1403,7 +1427,7 @@
         {
             "id": "b0e045a784bd2fa915641303d79bbb3d5a5310ab",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "ffd4c7293a193da19aba260171bcbf64ac08fee5557230c72630020521d8a986",
+            "expected_sha256": "6caee0085e303efdb361cb76e53785d1d398021cb277554d9a6d1b47df1b6fdf",
             "outcome": "output"
         },
         {
@@ -1421,7 +1445,7 @@
         {
             "id": "b663b3ad2ba218ab3b4dd23593dac2e4e0eb4d5c",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "37c8ab89d64ddae1c361132bc4bd99e3caff78789484a3b204a07d7e85e25ac6",
+            "expected_sha256": "b8f8077096a88e8dc02691f65c6df498f7a3043e843bbc72aa76bb7f8bd64984",
             "outcome": "output"
         },
         {
@@ -1439,7 +1463,7 @@
         {
             "id": "b79533155fdf23c409b907a7d7cf1388d381d7d9",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "37c625954467d256b3b9bd706b4d9f18b6ac1909e36706606bb91b9e51b955ea",
+            "expected_sha256": "b970bb950c22defac11a0814ea1349ac91b0c7f57303bc9a433dade93d652dfc",
             "outcome": "output"
         },
         {
@@ -1451,13 +1475,13 @@
         {
             "id": "b913b3b49e19c7dd90ced1e39951b0cd843dbb42",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "f3a34cd09931ad9646fbb88c5e92f08fcf76ca927f144bc7884923a8be80fede",
+            "expected_sha256": "0d58c6d9fe238f5613499558277abb6a8df05d41b7827bc679a90bf3b44428df",
             "outcome": "output"
         },
         {
             "id": "bab702ca37fa3cfa6c3222704fcd92dd6482ce75",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "54e03ab1398387f4cb81fb402f6ad025aded943123d7a297b02281e51dc08790",
+            "expected_sha256": "d7b670322d0f3848669ad3708c39ea995364612b844005cad38c007727b6284c",
             "outcome": "output"
         },
         {
@@ -1475,7 +1499,7 @@
         {
             "id": "bcd4e29be7c894ed7848a5937bb9f660ee280779",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "c23369131549f3e094eb7d16656145f949ee6308f23f8cb27d6783f1da8d8099",
+            "expected_sha256": "e73184813a7fcb29f5fdde9a2880eb39eb5ebe77861d5d3dc0b4d7c6beb9b8ab",
             "outcome": "output"
         },
         {
@@ -1487,7 +1511,7 @@
         {
             "id": "bda59bb962f6f24b9dfe35cae8df1391b943874f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "260765df69ba9bfa91def889de7ae078b1af7bdd42bb53dd977f83ec03fa41ff",
+            "expected_sha256": "ca8bcc9544d0f08c3f7c63d663a3662cc22654119f01c4bb61761a56a6573586",
             "outcome": "output"
         },
         {
@@ -1511,13 +1535,13 @@
         {
             "id": "c015fa89363ce421a7de71b0bed995c12e287bfb",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "e5f3b9ff432d1592207c187707c04df595e6b2cf8b08bf83f3df4d90effd835c",
+            "expected_sha256": "0fe94695b3b3fe562a0932e50a500046c3ba81a4bb82763c84c48295e23a3535",
             "outcome": "output"
         },
         {
             "id": "c15f68fa22ce0fe44ebb32bf103c335f231f97be",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "1697d07a4737e0532381cf545f9ab7d6690f3102150370cfe22ef46d3e8d1566",
+            "expected_sha256": "b74c944126162504d1a99a8108fef8ae5296963ea48c054f57f1c915d4f48f91",
             "outcome": "output"
         },
         {
@@ -1535,7 +1559,7 @@
         {
             "id": "c4469897f8d601627d48b9ce8109a9602eed0f06",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "d80580cffece07aa3eb0e48b976b275169f8ad6f4b982593ffa0820eb28be161",
+            "expected_sha256": "97feb79bb44271a5898e3dc200366e6528df707dd3aa1b279dc4f0d9a6bff405",
             "outcome": "output"
         },
         {
@@ -1589,7 +1613,7 @@
         {
             "id": "c98ea0382a0e11ab21ed687a0c528a3df60881ff",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "ec5d2518791d5bd82c20ed782be96d831e6818c8dca3164ba5427c4ac8717c90",
+            "expected_sha256": "2dbc8c6bf3ce9ca9d5542ee85f74c96223eb0ee8b4308c6409b21c4a89ccfebf",
             "outcome": "output"
         },
         {
@@ -1661,7 +1685,7 @@
         {
             "id": "d3b1b8925de7a1e1f74a892cd597d5773caff059",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "493f0dfbe6d8e6f702e1206768f073be8eaef45098043edb0ef6e7e75daaf490",
+            "expected_sha256": "ce652b762297cf861baca49052217957c68181ed654d42733e0949db43aaa258",
             "outcome": "output"
         },
         {
@@ -1721,7 +1745,7 @@
         {
             "id": "dae00d128fd981634fc197a6a101ca52966da2ee",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "86493b72b454465fe942e04ecd2c9f011bfe97a156455db41fc88fb04f0361b6",
+            "expected_sha256": "877c8df15918977c7ab2939c5c2a2c5bc77847ae85b8641247e6d7938a486d73",
             "outcome": "output"
         },
         {
@@ -1763,13 +1787,13 @@
         {
             "id": "df7fe272714151e12093e6497098b86a8b779cb0",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "56bc128435c0332967201c82ae3a3ac4689f0805c5004f4588f265b5dad19880",
+            "expected_sha256": "894134661d6ca78a535d113f2a2facbe2988b928bcb08ed17965382e38305dbe",
             "outcome": "output"
         },
         {
             "id": "df9c24a89732ac84a5fb55a4fd84cb89492722c3",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "7abb374819c974c3a1716493d4a93823eddf3f910671c1d45602caafbc8e3a10",
+            "expected_sha256": "a29f099bcdc7f33d0311bb3f96b2488fe70c1b2901559251ddace4e361bbcd6a",
             "outcome": "output"
         },
         {
@@ -1791,6 +1815,12 @@
             "outcome": "output"
         },
         {
+            "id": "e2e35d0c5c02ff06b23bc87fb59bc585201bc46f",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "21ac153f4c03dc58a8aa26d880caed406d3a1c5eff6b433998c6a6be5356f24a",
+            "outcome": "output"
+        },
+        {
             "id": "e39feabd8357f3cec4f5febe061b23c5866f158f",
             "entry": "CapturedCollectionProjector::project",
             "expected_sha256": "397116a0a3a42b03c97973dfc160a9c4bb10c2d744a6669e094157faf1fa88ec",
@@ -1799,7 +1829,7 @@
         {
             "id": "e40ee9dcecfe029b6bb1d6c682d8006ad513c1c4",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "ce8ee4870971c5db8d69484430798ee6f792d8edc4d37b6241b160c2d374bcb5",
+            "expected_sha256": "61c3d3bd7847e522dd3f917028cb51e0437411ef19113c53cca6bbbbae8d11b6",
             "outcome": "output"
         },
         {
@@ -1811,7 +1841,7 @@
         {
             "id": "e5ea57430e2ac12b29b8351684acc9fde5ba6431",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "c592d534b66b0f925774d387429cdc72809bb3dec7128fa3681e2cc5fb6d6536",
+            "expected_sha256": "d27a43d2a227d431418a7752616e06344989f9ec2c1a1dd89f96768e3bd37f93",
             "outcome": "output"
         },
         {
@@ -1853,7 +1883,7 @@
         {
             "id": "ea0e02cef76533be46296019610c805c70b9f858",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "1156da62a0a415e43037f42e87bf7eedf77519ec73b6e85c556f8b95840cd6c1",
+            "expected_sha256": "1b3b19238e0d5269b22c14d7473fd6246021a6b77b9fb72103b7be4eb4af9232",
             "outcome": "output"
         },
         {
@@ -1865,7 +1895,7 @@
         {
             "id": "eaad29efccc2e7fa6a01a2334673eeef84e9e98f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "ed2952267ebe0fc655dc36ecfde2cf7cc22d467efb298014c60ee5f107d0c92b",
+            "expected_sha256": "b1631249c672b97eb75514c082febe51cf05645e2aac66cb811f0d55a6fb77d4",
             "outcome": "output"
         },
         {
@@ -1943,13 +1973,13 @@
         {
             "id": "f2390e98c1d5de9d888c15243041fbc370bf4067",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "23361c899a28f10d31d60d0ecad8f463c95f233e353021090028362ae51a158f",
+            "expected_sha256": "efad40f6007a13e8e9deb14d2a1ffafec3de343b50f44b3de5db0c95c5c05ac7",
             "outcome": "output"
         },
         {
             "id": "f2640f2d9ad2189c3ad4b52023715f30ce8a75fe",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "695df108415b611c024612e562e5620b5113146fcd570a62f88144aa2cb20a3c",
+            "expected_sha256": "f037b37449286a92ea97b6b171e6eda1a71560d01c52d94918d6fb708cc4abad",
             "outcome": "output"
         },
         {
@@ -1961,7 +1991,7 @@
         {
             "id": "f500b861144ad5bf09e5d65c6ea937b938a90099",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "c3860287f53021e00073409d887fae13819bbd2419347389adb9d16e98f8f11e",
+            "expected_sha256": "27bc0ffc0f5f00919d24217c8510bb327b5b1e211f1437d6373b64a6928015bc",
             "outcome": "output"
         },
         {
@@ -2039,7 +2069,7 @@
         {
             "id": "fcc75319509e48a8405c1f14f69d2e1f7e66cb4a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "81c56c4bcce6642ea63f460fc4b9bdac00f4c2d88f3602c67d505777a5b3e489",
+            "expected_sha256": "c0e817b59b72225e16c1029796c3b9458e5dbda211c0b7d80fa54f62c10a6880",
             "outcome": "output"
         },
         {
@@ -2051,7 +2081,7 @@
         {
             "id": "feef8efc18785eed32b02bb0eb3a90d94ac4d840",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "4c13e333c43d828b00e00ba214c6e519dffebbbe4d77f83f53dc26db31adc90b",
+            "expected_sha256": "e026bcf80e6111d03b29e17466c9060cf6f6da09455366edc4aefb37313c688a",
             "outcome": "output"
         },
         {
@@ -2063,7 +2093,7 @@
         {
             "id": "ff7157491623331641f3f79d3a75c9423da68d33",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "e5d1bf0a72f89bd28a9bdda6099a364983b2186bf95291dce31ca1c8d24dd27d",
+            "expected_sha256": "d6d659afddd475ba4eb5a027a2af087a8258aacd6cd693b74cdd710f33b47608",
             "outcome": "output"
         }
     ]

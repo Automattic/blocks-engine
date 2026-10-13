@@ -93,6 +93,30 @@ $footerRef = strpos($nestedViewportPage, '"slug":"footer"');
 $assert(isset($nestedViewportParts['header'], $nestedViewportParts['footer']) && false !== $headerRef && false !== $main && false !== $footerRef && $headerRef < $main && $main < $footerRef && $footerRef < strrpos($nestedViewportPage, '</div><!-- /wp:group -->') && 1 === substr_count($nestedViewportPage, 'className":"viewport-shell') && 1 === substr_count($nestedViewportPage, 'class="wp-block-group viewport-shell') && str_contains($nestedViewportPage, 'wp:template-part') && !str_contains($nestedViewportFront, 'wp:template-part'), 'A viewport-height CSS-owned wrapper contains the two editable template parts in source order, without duplicating its wrapper in the front-page template.');
 WordPressSitePlan::assertValid($nestedViewportPlan);
 
+// A projected modal dialog mounts as the last child of its document. It
+// renders in the top layer, so the generic nested footer is still the last
+// sibling before it, and the dialog stays page content.
+$dialogShell = static function (string $title, string $dialogAttrs = '{"dialogId":"menu","triggerIds":["opener"]}'): string {
+    return '<!-- wp:group {"className":"shell"} --><div class="wp-block-group shell">'
+        . '<!-- wp:group {"className":"top"} --><div class="wp-block-group top"><!-- wp:navigation {"overlayMenu":"never"} --><!-- wp:navigation-link {"label":"Home","url":"/","kind":"custom"} /--><!-- wp:navigation-link {"label":"About","url":"/about","kind":"custom"} /--><!-- /wp:navigation --></div><!-- /wp:group -->'
+        . '<!-- wp:group {"className":"body"} --><div class="wp-block-group body"><!-- wp:paragraph --><p>' . $title . ' body</p><!-- /wp:paragraph --></div><!-- /wp:group -->'
+        . '<!-- wp:group {"className":"foot"} --><div class="wp-block-group foot"><!-- wp:paragraph --><p>Colophon</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>Contact</p><!-- /wp:paragraph --></div><!-- /wp:group -->'
+        . '<!-- wp:site/captured-dialog ' . $dialogAttrs . ' --><dialog id="menu" data-blocks-engine-triggers="opener"><!-- wp:paragraph --><p>Menu panel</p><!-- /wp:paragraph --></dialog><!-- /wp:site/captured-dialog -->'
+        . '</div><!-- /wp:group -->';
+};
+$dialogShellResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><h1>Home</h1></main>', 'about.html' => '<main><h1>About</h1></main>')))->toArray();
+foreach ($dialogShellResult['source_reports']['compiled_site']['pages'] as &$dialogShellPage) $dialogShellPage['block_markup'] = $dialogShell($dialogShellPage['source_path']); unset($dialogShellPage);
+$dialogShellPlan = (new WordPressSitePlan())->fromResult($dialogShellResult);
+$dialogShellParts = array_column($dialogShellPlan['template_parts'], null, 'area');
+$assert(isset($dialogShellParts['header'], $dialogShellParts['footer']) && str_contains($dialogShellParts['footer']['canonical_block_markup'] ?? '', 'Colophon') && !str_contains($dialogShellParts['footer']['canonical_block_markup'] ?? '', 'captured-dialog'), 'A trailing projected dialog does not hide the nested footer row from shell extraction.');
+$assert(str_contains($pages($dialogShellPlan)['index.html']['canonical_block_markup'] ?? '', 'Menu panel'), 'The trailing projected dialog stays page content.');
+// A dropdown flows in its document like a source panel, so a trailing one is
+// a real last sibling and is not stepped over.
+$dropdownShellResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><h1>Home</h1></main>', 'about.html' => '<main><h1>About</h1></main>')))->toArray();
+foreach ($dropdownShellResult['source_reports']['compiled_site']['pages'] as &$dropdownShellPage) $dropdownShellPage['block_markup'] = $dialogShell($dropdownShellPage['source_path'], '{"dialogId":"menu","triggerIds":["opener"],"presentation":"dropdown","placement":"under-header"}'); unset($dropdownShellPage);
+$dropdownShellParts = array_column((new WordPressSitePlan())->fromResult($dropdownShellResult)['template_parts'], null, 'area');
+$assert(isset($dropdownShellParts['header']) && !isset($dropdownShellParts['footer']), 'A trailing dropdown dialog is not stepped over when looking for the nested footer row.');
+
 $heroResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header class="hero"><h1>Editable hero</h1><p>Page introduction</p></header><main><p>Content</p></main><footer>Footer</footer>')))->toArray();
 $heroPlan = $heroResult['source_reports']['wordpress_site_plan'];
 $heroPage = $pages($heroPlan)['index.html'] ?? array();

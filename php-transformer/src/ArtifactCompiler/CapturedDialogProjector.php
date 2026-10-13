@@ -394,8 +394,27 @@ final class CapturedDialogProjector
             $sourcePlace->parentNode->replaceChild($dialogElement, $sourcePlace);
             return $dialogElement;
         }
-        ($document->getElementsByTagName('body')->item(0) ?? $document->documentElement)?->appendChild($dialogElement);
+        // A modal mounts in its triggers' responsive document; a dropdown's
+        // placement is owned by the view script, so it keeps the body mount.
+        ($dropdown ? ($document->getElementsByTagName('body')->item(0) ?? $document->documentElement) : $this->triggerDocumentScope($document, $triggers))->appendChild($dialogElement);
         return $dialogElement;
+    }
+
+    /**
+     * The responsive document (desktop, mobile, ...) that holds every trigger,
+     * else the body. A dialog mounted there keeps the document's variant-scoped
+     * author rules (`:where([data-blocks-engine-capture-device-document="mobile"]) .panel`) and
+     * its display state, as the source panel had them. A modal still renders in
+     * the top layer, so the mount point does not move it on screen.
+     *
+     * @param array<int, DOMElement> $triggers
+     */
+    private function triggerDocumentScope(DOMDocument $document, array $triggers): DOMElement
+    {
+        foreach (array() === $triggers ? array() : $this->documentScopes($document) as $scope) {
+            if (array() === array_filter($triggers, static fn(DOMElement $trigger): bool => ! SourceDom::elementContains($scope, $trigger))) return $scope;
+        }
+        return $document->getElementsByTagName('body')->item(0) ?? $document->documentElement;
     }
 
     /**
