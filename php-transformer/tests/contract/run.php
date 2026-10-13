@@ -6012,11 +6012,11 @@ $keyedSelectableSet = $compiler->compile(array(
     'files' => array(
         array('path' => 'website/index.html', 'content' => '<main><div><button type="button">Alpha</button><button type="button">Beta</button></div><div><p>Select an item</p></div></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/capture-receipt/v1',
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
                 'states' => array(
