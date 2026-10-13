@@ -43,4 +43,33 @@ if ( 1 !== $sharedCache->variableBuilds || 0 !== $sharedCache->variableHits ) {
     exit(1);
 }
 
+// Each selector of a rule carries that rule's snippet. Retained memory must
+// grow with the selector list, not with its square: 800 selectors that each
+// held a private copy of a 70 KB prelude would retain about 56 MB.
+unset($css);
+$selectors = array();
+for ( $index = 0; $index < 800; ++$index ) {
+    $selectors[] = sprintf('.scoped-region-%04d :where(.generated-source-wrapper-%04d) .typography-carrier', $index, $index);
+}
+$prelude = implode(', ', $selectors);
+$selectorListCss = $prelude . '{font-family:"Lora",serif}';
+$before = memory_get_usage();
+$declarations = ( new FontMaterializationPlanBuilder() )->fontFamilyDeclarationsFromCssSources(array($selectorListCss));
+$retained = memory_get_usage() - $before;
+$snippet = $prelude . '{font-family:"Lora",serif}';
+if ( count($selectors) !== count($declarations) ) {
+    fwrite(STDERR, 'Selector-list declarations lost rows: ' . count($declarations) . PHP_EOL);
+    exit(1);
+}
+foreach ( $declarations as $index => $declaration ) {
+    if ( array( 'family' => 'Lora', 'selector' => $selectors[$index], 'source_snippet' => $snippet ) !== $declaration ) {
+        fwrite(STDERR, 'Selector-list declaration changed at row ' . $index . PHP_EOL);
+        exit(1);
+    }
+}
+if ( $retained > 4 * 1024 * 1024 ) {
+    fwrite(STDERR, sprintf('Selector-list declarations retained %d bytes; a rule snippet must be shared by its selectors.', $retained) . PHP_EOL);
+    exit(1);
+}
+
 fwrite(STDOUT, "Font-family declaration memory contract passed\n");
