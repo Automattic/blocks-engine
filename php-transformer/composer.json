@@ -189,6 +189,7 @@
       "php tests/unit/responsive-layered-block-margin.php",
       "php tests/unit/responsive-counterpart-contracts.php",
       "php tests/unit/captured-dialog-projector.php",
+      "php tests/unit/captured-dialog-source-panel-box.php",
       "php tests/unit/captured-dialog-dropdown-panel.php",
       "php tests/unit/scoped-mixed-dropdown.php",
       "php tests/unit/capture-runtime-ancestor-parity.php",
@@ -352,6 +353,7 @@
       "php tests/unit/navigation-resolved-projection-spacing.php",
       "php tests/unit/source-target-projection-state.php",
       "php tests/unit/navigation-layout-default.php",
+      "php tests/unit/navigation-stacked-block-list-layout.php",
       "php tests/unit/navigation-vertical-orientation.php",
       "php tests/unit/navigation-source-provenance.php",
       "php tests/unit/navigation-dropped-anchors.php",
@@ -568,7 +570,8 @@
       "php tests/unit/columns-sidebar-partner-desktop-layout.php",
       "php tests/unit/columns-row-stacking-from-source.php",
       "php tests/unit/consumed-inline-custom-properties.php",
-      "php tests/unit/button-block-level-grid-item-fill.php"
+      "php tests/unit/button-block-level-grid-item-fill.php",
+      "php tests/unit/hidden-positioned-layer-opacity.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
