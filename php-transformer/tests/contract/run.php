@@ -6012,11 +6012,11 @@ $pillSelectableSet = $compiler->compile(array(
     'files' => array(
         array('path' => 'website/index.html', 'content' => '<main><div class="step-row" role="tablist"><button type="button" role="tab" aria-selected="true" data-state="active" style="padding:12px;border-radius:8px;background-color:#497969;color:#ffffff">Alpha</button><button type="button" role="tab" aria-selected="false" data-state="inactive" style="padding:12px;border-radius:8px;color:#737373">Beta</button></div><div class="detail"><p>Select an item to view details</p></div></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/capture-receipt/v1',
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
                 'states' => array(
