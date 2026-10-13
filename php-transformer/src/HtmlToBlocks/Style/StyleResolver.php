@@ -2397,6 +2397,21 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * The custom properties an element's inline style defines that something
+     * still reads: an author rule matching it or a descendant, a descendant's
+     * own inline declaration, or one of `$carriedValues`. A carrier that
+     * replaces the element's inline style must keep these, or every reader
+     * falls back to its default.
+     *
+     * @param array<int|string, string> $carriedValues
+     * @return array<string, string>
+     */
+    public function consumedInlineCustomProperties(DOMElement $element, array $carriedValues = array()): array
+    {
+        return $this->inlineCustomPropertyDeclarations($element, $this->cssDeclarations(SourceDom::attr($element, 'style')), array_values($carriedValues));
+    }
+
+    /**
      * @param array<string, string> $declarations
      * @param array<int, string> $geometryValues
      * @return array<string, string>
@@ -2405,7 +2420,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $required = $this->inlineCustomPropertiesRequired(
             $declarations,
-            $this->inlineCustomPropertiesConsumedByAuthorStyles($element, $declarations) + $this->customPropertiesReferencedByValues($geometryValues)
+            $this->inlineCustomPropertiesConsumedByStyles($element, $declarations) + $this->customPropertiesReferencedByValues($geometryValues)
         );
         // Most callers case-fold declaration keys for matching, but custom
         // property names are case-sensitive: `--headerBg` and `--headerbg` are
@@ -2435,7 +2450,7 @@ final class StyleResolver implements ElementPresentationResolver
      * @param array<string, string> $declarations
      * @return array<string, true>
      */
-    private function inlineCustomPropertiesConsumedByAuthorStyles(DOMElement $element, array $declarations): array
+    private function inlineCustomPropertiesConsumedByStyles(DOMElement $element, array $declarations): array
     {
         $declared = array_fill_keys(array_filter(array_keys($declarations), static fn (string $property): bool => str_starts_with($property, '--')), true);
         if (array() === $declared) {
@@ -2443,7 +2458,12 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $consumed = array();
-        $inspect = function (DOMElement $target) use (&$consumed, $declared): void {
+        $inspect = function (DOMElement $target) use (&$consumed, $declared, $element): void {
+            // A descendant's inline declarations ride on its own carrier and
+            // read the definitions this element provides through inheritance.
+            if ($target !== $element) {
+                $consumed += array_intersect_key($this->customPropertiesReferencedByValues(array(SourceDom::attr($target, 'style'))), $declared);
+            }
             foreach ( $this->matchingStyleRules($target, 'static-conditional-pseudo') as $rule ) {
                 // Read the rule's UNFILTERED `var()` references. `declarations`
                 // is the `safeVisualDeclarations()` classification allow-list,
