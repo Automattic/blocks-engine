@@ -183,6 +183,7 @@ final class CapturedSelectableSetProjector
                 'html' => $sanitized,
                 'tag' => is_string($state['trigger']['tag'] ?? null) ? strtolower($state['trigger']['tag']) : '',
                 'selector' => is_string($state['trigger']['selector'] ?? null) ? trim($state['trigger']['selector']) : '',
+                'key' => is_string($state['trigger']['tabKey'] ?? null) && 1 === preg_match('/^[A-Za-z0-9_-]{1,64}$/', $state['trigger']['tabKey']) ? $state['trigger']['tabKey'] : '',
             );
         }
 
@@ -300,6 +301,37 @@ final class CapturedSelectableSetProjector
     }
 
     /**
+     * Panel ids. A member carrying the source's own tab key uses it as the
+     * panel id, so a `#key` fragment selects that tab natively in core Tabs.
+     * Keys are used only when every member has one, they are unique, and none
+     * collides with an id already on the page; otherwise ids stay generated.
+     *
+     * @param array<int, array<string, mixed>> $members
+     * @return array<int, string>
+     */
+    private function panelIds(DOMDocument $document, array $members, string $identity): array
+    {
+        $generated = array();
+        $keys = array();
+        foreach ($members as $index => $member) {
+            $generated[$index] = 'blocks-engine-set-' . $identity . '-panel-' . $index;
+            $keys[$index] = is_string($member['key'] ?? null) ? $member['key'] : '';
+        }
+        if (in_array('', $keys, true) || count(array_unique($keys)) !== count($keys)) {
+            return $generated;
+        }
+        $xpath = new \DOMXPath($document);
+        foreach ($keys as $key) {
+            $found = $xpath->query('//*[@id="' . $key . '"]');
+            if (false !== $found && $found->length > 0) {
+                return $generated;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
      * Tab libraries render the inactive panels as empty, hidden siblings of the
      * active panel (the captured region). Once every member has its own native
      * panel those leftovers hold nothing and only add empty container blocks
@@ -369,9 +401,10 @@ final class CapturedSelectableSetProjector
                 $triggerRow->setAttribute('data-blocks-engine-tablist-row', $identity);
             }
         }
+        $panelIds = $this->panelIds($document, $members, $identity);
         foreach ($members as $index => $member) {
             $tabId = 'blocks-engine-set-' . $identity . '-tab-' . $index;
-            $panelId = 'blocks-engine-set-' . $identity . '-panel-' . $index;
+            $panelId = $panelIds[$index];
             $button = $document->createElement('button');
             $button->setAttribute('type', 'button');
             $button->setAttribute('role', 'tab');
@@ -395,7 +428,7 @@ final class CapturedSelectableSetProjector
         $region->appendChild($tabList);
         foreach ($members as $index => $member) {
             $panel = $document->createElement('section');
-            $panel->setAttribute('id', 'blocks-engine-set-' . $identity . '-panel-' . $index);
+            $panel->setAttribute('id', $panelIds[$index]);
             $panel->setAttribute('role', 'tabpanel');
             $panel->setAttribute('aria-labelledby', 'blocks-engine-set-' . $identity . '-tab-' . $index);
             foreach ($this->fragmentNodes($member['html']) as $node) {
