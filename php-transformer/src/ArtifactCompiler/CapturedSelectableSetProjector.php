@@ -3,8 +3,10 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMDocument;
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 
 /**
  * Projects captured selectable-set evidence (N members driving one shared
@@ -12,8 +14,6 @@ use DOMElement;
  */
 final class CapturedSelectableSetProjector
 {
-    private const REPORT_SCHEMA = 'data-liberation/captured-interactions/v1';
-    private const RECEIPT_SCHEMA = 'data-liberation/capture-receipt/v1';
     private const KIND = 'selectable-set';
     public const ACTIVE_TAB_ATTRIBUTE = 'data-blocks-engine-active-tab';
     public const FLOW_ATTRIBUTE = 'data-blocks-engine-tabs-flow';
@@ -43,7 +43,7 @@ final class CapturedSelectableSetProjector
         if (null === $report) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
-        if (self::REPORT_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
+        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
         if (count($report['pages']) > self::MAX_PAGES) {
@@ -67,7 +67,7 @@ final class CapturedSelectableSetProjector
         }
 
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
-        if (null === $receipt || self::RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
+        if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_selectable_set_route_map_missing', 'warning', 'Captured selectable sets were not projected because the capture receipt route map is unavailable.')), 'projected_count' => 0);
         }
 
@@ -590,7 +590,7 @@ final class CapturedSelectableSetProjector
     private function isResponsiveDocumentWrapper(DOMElement $element): bool
     {
         foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
-            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)) {
+            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)) {
                 return true;
             }
         }
@@ -931,8 +931,9 @@ final class CapturedSelectableSetProjector
             return null;
         }
         $xpath = new \DOMXPath($document);
+        $this->keepSafeVisualIframes($xpath);
         foreach (array('script', 'iframe', 'object', 'embed', 'template', 'canvas') as $tag) {
-            $matches = $xpath->query('//' . $tag);
+            $matches = $xpath->query('iframe' === $tag ? '//iframe[not(@data-be-safe-iframe)]' : '//' . $tag);
             if (false === $matches) {
                 continue;
             }
@@ -961,6 +962,11 @@ final class CapturedSelectableSetProjector
                 }
             }
         }
+        foreach (iterator_to_array($xpath->query('//iframe[@data-be-safe-iframe]') ?: array()) as $iframe) {
+            if ($iframe instanceof DOMElement) {
+                $iframe->removeAttribute('data-be-safe-iframe');
+            }
+        }
         $wrapper = $xpath->query('//*[@data-region-root="true"]')?->item(0);
         if (! $wrapper instanceof DOMElement) {
             return null;
@@ -971,6 +977,35 @@ final class CapturedSelectableSetProjector
         }
 
         return is_string($html) ? $html : null;
+    }
+
+    /**
+     * Keeps plain https visual iframes and strips every attribute outside the
+     * bounded embed set. Kept frames get a temporary marker so the removal pass
+     * skips them; a marker that came from the source is dropped first.
+     */
+    private function keepSafeVisualIframes(\DOMXPath $xpath): void
+    {
+        $allowed = array('src', 'title', 'width', 'height', 'class', 'allow', 'allowfullscreen', 'loading', 'referrerpolicy');
+        $classifier = new SourceElementClassifier();
+        foreach (iterator_to_array($xpath->query('//iframe') ?: array()) as $iframe) {
+            if (! $iframe instanceof DOMElement) {
+                continue;
+            }
+            $iframe->removeAttribute('data-be-safe-iframe');
+            if ($iframe->hasAttribute('srcdoc') || ! $classifier->isSafeVisualIframeUrl(trim($iframe->getAttribute('src')))) {
+                continue;
+            }
+            foreach (iterator_to_array($iframe->attributes) as $attribute) {
+                if (! in_array(strtolower($attribute->name), $allowed, true)) {
+                    $iframe->removeAttribute($attribute->name);
+                }
+            }
+            while ($iframe->firstChild) {
+                $iframe->removeChild($iframe->firstChild);
+            }
+            $iframe->setAttribute('data-be-safe-iframe', '1');
+        }
     }
 
     /** @return array<int, \DOMNode> */

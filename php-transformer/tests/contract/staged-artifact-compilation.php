@@ -517,7 +517,7 @@ $assertReceiptEquality($responsiveShellArtifact, 'Shared responsive shell varian
 
 $dialogHtml = '<div role="dialog" aria-label="Contact"><p>Captured dialog</p></div>';
 $capturedStates = array(
-    'schema' => 'data-liberation/captured-interactions/v1',
+    'schema' => 'blocks-engine-capture/captured-interactions/v1',
     'pages' => array(array(
         'sourceUrl' => 'https://example.test/',
         'states' => array(array(
@@ -529,7 +529,7 @@ $capturedStates = array(
 );
 $capturedDialogArtifact = array('site_slug' => 'staged-dialog', 'files' => array(
     array('path' => 'website/index.html', 'content' => '<main><a role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a></main>', 'entrypoint' => true),
-    array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
+    array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
     array('path' => 'interaction-states.json', 'content' => json_encode($capturedStates, JSON_UNESCAPED_SLASHES)),
 ));
 $assertReceiptEquality($capturedDialogArtifact, 'Digest-bound captured-dialog projection preserves blocks, diagnostics, interaction reports, and complete canonical output through staged receipts.');

@@ -97,8 +97,8 @@ $cases = array(
     'responsive document variants' => array(
         'files' => array(
             'index.html' => '<!doctype html><html><head><style>' . $css . '</style></head><body>'
-                . '<div class="data-liberation-desktop-document">' . $menu() . '<main class="hero"><h2>Home</h2></main></div>'
-                . '<div class="data-liberation-mobile-document">' . $menu() . '<main class="hero"><h2>Home</h2></main></div>'
+                . '<div class="data-blocks-engine-capture-desktop-document">' . $menu() . '<main class="hero"><h2>Home</h2></main></div>'
+                . '<div class="data-blocks-engine-capture-mobile-document">' . $menu() . '<main class="hero"><h2>Home</h2></main></div>'
                 . '</body></html>',
         ),
         'options' => array(),

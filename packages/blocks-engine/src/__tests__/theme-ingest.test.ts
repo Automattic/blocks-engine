@@ -70,7 +70,7 @@ describe('theme ingest', () => {
     expect(services?.html).toContain('Blocks Engine Services');
   });
 
-  it('maps nested paths to DLA-compatible slugs', () => {
+  it('maps nested paths to reference-compatible slugs', () => {
     expect(slugFromRelPath(join('index.html'))).toBe('home');
     expect(slugFromRelPath(join('blog', 'index.html'))).toBe('blog');
     expect(slugFromRelPath(join('blog', 'Launch Notes.html'))).toBe('blog-launch-notes');

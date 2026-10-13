@@ -34,13 +34,13 @@ $supportCss = static function (array $result): string {
     return $css;
 };
 
-$scaffold = '<style>details.dla-disclosure>summary{list-style:none;cursor:pointer;display:inline-block}'
+$scaffold = '<style>details.data-blocks-engine-capture-disclosure>summary{list-style:none;cursor:pointer;display:inline-block}'
     . '@media (width>=48rem){.md\:hidden{display:none}}</style>';
 
 $hidden = $transform(
     $scaffold
     . '<header><nav><a href="/a">A</a></nav>'
-    . '<details class="dla-disclosure"><summary class="md:hidden" aria-label="Abrir menu">Menu</summary><div><a href="/a">A</a></div></details>'
+    . '<details class="data-blocks-engine-capture-disclosure"><summary class="md:hidden" aria-label="Abrir menu">Menu</summary><div><a href="/a">A</a></div></details>'
     . '</header><main><p>Body</p></main>'
 );
 $blocks = (string) ( $hidden['serialized_blocks'] ?? '' );
@@ -71,8 +71,8 @@ $assert(
 
 // A control the source shows at every viewport keeps its flat box.
 $always = $transform(
-    '<style>details.dla-disclosure>summary{list-style:none;display:inline-block;padding:8px}</style>'
-    . '<header><details class="dla-disclosure"><summary aria-label="Abrir menu">Menu</summary><div><a href="/a">A</a></div></details></header>'
+    '<style>details.data-blocks-engine-capture-disclosure>summary{list-style:none;display:inline-block;padding:8px}</style>'
+    . '<header><details class="data-blocks-engine-capture-disclosure"><summary aria-label="Abrir menu">Menu</summary><div><a href="/a">A</a></div></details></header>'
     . '<main><p>Body</p></main>'
 );
 $alwaysCss = $supportCss($always);

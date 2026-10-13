@@ -65,6 +65,20 @@ final class WordPressSitePlanResolver
         if ('functions.php' === $targetPath || str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/')) return $content;
         return self::resolvePayload($content, self::referencesForWrite($tokens, $themeUri, $targetPath));
     }
+    /**
+     * The bytes `resolveWritePayload()` will publish, when they do not depend on
+     * the destination: stylesheets resolve tokens to relative paths, and a write
+     * without tokens is published as is. Other token-bearing writes resolve to
+     * the theme URI, so their bytes are unknown before resolution (null).
+     * @param array<int,array<string,mixed>> $tokens
+     */
+    public static function destinationIndependentPayload(string $content, array $tokens, string $targetPath): ?string
+    {
+        if ('functions.php' === $targetPath || str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/') || !str_contains($content, WordPressSitePlan::TOKEN_PREFIX)) return $content;
+        if (!str_ends_with(strtolower($targetPath), '.css')) return null;
+        $resolved = strtr($content, self::referencesForWrite($tokens, '', $targetPath));
+        return str_contains($resolved, WordPressSitePlan::TOKEN_PREFIX) ? null : $resolved;
+    }
     /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $pages @param array<string,string> $references @return array<int,array<string,mixed>> */
     private static function resolveEntityBindings(array $declarations, array $pages, array $references, bool $normalize = true): array
     {

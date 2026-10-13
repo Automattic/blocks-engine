@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
@@ -335,9 +336,9 @@ final class SourceDom
     {
         // A document scope is a declared source-body boundary, independent of
         // presentation classes or a fixed set of device/profile names.
-        if ($element->hasAttribute('data-dla-document-scope') && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', trim(self::attr($element, 'data-dla-device-document')))) return true;
+        if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', trim(self::attr($element, CaptureEvidence::DEVICE_DOCUMENT)))) return true;
         foreach ( preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array() as $class ) {
-            if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( 'data-liberation-desktop-document', 'data-liberation-mobile-document' ), true) ) {
+            if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS ), true) ) {
                 return true;
             }
         }
@@ -352,10 +353,11 @@ final class SourceDom
      * the page. Empty for the default (desktop) variant, or for an element
      * outside any declared variant, which both keep the bare source id.
      *
-     * Mirrors Data Liberation Agent's own `--dla-mobile` convention for
-     * pairing a mobile-specific identity with its desktop counterpart
-     * (`dataItem-kooetu6x` / `dataItem-kooetu6x--dla-mobile`), instead of
-     * inventing a second convention for the same kind of pairing. The
+     * Uses the capture-evidence variant id convention
+     * ({@see CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX}) for pairing a
+     * mobile-specific identity with its desktop counterpart
+     * (`dataItem-kooetu6x` / `dataItem-kooetu6x--data-blocks-engine-capture-mobile`),
+     * instead of inventing a second convention for the same kind of pairing. The
      * convention itself lives in {@see DocumentVariantIds}, which also keeps the
      * delivered author stylesheets pointing at the suffixed ids.
      */
@@ -373,8 +375,8 @@ final class SourceDom
             }
         }
 
-        $declared = trim(self::attr($root, 'data-dla-device-document'));
-        if ($root->hasAttribute('data-dla-document-scope') && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $declared)) return '--dla-' . $declared;
+        $declared = trim(self::attr($root, CaptureEvidence::DEVICE_DOCUMENT));
+        if ($root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && 1 === preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $declared)) return CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX . $declared;
 
         return '';
     }
@@ -831,7 +833,7 @@ final class SourceDom
         $bytes = strlen($html);
         if ( $bytes > 2000 ) {
             return array(
-                'html'      => substr($html, 0, 2000) . '...',
+                'html'      => mb_strcut($html, 0, 2000, 'UTF-8') . '...',
                 'bytes'     => $bytes,
                 'truncated' => true,
             );
@@ -852,7 +854,7 @@ final class SourceDom
         $bytes = strlen($text);
         if ( $bytes > 2000 ) {
             return array(
-                'text'      => substr($text, 0, 2000) . '...',
+                'text'      => mb_strcut($text, 0, 2000, 'UTF-8') . '...',
                 'bytes'     => $bytes,
                 'truncated' => true,
             );

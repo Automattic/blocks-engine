@@ -18,27 +18,35 @@ final class MonochromeGlyphColor
 
     private const CLUSTER_SHARE = 0.85;
 
-    public static function fromBytes(string $bytes): string
+    /**
+     * Inspect a glyph payload. `undecodable` is true only when the host GD
+     * cannot decode the bytes (for example AVIF on a PHP built without
+     * libavif), so callers can report the lost colour instead of dropping it
+     * silently. Images that decode but are not monochrome are not undecodable.
+     *
+     * @return array{color:string, undecodable:bool}
+     */
+    public static function inspect(string $bytes): array
     {
-        if ( '' === $bytes || strlen($bytes) > self::MAX_BYTES || ! function_exists('imagecreatefromstring') ) {
-            return '';
+        if ( '' === $bytes || strlen($bytes) > self::MAX_BYTES ) {
+            return array('color' => '', 'undecodable' => false);
         }
 
-        $image = self::decode($bytes);
+        $image = function_exists('imagecreatefromstring') ? @imagecreatefromstring($bytes) : false;
         if ( false === $image ) {
-            return '';
+            return array('color' => '', 'undecodable' => true);
         }
 
         $width = imagesx($image);
         $height = imagesy($image);
         if ( $width < 1 || $height < 1 || $width > self::MAX_EDGE || $height > self::MAX_EDGE ) {
-            return '';
+            return array('color' => '', 'undecodable' => false);
         }
 
         if ( ! imageistruecolor($image) ) {
             $truecolor = imagecreatetruecolor($width, $height);
             if ( false === $truecolor ) {
-                return '';
+                return array('color' => '', 'undecodable' => false);
             }
             imagealphablending($truecolor, false);
             imagesavealpha($truecolor, true);
@@ -61,7 +69,7 @@ final class MonochromeGlyphColor
         }
 
         if ( $opaque < self::MIN_OPAQUE || array() === $counts ) {
-            return '';
+            return array('color' => '', 'undecodable' => false);
         }
 
         arsort($counts);
@@ -83,74 +91,15 @@ final class MonochromeGlyphColor
         }
 
         if ( ($cluster / $opaque) < self::CLUSTER_SHARE ) {
-            return '';
+            return array('color' => '', 'undecodable' => false);
         }
         if ( $modeRed >= 250 && $modeGreen >= 250 && $modeBlue >= 250 ) {
-            return '#ffffff';
+            return array('color' => '#ffffff', 'undecodable' => false);
         }
         if ( $modeRed <= 5 && $modeGreen <= 5 && $modeBlue <= 5 ) {
-            return '#000000';
+            return array('color' => '#000000', 'undecodable' => false);
         }
 
-        return sprintf('#%02x%02x%02x', $modeRed, $modeGreen, $modeBlue);
-    }
-
-    /** @return \GdImage|false */
-    private static function decode(string $bytes)
-    {
-        if ( function_exists('imagecreatefromstring') ) {
-            $image = @imagecreatefromstring($bytes);
-            if ( false !== $image ) {
-                return $image;
-            }
-        }
-
-        if ( ! self::isAvif($bytes) ) {
-            return false;
-        }
-
-        $png = self::pngBytesViaSips($bytes);
-        if ( '' === $png || ! function_exists('imagecreatefromstring') ) {
-            return false;
-        }
-
-        $image = @imagecreatefromstring($png);
-
-        return false === $image ? false : $image;
-    }
-
-    private static function isAvif(string $bytes): bool
-    {
-        $head = substr($bytes, 4, 28);
-
-        return str_contains($head, 'ftyp') && (str_contains($head, 'avif') || str_contains($head, 'avis'));
-    }
-
-    private static function pngBytesViaSips(string $bytes): string
-    {
-        if ( ! function_exists('exec') ) {
-            return '';
-        }
-
-        $temporary = tempnam(sys_get_temp_dir(), 'glyph-');
-        if ( ! is_string($temporary) || '' === $temporary ) {
-            return '';
-        }
-
-        $source = $temporary . '.avif';
-        $png = $temporary . '.png';
-        if ( ! @rename($temporary, $source) ) {
-            @unlink($temporary);
-
-            return '';
-        }
-
-        file_put_contents($source, $bytes);
-        exec('/usr/bin/sips -s format png ' . escapeshellarg($source) . ' --out ' . escapeshellarg($png) . ' 2>/dev/null', $unused, $code);
-        $decoded = 0 === $code && is_file($png) ? (string) file_get_contents($png) : '';
-        @unlink($source);
-        @unlink($png);
-
-        return $decoded;
+        return array('color' => sprintf('#%02x%02x%02x', $modeRed, $modeGreen, $modeBlue), 'undecodable' => false);
     }
 }

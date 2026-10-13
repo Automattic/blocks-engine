@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+
 /**
  * Builds the bounded author-facing editor module for declared responsive
  * counterparts.
@@ -31,11 +33,11 @@ final class ResponsiveCounterpartEditorModule
 
     private function script(): string
     {
-        return <<<'JS'
+        $script = <<<'JS'
 ( function( hooks, element, components, blockEditor, data ) {
     var createElement = element.createElement;
     var Fragment = element.Fragment;
-    var TOKEN_CLASS = /^(?:be-responsive-counterpart-|data-liberation-responsive-counterpart-)([a-f0-9]{12})$/;
+    var TOKEN_CLASS = /^(?:be-responsive-counterpart-|__RESPONSIVE_COUNTERPART_CLASS_PREFIX__)([a-f0-9]{12})$/;
     var VARIANT_CLASS = /^site-document-variant-([a-z][a-z0-9_-]{0,31})$/;
     var CONTENT_ATTRIBUTES = { 'core/paragraph': 'content', 'core/heading': 'content', 'core/button': 'text', 'core/navigation-link': 'label', 'core/navigation-submenu': 'label' };
     var VARIANT_LABELS = { default: 'default (desktop)' };
@@ -51,8 +53,8 @@ final class ResponsiveCounterpartEditorModule
     function variantLabelFrom( value ) {
         var found = '';
         classes( value ).some( function( name ) {
-            if ( 'data-liberation-desktop-document' === name ) { found = 'default'; return true; }
-            if ( 'data-liberation-mobile-document' === name ) { found = 'mobile'; return true; }
+            if ( '__DESKTOP_DOCUMENT_CLASS__' === name ) { found = 'default'; return true; }
+            if ( '__MOBILE_DOCUMENT_CLASS__' === name ) { found = 'mobile'; return true; }
             var match = VARIANT_CLASS.exec( name ); if ( match ) { found = match[ 1 ]; return true; } return false;
         } );
         return found;
@@ -63,7 +65,7 @@ final class ResponsiveCounterpartEditorModule
         ( attributes && attributes.wrappers || [] ).some( function( wrapper ) {
             label = variantLabelFrom( wrapper && wrapper.attributes && wrapper.attributes.class );
             var source = wrapper && wrapper.attributes || {};
-            if ( ! label && Object.prototype.hasOwnProperty.call( source, 'data-dla-document-scope' ) && /^[a-z][a-z0-9_-]{0,63}$/.test( String( source['data-dla-device-document'] || '' ) ) ) label = source['data-dla-device-document'];
+            if ( ! label && Object.prototype.hasOwnProperty.call( source, '__DOCUMENT_SCOPE__' ) && /^[a-z][a-z0-9_-]{0,63}$/.test( String( source['__DEVICE_DOCUMENT__'] || '' ) ) ) label = source['__DEVICE_DOCUMENT__'];
             return Boolean( label );
         } );
         return label;
@@ -173,5 +175,13 @@ final class ResponsiveCounterpartEditorModule
     } );
 } )( window.wp.hooks, window.wp.element, window.wp.components, window.wp.blockEditor, window.wp.data );
 JS;
+
+        return strtr($script, array(
+            '__RESPONSIVE_COUNTERPART_CLASS_PREFIX__' => CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX,
+            '__DESKTOP_DOCUMENT_CLASS__' => CaptureEvidence::DESKTOP_DOCUMENT_CLASS,
+            '__MOBILE_DOCUMENT_CLASS__' => CaptureEvidence::MOBILE_DOCUMENT_CLASS,
+            '__DOCUMENT_SCOPE__' => CaptureEvidence::DOCUMENT_SCOPE,
+            '__DEVICE_DOCUMENT__' => CaptureEvidence::DEVICE_DOCUMENT,
+        ));
     }
 }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
 use Closure;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -154,8 +155,8 @@ final class DisclosureControlPresentation
         $svg = $icons->item(0);
         if ( ! $svg instanceof DOMElement || ! SourceDom::svgHasDrawableContent($svg) ) return array();
         foreach (array('class', 'style') as $attribute) {
-            if ($svg->hasAttribute('data-dla-disclosure-closed-' . $attribute)
-                && $svg->getAttribute($attribute) !== $svg->getAttribute('data-dla-disclosure-closed-' . $attribute)) return array();
+            if ($svg->hasAttribute(CaptureEvidence::DISCLOSURE_CLOSED_PREFIX . $attribute)
+                && $svg->getAttribute($attribute) !== $svg->getAttribute(CaptureEvidence::DISCLOSURE_CLOSED_PREFIX . $attribute)) return array();
         }
         $declarations = $this->styles->resolvedPresentationDeclarations($svg);
         $dimensions = array();
@@ -178,7 +179,7 @@ final class DisclosureControlPresentation
         $clone->setAttribute('style', $this->styles->cssDeclarationString($inline));
         // Producer state annotations describe the capture, not the artwork.
         foreach ( iterator_to_array($clone->attributes) as $attribute ) {
-            if ( str_starts_with($attribute->nodeName, 'data-dla-') ) $clone->removeAttribute($attribute->nodeName);
+            if ( str_starts_with($attribute->nodeName, CaptureEvidence::ATTRIBUTE_PREFIX) ) $clone->removeAttribute($attribute->nodeName);
         }
         $markup = ($this->svgMarkup)($clone);
         if ( ! SourceDom::isSafeSvgContent($markup) ) return array();
@@ -193,8 +194,8 @@ final class DisclosureControlPresentation
         $expanded = $svg->cloneNode(true);
         if ( ! $expanded instanceof DOMElement ) return array();
         foreach ( array('class', 'style') as $attribute ) {
-            if ( $svg->hasAttribute('data-dla-disclosure-open-' . $attribute) ) {
-                $expanded->setAttribute($attribute, $svg->getAttribute('data-dla-disclosure-open-' . $attribute));
+            if ( $svg->hasAttribute(CaptureEvidence::DISCLOSURE_OPEN_PREFIX . $attribute) ) {
+                $expanded->setAttribute($attribute, $svg->getAttribute(CaptureEvidence::DISCLOSURE_OPEN_PREFIX . $attribute));
             }
         }
         // A detached state clone loses the source ancestors that author rules

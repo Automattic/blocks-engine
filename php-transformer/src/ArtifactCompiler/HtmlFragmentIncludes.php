@@ -21,28 +21,55 @@ final class HtmlFragmentIncludes
     /** @param array<int,array<string,mixed>> $files @param array<int,string> $entrypoints */
     public static function virtualRoot(array $files, array $entrypoints): string
     {
+        $entry = self::entryPath($files, $entrypoints);
+        return '.' === dirname($entry) ? '' : dirname($entry) . '/';
+    }
+
+    /** @param array<int,array<string,mixed>> $files @param array<int,string> $entrypoints */
+    private static function entryPath(array $files, array $entrypoints): string
+    {
         $entry = $entrypoints[0] ?? '';
         $paths = array_column($files, 'path');
         if ('' === $entry) foreach ($files as $file) if (!empty($file['entrypoint']) || 'entry' === ($file['role'] ?? null)) { $entry = (string) $file['path']; break; }
         if ('' === $entry) $entry = in_array('index.html', $paths, true) ? 'index.html' : (in_array('website/index.html', $paths, true) ? 'website/index.html' : 'index.html');
         $entry = ArtifactPath::safeRelativePath($entry);
         if ('' === $entry) throw new InvalidArgumentException('html_include_unsafe_entrypoint');
-        return '.' === dirname($entry) ? '' : dirname($entry) . '/';
+        return $entry;
     }
 
-    /** @return array<int,array{virtual:string,offset:int,length:int}> */
-    public static function directives(string $source, string $path): array
+    /**
+     * A strict scan throws on a non-standard directive or an over-budget count.
+     * A lenient scan skips the former and stops at the latter; the expander
+     * scans strictly, so a hydration walk can follow the dependencies it can
+     * name without deciding what happens to the page.
+     *
+     * @return array<int,array{virtual:string,offset:int,length:int}>
+     */
+    public static function directives(string $source, string $path, bool $strict = true): array
     {
         if (false === stripos($source, '#include')) return array();
         $directives = array();
         foreach (HtmlTagScanner::scan($source, '#comment') as $comment) {
             $token = $comment['tag'];
             if (1 !== preg_match('/^<!--\s*#include/i', $token)) continue;
-            if (1 !== preg_match('~^<!--#include virtual="(/parts/[a-zA-Z0-9_-]+\.html)" -->$~D', $token, $match)) throw new InvalidArgumentException('html_include_invalid_directive: ' . $path);
-            if (count($directives) >= self::MAX_INCLUDES) throw new InvalidArgumentException('html_include_count_exceeded: ' . $path);
+            if (1 !== preg_match('~^<!--#include virtual="(/parts/[a-zA-Z0-9_-]+\.html)" -->$~D', $token, $match)) {
+                if (!$strict) continue;
+                throw new InvalidArgumentException('html_include_invalid_directive: ' . $path);
+            }
+            if (count($directives) >= self::MAX_INCLUDES) {
+                if (!$strict) break;
+                throw new InvalidArgumentException('html_include_count_exceeded: ' . $path);
+            }
             $directives[] = array('virtual' => $match[1], 'offset' => $comment['offset'], 'length' => strlen($token));
         }
         return $directives;
+    }
+
+    /** The finding for a page-local include failure, or null when the failure is a hard bound. */
+    private static function degradedCode(InvalidArgumentException $error): ?string
+    {
+        if (1 === preg_match('/^html_include_(?:invalid_directive|missing_path):/', $error->getMessage())) return 'html_include_directive_ignored';
+        return str_starts_with($error->getMessage(), 'html_include_count_exceeded:') ? 'html_include_budget_exceeded' : null;
     }
 
     /**
@@ -55,17 +82,26 @@ final class HtmlFragmentIncludes
      * expansion count, keeping the per-document bound deterministic regardless
      * of file order or cache warmth.
      *
+     * A document whose directives are non-standard, name a missing fragment, or
+     * exceed the include count is a page-local limit: its includes stay
+     * unexpanded, the rest of the site compiles, and a warning in `$diagnostics`
+     * names the document. The entrypoint is the page the site hangs off, so the
+     * same breach there still throws. Cycles, depth and byte budgets stay hard
+     * bounds.
+     *
      * @param array<int,array<string,mixed>> $files
      * @param array<int,string> $entrypoints
      * @param array<string,int> $limits
+     * @param array<int,array<string,mixed>> $diagnostics Receives one warning per document left unexpanded.
      * @return array<int,array<string,mixed>>
      */
-    public function expand(array $files, array $entrypoints, array $limits, callable $payload, array $reports = array()): array
+    public function expand(array $files, array $entrypoints, array $limits, callable $payload, array $reports = array(), array &$diagnostics = array()): array
     {
         $contents = array();
         $directives = array();
         $active = false;
         $duplicates = array();
+        $broken = array();
         foreach ($files as $file) {
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
             if (!preg_match('/\.html?$/i', $path)) continue;
@@ -75,17 +111,26 @@ final class HtmlFragmentIncludes
             }
             if (isset($contents[$path])) $duplicates[] = $path;
             $contents[$path] = $content;
-            $directives[$path] = self::directives($content, $path);
-            $active = $active || array() !== $directives[$path];
+            // A document already left unexpanded by an earlier stage stays that way.
+            if (!empty($file['metadata']['compilation']['unresolved_html_includes'])) { $directives[$path] = array(); continue; }
+            try {
+                $directives[$path] = self::directives($content, $path);
+            } catch (InvalidArgumentException $error) {
+                if (null === self::degradedCode($error)) throw $error;
+                $directives[$path] = array();
+                $broken[$path] = $error;
+            }
+            $active = $active || array() !== $directives[$path] || isset($broken[$path]);
         }
         if (!$active) return $files;
         if (array() !== $duplicates) throw new InvalidArgumentException('html_include_duplicate_path: ' . $duplicates[0]);
         $root = self::virtualRoot($files, $entrypoints);
+        $entryPaths = array_fill_keys(array_filter(array_map(static fn(string $entry): string => ArtifactPath::safeRelativePath($entry), array_merge($entrypoints, array(self::entryPath($files, $entrypoints))))), true);
         $referenced = array();
         $resolved = array();
         $total = 0;
         $count = 0;
-        $resolve = function (string $path, array $stack) use (&$resolve, &$referenced, &$resolved, &$count, $contents, $directives, $root, $limits): array {
+        $resolve = function (string $path, array $stack) use (&$resolve, &$referenced, &$resolved, &$count, $contents, $directives, $broken, $root, $limits): array {
             if (isset($stack[$path])) throw new InvalidArgumentException('html_include_cycle: ' . $path);
             if (count($stack) >= self::MAX_DEPTH) throw new InvalidArgumentException('html_include_depth_exceeded: ' . $path);
             if (isset($resolved[$path])) {
@@ -94,6 +139,7 @@ final class HtmlFragmentIncludes
                 if ($count > self::MAX_INCLUDES) throw new InvalidArgumentException('html_include_count_exceeded: ' . $path);
                 return $resolved[$path];
             }
+            if (isset($broken[$path])) throw $broken[$path];
             $stack[$path] = true;
             $source = $contents[$path];
             if (strlen($source) > $limits['max_file_bytes']) throw new InvalidArgumentException('html_include_file_budget_exceeded: ' . $path);
@@ -121,12 +167,29 @@ final class HtmlFragmentIncludes
         try {
             foreach ($files as &$file) {
                 $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
-                if (isset($contents[$path]) && array() !== $directives[$path]) {
+                if (isset($contents[$path]) && (array() !== $directives[$path] || isset($broken[$path]))) {
                     $count = 0;
-                    $file['content'] = $resolve($path, array())['content'];
-                    if (!isset($file['metadata']['compilation'])) $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $path);
-                    $file['metadata']['compilation']['resolved_html_includes'] = true;
-                    unset($file['content_base64'], $file['payload_reference']);
+                    $referencedBefore = $referenced;
+                    try {
+                        $file['content'] = $resolve($path, array())['content'];
+                        if (!isset($file['metadata']['compilation'])) $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $path);
+                        $file['metadata']['compilation']['resolved_html_includes'] = true;
+                        unset($file['content_base64'], $file['payload_reference']);
+                    } catch (InvalidArgumentException $error) {
+                        $code = self::degradedCode($error);
+                        if (null === $code || isset($entryPaths[$path])) throw $error;
+                        // Leave this document's includes as authored and forget what it reached for.
+                        $referenced = $referencedBefore;
+                        if (!isset($file['metadata']['compilation'])) $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $path);
+                        $file['metadata']['compilation']['unresolved_html_includes'] = true;
+                        $diagnostics[] = array(
+                            'code' => $code,
+                            'severity' => 'warning',
+                            'message' => 'html_include_budget_exceeded' === $code ? 'A document exceeds the include count; its includes were left unexpanded.' : 'A document has a non-standard or unresolvable include directive; its includes were left unexpanded.',
+                            'source' => ArtifactCompiler::class,
+                            'context' => array('source_path' => $path, 'reason' => $error->getMessage()),
+                        );
+                    }
                 }
                 if (!ArtifactNormalizer::isReferenceBackedBinary($file) && !isset($reports[$path])) $total += $payload($file, $path)['bytes'];
                 if ($total > $limits['max_total_bytes']) throw new InvalidArgumentException('html_include_total_budget_exceeded');

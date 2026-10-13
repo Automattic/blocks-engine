@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import expectedGoldens from '../__fixtures__/native-dispatch-renderer-dla-goldens.json' with { type: 'json' };
+import expectedGoldens from '../__fixtures__/native-dispatch-renderer-reference-goldens.json' with { type: 'json' };
 import {
   ALL_RENDER_SECTION_INTERACTION_MODELS,
   nativeDispatchRenderCtx,
@@ -97,8 +97,8 @@ function renderDirectTarget(entry: NativeRenderSectionCase): NativeRenderOut {
   }
 }
 
-describe('native dispatch renderer DLA-today parity', () => {
-  it('matches mechanically derived DLA renderer outputs byte-for-byte and is stable on rerun', () => {
+describe('native dispatch renderer reference parity', () => {
+  it('matches mechanically derived reference renderer outputs byte-for-byte and is stable on rerun', () => {
     const first = runNativeDispatchRendererParity(engineImpl);
     const second = runNativeDispatchRendererParity(engineImpl);
     expect(stableJson(first)).toBe(stableJson(second));
