@@ -45,7 +45,7 @@ $compile = static function (string $header, string $before, bool $partitioned = 
             . '<main><h1>' . $title . '</h1><p>Body copy.</p></main>' . $footer . '</div></div>';
     };
     $page = static fn(string $title): string => $partitioned
-        ? '<div class="data-liberation-desktop-document">' . $document($title, '') . '</div><div class="data-liberation-mobile-document">' . $document($title, 'mobile') . '</div>'
+        ? '<div class="data-blocks-engine-capture-desktop-document">' . $document($title, '') . '</div><div class="data-blocks-engine-capture-mobile-document">' . $document($title, 'mobile') . '</div>'
         : $document($title, '');
     $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
         'index.html' => $page('Home'),
@@ -70,12 +70,12 @@ $header = '<header id="site-header" class="site-header"><p>Dunbar Oaks</p>' . $l
 $backed = $compile($header, $backdrop);
 $headerPart = $backed['parts']['header'] ?? array();
 $assert('shared_shell' === ($headerPart['placement']['kind'] ?? null) && !empty($headerPart['ancestor_context']['preceded']), '1a: the fixture hoists a preceded header into a shared part: ' . json_encode($headerPart['placement'] ?? null));
-$assert(array('site', 'site--dla-mobile') === ($headerPart['ancestor_context']['backdrop_ids'] ?? null), '1b: the header records the ancestors that held its backdrop, in every viewport variant: ' . json_encode($headerPart['ancestor_context'] ?? null));
+$assert(array('site', 'site--data-blocks-engine-capture-mobile') === ($headerPart['ancestor_context']['backdrop_ids'] ?? null), '1b: the header records the ancestors that held its backdrop, in every viewport variant: ' . json_encode($headerPart['ancestor_context'] ?? null));
 $assert(str_contains($backed['css'], ':where(.wp-site-blocks){position:relative}'), '1c: the template root becomes the backdrop containing block: ' . $backed['css']);
-$assert(str_contains($backed['css'], '.wp-site-blocks #site,.wp-site-blocks #site--dla-mobile{position:static}'), '1d: the backdrop wrappers give up their containing-block role on the front end only: ' . $backed['css']);
-$assert(!preg_match('/#root(?:--dla-mobile)?[,{]/', $backed['css']), '1e: an ancestor that holds only chrome and content keeps its positioning: ' . $backed['css']);
+$assert(str_contains($backed['css'], '.wp-site-blocks #site,.wp-site-blocks #site--data-blocks-engine-capture-mobile{position:static}'), '1d: the backdrop wrappers give up their containing-block role on the front end only: ' . $backed['css']);
+$assert(!preg_match('/#root(?:--data-blocks-engine-capture-mobile)?[,{]/', $backed['css']), '1e: an ancestor that holds only chrome and content keeps its positioning: ' . $backed['css']);
 $assert(str_contains($backed['css'], ':where(#site-header){z-index:1}'), '1f: the #2550 header root lift still holds: ' . $backed['css']);
-$assert(1 === preg_match('/:where\([^)]*#site-header[,)][^{]*\{position:relative\}/', $backed['css']) && 1 === preg_match('/:where\([^)]*#site-footer[,)][^{]*\{position:relative\}/', $backed['css']) && str_contains($backed['css'], '#site-header--dla-mobile'), '1g: header and footer roots stay positioned above the backdrop: ' . $backed['css']);
+$assert(1 === preg_match('/:where\([^)]*#site-header[,)][^{]*\{position:relative\}/', $backed['css']) && 1 === preg_match('/:where\([^)]*#site-footer[,)][^{]*\{position:relative\}/', $backed['css']) && str_contains($backed['css'], '#site-header--data-blocks-engine-capture-mobile'), '1g: header and footer roots stay positioned above the backdrop: ' . $backed['css']);
 
 // 2. Nothing precedes the header: no containing-block transfer.
 $plain = $compile($header, '');
@@ -97,7 +97,7 @@ $narrow = static function (bool $split) use ($narrowLinks): string {
     $doc = static fn(string $title): string => '<style>#page{position:relative;max-width:960px;margin:0 auto;z-index:2}.deco{position:absolute;inset:0;background:#fdf}</style>'
         . '<div id="page" class="site"><div class="deco"></div><header id="masthead" class="site-header">' . $narrowLinks . '</header><main><h1>' . $title . '</h1></main><footer id="colophon">© x</footer></div>';
     $page = static fn(string $title): string => $split
-        ? '<div class="data-liberation-desktop-document">' . $doc($title) . '</div><div class="data-liberation-mobile-document">' . str_replace(array('id="', '>Shop<'), array('id="m-', '>Shop now<'), $doc($title)) . '</div>'
+        ? '<div class="data-blocks-engine-capture-desktop-document">' . $doc($title) . '</div><div class="data-blocks-engine-capture-mobile-document">' . str_replace(array('id="', '>Shop<'), array('id="m-', '>Shop now<'), $doc($title)) . '</div>'
         : $doc($title);
     $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $page('Home'), 'about.html' => $page('About'), 'shop.html' => $page('Shop'))))->toArray()['source_reports']['wordpress_site_plan'];
     return implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($plan['assets'], static fn(array $asset): bool => str_contains((string) ($asset['path'] ?? ''), 'shared-chrome-context'))));
@@ -110,10 +110,10 @@ foreach (array(false, true) as $split) {
 // 5. A mobile document whose site container is capped at 320px (Wix's
 // non-responsive mobile sheet) keeps it there; the desktop container, which
 // spans the page, still hands its role to the template root.
-$mobileCap = '<style>:where(.data-liberation-mobile-document) #site{width:320px;margin:0 auto}</style>';
+$mobileCap = '<style>:where(.data-blocks-engine-capture-mobile-document) #site{width:320px;margin:0 auto}</style>';
 $capped = $compile($header, $backdrop . $mobileCap);
 $assert(str_contains($capped['css'], '.wp-site-blocks #site{position:static}'), '5a: the full-width desktop container still moves: ' . $capped['css']);
-$assert(!str_contains($capped['css'], '#site--dla-mobile'), '5b: the 320px mobile container keeps its own box: ' . $capped['css']);
+$assert(!str_contains($capped['css'], '#site--data-blocks-engine-capture-mobile'), '5b: the 320px mobile container keeps its own box: ' . $capped['css']);
 
 if ($failures > 0) {
     fwrite(STDERR, sprintf("%d failure(s), %d pass(es)\n", $failures, $passes));

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
 
 final class FormControlClassifier
@@ -126,14 +127,14 @@ final class FormControlClassifier
      */
     public static function sourceSelectAfterCapturedPanel(DOMElement $panel): ?DOMElement
     {
-        $key = trim($panel->getAttribute('data-dla-listbox-panel'));
+        $key = trim($panel->getAttribute(CaptureEvidence::LISTBOX_PANEL));
         if ( '' === $key || ! $panel->hasAttribute('hidden') ) {
             return null;
         }
         $trigger = $panel->previousElementSibling;
         $select = $panel->nextElementSibling;
         if ( ! $trigger instanceof DOMElement || 'button' !== strtolower($trigger->tagName)
-            || $key !== trim($trigger->getAttribute('data-dla-listbox-trigger'))
+            || $key !== trim($trigger->getAttribute(CaptureEvidence::LISTBOX_TRIGGER))
             || ( 'combobox' !== strtolower(trim($trigger->getAttribute('role')))
                 && 'listbox' !== strtolower(trim($trigger->getAttribute('aria-haspopup'))) )
             || ! $select instanceof DOMElement || 'select' !== strtolower($select->tagName)

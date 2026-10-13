@@ -536,7 +536,7 @@ describe('theme public contract', () => {
 
 });
 
-describe('fallback diagnostics DLA parity', () => {
+describe('fallback diagnostics reference parity', () => {
   it('emits dropped_images reasonCode with media-first precedence when text coverage is also below floor', () => {
     const section = diagnosticSection({
       sectionIndex: 7,
@@ -576,7 +576,7 @@ describe('fallback diagnostics DLA parity', () => {
     });
   });
 
-  it('emits text_coverage_below_floor reasonCode when text is below the DLA floor without dropped media', () => {
+  it('emits text_coverage_below_floor reasonCode when text is below the reference floor without dropped media', () => {
     const section = diagnosticSection({
       sectionIndex: 3,
       interactionModel: 'cta',
@@ -681,7 +681,7 @@ describe('fallback diagnostics DLA parity', () => {
     ]);
   });
 
-  it('matches the DLA decorative_asset_triaged diagnostic record shape', () => {
+  it('matches the reference decorative_asset_triaged diagnostic record shape', () => {
     expect(
       buildTriageRemovalDiagnostic({
         page: '/about',
@@ -713,7 +713,7 @@ describe('fallback diagnostics DLA parity', () => {
   });
 });
 
-describe('formToBlocks DLA parity', () => {
+describe('formToBlocks reference parity', () => {
   it('lets a consumer supply a provider-neutral form materializer', () => {
     const custom: FormMaterializer = {
       name: 'custom-provider',
@@ -748,7 +748,7 @@ describe('formToBlocks DLA parity', () => {
     ]);
   });
 
-  it('exports the DLA form-blocks surface and emits jetpack/field-* blocks for every mapped field kind', () => {
+  it('exports the reference form-blocks surface and emits jetpack/field-* blocks for every mapped field kind', () => {
     const formToBlocksType: (form: SectionSpecForm) => FormBlocksResult = formToBlocks;
     void formToBlocksType;
 
@@ -774,7 +774,7 @@ describe('formToBlocks DLA parity', () => {
     }
   });
 
-  it('keeps authored options in DLA attr grammar for radio, select, and checkbox groups', () => {
+  it('keeps authored options in reference attr grammar for radio, select, and checkbox groups', () => {
     const radio = formToBlocks(
       sectionForm([formField({ kind: 'radio', label: 'Size', options: ['Small', 'Large', 'Medium'] })]),
     );
@@ -812,7 +812,7 @@ describe('formToBlocks DLA parity', () => {
     assertBalanced(result.markup);
   });
 
-  it('matches the DLA multi-field golden, including stable attr order and skipped fields', () => {
+  it('matches the reference multi-field golden, including stable attr order and skipped fields', () => {
     const result = formToBlocks(
       sectionForm(
         [
@@ -850,7 +850,7 @@ describe('formToBlocks DLA parity', () => {
     expect(result.markup).not.toContain('Campaign id');
   });
 
-  it('matches the DLA zero-field golden and escapes hostile labels like the DLA serializer', () => {
+  it('matches the reference zero-field golden and escapes hostile labels like the reference serializer', () => {
     const result = formToBlocks(sectionForm([], 'Continue'));
 
     expect(result.markup).toBe(

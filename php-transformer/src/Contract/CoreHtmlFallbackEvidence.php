@@ -109,6 +109,6 @@ final class CoreHtmlFallbackEvidence
             preg_match_all('/\s+([:\w-]+)(?:\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+))?/', $tag, $attrs);
             return '<' . strtolower($name[1] ?? 'unknown') . (empty($attrs[1]) ? '' : ' ' . implode(' ', array_map('strtolower', $attrs[1]))) . '>';
         }, $matches[0] ?? array());
-        return substr(implode('', $tokens), 0, self::MAX_SNIPPET_BYTES);
+        return mb_strcut(implode('', $tokens), 0, self::MAX_SNIPPET_BYTES, 'UTF-8');
     }
 }

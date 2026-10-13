@@ -3,7 +3,7 @@ import type { NativeRenderCtx, NativeRenderOut } from '../theme/native-reconstru
 import type { SectionSpec, SectionSpecImage } from '../theme/section-spec.js';
 
 export const NATIVE_TEXT_RENDERER_DERIVATION =
-  'Mechanically generated from DLA src/lib/replicate/page-reconstruct.ts reconstructPagePattern at DLA commit 1e393c5; section renderer markup strips the final reconstruct body newline, and direct galleryBlock outputs extract the nested wp:gallery block.';
+  'Mechanically generated from the reference implementation src/lib/replicate/page-reconstruct.ts reconstructPagePattern at reference commit 1e393c5; section renderer markup strips the final reconstruct body newline, and direct galleryBlock outputs extract the nested wp:gallery block.';
 
 export interface NativeTextRendererImpl {
   renderTextBand(section: SectionSpec, ctx: NativeRenderCtx): NativeRenderOut;

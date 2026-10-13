@@ -11,7 +11,7 @@ $assert = static function (bool $condition, string $message): void {
     }
 };
 
-$viewportCss = '.data-liberation-mobile-document{display:none!important}@media(max-width:768px){.data-liberation-desktop-document{display:none!important}.data-liberation-mobile-document{display:contents!important}}';
+$viewportCss = '.data-blocks-engine-capture-mobile-document{display:none!important}@media(max-width:768px){.data-blocks-engine-capture-desktop-document{display:none!important}.data-blocks-engine-capture-mobile-document{display:contents!important}}';
 $fixture = file_get_contents(dirname(__DIR__) . '/fixtures/viewport-hidden-wix-mobile-document.html');
 if (! is_string($fixture) || '' === trim($fixture)) {
     throw new RuntimeException('Missing viewport-hidden Wix mobile document fixture.');
@@ -23,7 +23,7 @@ $hiddenMobile = (new HtmlTransformer())->transform($fixture, array(
 ));
 $hiddenMarkup = $hiddenMobile->serializedBlocks;
 $assert(
-    str_contains($hiddenMarkup, 'data-liberation-mobile-document')
+    str_contains($hiddenMarkup, 'data-blocks-engine-capture-mobile-document')
         && str_contains($hiddenMarkup, 'TINY_MENU')
         && str_contains($hiddenMarkup, '<!-- wp:navigation')
         && 1 === count($hiddenMobile->blocks),

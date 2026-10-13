@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import * as theme from '../theme/index.js';
 import { segmentPage } from '../theme/index.js';
 
-describe('segmentPage DLA parity', () => {
+describe('segmentPage reference parity', () => {
   it('exposes the additive segmentPage public surface from theme/index', () => {
     expect(theme).toEqual(
       expect.objectContaining({
@@ -12,7 +12,7 @@ describe('segmentPage DLA parity', () => {
     );
   });
 
-  it('identifies header, nav, footer, and body sections on a DLA fixture', () => {
+  it('identifies header, nav, footer, and body sections on a reference fixture', () => {
     const html =
       '<body><header id="masthead" class="site-head"><nav><a href="x.html">X</a></nav></header><nav id="main-nav" class="primary"><a href="a.html">A</a></nav><main><section id="hero" class="hero splash"><h1>Hi</h1></section><section class="features"><h2>Feat</h2></section></main><footer class="site-foot"><p>(c)</p></footer></body>';
 
@@ -70,7 +70,7 @@ describe('segmentPage DLA parity', () => {
     ]);
   });
 
-  it('segments a no-chrome page and escapes loose decoded text like DLA', () => {
+  it('segments a no-chrome page and escapes loose decoded text like reference', () => {
     const html =
       '<main>Hello &lt;b&gt;bold&lt;/b&gt;<section id="s"><p>S text</p></section><script>var x=1;</script></main>';
 
