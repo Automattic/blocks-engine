@@ -82,7 +82,7 @@ local state.
   Threshold **0**: any drop below baseline trips a non-zero exit. This is the gate.
 - **Tier B — hook path.** Scored only via cached propose/realize artifacts
   (`hook-captures/`), replayed deterministically. v1 ships a deterministic stub
-  hook to prove the seam; a real DLA-hook capture is a fast follow. No live model
+  hook to prove the seam; a real reference-hook capture is a fast follow. No live model
   in CI, ever.
 
 ## Expected trees (hybrid)

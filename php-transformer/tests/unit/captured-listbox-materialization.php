@@ -19,11 +19,11 @@ $result = (new ArtifactCompiler())->compile(array(
     'files' => array(
         array('path' => 'website/registration/index.html', 'content' => $source),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/capture-receipt/v1',
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.test/registration', 'path' => 'website/registration/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.test/registration',
                 'states' => array(array(

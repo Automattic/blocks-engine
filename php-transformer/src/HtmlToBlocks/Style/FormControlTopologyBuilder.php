@@ -43,7 +43,7 @@ final class FormControlTopologyBuilder
         $order = 0;
         foreach ( $form->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) continue;
-            if ( $this->appendNode($child, null, $order, 0, $controlIndexes, $relevantElements, $nodes, $wrapperIndex, $truncated) ) ++$order;
+            $order += $this->appendNode($child, null, $order, 0, $controlIndexes, $relevantElements, $nodes, $wrapperIndex, $truncated);
         }
 
         return array(
@@ -194,7 +194,9 @@ final class FormControlTopologyBuilder
             $ancestors = array();
             $depth = 0;
             for ( $ancestor = $control->parentNode; $ancestor instanceof DOMElement && ! $ancestor->isSameNode($form) && $depth < self::MAX_DEPTH; $ancestor = $ancestor->parentNode, ++$depth ) {
-                if ( 1 === ($owners[$ancestor->getNodePath()] ?? 0) ) {
+                // A control that carries another control is not its wrapper: the
+                // topology emits both as sibling leaves under the same wrapper.
+                if ( 1 === ($owners[$ancestor->getNodePath()] ?? 0) && ! FormControlClassifier::isControlElement($ancestor) ) {
                     $ancestors[] = $ancestor;
                 }
             }
@@ -207,27 +209,40 @@ final class FormControlTopologyBuilder
      * @param array<string, int> $controlIndexes
      * @param array<string, bool> $relevantElements
      * @param array<int, array<string, mixed>> $nodes
+     * @return int The number of sibling orders the element consumed.
      */
-    private function appendNode(DOMElement $element, ?string $parent, int $order, int $depth, array $controlIndexes, array $relevantElements, array &$nodes, int &$wrapperIndex, bool &$truncated): bool
+    private function appendNode(DOMElement $element, ?string $parent, int $order, int $depth, array $controlIndexes, array $relevantElements, array &$nodes, int &$wrapperIndex, bool &$truncated): int
     {
         $nodePath = $element->getNodePath();
-        if ( ! isset($controlIndexes[$nodePath]) && ! isset($relevantElements[$nodePath]) ) return false;
+        if ( ! isset($controlIndexes[$nodePath]) && ! isset($relevantElements[$nodePath]) ) return 0;
         if ( $depth > self::MAX_DEPTH || count($nodes) >= self::MAX_NODES ) {
             $truncated = true;
-            return false;
+            return 0;
         }
 
         if ( isset($controlIndexes[$nodePath]) ) {
-            $controlIndex = $controlIndexes[$nodePath];
-            $nodes[] = array_filter(array(
-                'id'      => 'control-' . $controlIndex,
-                'kind'    => 'control',
-                'parent'  => $parent,
-                'order'   => $order,
-                'depth'   => $depth,
-                'control' => $controlIndex,
-            ), static fn (mixed $value): bool => null !== $value);
-            return true;
+            // A control is a topology leaf: its content is not wrapper structure.
+            // Controls nested inside it (a native radio carried inside a
+            // `button[role=radio]`) are still flat controls, so they follow it as
+            // siblings in document order rather than dropping out of the tree.
+            $emitted = 0;
+            foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'), false)) as $control ) {
+                $controlIndex = $control instanceof DOMElement ? ($controlIndexes[$control->getNodePath()] ?? null) : null;
+                if ( null === $controlIndex ) continue;
+                if ( count($nodes) >= self::MAX_NODES ) {
+                    $truncated = true;
+                    break;
+                }
+                $nodes[] = array_filter(array(
+                    'id'      => 'control-' . $controlIndex,
+                    'kind'    => 'control',
+                    'parent'  => $parent,
+                    'order'   => $order + $emitted++,
+                    'depth'   => $depth,
+                    'control' => $controlIndex,
+                ), static fn (mixed $value): bool => null !== $value);
+            }
+            return $emitted;
         }
 
         $id = 'wrapper-' . $wrapperIndex++;
@@ -242,10 +257,10 @@ final class FormControlTopologyBuilder
         $childOrder = 0;
         foreach ( $element->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) continue;
-            if ( $this->appendNode($child, $id, $childOrder, $depth + 1, $controlIndexes, $relevantElements, $nodes, $wrapperIndex, $truncated) ) ++$childOrder;
+            $childOrder += $this->appendNode($child, $id, $childOrder, $depth + 1, $controlIndexes, $relevantElements, $nodes, $wrapperIndex, $truncated);
         }
 
-        return true;
+        return 1;
     }
 
     /** @return array<string, string> */

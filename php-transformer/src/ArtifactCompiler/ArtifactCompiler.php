@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
@@ -25,6 +26,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
@@ -33,6 +35,8 @@ use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentityException;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use DOMDocument;
 use DOMElement;
@@ -49,6 +53,9 @@ final class ArtifactCompiler
     public const SHARED_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-shared-plan/v1';
     public const PAGE_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-page-plan/v1';
     public const COMPACT_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v3';
+    /** Diagnostic recorded for each non-entrypoint page dropped by a page-scoped compile limit. */
+    public const PAGE_OMITTED_DIAGNOSTIC_CODE = 'page_compile_omitted';
+    public const PAGE_OMITTED_REASON_CODE = 'page_compile_representability_limit';
 
     /**
      * Tag-only script selectors whose native DOM shape can be behavior-bearing.
@@ -77,9 +84,15 @@ final class ArtifactCompiler
     /** Observational only: counts source stylesheet discovery passes. */
     private int $stylesheetAssetDiscoveryCount = 0;
 
+    /**
+     * @param null|\Closure(string,string):void $beforeDocumentTransform Called with the source path and source scope
+     *        immediately before a page document is converted. A throw is treated exactly like a throw from the
+     *        converter itself, so a consumer can prove its handling of per-page compile failures.
+     */
     public function __construct(
         private readonly bool $cacheHtmlAnalysis = true,
-        private readonly int $stylesheetSelectorBudget = CssStylesheetChunker::MAX_SELECTOR_RECORDS
+        private readonly int $stylesheetSelectorBudget = CssStylesheetChunker::MAX_SELECTOR_RECORDS,
+        private readonly ?\Closure $beforeDocumentTransform = null
     )
     {
         $this->wordpressCompat = new WordPressCompatCss();
@@ -93,8 +106,8 @@ final class ArtifactCompiler
             if ('capture-receipt.json' !== ($file['path'] ?? null) || !is_string($file['content'] ?? null) || strlen($file['content']) > 2 * 1024 * 1024) continue;
             $receipt = json_decode($file['content'], true);
             return is_array($receipt)
-                && 'data-liberation/capture-receipt/v1' === ($receipt['schema'] ?? null)
-                && 'data-liberation/source-interactivity/v1' === ($receipt['sourceInteractivity']['schema'] ?? null)
+                && CaptureEvidence::CAPTURE_RECEIPT_SCHEMA === ($receipt['schema'] ?? null)
+                && CaptureEvidence::SOURCE_INTERACTIVITY_SCHEMA === ($receipt['sourceInteractivity']['schema'] ?? null)
                 && is_int($receipt['sourceInteractivity']['unreproduced_route_count'] ?? null)
                 && $receipt['sourceInteractivity']['unreproduced_route_count'] > 0;
         }
@@ -160,7 +173,7 @@ final class ArtifactCompiler
     /** @var array<int, array<string, mixed>> */
     private array $imageFiles = array();
 
-    /** @var array<string, string> */
+    /** @var array<string, array{color:string, undecodable:bool}> */
     private array $glyphColorByHash = array();
 
     private ?PayloadReader $glyphPayloadReader = null;
@@ -277,10 +290,18 @@ final class ArtifactCompiler
         $normalized['files'] = $this->separateUnlinkedThemePreferenceStylesheets($normalized['files'], $normalized['runtime_declarations']);
         $this->indexFiles($normalized['files']);
         $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations']);
-        $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations']);
+        // Staged receipts carry the pages their workers omitted; whole compilation
+        // discovers them here. Both reach the same page-omitted accounting below.
+        $omittedPages = is_array($reduction['omitted_pages'] ?? null) ? $reduction['omitted_pages'] : array();
+        $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_declarations'], $omittedPages);
         $inlineShellCompilation = is_array($reduction['inline_shell_compilation'] ?? null)
             ? $reduction['inline_shell_compilation']
             : $this->compileSharedInlineShells($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
+        if (array() !== $omittedPages) {
+            $normalized['files'] = $this->withoutOmittedPageFiles($normalized['files'], array_keys($omittedPages));
+            $inlineShellCompilation = $this->withoutOmittedInlineShellSources($inlineShellCompilation, array_keys($omittedPages));
+            $this->indexFiles($normalized['files']);
+        }
         $authorStylesheetProjections = array_merge(
             $entryBlocks['author_stylesheet_projections'],
             $inlineShellCompilation['author_stylesheet_projections'] ?? array()
@@ -380,7 +401,7 @@ final class ArtifactCompiler
         $assets = array_merge($assets, $wordpressCompatAssets);
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets, $normalized['files']);
-        $diagnostics = array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics);
+        $diagnostics = array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics, $this->omittedPageDiagnostics($omittedPages));
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
@@ -461,17 +482,19 @@ final class ArtifactCompiler
             );
         }
         $editabilityReport = (new EditabilityReport())->fromDocuments($editabilityDocuments);
-        $editabilityPolicy = (new EditabilityPolicy())->evaluate($editabilityReport);
+        $editabilityPolicy = (new EditabilityPolicy())->evaluate($editabilityReport, $entryPath);
         $sourceReports['editability_report'] = $editabilityReport;
         $sourceReports['editability_policy'] = $editabilityPolicy;
-        foreach ($editabilityPolicy['failures'] as $failure) {
-            $diagnostics[] = $this->diagnostic('editability_policy_failed', 'error', (string) $failure['message'], array(
-                'policy_schema' => EditabilityPolicy::SCHEMA,
-                'metric' => $failure['metric'],
-                'actual' => $failure['actual'],
-                'maximum' => $failure['maximum'],
-                'source_path' => $failure['source_path'] ?? '',
-            ));
+        foreach (array('failures' => array('editability_policy_failed', 'error'), 'findings' => array('editability_policy_degraded', 'warning')) as $key => list($code, $severity)) {
+            foreach ($editabilityPolicy[$key] as $failure) {
+                $diagnostics[] = $this->diagnostic($code, $severity, (string) $failure['message'], array(
+                    'policy_schema' => EditabilityPolicy::SCHEMA,
+                    'metric' => $failure['metric'],
+                    'actual' => $failure['actual'],
+                    'maximum' => $failure['maximum'],
+                    'source_path' => $failure['source_path'] ?? '',
+                ));
+            }
         }
         $responsiveCounterpartReports = array();
         foreach (array_merge(array($entryPath => $entryBlocks), $compiledHtmlDocuments) as $reportSourcePath => $compiledDocument) {
@@ -1115,7 +1138,14 @@ final class ArtifactCompiler
                 if (true === ($fallback['layout_graph']['truncated'] ?? false)) {
                     $form['source_contract_losses'] = array_slice(array_values(array_filter($fallback['layout_graph']['diagnostics'] ?? array(), 'is_string')), 0, 32);
                 }
-                if ( is_array($fallback['presentation_graph'] ?? null) && true !== ($fallback['presentation_graph']['truncated'] ?? false) ) { FormPresentationGraphBuilder::assertValid($fallback['presentation_graph']); $form['presentation_graph'] = $fallback['presentation_graph']; }
+                if ( is_array($fallback['presentation_graph'] ?? null) && true !== ($fallback['presentation_graph']['truncated'] ?? false) ) {
+                    try {
+                        FormPresentationGraphBuilder::assertValid($fallback['presentation_graph']);
+                        $form['presentation_graph'] = $fallback['presentation_graph'];
+                    } catch ( \InvalidArgumentException $error ) {
+                        if ( $declarable ) $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'presentation_graph', $error->getMessage());
+                    }
+                }
                 if ( is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ) {
                     $form['bindings'] = array(array_merge($fallback['binding'], array('source_path' => $sourcePath)));
                 }
@@ -1135,15 +1165,11 @@ final class ArtifactCompiler
             $entityKey = 'entity_collection:' . $collection['type'];
             foreach ( $collection['aliases'] as $alias ) if ( isset($keys['entity_collection:' . $alias]) ) { $entityKey = 'entity_collection:' . $alias; break; }
             if ( array() !== $collection['entities'] && ! isset($keys[$entityKey]) ) {
-                if ( 'forms' === $collection['type'] ) {
-                    $budget = $this->budgetGeneratedForms($declarations, $collection['entities'], $entryPath, $entityKey, isset($keys['dependency:' . $capability]));
-                    $collection['entities'] = $budget['entities'];
-                    if (isset($budget['records'])) $runtimeEntityRecords = array_merge($runtimeEntityRecords, $budget['records']);
-                    if (isset($budget['payload'])) $collection['payload'] = $budget['payload'];
-                    if ( null !== $budget['diagnostic'] ) $diagnostics[] = $budget['diagnostic'];
-                }
-                if ( array() === $collection['entities'] ) continue;
-                $declarations[] = array('kind' => 'entity_collection', 'type' => $collection['type'], 'source_path' => $entryPath, 'payload' => $collection['payload'] ?? array('schema' => $collection['schema'], 'entities' => $collection['entities']));
+                $budget = RuntimeEntityManifest::declareCollection($declarations, $collection['type'], $collection['schema'], $collection['entities'], $entryPath, isset($keys['dependency:' . $capability]) ? null : $capability);
+                array_push($diagnostics, ...$budget['diagnostics']);
+                if ( null === $budget['payload'] ) continue;
+                $runtimeEntityRecords = array_merge($runtimeEntityRecords, $budget['records']);
+                $declarations[] = array('kind' => 'entity_collection', 'type' => $collection['type'], 'source_path' => $entryPath, 'payload' => $budget['payload']);
                 $keys[$entityKey] = true;
             }
             $dependencyKey = 'dependency:' . $capability;
@@ -1170,9 +1196,9 @@ final class ArtifactCompiler
         return array(
             'code' => 'runtime_form_declaration_declined',
             'severity' => 'warning',
-            'message' => substr('Extracted form metadata was declined before the runtime form entity declaration because ' . $because . '.', 0, 256),
-            'source_path' => substr($sourcePath, 0, 256),
-            'selector' => substr($selector, 0, 256),
+            'message' => mb_strcut('Extracted form metadata was declined before the runtime form entity declaration because ' . $because . '.', 0, 256, 'UTF-8'),
+            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
+            'selector' => mb_strcut($selector, 0, 256, 'UTF-8'),
             'failed_check' => $failedCheck,
             'control_count' => count($controls),
             'entity_schema' => 'generic/forms/v1',
@@ -1201,9 +1227,9 @@ final class ArtifactCompiler
         return array(
             'code' => 'runtime_form_graph_rejected',
             'severity' => 'warning',
-            'message' => substr('A generic form ' . $graph . ' failed its structural contract and was omitted from the runtime entity because ' . $reason, 0, 256),
-            'source_path' => substr($sourcePath, 0, 256),
-            'selector' => substr($selector, 0, 256),
+            'message' => mb_strcut('A generic form ' . $graph . ' failed its structural contract and was omitted from the runtime entity because ' . $reason, 0, 256, 'UTF-8'),
+            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
+            'selector' => mb_strcut($selector, 0, 256, 'UTF-8'),
             'graph' => $graph,
             'control_count' => count($controls),
             'entity_schema' => 'generic/forms/v1',
@@ -1238,8 +1264,8 @@ final class ArtifactCompiler
             'code' => 'runtime_product_grid_binding_declined',
             'severity' => 'warning',
             'message' => 'A product grid\'s shared collection binding anchor was declined because its container could not be resolved to one page-owned emitted block.',
-            'source_path' => substr($sourcePath, 0, 256),
-            'selector' => substr($selector, 0, 256),
+            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
+            'selector' => mb_strcut($selector, 0, 256, 'UTF-8'),
             'failed_check' => 'page_owned_collection_anchor_unresolved',
             'product_count' => $productCount,
             'entity_schema' => 'generic/products/v1',
@@ -1266,15 +1292,15 @@ final class ArtifactCompiler
     private function unrepresentedFormTextDiagnostic(string $sourcePath, string $selector, array $items): array
     {
         $texts = array_values(array_unique(array_map(
-            static fn (array $item): string => substr((string) $item['text'], 0, 200),
+            static fn (array $item): string => mb_strcut((string) $item['text'], 0, 200, 'UTF-8'),
             $items
         )));
         return array(
             'code' => 'form_field_context_unrepresented',
             'severity' => 'warning',
             'message' => substr('Source copy inside a materialized form could not be attached to a control or placed as form context, so it did not reach the generic/forms/v1 entity.', 0, 256),
-            'source_path' => substr($sourcePath, 0, 256),
-            'selector' => substr($selector, 0, 256),
+            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
+            'selector' => mb_strcut($selector, 0, 256, 'UTF-8'),
             'unrepresented_text' => array_slice($texts, 0, 8),
             'unrepresented_count' => count($texts),
             'entity_schema' => 'generic/forms/v1',
@@ -1284,36 +1310,6 @@ final class ArtifactCompiler
             'suggested_repair_class' => 'materialize_form_provider',
             'source' => self::class,
         );
-    }
-
-    /**
-     * Keep generated form declarations within the same canonical limit enforced
-     * for caller declarations, without ever trimming a JSON entity in place.
-     *
-     * @param array<int,array<string,mixed>> $declarations
-     * @param array<int,array<string,mixed>> $forms
-     * @return array{entities:array<int,array<string,mixed>>,payload?:array<string,mixed>,records?:array<int,array<string,mixed>>,diagnostic:array<string,mixed>|null}
-     */
-    private function budgetGeneratedForms(array $declarations, array $forms, string $entryPath, string $entityKey, bool $hasDependency): array
-    {
-        $fits = static function (array $entities) use ($declarations, $entryPath, $entityKey, $hasDependency): bool {
-            $candidate = array_merge($declarations, array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => $entryPath, 'payload' => array('schema' => 'generic/forms/v1', 'entities' => $entities))));
-            if ( ! $hasDependency ) $candidate[] = array('kind' => 'dependency', 'capability' => 'form', 'source_path' => $entryPath, 'required_for' => array($entityKey));
-            try {
-                RuntimeDeclarations::normalizeList($candidate);
-                return true;
-            } catch (\InvalidArgumentException $error) {
-                if (str_contains($error->getMessage(), 'payload exceeds the byte limit') || str_contains($error->getMessage(), 'aggregate canonical byte limit')) return false;
-                throw $error;
-            }
-        };
-        if ( $fits($forms) ) return array('entities' => $forms, 'diagnostic' => null);
-
-        $manifest = RuntimeEntityManifest::fromEntities('generic/forms/v1', $forms);
-        $candidate = array_merge($declarations, array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => $entryPath, 'payload' => $manifest['payload'])));
-        if (!$hasDependency) $candidate[] = array('kind' => 'dependency', 'capability' => 'form', 'source_path' => $entryPath, 'required_for' => array($entityKey));
-        RuntimeDeclarations::normalizeList($candidate);
-        return array('entities' => $forms, 'payload' => $manifest['payload'], 'records' => $manifest['records'], 'diagnostic' => null);
     }
 
     /** @param array<string,mixed> $fallback @param array<int,array<string,mixed>> $files @return array<int,array<string,string>> */
@@ -1458,6 +1454,9 @@ final class ArtifactCompiler
                 $runtimeProjectionScriptAssets[] = array('path' => $ownerPath, 'content' => $ownership['runtime_script_content']);
             }
         }
+        if (null !== $this->beforeDocumentTransform) {
+            ($this->beforeDocumentTransform)($sourcePath, $sourceScope);
+        }
         $result = (new HtmlTransformer(analysisCache: $analysisCache))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
@@ -1468,7 +1467,7 @@ final class ArtifactCompiler
             'author_layer_order'        => (new AuthorCascadeLayerOrder())->statement($layerOrderCss),
             'shared_stylesheet_paths'   => $this->sharedStylesheetPathsFromFiles($files),
             'skip_author_stylesheet_materialization' => true,
-            'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
+            'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files, $html),
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
             'runtime_dom_selectors'     => $runtimeDomSelectors,
             'runtime_behavioral_selectors' => $runtimeDomSelectors,
@@ -2160,7 +2159,7 @@ final class ArtifactCompiler
                 if ( ! isset($variants[$sourcePath]) ) {
                     $variants[$sourcePath][$variant] = $sourcePath;
                     $files[$index]['media'] = $media;
-                    if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $files[$index]['source_media'] = StyleTagScanner::authorMedia($tag);
+                    if (array_key_exists(CaptureEvidence::SOURCE_MEDIA, HtmlTagScanner::attributes($tag))) $files[$index]['source_media'] = StyleTagScanner::authorMedia($tag);
                     $files[$index]['type'] = $type;
                     $files[$index]['stylesheet_activation'] = $state;
                     $files[$index]['stylesheet_source_path'] = $sourcePath;
@@ -2183,7 +2182,7 @@ final class ArtifactCompiler
                 $aliasFile['stylesheet_occurrence'] = $occurrence;
                 $aliasFile['media'] = $media;
                 unset($aliasFile['source_media']);
-                if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $aliasFile['source_media'] = StyleTagScanner::authorMedia($tag);
+                if (array_key_exists(CaptureEvidence::SOURCE_MEDIA, HtmlTagScanner::attributes($tag))) $aliasFile['source_media'] = StyleTagScanner::authorMedia($tag);
                 $aliasFile['type'] = $type;
                 $aliasFile['stylesheet_activation'] = $state;
                 $aliasFile['references'] = array($reference);
@@ -2649,7 +2648,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<string, array<string, mixed>>
      */
-    private function compileHtmlSourceDocuments(array $files, string $entryPath, string $generatedBlockNamespace = '', array $runtimeDeclarations = array()): array
+    private function compileHtmlSourceDocuments(array $files, string $entryPath, string $generatedBlockNamespace = '', array $runtimeDeclarations = array(), array &$omittedPages = array()): array
     {
         $documents = array();
         foreach ( $files as $file ) {
@@ -2667,7 +2666,11 @@ final class ArtifactCompiler
             // whole-artifact driver does the same so both see one conversion.
             $documentFiles = $files;
             $this->indexFiles($documentFiles);
-            $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $documentFiles, 'artifact-document', $generatedBlockNamespace, true, $runtimeDeclarations);
+            try {
+                $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $documentFiles, 'artifact-document', $generatedBlockNamespace, true, $runtimeDeclarations);
+            } catch ( \InvalidArgumentException $error ) {
+                $omittedPages[$path] = self::omittedPageOrRethrow($path, $error);
+            }
         }
         $this->indexFiles($files);
         return $documents;
@@ -3155,6 +3158,9 @@ final class ArtifactCompiler
     {
         $scripts = array();
         foreach ( HtmlTagScanner::scan($html, 'script') as $script ) {
+            // The native control replay interpreter addresses captured control
+            // state, not source behavior; its state lowers into control blocks.
+            if (NativeControlState::isReplayScript($script['tag'])) continue;
             $src = $this->htmlAttribute($script['tag'], 'src');
             if ( '' === $src ) {
                 $scripts[] = $script['content'];
@@ -3559,17 +3565,20 @@ final class ArtifactCompiler
         return isset($result['serialized_blocks']) && is_scalar($result['serialized_blocks']) ? trim((string) $result['serialized_blocks']) : '';
     }
 
-    /** @param array<string, mixed> $file */
-    private function glyphColorForFile(array $file): string
+    /**
+     * @param array<string, mixed> $file
+     * @return array{color:string, undecodable:bool}
+     */
+    private function glyphColorForFile(array $file): array
     {
         $bytes = $this->embeddedFileBytes($file);
         if ( '' === $bytes || strlen($bytes) > 65536 ) {
-            return '';
+            return array('color' => '', 'undecodable' => false);
         }
 
         $hash = hash('sha256', $bytes);
         if ( ! isset($this->glyphColorByHash[$hash]) ) {
-            $this->glyphColorByHash[$hash] = MonochromeGlyphColor::fromBytes($bytes);
+            $this->glyphColorByHash[$hash] = MonochromeGlyphColor::inspect($bytes);
         }
 
         return $this->glyphColorByHash[$hash];
@@ -3619,9 +3628,10 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<string, array<string, mixed>>
      */
-    private function assetMetadataForSource(string $sourcePath, array $files): array
+    private function assetMetadataForSource(string $sourcePath, array $files, string $html): array
     {
         $metadata = array();
+        $capturedGlyphPaths = $this->capturedGlyphAssetPaths($html, $sourcePath, $files);
         $candidates = array() !== $this->filesByPath ? $this->imageFiles : $files;
         foreach ( $candidates as $file ) {
             if ( $this->isMaterializedHtmlDocument($file) ) {
@@ -3642,9 +3652,13 @@ final class ArtifactCompiler
                 'path'      => $path,
                 'mime_type' => $mimeType,
             );
-            $glyphColor = $this->glyphColorForFile($file);
-            if ( '' !== $glyphColor ) {
-                $asset['glyph_color'] = $glyphColor;
+            // Capture already recorded the rendered colour on every reference.
+            $glyph = ($capturedGlyphPaths[$path] ?? false) ? array('color' => '', 'undecodable' => false) : $this->glyphColorForFile($file);
+            if ( '' !== $glyph['color'] ) {
+                $asset['glyph_color'] = $glyph['color'];
+            }
+            if ( $glyph['undecodable'] ) {
+                $asset['glyph_color_undecodable'] = true;
             }
 
             foreach ( $this->assetLookupKeysForSource($path, $sourcePath) as $key ) {
@@ -3653,6 +3667,35 @@ final class ArtifactCompiler
         }
 
         return $metadata;
+    }
+
+    /**
+     * Image paths whose every `<img>` reference on the page carries a valid
+     * captured `data-blocks-engine-capture-glyph-color`. Their glyph colour comes from that
+     * evidence, so their bytes are not decoded.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, bool>
+     */
+    private function capturedGlyphAssetPaths(string $html, string $sourcePath, array $files): array
+    {
+        if ( ! str_contains($html, CaptureEvidence::GLYPH_COLOR) ) {
+            return array();
+        }
+
+        $captured = array();
+        foreach ( HtmlTagScanner::scan($html, 'img') as $image ) {
+            $attributes = $this->htmlAttributes($image['tag']);
+            $asset = $this->findAssetByHtmlReference($attributes['src'] ?? '', $sourcePath, $files);
+            $path = is_array($asset) ? (string) ($asset['path'] ?? '') : '';
+            if ( '' === $path ) {
+                continue;
+            }
+            $captured[$path] = ($captured[$path] ?? true)
+                && '' !== CapturedGlyphColor::normalize($attributes[CaptureEvidence::GLYPH_COLOR] ?? '');
+        }
+
+        return $captured;
     }
 
     /**
@@ -5507,6 +5550,89 @@ final class ArtifactCompiler
         }
 
         return $deduped;
+    }
+
+    /**
+     * A non-entrypoint page that fails to convert is a representability limit of
+     * that page, not of the site: it is dropped and named, and the rest compiles.
+     * Identity and plan-validation failures are integrity violations and keep
+     * failing the compile, as does everything that is not an
+     * InvalidArgumentException (LogicException, runtime and engine errors).
+     *
+     * @return array{source_path:string,reason_code:string,message:string}
+     */
+    private static function omittedPageOrRethrow(string $sourcePath, \InvalidArgumentException $error): array
+    {
+        if ($error instanceof DocumentIdentityException || $error instanceof ValidationException) {
+            throw $error;
+        }
+        return array(
+            'source_path' => $sourcePath,
+            'reason_code' => self::PAGE_OMITTED_REASON_CODE,
+            'message' => mb_strcut($error->getMessage(), 0, 256, 'UTF-8'),
+        );
+    }
+
+    /**
+     * Remove everything a dropped page owns: its document and the page-scoped
+     * files expanded out of it. Shared files stay.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @param array<int,string> $omittedPaths
+     * @return array<int,array<string,mixed>>
+     */
+    private function withoutOmittedPageFiles(array $files, array $omittedPaths): array
+    {
+        $omitted = array_flip($omittedPaths);
+        return array_values(array_filter($files, function (array $file) use ($omitted): bool {
+            if (isset($omitted[(string) ($file['path'] ?? '')])) return false;
+            $ownership = $this->fileOwnership($file);
+            return !('page' === $ownership['scope'] && isset($omitted[$ownership['id']]));
+        }));
+    }
+
+    /**
+     * Shared shells were classified across every page before one was dropped; a
+     * dropped page is no longer a source of them.
+     *
+     * @param array<string,mixed> $compilation
+     * @param array<int,string> $omittedPaths
+     * @return array<string,mixed>
+     */
+    private function withoutOmittedInlineShellSources(array $compilation, array $omittedPaths): array
+    {
+        $keep = static fn(mixed $paths): mixed => is_array($paths) ? array_values(array_diff($paths, $omittedPaths)) : $paths;
+        foreach ($compilation['artifacts'] ?? array() as $index => $artifact) {
+            if (is_array($artifact['source_paths'] ?? null)) $compilation['artifacts'][$index]['source_paths'] = $keep($artifact['source_paths']);
+            if (is_array($artifact['placement']['source_paths'] ?? null)) $compilation['artifacts'][$index]['placement']['source_paths'] = $keep($artifact['placement']['source_paths']);
+        }
+        return $compilation;
+    }
+
+    /**
+     * One warning per dropped page, in source-path order. This is the only place
+     * the plan records the omitted set; a consumer reads the diagnostics whose
+     * code is PAGE_OMITTED_DIAGNOSTIC_CODE.
+     *
+     * @param array<string,array{source_path:string,reason_code:string,message:string}> $omittedPages
+     * @return array<int,array<string,mixed>>
+     */
+    private function omittedPageDiagnostics(array $omittedPages): array
+    {
+        ksort($omittedPages, SORT_STRING);
+        $diagnostics = array();
+        foreach ($omittedPages as $page) {
+            $diagnostics[] = array(
+                'code' => self::PAGE_OMITTED_DIAGNOSTIC_CODE,
+                'severity' => 'warning',
+                'message' => $page['message'],
+                'source' => self::class,
+                'unit' => 'page',
+                'source_path' => $page['source_path'],
+                'reason_code' => $page['reason_code'],
+            );
+        }
+        return $diagnostics;
     }
 
     /**
