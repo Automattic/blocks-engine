@@ -48,7 +48,8 @@ final class ColumnsPattern implements PatternRecognizerInterface
             $context->presentationAttributes(...),
             $columns->structuralStyle(...),
             $context->createBlock(...),
-            $columns->referenceViewportStyle(...)
+            $columns->referenceViewportStyle(...),
+            $columns->isSingleRowAtMobile(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -63,6 +64,8 @@ final class ColumnsPattern implements PatternRecognizerInterface
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @param (callable(DOMElement): string)|null $referenceViewportStyle Resting cascade at the desktop reference
      *        viewport, media-conditional rules included; classification only. Defaults to $resolvedStyle.
+     * @param (callable(DOMElement): bool)|null $isSingleRowAtMobile Whether the source container is still
+     *        one non-wrapping flex row at the mobile reference viewport; such a row keeps its columns unstacked.
      * @return array<string, mixed>|null
      */
     public function match(
@@ -73,7 +76,8 @@ final class ColumnsPattern implements PatternRecognizerInterface
         callable $presentationAttributes,
         callable $resolvedStyle,
         callable $createBlock,
-        ?callable $referenceViewportStyle = null
+        ?callable $referenceViewportStyle = null,
+        ?callable $isSingleRowAtMobile = null
     ): ?array {
         if ( ! $this->looksLikeColumnsContainer($element, $resolvedStyle($element), $referenceViewportStyle ?? $resolvedStyle) ) {
             return null;
@@ -129,7 +133,14 @@ final class ColumnsPattern implements PatternRecognizerInterface
         }
         array_push($fallbacks, ...$columnFallbacks);
 
-        return $createBlock('core/columns', $presentationAttributes($element), $columns, $element);
+        // core/columns stacks below its breakpoint by default; a source row
+        // that never stacks keeps its columns side by side.
+        $attrs = $presentationAttributes($element);
+        if ( null !== $isSingleRowAtMobile && $isSingleRowAtMobile($element) ) {
+            $attrs['isStackedOnMobile'] = false;
+        }
+
+        return $createBlock('core/columns', $attrs, $columns, $element);
     }
 
     private function isColumnWrapperElement(DOMElement $element): bool

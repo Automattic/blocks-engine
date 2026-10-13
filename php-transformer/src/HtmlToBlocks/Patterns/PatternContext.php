@@ -24,7 +24,9 @@ final class PatternContext
      * @param Closure(DOMElement): bool|null $sourceElementStartsHidden
      * @param Closure(DOMElement): string|null $disclosureSummaryMarker
      * @param Closure(DOMElement): string|null $authoredIconColor
-     * @param Closure(string): string|null $assetGlyphColor
+     * @param Closure(string): array<string, mixed>|null $assetMetadata
+     * @param Closure(string, string): void|null $glyphColorUndecodable
+     * @param Closure(DOMElement): string|null $capturedGlyphColor
      */
     public function __construct(
         private readonly Closure $presentationAttributes,
@@ -43,7 +45,9 @@ final class PatternContext
         private readonly ?Closure $disclosureSummaryMarker = null,
         private readonly ?Closure $accordionToggle = null,
         private readonly ?Closure $authoredIconColor = null,
-        private readonly ?Closure $assetGlyphColor = null
+        private readonly ?Closure $assetMetadata = null,
+        private readonly ?Closure $glyphColorUndecodable = null,
+        private readonly ?Closure $capturedGlyphColor = null
     ) {
     }
 
@@ -122,8 +126,29 @@ final class PatternContext
         return null === $this->authoredIconColor ? '' : (string) ($this->authoredIconColor)($element);
     }
 
-    public function assetGlyphColor(string $url): string
+    /** @return array<string, mixed> Materialized metadata for an asset URL (mime_type, path, glyph_color, ...). */
+    public function assetMetadata(string $url): array
     {
-        return null === $this->assetGlyphColor ? '' : (string) ($this->assetGlyphColor)($url);
+        return null === $this->assetMetadata ? array() : ($this->assetMetadata)($url);
+    }
+
+    /**
+     * Report that an icon glyph's colour was lost because the host image
+     * decoder cannot read its format (for example AVIF without libavif).
+     */
+    public function glyphColorUndecodable(string $mimeType, string $src): void
+    {
+        if ( null !== $this->glyphColorUndecodable ) {
+            ($this->glyphColorUndecodable)($mimeType, $src);
+        }
+    }
+
+    /**
+     * Rendered colour capture recorded on a glyph element as
+     * `data-blocks-engine-capture-glyph-color` (lowercase `#rrggbb`), or empty when there is none.
+     */
+    public function capturedGlyphColor(DOMElement $glyph): string
+    {
+        return null === $this->capturedGlyphColor ? '' : (string) ($this->capturedGlyphColor)($glyph);
     }
 }

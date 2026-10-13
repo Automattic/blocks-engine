@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "derivation": "Mechanically generated from DLA src/lib/replicate/page-reconstruct.ts reconstructPagePattern at DLA commit 1e393c5; renderer markup strips the final reconstruct body newline, and footer/nav renderSection cases are sandwiched between non-chrome sentinels so DLA stripChrome does not remove them before dispatch.",
+  "derivation": "Mechanically generated from the reference implementation src/lib/replicate/page-reconstruct.ts reconstructPagePattern at reference commit 1e393c5; renderer markup strips the final reconstruct body newline, and footer/nav renderSection cases are sandwiched between non-chrome sentinels so reference stripChrome does not remove them before dispatch.",
   "renderers": {
     "renderCardGrid": [
       {

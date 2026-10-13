@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
@@ -20,7 +21,7 @@ final class ScopedAnchorSelectorProjection
             if (count($elements) < 2) continue;
             foreach ($elements as $element) {
                 $root = SourceDom::documentVariantRoot($element);
-                if ($root && $root->hasAttribute('data-dla-document-scope') && '' !== SourceDom::documentVariantIdSuffix($element)) { $ids[$id] = true; break; }
+                if ($root && $root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && '' !== SourceDom::documentVariantIdSuffix($element)) { $ids[$id] = true; break; }
             }
         }
         return $ids;

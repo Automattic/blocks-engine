@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import expectedGoldens from '../__fixtures__/native-section-renderer-dla-goldens.json' with { type: 'json' };
+import expectedGoldens from '../__fixtures__/native-section-renderer-reference-goldens.json' with { type: 'json' };
 import {
   runNativeSectionRendererParity,
   type NativeSectionRendererImpl,
@@ -46,8 +46,8 @@ function collectDiffs(actual: NativeSectionRendererParityFile, expected: NativeS
   return diffs;
 }
 
-describe('native section renderer DLA-today parity', () => {
-  it('matches mechanically derived DLA renderer outputs byte-for-byte and is stable on rerun', () => {
+describe('native section renderer reference parity', () => {
+  it('matches mechanically derived reference renderer outputs byte-for-byte and is stable on rerun', () => {
     const first = runNativeSectionRendererParity(engineImpl);
     const second = runNativeSectionRendererParity(engineImpl);
     expect(stableJson(first)).toBe(stableJson(second));

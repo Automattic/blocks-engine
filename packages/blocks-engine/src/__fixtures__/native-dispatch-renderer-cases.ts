@@ -9,7 +9,7 @@ import type {
 import type { CardGroupPadding } from '../theme/native-renderers-grid.js';
 
 export const NATIVE_DISPATCH_RENDERER_DERIVATION =
-  'Mechanically generated from DLA src/lib/replicate/page-reconstruct.ts reconstructPagePattern at DLA commit 1e393c5; renderer markup strips the final reconstruct body newline, and footer/nav renderSection cases are sandwiched between non-chrome sentinels so DLA stripChrome does not remove them before dispatch.';
+  'Mechanically generated from the reference implementation src/lib/replicate/page-reconstruct.ts reconstructPagePattern at reference commit 1e393c5; renderer markup strips the final reconstruct body newline, and footer/nav renderSection cases are sandwiched between non-chrome sentinels so reference stripChrome does not remove them before dispatch.';
 
 export const ALL_RENDER_SECTION_INTERACTION_MODELS: InteractionModel[] = [
   'static',
@@ -68,7 +68,7 @@ export interface NativeCardGroupRendererCase {
   dark: boolean;
   radius: number;
   padding: CardGroupPadding | null;
-  dlaSection: SectionSpec;
+  referenceSection: SectionSpec;
 }
 
 export interface NativeRenderSectionCase extends NativeRendererSectionCase {
@@ -303,7 +303,7 @@ const fullBleedCells = section({
   layout: { containerWidth: 1440, padding: '0px', childLayout: 'grid', columnCount: 2, gap: '0px' },
 });
 
-const cardGroupDlaSection = section({
+const cardGroupReferenceSection = section({
   sectionIndex: 68,
   interactionModel: 'static',
   cells: [
@@ -550,7 +550,7 @@ export function nativeDispatchRendererCaseGroups(): NativeDispatchRendererCaseGr
         dark: true,
         radius: 24,
         padding: { top: 24, right: 32, bottom: 28, left: 32 },
-        dlaSection: cardGroupDlaSection,
+        referenceSection: cardGroupReferenceSection,
       },
     ],
     renderSection: renderSectionCases(),

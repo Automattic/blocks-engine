@@ -659,7 +659,7 @@ $assert(str_contains($richTextColorMarkup, '--blocks-engine-richtext-marker:bloc
 preg_match('/[^{}]*--blocks-engine-richtext-marker:[^{}]*\{background-color:transparent;color:inherit\}/', $richTextColorCss, $markerResetRule);
 $markerReset = $markerResetRule[0] ?? '';
 $markerDocument = new DOMDocument();
-$markerDocument->loadHTML('<!doctype html><html><body><div data-dla-device-document="desktop"><h2><mark class="color_11" style="--blocks-engine-richtext-marker:blocks-engine-richtext-x-1" role="none">Get in Touch</mark></h2></div></body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$markerDocument->loadHTML('<!doctype html><html><body><div data-blocks-engine-capture-device-document="desktop"><h2><mark class="color_11" style="--blocks-engine-richtext-marker:blocks-engine-richtext-x-1" role="none">Get in Touch</mark></h2></div></body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
 $marker = $markerDocument->getElementsByTagName('mark')->item(0);
 $markerPaint = static function (array $sheets) use ($marker): array {
     $analysis = ( new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer() )->analyze(array_map(static fn (string $content): array => array( 'content' => $content ), $sheets), '', array( 'color', 'background-color' ), 1000000, 1000, 1000, 4);
@@ -677,7 +677,7 @@ $markerPaint = static function (array $sheets) use ($marker): array {
 };
 $bootstrapMark = $markerPaint(array( $markerReset, 'mark,.mark{padding:.2em;background-color:#fcf8e3}', 'mark{background-color:#ff0;color:#000}' ));
 $assert('' !== $markerReset && 'transparent' === ( $bootstrapMark['background-color'] ?? '' ) && 'inherit' === ( $bootstrapMark['color'] ?? '' ), 'RichText marker reset beats later author rules that select mark by tag alone', json_encode($bootstrapMark));
-$headOrderedClass = $markerPaint(array( ':where([data-dla-device-document="desktop"]) .color_11{color:rgb(255,255,255)}', $markerReset ));
+$headOrderedClass = $markerPaint(array( ':where([data-blocks-engine-capture-device-document="desktop"]) .color_11{color:rgb(255,255,255)}', $markerReset ));
 $assert('rgb(255,255,255)' === ( $headOrderedClass['color'] ?? '' ), 'an author class rule that loads before the RichText marker reset still paints the marker', json_encode($headOrderedClass));
 
 $markerPrefixDocument = new DOMDocument();

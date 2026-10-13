@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
 
 /**
@@ -177,7 +178,7 @@ final class NavigationBlockNormalizer
     private function isDocumentVariant(array $block): bool
     {
         return (bool) preg_match(
-            '/(?:^|\s)(?:data-liberation-(?:desktop|mobile)-document|site-document-variant-[a-z][a-z0-9_-]{0,31})(?:\s|$)/',
+            '/(?:^|\s)(?:' . preg_quote(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_DOCUMENT_CLASS, '/') . '|site-document-variant-[a-z][a-z0-9_-]{0,31})(?:\s|$)/',
             (string) ($block['attrs']['className'] ?? '')
         );
     }

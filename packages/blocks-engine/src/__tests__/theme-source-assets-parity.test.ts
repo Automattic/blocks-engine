@@ -14,7 +14,7 @@ import {
   WP_COMPAT_CSS,
 } from '../theme/index.js';
 
-const DLA_WP_COMPAT_CSS = `/* wp-compat: neutralize WP wrapper interference for carried source CSS */
+const REFERENCE_WP_COMPAT_CSS = `/* wp-compat: neutralize WP wrapper interference for carried source CSS */
 /* NOTE deliberately NO .wp-block-template-part{display:contents} here: our
    parts use tagName header/footer, so the wrapper IS the semantic element —
    display:contents would destroy the box that source header{}/footer{} rules
@@ -83,7 +83,7 @@ function writeFixture(dir: string, relPath: string, contents = ''): void {
   writeFileSync(abs, contents, 'utf8');
 }
 
-describe('source assets DLA parity', () => {
+describe('source assets reference parity', () => {
   it('exposes the additive source-assets public surface from theme/index', () => {
     expect(theme).toEqual(
       expect.objectContaining({
@@ -105,8 +105,8 @@ describe('source assets DLA parity', () => {
     );
   });
 
-  it('keeps the WP compat CSS byte-for-byte equal to the DLA golden string', () => {
-    expect(WP_COMPAT_CSS).toBe(DLA_WP_COMPAT_CSS);
+  it('keeps the WP compat CSS byte-for-byte equal to the reference golden string', () => {
+    expect(WP_COMPAT_CSS).toBe(REFERENCE_WP_COMPAT_CSS);
   });
 
   it('replays source nav anchor rules against core/navigation wrapper markup', () => {
@@ -206,7 +206,7 @@ describe('source assets DLA parity', () => {
     });
   });
 
-  it('collects local HTML img src refs with DLA regex and path resolution semantics', () => {
+  it('collects local HTML img src refs with reference regex and path resolution semantics', () => {
     withTempDir((dir) => {
       writeFixture(dir, 'pages/deep/img/double.png');
       writeFixture(dir, 'pages/deep/img/single.jpg');
@@ -309,7 +309,7 @@ describe('source assets DLA parity', () => {
       expect(result.jsFiles).toEqual(['assets/js/lib.js', 'assets/js/app.js']);
       expect(result.skippedUnlinked).toEqual(['stale.js', 'style.css']);
       const expectedBase =
-        DLA_WP_COMPAT_CSS +
+        REFERENCE_WP_COMPAT_CSS +
         [
           '\n.base { background: url(media/bg.png); color: black; }',
           '.base { color: white; }',

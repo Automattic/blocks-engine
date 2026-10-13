@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -235,7 +236,12 @@ final class ShellExtraction
                 }
                 if ($restHasContent) {
                     $headers[] = $this->nestedChromeRow($first, $baseOffset + $ranges[0]['offset'], $ranges[0]['length']);
-                    $last = $ranges[count($ranges) - 1];
+                    // A projected modal dialog mounts at the end of its document;
+                    // it renders in the top layer, so the footer is the last
+                    // sibling before it.
+                    $lastIndex = count($ranges) - 1;
+                    while ($lastIndex > 0 && self::isCapturedModalDialogBlock(substr($markup, $ranges[$lastIndex]['offset'], $ranges[$lastIndex]['length']))) --$lastIndex;
+                    $last = $ranges[$lastIndex];
                     $lastMarkup = substr($markup, $last['offset'], $last['length']);
                     if ($last !== $ranges[0] && self::isFooterChrome($lastMarkup)) {
                         $footers[] = $this->nestedChromeRow($lastMarkup, $baseOffset + $last['offset'], $last['length']);
@@ -406,6 +412,13 @@ final class ShellExtraction
             return false;
         }
         return 1 === preg_match('/^<!--\s*wp:group(?:\s|\{)/', ltrim($markup));
+    }
+
+    private static function isCapturedModalDialogBlock(string $markup): bool
+    {
+        // Only a modal: a dropdown flows in its document like a source panel.
+        return 1 === preg_match('#^<!--\s*wp:[a-z0-9-]+/captured-dialog(?:\s+(\{.*?\}))?\s*/?-->#s', ltrim($markup), $match)
+            && 'dropdown' !== ((json_decode($match[1] ?? '', true) ?: array())['presentation'] ?? null);
     }
 
     private static function isHeadingBlock(string $markup): bool
@@ -1444,7 +1457,7 @@ final class ShellExtraction
 
     private function retainsResponsiveVariantLandmark(string $markup, string $area): bool
     {
-        if (1 !== preg_match('/(?:data-liberation-(?:desktop|mobile)-document|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
+        if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_DOCUMENT_CLASS, '/') . '|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
             return false;
         }
         return array() !== $this->nestedLandmarkCandidates($markup, '', $area);
@@ -1640,13 +1653,13 @@ final class ShellExtraction
 
     public static function isResponsiveVariantClass(string $class): bool
     {
-        return in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)
+        return in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)
             || 1 === preg_match('/^site-document-variant-[a-z][a-z0-9_-]{0,31}$/', $class);
     }
 
     private static function responsiveVariantRank(string $class): int
     {
-        if (in_array($class, array('data-liberation-desktop-document', 'site-document-variant-default'), true)) return 0;
+        if (in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, 'site-document-variant-default'), true)) return 0;
         if (str_contains($class, 'mobile')) return 1;
         return 2;
     }
