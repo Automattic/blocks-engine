@@ -33,7 +33,7 @@ $title = static function (string $head, string $h1): string {
 
 $stacked = '<h1>First<span style="display:block">Second</span></h1>';
 $assert('First Second' === $title("<title>\n First Second\n</title>", $stacked), 'a stacked heading takes the spaced document title', $title("<title>First Second</title>", $stacked));
-$assert('FirstSecond' === $title('<title>Unrelated</title>', $stacked), 'an unrelated document title is not adopted');
+$assert('First Second' === $title('<title>Unrelated</title>', $stacked), 'an unrelated document title is not adopted, and the lines stay spaced');
 $assert('Plain heading' === $title('<title>Site</title>', '<h1>Plain heading</h1>'), 'an ordinary heading still titles the page');
 
 if ( $failures > 0 ) {
