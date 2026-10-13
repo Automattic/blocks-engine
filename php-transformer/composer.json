@@ -343,6 +343,7 @@
       "php tests/unit/navigation-source-provenance.php",
       "php tests/unit/navigation-dropped-anchors.php",
       "php tests/unit/navigation-item-scoped-anchor-rules.php",
+      "php tests/unit/navigation-scoped-typed-item-precedence.php",
       "php tests/unit/navigation-item-spacing.php",
       "php tests/unit/navigation-list-placement.php",
       "php tests/unit/navigation-list-host-ownership.php",
