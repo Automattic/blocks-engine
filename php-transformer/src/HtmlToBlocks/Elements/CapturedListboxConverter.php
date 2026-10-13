@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
 
 /** Materializes the capture-owned listbox contract as an editable native select. */
@@ -16,10 +17,10 @@ final class CapturedListboxConverter implements ElementConverter
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
         if ('listbox' === strtolower(trim($element->getAttribute('role')))
-            && '' !== trim($element->getAttribute('data-dla-listbox-panel'))) {
+            && '' !== trim($element->getAttribute(CaptureEvidence::LISTBOX_PANEL))) {
             return ConversionOutcome::handled(null);
         }
-        if ('button' !== $tagName || '' === trim($element->getAttribute('data-dla-listbox-trigger'))) {
+        if ('button' !== $tagName || '' === trim($element->getAttribute(CaptureEvidence::LISTBOX_TRIGGER))) {
             return ConversionOutcome::unhandled();
         }
 

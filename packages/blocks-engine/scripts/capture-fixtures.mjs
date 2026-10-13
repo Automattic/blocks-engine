@@ -5,8 +5,11 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const DLA_ROOT = process.env.DLA_ROOT ?? '/Users/matt/projects/a8c/data-liberation-agent';
-const BLOCK_FIXER_DIR = path.join(DLA_ROOT, 'scripts/block-fixer');
+const REFERENCE_ROOT = process.env.REFERENCE_ROOT;
+if (!REFERENCE_ROOT) {
+  throw new Error('Set REFERENCE_ROOT to a checkout of the reference implementation.');
+}
+const BLOCK_FIXER_DIR = path.join(REFERENCE_ROOT, 'scripts/block-fixer');
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CASES_PATH = path.resolve(THIS_DIR, '../src/__fixtures__/cases.json');
 
@@ -199,7 +202,7 @@ function withQuietConsole(fn) {
   }
 }
 
-async function loadDlaFunctions() {
+async function loadReferenceFunctions() {
   setupWordPressGlobals();
   const requireFromHere = createRequire(import.meta.url);
   const { convertHtmlToBlocks, fixBlocksInTemplate } = withQuietConsole(() => ({
@@ -208,15 +211,15 @@ async function loadDlaFunctions() {
   }));
   try {
     const { applyBlockRecipe } = await import(
-      pathToFileURL(path.join(DLA_ROOT, 'src/lib/replicate/apply-block-recipe.ts')).href
+      pathToFileURL(path.join(REFERENCE_ROOT, 'src/lib/replicate/apply-block-recipe.ts')).href
     );
     const { buildHtmlFallbackBlock } = await import(
-      pathToFileURL(path.join(DLA_ROOT, 'src/lib/replicate/html-fallback.ts')).href
+      pathToFileURL(path.join(REFERENCE_ROOT, 'src/lib/replicate/html-fallback.ts')).href
     );
     return { convertHtmlToBlocks, fixBlocksInTemplate, applyBlockRecipe, buildHtmlFallbackBlock };
   } catch (error) {
     throw new Error(
-      `Unable to import DLA TypeScript modules. Run with DLA tsx, for example: cd ${DLA_ROOT} && ./node_modules/.bin/tsx ${fileURLToPath(import.meta.url)} --check\n${error.message}`,
+      `Unable to import reference TypeScript modules. Run with the reference checkout's tsx, for example: cd ${REFERENCE_ROOT} && ./node_modules/.bin/tsx ${fileURLToPath(import.meta.url)} --check\n${error.message}`,
     );
   }
 }
@@ -251,7 +254,7 @@ function composeWithFallback(input, applyBlockRecipe, buildHtmlFallbackBlock) {
 }
 
 async function captureCases() {
-  const { convertHtmlToBlocks, fixBlocksInTemplate, applyBlockRecipe, buildHtmlFallbackBlock } = await loadDlaFunctions();
+  const { convertHtmlToBlocks, fixBlocksInTemplate, applyBlockRecipe, buildHtmlFallbackBlock } = await loadReferenceFunctions();
   const cases = [];
 
   for (const { id, input } of RAW_CASES) {

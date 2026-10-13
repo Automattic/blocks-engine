@@ -41,9 +41,9 @@ $member = static function (int $index, string $label, string $html, string $stat
 $files = static function (string $html, array $states): array {
     return array(
         array('path' => 'website/index.html', 'content' => $html),
-        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
             'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => $states)),
         ), JSON_UNESCAPED_SLASHES)),
     );

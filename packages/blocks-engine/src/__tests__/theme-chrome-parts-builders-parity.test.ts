@@ -12,8 +12,8 @@ import {
   type NavLink,
 } from '../theme/index.js';
 
-describe('chrome-parts builders DLA parity', () => {
-  it('buildHeaderPart emits DLA-faithful native nav markup with inNav preference', () => {
+describe('chrome-parts builders reference parity', () => {
+  it('buildHeaderPart emits reference-faithful native nav markup with inNav preference', () => {
     const nav: NavLink[] = [
       { fromSlug: 'home', toSlug: 'home', label: 'Brand Co' },
       { fromSlug: 'home', toSlug: 'home', label: 'Home', inNav: true },
@@ -71,14 +71,14 @@ describe('chrome-parts builders DLA parity', () => {
         `<div class="wp-block-group"><div class="bp-header"><nav><ul><li><a href="/archive/">Subjects</a></li><li><a href="/category/community/">Community</a></li><li><a href="/about/">About</a></li></ul></nav></div></div>\n` +
         `<!-- /wp:group -->\n` +
         `\n` +
-        `<!-- wp:dla/sticky {"toggleClass":"is-scrolled","offset":24} -->\n` +
-        `<div class="wp-block-dla-sticky" style="display:none" data-wp-interactive="dla/sticky" data-wp-context='{"toggleClass":"is-scrolled","offset":24}' data-wp-init="callbacks.init"></div>\n` +
-        `<!-- /wp:dla/sticky -->`
+        `<!-- wp:blocks-engine/sticky {"toggleClass":"is-scrolled","offset":24} -->\n` +
+        `<div class="wp-block-blocks-engine-sticky" style="display:none" data-wp-interactive="blocks-engine/sticky" data-wp-context='{"toggleClass":"is-scrolled","offset":24}' data-wp-init="callbacks.init"></div>\n` +
+        `<!-- /wp:blocks-engine/sticky -->`
     );
     expect(blockMarkupRoundtrips(html)).toEqual({ ok: true });
   });
 
-  it('buildFooterPart applies DLA footer normalization, href rewrite, and token wrapper around converted markup', async () => {
+  it('buildFooterPart applies reference footer normalization, href rewrite, and token wrapper around converted markup', async () => {
     const footer: ChromePartSection = {
       id: 'footer',
       role: 'footer',
@@ -110,7 +110,7 @@ describe('chrome-parts builders DLA parity', () => {
     expect(blockMarkupRoundtrips(html)).toEqual({ ok: true });
   });
 
-  it('findChromeMounts discovers DLA JS-rendered chrome mounts around main', () => {
+  it('findChromeMounts discovers reference JS-rendered chrome mounts around main', () => {
     const page = `<html><body><div class="page-wrap">
       <div id="topBanner"><p>Sale</p></div>
       <div id="siteHeader" class="chrome shell"></div>
@@ -125,7 +125,7 @@ describe('chrome-parts builders DLA parity', () => {
     });
   });
 
-  it('mountPartMarkup emits DLA anchored empty group markup with optional sticky state', () => {
+  it('mountPartMarkup emits reference anchored empty group markup with optional sticky state', () => {
     const html = mountPartMarkup(
       { id: 'siteHeader', classes: ['chrome'] },
       { kind: 'sticky', toggleClass: 'is-scrolled', offset: 24 }
@@ -136,9 +136,9 @@ describe('chrome-parts builders DLA parity', () => {
         `<div id="siteHeader" class="wp-block-group chrome"></div>\n` +
         `<!-- /wp:group -->\n` +
         `\n` +
-        `<!-- wp:dla/sticky {"toggleClass":"is-scrolled","offset":24} -->\n` +
-        `<div class="wp-block-dla-sticky" style="display:none" data-wp-interactive="dla/sticky" data-wp-context='{"toggleClass":"is-scrolled","offset":24}' data-wp-init="callbacks.init"></div>\n` +
-        `<!-- /wp:dla/sticky -->`
+        `<!-- wp:blocks-engine/sticky {"toggleClass":"is-scrolled","offset":24} -->\n` +
+        `<div class="wp-block-blocks-engine-sticky" style="display:none" data-wp-interactive="blocks-engine/sticky" data-wp-context='{"toggleClass":"is-scrolled","offset":24}' data-wp-init="callbacks.init"></div>\n` +
+        `<!-- /wp:blocks-engine/sticky -->`
     );
     expect(blockMarkupRoundtrips(html)).toEqual({ ok: true });
   });

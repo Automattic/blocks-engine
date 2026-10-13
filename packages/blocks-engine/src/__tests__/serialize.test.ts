@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { serializeBlockAttrs } from '../serialize';
 
-function dlaSerializeBlockAttrs(attrs: Record<string, unknown>): string {
+function referenceSerializeBlockAttrs(attrs: Record<string, unknown>): string {
   return JSON.stringify(attrs)
     .replace(/--/g, '\\u002d\\u002d')
     .replace(/</g, '\\u003c')
@@ -26,7 +26,7 @@ describe('serializeBlockAttrs', () => {
     expect(JSON.parse(serialized)).toEqual({ label: 'A "quoted" value' });
   });
 
-  it('matches the DLA form-blocks serializer on a shared corpus', () => {
+  it('matches the reference form-blocks serializer on a shared corpus', () => {
     const corpus: Array<Record<string, unknown>> = [
       {},
       { name: 'plain' },
@@ -36,7 +36,7 @@ describe('serializeBlockAttrs', () => {
     ];
 
     for (const attrs of corpus) {
-      expect(serializeBlockAttrs(attrs)).toBe(dlaSerializeBlockAttrs(attrs));
+      expect(serializeBlockAttrs(attrs)).toBe(referenceSerializeBlockAttrs(attrs));
     }
   });
 });

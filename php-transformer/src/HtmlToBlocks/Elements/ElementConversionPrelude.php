@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterializer;
@@ -315,10 +316,10 @@ final class ElementConversionPrelude
 
     private function isPortableSrcSwapGallery(DOMElement $element): bool
     {
-        if (!$element->hasAttribute('data-dla-gallery') || !$element->hasAttribute('data-dla-gallery-sequence')) {
+        if (!$element->hasAttribute(CaptureEvidence::GALLERY) || !$element->hasAttribute(CaptureEvidence::GALLERY_SEQUENCE)) {
             return false;
         }
-        $sequence = json_decode($element->getAttribute('data-dla-gallery-sequence'), true);
+        $sequence = json_decode($element->getAttribute(CaptureEvidence::GALLERY_SEQUENCE), true);
         if (!is_array($sequence) || count($sequence) < 2) {
             return false;
         }
@@ -326,7 +327,7 @@ final class ElementConversionPrelude
             if (!is_string($url) || '' === trim($url)) return false;
         }
         foreach ($element->getElementsByTagName('img') as $image) {
-            if ($image instanceof DOMElement && preg_match('/^-?[0-9]+$/D', trim($image->getAttribute('data-dla-gallery-slot')))) {
+            if ($image instanceof DOMElement && preg_match('/^-?[0-9]+$/D', trim($image->getAttribute(CaptureEvidence::GALLERY_SLOT)))) {
                 return true;
             }
         }
