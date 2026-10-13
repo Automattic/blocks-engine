@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMDocument;
 use DOMElement;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -13,8 +14,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
  */
 final class CapturedSelectableSetProjector
 {
-    private const REPORT_SCHEMA = 'data-liberation/captured-interactions/v1';
-    private const RECEIPT_SCHEMA = 'data-liberation/capture-receipt/v1';
     private const KIND = 'selectable-set';
     public const ACTIVE_TAB_ATTRIBUTE = 'data-blocks-engine-active-tab';
     public const FLOW_ATTRIBUTE = 'data-blocks-engine-tabs-flow';
@@ -44,7 +43,7 @@ final class CapturedSelectableSetProjector
         if (null === $report) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
-        if (self::REPORT_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
+        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
         if (count($report['pages']) > self::MAX_PAGES) {
@@ -68,7 +67,7 @@ final class CapturedSelectableSetProjector
         }
 
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
-        if (null === $receipt || self::RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
+        if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_selectable_set_route_map_missing', 'warning', 'Captured selectable sets were not projected because the capture receipt route map is unavailable.')), 'projected_count' => 0);
         }
 
@@ -591,7 +590,7 @@ final class CapturedSelectableSetProjector
     private function isResponsiveDocumentWrapper(DOMElement $element): bool
     {
         foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
-            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)) {
+            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)) {
                 return true;
             }
         }

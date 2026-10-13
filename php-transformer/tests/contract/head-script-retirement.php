@@ -20,7 +20,7 @@ $assert(3 === count($plan['pages']), 'All three routes survive canonical composi
 $head = DocumentHeadContext::fromPlan($plan, 'website/index.html');
 $dom = new DOMDocument();
 $dom->loadHTML('<html><head>' . $head . '</head><body></body></html>');
-$assert(!str_contains($head, 'window.captureGallery'), 'Only the proven native gallery replacement retires its helper');
+$assert(!str_contains($head, 'data-blocks-engine-capture-gallery-runtime') && !str_contains($head, 'data-blocks-engine-capture-gallery-sequence'), 'Only the proven native gallery replacement retires its helper');
 $assert('application/json' === $dom->getElementById('route-data')->getAttribute('type') && '{"mode":"gallery"}' === $dom->getElementById('route-data')->textContent, 'Inert data script survives with its authored body/type');
 $assert($dom->getElementById('retained-first')->textContent === $dom->getElementById('retained-second')->textContent && str_contains($dom->getElementById('retained-first')->textContent, 'setAttribute'), 'Equal-body helpers retain both distinct DOM occurrences and payloads');
 $assert(4 === $dom->getElementsByTagName('script')->length, 'Data, two inline helpers, and one external asset remain in source order');

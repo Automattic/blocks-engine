@@ -33,7 +33,7 @@ try {
         await original.goto('http://source.test/',{waitUntil:'domcontentloaded'});
         await page.goto(url,{waitUntil:'domcontentloaded'});
         await Promise.all([original.evaluate(()=>document.fonts.ready),page.evaluate(()=>document.fonts.ready)]);
-        assert.equal(await page.locator('script[data-dla-disclosure-runtime]').count(),0,'source disclosure interpreter is retired');
+        assert.equal(await page.locator('script[data-blocks-engine-capture-disclosure-runtime]').count(),0,'source disclosure interpreter is retired');
         const trigger = page.getByRole('button',{name:'Open menu',exact:true}).filter({visible:true});
         const sourceTrigger = original.getByRole('button',{name:'Open menu',exact:true}).filter({visible:true});
         assert.equal(await trigger.count(),await sourceTrigger.count(),`source opener visibility matches at ${width}`);

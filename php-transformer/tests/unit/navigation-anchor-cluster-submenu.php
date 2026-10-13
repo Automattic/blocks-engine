@@ -45,8 +45,8 @@ $panel = $markup(
     '<header class="top"><nav class="bar"><a href="#top" class="brand"><span class="mark">Acme</span></a>'
     . '<div class="wide"><a href="#one">One</a><div class="rel"><button class="drop">Shop</button></div><a href="#three">Three</a></div>'
     . '<div class="end"><a href="#join" class="cta">Join</a>'
-    . '<button aria-label="Toggle menu" aria-haspopup="menu" aria-controls="p0" aria-expanded="false" data-dla-dialog-trigger="p0">Menu</button>'
-    . '<div class="dla-dialog dla-dropdown" role="dialog" aria-modal="true" hidden id="p0" data-dla-dialog-panel="p0"><div class="panel">'
+    . '<button aria-label="Toggle menu" aria-haspopup="menu" aria-controls="p0" aria-expanded="false" data-blocks-engine-capture-dialog-trigger="p0">Menu</button>'
+    . '<div class="data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown" role="dialog" aria-modal="true" hidden id="p0" data-blocks-engine-capture-dialog-panel="p0"><div class="panel">'
     . '<div><a href="#one">One</a></div><div><a href="#shop">Shop</a><div class="indent"><a href="#new">New</a><a href="#sale">Sale</a></div></div>'
     . '<a href="#join">Join</a></div></div></div></nav></header>'
 );

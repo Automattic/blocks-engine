@@ -1,6 +1,6 @@
 # Authored native current/default state
 
-Known `data-dla-native-control-state` version-1 facts are adapted at the native
+Known `data-blocks-engine-capture-native-control-state` version-1 facts are adapted at the native
 control conversion boundary. The producer's script is not the implementation.
 `Support/NativeControlState` validates the closed input/textarea/select/file
 union, checks native input type and option count, and lowers facts into existing
