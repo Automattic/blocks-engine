@@ -8,7 +8,7 @@ declare(strict_types=1);
  * Imported https://eloisacalvinato.lovable.app/ produced a WordPress page
  * whose CLOSED mobile-menu overlay intercepted pointer events on desktop:
  * Playwright's FAQ `<details>` clicks failed with
- * `<div class="wp-block-group dla-dialog ..."> from <header id="inicio"
+ * `<div class="wp-block-group data-blocks-engine-capture-dialog ..."> from <header id="inicio"
  * class="wp-block-group fixed ..."> subtree intercepts pointer events`.
  *
  * A closed `<details>` is inert — even `position:fixed` descendants that are

@@ -55,7 +55,7 @@ $assert(1 === count($normalized) && 1 === ($normalized[0]['_source_provenance_id
 
 $disclosure = static fn (array $children): array => array(
     'blockName' => 'core/details',
-    'attrs' => array('className' => 'dla-disclosure'),
+    'attrs' => array('className' => 'data-blocks-engine-capture-disclosure'),
     'innerBlocks' => $children,
     'innerContent' => array('<details>', null, '</details>'),
     'innerHTML' => '<details></details>',
@@ -103,7 +103,7 @@ $assert(array('<div>', null, null, '</div>') === $normalized[0]['innerContent'],
 // Independently displayed document variants each need a complete menu. They
 // are not alternate controls for a single navigation rendered outside them.
 foreach ( array(
-    array('data-liberation-desktop-document', 'data-liberation-mobile-document'),
+    array('data-blocks-engine-capture-desktop-document', 'data-blocks-engine-capture-mobile-document'),
     array('site-document-variant-default', 'site-document-variant-mobile'),
 ) as $variantClasses ) {
     $variants = array();
@@ -131,10 +131,10 @@ $menu = '<header><nav class="rail" id="site-menu"><ul class="menu">'
     . '<li><a href="/">Home</a></li><li><a href="/contact">Contact</a></li></ul></nav></header>';
 $converted = (new HtmlTransformer())->transform(
     '<style>.rail{position:fixed;width:250px}.menu{display:block}'
-    . '.data-liberation-mobile-document{display:none}'
-    . '@media(max-width:768px){.data-liberation-desktop-document{display:none}.data-liberation-mobile-document{display:block}}</style>'
-    . '<div class="data-liberation-desktop-document">' . $menu . '</div>'
-    . '<div class="data-liberation-mobile-document">' . $menu . '</div>'
+    . '.data-blocks-engine-capture-mobile-document{display:none}'
+    . '@media(max-width:768px){.data-blocks-engine-capture-desktop-document{display:none}.data-blocks-engine-capture-mobile-document{display:block}}</style>'
+    . '<div class="data-blocks-engine-capture-desktop-document">' . $menu . '</div>'
+    . '<div class="data-blocks-engine-capture-mobile-document">' . $menu . '</div>'
 )->toArray();
 $markup = (string) ($converted['serialized_blocks'] ?? '');
 $assert(2 === substr_count($markup, '<!-- wp:navigation '), 'full conversion serializes an editable navigation for each responsive document');
@@ -176,8 +176,8 @@ $assert(! str_contains($offCanvasDrawerMarkup, 'is-responsive') && false === str
 // its own navigation block between the brand and contact columns.
 $footerRepeatHtml = '<header>'
     . '<nav class="hidden md:flex items-center gap-8"><a href="/index.html">Home</a><a href="/about/index.html">About</a><a href="/contact/index.html">Contact</a></nav>'
-    . '<details class="dla-disclosure"><summary aria-label="Toggle menu">Menu</summary>'
-    . '<div class="dla-dialog" role="dialog"><nav class="flex flex-col gap-3"><a href="/index.html">Home</a><a href="/about/index.html">About</a><a href="/contact/index.html">Contact</a></nav></div>'
+    . '<details class="data-blocks-engine-capture-disclosure"><summary aria-label="Toggle menu">Menu</summary>'
+    . '<div class="data-blocks-engine-capture-dialog" role="dialog"><nav class="flex flex-col gap-3"><a href="/index.html">Home</a><a href="/about/index.html">About</a><a href="/contact/index.html">Contact</a></nav></div>'
     . '</details>'
     . '</header>'
     . '<footer><div class="grid grid-cols-3 gap-10 max-w-7xl mx-auto px-container-padding-mobile md:px-container-padding">'

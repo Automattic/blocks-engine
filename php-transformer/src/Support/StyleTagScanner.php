@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+
 final class StyleTagScanner
 {
     public static function isCssType(string $type): bool
@@ -53,7 +55,7 @@ final class StyleTagScanner
     public static function authorMedia(string $tag): string
     {
         $attributes = HtmlTagScanner::attributes($tag);
-        return trim($attributes['data-dla-source-media'] ?? $attributes['media'] ?? '');
+        return trim($attributes[CaptureEvidence::SOURCE_MEDIA] ?? $attributes['media'] ?? '');
     }
 
     /**

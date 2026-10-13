@@ -15,11 +15,11 @@ $assert = static function (bool $condition, string $message): void {
 // navigation. Far below it, a contact form has a phone field whose country
 // picker is a labelless button with `aria-expanded`. That picker opens its own
 // list; it must not be taken for the menu toggle and claim the menu dialog.
-$disclosure = '<details class="dla-disclosure"><summary aria-label="Menu"></summary>'
-    . '<div class="dla-dialog" role="dialog" aria-modal="true" aria-label="Site"><nav aria-label="Site"><ul>'
+$disclosure = '<details class="data-blocks-engine-capture-disclosure"><summary aria-label="Menu"></summary>'
+    . '<div class="data-blocks-engine-capture-dialog" role="dialog" aria-modal="true" aria-label="Site"><nav aria-label="Site"><ul>'
     . '<li><a href="about.html">About</a></li><li><a href="services.html">Services</a></li><li><a href="team.html">Team</a></li>'
     . '</ul></nav></div></details>';
-$page = static fn (string $form): string => '<!doctype html><html><head><style>[data-hook=cell]{padding:2px}</style><style data-dla-disclosure="true">details.dla-disclosure:not([open])>.dla-dialog{display:none!important}</style></head><body><div><div>'
+$page = static fn (string $form): string => '<!doctype html><html><head><style>[data-hook=cell]{padding:2px}</style><style data-blocks-engine-capture-disclosure="true">details.data-blocks-engine-capture-disclosure:not([open])>.data-blocks-engine-capture-dialog{display:none!important}</style></head><body><div><div>'
     . '<header><div class="phone"><nav class="toggle-wrap"><div>' . $disclosure . '</div></nav></div></header>'
     . '<main><section id="about"><h2>About</h2></section><section id="services"><h2>Services</h2></section><section id="team"><h2>Team</h2>' . $form . '</section></main>'
     . '</div></div></body></html>';

@@ -76,11 +76,11 @@ try {
             else if(control instanceof HTMLTextAreaElement)state={version:1,kind:'textarea',value:control.value,defaultValue:control.defaultValue};
             else state={version:1,kind:'select',options:Array.from(control.options,option=>({selected:option.selected,defaultSelected:option.defaultSelected}))};
             if(control.id==='invalid')state.checked='true';
-            copies[index].setAttribute('data-dla-native-control-state',JSON.stringify(state));
+            copies[index].setAttribute('data-blocks-engine-capture-native-control-state',JSON.stringify(state));
         });
         const group=clone.querySelector('#choices');
         const next=group.cloneNode(true);
-        next.querySelectorAll('input').forEach((control,index)=>{const state=JSON.parse(control.getAttribute('data-dla-native-control-state'));state.checked=index===1;control.setAttribute('data-dla-native-control-state',JSON.stringify(state));});
+        next.querySelectorAll('input').forEach((control,index)=>{const state=JSON.parse(control.getAttribute('data-blocks-engine-capture-native-control-state'));state.checked=index===1;control.setAttribute('data-blocks-engine-capture-native-control-state',JSON.stringify(state));});
         group.setAttribute('data-blocks-engine-choice-config',JSON.stringify({choices:[{source_value:'a'},{source_value:'b'}],states:[{selectedIndex:0,selected:[true,false],html:group.innerHTML},{selectedIndex:1,selected:[false,true],html:next.innerHTML}]}));
         clone.querySelectorAll('script').forEach(script=>script.remove());
         return clone.outerHTML;
@@ -89,7 +89,7 @@ try {
     const transition=await state(sourcePage);
     await sourcePage.evaluate(()=>document.querySelectorAll('form').forEach(form=>form.reset()));
     const reset=await state(sourcePage);
-    await writeFile(join(evidence,'source.html'),snapshot.replace('</body>','<script data-dla-native-control-runtime>window.capturedReplayExecuted=true;document.querySelector("input[data-dla-native-control-state]").checked=true;</script></body>'));
+    await writeFile(join(evidence,'source.html'),snapshot.replace('</body>','<script data-blocks-engine-capture-native-control-runtime>window.capturedReplayExecuted=true;document.querySelector("input[data-blocks-engine-capture-native-control-state]").checked=true;</script></body>'));
     await writeFile(join(evidence,'source-native-facts.json'),JSON.stringify({baseline,reset,transition},null,2));
     server.closeAllConnections();await new Promise(resolve=>server.close(resolve));serverClosed=true;
     const compiled=JSON.parse(execFileSync('php',['-r',String.raw`require $argv[1].'/vendor/autoload.php'; echo json_encode((new Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('block_namespace'=>'neutral','site_slug'=>'native-control-proof','files'=>array('index.html'=>file_get_contents($argv[2]))))->toArray(),JSON_THROW_ON_ERROR);`,root,join(evidence,'source.html')],{encoding:'utf8',maxBuffer:20*1024*1024}));

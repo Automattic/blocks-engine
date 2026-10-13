@@ -22,7 +22,7 @@ foreach (array('', 'auto', '1px', '0.5px', '10%', 'calc(0px + 1px)', 'var(--gap)
 // A server-rendered string and the browser's reserialization of the same
 // element read the same: attribute order, class order, style spacing, the
 // grid-area shorthand, zero spellings, and capture diagnostics.
-$server = '<div style="grid-row:1 / span 1;grid-column:1 / span 12;margin:0 0 0 0;display:flex" class="cell a"><a href="#x" data-dla-anchor-unresolved="timeout">X</a></div>';
+$server = '<div style="grid-row:1 / span 1;grid-column:1 / span 12;margin:0 0 0 0;display:flex" class="cell a"><a href="#x" data-blocks-engine-capture-anchor-unresolved="timeout">X</a></div>';
 $browser = '<div class="a cell" style="grid-area: 1 / 1 / span 1 / span 12; display: flex; margin: calc(0px) 0% 0% 0px;"><a href="#x">X</a></div>';
 $assert(RenderEquivalentMarkup::canonical($server) === RenderEquivalentMarkup::canonical($browser), 'Render-equivalent serializations are one canonical form: ' . RenderEquivalentMarkup::canonical($server) . ' vs ' . RenderEquivalentMarkup::canonical($browser));
 // Real differences stay different, and overlapping shorthands keep their order.

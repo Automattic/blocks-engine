@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedChoiceGroupBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredControlState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
@@ -52,7 +53,7 @@ final class CapturedChoiceGroupConverter implements ElementConverter
         // baseline children. A state replacement must not fall back to attributes.
         $typed = false;
         foreach ($decoded['states'] as &$state) {
-            if (!is_string($state['html'] ?? null) || !str_contains($state['html'], NativeControlState::ATTRIBUTE)) continue;
+            if (!is_string($state['html'] ?? null) || !str_contains($state['html'], CaptureEvidence::NATIVE_CONTROL_STATE)) continue;
             $typed = true;
             $document = new DOMDocument();
             $previous = libxml_use_internal_errors(true);
@@ -66,7 +67,7 @@ final class CapturedChoiceGroupConverter implements ElementConverter
                 $kind = strtolower($control->tagName);
                 $payload = AuthoredControlState::state($kind, array_merge(array('type' => $control->getAttribute('type')), $attributes));
                 if (null !== $payload) $control->setAttribute(AuthoredControlState::ATTRIBUTE, json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-                $control->removeAttribute(NativeControlState::ATTRIBUTE);
+                $control->removeAttribute(CaptureEvidence::NATIVE_CONTROL_STATE);
             }
             $state['html'] = SourceDom::innerHtml($root);
         }

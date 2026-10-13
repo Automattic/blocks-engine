@@ -26,13 +26,14 @@ $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? 
 $serialized = (new Runtime())->serializeBlocks(array($block));
 $assert('custom/authored-carousel' === ((new Runtime())->parseBlocks($serialized)[0]['blockName'] ?? null), 'the carousel and its inner blocks persist through parse and serialize');
 
-$portableGallerySource = '<script data-dla-gallery-runtime="">document.querySelectorAll("[data-dla-gallery]");</script>'
-    . '<div class="neutral-gallery" id="neutral-gallery" data-dla-gallery-capture-width="1440" data-dla-gallery="" data-dla-gallery-source="#neutral-gallery" data-dla-gallery-sequence="[&quot;/media/photo-a.jpeg&quot;,&quot;/media/photo-b.jpeg&quot;,&quot;/media/photo-c.jpeg&quot;,&quot;/media/photo-d.jpeg&quot;,&quot;/media/photo-e.jpeg&quot;]" data-dla-gallery-index="0">'
-    . '<!-- leading slot --><div class="gallery-side gallery-side-left" id="left-slot" aria-hidden="true"><img id="left-image" alt="" src="/media/photo-e.jpeg" data-dla-gallery-slot="-1"></div>'
-    . '<!-- previous control --><button class="gallery-arrow gallery-arrow-left" id="previous-control" type="button" aria-label="Previous image" data-dla-gallery-direction="-1"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M8 2 3 5l5 3"></path></svg></button>'
-    . '<!-- primary slot --><figure class="gallery-main" id="main-slot"><img id="main-image" alt="Gallery photo" src="/media/photo-a.jpeg" data-dla-gallery-slot="0"></figure>'
-    . '<!-- next control --><button class="gallery-arrow gallery-arrow-right" id="next-control" type="button" aria-label="Next image" data-dla-gallery-direction="1"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="m2 2 5 3-5 3"></path></svg></button>'
-    . '<!-- trailing slot --><div class="gallery-side gallery-side-right" id="right-slot" aria-hidden="true"><img id="right-image" alt="" src="/media/photo-b.jpeg" data-dla-gallery-slot="1"></div></div>';
+// The producer's published gallery runtime, which drives this src-swap shape.
+$portableGallerySource = '<script data-blocks-engine-capture-gallery-runtime="">' . trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-gallery-runtime.js')) . '</script>'
+    . '<div class="neutral-gallery" id="neutral-gallery" data-blocks-engine-capture-gallery-capture-width="1440" data-blocks-engine-capture-gallery="" data-blocks-engine-capture-gallery-source="#neutral-gallery" data-blocks-engine-capture-gallery-sequence="[&quot;/media/photo-a.jpeg&quot;,&quot;/media/photo-b.jpeg&quot;,&quot;/media/photo-c.jpeg&quot;,&quot;/media/photo-d.jpeg&quot;,&quot;/media/photo-e.jpeg&quot;]" data-blocks-engine-capture-gallery-index="0">'
+    . '<!-- leading slot --><div class="gallery-side gallery-side-left" id="left-slot" aria-hidden="true"><img id="left-image" alt="" src="/media/photo-e.jpeg" data-blocks-engine-capture-gallery-slot="-1"></div>'
+    . '<!-- previous control --><button class="gallery-arrow gallery-arrow-left" id="previous-control" type="button" aria-label="Previous image" data-blocks-engine-capture-gallery-direction="-1"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M8 2 3 5l5 3"></path></svg></button>'
+    . '<!-- primary slot --><figure class="gallery-main" id="main-slot"><img id="main-image" alt="Gallery photo" src="/media/photo-a.jpeg" data-blocks-engine-capture-gallery-slot="0"></figure>'
+    . '<!-- next control --><button class="gallery-arrow gallery-arrow-right" id="next-control" type="button" aria-label="Next image" data-blocks-engine-capture-gallery-direction="1"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="m2 2 5 3-5 3"></path></svg></button>'
+    . '<!-- trailing slot --><div class="gallery-side gallery-side-right" id="right-slot" aria-hidden="true"><img id="right-image" alt="" src="/media/photo-b.jpeg" data-blocks-engine-capture-gallery-slot="1"></div></div>';
 $portableGalleryResult = (new HtmlTransformer())->transform($portableGallerySource)->toArray();
 $portableGallery = $portableGalleryResult['blocks'][0] ?? array();
 $portableGalleryMarkup = (string) ($portableGalleryResult['serialized_blocks'] ?? '');
@@ -50,14 +51,18 @@ $assert(
         && str_contains($portableGalleryMarkup, 'actions.previous') && str_contains($portableGalleryMarkup, 'actions.next')
         && !str_contains($portableGalleryMarkup, 'core/html') && !str_contains($portableGalleryMarkup, 'wp-block-freeform')
         && !in_array('core/html', $portableBlockNames, true) && !in_array('core/freeform', $portableBlockNames, true)
-        && str_contains($portableGalleryMarkup, 'data-dla-gallery=""')
+        && str_contains($portableGalleryMarkup, 'data-blocks-engine-capture-gallery=""')
         && 'src-swap' === ($portableGallery['attrs']['presentation'] ?? null)
         && str_contains($portableGalleryMarkup, 'gallery-side-left')
         && str_contains($portableGalleryMarkup, 'gallery-main')
         && str_contains($portableGalleryMarkup, 'gallery-side-right')
-        && str_contains($portableGalleryMarkup, 'data-dla-gallery-slot="-1"')
-        && str_contains($portableGalleryMarkup, 'data-dla-gallery-slot="1"'),
+        && str_contains($portableGalleryMarkup, 'data-blocks-engine-capture-gallery-slot="-1"')
+        && str_contains($portableGalleryMarkup, 'data-blocks-engine-capture-gallery-slot="1"'),
     'portable gallery keeps its source three-slot layout, editable attachments, and functional controls without fallback blocks'
+);
+$assert(
+    !str_contains($portableGalleryMarkup, 'data-blocks-engine-capture-gallery-direction') && true === ($portableGallery['attrs']['wrap'] ?? null) && 0 === ($portableGallery['attrs']['initialSlide'] ?? null),
+    'native src-swap navigation owns the controls: it wraps from the captured index 0 like the gallery runtime, which no longer binds them'
 );
 
 $compoundMenuResult = (new HtmlTransformer())->transform(
@@ -72,7 +77,7 @@ $assert(
 );
 $runtimeNavigation = (new HtmlTransformer())->transform(
     '<button type="button" id="neutral-toggle" class="menu-toggle" aria-label="Open menu" aria-controls="neutral-panel" aria-haspopup="dialog" data-x-trigger><span></span></button>'
-        . '<div id="neutral-panel" class="menu-panel dla-dialog" role="dialog" hidden data-x-panel><nav aria-label="Site navigation"><a href="/social">Instagram</a><a href="/contact">Contact</a></nav></div>'
+        . '<div id="neutral-panel" class="menu-panel data-blocks-engine-capture-dialog" role="dialog" hidden data-x-panel><nav aria-label="Site navigation"><a href="/social">Instagram</a><a href="/contact">Contact</a></nav></div>'
         . '<script>document.querySelectorAll("[data-x-trigger]");</script>',
     array('runtime_dom_selectors' => array('[data-x-trigger]'), 'runtime_behavioral_selectors' => array('[data-x-trigger]'))
 )->toArray();
@@ -193,7 +198,7 @@ $assert(720 === ($slideshow['attrs']['viewportHeight'] ?? null) && 500 === ($sli
 $assert(1 === ($slideshow['attrs']['initialSlide'] ?? null) && true === ($slideshow['attrs']['showDots'] ?? null) && true === ($slideshow['attrs']['fullBleed'] ?? null), 'active slide, dot navigation, and viewport breakout survive conversion');
 $assert(str_contains($slideshowMarkup, '--slideshow') && 2 === substr_count($slideshowMarkup, 'data-carousel-index=') && str_contains($slideshowMarkup, '--blocks-engine-carousel-height:720px'), 'slideshow markup carries stacked presentation, indexed dots, and source height');
 
-$wixCapture = (new HtmlTransformer())->transform('<div class="wixui-slideshow"><button data-testid="prevButton" aria-label="Zurück"></button><button data-testid="nextButton" aria-label="Weiter"></button><div data-testid="slidesWrapper" role="list"><article role="listitem" data-dla-captured-slide="0"><h2>First testimonial</h2><p>First complete testimonial.</p><img src="first.jpg" alt="First"></article><article role="listitem" data-dla-captured-slide="1"><h2>Second testimonial</h2><p>Second complete testimonial.</p><img src="second.jpg" alt="Second"></article></div></div>')->toArray();
+$wixCapture = (new HtmlTransformer())->transform('<div class="wixui-slideshow"><button data-testid="prevButton" aria-label="Zurück"></button><button data-testid="nextButton" aria-label="Weiter"></button><div data-testid="slidesWrapper" role="list"><article role="listitem" data-blocks-engine-capture-captured-slide="0"><h2>First testimonial</h2><p>First complete testimonial.</p><img src="first.jpg" alt="First"></article><article role="listitem" data-blocks-engine-capture-captured-slide="1"><h2>Second testimonial</h2><p>Second complete testimonial.</p><img src="second.jpg" alt="Second"></article></div></div>')->toArray();
 $wixBlock = $wixCapture['blocks'][0] ?? array();
 $wixMarkup = (string) ($wixCapture['serialized_blocks'] ?? '');
 $assert(

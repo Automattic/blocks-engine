@@ -300,6 +300,43 @@ $largeRemPortrait = ( new HtmlTransformer() )->transform(
 )->toArray();
 $assertSame('core/media-text', $largeRemPortrait['blocks'][0]['blockName'] ?? null, 'A 3rem portrait at a 24px root is not misclassified as compact.');
 
+// A flex row whose text pane alone grows (`flex: 1 0 0; width: 1px`) beside a
+// fixed-size icon box is not a media/text split. Promoting it nested the text
+// item inside the media-text content pane, where its 1px width no longer grows
+// and the copy wraps one character per line. Keep the authored row instead.
+$growRowCss = '.question-row{display:flex;flex-flow:row;align-items:center;width:100%}'
+    . '.question-text{flex:1 0 0px;width:1px;height:auto}'
+    . '.question-icon{flex:0 0 auto;width:28px;height:28px;position:relative}';
+$growRowHtml = '<div class="question-row"><div class="question-text"><p>Is parking available?</p></div>'
+    . '<div class="question-icon"><div style="position:absolute;border-radius:inherit;inset:0"><img width="112" height="132" src="icon.png" alt="" style="display:block;width:100%;height:100%;object-fit:fill"></div></div></div>';
+$growRowResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><body>' . $growRowHtml . '</body></html>',
+    array( 'static_css' => $growRowCss )
+)->toArray();
+$growRowBlock = $growRowResult['blocks'][0] ?? array();
+$growRowAssets = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $growRowResult['assets'] ?? array()));
+$assertSame('core/group', $growRowBlock['blockName'] ?? null, 'A row whose text pane alone grows beside a fixed icon box stays a native group.');
+$assertContains('question-text', (string) ($growRowBlock['innerBlocks'][0]['attrs']['className'] ?? ''), 'The growing text pane stays a direct flex item of the row.');
+$assertContains('question-icon', (string) ($growRowBlock['innerBlocks'][1]['attrs']['className'] ?? ''), 'The fixed icon box stays a direct flex item of the row.');
+$assertContains('.question-text{flex:1 0 0px;width:1px', $growRowAssets, 'The text pane keeps its authored flex-grow sizing.');
+$assertSame(array(), $growRowResult['fallbacks'] ?? array(), 'The kept row emits no HTML fallback.');
+
+// Splits core/media-text can represent still promote: a percentage media pane
+// beside a growing text pane, panes that grow together, and a later
+// `flex-grow: 0` overriding a growing `flex` shorthand.
+foreach ( array(
+    'percentage media pane' => '<section style="display:flex"><figure style="width:40%"><img src="x.jpg" alt=""></figure><div style="flex:1 0 0px"><p>Copy</p></div></section>',
+    'panes grow together'   => '<section style="display:flex"><figure style="flex:1"><img src="x.jpg" alt=""></figure><div style="flex:1"><p>Copy</p></div></section>',
+    'grow overridden'       => '<style>.copy{flex:1}</style><section style="display:flex"><figure><img src="x.jpg" alt=""></figure><div class="copy" style="flex-grow:0"><p>Copy</p></div></section>',
+) as $label => $splitHtml ) {
+    $assertSame('core/media-text', $transformHtml($splitHtml)['blocks'][0]['blockName'] ?? null, 'Representable flex split still promotes to media-text: ' . $label . '.');
+}
+$assertSame(
+    'core/group',
+    $transformHtml('<style>.copy{flex-grow:0;flex:1}</style><section style="display:flex"><figure><img src="x.jpg" alt=""></figure><div class="copy"><p>Copy</p></div></section>')['blocks'][0]['blockName'] ?? null,
+    'A later growing flex shorthand wins over an earlier flex-grow: 0.'
+);
+
 $quoteResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><blockquote><p>Quoted</p></blockquote></section>');
 $assertSame('core/quote', $quoteResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null, 'Blockquote text side keeps core/quote identity.');
 

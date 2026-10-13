@@ -782,7 +782,7 @@ JS;
         $allowed = array_flip(array( 'allow', 'allowfullscreen', 'class', 'height', 'loading', 'referrerpolicy', 'sandbox', 'src', 'title', 'width' ));
         foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
             if ( isset($allowed[$name]) && ! preg_match('/javascript\s*:/i', $value) ) {
-                $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
+                $safe[$name] = strlen($value) > 300 ? mb_strcut($value, 0, 300, 'UTF-8') . '...' : $value;
             }
         }
 

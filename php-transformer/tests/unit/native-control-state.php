@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredControlState;
@@ -11,7 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanRe
 
 $count = 0;
 $assert = static function (bool $condition, string $message) use (&$count): void { ++$count; if (!$condition) throw new RuntimeException($message); };
-$marker = static fn (array $state): string => ' data-dla-native-control-state="' . htmlspecialchars(json_encode($state, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') . '"';
+$marker = static fn (array $state): string => ' data-blocks-engine-capture-native-control-state="' . htmlspecialchars(json_encode($state, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') . '"';
 $input = array('version' => 1, 'kind' => 'input', 'type' => 'checkbox', 'value' => 'on', 'defaultValue' => '', 'checked' => true, 'defaultChecked' => false, 'indeterminate' => false);
 $select = array('version' => 1, 'kind' => 'select', 'options' => array(array('selected' => false, 'defaultSelected' => true), array('selected' => true, 'defaultSelected' => false)));
 $textarea = array('version' => 1, 'kind' => 'textarea', 'value' => "\nCurrent café 🐴 <&\"", 'defaultValue' => "\nDefault β");
@@ -28,7 +29,7 @@ $assert('custom/authored-native-form' === $byId['owner']['blockName'], 'admitted
 $assert('owner' === $byId['text']['attrs']['form'] && 'owner' === $byId['file']['attrs']['form'], 'externally owned typed controls keep their native form owner');
 $attrs = $byId['choice']['attrs'];
 $assert(false === $attrs['checked'] && true === $attrs['initialChecked'], 'current checked and authored default remain distinct');
-$assert(!str_contains($result['serialized_blocks'], NativeControlState::ATTRIBUTE), 'known producer facts are adapted, not retained as a second field registry');
+$assert(!str_contains($result['serialized_blocks'], CaptureEvidence::NATIVE_CONTROL_STATE), 'known producer facts are adapted, not retained as a second field registry');
 $assert('yes' === $attrs['dataAttributes']['data-passive'], 'passive attributes remain on the native input');
 $assert($byId['text']['attrs']['value'] === $textarea['defaultValue'] && $byId['text']['attrs']['initialValue'] === $textarea['value'], 'readonly textarea carries exact default/current LF and Unicode');
 $assert('file' === $byId['file']['attrs']['type'] && '' === $byId['file']['attrs']['initialValue'], 'file control stays file without selections');
@@ -47,7 +48,7 @@ foreach (array(array_replace($input, array('checked' => 'true')), array_replace(
     $doc = new DOMDocument(); $doc->loadHTML('<input type="checkbox"' . $marker($invalid) . '>');
     $assert(null === NativeControlState::attributes($doc->getElementsByTagName('input')->item(0)), 'invalid or open payload is rejected before adaptation');
 }
-$sourceWithReplay = $source . '<script data-dla-native-control-runtime>window.capturedReplayExecuted=true;document.querySelector("input[data-dla-native-control-state]").checked=true;</script>';
+$sourceWithReplay = $source . '<script data-blocks-engine-capture-native-control-runtime>window.capturedReplayExecuted=true;document.querySelector("input[data-blocks-engine-capture-native-control-state]").checked=true;</script>';
 $artifact = (new ArtifactCompiler())->compile(array('block_namespace' => 'neutral', 'files' => array('index.html' => $sourceWithReplay)))->toArray();
 $payload = $artifact['source_reports']['companion_plugin_payload'];
 $assert(array() === $payload['preserved_js'], 'no captured source executable is needed by companion payload');
@@ -60,7 +61,7 @@ $assert('proven' === $replayPlan['reference_semantics']['dynamic_client_assets']
 $sourceWithScripts = '<script>window.before=1;</script>' . $sourceWithReplay . '<script>window.after=1;</script>';
 $scriptsPlan = (new ArtifactCompiler())->compile(array('block_namespace' => 'neutral', 'files' => array('index.html' => $sourceWithScripts)))->toArray()['source_reports']['wordpress_site_plan'];
 $assert(2 === count($scriptsPlan['pages'][0]['document_metadata']['scripts']) && 'proven' === $scriptsPlan['reference_semantics']['dynamic_client_assets']['status'], 'scripts around the discarded replay keep their own bound assets');
-$assert('<textarea>&lt;script data-dla-native-control-runtime&gt;text&lt;/script&gt;</textarea>' === NativeControlState::withoutReplayScript('<textarea>&lt;script data-dla-native-control-runtime&gt;text&lt;/script&gt;</textarea>'), 'source-preserving scan keeps script examples in textarea context');
+$assert('<textarea>&lt;script data-blocks-engine-capture-native-control-runtime&gt;text&lt;/script&gt;</textarea>' === NativeControlState::withoutReplayScript('<textarea>&lt;script data-blocks-engine-capture-native-control-runtime&gt;text&lt;/script&gt;</textarea>'), 'source-preserving scan keeps script examples in textarea context');
 $assert(!str_contains(AuthoredControlState::viewScript(), 'eval(') && !str_contains(AuthoredControlState::viewScript(), 'new Function'), 'owned interpreter has no dynamic code execution');
 // A1: typed state never admits a form; submission semantics alone decide native ownership.
 $text = static fn (string $type, string $value, string $default): array => array('version' => 1, 'kind' => 'input', 'type' => $type, 'value' => $value, 'defaultValue' => $default, 'checked' => false, 'defaultChecked' => false, 'indeterminate' => false);
@@ -74,6 +75,18 @@ foreach (array('post' => '<form method="post" action="/contact.php">', 'unspecif
     $states = array_column($finding['controls'] ?? array(), 'native_state');
     $assert(3 === count($states) && 'Ann' === $states[0]['value'] && 'Hi' === $states[2]['value'], "{$case} provider control contract carries validated typed current/default state");
 }
+// The replay interpreter's selectors are not source runtime evidence: an ordinary
+// POST form under an app-root-token wrapper stays on the form path, while a
+// source script addressing the same wrapper still makes it an app shell.
+$replay = '<script data-blocks-engine-capture-native-control-runtime>document.querySelectorAll("input[data-blocks-engine-capture-native-control-state],textarea[data-blocks-engine-capture-native-control-state]").forEach(function(c){c.value=c.value;});</script>';
+$shellPage = static fn (string $extra): string => '<!doctype html><html><head><title>Contact</title></head><body><div class="site-canvas"><h1>Contact</h1>'
+    . '<form method="post" enctype="multipart/form-data" action="/contact.php">' . $typedControls . '</form>' . $extra . '</div>' . $replay . '</body></html>';
+$appShellIslands = static fn (string $html): array => array_values(array_filter(
+    (new ArtifactCompiler())->compile(array('block_namespace' => 'neutral', 'files' => array('index.html' => $html)))->toArray()['source_reports']['runtime_islands'] ?? array(),
+    static fn (array $island): bool => 'app_shell' === ($island['kind'] ?? '')
+));
+$assert(array() === $appShellIslands($shellPage('')), 'replayed native control state does not make an ordinary POST form wrapper an app shell');
+$assert(array() !== $appShellIslands($shellPage('<span data-cell></span><span data-cell></span><script>document.querySelectorAll("[data-cell]").forEach(function(c){c.textContent="x";});</script>')), 'source runtime targets still make the wrapper an app shell');
 
 // A2: the parser-dropped newline after <textarea> is not part of the value.
 $textareaBlock = static function (string $html) use ($flatten): array {

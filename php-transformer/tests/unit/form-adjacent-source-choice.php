@@ -7,12 +7,12 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $html = '<main><style>@media (min-width: 640px) {.grid {grid-template-columns: repeat(2, minmax(0, 1fr))}}</style><form><div class="grid grid-cols-1 sm:grid-cols-2 gap-4" style="display:grid"><div class="field">'
     . '<label id="contact-label">Preferred Contact</label>'
-    . '<div class="select-shell"><button type="button" role="combobox" aria-haspopup="listbox" aria-labelledby="contact-label" aria-required="true" data-dla-listbox-trigger="contact">Email</button>'
-    . '<div hidden data-dla-listbox-panel="contact"><div class="fixed bottom-0 z-50" style="display:grid"><div role="listbox"><button type="button" role="option">Email</button><button type="button" role="option">Phone</button></div></div></div>'
+    . '<div class="select-shell"><button type="button" role="combobox" aria-haspopup="listbox" aria-labelledby="contact-label" aria-required="true" data-blocks-engine-capture-listbox-trigger="contact">Email</button>'
+    . '<div hidden data-blocks-engine-capture-listbox-panel="contact"><div class="fixed bottom-0 z-50" style="display:grid"><div role="listbox"><button type="button" role="option">Email</button><button type="button" role="option">Phone</button></div></div></div>'
     . '<select aria-hidden="true" tabindex="-1" required><option value="email" selected>Email</option><option value="phone">Phone</option></select></div></div>'
     . '<div class="field"><label id="service-label">Service of Interest</label><div class="select-shell">'
-    . '<button type="button" role="combobox" aria-haspopup="listbox" aria-labelledby="service-label" data-dla-listbox-trigger="service">Choose a service</button>'
-    . '<div hidden data-dla-listbox-panel="service"><div class="fixed bottom-0 z-50" style="display:grid"><div role="listbox"><button type="button" role="option">Service 0</button></div></div></div>'
+    . '<button type="button" role="combobox" aria-haspopup="listbox" aria-labelledby="service-label" data-blocks-engine-capture-listbox-trigger="service">Choose a service</button>'
+    . '<div hidden data-blocks-engine-capture-listbox-panel="service"><div class="fixed bottom-0 z-50" style="display:grid"><div role="listbox"><button type="button" role="option">Service 0</button></div></div></div>'
     . '<select hidden>';
 for ( $i = 0; $i < 11; ++$i ) {
     $html .= '<option value="service-' . $i . '">Service ' . $i . '</option>';
@@ -60,12 +60,12 @@ $check(! isset($entity['form']['action']), 'no submission handler inferred');
 
 // Ward's capture has four direct field children, not an inner choice shell.
 $ward = '<form><div class="field"><label>Preferred Contact</label>'
-    . '<button type="button" role="combobox" data-dla-listbox-trigger="contact">Email</button>'
-    . '<div hidden data-dla-listbox-panel="contact"><button type="button" role="option">Email</button></div>'
+    . '<button type="button" role="combobox" data-blocks-engine-capture-listbox-trigger="contact">Email</button>'
+    . '<div hidden data-blocks-engine-capture-listbox-panel="contact"><button type="button" role="option">Email</button></div>'
     . '<select aria-hidden="true" tabindex="-1"><option value="email">Email</option><option value="phone" selected>Phone</option></select></div>'
     . '<div class="field"><label>Service of Interest</label>'
-    . '<button type="button" role="combobox" data-dla-listbox-trigger="service">Choose a service</button>'
-    . '<div hidden data-dla-listbox-panel="service"><button type="button" role="option">Parent Training</button></div>'
+    . '<button type="button" role="combobox" data-blocks-engine-capture-listbox-trigger="service">Choose a service</button>'
+    . '<div hidden data-blocks-engine-capture-listbox-panel="service"><button type="button" role="option">Parent Training</button></div>'
     . '<select aria-hidden="true" tabindex="-1"><option value="parent-training" selected>Parent Training</option><option value="other">Other</option></select></div></form>';
 $wardResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $ward)))->toArray();
 $wardDeclarations = array_values(array_filter(
@@ -105,15 +105,15 @@ $directButton = $direct->getElementsByTagName('button')->item(0);
 $check($directButton instanceof DOMElement && 'direct' === ($builder->control($directButton)['options'][0]['value'] ?? null), 'direct sibling remains associated');
 
 foreach ( array(
-    'unlinked panel' => array('<label>Nearby</label>', '<div hidden data-dla-listbox-panel="other"></div>'),
-    'extra node before trigger' => array('<label>Nearby</label><span>Other</span>', '<div hidden data-dla-listbox-panel="choice"></div>'),
-    'extra node between trigger and panel' => array('<label>Nearby</label>', '<span>Other</span><div hidden data-dla-listbox-panel="choice"></div>'),
-    'extra node between panel and select' => array('<label>Nearby</label>', '<div hidden data-dla-listbox-panel="choice"></div><span>Other</span>'),
-    'label in prior field' => array('', '<div hidden data-dla-listbox-panel="choice"></div>'),
+    'unlinked panel' => array('<label>Nearby</label>', '<div hidden data-blocks-engine-capture-listbox-panel="other"></div>'),
+    'extra node before trigger' => array('<label>Nearby</label><span>Other</span>', '<div hidden data-blocks-engine-capture-listbox-panel="choice"></div>'),
+    'extra node between trigger and panel' => array('<label>Nearby</label>', '<span>Other</span><div hidden data-blocks-engine-capture-listbox-panel="choice"></div>'),
+    'extra node between panel and select' => array('<label>Nearby</label>', '<div hidden data-blocks-engine-capture-listbox-panel="choice"></div><span>Other</span>'),
+    'label in prior field' => array('', '<div hidden data-blocks-engine-capture-listbox-panel="choice"></div>'),
 ) as $case => $pieces ) {
     $document = new DOMDocument();
     $document->loadHTML('<form><div><label>Other Field</label><input></div><div class="field">'
-        . $pieces[0] . '<button type="button" role="combobox" data-dla-listbox-trigger="choice">Pick</button>'
+        . $pieces[0] . '<button type="button" role="combobox" data-blocks-engine-capture-listbox-trigger="choice">Pick</button>'
         . $pieces[1] . '<select aria-hidden="true" tabindex="-1"><option value="source">Source</option></select></div></form>');
     $trigger = $document->getElementsByTagName('button')->item(0);
     $check($trigger instanceof DOMElement && ! isset($builder->control($trigger)['label']), $case . ' cannot supply a positional choice label');
@@ -121,26 +121,26 @@ foreach ( array(
 
 $explicit = new DOMDocument();
 $explicit->loadHTML('<form><label id="explicit-label" for="choice">Explicit</label><div><label>Positional</label>'
-    . '<button id="choice" type="button" role="combobox" aria-label="Accessible" data-dla-listbox-trigger="choice">Pick</button>'
-    . '<div hidden data-dla-listbox-panel="choice"></div><select hidden><option>One</option></select></div></form>');
+    . '<button id="choice" type="button" role="combobox" aria-label="Accessible" data-blocks-engine-capture-listbox-trigger="choice">Pick</button>'
+    . '<div hidden data-blocks-engine-capture-listbox-panel="choice"></div><select hidden><option>One</option></select></div></form>');
 $explicitTrigger = $explicit->getElementsByTagName('button')->item(0);
 $check($explicitTrigger instanceof DOMElement && 'Accessible' === ($builder->control($explicitTrigger)['label'] ?? null)
     && 'explicit-label' === ($builder->control($explicitTrigger)['label_id'] ?? null), 'explicit for association and aria label retain precedence');
 
 $aria = new DOMDocument();
 $aria->loadHTML('<form><span id="other">Referenced</span><div><label>Positional</label>'
-    . '<button type="button" role="combobox" aria-labelledby="other" data-dla-listbox-trigger="choice">Pick</button>'
-    . '<div hidden data-dla-listbox-panel="choice"></div><select hidden><option>One</option></select></div></form>');
+    . '<button type="button" role="combobox" aria-labelledby="other" data-blocks-engine-capture-listbox-trigger="choice">Pick</button>'
+    . '<div hidden data-blocks-engine-capture-listbox-panel="choice"></div><select hidden><option>One</option></select></div></form>');
 $ariaTrigger = $aria->getElementsByTagName('button')->item(0);
 $check($ariaTrigger instanceof DOMElement && 'Referenced' === ($builder->control($ariaTrigger)['label'] ?? null), 'explicit aria reference beats positional label');
 
 foreach (array(
-    'unlinked panel' => '<div hidden data-dla-listbox-panel="other"></div>',
+    'unlinked panel' => '<div hidden data-blocks-engine-capture-listbox-panel="other"></div>',
     'ordinary intervening node' => '<div>Other field content</div>',
-    'two linked panels' => '<div hidden data-dla-listbox-panel="choice"></div><div hidden data-dla-listbox-panel="choice"></div>',
+    'two linked panels' => '<div hidden data-blocks-engine-capture-listbox-panel="choice"></div><div hidden data-blocks-engine-capture-listbox-panel="choice"></div>',
 ) as $case => $between) {
     $document = new DOMDocument();
-    $document->loadHTML('<form><button type="button" role="combobox" data-dla-listbox-trigger="choice">Pick</button>'
+    $document->loadHTML('<form><button type="button" role="combobox" data-blocks-engine-capture-listbox-trigger="choice">Pick</button>'
         . $between . '<select aria-hidden="true" tabindex="-1"><option value="wrong">Wrong</option></select></form>');
     $trigger = $document->getElementsByTagName('button')->item(0);
     $check($trigger instanceof DOMElement && ! isset($builder->control($trigger)['choice_source_selector']), $case . ' does not bridge to a select');
@@ -152,8 +152,8 @@ foreach (array(
     'no native value carrier' => 'choice',
 ) as $case => $panelKey) {
     $document = new DOMDocument();
-    $document->loadHTML('<form><button type="button" role="combobox" data-dla-listbox-trigger="choice">Pick</button>'
-        . '<div ' . ('visible authored panel' === $case ? '' : 'hidden ') . 'data-dla-listbox-panel="' . $panelKey . '"><button type="button">Keep</button></div>'
+    $document->loadHTML('<form><button type="button" role="combobox" data-blocks-engine-capture-listbox-trigger="choice">Pick</button>'
+        . '<div ' . ('visible authored panel' === $case ? '' : 'hidden ') . 'data-blocks-engine-capture-listbox-panel="' . $panelKey . '"><button type="button">Keep</button></div>'
         . ('no native value carrier' === $case ? '' : '<select hidden><option value="source">Source</option></select>') . '</form>');
     $portalButton = $document->getElementsByTagName('button')->item(1);
     $check($portalButton instanceof DOMElement
