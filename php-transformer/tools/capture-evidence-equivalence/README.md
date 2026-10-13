@@ -25,6 +25,38 @@ behavior. The gate is `tests/contract/capture-evidence-equivalence.php`, run by
   the checkout path, `*_duration_ms` wall-clock timings and the
   `engine_version` release stamp are neutralized.
 
+## Deliberate fidelity changes
+
+These cases no longer match the pre-move replay. Their expectations record this
+checkout's output, and each difference was checked against the pre-move
+replay by case:
+
+- **Runtime retirement requires the published body.** Every retirement path
+  now checks the runtime digest, and a page that carries an unrecognized
+  runtime body keeps that runtime and its wiring. The corpus inputs below carry
+  short stand-in bodies, not the published ones, so their pages are now left
+  as captured: no native dialog, gallery or submenu replacement, no retired
+  script, and no per-state projector diagnostics.
+  - Navigation submenu retirement of a stand-in disclosure body:
+    `07f8a0bd`, `1e87fd71`, `28e1a0f1`, `2f545afa`, `3e283668`, `647b8b53`,
+    `bab702ca`.
+  - Native dialog projection plus retirement of a stand-in disclosure body:
+    `3317930e`, `461f0a83`, `5eccb541`, `f67e5ca6`.
+  - Native gallery projection plus retirement of a stand-in gallery body:
+    `0bf7a2ea`, `12d3ff94`, `3b0aed43`, `62d3b1f8`, `8d155e3b`, `90115e60`,
+    `bcd4e29b`.
+  - Stand-in disclosure body, state diagnostics only
+    (`captured_dialog_trigger_unmatched`, `captured_dialog_unsafe_or_truncated`):
+    `6cdada86`, `6ed86c41`, `b913b3b4`, `eaad29ef`, `fcc75319`, `feef8efc`.
+- **Native dialog view script.** The captured-dialog view script replays
+  `aria-*`/`data-*` ancestor bindings. Only the emitted script text and the
+  hashes and sizes derived from it change in `0a9c1bea`, `15082c2d`,
+  `21e5cdbf`, `2915d21f`, `37284b0e`, `55b724ac`, `7a7af898`, `7c2d1217`,
+  `927aa368`, `944dd63d`, `df9c24a8`, `e5ea5743`.
+
+When regenerating from the pre-move commit, re-record these cases from the
+checkout that introduced them, and only after checking the difference again.
+
 ## Regenerating
 
 From `php-transformer/`, with disposable worktrees of the pre-move commit:

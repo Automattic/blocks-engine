@@ -156,7 +156,10 @@ $selectorTrigger = array('selector' => 'body > div > div > div:nth-of-type(2) > 
 $selector = $project($files(array('https://example.test/selector' => $selectorHtml), array('https://example.test/selector' => array($state($selectorTrigger)))));
 $assert(1 === ($selector['projected_count'] ?? 0), 'wrapper-normalized positional selectors match inside a responsive document');
 
-$closeRuntime = 'document.querySelector("[data-blocks-engine-capture-dialog-close]");';
+// Retirement requires the published disclosure runtime body.
+$publishedRuntime = trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-disclosure-runtime.js'));
+$alteredRuntime = str_replace('function triggers(){', 'function triggers( ){', $publishedRuntime);
+$closeRuntime = $publishedRuntime;
 $closeTrigger = array('selector' => 'body > header > button', 'tag' => 'button', 'ariaHaspopup' => 'dialog', 'label' => 'Menu', 'dataBindings' => array());
 $closeHtml = '<html><head><script data-blocks-engine-capture-disclosure-runtime="true">' . $closeRuntime . '</script></head><body><header><button type="button" data-blocks-engine-capture-dialog-trigger="data-blocks-engine-capture-dialog-0" aria-haspopup="dialog" aria-label="Menu">Menu</button></header><button type="button" hidden data-blocks-engine-capture-dialog-close="data-blocks-engine-capture-dialog-0" aria-label="Close Menu">Close</button></body></html>';
 $closeRows = $files(array('https://example.test/' => $closeHtml), array('https://example.test/' => array($state($closeTrigger))));
@@ -167,6 +170,8 @@ $assert(1 === ($close['projected_count'] ?? 0) && str_contains($closeMarkup, 'da
 $assert(!str_contains($closeMarkup, 'data-blocks-engine-capture-dialog-close') && !str_contains($closeMarkup, 'data-blocks-engine-capture-disclosure-runtime'), 'a matched capture close helper and its runtime are removed');
 $assert(array() === array_values(array_filter($close['files'], static fn (array $file): bool => 'website/index.inline-4.js' === ($file['path'] ?? ''))), 'the extracted disclosure script is omitted');
 $assert('native_dialog_close_replaces_capture_close_helper' === ($close['native_runtime_replacements'][0]['reason'] ?? ''), 'replacement proof names the native dialog close');
+$alteredClose = $project($files(array('https://example.test/' => str_replace($publishedRuntime, $alteredRuntime, $closeHtml)), array('https://example.test/' => array($state($closeTrigger)))));
+$assert(0 === ($alteredClose['projected_count'] ?? -1) && str_replace($publishedRuntime, $alteredRuntime, $closeHtml) === ($alteredClose['files'][0]['content'] ?? null) && array() === ($alteredClose['native_runtime_replacements'] ?? array()), 'an unrecognized disclosure body keeps its runtime, close helper and wiring unprojected');
 $siblingHtml = str_replace('</body>', '<button type="button" hidden data-blocks-engine-capture-dialog-close="data-blocks-engine-capture-dialog-9" aria-label="Close leftover">Close</button></body>', $closeHtml);
 $sibling = $project($files(array('https://example.test/' => $siblingHtml), array('https://example.test/' => array($state($closeTrigger)))));
 $siblingMarkup = (string) ($sibling['files'][0]['content'] ?? '');
@@ -182,7 +187,7 @@ $assert(!str_contains($panelMarkup, 'data-blocks-engine-add-close'), 'an in-pane
 // trigger sits beside an in-place hidden panel with a hidden close helper. Both
 // the matched trigger and one whose positional selector no longer matches must
 // bind natively so the wiring runtime is retired.
-$wiredRuntime = 'document.querySelectorAll("[data-blocks-engine-capture-dialog-trigger]");';
+$wiredRuntime = $publishedRuntime;
 $wiredPanel = static fn (string $key, string $body): string => '<div class="data-blocks-engine-capture-dialog" role="dialog" aria-modal="true" hidden id="' . $key . '" data-blocks-engine-capture-dialog-panel="' . $key . '">' . $body . '</div>';
 $wiredHtml = '<html><head><script data-blocks-engine-capture-disclosure-runtime="true">' . $wiredRuntime . '</script></head><body><main>'
     . '<header><button type="button" aria-label="Menu" data-blocks-engine-capture-disclosure-label="Menu" data-blocks-engine-capture-dialog-trigger="data-blocks-engine-capture-dialog-1" aria-controls="data-blocks-engine-capture-dialog-1" aria-expanded="false" aria-haspopup="menu">Menu</button>'
@@ -204,6 +209,10 @@ $assert(str_contains($wiredMarkup, 'Record details') && str_contains($wiredMarku
 $assert(!str_contains($wiredMarkup, 'data-blocks-engine-capture-disclosure-runtime'), 'the wiring runtime is retired once every trigger is bound');
 $assert(array() === $codes($wired), 'no unmatched-trigger diagnostics are raised for wired triggers', implode(',', $codes($wired)));
 $assert(array() === array_values(array_filter($wired['files'], static fn (array $file): bool => 'website/index.inline-5.js' === ($file['path'] ?? ''))), 'the extracted wiring script is omitted');
+
+$alteredWiredHtml = str_replace($publishedRuntime, $alteredRuntime, $wiredHtml);
+$alteredWired = $project($files(array('https://example.test/' => $alteredWiredHtml), array('https://example.test/' => $wiredStates)));
+$assert(0 === ($alteredWired['projected_count'] ?? -1) && $alteredWiredHtml === ($alteredWired['files'][0]['content'] ?? null) && array() === ($alteredWired['native_runtime_replacements'] ?? array()), 'wired panels driven by an unrecognized disclosure body stay with that runtime');
 
 $sharedTrigger = static fn(string $label): string => '<button type="button" aria-label="' . $label . '" data-blocks-engine-capture-disclosure-label="' . $label . '" data-blocks-engine-capture-dialog-trigger="shared" aria-controls="shared" aria-haspopup="dialog">' . $label . '</button>';
 $sharedBody = $sharedTrigger('First') . $sharedTrigger('Second') . $wiredPanel('shared', '<div><p>Shared content</p></div>');

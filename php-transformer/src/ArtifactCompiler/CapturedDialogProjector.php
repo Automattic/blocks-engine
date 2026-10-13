@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
@@ -17,6 +18,11 @@ final class CapturedDialogProjector
     private const MAX_PAGES = 128;
     private const MAX_STATES_PER_PAGE = 8;
     private const MAX_DIALOG_BYTES = 65536;
+    /** Capture runtime marker => sha256 of its published, trimmed body. */
+    private const RECOGNIZED_RUNTIMES = array(
+        CaptureEvidence::DISCLOSURE_RUNTIME => CaptureEvidence::DISCLOSURE_RUNTIME_SHA256,
+        CaptureEvidence::GALLERY_RUNTIME => CaptureEvidence::GALLERY_RUNTIME_SHA256,
+    );
 
 
     /** @var list<DOMElement> Panels proven by the existing complete gallery contract. */
@@ -154,6 +160,12 @@ final class CapturedDialogProjector
             return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_interaction_source_invalid', 'warning', 'Captured dialogs were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0, 'retired_scripts' => array(), 'script_bindings' => null);
         }
 
+        // Native replacement retires the capture runtime that drives this
+        // page's wiring. A runtime body Blocks Engine does not recognize keeps
+        // running, so it keeps the wiring it drives too.
+        if ($this->hasUnrecognizedRuntime($document)) {
+            return array('html' => $html, 'diagnostics' => array(), 'projected_count' => 0, 'retired_scripts' => array(), 'script_bindings' => null);
+        }
         $scriptBindings = new ScriptOccurrenceBindings($document);
         $diagnostics = array();
         $this->nativeGalleryPanels = array();
@@ -240,12 +252,7 @@ final class CapturedDialogProjector
         }
         $retired = array();
         if ($galleryCount > 0) {
-            foreach (iterator_to_array($document->getElementsByTagName('script')) as $script) {
-                if (!$script instanceof DOMElement || !$script->hasAttribute(CaptureEvidence::GALLERY_RUNTIME)) continue;
-                $body = trim($script->textContent ?? '');
-                if ('' !== $body) $retired[] = array('body' => $body, 'attribute' => CaptureEvidence::GALLERY_RUNTIME, 'reason' => 'native_carousel_and_dialog_replace_capture_gallery');
-                $script->parentNode?->removeChild($script);
-            }
+            $retired = $this->retireRecognizedRuntime($document, CaptureEvidence::GALLERY_RUNTIME, 'native_carousel_and_dialog_replace_capture_gallery');
         }
         if ($this->hasNavigationOwnedDialogTrigger($document)) {
             $this->consumeNavigationOwnedCloseHelpers($document);
@@ -253,7 +260,7 @@ final class CapturedDialogProjector
         }
         if (($projected > 0 || $handledNavigationDropdown) && !$this->hasDialogCloseHelper($document) && $this->everyDialogTriggerIsBound($document)) {
             $reason = 0 < $projected ? 'native_dialog_close_replaces_capture_close_helper' : 'native_navigation_submenu_replaces_capture_disclosure';
-            $retired = array_merge($retired, $this->removeDisclosureRuntime($document, $reason));
+            $retired = array_merge($retired, $this->retireRecognizedRuntime($document, CaptureEvidence::DISCLOSURE_RUNTIME, $reason));
         }
 
         $output = $document->saveHTML();
@@ -420,8 +427,9 @@ final class CapturedDialogProjector
     /**
      * Source-proven open/closed changes the producer recorded on a trigger's
      * ancestors (for example a header that paints itself only while its menu
-     * is open). Keep a bounded, attribute-limited copy so the dialog can replay
-     * them; anything outside that shape is dropped rather than guessed.
+     * is open, or a row that switches `data-section-theme`). Keep the bounded
+     * copy the native dialog can replay; anything outside that shape is
+     * dropped rather than guessed.
      *
      * @param array<int, DOMElement> $triggers
      * @return array<int, array{tag:string, closed:array<string, string|null>, opened:array<string, string|null>}>
@@ -429,22 +437,7 @@ final class CapturedDialogProjector
     private function triggerAncestorState(array $triggers): array
     {
         foreach ($triggers as $trigger) {
-            $bindings = json_decode($trigger->getAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE), true);
-            if (! is_array($bindings) || array() === $bindings || count($bindings) > 8) continue;
-            $state = array();
-            foreach ($bindings as $binding) {
-                $tag = is_array($binding) ? strtolower((string) ($binding['tag'] ?? '')) : '';
-                if (1 !== preg_match('/^[a-z][a-z0-9-]{0,31}$/', $tag) || ! is_array($binding['closed'] ?? null) || ! is_array($binding['opened'] ?? null)) continue 2;
-                $sides = array();
-                foreach (array('closed', 'opened') as $side) {
-                    foreach ($binding[$side] as $name => $value) {
-                        if (! in_array($name, array('class', 'style', 'hidden'), true) || (null !== $value && ! is_string($value)) || strlen((string) $value) > 2048) continue 3;
-                        $sides[$side][$name] = $value;
-                    }
-                }
-                if (array_keys($sides['closed'] ?? array()) !== array_keys($sides['opened'] ?? array()) || array() === ($sides['closed'] ?? array())) continue 2;
-                $state[] = array('tag' => $tag, 'closed' => $sides['closed'], 'opened' => $sides['opened']);
-            }
+            $state = CapturedDialogBlockGenerator::ancestorState(json_decode($trigger->getAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE), true));
             if (array() !== $state) return $state;
         }
         return array();
@@ -558,12 +551,10 @@ final class CapturedDialogProjector
         $known = false;
         foreach ($document->getElementsByTagName('script') as $script) {
             if ($script->hasAttribute(CaptureEvidence::DISCLOSURE_RUNTIME)) {
-                // A marker alone does not establish ownership of an arbitrary source
-                // script; the body must be the recognized capture interpreter.
-                if (CaptureEvidence::DISCLOSURE_RUNTIME_SHA256 !== hash('sha256', trim($script->textContent ?? ''))) return false;
+                if (!self::isRecognizedRuntimeScript($script, CaptureEvidence::DISCLOSURE_RUNTIME)) return false;
                 $known = true;
             } elseif ($script->hasAttribute(CaptureEvidence::GALLERY_RUNTIME)) {
-                if (CaptureEvidence::GALLERY_RUNTIME_SHA256 !== hash('sha256', trim($script->textContent ?? ''))) return false;
+                if (!self::isRecognizedRuntimeScript($script, CaptureEvidence::GALLERY_RUNTIME)) return false;
             } elseif (!$script->hasAttribute(CaptureEvidence::NATIVE_CONTROL_RUNTIME)
                 && \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::isExecutableScriptType($script->getAttribute('type'), 'module' === $script->getAttribute('type'))
             ) {
@@ -664,17 +655,46 @@ final class CapturedDialogProjector
         }
     }
 
-    /** @return array<int, array{body:string, attribute:string, reason:string}> */
-    private function removeDisclosureRuntime(DOMDocument $document, string $reason): array
+    /**
+     * Remove the capture runtime scripts carrying `$marker` that Blocks Engine
+     * recognizes. Every retirement path goes through here; a marked script with
+     * any other body stays with the page.
+     *
+     * @return array<int, array{body:string, attribute:string, reason:string}>
+     */
+    private function retireRecognizedRuntime(DOMDocument $document, string $marker, string $reason): array
     {
         $retired = array();
         foreach (iterator_to_array($document->getElementsByTagName('script')) as $script) {
-            if (!$script instanceof DOMElement || !$script->hasAttribute(CaptureEvidence::DISCLOSURE_RUNTIME)) continue;
-            $body = trim($script->textContent ?? '');
-            if ('' !== $body) $retired[] = array('body' => $body, 'attribute' => CaptureEvidence::DISCLOSURE_RUNTIME, 'reason' => $reason);
+            if (!$script instanceof DOMElement || !self::isRecognizedRuntimeScript($script, $marker)) continue;
+            $retired[] = array('body' => trim($script->textContent ?? ''), 'attribute' => $marker, 'reason' => $reason);
             $script->parentNode?->removeChild($script);
         }
         return $retired;
+    }
+
+    /**
+     * A capture runtime Blocks Engine may replace: a script carrying `$marker`
+     * whose trimmed body is the published body for that marker
+     * (docs/contracts/capture-evidence.md, "Runtime scripts"). The marker alone
+     * does not establish ownership of an arbitrary source script.
+     */
+    private static function isRecognizedRuntimeScript(DOMElement $script, string $marker): bool
+    {
+        $digest = self::RECOGNIZED_RUNTIMES[$marker] ?? null;
+        return null !== $digest && 'script' === strtolower($script->tagName) && $script->hasAttribute($marker)
+            && $digest === hash('sha256', trim($script->textContent ?? ''));
+    }
+
+    /** Whether a page carries a capture runtime marker whose body is not the published one. */
+    private function hasUnrecognizedRuntime(DOMDocument $document): bool
+    {
+        foreach ($document->getElementsByTagName('script') as $script) {
+            foreach (array_keys(self::RECOGNIZED_RUNTIMES) as $marker) {
+                if ($script instanceof DOMElement && $script->hasAttribute($marker) && !self::isRecognizedRuntimeScript($script, $marker)) return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -697,11 +717,11 @@ final class CapturedDialogProjector
             $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
             libxml_clear_errors();
             libxml_use_internal_errors($previous);
-            if (!$loaded || !$this->hasNavigationOwnedDialogTrigger($document) || !$this->everyDialogTriggerIsBound($document)) continue;
+            if (!$loaded || $this->hasUnrecognizedRuntime($document) || !$this->hasNavigationOwnedDialogTrigger($document) || !$this->everyDialogTriggerIsBound($document)) continue;
             $scriptBindings = new ScriptOccurrenceBindings($document);
             $this->consumeNavigationOwnedCloseHelpers($document);
             if ($this->hasDialogCloseHelper($document)) continue;
-            $pageRetired = $this->removeDisclosureRuntime($document, 'native_navigation_submenu_replaces_capture_disclosure');
+            $pageRetired = $this->retireRecognizedRuntime($document, CaptureEvidence::DISCLOSURE_RUNTIME, 'native_navigation_submenu_replaces_capture_disclosure');
             if (array() === $pageRetired) continue;
             $html = $document->saveHTML();
             $html = is_string($html) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $html) : null;

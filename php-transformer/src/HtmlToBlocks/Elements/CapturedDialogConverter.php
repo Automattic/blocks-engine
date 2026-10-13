@@ -79,7 +79,7 @@ final class CapturedDialogConverter implements ElementConverter
             'placement' => in_array(SourceDom::attr($element, 'data-blocks-engine-placement'), array('in-place', 'under-header', 'source'), true) ? SourceDom::attr($element, 'data-blocks-engine-placement') : '',
             'addCloseButton' => 'true' === SourceDom::attr($element, 'data-blocks-engine-add-close'),
             'gallerySelection' => json_decode(SourceDom::attr($element, 'data-blocks-engine-gallery-selection'), true) ?: array(),
-            'ancestorState' => json_decode(SourceDom::attr($element, 'data-blocks-engine-ancestor-state'), true) ?: array(),
+            'ancestorState' => CapturedDialogBlockGenerator::ancestorState(json_decode(SourceDom::attr($element, 'data-blocks-engine-ancestor-state'), true)),
         ), static fn(mixed $value): bool => false !== $value && '' !== $value && array() !== $value);
         $children = ($this->convertChildren)($element, $fallbacks);
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');

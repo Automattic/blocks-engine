@@ -59,7 +59,7 @@
         {
             "id": "07f8a0bd8ea86b1740d01e7aad529128fa10e5c6",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "ca55b949a2ea926dbdb2acddd7cae1f6ad5a66517fe4381e92e32441fc474a47",
+            "expected_sha256": "618e1a797c88c832ac514aedaab418ac7b281589bb6aeb4d05e16ccb79394cd6",
             "outcome": "output"
         },
         {
@@ -83,7 +83,7 @@
         {
             "id": "0a9c1bea54021ba60093b14cc124cefca0e60616",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "fcc8bb9d517b1b0f02196779ce18a06552c5a89b75ca5e9322edd0dec6407632",
+            "expected_sha256": "011a8609d40356a62eced84729322d578e5826a1df060ade41004e98c59aedc0",
             "outcome": "output"
         },
         {
@@ -101,7 +101,7 @@
         {
             "id": "0bf7a2ea6d25e14b83b035068d817a3c2822ba4b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "59b31ddc6736d8d8b3a2a1e9cd491c152a38eed5bcc3b0df0fa770eb277b4212",
+            "expected_sha256": "ce1a274f1f23cdf1a92f21cef22f9ded8e411acd999cb3069132d4311e1ec267",
             "outcome": "output"
         },
         {
@@ -119,7 +119,7 @@
         {
             "id": "12d3ff943f72cf2f3b32aeb91e4bacb32bfcb003",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "563af4348800976efb530bdb2b84c772b31cf9845d08e177613dc24f3471e631",
+            "expected_sha256": "d4ba06fa6d92cb28d1e47dfa06abb47eb5c11edb87b99609294213f0036d4dc8",
             "outcome": "output"
         },
         {
@@ -143,7 +143,7 @@
         {
             "id": "15082c2dc6a6f26471c6b1b16a41446c0c3ed22a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "02aac4aacfff0c65078ab9ba6acd38cc2a31e3ec55564b4d0569b4a782ca9803",
+            "expected_sha256": "2c55d1a448a18ca91b31ad842a0895c4873a7ea69aaee4590329d3fbd9703dbd",
             "outcome": "output"
         },
         {
@@ -209,7 +209,7 @@
         {
             "id": "1e87fd7170484fa6c8288d2d21ab9e181c982bd1",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "976776d245ca003860b560b4b2f77fb532a7ecfd9960d0e1ef5bf788174c3a41",
+            "expected_sha256": "b8092f01263cd5d1647e56d1e33d737aeab2da310757c376748774312741e7a1",
             "outcome": "output"
         },
         {
@@ -245,7 +245,7 @@
         {
             "id": "21e5cdbf5ec5e6081029d84c0c34ccac47171153",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "7cf2e0be02705daf702a687446bbb51d0417fadc3d0febd97559c996f10c58ba",
+            "expected_sha256": "7bdc637e0ac9c24bca6331d62f4eb2ab299a59baf0701fc2be91b3afb70c537b",
             "outcome": "output"
         },
         {
@@ -335,13 +335,13 @@
         {
             "id": "28e1a0f1b5bef11b70c18dc39033d6a84461621b",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "771c561636d44fdc607336e2db4a060ebb1a17beecc3b9c9a6b17a6b71a16f70",
+            "expected_sha256": "940c7193476016e11e979d37d44f83cce58a6c49d92e69d84edfa589ba353e15",
             "outcome": "output"
         },
         {
             "id": "2915d21f717a45ad97cc901e84ead8debcb5e07b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "af63451b62fb60ea55f3812419501bb2a5657f6e6ac0fcadde79e424a238e155",
+            "expected_sha256": "0f6cd685ea08990e95421490ebf96d0c302848d03650578c60693e3714d066d4",
             "outcome": "output"
         },
         {
@@ -383,7 +383,7 @@
         {
             "id": "2f545afa2f6cffe9b9b8fa287e1bac1c40271b17",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "845731365f441275093f38a848b76b700c357376e89e4a785fa79caa4764114a",
+            "expected_sha256": "68f25bc4c6fbf010ab9a4b0670e0f4cbc669298870b804a94fe0b94db1b851e1",
             "outcome": "output"
         },
         {
@@ -407,7 +407,7 @@
         {
             "id": "3317930e5bae9630e1a2dfa63325692d65285d7d",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "3e85f4dca40045b4c129b5155947417600dcad7de8e22889b94dca4e44f47fe9",
+            "expected_sha256": "1db59911142ab8fe373824c7c5e7275df23aa9bed9cc2653823264d66c1fef05",
             "outcome": "output"
         },
         {
@@ -437,7 +437,7 @@
         {
             "id": "37284b0ef56612a5ff0cda0976e9baf91af033cb",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "a490f66e5d86abc63c10453d163a1e9ee87031183925fe951282c931fbf554ad",
+            "expected_sha256": "2103fa98642d8db5447e68d5a2642d27165f74f20e511e9120b958b23bf9bd0e",
             "outcome": "output"
         },
         {
@@ -473,7 +473,7 @@
         {
             "id": "3b0aed43853d869d1ae9c0a6eb7f65fb8d41333c",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "cab862f3d72860ae2bf52e2bc2bf53f648677f2cdc82467d48074372ffdf8f73",
+            "expected_sha256": "1f73eb98e675cff9447fa2e6ef7842c0bcbcccba5e12cead69747b26a6cc6db7",
             "outcome": "output"
         },
         {
@@ -485,7 +485,7 @@
         {
             "id": "3e2836686c56a0d68490a0e9ee8c602eda3897fa",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "aafbf10cd5cbf6be5b0937f7242f546450675e674f6253262eba288b11696bbf",
+            "expected_sha256": "2dc61a80cb2571b67fd8db160e03ba9a407081a4378ac597ebfa643cb11074d7",
             "outcome": "output"
         },
         {
@@ -557,7 +557,7 @@
         {
             "id": "461f0a83156f31f02e338679420d68a4cc6c9201",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "830bc55a2a81d62018cf3755d67662995ba0f8cec7aa510ecef32cce8e73752a",
+            "expected_sha256": "ef40052763b3d4c414b1640965de1bab109deb3fa0b62e57451079618f068bae",
             "outcome": "output"
         },
         {
@@ -653,7 +653,7 @@
         {
             "id": "55b724ac2c76d2fde1959aeee3370f76b3d8129d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "8603eae4524783bb310880f387fd6859acc2849bdde24ef46e33e7ea34199c1d",
+            "expected_sha256": "60ac73a9c8f5740223f04e57fc8702354a374ff301a3c969daea8538b0823d5a",
             "outcome": "output"
         },
         {
@@ -737,7 +737,7 @@
         {
             "id": "5eccb5417a80e008e3b8ee0e81acf7096f7b3ad6",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "cc3e0c074e0761283e332b5e99daf7f0fc7fcfe0b7bebd58840c68e39d783802",
+            "expected_sha256": "aeeafe7aff9e0f1d00546d1f2cfbeaa6c69407e440962328eb5cdbfcf8e830e5",
             "outcome": "output"
         },
         {
@@ -779,7 +779,7 @@
         {
             "id": "62d3b1f89f1b9de974a11a027f5831c2797a4a5f",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "1306bdf2b15caaec8ad97acb070d5f92efff94a6a1b5b80f183569f2abfc5f17",
+            "expected_sha256": "16b3846361d71f3145a7c319755bb530a426215e4c1df9fd22505b56b9c0903b",
             "outcome": "output"
         },
         {
@@ -797,7 +797,7 @@
         {
             "id": "647b8b53e0e915a0c5d5499d4c3c31eae62e3e70",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "f3a80e10d546048fd597f900a7500fbfb9b4760579b577aca175a2b2bba75690",
+            "expected_sha256": "a700043a869149614aba31ae8caad6e088a2812d38bec81c588b5350512f4e98",
             "outcome": "output"
         },
         {
@@ -887,13 +887,13 @@
         {
             "id": "6cdada8661e0d9b04d40ce5b170625900cbd3bf1",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "36b05ed09e3fbb812fe28ab809b4ec4181fcea741d2c1b4553cb0ab0dabe3019",
+            "expected_sha256": "bacb3d661f2700183abd71564c02d6534128c8fdeb74602567a8c7d6fd2e37e4",
             "outcome": "output"
         },
         {
             "id": "6ed86c41afcf40c191e8f8c33d9ab000c8b72e3f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "6a6251a6a1e7a032fb08839b8c0de3bad1fdd46abe272bc882fe66b06b1edb5d",
+            "expected_sha256": "335be6e123fdf15d9a152a1cec10180854414fe1dd36d85a5f5dfb1132753e8a",
             "outcome": "output"
         },
         {
@@ -1019,7 +1019,7 @@
         {
             "id": "7a7af8982960e28f4cf964953c85b58a510699e0",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "174877b0d9f9e1bef3be515ab901d646cb0bd61e0f3e7b0928e5c6ea241c0a7f",
+            "expected_sha256": "d7a21036360daea3b22782bbff2274b410450f5e3ec0342901d0c13691532b4f",
             "outcome": "output"
         },
         {
@@ -1043,7 +1043,7 @@
         {
             "id": "7c2d1217f68f1eeed57e660c70936247d937c414",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "ee1d80365e62e76ed9895e570338b31bbd1e9dcf86177c3b89414d10bb4c78ef",
+            "expected_sha256": "aff5b81437d0f8acbd64bd33825fbd05d7e2d4c51213f1817df47d5a083f4a8a",
             "outcome": "output"
         },
         {
@@ -1175,7 +1175,7 @@
         {
             "id": "8d155e3be64f60344947488082b39546db16069e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "6d879d390c65ba83b314b0a03f6ae596795e1f05b1963711267489a385fa2688",
+            "expected_sha256": "0d20efea518e57d70ff128811c5f64dae3af4ef81b97b2a43d5f7c3e0dd0ad69",
             "outcome": "output"
         },
         {
@@ -1211,7 +1211,7 @@
         {
             "id": "90115e6057a6d61f3fed2e2e94db98e9abbe9ba2",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "dd820832e7011f3575cb242f7379d42890718a23b4c0acbbb5b9f9d2297a3663",
+            "expected_sha256": "4f5de40861ea1609ea179c2a80d790dfcfc6e0000432ae5d3d67345c34480144",
             "outcome": "output"
         },
         {
@@ -1241,7 +1241,7 @@
         {
             "id": "927aa36875da93af28e278f37359f0c3fbbee7d8",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "e63255c5a4055d34e00811b2029c23605ae7686aee08f72b2d32470e4fccaed1",
+            "expected_sha256": "803cea008023246f4a4086946263d6cf62b3a79531740656e851f9a1917a01ca",
             "outcome": "output"
         },
         {
@@ -1259,7 +1259,7 @@
         {
             "id": "944dd63db631afc5664d39d5f49658f016e89e27",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "388955e18df92b60383bd966ee4e45693fe8f707361cab14e28bbfcbe4025f34",
+            "expected_sha256": "5a2c5d37daa05c773bab41b6df4ddf59293242bc8ddda3ae04f23616b77959f3",
             "outcome": "output"
         },
         {
@@ -1475,13 +1475,13 @@
         {
             "id": "b913b3b49e19c7dd90ced1e39951b0cd843dbb42",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "43d8765e448aeda7fad82287894338b7324c6668a19c2c49111eba9e6302c2e2",
+            "expected_sha256": "519ccaa755d56782ab0bc3d2dbf4acec7aef442056605c6afeb279872adfb976",
             "outcome": "output"
         },
         {
             "id": "bab702ca37fa3cfa6c3222704fcd92dd6482ce75",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "250024477b26dc37416a2348c596cf80e84e9ad544891d6023d86fdd6e86d535",
+            "expected_sha256": "89e31f0b670ed965b5f276e61712fd5c74a13bf72cc48aa5e9443bbcfa189cef",
             "outcome": "output"
         },
         {
@@ -1499,7 +1499,7 @@
         {
             "id": "bcd4e29be7c894ed7848a5937bb9f660ee280779",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "1c5d23b167b965fabf3d17dc25f39111560c14b4362b5986e97d06eab41280fd",
+            "expected_sha256": "58fe1a0f75f0eb40bc1ef90c1c3c190704c0a6a3176b88709c28eb3aae529497",
             "outcome": "output"
         },
         {
@@ -1793,7 +1793,7 @@
         {
             "id": "df9c24a89732ac84a5fb55a4fd84cb89492722c3",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "2f3f2be77c7c81c9eb6f0740bc0ae56de1bba784dcb559574b38980553d11124",
+            "expected_sha256": "160ab577d01f47b915fd211a2db22cfd6c1d81eec701818206f92dd5483fa93c",
             "outcome": "output"
         },
         {
@@ -1841,7 +1841,7 @@
         {
             "id": "e5ea57430e2ac12b29b8351684acc9fde5ba6431",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "71abd61f01a200b383f16c9f96f2120941fe6a49cecd6550cb3f8b0fcad7d5df",
+            "expected_sha256": "5738d685415c7655edcf23f8c7d9e6854120b630e27bb2d8031e6dd996473119",
             "outcome": "output"
         },
         {
@@ -1895,7 +1895,7 @@
         {
             "id": "eaad29efccc2e7fa6a01a2334673eeef84e9e98f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "0445da8512501c9d22a4fcdae9ef7a8578e0d37823b7fc84e1a93bb5f0f11794",
+            "expected_sha256": "0e8be2098ca4f5b4807515ef9e8cc41e0bc8e59bc33bcf01ca4d87976646f71c",
             "outcome": "output"
         },
         {
@@ -2015,7 +2015,7 @@
         {
             "id": "f67e5ca643c0cb67a0008dc6a6b5a7addd005df0",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "e1af7de71256e6fdf1194873d74ad78ff51b92f598eb73738dd099adfad68fba",
+            "expected_sha256": "6beb68890c7380553ada39737f6fc0ab4c0947dbac7868ad5a94af80cfd4b631",
             "outcome": "output"
         },
         {
@@ -2069,7 +2069,7 @@
         {
             "id": "fcc75319509e48a8405c1f14f69d2e1f7e66cb4a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "00d1aca1a04e70b05bc50174480bdac2a5fb81f2ce182362d4f456eebd9b2b3d",
+            "expected_sha256": "6cf18dd80849ec19ae1435fde5121fce1d32e42834217a11954352700c88dc9c",
             "outcome": "output"
         },
         {
@@ -2081,7 +2081,7 @@
         {
             "id": "feef8efc18785eed32b02bb0eb3a90d94ac4d840",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "99a218f38ee98566d3f0a0489e28790c60a269ff49329a780c4e0e2fc793d0bd",
+            "expected_sha256": "8c594c347b0870d0b946556dc075ca6f2a86baec01905253b05c5d9b8aba2ab2",
             "outcome": "output"
         },
         {

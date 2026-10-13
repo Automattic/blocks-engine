@@ -12,7 +12,10 @@ $inline['viewport'] = array('width' => 1440, 'height' => 900);
 $full = $cycle(array('/full/c.png', '/full/a.png', '/full/b.png'), 2);
 $state = array('kind' => 'gallery', 'status' => 'captured', 'gallery' => array('inline' => $inline, 'lightbox' => $full, 'closed' => true, 'selection' => array(1, 2, 0)));
 $items = static fn(array $keys): string => implode('', array_map(static fn(string $key): string => '<div><img src="' . $key . '" alt="Image"></div>', $keys));
-$html = '<html><head><script data-blocks-engine-capture-gallery-runtime>window.captureGallery=true;</script></head><body><section id="pictures" data-blocks-engine-capture-gallery data-blocks-engine-capture-gallery-source="#pictures" data-blocks-engine-capture-gallery-capture-width="1440"><h2>Pictures</h2><div class="gallery carousel"><div id="stage" data-blocks-engine-capture-gallery-stage data-blocks-engine-capture-gallery-initial="1" data-blocks-engine-capture-dialog-trigger="panel" aria-controls="panel">' . $items(array('/inline/a.png', '/inline/b.png', '/inline/c.png')) . '</div><button aria-label="Previous image">Previous</button><button aria-label="Next image">Next</button></div><div id="panel" data-blocks-engine-capture-dialog-panel="panel" hidden><div data-blocks-engine-capture-gallery-stage>' . $items(array('/full/c.png', '/full/a.png', '/full/b.png')) . '</div></div></section></body></html>';
+// Only the published gallery runtime is retired with its native replacement.
+$galleryRuntime = trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-gallery-runtime.js'));
+$galleryScript = '<script data-blocks-engine-capture-gallery-runtime>' . $galleryRuntime . '</script>';
+$html = '<html><head>' . $galleryScript . '</head><body><section id="pictures" data-blocks-engine-capture-gallery data-blocks-engine-capture-gallery-source="#pictures" data-blocks-engine-capture-gallery-capture-width="1440"><h2>Pictures</h2><div class="gallery carousel"><div id="stage" data-blocks-engine-capture-gallery-stage data-blocks-engine-capture-gallery-initial="1" data-blocks-engine-capture-dialog-trigger="panel" aria-controls="panel">' . $items(array('/inline/a.png', '/inline/b.png', '/inline/c.png')) . '</div><button aria-label="Previous image">Previous</button><button aria-label="Next image">Next</button></div><div id="panel" data-blocks-engine-capture-dialog-panel="panel" hidden><div data-blocks-engine-capture-gallery-stage>' . $items(array('/full/c.png', '/full/a.png', '/full/b.png')) . '</div></div></section></body></html>';
 $report = array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://neutral.test/', 'states' => array($state))));
 $receipt = array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://neutral.test/', 'path' => 'website/index.html')));
 $files = array('website/index.html' => $html, 'interaction-states.json' => json_encode($report), 'capture-receipt.json' => json_encode($receipt));
@@ -30,7 +33,16 @@ $assert(6 === count(array_filter($tree, static fn(array $block): bool => 'core/i
 $assert(array(array('triggerId' => 'stage', 'indices' => array(1, 2, 0))) === $dialogs[0]['attrs']['gallerySelection'], 'Observed image identities preserve rotated full-cycle selection');
 $assert('stage' === ($carousels[0]['attrs']['sourceIdentityAttributes']['id'] ?? ''), 'Source stage trigger identity survives native replacement');
 $assert(1 === $carousels[0]['attrs']['initialSlide'] && 2 === $carousels[1]['attrs']['initialSlide'], 'Viewport baseline and lightbox initial state survive compilation');
-$assert(!str_contains($markup, 'window.captureGallery'), 'Capture helper is retired, rather than carried as source JavaScript');
+$assert(!str_contains($markup, 'data-blocks-engine-capture-gallery-sequence') && !str_contains(json_encode($result['assets']), 'data-blocks-engine-capture-gallery-sequence'), 'Capture helper is retired, rather than carried as source JavaScript');
+$assert(array(CaptureEvidence::GALLERY_RUNTIME => CaptureEvidence::GALLERY_RUNTIME_SHA256) === array_column($result['source_reports']['native_runtime_replacements'] ?? array(), 'body_hash', 'attribute'), 'the published gallery runtime is retired with a native replacement proof', json_encode($result['source_reports']['native_runtime_replacements'] ?? null));
+// One changed byte makes the gallery body unknown: it keeps running, so the
+// page keeps the gallery wiring it drives and claims no native replacement.
+$alteredGalleryFiles = $files;
+$alteredGalleryFiles['website/index.html'] = str_replace('function all(selector,root){', 'function all( selector,root){', $html);
+$alteredGallery = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $alteredGalleryFiles))->toArray();
+$assert(array() === ($alteredGallery['source_reports']['native_runtime_replacements'] ?? array()), 'an unrecognized gallery body is not retired', json_encode($alteredGallery['source_reports']['native_runtime_replacements'] ?? null));
+$assert(str_contains(json_encode($alteredGallery['assets']), 'function all( selector,root){'), 'the unrecognized gallery body ships with the page');
+$assert(!str_contains((string) $alteredGallery['serialized_blocks'], '/captured-dialog'), 'an unrecognized gallery body gets no native lightbox dialog');
 $assert($runtime->serializeBlocks($runtime->parseBlocks($markup)) === $markup, 'Native image/dialog tree has a canonical serialize/parse roundtrip');
 $wrappedHtml = str_replace(array('<body>', '</body>', '<div><img src="'), array('<body><div class="scroll">', '</div></body>', '<div class="frame active" data-blocks-engine-capture-gallery-display="block" hidden style="display:none!important"><img src="'), $html);
 $wrappedHtml = str_replace('class="gallery carousel"', 'class="gallery carousel" style="margin-left:auto!important;margin-right:auto!important"', $wrappedHtml);
@@ -58,9 +70,8 @@ $document->loadHTML($mixed);
 $mobile = (new DOMXPath($document))->query('//*[contains(@class,"data-blocks-engine-capture-mobile-document")]')->item(0);
 $mobileHtml = $document->saveHTML($mobile);
 $knownRuntime = trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-disclosure-runtime.js'));
-$galleryRuntime = trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-gallery-runtime.js'));
 $assert(CaptureEvidence::GALLERY_RUNTIME_SHA256 === hash('sha256', $galleryRuntime), 'the gallery fixture is the published gallery runtime');
-$coexistHtml = str_replace('<script data-blocks-engine-capture-gallery-runtime>window.captureGallery=true;</script>', '<script data-blocks-engine-capture-disclosure-runtime>' . $knownRuntime . '</script><script data-blocks-engine-capture-gallery-runtime>' . $galleryRuntime . '</script>', $html);
+$coexistHtml = str_replace($galleryScript, '<script data-blocks-engine-capture-disclosure-runtime>' . $knownRuntime . '</script>' . $galleryScript, $html);
 $coexistHtml = str_replace(array('<body>', '</body>'), array('<body><div class="data-blocks-engine-capture-desktop-document" data-blocks-engine-capture-document-scope="">', '</div>' . $mobileHtml . '</body>'), $coexistHtml);
 $coexistReport = array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://neutral.test/', 'states' => array($state))));
 $coexistFiles = array('website/index.html' => $coexistHtml, 'interaction-states.json' => json_encode($coexistReport), 'capture-receipt.json' => json_encode($receipt));
@@ -83,4 +94,4 @@ $coexistReport['pages'][0]['states'][0]['status'] = 'observed-incomplete';
 $coexistFiles['interaction-states.json'] = json_encode($coexistReport);
 $partial = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $coexistFiles))->toArray();
 $assert(array() === array_filter($partial['source_reports']['native_runtime_replacements'] ?? array(), static fn(array $proof): bool => 'data-blocks-engine-capture-disclosure-runtime' === $proof['attribute']), 'an incomplete gallery prevents an all-native disclosure retirement claim');
-echo "Captured gallery producer/consumer contract passed (17 assertions)\n";
+echo "Captured gallery producer/consumer contract passed (21 assertions)\n";

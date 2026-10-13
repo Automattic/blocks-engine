@@ -66,9 +66,13 @@ $actionHtml = '<html><body><main><button id="open" type="button">Open the record
 [ $actionProjected, $actionOut ] = $project($actionHtml, array('selector' => '#open', 'tag' => 'button', 'ariaHaspopup' => '', 'label' => 'Open the record', 'dataBindings' => array()), '<div role="dialog"><h2>Record</h2><p>Details</p></div>');
 $assert(1 === $actionProjected && str_contains($actionOut, '<dialog'), 'a plain action button still projects a native dialog', $actionOut);
 
-$wiredHeader = '<html><body>' . $header . '<script data-blocks-engine-capture-disclosure-runtime="true">document.querySelectorAll("[data-blocks-engine-capture-dialog-trigger]");</script><button type="button" hidden data-blocks-engine-capture-dialog-close="p-shop">Close</button></body></html>';
+$publishedRuntime = trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-disclosure-runtime.js'));
+$wiredHeader = '<html><body>' . $header . '<script data-blocks-engine-capture-disclosure-runtime="true">' . $publishedRuntime . '</script><button type="button" hidden data-blocks-engine-capture-dialog-close="p-shop">Close</button></body></html>';
 [ $handledCount, $handledHtml, $handledResult ] = $project($wiredHeader, array('selector' => '#shop', 'tag' => 'button', 'ariaHaspopup' => 'menu', 'label' => 'Shop', 'dataBindings' => array()), $linksHtml);
 $assert(0 === $handledCount && !str_contains($handledHtml, 'data-blocks-engine-capture-disclosure-runtime') && !str_contains($handledHtml, 'data-blocks-engine-capture-dialog-close'), 'a menu-only capture retires superseded wiring and close helpers without claiming a projected dialog', $handledHtml);
+// One changed byte makes the body unknown: the menu-only capture keeps it.
+[ , $alteredHtml, $alteredResult ] = $project(str_replace('function triggers(){', 'function triggers( ){', $wiredHeader), array('selector' => '#shop', 'tag' => 'button', 'ariaHaspopup' => 'menu', 'label' => 'Shop', 'dataBindings' => array()), $linksHtml);
+$assert(str_contains($alteredHtml, 'function triggers( ){') && array() === ($alteredResult['native_runtime_replacements'] ?? array()), 'a menu-only capture keeps an unrecognized disclosure body', $alteredHtml);
 $compiled = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $handledResult['files']))->toArray();
 $assert(str_contains((string) ($compiled['serialized_blocks'] ?? ''), '<!-- wp:navigation-submenu') && !str_contains((string) ($compiled['serialized_blocks'] ?? ''), 'data-blocks-engine-captured-dialog'), 'the entire artifact pipeline keeps the menu as a native submenu');
 

@@ -81,7 +81,7 @@ if ( array() !== $failures ) {
 }
 
 fwrite(STDOUT, sprintf(
-    "Capture-evidence equivalence passed: %d/%d renamed cases byte-identical to origin/trunk %s.\n",
+    "Capture-evidence equivalence passed: %d/%d renamed cases byte-identical to their expectations (origin/trunk %s, plus the deliberate fidelity changes in tools/capture-evidence-equivalence/README.md).\n",
     $identical,
     count($corpus),
     substr((string) $expected['source_commit'], 0, 12)

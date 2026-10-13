@@ -184,13 +184,37 @@ required (below).
 
 What the native replacement reproduces:
 
-- **Disclosure interpreter.** Opening and closing a dialog, and the ancestor
-  bindings in `data-blocks-engine-capture-dialog-ancestor-state`. A `class`
-  binding is replayed as tokens: tokens of the other state that the target
-  state lacks are removed, the target state's tokens are added, and every
-  other class on the ancestor is kept. The native dialog finds the ancestor by its tag and closed tokens.
-  `tests/unit/capture-runtime-ancestor-parity-browser.mjs` compares the two in
-  Chromium.
+- **Disclosure interpreter.** Opening and closing a dialog (including Escape
+  and the trigger's `aria-expanded`), and the ancestor bindings in
+  `data-blocks-engine-capture-dialog-ancestor-state`. A binding row may change
+  `class`, `style`, `hidden`, `aria-*` and `data-*` attributes: the set the
+  capture records and the interpreter replays. A `class` binding is replayed
+  as tokens: tokens of the other state that the target state lacks are
+  removed, the target state's tokens are added, and every other class on the
+  ancestor is kept; an emptied `class` whose recorded value is null is
+  removed. `hidden`, `aria-*` and `data-*` are set to the recorded value, or
+  removed when it is null, on open, on close and, as the interpreter does on
+  load, to their closed values when the page starts. The native dialog finds
+  the ancestor by its tag and closed class tokens, preferring the one whose
+  other recorded attributes hold their closed values.
+  `tests/unit/capture-runtime-ancestor-parity-browser.mjs` (class rows) and
+  `tests/unit/capture-runtime-attribute-parity-browser.mjs` (attribute-only
+  rows) compare the two in Chromium.
+
+  The replayable attributes are the shared allowlist
+  `CapturedDialogBlockGenerator::ANCESTOR_ATTRIBUTE_PATTERN`, applied by the
+  projector, the block converter and the view script alike. It never admits an
+  event handler (`on*`) or a URL-bearing attribute (`href`, `src`, ...): the
+  capture does not record them and the interpreter never replays them. It also
+  excludes Blocks Engine's own `data-blocks-engine-*` namespace, which holds
+  the native dialog's state and capture evidence rather than source state. A
+  row naming any other attribute is dropped.
+
+  A projected dialog stays a native dialog block even when its trigger has a
+  text label and its panel has the shape of a source aria disclosure.
+  `core/details` cannot close on Escape, keep `aria-expanded` or replay
+  ancestor bindings, so it is chosen only for disclosures that no capture
+  runtime drives, where it loses nothing.
 - **Gallery helper.** Frame galleries become native carousels. A src-swap
   gallery (`data-blocks-engine-capture-gallery-sequence` with
   `data-blocks-engine-capture-gallery-slot` images) becomes a native src-swap
@@ -198,25 +222,31 @@ What the native replacement reproduces:
   the sequence image at the current index plus the slot's offset, and removes
   the slot's `srcset`.
 
-**How Blocks Engine verifies them.** For each page with captured dialog
-scopes, `CapturedDialogProjector` scans every `<script>`:
+**How Blocks Engine verifies them.** A script is a recognized runtime when
+it carries a marker attribute and `sha256(trim(textContent))` equals the
+published digest for that marker, where `trim` strips spaces, tabs, CR, LF,
+NUL and vertical tab at both ends
+(`CapturedDialogProjector::isRecognizedRuntimeScript()`). Every retirement
+path uses that check: native dialogs projected from captured interactions,
+wired dropdowns in a document scope, navigation submenus (with or without an
+interaction report) and native galleries.
 
-1. If the script carries the disclosure marker, it computes
-   `sha256(trim(textContent))`, where `trim` strips spaces, tabs, CR, LF, NUL
-   and vertical tab at both ends. The page can retire the interpreter only if
-   that digest equals the published disclosure digest.
-2. If the script carries the gallery marker, the page keeps that eligibility
-   only if the digest equals the published gallery digest.
-3. If the page has any other executable script (classic or module), apart from
-   the native-control helper (`data-blocks-engine-capture-native-control-runtime`),
-   the interpreter is not retired.
+1. A page that carries a marked script whose body is not recognized keeps
+   that runtime and the wiring it drives: Blocks Engine projects no native
+   dialog, gallery or submenu replacement on it and retires nothing.
+2. Otherwise only recognized scripts are retired, each with a recorded
+   replacement proof (`native_runtime_replacements`, carrying the body
+   digest).
+3. Wired dropdowns in a declared document scope additionally require the
+   recognized interpreter itself, and no other executable script (classic or
+   module) apart from the native-control helper
+   (`data-blocks-engine-capture-native-control-runtime`).
 
-With a matching interpreter and every trigger/panel binding proven local and
-bounded, the scoped disclosures become native dialog blocks and the
-interpreter is retired with a recorded replacement. Any mismatch leaves the
-capture's script and markup in place. That page then keeps working through
-the capture's own runtime and loses no content; it just gets no native
-replacement.
+With a recognized interpreter and every trigger/panel binding proven local and
+bounded, the disclosures become native dialog blocks and the interpreter is
+retired with a recorded replacement. Any mismatch leaves the capture's script
+and markup in place. That page then keeps working through the capture's own
+runtime and loses no content; it just gets no native replacement.
 
 To check a body, run `php -r 'echo hash("sha256", trim(file_get_contents($argv[1])));' <file>`.
 `tests/contract/capture-evidence-vocabulary.php` holds the published
@@ -245,5 +275,6 @@ call the test suite made with the previous producer-specific names (a corpus
 harvested from the last commit before the move), renamed by the published
 rule, and requires byte-identical compile results, WordPress site plans,
 projected files and exceptions from the pre-move source with the same rule
-applied. See `tools/capture-evidence-equivalence/README.md` for how the
-corpus and expectations were produced and how to regenerate them.
+applied, except for the deliberate fidelity changes listed in
+`tools/capture-evidence-equivalence/README.md`. That file also describes how
+the corpus and expectations were produced and how to regenerate them.
