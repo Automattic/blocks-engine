@@ -6,7 +6,7 @@ A row of icon-only social links lowers to `core/social-links`. When every icon i
 
 For each icon, `SocialLinksPattern` takes the first colour found in this order:
 
-1. **Captured rendered colour.** A `data-dla-glyph-color` attribute on the glyph element inside the link: an `<img>` (for `<picture>`, the inner `<img>`), an inline `<svg>`, or an empty element whose `background-image` paints the icon. Capture tools such as Data Liberation Agent measure this from the rendered page ([contract](https://github.com/Automattic/data-liberation-agent/blob/trunk/docs/contracts/glyph-color.md)). The value must be `#rrggbb`, in either case; it is normalized to lowercase.
+1. **Captured rendered colour.** A `data-blocks-engine-capture-glyph-color` attribute on the glyph element inside the link: an `<img>` (for `<picture>`, the inner `<img>`), an inline `<svg>`, or an empty element whose `background-image` paints the icon. A capture tool measures this from the rendered page; the attribute is part of the [capture-evidence contract](contracts/capture-evidence.md). The value must be `#rrggbb`, in either case; it is normalized to lowercase.
 2. **Decoded image colour.** For an `<img>` glyph, `MonochromeGlyphColor` decodes the image bytes with GD: an inline `data:image/...` URI, or the artifact file the `src` resolves to. A single-colour glyph yields its colour.
 3. **Authored paint.** An SVG `fill`, an inline `fill` or `color` on the glyph or link, or the link's resolved authored `color`.
 4. **Same-destination glyph.** A placeholder image borrows the decoded or captured colour of another image linking to the same URL on the page.
@@ -24,7 +24,7 @@ A value other than a six-digit hex colour (`1877f2`, `#1877f`, `#1877f2ff`, `rgb
 
 ## The attribute is not output
 
-`data-dla-glyph-color` is capture evidence, not content. `HtmlTransformer` reads and removes it from the source DOM before conversion, so it never appears in block markup, fallback HTML, materialized SVG assets, template parts or source provenance fragments. Only the unmodified source document that `ArtifactCompiler` reports in `source_reports.compiled_site.pages[].html` still contains it.
+`data-blocks-engine-capture-glyph-color` is capture evidence, not content. `HtmlTransformer` reads and removes it from the source DOM before conversion, so it never appears in block markup, fallback HTML, materialized SVG assets, template parts or source provenance fragments. Only the unmodified source document that `ArtifactCompiler` reports in `source_reports.compiled_site.pages[].html` still contains it.
 
 ## `glyph_color_undecodable`
 

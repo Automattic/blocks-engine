@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -78,7 +79,7 @@ final class RuntimeIslandAnalyzer
 
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
-        if ('' !== trim(SourceDom::attr($element, 'data-dla-dialog-close'))) return true;
+        if ('' !== trim(SourceDom::attr($element, CaptureEvidence::DIALOG_CLOSE))) return true;
         $id = trim(SourceDom::attr($element, 'id'));
         if ( '' !== $id && $this->context->runtimeSelectors()->hasDom('#' . $id) && ! $this->isPresentationalRuntimeSelector('#' . $id) ) {
             return true;
@@ -166,7 +167,7 @@ final class RuntimeIslandAnalyzer
     private function isCapturedAttributeRuntimeBinding(DOMElement $element): bool
     {
         $root = SourceDom::documentVariantRoot($element);
-        if ( ! $root || ! $root->hasAttribute('data-dla-document-scope') ) {
+        if ( ! $root || ! $root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) ) {
             return false;
         }
 
@@ -387,7 +388,7 @@ final class RuntimeIslandAnalyzer
         // Declared document scopes preserve wrapper state through the existing
         // layout-shell save contract while children remain editable blocks.
         $root = SourceDom::documentVariantRoot($element);
-        if ($root && $root->hasAttribute('data-dla-document-scope') && in_array($tagName, array('div', 'section', 'article', 'aside', 'header', 'footer', 'main', 'nav'), true)) foreach ($element->attributes ?? array() as $attribute) {
+        if ($root && $root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && in_array($tagName, array('div', 'section', 'article', 'aside', 'header', 'footer', 'main', 'nav'), true)) foreach ($element->attributes ?? array() as $attribute) {
             if (LayoutShellBlockGenerator::isBooleanAttribute(strtolower($attribute->name))) return false;
         }
 
@@ -474,7 +475,7 @@ final class RuntimeIslandAnalyzer
         if ('' !== $responsiveMedia && $blockName === $responsiveMedia) return true;
         if ($blockName === $this->context->generatedBlockName('layout-shell') && in_array(strtolower($element->tagName), array('div', 'span', 'article', 'aside', 'header', 'footer', 'main', 'section', 'nav'), true)) {
             $root = SourceDom::documentVariantRoot($element);
-            if ($root && $root->hasAttribute('data-dla-document-scope')) return true;
+            if ($root && $root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)) return true;
         }
         // The authored hidden marker is the exact save() DOM contract for these
         // companion blocks. A native editable marker is not a runtime island.

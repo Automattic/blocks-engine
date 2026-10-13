@@ -11,7 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 
 $assert = static function (bool $value, string $message): void { if (!$value) { fwrite(STDERR, "FAIL: {$message}\n"); exit(1); } };
 $item = static fn (string $answer): string => '<div class="card"><button aria-expanded="false" aria-controls="' . $answer . '">Shared question?</button><div role="region" id="' . $answer . '" hidden><p>' . $answer . ' answer</p></div></div>';
-$source = '<html><body><main><div class="scope"><div class="choices"><button class="active">All</button><button class="inactive">Alpha</button></div><input type="search" placeholder="Search locally"><div id="results" data-dla-exclusive-disclosures="true">' . $item('Alpha') . $item('Beta') . '</div></div></main></body></html>';
+$source = '<html><body><main><div class="scope"><div class="choices"><button class="active">All</button><button class="inactive">Alpha</button></div><input type="search" placeholder="Search locally"><div id="results" data-blocks-engine-capture-exclusive-disclosures="true">' . $item('Alpha') . $item('Beta') . '</div></div></main></body></html>';
 $evidence = array(
     'field' => array('selector' => 'body > main > div > input', 'value' => ''),
     'target' => array('selector' => 'body > main > div > div#results', 'html' => ''),
@@ -23,8 +23,8 @@ $evidence = array(
 );
 $files = static fn (array $evidence): array => array(
     array('path' => 'website/index.html', 'content' => $source),
-    array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
-    array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
+    array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
+    array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
 );
 $projected = (new CapturedCollectionProjector())->project($files($evidence));
 $baseline = (new HtmlTransformer())->transform($source)->toArray();
@@ -39,7 +39,7 @@ $assert(!str_contains($markup, 'wp:search') && !str_contains($markup, 'wp:html')
 $assert(1 === substr_count($markup, '>Alpha answer</p>') && 1 === substr_count($markup, '>Beta answer</p>'), 'duplicate labels with distinct answers remain one editable copy each');
 $assert(str_contains($markup, 'wp:accordion ') && str_contains($markup, 'wp:paragraph'), 'disclosure controls and answer paragraphs remain native blocks');
 $assert(str_contains($markup, '"autoclose":true'), 'source-observed exclusive disclosure groups retain native single-open behavior');
-$independent = (new HtmlTransformer())->transform(str_replace(' data-dla-exclusive-disclosures="true"', '', $source))->toArray();
+$independent = (new HtmlTransformer())->transform(str_replace(' data-blocks-engine-capture-exclusive-disclosures="true"', '', $source))->toArray();
 $assert(!str_contains($independent['serialized_blocks'], '"autoclose":true'), 'unproven disclosure groups retain the native independent-open default');
 $assert(2 === preg_match_all('/<div class="wp-block-accordion-item[^\"]*blocks-engine-collection-item-[a-f0-9]{16}-[0-9]+/', $markup), 'behavior identity markers survive on the actual native item wrappers, not only in collection metadata');
 $assert(strpos($markup, 'collection-filter-choice') < strpos($markup, 'collection-filter-field') && strpos($markup, 'collection-filter-field') < strpos($markup, 'wp:accordion '), 'category, field and collection positions preserve source topology');
@@ -55,7 +55,7 @@ $invalid = $evidence; $invalid['items'][1]['key'] = 'a';
 $assert(0 === (new CapturedCollectionProjector())->project($files($invalid))['projected_count'], 'ambiguous item identity remains visibly unsupported');
 
 $card = static function (string $heading, string $answer, string $id): string {
-    return '<div class="card"><button aria-expanded="false" aria-controls="' . $id . '">' . $heading . '</button><div role="region" id="' . $id . '" data-dla-local-disclosure="true" hidden><p>' . $answer . '</p></div></div>';
+    return '<div class="card"><button aria-expanded="false" aria-controls="' . $id . '">' . $heading . '</button><div role="region" id="' . $id . '" data-blocks-engine-capture-local-disclosure="true" hidden><p>' . $answer . '</p></div></div>';
 };
 $names = array('apricot', 'blueberry', 'cranberry', 'dewberry', 'elderberry', 'figfruit', 'gooseberry', 'honeydew', 'kiwifruit', 'lemonfruit', 'mangofruit', 'nectarine', 'olivefruit', 'papayafruit', 'quincefruit', 'raspberry', 'strawberry', 'tangerine', 'uglifruit');
 $finiteItems = array();
@@ -77,13 +77,13 @@ foreach ($labels as $index => $label) {
 }
 $resting = '';
 foreach ($membership[0] as $key) $resting .= $finiteItems[(int) $key]['html'];
-$finiteSource = '<html><head><script data-dla-local-disclosure-runtime="true"></script><script data-dla-collection-runtime="true"></script></head><body><main><div class="scope"><div class="choices"><button class="active">All</button><button class="inactive">Alpha</button><button class="inactive">Beta</button><button class="inactive">Gamma</button></div><input type="search" placeholder="Looking for something?" aria-label="Looking for something?"><p class="status">19 questions</p><div id="results" data-dla-exclusive-disclosures="true"><div class="wrap">' . $resting . '</div></div></div></main></body></html>';
+$finiteSource = '<html><head><script data-blocks-engine-capture-local-disclosure-runtime="true"></script><script data-blocks-engine-capture-collection-runtime="true"></script></head><body><main><div class="scope"><div class="choices"><button class="active">All</button><button class="inactive">Alpha</button><button class="inactive">Beta</button><button class="inactive">Gamma</button></div><input type="search" placeholder="Looking for something?" aria-label="Looking for something?"><p class="status">19 questions</p><div id="results" data-blocks-engine-capture-exclusive-disclosures="true"><div class="wrap">' . $resting . '</div></div></div></main></body></html>';
 $keys = array_column($finiteItems, 'key');
 $global = array(
     array('query' => 's', 'keys' => $keys),
     array('query' => 'apricot', 'keys' => array('0')),
     array('query' => 'APRICOT', 'keys' => array('0')),
-    array('query' => 'dla-no-match-7f39b2', 'keys' => array()),
+    array('query' => 'data-blocks-engine-capture-no-match-7f39b2', 'keys' => array()),
 );
 $legacy = array();
 $categoryProbes = array();
@@ -107,7 +107,7 @@ $finite = array(
     'replay' => 'verified',
     'network' => array('dataRequests' => 'observed-response-replay', 'verification' => 'intercepted-observed-responses'),
     'finiteBootstrap' => array(
-        'schema' => 'data-liberation/finite-bootstrap/v1',
+        'schema' => 'blocks-engine-capture/finite-bootstrap/v1',
         'mode' => 'category-or-global-search',
         'queryIndependent' => true,
         'completeness' => 'declared-finite',
@@ -131,13 +131,13 @@ $finite = array(
 $finiteFiles = static function (array $evidence) use ($finiteSource): array {
     return array(
         array('path' => 'website/index.html', 'content' => $finiteSource),
-        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
     );
 };
 $finiteProjected = (new CapturedCollectionProjector())->project($finiteFiles($finite));
 $assert(1 === $finiteProjected['projected_count'], 'finite bootstrap evidence projects one canonical collection: ' . json_encode($finiteProjected['diagnostics']));
-$assert(!str_contains($finiteProjected['files'][0]['content'], 'data-dla-collection-runtime') && !str_contains($finiteProjected['files'][0]['content'], 'data-dla-local-disclosure-runtime'), 'native accordion and collection blocks supersede the portable runtimes');
+$assert(!str_contains($finiteProjected['files'][0]['content'], 'data-blocks-engine-capture-collection-runtime') && !str_contains($finiteProjected['files'][0]['content'], 'data-blocks-engine-capture-local-disclosure-runtime'), 'native accordion and collection blocks supersede the portable runtimes');
 $finiteResult = (new HtmlTransformer())->transform($finiteProjected['files'][0]['content'])->toArray();
 $finiteMarkup = $finiteResult['serialized_blocks'];
 $assert('pass' === ($finiteResult['source_reports']['wp_block_validity']['status'] ?? null), 'finite collection serialization is Gutenberg-valid: ' . json_encode($finiteResult['source_reports']['wp_block_validity'] ?? null));
@@ -145,7 +145,7 @@ $assert(str_contains($finiteMarkup, 'wp:custom/collection-filter-choices') && st
 $assert(strpos($finiteMarkup, 'collection-filter-choices') < strpos($finiteMarkup, 'collection-filter-field') && strpos($finiteMarkup, '19 questions') > strpos($finiteMarkup, 'collection-filter-field') && strpos($finiteMarkup, '19 questions') < strpos($finiteMarkup, 'wp:accordion '), 'hiding the category strip does not hide the input, status or results');
 $assert(19 === substr_count($finiteMarkup, ' answer text</p>') && 3 === substr_count($finiteMarkup, 'Shared question?'), 'nineteen answers stay one editable copy, including duplicate headings');
 $assert(str_contains($finiteMarkup, '"autoclose":true') && strpos($finiteMarkup, '>apricot answer text</p>') < strpos($finiteMarkup, '>raspberry answer text</p>'), 'exclusive parent-scoped disclosures stay native and the canonical tree uses universal-query order');
-$assert(str_contains($finiteMarkup, '"mode":"category-or-global-search"') && str_contains($finiteMarkup, 'No local matches') && !str_contains($finiteMarkup, 'dla-no-match-7f39b2'), 'empty state stays query-independent while global order is stored for runtime movement');
+$assert(str_contains($finiteMarkup, '"mode":"category-or-global-search"') && str_contains($finiteMarkup, 'No local matches') && !str_contains($finiteMarkup, 'data-blocks-engine-capture-no-match-7f39b2'), 'empty state stays query-independent while global order is stored for runtime movement');
 $generated = $finiteResult['source_reports']['generated_blocks'] ?? array();
 $rootDefinition = null;
 foreach ($generated as $definition) if ('collection-filter' === ($definition['name'] ?? null)) $rootDefinition = $definition;
@@ -206,8 +206,8 @@ $statusCase = collection_filter_status_case();
 $statusFiles = static function (string $html, array $evidence): array {
     return array(
         array('path' => 'website/index.html', 'content' => $html),
-        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
     );
 };
 $legacy = $statusCase['evidence'];
@@ -215,9 +215,9 @@ unset($legacy['finiteBootstrap']['status']);
 $legacyProjected = (new CapturedCollectionProjector())->project($statusFiles($statusCase['source'], $legacy));
 $assert(1 === $legacyProjected['projected_count'] && !str_contains($legacyProjected['files'][0]['content'], 'data-blocks-engine-collection-status'), 'missing status remains a valid collection and invents no label');
 $invalidStatus = $statusCase['evidence'];
-$invalidStatus['finiteBootstrap']['status']['schema'] = 'data-liberation/collection-status/v2';
+$invalidStatus['finiteBootstrap']['status']['schema'] = 'blocks-engine-capture/collection-status/v2';
 $invalidProjected = (new CapturedCollectionProjector())->project($statusFiles($statusCase['source'], $invalidStatus));
-$assert(0 === $invalidProjected['projected_count'] && str_contains($invalidProjected['files'][0]['content'], 'data-dla-collection-runtime'), 'invalid present status is not claimed and does not retire the capture helper');
+$assert(0 === $invalidProjected['projected_count'] && str_contains($invalidProjected['files'][0]['content'], 'data-blocks-engine-capture-collection-runtime'), 'invalid present status is not claimed and does not retire the capture helper');
 $assert(str_contains(json_encode($invalidProjected['diagnostics']), 'not portable') && str_contains(json_encode($invalidProjected['diagnostics']), 'Observed unsupported status schema'), 'invalid status names the observed unsupported reason');
 $onclick = $statusCase['evidence'];
 $onclick['finiteBootstrap']['status']['nodes'][1]['html'] = str_replace('<span ', '<span onclick="alert(1)" ', $onclick['finiteBootstrap']['status']['nodes'][1]['html']);
@@ -225,24 +225,24 @@ $onclickProjected = (new CapturedCollectionProjector())->project($statusFiles($s
 $assert(0 === $onclickProjected['projected_count'] && str_contains(json_encode($onclickProjected['diagnostics']), 'Observed unsupported status onclick'), 'an event handler on a source status body is named and not projected');
 $copied = (new CapturedCollectionProjector())->project($statusFiles($statusCase['copies'], $statusCase['evidence']));
 $copiedMarkup = (string) ($copied['files'][0]['content'] ?? '');
-$assert(2 === $copied['projected_count'] && 4 === substr_count($copiedMarkup, 'data-dla-collection-status=') && 4 === substr_count($copiedMarkup, 'data-blocks-engine-status-hide-zero'), 'each responsive copy gets the source session status once');
+$assert(2 === $copied['projected_count'] && 4 === substr_count($copiedMarkup, 'data-blocks-engine-capture-collection-status=') && 4 === substr_count($copiedMarkup, 'data-blocks-engine-status-hide-zero'), 'each responsive copy gets the source session status once');
 $assert(2 === substr_count($copiedMarkup, 'data-blocks-engine-status-bound="empty"'), 'the zero count is the empty announcer, not another session label');
-$statusRuntime = 'document.querySelector("[data-dla-collection-empty]");';
-$statusHtml = str_replace('</head>', '<script data-dla-collection-runtime="true">' . $statusRuntime . '</script></head>', $statusCase['copies']);
+$statusRuntime = 'document.querySelector("[data-blocks-engine-capture-collection-empty]");';
+$statusHtml = str_replace('</head>', '<script data-blocks-engine-capture-collection-runtime="true">' . $statusRuntime . '</script></head>', $statusCase['copies']);
 $statusCompiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array('website/index.html' => $statusHtml, 'capture-receipt.json' => $statusFiles($statusHtml, $statusCase['evidence'])[1]['content'], 'interaction-states.json' => $statusFiles($statusHtml, $statusCase['evidence'])[2]['content'])))->toArray();
 $statusContracts = array_values(array_filter($statusCompiled['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_target_missing' === ($diagnostic['code'] ?? '')));
 $statusBodies = '';
 foreach (array($statusCompiled['files'] ?? array(), $statusCompiled['assets'] ?? array()) as $group) foreach ($group as $file) if (is_array($file) && is_string($file['content'] ?? null)) $statusBodies .= $file['content'];
-$assert(array() === $statusContracts && !str_contains($statusBodies, 'data-dla-collection-empty'), 'both assembled status copies retire the extracted collection script: ' . json_encode($statusContracts));
+$assert(array() === $statusContracts && !str_contains($statusBodies, 'data-blocks-engine-capture-collection-empty'), 'both assembled status copies retire the extracted collection script: ' . json_encode($statusContracts));
 $compiledMarkup = (string) ($statusCompiled['serialized_blocks'] ?? '');
 $assert(2 === substr_count($compiledMarkup, 'aria-hidden="false"') && 2 === substr_count($compiledMarkup, 'data-hook="questions-results-found"') && 4 === substr_count($compiledMarkup, 'data-blocks-engine-status-hide-zero'), 'compiled status keeps both source count and query wrappers');
 $assert(4 === substr_count($compiledMarkup, 'role="status"') && 4 === substr_count($compiledMarkup, 'aria-live="polite"') && 2 === substr_count($compiledMarkup, 'data-blocks-engine-status-bound="empty"') && 2 === substr_count($compiledMarkup, '>0 matching results found<'), 'the zero live region keeps its source role inside the empty state only');
-$partialCopies = str_replace('data-dla-collection-item="3"', 'data-dla-collection-item="missing"', $statusHtml);
+$partialCopies = str_replace('data-blocks-engine-capture-collection-item="3"', 'data-blocks-engine-capture-collection-item="missing"', $statusHtml);
 $partialStatus = (new CapturedCollectionProjector())->project($statusFiles($partialCopies, $statusCase['evidence']));
-$assert(0 === $partialStatus['projected_count'] && str_contains($partialStatus['files'][0]['content'], 'data-dla-collection-runtime'), 'an unmatched portable copy keeps the collection script instead of retiring a partial page');
-$markedItem = static fn (string $key, string $members, string $answer): string => '<div data-dla-collection-item="' . $key . '" data-dla-collection-members="' . htmlspecialchars($members, ENT_QUOTES) . '"><button aria-expanded="false" aria-controls="m-' . $key . '">Shared question?</button><div id="m-' . $key . '" role="region" hidden><p>' . $answer . '</p></div></div>';
+$assert(0 === $partialStatus['projected_count'] && str_contains($partialStatus['files'][0]['content'], 'data-blocks-engine-capture-collection-runtime'), 'an unmatched portable copy keeps the collection script instead of retiring a partial page');
+$markedItem = static fn (string $key, string $members, string $answer): string => '<div data-blocks-engine-capture-collection-item="' . $key . '" data-blocks-engine-capture-collection-members="' . htmlspecialchars($members, ENT_QUOTES) . '"><button aria-expanded="false" aria-controls="m-' . $key . '">Shared question?</button><div id="m-' . $key . '" role="region" hidden><p>' . $answer . '</p></div></div>';
 $markedCopy = static function (string $id) use ($markedItem): string {
-    return '<section class="copy"><div role="tab" data-dla-collection-category-control="' . $id . '" data-dla-collection-index="0">All</div><div role="tab" data-dla-collection-category-control="' . $id . '" data-dla-collection-index="1">Alpha</div><input data-dla-collection-field="' . $id . '" placeholder="Search locally"><div data-dla-collection="' . $id . '"><div>' . $markedItem('a', '[0,1]', 'Alpha answer') . $markedItem('b', '[0]', 'Beta answer') . '</div></div></section>';
+    return '<section class="copy"><div role="tab" data-blocks-engine-capture-collection-category-control="' . $id . '" data-blocks-engine-capture-collection-index="0">All</div><div role="tab" data-blocks-engine-capture-collection-category-control="' . $id . '" data-blocks-engine-capture-collection-index="1">Alpha</div><input data-blocks-engine-capture-collection-field="' . $id . '" placeholder="Search locally"><div data-blocks-engine-capture-collection="' . $id . '"><div>' . $markedItem('a', '[0,1]', 'Alpha answer') . $markedItem('b', '[0]', 'Beta answer') . '</div></div></section>';
 };
 $markedSource = '<html><body><main>' . $markedCopy('0') . $markedCopy('1') . '</main></body></html>';
 $markedEvidence = $evidence;
@@ -262,13 +262,13 @@ $markedFiles = $files($markedEvidence);
 $markedFiles[0]['content'] = $markedSource;
 $assert(0 === (new CapturedCollectionProjector())->project($markedFiles)['projected_count'], 'portable item membership that disagrees with evidence is not projected');
 
-$collectionRuntime = 'document.querySelectorAll("[data-dla-collection-category-control]");document.querySelector("[data-dla-collection-empty]");';
-$disclosureRuntime = 'document.querySelectorAll("[data-dla-local-disclosure]");document.querySelector("[data-dla-exclusive-disclosures]");';
+$collectionRuntime = 'document.querySelectorAll("[data-blocks-engine-capture-collection-category-control]");document.querySelector("[data-blocks-engine-capture-collection-empty]");';
+$disclosureRuntime = 'document.querySelectorAll("[data-blocks-engine-capture-local-disclosure]");document.querySelector("[data-blocks-engine-capture-exclusive-disclosures]");';
 $keptRuntime = 'document.getElementById("keep-me").dataset.ready="1";';
-$openItem = '<div data-dla-collection-item="a" data-dla-collection-members="[0,1]"><button aria-expanded="true" aria-controls="m-a">Shared question?</button><div id="m-a" role="region" data-dla-local-disclosure="true"><p>Alpha answer</p></div></div>';
-$closedItem = '<div data-dla-collection-item="b" data-dla-collection-members="[0]"><button aria-expanded="false" aria-controls="m-b">Shared question?</button><div id="m-b" role="region" data-dla-local-disclosure="true" hidden><p>Beta answer</p></div></div>';
-$extractedCopy = '<section class="copy"><div role="tab" data-dla-collection-category-control="0" data-dla-collection-index="0">All</div><div role="tab" data-dla-collection-category-control="0" data-dla-collection-index="1">Alpha</div><input data-dla-collection-field="0" placeholder="Search locally"><div data-dla-collection="0" data-dla-exclusive-disclosures="true"><div>' . $openItem . $closedItem . '</div></div></section>';
-$extractedHtml = static fn (string $sibling): string => '<html><head><script>' . $keptRuntime . '</script><script data-dla-collection-runtime="true">' . $collectionRuntime . '</script><script data-dla-local-disclosure-runtime="true">' . $disclosureRuntime . '</script></head><body><main><p id="keep-me">Keep</p>' . $extractedCopy . $sibling . '</main></body></html>';
+$openItem = '<div data-blocks-engine-capture-collection-item="a" data-blocks-engine-capture-collection-members="[0,1]"><button aria-expanded="true" aria-controls="m-a">Shared question?</button><div id="m-a" role="region" data-blocks-engine-capture-local-disclosure="true"><p>Alpha answer</p></div></div>';
+$closedItem = '<div data-blocks-engine-capture-collection-item="b" data-blocks-engine-capture-collection-members="[0]"><button aria-expanded="false" aria-controls="m-b">Shared question?</button><div id="m-b" role="region" data-blocks-engine-capture-local-disclosure="true" hidden><p>Beta answer</p></div></div>';
+$extractedCopy = '<section class="copy"><div role="tab" data-blocks-engine-capture-collection-category-control="0" data-blocks-engine-capture-collection-index="0">All</div><div role="tab" data-blocks-engine-capture-collection-category-control="0" data-blocks-engine-capture-collection-index="1">Alpha</div><input data-blocks-engine-capture-collection-field="0" placeholder="Search locally"><div data-blocks-engine-capture-collection="0" data-blocks-engine-capture-exclusive-disclosures="true"><div>' . $openItem . $closedItem . '</div></div></section>';
+$extractedHtml = static fn (string $sibling): string => '<html><head><script>' . $keptRuntime . '</script><script data-blocks-engine-capture-collection-runtime="true">' . $collectionRuntime . '</script><script data-blocks-engine-capture-local-disclosure-runtime="true">' . $disclosureRuntime . '</script></head><body><main><p id="keep-me">Keep</p>' . $extractedCopy . $sibling . '</main></body></html>';
 $runtimeEvidence = $evidence;
 $runtimeEvidence['field']['selector'] = 'input.missing';
 $runtimeEvidence['target']['selector'] = 'div.missing';
@@ -291,15 +291,15 @@ $complete = (new ArtifactCompiler())->compile($extractedArtifact($extractedHtml(
 $completeBodies = $scriptBodies($complete);
 $completeContracts = array_values(array_filter($complete['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_target_missing' === ($diagnostic['code'] ?? '')));
 $assert(array() === $completeContracts, 'extracted capture runtimes are omitted after every binding is native: ' . json_encode($completeContracts));
-$assert(!str_contains($completeBodies, 'data-dla-collection-category-control') && !str_contains($completeBodies, 'data-dla-local-disclosure') && str_contains($completeBodies, 'keep-me'), 'only the proven collection and disclosure script files are omitted');
+$assert(!str_contains($completeBodies, 'data-blocks-engine-capture-collection-category-control') && !str_contains($completeBodies, 'data-blocks-engine-capture-local-disclosure') && str_contains($completeBodies, 'keep-me'), 'only the proven collection and disclosure script files are omitted');
 $replacements = $complete['source_reports']['native_runtime_replacements'] ?? array();
 $assert(2 === count($replacements) && array('website/index.inline-2.js', 'website/index.inline-3.js') === array_column($replacements, 'asset_source_path'), 'script policy names the extracted files superseded before projection: ' . json_encode(array_column($replacements, 'asset_source_path')));
 $completeMarkup = (string) ($complete['serialized_blocks'] ?? '');
 $assert(1 === substr_count($completeMarkup, '>Alpha answer</p>') && 1 === substr_count($completeMarkup, '>Beta answer</p>') && str_contains($completeMarkup, '"openByDefault":true'), 'native items stay one tree and the source-open disclosure stays open');
-$partial = (new ArtifactCompiler())->compile($extractedArtifact($extractedHtml('<div data-dla-local-disclosure="true" id="untouched-sibling"><p>Sibling region</p></div>')))->toArray();
+$partial = (new ArtifactCompiler())->compile($extractedArtifact($extractedHtml('<div data-blocks-engine-capture-local-disclosure="true" id="untouched-sibling"><p>Sibling region</p></div>')))->toArray();
 $partialBodies = $scriptBodies($partial);
 $partialPaths = array_column($partial['source_reports']['native_runtime_replacements'] ?? array(), 'asset_source_path');
-$assert(array('website/index.inline-2.js') === $partialPaths && str_contains($partialBodies, 'data-dla-local-disclosure') && !str_contains($partialBodies, 'data-dla-collection-category-control'), 'an unconverted sibling keeps its disclosure runtime while the completed collection runtime is still omitted: ' . json_encode($partialPaths));
+$assert(array('website/index.inline-2.js') === $partialPaths && str_contains($partialBodies, 'data-blocks-engine-capture-local-disclosure') && !str_contains($partialBodies, 'data-blocks-engine-capture-collection-category-control'), 'an unconverted sibling keeps its disclosure runtime while the completed collection runtime is still omitted: ' . json_encode($partialPaths));
 $snapshotEvidence = $evidence;
 $snapshotEvidence['field']['selector'] = 'input.missing';
 $snapshotEvidence['target']['selector'] = 'div.snapshot-region';

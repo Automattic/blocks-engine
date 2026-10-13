@@ -3,11 +3,12 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
 use SplObjectStorage;
 
 /**
- * Rendered glyph colour recorded by capture as `data-dla-glyph-color`.
+ * Rendered glyph colour recorded by capture as `data-blocks-engine-capture-glyph-color`.
  *
  * The attribute is capture evidence, not content: it is read once and removed
  * from the source DOM before conversion, so it never reaches block markup,
@@ -16,7 +17,6 @@ use SplObjectStorage;
  */
 final class CapturedGlyphColor
 {
-    public const ATTRIBUTE = 'data-dla-glyph-color';
 
     /** Lowercase `#rrggbb`, or empty when the value is not a six-digit hex colour. */
     public static function normalize(string $value): string
@@ -25,7 +25,7 @@ final class CapturedGlyphColor
     }
 
     /**
-     * Remove every `data-dla-glyph-color` under (and on) the root and return the
+     * Remove every `data-blocks-engine-capture-glyph-color` under (and on) the root and return the
      * valid colours keyed by the element that carried them. Invalid values are
      * removed too and count as absent.
      *
@@ -35,15 +35,15 @@ final class CapturedGlyphColor
     {
         /** @var SplObjectStorage<DOMElement, string> $colors */
         $colors = new SplObjectStorage();
-        $elements = $root->hasAttribute(self::ATTRIBUTE) ? array( $root ) : array();
+        $elements = $root->hasAttribute(CaptureEvidence::GLYPH_COLOR) ? array( $root ) : array();
         foreach ( $root->getElementsByTagName('*') as $element ) {
-            if ( $element->hasAttribute(self::ATTRIBUTE) ) {
+            if ( $element->hasAttribute(CaptureEvidence::GLYPH_COLOR) ) {
                 $elements[] = $element;
             }
         }
         foreach ( $elements as $element ) {
-            $color = self::normalize($element->getAttribute(self::ATTRIBUTE));
-            $element->removeAttribute(self::ATTRIBUTE);
+            $color = self::normalize($element->getAttribute(CaptureEvidence::GLYPH_COLOR));
+            $element->removeAttribute(CaptureEvidence::GLYPH_COLOR);
             if ( '' !== $color ) {
                 $colors[$element] = $color;
             }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
@@ -105,8 +106,8 @@ final class ArtifactCompiler
             if ('capture-receipt.json' !== ($file['path'] ?? null) || !is_string($file['content'] ?? null) || strlen($file['content']) > 2 * 1024 * 1024) continue;
             $receipt = json_decode($file['content'], true);
             return is_array($receipt)
-                && 'data-liberation/capture-receipt/v1' === ($receipt['schema'] ?? null)
-                && 'data-liberation/source-interactivity/v1' === ($receipt['sourceInteractivity']['schema'] ?? null)
+                && CaptureEvidence::CAPTURE_RECEIPT_SCHEMA === ($receipt['schema'] ?? null)
+                && CaptureEvidence::SOURCE_INTERACTIVITY_SCHEMA === ($receipt['sourceInteractivity']['schema'] ?? null)
                 && is_int($receipt['sourceInteractivity']['unreproduced_route_count'] ?? null)
                 && $receipt['sourceInteractivity']['unreproduced_route_count'] > 0;
         }
@@ -2158,7 +2159,7 @@ final class ArtifactCompiler
                 if ( ! isset($variants[$sourcePath]) ) {
                     $variants[$sourcePath][$variant] = $sourcePath;
                     $files[$index]['media'] = $media;
-                    if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $files[$index]['source_media'] = StyleTagScanner::authorMedia($tag);
+                    if (array_key_exists(CaptureEvidence::SOURCE_MEDIA, HtmlTagScanner::attributes($tag))) $files[$index]['source_media'] = StyleTagScanner::authorMedia($tag);
                     $files[$index]['type'] = $type;
                     $files[$index]['stylesheet_activation'] = $state;
                     $files[$index]['stylesheet_source_path'] = $sourcePath;
@@ -2181,7 +2182,7 @@ final class ArtifactCompiler
                 $aliasFile['stylesheet_occurrence'] = $occurrence;
                 $aliasFile['media'] = $media;
                 unset($aliasFile['source_media']);
-                if (array_key_exists('data-dla-source-media', HtmlTagScanner::attributes($tag))) $aliasFile['source_media'] = StyleTagScanner::authorMedia($tag);
+                if (array_key_exists(CaptureEvidence::SOURCE_MEDIA, HtmlTagScanner::attributes($tag))) $aliasFile['source_media'] = StyleTagScanner::authorMedia($tag);
                 $aliasFile['type'] = $type;
                 $aliasFile['stylesheet_activation'] = $state;
                 $aliasFile['references'] = array($reference);
@@ -3667,7 +3668,7 @@ final class ArtifactCompiler
 
     /**
      * Image paths whose every `<img>` reference on the page carries a valid
-     * captured `data-dla-glyph-color`. Their glyph colour comes from that
+     * captured `data-blocks-engine-capture-glyph-color`. Their glyph colour comes from that
      * evidence, so their bytes are not decoded.
      *
      * @param array<int, array<string, mixed>> $files
@@ -3675,7 +3676,7 @@ final class ArtifactCompiler
      */
     private function capturedGlyphAssetPaths(string $html, string $sourcePath, array $files): array
     {
-        if ( ! str_contains($html, CapturedGlyphColor::ATTRIBUTE) ) {
+        if ( ! str_contains($html, CaptureEvidence::GLYPH_COLOR) ) {
             return array();
         }
 
@@ -3688,7 +3689,7 @@ final class ArtifactCompiler
                 continue;
             }
             $captured[$path] = ($captured[$path] ?? true)
-                && '' !== CapturedGlyphColor::normalize($attributes[CapturedGlyphColor::ATTRIBUTE] ?? '');
+                && '' !== CapturedGlyphColor::normalize($attributes[CaptureEvidence::GLYPH_COLOR] ?? '');
         }
 
         return $captured;

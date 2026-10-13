@@ -165,9 +165,9 @@ $assert(
 
 $dualDoc = $transform(
     '<style>.nav-wrap{display:none}.hamburger span:after{content:"MENU"}</style>'
-    . '<div class="data-liberation-desktop-document"><div class="header-wrap"><a class="hamburger" href="#" aria-label="Menu"><span></span></a></div>'
+    . '<div class="data-blocks-engine-capture-desktop-document"><div class="header-wrap"><a class="hamburger" href="#" aria-label="Menu"><span></span></a></div>'
     . '<div class="nav-wrap"><nav><ul>' . $links . '</ul></nav></div></div>'
-    . '<div class="data-liberation-mobile-document"><div class="header-wrap"><a class="hamburger" href="#" aria-label="Menu"><span></span></a></div>'
+    . '<div class="data-blocks-engine-capture-mobile-document"><div class="header-wrap"><a class="hamburger" href="#" aria-label="Menu"><span></span></a></div>'
     . '<div class="nav-wrap"><nav><ul>' . $links . '</ul></nav></div></div>'
 );
 $dualDocMarkup = $markup($dualDoc);

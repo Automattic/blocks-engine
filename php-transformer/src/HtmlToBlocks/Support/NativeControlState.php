@@ -3,17 +3,17 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
 
 /** Adapts the known producer's inert facts to the authored-control model. */
 final class NativeControlState
 {
-    public const ATTRIBUTE = 'data-dla-native-control-state';
 
     public static function isReplayScript(string $tag): bool
     {
-        return array_key_exists('data-dla-native-control-runtime', HtmlTagScanner::attributes($tag));
+        return array_key_exists(CaptureEvidence::NATIVE_CONTROL_RUNTIME, HtmlTagScanner::attributes($tag));
     }
 
     /** Discard the producer interpreter, never grant a script trust by its marker.
@@ -31,13 +31,13 @@ final class NativeControlState
      * @return array<string,mixed>|null */
     public static function payload(DOMElement $control): ?array
     {
-        return null === self::attributes($control) ? null : json_decode($control->getAttribute(self::ATTRIBUTE), true);
+        return null === self::attributes($control) ? null : json_decode($control->getAttribute(CaptureEvidence::NATIVE_CONTROL_STATE), true);
     }
 
     /** @return array<string,mixed>|null */
     public static function attributes(DOMElement $control): ?array
     {
-        $state = json_decode($control->getAttribute(self::ATTRIBUTE), true);
+        $state = json_decode($control->getAttribute(CaptureEvidence::NATIVE_CONTROL_STATE), true);
         if (!is_array($state) || 1 !== ($state['version'] ?? null)) return null;
         $tag = strtolower($control->tagName);
         $kind = $state['kind'] ?? null;

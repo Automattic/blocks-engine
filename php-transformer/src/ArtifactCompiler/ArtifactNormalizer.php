@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -627,7 +628,7 @@ final class ArtifactNormalizer
                     continue;
                 }
                 $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
-                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'source_media' => array_key_exists('data-dla-source-media', \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
+                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'source_media' => array_key_exists(CaptureEvidence::SOURCE_MEDIA, \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
             // Spacing an author declares inline on <body> is page content the
             // reader sees, but the document is re-wrapped in a bare <body>

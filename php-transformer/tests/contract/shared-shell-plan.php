@@ -541,7 +541,7 @@ $assert(str_contains($nestedMultiColorWrites['templates/page.html']['payload']['
 $responsiveDuplicateShell = static function (string $title, bool $dual, bool $correspondence): string {
     $link = static function (string $href, string $label) use ($correspondence): string {
         $attrs = $correspondence
-            ? ' class="nav-link data-liberation-responsive-counterpart-f0edc2abe43b" data-dla-responsive-source="root:a:1"'
+            ? ' class="nav-link data-blocks-engine-capture-responsive-counterpart-f0edc2abe43b" data-blocks-engine-capture-responsive-source="root:a:1"'
             : ' class="nav-link"';
         return '<a' . $attrs . ' href="' . $href . '">' . $label . '</a>';
     };
@@ -550,7 +550,7 @@ $responsiveDuplicateShell = static function (string $title, bool $dual, bool $co
     $body = $header . '<main><h1>' . $title . '</h1></main>' . $footer;
     if (!$dual) return '<div id="root"><div class="page">' . $body . '</div></div>';
     $document = static function (string $variant) use ($body): string {
-        return '<div class="data-liberation-' . $variant . '-document"><div id="root"><div class="page">' . $body . '</div></div></div>';
+        return '<div class="data-blocks-engine-capture-' . $variant . '-document"><div id="root"><div class="page">' . $body . '</div></div></div>';
     };
     return $document('desktop') . $document('mobile');
 };
@@ -816,8 +816,8 @@ $desktopVariantFooter = '<footer id="site-footer" class="site-footer"><p>Desktop
 $mobileVariantFooter = '<footer id="site-footer" class="site-footer"><p>Mobile colophon</p></footer>';
 $variantDocument = static function (string $title) use ($desktopVariantHeader, $mobileVariantHeader, $desktopVariantFooter, $mobileVariantFooter): string {
     $main = '<main><h1>' . $title . '</h1></main>';
-    return '<div class="data-liberation-desktop-document"><div class="frame">' . $desktopVariantHeader . $main . $desktopVariantFooter . '</div></div>'
-        . '<div class="data-liberation-mobile-document"><div class="frame">' . $mobileVariantHeader . $main . $mobileVariantFooter . '</div></div>';
+    return '<div class="data-blocks-engine-capture-desktop-document"><div class="frame">' . $desktopVariantHeader . $main . $desktopVariantFooter . '</div></div>'
+        . '<div class="data-blocks-engine-capture-mobile-document"><div class="frame">' . $mobileVariantHeader . $main . $mobileVariantFooter . '</div></div>';
 };
 $variantPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => $variantDocument('Home'),
@@ -831,8 +831,8 @@ $variantHeaderParts = array_values(array_filter($variantPlan['template_parts'], 
 foreach (array('index.html' => 'templates/front-page.html', 'about.html' => 'templates/page.html', 'shop.html' => 'templates/page.html') as $source => $template) {
     $markup = $variantPages[$source]['canonical_block_markup'] ?? '';
     $templateMarkup = $variantWrites[$template]['payload']['data'] ?? '';
-    $desktopAt = strpos($markup, 'data-liberation-desktop-document');
-    $mobileAt = strpos($markup, 'data-liberation-mobile-document');
+    $desktopAt = strpos($markup, 'data-blocks-engine-capture-desktop-document');
+    $mobileAt = strpos($markup, 'data-blocks-engine-capture-mobile-document');
     $desktopMarkup = false !== $desktopAt ? substr($markup, $desktopAt, (false !== $mobileAt ? $mobileAt : strlen($markup)) - $desktopAt) : '';
     $mobileMarkup = false !== $mobileAt ? substr($markup, $mobileAt) : '';
     $templateBindsHeader = str_contains($templateMarkup, '"slug":"header"');
@@ -846,12 +846,12 @@ foreach (array('index.html' => 'templates/front-page.html', 'about.html' => 'tem
 $variantHeader = $variantHeaderParts[0] ?? array();
 $variantHeaderMarkup = (string) ($variantHeader['canonical_block_markup'] ?? '');
 $assert(1 === count($variantHeaderParts) && 'shared_shell' === ($variantHeader['placement']['kind'] ?? null) && 'responsive_variant_partition' === ($variantHeader['provenance']['reason'] ?? null), 'Divergent desktop and mobile headers that match across routes become one template-bound header part.');
-$assert(str_contains($variantHeaderMarkup, 'data-liberation-desktop-document') && str_contains($variantHeaderMarkup, 'data-liberation-mobile-document') && str_contains($variantHeaderMarkup, 'Menu') && str_contains($variantHeaderMarkup, 'Example Band'), 'The shared header part keeps each viewport\'s chrome behind the existing variant visibility class: ' . $variantHeaderMarkup);
+$assert(str_contains($variantHeaderMarkup, 'data-blocks-engine-capture-desktop-document') && str_contains($variantHeaderMarkup, 'data-blocks-engine-capture-mobile-document') && str_contains($variantHeaderMarkup, 'Menu') && str_contains($variantHeaderMarkup, 'Example Band'), 'The shared header part keeps each viewport\'s chrome behind the existing variant visibility class: ' . $variantHeaderMarkup);
 $assert(1 === substr_count($variantWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($variantWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($variantWrites['templates/page-notes.html']['payload']['data'] ?? '', '"slug":"header"'), 'Templates reference the shared header, and a route without that chrome stays excluded.');
 $assert(!str_contains($variantPages['notes.html']['canonical_block_markup'] ?? '', '"tagName":"header"'), 'A route without header chrome does not gain one.');
 $variantFooterParts = array_values(array_filter($variantPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null) && in_array($part['placement']['kind'] ?? null, array('shared_shell', 'entry_shell'), true)));
 $variantFooterMarkup = (string) (($variantFooterParts[0]['canonical_block_markup'] ?? ''));
-$assert(1 === count($variantFooterParts) && 'responsive_variant_partition' === ($variantFooterParts[0]['provenance']['reason'] ?? null) && str_contains($variantFooterMarkup, 'Desktop colophon') && str_contains($variantFooterMarkup, 'Mobile colophon') && str_contains($variantFooterMarkup, 'data-liberation-desktop-document') && str_contains($variantFooterMarkup, 'data-liberation-mobile-document'), 'Divergent desktop and mobile footers hoist into one visibility-partitioned footer part: ' . $variantFooterMarkup);
+$assert(1 === count($variantFooterParts) && 'responsive_variant_partition' === ($variantFooterParts[0]['provenance']['reason'] ?? null) && str_contains($variantFooterMarkup, 'Desktop colophon') && str_contains($variantFooterMarkup, 'Mobile colophon') && str_contains($variantFooterMarkup, 'data-blocks-engine-capture-desktop-document') && str_contains($variantFooterMarkup, 'data-blocks-engine-capture-mobile-document'), 'Divergent desktop and mobile footers hoist into one visibility-partitioned footer part: ' . $variantFooterMarkup);
 foreach (array('index.html', 'about.html', 'shop.html') as $source) {
     $markup = $variantPages[$source]['canonical_block_markup'] ?? '';
     $assert(!str_contains($markup, '"tagName":"footer"') && !str_contains($markup, '"area":"footer"'), "{$source} keeps footer landmarks out of page content.");
@@ -870,8 +870,8 @@ $partitionDocument = static function (string $title) use ($partitionItem): strin
         . $partitionItem('Home', '/', false) . $partitionItem('Journal', '/journal', false) . $partitionItem('Shop', '/shop', false)
         . '</ul></nav></header>';
     $main = '<main><h1>' . $title . '</h1></main>';
-    return '<div class="data-liberation-desktop-document"><div class="frame">' . $desktop . $main . '<footer id="site-footer" class="site-footer"><p>Desktop colophon</p></footer></div></div>'
-        . '<div class="data-liberation-mobile-document"><div class="frame">' . $mobile . $main . '<footer id="site-footer" class="site-footer"><p>Mobile colophon</p></footer></div></div>';
+    return '<div class="data-blocks-engine-capture-desktop-document"><div class="frame">' . $desktop . $main . '<footer id="site-footer" class="site-footer"><p>Desktop colophon</p></footer></div></div>'
+        . '<div class="data-blocks-engine-capture-mobile-document"><div class="frame">' . $mobile . $main . '<footer id="site-footer" class="site-footer"><p>Mobile colophon</p></footer></div></div>';
 };
 $partitionPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => $partitionDocument('Home'),
@@ -885,7 +885,7 @@ $partitionFooter = $partitionParts['footer'] ?? array();
 $partitionHeaderMarkup = (string) ($partitionHeader['canonical_block_markup'] ?? '');
 $partitionMenus = array_values(array_filter($partitionPlan['menus'] ?? array(), static fn(array $menu): bool => is_string($menu['token'] ?? null) && is_string($menu['block_markup'] ?? null)));
 $assert('header' === ($partitionHeader['slug'] ?? null) && 'footer' === ($partitionFooter['slug'] ?? null) && 'responsive_variant_partition' === ($partitionHeader['provenance']['reason'] ?? null) && 'responsive_variant_partition' === ($partitionFooter['provenance']['reason'] ?? null), 'Viewport-partitioned chrome still extracts one shared header and footer when both viewports contain navigation: ' . json_encode(array_map(static fn(array $part): string => ($part['slug'] ?? '') . ':' . ($part['provenance']['reason'] ?? ''), $partitionPlan['template_parts'])));
-$assert(str_contains($partitionHeaderMarkup, 'data-liberation-desktop-document') && str_contains($partitionHeaderMarkup, 'data-liberation-mobile-document') && 2 <= substr_count($partitionHeaderMarkup, '<!-- wp:navigation '), 'The shared header keeps both viewport navigations.');
+$assert(str_contains($partitionHeaderMarkup, 'data-blocks-engine-capture-desktop-document') && str_contains($partitionHeaderMarkup, 'data-blocks-engine-capture-mobile-document') && 2 <= substr_count($partitionHeaderMarkup, '<!-- wp:navigation '), 'The shared header keeps both viewport navigations.');
 $assert(2 === count($partitionMenus) && str_contains((string) ($partitionMenus[0]['block_markup'] ?? ''), '"label":"Home"') && str_contains((string) ($partitionMenus[0]['block_markup'] ?? ''), '"label":"Shop"'), 'Viewport menus preserve their distinct fragment destinations in separate navigation entities.');
 foreach ($partitionMenus as $menu) $assert(str_contains($partitionHeaderMarkup, '{{wordpress-site-plan:navigation:' . $menu['token'] . '}}'), 'Each viewport navigation binds its own declared content.');
 foreach (array('index.html', 'journal.html', 'shop.html') as $source) {
@@ -928,7 +928,7 @@ foreach (array('index.html' => 'Home', 'services.html' => 'Services', 'contact.h
 }
 $assert(str_contains($equivalentPages['about.html']['canonical_block_markup'] ?? '', 'Other brand') && !str_contains($equivalentWrites['templates/page-about.html']['payload']['data'] ?? '', 'wp:navigation'), 'A route whose header content differs stays page-owned and does not receive the shared navigation in its exclusion template.');
 $assert(!str_contains($equivalentWrites['templates/front-page.html']['payload']['data'] ?? '', 'wp:template-part') && !str_contains($equivalentWrites['templates/page.html']['payload']['data'] ?? '', 'wp:template-part'), 'Generic templates do not duplicate source-position chrome.');
-$assert(!str_contains($equivalentWrites['templates/front-page.html']['payload']['data'] ?? '', 'data-liberation-desktop-document'), 'Equivalent-document extraction does not invent a responsive-variant partition.');
+$assert(!str_contains($equivalentWrites['templates/front-page.html']['payload']['data'] ?? '', 'data-blocks-engine-capture-desktop-document'), 'Equivalent-document extraction does not invent a responsive-variant partition.');
 
 // Footer copy is repeated inside two different authored wrappers. Keep both
 // wrapper geometries in their source position while sharing only the identical

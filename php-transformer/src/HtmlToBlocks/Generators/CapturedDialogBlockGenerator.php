@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+
 /** Defines the editable companion block used for captured dialogs. */
 final class CapturedDialogBlockGenerator
 {
@@ -33,7 +35,7 @@ final class CapturedDialogBlockGenerator
     var InnerBlocks = blockEditor.InnerBlocks;
     function styleObject( value ) { if ( ! value ) return undefined; return String( value ).split( ';' ).reduce( function( output, declaration ) { var separator = declaration.indexOf( ':' ); if ( separator < 1 ) return output; var name = declaration.slice( 0, separator ).trim(); var property = name.indexOf( '--' ) === 0 ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); output[ property ] = declaration.slice( separator + 1 ).trim(); return output; }, {} ); }
     function dialogProps( attrs ) {
-        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, style: styleObject( attrs.sourceStyle ), 'data-dla-dialog-ancestor-unverified': attrs.ancestorUnverified || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'data-blocks-engine-placement': attrs.placement || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined, 'data-blocks-engine-ancestor-state': attrs.ancestorState && attrs.ancestorState.length ? JSON.stringify( attrs.ancestorState ) : undefined };
+        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, style: styleObject( attrs.sourceStyle ), '__DIALOG_ANCESTOR_UNVERIFIED__': attrs.ancestorUnverified || undefined, 'data-blocks-engine-presentation': attrs.presentation || undefined, 'data-blocks-engine-placement': attrs.placement || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined, 'data-blocks-engine-gallery-selection': attrs.gallerySelection && attrs.gallerySelection.length ? JSON.stringify( attrs.gallerySelection ) : undefined, 'data-blocks-engine-ancestor-state': attrs.ancestorState && attrs.ancestorState.length ? JSON.stringify( attrs.ancestorState ) : undefined };
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
@@ -257,7 +259,7 @@ JS;
             ),
             'assets' => array(
                 'style.css' => $style,
-                'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)), $editor),
+                'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__', '__DIALOG_ANCESTOR_UNVERIFIED__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED), $editor),
             ),
             'view_js' => $view,
             'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element')),

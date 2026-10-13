@@ -1,0 +1,2070 @@
+{
+    "schema": "blocks-engine/php-transformer/capture-evidence-equivalence/v1",
+    "source_commit": "84d0853a63ba2b72548be904c81574c209149064",
+    "cases": [
+        {
+            "id": "0044a9a82a692a866ae90a30f2fc8c49d22b1253",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "118f9c84326d100128338a29c3636ea37c2124d55ccc90a1c17afe31ff2ac876",
+            "outcome": "output"
+        },
+        {
+            "id": "00857f35b1a15763a8904cf6eb5711a022ada477",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "b47cf9df75bd53f613dd5609d67092ba407e79907e673085044e667dcdc1d72d",
+            "outcome": "output"
+        },
+        {
+            "id": "01675006ff9c3d42fec80a96b42d799090352529",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "9fe00d33fffea59e3aa87e47d4324a2a7b0da49910b6ccbdfbd20726087e4a52",
+            "outcome": "output"
+        },
+        {
+            "id": "05d72663385cec3b244475181766e60515c6980e",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "be20b6a87354f8966fd4eaab18c60101bf19d35ee9d71af663b63d2a8d9af9bc",
+            "outcome": "output"
+        },
+        {
+            "id": "0611be0a3a1a1341590ee3a3156f30fd86fa5388",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "bf3c92671b563c578eb93f05572122e4df6cbccf4e853c8db1590fb743b229a4",
+            "outcome": "output"
+        },
+        {
+            "id": "06596271895ea1dd30fc3c9cc208b958f07a44ad",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "3fb5add5c0d7b03c3947c8a71e66545493c06ac199cbf4734662cc048b6ab951",
+            "outcome": "output"
+        },
+        {
+            "id": "07531f75cf263ee858d3ce25cdf919b1456bc892",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "59b5e56fddaacc8097fdb35612c40599cc93cbe7b594691ffbfd352c7ad86934",
+            "outcome": "output"
+        },
+        {
+            "id": "0793a0d5a18e7d00bfc6d7564b67aa4185913031",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "c214f328fd4ee831d1191d02a6386d909f7b33ca3fc0805f1f5381f3867fbc6a",
+            "outcome": "output"
+        },
+        {
+            "id": "079cf87b1afffb73da0025c9589adeb8382cf6db",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "fd0dc8739b24ad1da368fc0a1820a483a5d146c9b60cc8608095578aaf732ab7",
+            "outcome": "output"
+        },
+        {
+            "id": "07f8a0bd8ea86b1740d01e7aad529128fa10e5c6",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "ca55b949a2ea926dbdb2acddd7cae1f6ad5a66517fe4381e92e32441fc474a47",
+            "outcome": "output"
+        },
+        {
+            "id": "080bd752794f03ea390e288e87a141b6f30d1257",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "476cad738d64d965236ce673f5612bab9ed3fc79a17fd9553085f67e738a722e",
+            "outcome": "output"
+        },
+        {
+            "id": "08209f9d73b381c852df6e291dc68e05fb65848a",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "c202975e79d41cdbfa194d837d20ea27ac3f0f802c77004da16783c6ea503177",
+            "outcome": "output"
+        },
+        {
+            "id": "0a7a277ac143784f2f86c620f264359c1423e14e",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "41fe0997b247c0a3d8102068974e8f11adf8b3058a27755a4174ed7e25d9c336",
+            "outcome": "output"
+        },
+        {
+            "id": "0a9c1bea54021ba60093b14cc124cefca0e60616",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "c44bb21d6dd9dba1a694b4a589a9e6af1eaf40c37c6f5fccbadb2ee5183c8cec",
+            "outcome": "output"
+        },
+        {
+            "id": "0aec729c82236484670764cb89daebff801abb05",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "6babb5365474cabe7cc904b46502ba286654ffa55f59b1d9038792026ee4a502",
+            "outcome": "output"
+        },
+        {
+            "id": "0b294e2c7717464c3fe1233ef35f06986124c78d",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "f1d6329e570bd9460428029937724fb0af360e2dd9d269d9f77e8d5e97296d25",
+            "outcome": "output"
+        },
+        {
+            "id": "0bf7a2ea6d25e14b83b035068d817a3c2822ba4b",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "b6f37d528e0279c84edf14f91a4377e55314de16c9a1cddd3e443131d4cc35dc",
+            "outcome": "output"
+        },
+        {
+            "id": "0d818f11f565c44e364fae0427f06382088600ec",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "e5d19a7b45badf79568cf70f942b54e627de44b64f993e9f6e30beccca447dbe",
+            "outcome": "output"
+        },
+        {
+            "id": "1092de6e52f085c18a24356685479c261ddf4f95",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "dd0a8abf4d40330bebd08abf25867de6bdf0ff4eb4b7eed9cb9a53254d6da7e6",
+            "outcome": "output"
+        },
+        {
+            "id": "12d3ff943f72cf2f3b32aeb91e4bacb32bfcb003",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "563af4348800976efb530bdb2b84c772b31cf9845d08e177613dc24f3471e631",
+            "outcome": "output"
+        },
+        {
+            "id": "131e42daf4e8a02894d2c05feec3153ee25d2c76",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "e6633ad5cfc098ced79665404ed7bf2183fa3a1ed8c297337105c5fcbb2e749f",
+            "outcome": "output"
+        },
+        {
+            "id": "138228eab545cc8020a77e808efb8d9eca5b4f8b",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "7d694f33d4e72fb311864842beea1041b315ece68eb5c7bb86c8d1a3ed41ae1f",
+            "outcome": "output"
+        },
+        {
+            "id": "148922140808ace8b526a33e5aaaea6301a4d77a",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "908c837fff4f98e91b70dddbce1bda0c95685fb82a9a42fb5ce4ac23cd0a9460",
+            "outcome": "output"
+        },
+        {
+            "id": "15082c2dc6a6f26471c6b1b16a41446c0c3ed22a",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "8fe341a93c8bfcc6fb16a877f9cd62cf5dfdf44b27f6f5ad9992657ab25b2d3e",
+            "outcome": "output"
+        },
+        {
+            "id": "151bc8427841a6bc77377d0a90344fb4de21088b",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "af1c98aca61128dcbeabcf1e75d7442385b2f24e6970092a8a145fd7390341d3",
+            "outcome": "output"
+        },
+        {
+            "id": "16b431d3626c18c29818e7314baa7b50900074b4",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "e8507046a0426318d3fbeefdd2fa9a0bc6c4cd2ffec62a208465457609c58abf",
+            "outcome": "output"
+        },
+        {
+            "id": "173a88a283867dfce8eae3c9de9eec9704d5e8f6",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "5bf3b0d1cfd478956495cd99a7ebe3978bb60cf918cd8461b83031e45e2b35d2",
+            "outcome": "output"
+        },
+        {
+            "id": "17d97f2cc668f1c6ffda89bf7497cc9b27cad37e",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "9bececdc73a42ec36c01b093f0620bbaf96acf3e4b9f05d740154e9c0f73321c",
+            "outcome": "output"
+        },
+        {
+            "id": "19060adef0ea7932f54b1f917815360b25a4ec35",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "d7a8b2b476821609ea8a0fcff8da7b48bb26ca83c6b1fa4141a416ec731352bb",
+            "outcome": "output"
+        },
+        {
+            "id": "1c3990dc6e5102e9efa1a529ed18626e3cd63014",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "924c21dd7e6e4bd62793cb6e6c02aa673801619a22992bf6b85b777a405ad3a2",
+            "outcome": "output"
+        },
+        {
+            "id": "1cfefbc9c4826f74e82159aa064fb495c905dae9",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "65c97fe277c0ecefe7e70f6930e73cb5273619ab1625d253b58cca2ed925d143",
+            "outcome": "output"
+        },
+        {
+            "id": "1d9d49546e0513de47fa9b54186e8b14a08f4f1f",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "431b1112b07f07edcd2bb1986b3e08081eaff78ed7049abd7abdc16751fcee1e",
+            "outcome": "output"
+        },
+        {
+            "id": "1e4b57d08e5f05ed2260a273e20bfb7c3288374b",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "e62c49d5592f5df9c79b4b004ff00b14f8d22596696db609597a4bdd393d3962",
+            "outcome": "output"
+        },
+        {
+            "id": "1e6ba980bc72af8fdf848f28ab845a234099965d",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "35f6d424ae17e0ec881ebc6236bd06a46a6aa916f3e0d1ccf0dcb67bf0a18adf",
+            "outcome": "output"
+        },
+        {
+            "id": "1e87fd7170484fa6c8288d2d21ab9e181c982bd1",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "976776d245ca003860b560b4b2f77fb532a7ecfd9960d0e1ef5bf788174c3a41",
+            "outcome": "output"
+        },
+        {
+            "id": "1f9e24004688876e7356b55f6002e774e751e876",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "5ffe5fb5b6117efc15a06f309b17d3ffcc53cff1322f2ab776133bbb6172e6d7",
+            "outcome": "output"
+        },
+        {
+            "id": "1fc8c0c39465e443e69256bb458c0cbddacd6832",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "0efcac04b4ce808336f40ba8f474e9ae46f5829bb841dbaa1f392a39846262b1",
+            "outcome": "output"
+        },
+        {
+            "id": "1fdd65518f8f7c1521437048689ce65b480dc5b5",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "9454ecc12b24d9d069c64b5c559cc76f23c91f10c57b7374bda9f7b7da360451",
+            "outcome": "output"
+        },
+        {
+            "id": "1fdf1238344745a117f3dc508c53d3f899e6db63",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "06fc462455b25d593be2be7d5a7dd4c78b210d321144573a143d9ffaa68ccfab",
+            "outcome": "output"
+        },
+        {
+            "id": "2159f43947caf4909e74abf673b57a69210c3b2d",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "5b832c0fd4994c4639c0cef371f2536bdd339d386d2bd5bada91ca8cdb1b187e",
+            "outcome": "output"
+        },
+        {
+            "id": "21e5cdbf5ec5e6081029d84c0c34ccac47171153",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "071f28240d4f41e9949e54c982799bb4aed1773eebcab70617030a7b9cd89448",
+            "outcome": "output"
+        },
+        {
+            "id": "2322e02155a0da77d1bfbb1de742c7a858aba0e6",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "b063a291d0e30d514d6f5939b1eb79777c369821db16feb7e198de3b97793aac",
+            "outcome": "output"
+        },
+        {
+            "id": "235dab445c2195da91648e0b4e070c67b2fe4a31",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "21331eb409bcdd2196cf57a51a224a5b936e9c1957a5b116711ff010f17a110b",
+            "outcome": "output"
+        },
+        {
+            "id": "23fdbeb0fd920e2d4c011890e4b9853603060658",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "c3ae1d2032983dc66aa8e9549d5e55db7f69de5719beed98940be9a02618ec1c",
+            "outcome": "output"
+        },
+        {
+            "id": "240406822ca2c5b683f2ae02e94300c9031280cd",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "f8e7a02cdfe882b135a1da87c0625142f552fdf2bccd821de8d52961362b5a78",
+            "outcome": "output"
+        },
+        {
+            "id": "2448c3c2ebf7c03839a1ad542beec24efd2a805c",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "241e746902379c4decbeb3b64549c6310791c6d6535c51b83b01b83059f98224",
+            "outcome": "output"
+        },
+        {
+            "id": "24e107c8c52b897f1fb24537f46642da62f72a9b",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "9256a9a4ee269839dc7dc0d86e91394c647abe15fe0ee085ef5cb9960f4973e5",
+            "outcome": "output"
+        },
+        {
+            "id": "258bd52ce6be61b58216294eae44bd952b70a428",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "a3f47169f67a82182299bce660bc255af26551fe111ed0d28bc833e83f57dadd",
+            "outcome": "output"
+        },
+        {
+            "id": "25b86bf04d5b1d1b6fe316daec2c603868662f2d",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "368b9043f4006e1bdeba808c95963ae44cc67192326f0dbcaae3ac95ed0046f6",
+            "outcome": "output"
+        },
+        {
+            "id": "26110ab3df1bcffcc9a1ce8e351a781950cc1bad",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "a7d61f1471538b9894df10ea5addd69dc71bd83e8686e0f578699ace62046d8e",
+            "outcome": "output"
+        },
+        {
+            "id": "2664560a1dd52967803a3ce93dc130c2ea663a20",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "89ba8341172d01d8ed19c55207eefabd0b1a64dc2e9d10078df6866682d6c78f",
+            "outcome": "output"
+        },
+        {
+            "id": "26f0879275d871f4ec68db391742844a74441150",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "1298fa6a7629d87290681d5738b40ec2a66d12962eddf64f7eed6ee324885234",
+            "outcome": "output"
+        },
+        {
+            "id": "28699fde8cc7b55e46dceff5674ab9379ed8a6f8",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "0cef1e45e0dbc8051ed3b268eb80f81e9091caab1173d362f62ad1ccc16b7e6a",
+            "outcome": "output"
+        },
+        {
+            "id": "2890e8f1ed5ae188e261c80d3c9a1ad1e1928cd2",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "eb37f1652823bd47a70755937fe0632ca5d1464660cad51b999e4dabc1419163",
+            "outcome": "output"
+        },
+        {
+            "id": "28ace0c7e222e9c4feb1c94734ba65814716e711",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "aa5482445eb5c227219f706a79652f65a7abd4aaa2dfe28d2e847556d57ba21d",
+            "outcome": "output"
+        },
+        {
+            "id": "28e1a0f1b5bef11b70c18dc39033d6a84461621b",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "771c561636d44fdc607336e2db4a060ebb1a17beecc3b9c9a6b17a6b71a16f70",
+            "outcome": "output"
+        },
+        {
+            "id": "2915d21f717a45ad97cc901e84ead8debcb5e07b",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "f733ac2eeb4c5b190eb4a7179591913dd184a48ebe4d59428412e95d38f5da04",
+            "outcome": "output"
+        },
+        {
+            "id": "29d9bd4aa019c214ad098d8dd997002fb6a6279c",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "e7cda6d3d48b7e1947d7699452da4472037932dc3a7d9cd5ff0511aa9b5a03cc",
+            "outcome": "output"
+        },
+        {
+            "id": "2d8a075b9aa4c8c089f4ed5fc108884e9d8842c2",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "3d22f3d3972ea0303ede7d023a75853e78e82516e68e4a3487356b656826b5e9",
+            "outcome": "output"
+        },
+        {
+            "id": "2df01069239489730e5eb069ba3ba39c848e7a1e",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "682b7d609c4fa49fbeadb8828ae5a275a4ab39fe83950f51b04ac57f49426778",
+            "outcome": "output"
+        },
+        {
+            "id": "2f226a74ef0780b6689f60f346b5a3095aa46b17",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "5e0c965f70e7245a458d2f55a5ccab0bddbf1afda576920c866286c7a385a3c6",
+            "outcome": "output"
+        },
+        {
+            "id": "2f3ed5f6ec0258f086fa01369f09c8dc08fd66e7",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "aa0c7f50cff548235a521fbba8cf5bce710d20e11778cba75125b35e275afb6b",
+            "outcome": "output"
+        },
+        {
+            "id": "2f545afa2f6cffe9b9b8fa287e1bac1c40271b17",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "6a85c3fcf9c6ade604d2536d78298cfa58d111184bc0b578f775847a79642eac",
+            "outcome": "output"
+        },
+        {
+            "id": "2f7671db2407305ed19afc58debe8b23b1c54604",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "0e431f0b50fb2ea1ab57139d3fefc5abc156040e2799c12a9713831d345853a2",
+            "outcome": "output"
+        },
+        {
+            "id": "2f87008688a3ecb6f5fe933fa0044b39b22c4134",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "067fc580bad016008e879a62ebe7dfca53750151883b935e22ce29b97086d962",
+            "outcome": "output"
+        },
+        {
+            "id": "31dfd889cce35be7249012c8067d779384f43dad",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "13e8dee549aa9064f762ee5d3d11f49469c8834cc434cad0629e92100c8dad8e",
+            "outcome": "output"
+        },
+        {
+            "id": "3317930e5bae9630e1a2dfa63325692d65285d7d",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "3e85f4dca40045b4c129b5155947417600dcad7de8e22889b94dca4e44f47fe9",
+            "outcome": "output"
+        },
+        {
+            "id": "33274f74c24ccdb12745ff11429f5722110a7f88",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "8305b836ac90cf951822ca83019b8de2cc6e56263a4cf56fc4420869cc82ce30",
+            "outcome": "output"
+        },
+        {
+            "id": "33ae736adede6b6c99a3a0fe9d91381917bb715a",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "5b353e795cf8abdc3cc502a13614528fa08dcbf5cb5f673e529880e4c0580dfb",
+            "outcome": "output"
+        },
+        {
+            "id": "33be6dc36d386a78a73e8f2b4d165f4944eb9edb",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "eeca809ab41d16afbe234cd0ad1f839c84ec14f569ee290355e113ca61383bde",
+            "outcome": "output"
+        },
+        {
+            "id": "366a6664923b3a4c3dff386af7f1da8864806998",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "fc8fac207c8e9c64726700f43cc1887a151b38315bb8f6e888faf64f2f6dee6e",
+            "outcome": "output"
+        },
+        {
+            "id": "37284b0ef56612a5ff0cda0976e9baf91af033cb",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "e7556dc8e92cc3b6c1951b7db75b3f86571e323f0d287ce5ee41fa168cd76189",
+            "outcome": "output"
+        },
+        {
+            "id": "3767a14be9e7b603f2cd1c422d7bf849acf8558d",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "fe97fcf7d269953a0bc88f2cec490330a3c1001f34b0f1c41bd01a59ab56050b",
+            "outcome": "output"
+        },
+        {
+            "id": "37bb514ef72283d570b95c33cbafad28fcb6b775",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "e41ae405450017f49bf410b4970bda49fb5a0e7f7e4cd7c3c2b0fc0a14cffe17",
+            "outcome": "output"
+        },
+        {
+            "id": "38aa59b4b8d988a9b44977db6c15c0ae83d60259",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "b47cf9df75bd53f613dd5609d67092ba407e79907e673085044e667dcdc1d72d",
+            "outcome": "output"
+        },
+        {
+            "id": "398e5ce8ab31d7ac9f3a020ff4b54a083d7f5c84",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "962a56cdc4851ee3ac0685cbbc710864605416a5609a9e9b2638e30ac811d630",
+            "outcome": "output"
+        },
+        {
+            "id": "3ac0d0bbe76c13b33e1af1dddcfb90b450411f6d",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "5d08f82d2f99e9dffc081f58f6b97164049d6a6a127b5d2cfaf9c6f01e1b770c",
+            "outcome": "output"
+        },
+        {
+            "id": "3b0aed43853d869d1ae9c0a6eb7f65fb8d41333c",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "ae11ab01751a83d8c52129e1eea46eceb894b1b3ee901565a86c64c973681afd",
+            "outcome": "output"
+        },
+        {
+            "id": "3d06d9e380f5fc1bd68a331fc0441f5a3eaffcc5",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "2f5b4a35d749f7e830de22acd67ccc598c42586869efc1c4048eb2cfaf14966d",
+            "outcome": "output"
+        },
+        {
+            "id": "3e2836686c56a0d68490a0e9ee8c602eda3897fa",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "d6b561c53387a7be57175774f79db8969def7ff57272826e43d8a946fbc1ef8e",
+            "outcome": "output"
+        },
+        {
+            "id": "401f020550e668c0de94600229f55e3052ef9584",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "a0f72a727c7eca3788f249a88da6bcf75ca301ad5a2a0e3566cec882d48b5c6f",
+            "outcome": "output"
+        },
+        {
+            "id": "403919026a1f385294622adb5528a72706964a5b",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "2998fbc88c456799eb1fae36524dc2d4b581cbca3453a0d8c1b9ff190295e7e4",
+            "outcome": "output"
+        },
+        {
+            "id": "414224e267d612c19554ee41edbbae9c9493d5d3",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "6a6f4af20220d0a15e0c39e789aafbb0c224de18a2b333dc7bddef34fdc85ced",
+            "outcome": "output"
+        },
+        {
+            "id": "414ba17e36f580a3f70f623d64dcb5955898554d",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "c4bab2c664d0d2e4b6cc2a9f920e793aa904eb1f9effe383557022d81ba41d3f",
+            "outcome": "output"
+        },
+        {
+            "id": "41640122c3db9bde464bfc951a00ee205726cdf5",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "78b57406e457389cdf718cea17b1521159e65153c56a0966adbe6816210a271f",
+            "outcome": "output"
+        },
+        {
+            "id": "417feaed099472c1cda6f8f74caa96fbae1d0224",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "04564cc0fc5362754b3c38734e457bf1523c96bc82fad5dfda86f3ec5f6fe470",
+            "outcome": "output"
+        },
+        {
+            "id": "4217cdcd5a214f5fbbb536056438d3e251cb464c",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "5525b2add90f8bf7942c328ade16a03f42609adfe6a6d5f1ace470b75760ad7e",
+            "outcome": "output"
+        },
+        {
+            "id": "4246b3e2b7c0ecb73948db835c59ff49c56e0a23",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "3affe9063378a8ba124531c1e403337da47bd438ef8be5fb6610f6cb63a471e0",
+            "outcome": "output"
+        },
+        {
+            "id": "448ead36f649a72e98e642cebc29f9f71af779f5",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "631b17e61a09b144cf92acf35c1388d3cbf1542fc15e5aeb858a0dfacac142b7",
+            "outcome": "output"
+        },
+        {
+            "id": "4495225c2857cfd08d5cfbaae7329e9137498454",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "b3cbd660e95c7d48b56a4e2b6477e5a3dd4081dede939b7a999697a071e4f745",
+            "outcome": "output"
+        },
+        {
+            "id": "45b984e9da16be5363994c1b8080ff9d3775c070",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "24e4fc0e187bd63de6b41764cf05e0fd8822f18fd1fcc5e98f58845847b871e6",
+            "outcome": "output"
+        },
+        {
+            "id": "461f0a83156f31f02e338679420d68a4cc6c9201",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "830bc55a2a81d62018cf3755d67662995ba0f8cec7aa510ecef32cce8e73752a",
+            "outcome": "output"
+        },
+        {
+            "id": "46d57331d0c6798e7c10a1d776571fa95100fe0a",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "cf52f1fac4ed158eae05be911b8043b747654ce5635c184a4c14873821b4fa16",
+            "outcome": "output"
+        },
+        {
+            "id": "477397df6188e562a6335c6530af97f177e74a8a",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "a63023c33e62a5bd0dce9d7a43758c8201cea8d8c9e5738f4ce3b154e83d354a",
+            "outcome": "output"
+        },
+        {
+            "id": "479823422058ec516bd5ef6d5027749c2d4f4c0c",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "523090028e145d64fb16c4eb42a1af20f53cbb43af08c954316309d0a78a8b81",
+            "outcome": "output"
+        },
+        {
+            "id": "487e7d77bc7fe3eb53f0ae739e92dc44eab1e705",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "de1910c9bec69aa590dc1c756c5f0c096a311fe1ef2fb14ca11a2a70b1c990cd",
+            "outcome": "output"
+        },
+        {
+            "id": "493ddae72217e5c7617b57d43b4bcb17772f1aa6",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "e966f46ca29cefde808d3a7fa940923d704078045cc536a60dcde219f0d6e1a6",
+            "outcome": "output"
+        },
+        {
+            "id": "4ab8113af87a9afa23ee83cdcf9ef1940d9923b0",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "4973c2a9b1651fbc3e99be010ba9616a852f561981a42b171076490ca1653889",
+            "outcome": "output"
+        },
+        {
+            "id": "4b20435a135c37dd281fcfb61e14a61997ae7452",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "1491d3c0ba3147221d6c94d77d44aea9fdf170416640bc272f0db6f385a98a8b",
+            "outcome": "output"
+        },
+        {
+            "id": "4cdf968e0f8b7419bacac291119f034fb59e18fb",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "d4e7751810fc81a2c095df26267bd67dc23549f9cb6131e503fc028367dfd41f",
+            "outcome": "output"
+        },
+        {
+            "id": "4e8912d71d61b194b2904623ea37873408c02d25",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "29032343f5da4843223dad56ac33ca78a8be8c9c4533c887160a4daa2fd5213b",
+            "outcome": "output"
+        },
+        {
+            "id": "4ee3cc133b3c246d00fe425f64d0fccc494abe39",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "9bb55dc726fb554acd0cca49f1979dee031fe5199b5770cf22e47e4fa4884f4c",
+            "outcome": "output"
+        },
+        {
+            "id": "52210e3ab333cc684b93444bf01ed39943a03c0b",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "8e1c19e43999150d385fdef6cf28663fda63e3fd6b0d1186fefbb0be966b2327",
+            "outcome": "output"
+        },
+        {
+            "id": "5245a2855412c346e3665fc60046bc2b1d2393e8",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "f094bccc73092368070600ccae6799af51095f2e42d4c4400c55e1e5f0acc4de",
+            "outcome": "output"
+        },
+        {
+            "id": "539fc1fb867637c8f3c0965a0c08ef5d7de447de",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "a64455d3348ffd0e7643da458c83b98155f22d7fdcadf5ceffdc205144329f93",
+            "outcome": "output"
+        },
+        {
+            "id": "548f376f2dc0e46fd37bb6c4c2081e2d5cdb50d6",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "15476d815e61937e1762aa9f2fb9522027245b4db892785519bdfb28062fca7e",
+            "outcome": "output"
+        },
+        {
+            "id": "55b724ac2c76d2fde1959aeee3370f76b3d8129d",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "56aca09adc8ea52be9ae38a15c33b6f336fe06d1cc0b918c85aa97d5f50ab8ed",
+            "outcome": "output"
+        },
+        {
+            "id": "56cfc02ba8cd9ddd2f614d6be5285e1c86f03237",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "a2ccc7ae9bd636f183ae72362a60992a28fcff50c859ce0cf4de714fd14f6e2b",
+            "outcome": "output"
+        },
+        {
+            "id": "587e3a2de7a175872e04413e17703cd15d55e31e",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "322eefee65806995eec74d04c850f20ad09b9e4892d44b9831af76ff843f12cd",
+            "outcome": "output"
+        },
+        {
+            "id": "58edd44cd3ab05caa04f21943ea245f5569f6140",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "ed5832e65a4448bccc78a6751c6cd76e511e4bc8acb2c01f030d8f95a26e37bd",
+            "outcome": "output"
+        },
+        {
+            "id": "59f08e9aca191a9c43ba2afab88659d8edfefae5",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "f1f8d18992ebfb27d46fd7bfa53a80732051927d3b7fa7824f9da810b2befa59",
+            "outcome": "output"
+        },
+        {
+            "id": "5ad295f609ae49ec87f20beb4a484727a05736a3",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "f676e9d8d374a59571c09187e7ce9c2deebc0b5cebf1bfa44e4fc1083bb985c6",
+            "outcome": "output"
+        },
+        {
+            "id": "5af9c0c165a91e3af547deee936dff52660372d3",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "9a3e41275f0abdfc845414610c92b7a01347966ef4d407a653f0ad0eeb207517",
+            "outcome": "output"
+        },
+        {
+            "id": "5b3fa62f5d2e551bc62ec8dbe709537770b21b62",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "00d9a284facb7b47baa815c541938dd232bc455a0c5beb7b6dc5b3e1283d3b62",
+            "outcome": "output"
+        },
+        {
+            "id": "5b45f6c984f3a114f52ab6b3f5ff08771a898cea",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "dceafc99c0bb8179b799376dc390bba08f71c1f328e9f546189043f2f09a2c66",
+            "outcome": "output"
+        },
+        {
+            "id": "5b83e5f74d9fdb5882a062fd51ee27523cbf5e9a",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "5758443a5f59a681e803ed0ed2b618f2f8ce6434705f386894f98956735af280",
+            "outcome": "output"
+        },
+        {
+            "id": "5b9c65c4937a4c05d261d1eefd4e380a6b45ce80",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "1dd9706e6ab15cbe9b24680c9486979ac58e87369cc688271c7f009235d3b2b1",
+            "outcome": "output"
+        },
+        {
+            "id": "5c38feab1d90f4fe8b2855964bdcf8df0b05011a",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "7011a7b650ec50025739cca5ef8722b52baa8cfb88885aa49cc7b62c0a8eba81",
+            "outcome": "output"
+        },
+        {
+            "id": "5d5803dd6555e66ba80e5c7d9327e211885f5a10",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "9c3fe99375c867c779bd9a3d0124935746c866e6aa46a9d844418037d170bb70",
+            "outcome": "output"
+        },
+        {
+            "id": "5e95c191f700fd1390c28ece749d3b77acf63b3e",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "f6410508092116805ddf06f87d615758ab26e7c55997fb45554befa7aff3dd1b",
+            "outcome": "output"
+        },
+        {
+            "id": "5eccb5417a80e008e3b8ee0e81acf7096f7b3ad6",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "cc3e0c074e0761283e332b5e99daf7f0fc7fcfe0b7bebd58840c68e39d783802",
+            "outcome": "output"
+        },
+        {
+            "id": "5f5cefe0700851cc3df41931fb5bfd3e11d8016f",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "81ec41e68ec35c3f1d73bb59b57ac799ea0551061098cafe2407470120bd846a",
+            "outcome": "output"
+        },
+        {
+            "id": "5ffc97938b68e0a69f1b52f9fd82f5b9c06992b2",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "e7cda6d3d48b7e1947d7699452da4472037932dc3a7d9cd5ff0511aa9b5a03cc",
+            "outcome": "output"
+        },
+        {
+            "id": "6068d3a731cb489886bda5280a2c6e1d57420fcd",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "d9d677520ce1acfee30de362ea5eff6da7326042b9a13bb796b881eecddb22c7",
+            "outcome": "output"
+        },
+        {
+            "id": "60e0a279f48dbf942278c15aa14f0d0707c292a1",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "421c1b84831ab38b42d109eed9980a25d2e587bf9513da6b14d89009715f18c6",
+            "outcome": "output"
+        },
+        {
+            "id": "613378e1785869c14bab12462246d1983a6ddca1",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "e7cda6d3d48b7e1947d7699452da4472037932dc3a7d9cd5ff0511aa9b5a03cc",
+            "outcome": "output"
+        },
+        {
+            "id": "6220283ca7e079f9b3abcecd4b647a4fd2dcfc28",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "347772b98871825f2dbaab75d46047f150f46860cd9280042cf81715676f681f",
+            "outcome": "output"
+        },
+        {
+            "id": "62d3b1f89f1b9de974a11a027f5831c2797a4a5f",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "1306bdf2b15caaec8ad97acb070d5f92efff94a6a1b5b80f183569f2abfc5f17",
+            "outcome": "output"
+        },
+        {
+            "id": "63625188503bfa3c16b549bf46aeef14167aeae6",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "bb7f8d8edd55c38447d368dfc941ef06daf3e51c013e5f2246ebd6e81b4e8338",
+            "outcome": "output"
+        },
+        {
+            "id": "644d4661ed0c63088748a5570bff54e8c3be5a1d",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "e14982dbdddc31f7a48ee2ccb5483b3b0bfd388f36d443ab0ed4b8388ec2e3a0",
+            "outcome": "output"
+        },
+        {
+            "id": "647b8b53e0e915a0c5d5499d4c3c31eae62e3e70",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "f3a80e10d546048fd597f900a7500fbfb9b4760579b577aca175a2b2bba75690",
+            "outcome": "output"
+        },
+        {
+            "id": "6657cdacd444aa522207d0a457b8f29748738bea",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "2ec0ba5689e5c3212be342dd4c314f0676b813c2b065e7a4435ba35af926c269",
+            "outcome": "output"
+        },
+        {
+            "id": "665f2fedeb8bbcba82e5f1a5d5256cee0e4c84a5",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "89652245efa4dd063748b5274d442db8ea5780fe6620422c130f809e67779a43",
+            "outcome": "output"
+        },
+        {
+            "id": "683aa732f6d1d3bdbf466a568f765e97298c1e91",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "00d9a284facb7b47baa815c541938dd232bc455a0c5beb7b6dc5b3e1283d3b62",
+            "outcome": "output"
+        },
+        {
+            "id": "69437d97d7514bf555786533af76e98652500cf2",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "09fa27713a173001bdc44047956100fb0e93e534f981061919f5290cdb5e7937",
+            "outcome": "output"
+        },
+        {
+            "id": "695b367710bb6baa92f47fe2854aeebe5c8f8cbe",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "39c567624890249d57822cc50f9d32c8307c12e56de80151e34fb84e6d6668a4",
+            "outcome": "output"
+        },
+        {
+            "id": "6982a81d4f33075cb7aafea143e729fb62128c06",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "7b858882834d2b42136735b227220c70027cf7f2a319ccbcd5fe5a98c6066cde",
+            "outcome": "output"
+        },
+        {
+            "id": "6a28853f94ff8b3038cb87c6653ee6b6e609659b",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "832d6712a306b8ce2e87dad19b427616f8d144b81f80a435fb478795504808ea",
+            "outcome": "output"
+        },
+        {
+            "id": "6a79dc903f5df497efc761687eabd534e3f5819f",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "5d9d26d904d51a6b01593889fc60974823597b92346b763fc3267a3ba27b6d3e",
+            "outcome": "output"
+        },
+        {
+            "id": "6a7f627fd36ab7d46cb322ea56e959a6ffbb684e",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "41d2fbc159ed924924fe75e31139cefc0149686473cccec61ecad9cb0478eba4",
+            "outcome": "output"
+        },
+        {
+            "id": "6b0e8e51e2be5ad86fd70a90adbf20e26169ab8a",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "78fe527be8df42f17bee663b2b92e0839a17cbe6d2dd3ed5a090a3098006538c",
+            "outcome": "output"
+        },
+        {
+            "id": "6b1e163beb1b48d18323e0a321523394eba27605",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "1df103a589afaf83c16d6676f40165b71f5a775f7375040230856f7f1ed384ab",
+            "outcome": "output"
+        },
+        {
+            "id": "6bba1e16a1e6b77cd8346556491309ac449d0eac",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "72f419d06f3c366e2027a891a270dd41c947d3304bbd66d61e638b68693b9d53",
+            "outcome": "output"
+        },
+        {
+            "id": "6cdada8661e0d9b04d40ce5b170625900cbd3bf1",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "36b05ed09e3fbb812fe28ab809b4ec4181fcea741d2c1b4553cb0ab0dabe3019",
+            "outcome": "output"
+        },
+        {
+            "id": "6ed86c41afcf40c191e8f8c33d9ab000c8b72e3f",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "449c1547cb1619d61415e5c4a79de0dbb0fdf86e44c3a3949a096c05d76ab41b",
+            "outcome": "output"
+        },
+        {
+            "id": "6f5ff15098c4847ea1b37a65fa4d7a5f762a1eea",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "edb94abcc0288ad9111dbcc09bf9d9718287737ef754a61f5d3ce20a81499b34",
+            "outcome": "output"
+        },
+        {
+            "id": "71c3c5d4e767095dae6e4699572298ceeefa19f8",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "9841fb82aab353ce82a439640dbdb51cbcd18803bc365ace314bfe6c7f1e37d3",
+            "outcome": "output"
+        },
+        {
+            "id": "721b9bbfeee3fa1431e5242ba2f9c30ab108d484",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "25d71471a0f5b0a79f14268073f410fdd096e5fd34658d88e4c3815e589c4066",
+            "outcome": "output"
+        },
+        {
+            "id": "7343d5fdd0e808d39562313226b4b4a3fec2fc25",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "1a4975cde25af759e285e69771171b3b0798f1d9377595df4baadd010b51cc0f",
+            "outcome": "output"
+        },
+        {
+            "id": "736bb58153dde7a2d36941d0ad0f01331b8ae34f",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "9b63bf8bba42babadf2bbcc51d2169fe37c71917bb1d21916eb5dcf74121ecc1",
+            "outcome": "output"
+        },
+        {
+            "id": "73824e3736a862f9bfc9258404f75f739ec790d8",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "31517f217dd574927221acfd4d0aa0897fe6b0598e2be537d27add506b3d6e9b",
+            "outcome": "output"
+        },
+        {
+            "id": "75ae597bf2f679b5cfc512256449b1a933aa47d6",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "ea2931889139b405f8b091d6dc625ec22730ca5dd1b8d8c7f0a27106ea0c6db2",
+            "outcome": "output"
+        },
+        {
+            "id": "76cfd1b857ad884e97d4d16e6311da3a9e359d40",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "0d389d179af6ee6e10c55a5bb0b48aa0d4c364fa9a22c2d8404f0f56141df8ee",
+            "outcome": "output"
+        },
+        {
+            "id": "7719362cb0d2275c96454ed64b311f8a4ebb6e6f",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "106bb2d89fd7042819642869c20f8c912d5d0a3e81e6fe32db0f004cb12a92e1",
+            "outcome": "output"
+        },
+        {
+            "id": "771a8a460e63141f8b0101e7109dc8867df7272d",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "eef4b77b6096c33e313438b923b7190fa4312d3143b506a2b15b8c834d19ad78",
+            "outcome": "output"
+        },
+        {
+            "id": "77dc4f3650c7544a1b10fe39fb99e3a9989c8896",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "8974d99c3a9140c58c801e12c8e8bc59cc19d6aa6742af21fc34d0345298fe5a",
+            "outcome": "output"
+        },
+        {
+            "id": "77f446a6276117581f8d93b311bea4f9e0ad4a8f",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "132a60745cb78d49fb67adb12328cf1218b94862c15e25cdb633169914f6f011",
+            "outcome": "output"
+        },
+        {
+            "id": "7840162cb03ebf0c59a36d95d29b2aec148b46f8",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "2fe51db3832ed0076d7214d46f7c48d0bd4478c0589b989c41dee0786254c8bb",
+            "outcome": "output"
+        },
+        {
+            "id": "789c11ea189367eeb7dc933bcab27ba26648b6ef",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "efa6c4bc2fd68089116c7e8ca580d2aac575a4245274d3799ebc4d5801f34c90",
+            "outcome": "output"
+        },
+        {
+            "id": "78f25f02761ad3fe3a6ad1df8300c403d09ad510",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "f453c909fec6ba0509a4b2b808bfbc0295da3a750bcdbef3b30f74888c2f7159",
+            "outcome": "output"
+        },
+        {
+            "id": "793be960bf16e4f36f41fac8087289db68644c1e",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "ef318b75853440db946b195eaaff10b2604a8c5e7637701f8aef3c7548ca0f25",
+            "outcome": "output"
+        },
+        {
+            "id": "796065fdb0fc80934a5e6e74a1a4ed2b6c065ec1",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "502abf45b0d8575f07e607293c7c1a875a9539c5aa5b979ec6fdd9bb936bf8c7",
+            "outcome": "output"
+        },
+        {
+            "id": "7a0c8922c23364f166e4fadd7a7536fddd2cc6a0",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "6a9c947bcfabd3132c7317d14566d0187e61bf754bc563545d2d0fe07629bc69",
+            "outcome": "output"
+        },
+        {
+            "id": "7a290431f201a0a83cc789feaf7b594bbe635a2d",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "993f6a0193fef811e6d0cae947d01b27d922215a3ca881053cdd3aa53f50da98",
+            "outcome": "output"
+        },
+        {
+            "id": "7a6a2673d88d75e570056d8a5a291fd15768f1d1",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "e2cd75bdee49b5f377dc4bb9246183c764454dcb89488ee3d1bb67a6a9b875e3",
+            "outcome": "output"
+        },
+        {
+            "id": "7a7af8982960e28f4cf964953c85b58a510699e0",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "174877b0d9f9e1bef3be515ab901d646cb0bd61e0f3e7b0928e5c6ea241c0a7f",
+            "outcome": "output"
+        },
+        {
+            "id": "7ab6b92f1aeceef1bbc33808c464e2ad526516a1",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "c2613738b19b4b4e7f380681eb80bcb6a950b484130325af10ee42d10ef35b5f",
+            "outcome": "output"
+        },
+        {
+            "id": "7b02adda3739ab7727da06b8a50dd787551f9ce3",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "f15efd04ca44e5b7faf90d1cd395ffa6edd1b2795408650957f35593a1f45449",
+            "outcome": "output"
+        },
+        {
+            "id": "7b5ed425a9a715004e1b133013371ad52b65b387",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "cde2455f05ca68553fc0e1884b1ee83dde9a1b39bd9c24a47e26b97c5247b893",
+            "outcome": "output"
+        },
+        {
+            "id": "7c2d1217f68f1eeed57e660c70936247d937c414",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "11a9050e9cb75a3c9498d2d97932f61aacd27200a8db54b2be9caa0f864c820e",
+            "outcome": "output"
+        },
+        {
+            "id": "7d6524b6e97cbd7108b586263ef28d5795260f66",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "0e36a7962cf29dc5cb0cd487393a4b45197d2fb4fd54d739d4bed719bf3e26bb",
+            "outcome": "output"
+        },
+        {
+            "id": "7d907a3f6d20d239decde74cad32f43680f0a329",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "ad53b7bff583f6d4c522c56e646c504e15a6aec076d46cc062f06b863e76cf07",
+            "outcome": "output"
+        },
+        {
+            "id": "7defee5a2dc89982f93b80e1604edb23e72e6651",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "118f9c84326d100128338a29c3636ea37c2124d55ccc90a1c17afe31ff2ac876",
+            "outcome": "output"
+        },
+        {
+            "id": "7e42b948e2718075120ef742a5fe7da8e8aeeb2c",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "0eccc14224f91494c0969ebb58ae3596151e8e380b63a60c49e64c654ee115eb",
+            "outcome": "output"
+        },
+        {
+            "id": "80de13e5847b625e8355e88c492d4923c0766ab9",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "64ff31245b8c45938141e22791d44d8000de8074b8bd96324e9e61a841af3d99",
+            "outcome": "output"
+        },
+        {
+            "id": "81a94623de887f97af99ca9fe18508f00f79b3be",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "a068d710c9efdc502bdef31d30962345fce56fb219f73da213d68136bec8d279",
+            "outcome": "output"
+        },
+        {
+            "id": "825b3e80e27a7f97221e0dbbdf2f58f1d77c9b8b",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "269d4e4b10f016a79f3399f89e17c95a12180f6ab191dfbf2db7cf6d6108732d",
+            "outcome": "output"
+        },
+        {
+            "id": "83e2956d0d5161ae8ac6fda422ba21b477b4ff8e",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "c5b3b6d05d80798a2383d1a57808f0a540c707f486731df0f2bc2f9e2bfaee7d",
+            "outcome": "output"
+        },
+        {
+            "id": "84a0d815ce0c90fea092f909bd72546722e582d4",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "fea72ff7559a80465f0e59a90627c5406eab50075f091ab4fe76bf5a39253541",
+            "outcome": "output"
+        },
+        {
+            "id": "84bba5f9c5f87e40ac646ad3681b6d97a78dc19e",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "82385be1098552785d17b5965c987820901aa2140865ff94388300ec1abdf88a",
+            "outcome": "output"
+        },
+        {
+            "id": "85a9f4e2d62a1b3e64d8f3c45de700bec7668ff8",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "3eab262d2c4ad2f68466bef0a2c0198801059ffd43c805efd862b1253d59c1e6",
+            "outcome": "output"
+        },
+        {
+            "id": "867fe3db1fbc65a2c58a1cb3d48075f8ba0601c7",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "938323f4362b1d53895ceda02139ce4a841735c6413fcb907e1af0e164e627ea",
+            "outcome": "output"
+        },
+        {
+            "id": "868d3967f2ce6a44aeeff7cb97290a7ec551cc34",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "8df45e3aa969a82239db69752eee2cee8ffad5369e43aad0976ce039c84e9795",
+            "outcome": "output"
+        },
+        {
+            "id": "88ac82df0f259bc2c9588ed3ef6216a07be123b9",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "d7ab09b8c74107dace035fa59869755de14ffe606fbf596c8fbf05ca36d24fdd",
+            "outcome": "output"
+        },
+        {
+            "id": "890cd2736b8b6d31242e62c10ccbc7452ade5972",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "993f6a0193fef811e6d0cae947d01b27d922215a3ca881053cdd3aa53f50da98",
+            "outcome": "output"
+        },
+        {
+            "id": "8a631c3cfa09ab74f3dfd8bc3e0c73d998137c62",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "9c06426c119a071d951ee76ce29ea9a58c9289ca0e55160f84e4ba0f31f9d062",
+            "outcome": "output"
+        },
+        {
+            "id": "8a9965d5391be89e7e361ac39c8ecadc13bab05b",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "2276a93b7727ce18dd0be36ad29b883871ec3e4a421447126a3b5ac725bd755d",
+            "outcome": "output"
+        },
+        {
+            "id": "8b755d285a2dced36a147ddcc799e655086d4797",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "d61e50670d82b1717b67eb038e4b02d7b4b0844e334caebf2cba0ee3379cf9a6",
+            "outcome": "output"
+        },
+        {
+            "id": "8b7d686205ae8417ebf254814b7d86bae9500398",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "6362f4d4f3b4412ddfb0c10fe0a9e52167f042af67fe2625525150e51dc53a71",
+            "outcome": "output"
+        },
+        {
+            "id": "8c22a3218541e3ba5880c3a80a75f56bad927a7b",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "1ea4f586016edaea194c98dee680cbd6259a895ee9846a0f27172ef9dcd7c9bd",
+            "outcome": "output"
+        },
+        {
+            "id": "8ccdc054dec2088d604fd943896331ff23dee0d1",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "bec4f7f4aafadb5f1604646b3d73a0a0e092585ee3ee3eb02a48ac52f1f16641",
+            "outcome": "output"
+        },
+        {
+            "id": "8d155e3be64f60344947488082b39546db16069e",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "c590f9126b97ecf866b9e44a1d8b22d928b3e413514a61efe6efad0e885da8ca",
+            "outcome": "output"
+        },
+        {
+            "id": "8d253879738cf31dc4f62e287fbe51ae54a649dc",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "c6e2942b1579134b62dfc0c2e8c5e46321e310ef433fd806036930559be564a7",
+            "outcome": "output"
+        },
+        {
+            "id": "8d5b6ccc04e6bf29f1879e7ec785590b44104bd6",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "c01009d3300ab46ccab88077caa8ac84d3331f482476bb801651bf94870e6c09",
+            "outcome": "output"
+        },
+        {
+            "id": "8ea9b354cdff96c5c44b732ddedc532c2795d419",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "cb1204da53b476b06e877cc2422e3385061e4295c63eed8462829db43aa6d463",
+            "outcome": "output"
+        },
+        {
+            "id": "8f232f668d2513957ebc0ce781e1daae94b5eb87",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "ed3eb26b4693a6b4c8a419459cf071c8e9cac1211473140715c437c41d79f49a",
+            "outcome": "output"
+        },
+        {
+            "id": "8fab344f24a36cb1e7b3a76990c695e6150e5d69",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "f7aaedb9baa264cf148785528f491424c6ed23d59e87a9fc6aa1b6e84a954ddd",
+            "outcome": "output"
+        },
+        {
+            "id": "90115e6057a6d61f3fed2e2e94db98e9abbe9ba2",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "dd820832e7011f3575cb242f7379d42890718a23b4c0acbbb5b9f9d2297a3663",
+            "outcome": "output"
+        },
+        {
+            "id": "90234027dbc4e72421081dd41f5331c2fe37e456",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "5a4bfb52a0ee00086cf3044ee1bd17d6aa5b75f21b372d1c3194f8bf5b915b7d",
+            "outcome": "output"
+        },
+        {
+            "id": "9080c8a8cdd8e01113efed5bbffe67faec469e87",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "e10504dd534fd4efa6bfc6e4416344d2d62edf947ba0d8bbd3384d989570e924",
+            "outcome": "output"
+        },
+        {
+            "id": "90e29340efa7bfc78f594cdb39ff3398fd946da7",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "b84bb3cda2cd3e3cfee440049025d5c62efcbf2a187e8fc8bf29a95b65c7c3ca",
+            "outcome": "output"
+        },
+        {
+            "id": "90f2a32f33f1d649074b3c2b77964288e92b0a66",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "a687fd1d06da72c41ea3236d4545f1bfb012367e75798a1df33fecb75d389768",
+            "outcome": "output"
+        },
+        {
+            "id": "927aa36875da93af28e278f37359f0c3fbbee7d8",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "437edcbab0a68e994fdce0e3b18af27241a9fc4dcac5ce2354819861b809cdbe",
+            "outcome": "output"
+        },
+        {
+            "id": "935023cebba0487bedd151f15053105724491d2a",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "e3042dc905aa2791fb79049ccf6d80610f6df4935d38471fed7b3d10938fc200",
+            "outcome": "output"
+        },
+        {
+            "id": "9389ce06adc9858ecf2a1cef4a47a19b2c2e2d96",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "ffe261c375b55e783aad6f55473fcd4c9a1e088555d0fad431062fd679e0da7d",
+            "outcome": "output"
+        },
+        {
+            "id": "944dd63db631afc5664d39d5f49658f016e89e27",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "831ef5499abc29584750896482fd754c267ccdf822d551aa9e4766651f372cba",
+            "outcome": "output"
+        },
+        {
+            "id": "94fdfe3fa1d758ad3d84fcd4a76c65130f447b34",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "b8048ca6f259b8a9f9312e6f92e801f95b94af6d44cf57829d6ff32c8edc3377",
+            "outcome": "output"
+        },
+        {
+            "id": "95b3bd5a8ce871e3aec047bc629d3f8498c4829c",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "0d7576d5648738a675fa04de6f86da6f064d8efcdc0704802e22e9bf4131fc44",
+            "outcome": "output"
+        },
+        {
+            "id": "95c8417b7eb39c48231f5fd243dbb3e22b9ee7de",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "02eae296f275b7a9aba595716c09492aa4c7fc33bdaab946b8f7d0f2c8c0dfa0",
+            "outcome": "output"
+        },
+        {
+            "id": "95e02197cf07e9ccbe6f4a011f6e1f52afeee2e5",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "505de5fc7710680914d209e89156d4c7a1a0db459f2cac8164158d79062d7a64",
+            "outcome": "output"
+        },
+        {
+            "id": "97f7de832133b303dde0c406c4cac51ead827c21",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "1a4975cde25af759e285e69771171b3b0798f1d9377595df4baadd010b51cc0f",
+            "outcome": "output"
+        },
+        {
+            "id": "983aa90985b87e7f473dab9e3b40b083552436b5",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "8c96c261d6630bbd125529e17b57cb4613ca9640f257087fee45b3cf913d8333",
+            "outcome": "output"
+        },
+        {
+            "id": "9885239b939b4e2953b2124cb161eb272a33e208",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "9592e05a5a1b571b464adda1d4335a4a1832d901f9b1e1b23b9bbdc45a899ad7",
+            "outcome": "output"
+        },
+        {
+            "id": "9b15cffe3c3912b670bd84a76e7d361d458637fc",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "30d07566399ce1d47a15ea4fcb6ff5fc1bc0037dc64bad8e7bc7e4408fae7f6e",
+            "outcome": "output"
+        },
+        {
+            "id": "9c230f371c822a0771773257133f75c628752f37",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "106bb2d89fd7042819642869c20f8c912d5d0a3e81e6fe32db0f004cb12a92e1",
+            "outcome": "output"
+        },
+        {
+            "id": "9c7cc7c490ccb2c0796fc587cbdde99957ef1e84",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "e61a7be547202904754c468a95f5ce1a518d90d978637ab7147d33b01d9765ba",
+            "outcome": "output"
+        },
+        {
+            "id": "9cb93b7292f65713303d2ef562f6726eaf034e33",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "959a699fae8588b92108f450a62dd45fdb6951b043baf564740523eedb0a5d00",
+            "outcome": "output"
+        },
+        {
+            "id": "9e7bce7678d5213aeb922320aefd56037c02c58e",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "c672071d4f2914cfa53f4a683b08212a6f46ea76c938390c943c4f4ae6c06855",
+            "outcome": "output"
+        },
+        {
+            "id": "9ea7f1bdc1af646b9b52cc368f40e7f4c6abd708",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "eca23c6243a8f7fc418e23fea8f2fd2f1baf83691cdba20df9ea969b91e55081",
+            "outcome": "output"
+        },
+        {
+            "id": "9f6e1167cce9e7e8436f441cce9a21ad0558a512",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "b2286151d42ba12e5dbfe4970581718085df540355124763d9b4b5b50e47f7e2",
+            "outcome": "output"
+        },
+        {
+            "id": "a5a08a8615d2682ce0d38a5053bcec23199be36f",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "7fb14b9b715633998d19b1f060d54e71396285c5e63c30103dfe33760db2c034",
+            "outcome": "output"
+        },
+        {
+            "id": "a674b388cb27ac0b1e993325c51d15fbf3fa7401",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "86ad3e7f84ea9c5e6d3402d62a4bda475e9192e1c3f0836d0900a76b3cb6fda8",
+            "outcome": "output"
+        },
+        {
+            "id": "a683ee23c2246fb6c0e13fdbd1eca9940693bbf9",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "89b78162b59cde85cab24efdcf599cb3c80a9c673d2633e0d2eea6390139eb1c",
+            "outcome": "output"
+        },
+        {
+            "id": "a73ce3b04cfe9d999b42457b98c34e91037ed049",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "42687eae1d4c1901c7d8eebf881c5754b08182c365bbea859b2aa95f4e73ec4a",
+            "outcome": "output"
+        },
+        {
+            "id": "a951f005b977a0c960186bae33cdd047d18caae1",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "df7d7e86a0b753ff7fff7fba7d3c3dea6bce6f85edc4bb769d77457973721c2f",
+            "outcome": "output"
+        },
+        {
+            "id": "a98742a01f9e63be4e5d0e116aaea459f221161d",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "4cde2f15b98238418516b10a691cfaf8dfb382decc758acfcea3b84384dc7395",
+            "outcome": "output"
+        },
+        {
+            "id": "a99ae9bba8f85e6ff850f050f0f1800df19aa3e4",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "ea9afdad61ca76da35eb5209ef9300312281131d3b70f4f790d2dc9a743029b9",
+            "outcome": "output"
+        },
+        {
+            "id": "a9db830d9fe842f04c12d3125948c24aebbb713c",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "239a965871bc1059f5782d5f75b06e5c9ac408aa414a065e84cbdbf2c9136763",
+            "outcome": "output"
+        },
+        {
+            "id": "abbef1b86e0156792ef13c169694528109416298",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "f203dce9d5fe95c3736b592b1e037244fec2ac83c15591a97ea916a2976279b5",
+            "outcome": "output"
+        },
+        {
+            "id": "ad6a1461c0faa54064e50739d790badc8845c577",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "1c812f060420ce08c99b3bcd55cdb72b75eefcb009ed259eea2ee1e7f102fb33",
+            "outcome": "output"
+        },
+        {
+            "id": "ae8197159e63beecd5a94ff303cd1934f9c6eb36",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "8cc7d5ba3a28315b5523b5ea6e06f7b957cb2ccccd4a171e449b1a2e558376d4",
+            "outcome": "output"
+        },
+        {
+            "id": "aea0d3037b5775ff8428477442f6b0798454dd15",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "85fa9f04c21a45e90fb9ca470d58a4f3b4912e8f41ccc91bdc96e6aa9458b459",
+            "outcome": "output"
+        },
+        {
+            "id": "b08c59fbb40d27ee462e281bd03036db83419f20",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "df7d7e86a0b753ff7fff7fba7d3c3dea6bce6f85edc4bb769d77457973721c2f",
+            "outcome": "output"
+        },
+        {
+            "id": "b0e045a784bd2fa915641303d79bbb3d5a5310ab",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "ffd4c7293a193da19aba260171bcbf64ac08fee5557230c72630020521d8a986",
+            "outcome": "output"
+        },
+        {
+            "id": "b27966552a6ff90dda44f6d62103894508ebde96",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "05190e055a659bbf8bfdfcdacdb0af710eb12760bdf9985d96ffc1dbd20409b6",
+            "outcome": "output"
+        },
+        {
+            "id": "b550beb0271acdd852382b101d2fc6653b1cb107",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "03c14aaf5f28dc4d2bc8846e033f7b7a8d4e3e4e92b081af72582825de6f956c",
+            "outcome": "output"
+        },
+        {
+            "id": "b663b3ad2ba218ab3b4dd23593dac2e4e0eb4d5c",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "37c8ab89d64ddae1c361132bc4bd99e3caff78789484a3b204a07d7e85e25ac6",
+            "outcome": "output"
+        },
+        {
+            "id": "b7408474da431a5906765bf91cc6af329f4a1854",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "ef318b75853440db946b195eaaff10b2604a8c5e7637701f8aef3c7548ca0f25",
+            "outcome": "output"
+        },
+        {
+            "id": "b763ab024aa672d02247023460e63a59e49ea878",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "672771f33cf8d90d19c34418b2dd8310add645887f1d669b1ed38968454a5fc1",
+            "outcome": "output"
+        },
+        {
+            "id": "b79533155fdf23c409b907a7d7cf1388d381d7d9",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "37c625954467d256b3b9bd706b4d9f18b6ac1909e36706606bb91b9e51b955ea",
+            "outcome": "output"
+        },
+        {
+            "id": "b87588612d79c6b8b262c4f3b42cbfa554db9b4c",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "024c91dcafd6f91a9a93be1460fbc6c55bdc21c9495b4a83277465915bc14631",
+            "outcome": "output"
+        },
+        {
+            "id": "b913b3b49e19c7dd90ced1e39951b0cd843dbb42",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "f3a34cd09931ad9646fbb88c5e92f08fcf76ca927f144bc7884923a8be80fede",
+            "outcome": "output"
+        },
+        {
+            "id": "bab702ca37fa3cfa6c3222704fcd92dd6482ce75",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "54e03ab1398387f4cb81fb402f6ad025aded943123d7a297b02281e51dc08790",
+            "outcome": "output"
+        },
+        {
+            "id": "bc14204799f30a6a3eef1a065c0b8b73e7e00115",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "2e5e3fc206c84b781b7cf5011b27bf011d47edf4d3c8d850bcb2ef5e63c46398",
+            "outcome": "output"
+        },
+        {
+            "id": "bc6e6f72833e11504e6d3146550b65588466eb62",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "b6463306432175b379bbb66837cdd3fac72ebc4c29e99f15a135eb00642651b4",
+            "outcome": "output"
+        },
+        {
+            "id": "bcd4e29be7c894ed7848a5937bb9f660ee280779",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "c23369131549f3e094eb7d16656145f949ee6308f23f8cb27d6783f1da8d8099",
+            "outcome": "output"
+        },
+        {
+            "id": "bd647f481f1426f6b32c01b9149486cc5ae20fcc",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "d77dcaa04f62826910d6bcc6c1470d69af439964390d6a923f30972228151801",
+            "outcome": "output"
+        },
+        {
+            "id": "bda59bb962f6f24b9dfe35cae8df1391b943874f",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "260765df69ba9bfa91def889de7ae078b1af7bdd42bb53dd977f83ec03fa41ff",
+            "outcome": "output"
+        },
+        {
+            "id": "bded56e6915f3026444c6f480c6f89ff23d47331",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "5c1d867cf5127996f2cf288647c25641427b458f8574e9d725f482aaa3e0696f",
+            "outcome": "output"
+        },
+        {
+            "id": "beb91ca659caa3e89ad7dde52af67d7457d04f08",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "9e8c8f25a3745c80cbf2f7c1250ff7a4aaf9e96642f3e7a50f7637ba65105cc0",
+            "outcome": "output"
+        },
+        {
+            "id": "bf638a45e71d94db904e734d8175ba36bcccf713",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "4bb13ab79bd1ef537f94ab2cc71e39690a6d3cff93fe4421cc5c8b4eb591594c",
+            "outcome": "output"
+        },
+        {
+            "id": "c015fa89363ce421a7de71b0bed995c12e287bfb",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "e5f3b9ff432d1592207c187707c04df595e6b2cf8b08bf83f3df4d90effd835c",
+            "outcome": "output"
+        },
+        {
+            "id": "c15f68fa22ce0fe44ebb32bf103c335f231f97be",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "1697d07a4737e0532381cf545f9ab7d6690f3102150370cfe22ef46d3e8d1566",
+            "outcome": "output"
+        },
+        {
+            "id": "c210d1f99b8652f7b7ff1dcc9446774c0255e5aa",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "1a6e096fa0805a236381262466814225415fd8ad641d39bfd1301ee00d762942",
+            "outcome": "output"
+        },
+        {
+            "id": "c2ecde5bbebe3f9233fe378344bd11feee40d15a",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "0eccfb2905b793166d69e1d547173e28353f1c0e70f9164299c1d0cabc8db2e2",
+            "outcome": "output"
+        },
+        {
+            "id": "c4469897f8d601627d48b9ce8109a9602eed0f06",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "d80580cffece07aa3eb0e48b976b275169f8ad6f4b982593ffa0820eb28be161",
+            "outcome": "output"
+        },
+        {
+            "id": "c4fcb46ef6f109fd5337dd57e78b3b5adb18d4db",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "32780691093cfff8dc0af95f586a1a4b980dde11a97c75736890f44850e2fe8e",
+            "outcome": "output"
+        },
+        {
+            "id": "c57bc18c3683941c94a1dfa1100825e524a3b98e",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "b1bee99523ec4191473419522f7d45711067781e4fc61c38af238c0296b9e186",
+            "outcome": "output"
+        },
+        {
+            "id": "c5ae9eda2a364cd094ba784da1dae6ff4d2294f1",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "bc2878cb3f91f4e75c1664a3816cf8f6b946c913cad5a1cf69ab478bb9d52afc",
+            "outcome": "output"
+        },
+        {
+            "id": "c5db1f0fab531790b351a4f3c6e77208d60d0df5",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "f51a82e2dbf83d98f2b11fd69339a6ad8484494d47aaeb31978e23def1a1b688",
+            "outcome": "output"
+        },
+        {
+            "id": "c6229f801810f12a695eadfc1dea055190bfe324",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "6518769a505310ba0876921e969f10f52f34e007693e7c4fa183e9be6f7454b1",
+            "outcome": "output"
+        },
+        {
+            "id": "c74d7034fb67cdf786af4be34568ae5b0b504cbd",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "77e61bf93239c0062a3640092ec7f392af47971871e6c9d73f4d3792b50cf2e6",
+            "outcome": "output"
+        },
+        {
+            "id": "c7a369884dd117f4df69ea2a9ddd023bd157cdd4",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "b1f0b62a7987dcbaf3addb6b99d6fca6e0cbbbc65d93c6d98f4e565fcf7ec125",
+            "outcome": "output"
+        },
+        {
+            "id": "c7fff215fed715e93aa155c4e0e5e31d7db084b1",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "fc8db45234751aac47d0efffd24822682881715c898e077c103027fd034ad0ff",
+            "outcome": "output"
+        },
+        {
+            "id": "c98ea0382a0e11ab21ed687a0c528a3df60881ff",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "ec5d2518791d5bd82c20ed782be96d831e6818c8dca3164ba5427c4ac8717c90",
+            "outcome": "output"
+        },
+        {
+            "id": "ca0b670dca5dc1fa4f907d6d4cd0519c8a21011b",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "5cddf67a4886d47f95004ed62438b7b48f141f0dac4513c2f4fb4a7bef418a69",
+            "outcome": "output"
+        },
+        {
+            "id": "ca523d765f8084c0c4cd50f5dbed198b8d793010",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "4d0628c208eb3a6fe327def4b384499a3a4978f2bbe58021777ae9ac7545b54e",
+            "outcome": "output"
+        },
+        {
+            "id": "cb67757827efbd8fa68aa9c2a3bc9adb132efaf7",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "f453c909fec6ba0509a4b2b808bfbc0295da3a750bcdbef3b30f74888c2f7159",
+            "outcome": "output"
+        },
+        {
+            "id": "cf7ea728dd2147a9de494d1c235de1069b79d2d2",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "38751cee380e70126be607293d6225b2e7b93584f1a1c07e3555610df6c0caca",
+            "outcome": "output"
+        },
+        {
+            "id": "d13573697ca7ebaa0708df1571a7202ff8d0617a",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "fdd46c775c608c65392c5d034bbbdb79116283c63ee1f8751be769427d6aed08",
+            "outcome": "output"
+        },
+        {
+            "id": "d155dabd3acf3a7324a5d9d430a53355e2a958e6",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "daf896f6ef8c04657850f368139185aeff58a0b286edef94efb99c3b58dbb29c",
+            "outcome": "output"
+        },
+        {
+            "id": "d21657bbd185dba9c27d95bba05ad87a56e37567",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "c5fecb858f15e6f5921d87aebecbe5da0a06ddc91541eb64d4d328239ccde791",
+            "outcome": "output"
+        },
+        {
+            "id": "d243e2be6ccdda45f063a3dcbab9536217351bd7",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "7c953f277967b9bd8d596287fc4ec271a56e1ad574b4280d2c938f80d7e7a8f5",
+            "outcome": "output"
+        },
+        {
+            "id": "d28fa8458fa6e62f7071db9c695684c53c07ae87",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "cc1525f8e7345dd3ae383982c61ff6f9d41545da541da033dbb090f6e4b66235",
+            "outcome": "output"
+        },
+        {
+            "id": "d2ea164bd6ad4bab2cbd420b8b9df7634699d6cc",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "cabf52989ec6637c4c90d1c6635c77920c20f116cc2ba34491f134042b988f73",
+            "outcome": "output"
+        },
+        {
+            "id": "d363788ed548924b9db663ecf3f1efe9d1dc73bf",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "f1cf6edf8a30c6989df9921637e2e0cc4887d2c47e1a5a0243e1e5808cd2ae89",
+            "outcome": "output"
+        },
+        {
+            "id": "d3b1b8925de7a1e1f74a892cd597d5773caff059",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "493f0dfbe6d8e6f702e1206768f073be8eaef45098043edb0ef6e7e75daaf490",
+            "outcome": "output"
+        },
+        {
+            "id": "d428acf0f2ff263aa46a5be21316b1428bc3fe5b",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "bfc292e04df61de9d8810e713aa1f0b6d4c9516f2311c115c383601d0f1f9be1",
+            "outcome": "output"
+        },
+        {
+            "id": "d463795ed0f393e3b53b95db45709e05f27c1f26",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "ea2931889139b405f8b091d6dc625ec22730ca5dd1b8d8c7f0a27106ea0c6db2",
+            "outcome": "output"
+        },
+        {
+            "id": "d484bf8e7eb2ce1972508acaa8d7a0f0457945aa",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "39ae81d2ea6a04ce19bfeb172aa50eea2f14dae12e0cdda8c669b1b3b819d3de",
+            "outcome": "output"
+        },
+        {
+            "id": "d57476c797b0b0708423123b3c4e34812f7871c1",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "3cbb5ea9c13286ec8bbcb3a67df2803c91a918b6748c48fa93688e23e6535173",
+            "outcome": "output"
+        },
+        {
+            "id": "d76cc2452b7e71d7e7e389b23721168d5eed1c01",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "8ce2cd4b9c69e18bada1192b36ccf6845e445cd51fba26c651e2832692ce8d78",
+            "outcome": "output"
+        },
+        {
+            "id": "d7ccf849b5be76cc4728d3120d90ab7898326cf2",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "dfe80389ea535f8874ff29ea3689ade6ed82769db1f81de6da37593b61e7579e",
+            "outcome": "output"
+        },
+        {
+            "id": "d9a4c8081b8ed16fe4232c53f9e9f4dfc051386f",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "bfc292e04df61de9d8810e713aa1f0b6d4c9516f2311c115c383601d0f1f9be1",
+            "outcome": "output"
+        },
+        {
+            "id": "d9e76520df74860129bf526dde4810d0f36a244f",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "29128910e6c887b2633c9cf5c67d387c77d314ce87ed8c96aa1b2c38abfbfac5",
+            "outcome": "output"
+        },
+        {
+            "id": "da7b405d235479b38bd9e5264a97a3e4d926a6d2",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "8cbd5fe706a3cc45436d252c5df18c89d8be9823af24ab5237fbd6fdcebbf650",
+            "outcome": "output"
+        },
+        {
+            "id": "dae00d128fd981634fc197a6a101ca52966da2ee",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "86493b72b454465fe942e04ecd2c9f011bfe97a156455db41fc88fb04f0361b6",
+            "outcome": "output"
+        },
+        {
+            "id": "db84687e590a0ade0a54a3a7142160f658d6fc2b",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "bda9b089d157133cda2c876dada25bcc64e3250688b744ad7a9ba72bc8008ed4",
+            "outcome": "output"
+        },
+        {
+            "id": "dbfa4fbb4a98b6ac825c8fa49f7592f92bbeaeba",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "fd1ad76525dd68257fe1b558680544cd19e0e96a439ff462d89554ea1e19d5a2",
+            "outcome": "output"
+        },
+        {
+            "id": "dc249610a35474c304d11943e5b5ce54b3eeeaae",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "735620b71b0638a81c345cd1bddb44c29bfaf7afa6fc9ff1de10ccb496d0cb1b",
+            "outcome": "output"
+        },
+        {
+            "id": "dd6435155416263a22f34c06e14e0ae933652de7",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "da5fbfcd28c172a4af834c33aa82a601c2d4d21bd07b57048887aca6f45f5118",
+            "outcome": "output"
+        },
+        {
+            "id": "dde6860346978c50cd85afb2ce42688d1d685004",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "e3042dc905aa2791fb79049ccf6d80610f6df4935d38471fed7b3d10938fc200",
+            "outcome": "output"
+        },
+        {
+            "id": "decc86ce46b145d5df3de753aa2a5c8bd45d49d5",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "eb4b339ce12f4bec0144c757802c9cce6e54b6ddd8d179fd9d410aced5e7e850",
+            "outcome": "output"
+        },
+        {
+            "id": "df7fe272714151e12093e6497098b86a8b779cb0",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "56bc128435c0332967201c82ae3a3ac4689f0805c5004f4588f265b5dad19880",
+            "outcome": "output"
+        },
+        {
+            "id": "df9c24a89732ac84a5fb55a4fd84cb89492722c3",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "7abb374819c974c3a1716493d4a93823eddf3f910671c1d45602caafbc8e3a10",
+            "outcome": "output"
+        },
+        {
+            "id": "df9fb671dd16e90c376147ea9110bb31855c3143",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "34db98256b58308dfa1f32019cee994df5fce9e665ee267c07bef8db55108d62",
+            "outcome": "output"
+        },
+        {
+            "id": "e0896760448c3dce7662c8860a3c53873d6e45ea",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "993f6a0193fef811e6d0cae947d01b27d922215a3ca881053cdd3aa53f50da98",
+            "outcome": "output"
+        },
+        {
+            "id": "e2c48cbef90360a9e86e10e23d212cb2b110da18",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "ffe1c28849bfe012f4e0377811927a3a3c6e0dd5ce33751d73890fb610c32100",
+            "outcome": "output"
+        },
+        {
+            "id": "e39feabd8357f3cec4f5febe061b23c5866f158f",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "397116a0a3a42b03c97973dfc160a9c4bb10c2d744a6669e094157faf1fa88ec",
+            "outcome": "output"
+        },
+        {
+            "id": "e40ee9dcecfe029b6bb1d6c682d8006ad513c1c4",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "ce8ee4870971c5db8d69484430798ee6f792d8edc4d37b6241b160c2d374bcb5",
+            "outcome": "output"
+        },
+        {
+            "id": "e595d8f28e745951e084fc940a9a52813dc11b27",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "106bb2d89fd7042819642869c20f8c912d5d0a3e81e6fe32db0f004cb12a92e1",
+            "outcome": "output"
+        },
+        {
+            "id": "e5ea57430e2ac12b29b8351684acc9fde5ba6431",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "c592d534b66b0f925774d387429cdc72809bb3dec7128fa3681e2cc5fb6d6536",
+            "outcome": "output"
+        },
+        {
+            "id": "e63b2d57301a9c95141bfe588b96792fe8440050",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "75e74ad857c4c330a79d52b96dd64f85cd87549797fd845f8eaa561939f31ba4",
+            "outcome": "output"
+        },
+        {
+            "id": "e7450ca5bd05c5ab9641a0e4a1910d49b1a0aade",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "64fed6571bbd3d492aef2ba92466c45494c26c7df1b4a6b4a2d535ecf3b3582a",
+            "outcome": "output"
+        },
+        {
+            "id": "e747c76fc6f4a451652a658130745e1574136615",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "c51b645ea7ff6ea50b48dd45b4626fba341afd73dbacb4fef8492727affdcdd5",
+            "outcome": "output"
+        },
+        {
+            "id": "e78f1a6a0fa5cb72a12ee3d0de7cf6e70f4d4ff3",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "2cbcb2559b9ea99ea3dfd251098024beba7602e2c95f27ff15315dd91f546ff0",
+            "outcome": "output"
+        },
+        {
+            "id": "e970e58c3c477747ba87b749ca7575c096199e4b",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "48e3e2c1263a28e9af393c741d2a328030076073061dd4568b040d022451817e",
+            "outcome": "output"
+        },
+        {
+            "id": "e99fa2072cc914be45cc27c6f8f1c253395c5291",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "c769dd538467707cbc8b990aab5f00c86db2bd1de7a17426f0806a25f2e918bc",
+            "outcome": "output"
+        },
+        {
+            "id": "ea0e02cef76533be46296019610c805c70b9f858",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "1156da62a0a415e43037f42e87bf7eedf77519ec73b6e85c556f8b95840cd6c1",
+            "outcome": "output"
+        },
+        {
+            "id": "ea465aa148be34063cfeac7688773d10579dfdd4",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "ccbebad0cdcfd9df90b658dd31f3d25c6430633f0fbee989363aef0c0931aba6",
+            "outcome": "output"
+        },
+        {
+            "id": "eaad29efccc2e7fa6a01a2334673eeef84e9e98f",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "ed2952267ebe0fc655dc36ecfde2cf7cc22d467efb298014c60ee5f107d0c92b",
+            "outcome": "output"
+        },
+        {
+            "id": "eb40b37326eb847c0c56c95695952f3c481f3aac",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "b59eab8f9016ae656bff8e76415c8528367b815d6451d233b405f6cc3abfd0b5",
+            "outcome": "output"
+        },
+        {
+            "id": "ed102407fccc74ad3a5d3f9c542972fa46faa517",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "28610774bd1b0809f08c611696a8be5c49bed9facb651e7f24f5fe2cad7b9373",
+            "outcome": "output"
+        },
+        {
+            "id": "ed2327af33164932fd37be72ac7e743e4f337327",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "1a4975cde25af759e285e69771171b3b0798f1d9377595df4baadd010b51cc0f",
+            "outcome": "output"
+        },
+        {
+            "id": "ee5f79edfcf438524a8061f2811561e5945ae1bb",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "a9a692f4be1ee2a0eaa126ed556b7cd9d69fe52fd66fc8de2f304878fe9d2381",
+            "outcome": "output"
+        },
+        {
+            "id": "eee4d421b752adae9a87da399ce4f55d9420a6d9",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "c4d6e4311733ef8a4b548822a08e65e844e6685bb4b7a9d1badffb2864acbdf5",
+            "outcome": "output"
+        },
+        {
+            "id": "eef990de7624782591011804baf956998cb6dc23",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "8129966804de64fd2ab3571cfc080d7f062620322ce11a2bad264c6df1bad5c2",
+            "outcome": "output"
+        },
+        {
+            "id": "f025cf281f15d03cf61d0c76c1f4bd7adc3b257e",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "e91fb22dc0beafe7c96b49a1e2a7c93693305dc1d09c65380f521165d4f4de6b",
+            "outcome": "output"
+        },
+        {
+            "id": "f056b27475c18a8ad35935fc507ad705bfc877bc",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "948b469ff8678154c457614922a63eeb486f1f8326e9af0d2e146c6ca0e6d66a",
+            "outcome": "output"
+        },
+        {
+            "id": "f06e5d4a656365702c7dd96c7a27eee97c232574",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "6e6f02808cb43fb85b7fde50bf4704e87d12464d496baf9f0728ff8ae470bbb3",
+            "outcome": "output"
+        },
+        {
+            "id": "f0e1a42cec172b213f08a09f5c7d3b1231af846a",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "58d525ecf528e33849049639cc948f9b5b6448c04d5a82134ac3d5a9f98443f6",
+            "outcome": "output"
+        },
+        {
+            "id": "f0e2868b19689abc1f9e21b8c0dad97e91b16ddf",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "3695ce8a5ef6320aea3a90c1abe0c928f99e7ac9ce6570199d89b0aecbc7dafa",
+            "outcome": "output"
+        },
+        {
+            "id": "f159a7b63a3e77af373cac9dd2100c94dced0f55",
+            "entry": "CapturedSelectableSetProjector::project",
+            "expected_sha256": "15078210895cb1c197b0d3d2772d7d703caf06afa7c78b90f80ba79a64a2749c",
+            "outcome": "output"
+        },
+        {
+            "id": "f2390e98c1d5de9d888c15243041fbc370bf4067",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "23361c899a28f10d31d60d0ecad8f463c95f233e353021090028362ae51a158f",
+            "outcome": "output"
+        },
+        {
+            "id": "f2640f2d9ad2189c3ad4b52023715f30ce8a75fe",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "695df108415b611c024612e562e5620b5113146fcd570a62f88144aa2cb20a3c",
+            "outcome": "output"
+        },
+        {
+            "id": "f2a509d45413880dc0d7cafde266299ad509e644",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "6f9b8e9afa1ff800f01381d603513af46aaeca2905c2507defe6773a10856526",
+            "outcome": "output"
+        },
+        {
+            "id": "f500b861144ad5bf09e5d65c6ea937b938a90099",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "c3860287f53021e00073409d887fae13819bbd2419347389adb9d16e98f8f11e",
+            "outcome": "output"
+        },
+        {
+            "id": "f50c699836b88c6bed0cb4b816dafb1995c3451d",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "bccc6410aad69be1592153b4a115f1be781805f904590b2e745b022eab4240cb",
+            "outcome": "output"
+        },
+        {
+            "id": "f5a111b558c15cf5bd97b1fb720135272fadb021",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "89701acb61f9b4543036395dbee1580f8bcadda2d3e812cccd862b4b77fa6502",
+            "outcome": "output"
+        },
+        {
+            "id": "f61e306e3408135052e877a2f695037e311abb66",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "24774908ecaf47c6249f67f7dc1c3eab7019c75cc39ca87b822e18ad9f7ebdf2",
+            "outcome": "output"
+        },
+        {
+            "id": "f67e5ca643c0cb67a0008dc6a6b5a7addd005df0",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "e1af7de71256e6fdf1194873d74ad78ff51b92f598eb73738dd099adfad68fba",
+            "outcome": "output"
+        },
+        {
+            "id": "f6c56cd74455bfeb402a2051632c87b6daa30b1f",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "0aba74ec4f43d64d4e423f1558f777ebbb42dfc79e6a7009fb67f7adad297a02",
+            "outcome": "output"
+        },
+        {
+            "id": "f91b0717a83b4554f659b91841e2e6875e3c9c7a",
+            "entry": "ArtifactNormalizer::normalize",
+            "expected_sha256": "5212994707f9af5113788b2f243538fc669dc1ecbb13bbcfe7415c615142d346",
+            "outcome": "output"
+        },
+        {
+            "id": "f99132fca586fc5bf06e0730e69a186315eaf87c",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "2f8887d94ea37a17ec4171fe9545621672cd03cf48e3235b81b7f5bd33d05ea7",
+            "outcome": "output"
+        },
+        {
+            "id": "f99f9e57e360b34a7c35113ff755575e185fdc93",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "706e09f1ffe07cc43a90ba876d00e54c6b4cb14f3ce096d8695d647da3a8054e",
+            "outcome": "output"
+        },
+        {
+            "id": "fa13bd5f213e8c2fc041946a9eb5ca01beaf6997",
+            "entry": "CapturedChoiceGroupProjector::project",
+            "expected_sha256": "be20b6a87354f8966fd4eaab18c60101bf19d35ee9d71af663b63d2a8d9af9bc",
+            "outcome": "output"
+        },
+        {
+            "id": "fa4240b9c6ad1e75de48ce7ba1a832b1c14ab037",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "c90628122d7d73cf28d168b8130b70baf672d040c06d0789580315b960fba338",
+            "outcome": "output"
+        },
+        {
+            "id": "fbb78813d4a49ab3569d1f4b28f7074f3ab7dc41",
+            "entry": "CapturedCollectionProjector::project",
+            "expected_sha256": "1122ff25a6dd6a54f1cce06fa2c1c3a70ba3843bc8497b57399e260bfde36009",
+            "outcome": "output"
+        },
+        {
+            "id": "fc76a016c6c89dd0724863be976fde13119259e5",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "a7b20da4f38499414406145e7174f8a01c0ac7da710f67305cd31d5596bd30e2",
+            "outcome": "output"
+        },
+        {
+            "id": "fcc75319509e48a8405c1f14f69d2e1f7e66cb4a",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "81c56c4bcce6642ea63f460fc4b9bdac00f4c2d88f3602c67d505777a5b3e489",
+            "outcome": "output"
+        },
+        {
+            "id": "fe07751f2d7bb149e90122ee89dc3be6e1dd1c27",
+            "entry": "HtmlTransformer::transform",
+            "expected_sha256": "4330ace525c64f0a17bcc0b761b8ac306a9fc6ac9cc66c2743f370b24bf382bd",
+            "outcome": "output"
+        },
+        {
+            "id": "feef8efc18785eed32b02bb0eb3a90d94ac4d840",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "4c13e333c43d828b00e00ba214c6e519dffebbbe4d77f83f53dc26db31adc90b",
+            "outcome": "output"
+        },
+        {
+            "id": "ff11cd59bd4c89aea9336fa7df2561fb9ca45c67",
+            "entry": "CapturedDialogProjector::project",
+            "expected_sha256": "06868ac74e825c37a91029148429f3f8ef944e4beda880671540e17f9a47cc76",
+            "outcome": "output"
+        },
+        {
+            "id": "ff7157491623331641f3f79d3a75c9423da68d33",
+            "entry": "ArtifactCompiler::compile",
+            "expected_sha256": "e5d1bf0a72f89bd28a9bdda6099a364983b2186bf95291dce31ca1c8d24dd27d",
+            "outcome": "output"
+        }
+    ]
+}

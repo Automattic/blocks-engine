@@ -18,8 +18,8 @@ $files = static function (string $source): array {
     );
     return array(
         array('path' => 'website/index.html', 'content' => $source),
-        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array($state)))))),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array($state)))))),
     );
 };
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $files($html)))->toArray();
@@ -27,7 +27,7 @@ $markup = $result['serialized_blocks'];
 $assert(0 === $result['metrics']['fallback_count'], 'mixed panels lower entirely to editable native blocks');
 $assert(2 === substr_count($markup, '<!-- wp:custom/captured-dialog '), 'one existing captured dropdown block per source scope');
 $assert(!str_contains(json_encode($result['assets']), 'function triggers()'), 'known generated helper is retired after all scoped controls bind');
-$assert(str_contains($markup, 'data-blocks-engine-placement="in-place"') && str_contains($markup, 'data-dla-dialog-ancestor-unverified="ancestor-limit"'), 'source placement and unverified ancestor evidence remain explicit');
+$assert(str_contains($markup, 'data-blocks-engine-placement="in-place"') && str_contains($markup, 'data-blocks-engine-capture-dialog-ancestor-unverified="ancestor-limit"'), 'source placement and unverified ancestor evidence remain explicit');
 $assert(str_contains($markup, '<!-- wp:separator') && str_contains($markup, 'Ordinary action') && str_contains($markup, 'Social') && str_contains($markup, '<svg'), 'mixed separators, action, social artwork and opener artwork survive');
 libxml_use_internal_errors(true);
 $dom = new DOMDocument();
@@ -47,9 +47,9 @@ $assert('pass' === $result['source_reports']['runtime_dependency_parity']['statu
 
 $projector = new CapturedDialogProjector();
 foreach (array(
-    str_replace('data-dla-disclosure-runtime="true"', 'data-unknown-runtime="true"', $html),
+    str_replace('data-blocks-engine-capture-disclosure-runtime="true"', 'data-unknown-runtime="true"', $html),
     str_replace('function triggers(){', 'window.unknownSourceControl=true;function triggers(){', $html),
-    str_replace('</head>', '<script>document.querySelector("[data-dla-dialog-trigger]").addEventListener("click",function(){window.sourceAction=true;});</script></head>', $html),
+    str_replace('</head>', '<script>document.querySelector("[data-blocks-engine-capture-dialog-trigger]").addEventListener("click",function(){window.sourceAction=true;});</script></head>', $html),
     str_replace('</head>', '<script src="https://example.test/native-control.js"></script></head>', $html),
     str_replace('role="button"', 'role="region"', $html),
     str_replace('<div id="mobile-menu-panel"', '<div id="mobile-menu-panel"></div><div id="mobile-menu-panel"', $html),
@@ -68,12 +68,12 @@ $reporter = new RuntimeDependencyParityReport();
 $source = '<div id="control" role="button" aria-controls="target"></div><div id="target"><p>Panel</p></div>';
 $missing = $reporter->fromArtifact(array(), $source, '<div id="control" role="button" aria-controls="target"></div>', 'index.html');
 $assert('warning' === $missing['status'] && '#target' === $missing['findings'][0]['selector'] && 'idref' === $missing['findings'][0]['dependency_kind'], 'explicit DOM IDREF detects a missing panel without analyzing JS');
-$scopedSource = '<div class="data-liberation-desktop-document"><div id="target"></div></div><div class="data-liberation-mobile-document">' . $source . '</div>';
-$wrongScope = $reporter->fromArtifact(array(), $scopedSource, '<div class="data-liberation-desktop-document"><div id="target"></div></div><div class="data-liberation-mobile-document"><div id="control" aria-controls="target"></div></div>', 'index.html');
+$scopedSource = '<div class="data-blocks-engine-capture-desktop-document"><div id="target"></div></div><div class="data-blocks-engine-capture-mobile-document">' . $source . '</div>';
+$wrongScope = $reporter->fromArtifact(array(), $scopedSource, '<div class="data-blocks-engine-capture-desktop-document"><div id="target"></div></div><div class="data-blocks-engine-capture-mobile-document"><div id="control" aria-controls="target"></div></div>', 'index.html');
 $assert('warning' === $wrongScope['status'], 'a target in the desktop copy cannot satisfy a mobile control');
 // A phone runtime can build a control's popup only when it opens, so the
 // captured phone copy has the control without its target. Nothing was lost.
-$targetInDesktopOnly = '<div class="data-liberation-desktop-document"><div id="control" role="button" aria-controls="target"></div><div id="target"><p>Panel</p></div></div><div class="data-liberation-mobile-document"><div id="control" role="button" aria-controls="target"></div></div>';
+$targetInDesktopOnly = '<div class="data-blocks-engine-capture-desktop-document"><div id="control" role="button" aria-controls="target"></div><div id="target"><p>Panel</p></div></div><div class="data-blocks-engine-capture-mobile-document"><div id="control" role="button" aria-controls="target"></div></div>';
 $unchanged = $reporter->fromArtifact(array(), $targetInDesktopOnly, $targetInDesktopOnly, 'index.html');
 $assert('pass' === $unchanged['status'], 'a control whose source document scope never had its target is not a lost target');
 $desktopLost = $reporter->fromArtifact(array(), $targetInDesktopOnly, str_replace('<div id="target"><p>Panel</p></div>', '', $targetInDesktopOnly), 'index.html');

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -1444,7 +1445,7 @@ final class ShellExtraction
 
     private function retainsResponsiveVariantLandmark(string $markup, string $area): bool
     {
-        if (1 !== preg_match('/(?:data-liberation-(?:desktop|mobile)-document|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
+        if (1 !== preg_match('/(?:' . preg_quote(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_DOCUMENT_CLASS, '/') . '|site-document-variant-[a-z][a-z0-9_-]{0,31})/', $markup)) {
             return false;
         }
         return array() !== $this->nestedLandmarkCandidates($markup, '', $area);
@@ -1640,13 +1641,13 @@ final class ShellExtraction
 
     public static function isResponsiveVariantClass(string $class): bool
     {
-        return in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)
+        return in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)
             || 1 === preg_match('/^site-document-variant-[a-z][a-z0-9_-]{0,31}$/', $class);
     }
 
     private static function responsiveVariantRank(string $class): int
     {
-        if (in_array($class, array('data-liberation-desktop-document', 'site-document-variant-default'), true)) return 0;
+        if (in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, 'site-document-variant-default'), true)) return 0;
         if (str_contains($class, 'mobile')) return 1;
         return 2;
     }

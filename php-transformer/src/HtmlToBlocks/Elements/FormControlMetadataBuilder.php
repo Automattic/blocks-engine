@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
@@ -506,9 +507,9 @@ final class FormControlMetadataBuilder
         }
 
         $next = $control->nextElementSibling;
-        $key = trim(SourceDom::attr($control, 'data-dla-listbox-trigger'));
+        $key = trim(SourceDom::attr($control, CaptureEvidence::LISTBOX_TRIGGER));
         if ( '' !== $key && $next instanceof DOMElement
-            && $key === trim($next->getAttribute('data-dla-listbox-panel'))
+            && $key === trim($next->getAttribute(CaptureEvidence::LISTBOX_PANEL))
             && null !== FormControlClassifier::sourceSelectAfterCapturedPanel($next) ) {
             // Capture inserts precisely one linked popup between the visible
             // trigger and its source value carrier. Do not skip other nodes.
@@ -850,11 +851,11 @@ final class FormControlMetadataBuilder
      */
     private function ownedListboxPanel(DOMElement $control): ?DOMElement
     {
-        $key = trim(SourceDom::attr($control, 'data-dla-listbox-trigger'));
+        $key = trim(SourceDom::attr($control, CaptureEvidence::LISTBOX_TRIGGER));
         $document = $control->ownerDocument;
         if ( '' !== $key && $document instanceof \DOMDocument ) {
             foreach ( $document->getElementsByTagName('*') as $candidate ) {
-                if ( $candidate instanceof DOMElement && $candidate->getAttribute('data-dla-listbox-panel') === $key ) {
+                if ( $candidate instanceof DOMElement && $candidate->getAttribute(CaptureEvidence::LISTBOX_PANEL) === $key ) {
                     return $candidate;
                 }
             }
@@ -915,9 +916,9 @@ final class FormControlMetadataBuilder
 
     private function panelOwnedByOtherTrigger(DOMElement $panel, DOMElement $control): bool
     {
-        $ownKey = trim(SourceDom::attr($control, 'data-dla-listbox-trigger'));
+        $ownKey = trim(SourceDom::attr($control, CaptureEvidence::LISTBOX_TRIGGER));
         for ( $node = $panel; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $key = trim($node->getAttribute('data-dla-listbox-panel'));
+            $key = trim($node->getAttribute(CaptureEvidence::LISTBOX_PANEL));
             if ( '' === $key ) {
                 continue;
             }
@@ -931,7 +932,7 @@ final class FormControlMetadataBuilder
     private function isListboxPanel(DOMElement $element): bool
     {
         return 'listbox' === strtolower(trim($element->getAttribute('role')))
-            || '' !== trim($element->getAttribute('data-dla-listbox-panel'));
+            || '' !== trim($element->getAttribute(CaptureEvidence::LISTBOX_PANEL));
     }
 
     private function isOwnedListboxCopy(DOMElement $node, DOMElement $panel): bool
