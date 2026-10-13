@@ -491,6 +491,7 @@
       "php tests/unit/figure-element-converter.php",
       "php tests/unit/list-element-converters.php",
       "php tests/unit/svg-element-converter.php",
+      "php tests/unit/svg-text-run-native-text.php",
       "php tests/unit/filtered-svg-materialization.php",
       "php tests/unit/own-output-round-trip.php",
       "php tests/unit/readable-form-flow-content.php",

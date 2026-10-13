@@ -92,6 +92,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DetailsElementC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DetailsElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgTextRunLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
@@ -615,7 +616,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (DOMElement $element, array &$fallbacks): void {
                 $this->captureInlineSvgFallback($element, $fallbacks);
             }
-        ), $this->svgMaterializer);
+        ), $this->svgMaterializer, new SvgTextRunLowering(
+            $this->styleResolver,
+            fn (string $value, DOMElement $element): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
+            $this,
+            function (array $finding): void {
+                $this->transformationEvidence()->recordFrozenHiddenState($finding);
+            }
+        ));
         $inlineContentConverter = new InlineContentElementConverter(new InlineContentElementContext(
             $this->sourceElementClassifier,
             fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
@@ -5696,6 +5704,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return array(
                 'conversion_classification' => 'runtime_island_preserved',
                 'preservation_strategy'     => 'core_block_shell_with_runtime_target',
+            );
+        }
+
+        // An SVG text run lowered to a native text block keeps its text and
+        // typography; its line box approximates the SVG glyph placement.
+        if ( 'text' === $tagName ) {
+            return array(
+                'conversion_classification' => 'editable_approximation',
+                'preservation_strategy'     => 'svg_text_run_as_native_text',
             );
         }
 
