@@ -15,7 +15,7 @@ const rawConvertCases = (cases as RawConvertFixture[]).filter(
 
 describe('rawConvert golden fixtures', () => {
   for (const fixture of rawConvertCases) {
-    it(`${fixture.id} is byte-identical to the DLA golden`, () => {
+    it(`${fixture.id} is byte-identical to the reference golden`, () => {
       expect(rawConvert(fixture.input)).toEqual(fixture.expected);
     });
   }

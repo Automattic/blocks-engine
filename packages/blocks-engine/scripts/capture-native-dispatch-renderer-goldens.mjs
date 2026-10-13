@@ -4,13 +4,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const DLA_COMMIT = '1e393c535850ee1a9482f83459f779d0e225b027';
-const DEFAULT_DLA_ROOT = '/Users/matt/projects/a8c/data-liberation-agent';
+const REFERENCE_COMMIT = '1e393c535850ee1a9482f83459f779d0e225b027';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(__dirname, '..');
 const fixtureUrl = pathToFileURL(path.join(packageRoot, 'src/__fixtures__/native-dispatch-renderer-cases.ts')).href;
-const outputPath = path.join(packageRoot, 'src/__fixtures__/native-dispatch-renderer-dla-goldens.json');
+const outputPath = path.join(packageRoot, 'src/__fixtures__/native-dispatch-renderer-reference-goldens.json');
 const TSX_BOOTSTRAP_ENV = 'BLOCKS_ENGINE_NATIVE_DISPATCH_GOLDENS_TSX';
 
 function hasTsxLoader() {
@@ -34,10 +33,13 @@ const args = new Set(process.argv.slice(2));
 const shouldWrite = args.has('--write');
 const shouldCheck = args.has('--check');
 const shouldStdout = args.has('--stdout') || (!shouldWrite && !shouldCheck);
-const dlaRoot = process.env.DLA_ROOT || DEFAULT_DLA_ROOT;
+const referenceRoot = process.env.REFERENCE_ROOT;
+if (!referenceRoot) {
+  throw new Error('Set REFERENCE_ROOT to a checkout of the reference implementation at the pinned commit.');
+}
 
 function git(args) {
-  return execFileSync('git', ['-C', dlaRoot, ...args], { encoding: 'utf8' }).trim();
+  return execFileSync('git', ['-C', referenceRoot, ...args], { encoding: 'utf8' }).trim();
 }
 
 function stableJson(value) {
@@ -171,23 +173,23 @@ function sandwichedRenderOut(section, result) {
 
 function extractCardGroup(markup) {
   const match = /<!-- wp:group \{"className":"is-replica-card"[\s\S]*?<!-- \/wp:group -->/.exec(markup);
-  if (!match) throw new Error('Could not extract is-replica-card group from DLA output');
+  if (!match) throw new Error('Could not extract is-replica-card group from the reference implementation output');
   return match[0];
 }
 
 const currentCommit = git(['rev-parse', 'HEAD']);
-if (currentCommit !== DLA_COMMIT) {
-  throw new Error(`DLA checkout must be at ${DLA_COMMIT}; got ${currentCommit}`);
+if (currentCommit !== REFERENCE_COMMIT) {
+  throw new Error(`reference checkout must be at ${REFERENCE_COMMIT}; got ${currentCommit}`);
 }
 
 const dirty = git(['status', '--porcelain']);
 if (dirty) {
-  throw new Error(`DLA checkout must be clean at ${DLA_COMMIT}; status:\n${dirty}`);
+  throw new Error(`reference checkout must be clean at ${REFERENCE_COMMIT}; status:\n${dirty}`);
 }
 
 const { nativeDispatchRendererCaseGroups, NATIVE_DISPATCH_RENDERER_DERIVATION } = await import(fixtureUrl);
 const { reconstructPagePattern } = await import(
-  pathToFileURL(path.join(dlaRoot, 'src/lib/replicate/page-reconstruct.ts')).href
+  pathToFileURL(path.join(referenceRoot, 'src/lib/replicate/page-reconstruct.ts')).href
 );
 
 const cases = nativeDispatchRendererCaseGroups();
@@ -203,7 +205,7 @@ const renderSectionCase = (entry) => {
   return capture(entry.id, renderOutFromResult(reconstructPagePattern([section], reconstructOptions())));
 };
 const renderCardGroupCase = (entry) => {
-  const result = reconstructPagePattern([clone(entry.dlaSection)], reconstructOptions());
+  const result = reconstructPagePattern([clone(entry.referenceSection)], reconstructOptions());
   return capture(entry.id, {
     returnValue: extractCardGroup(stripFinalBodyNewline(result.body)),
   });
@@ -226,7 +228,7 @@ const json = stableJson(parityFile);
 if (shouldCheck) {
   const existing = readFileSync(outputPath, 'utf8');
   if (existing !== json) {
-    throw new Error(`${outputPath} is out of date with DLA ${DLA_COMMIT}`);
+    throw new Error(`${outputPath} is out of date with reference ${REFERENCE_COMMIT}`);
   }
 }
 

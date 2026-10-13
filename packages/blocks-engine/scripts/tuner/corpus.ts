@@ -14,7 +14,7 @@
 import { nativeDispatchRendererCaseGroups } from '../../src/__fixtures__/native-dispatch-renderer-cases.js';
 import { nativeSectionRendererCaseGroups } from '../../src/__fixtures__/native-section-renderer-cases.js';
 import { nativeTextRendererCaseGroups } from '../../src/__fixtures__/native-text-renderer-cases.js';
-import { reconstructBaselineCases } from '../../src/__fixtures__/page-reconstruct-dla-baseline.corpus.js';
+import { reconstructBaselineCases } from '../../src/__fixtures__/page-reconstruct-reference-baseline.corpus.js';
 import type { SectionSpec } from '../../src/theme/section-spec.js';
 
 export interface BenchFixture {
