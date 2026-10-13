@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
@@ -231,7 +232,7 @@ final class ResponsiveBreakpoints
             if (2 !== count($parts)) continue;
             $name = strtolower(trim($parts[0]));
             $value = trim($parts[1]);
-            if ('' !== $name && '' !== $value) $declarations[$name] = $value;
+            if ('' !== $name && '' !== $value && !CssPropertyName::startsLikeNumber($name)) $declarations[$name] = $value;
         }
         return $declarations;
     }
