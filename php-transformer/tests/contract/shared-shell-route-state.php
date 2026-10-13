@@ -53,33 +53,31 @@ foreach ($titles as $slug => $title) {
 $work = (string) ($pages['work.html']['canonical_block_markup'] ?? '');
 $assert(!str_contains($work, '"slug":"header"') && str_contains($work, 'Other brand') && str_contains($work, '<!-- wp:navigation '), 'A genuinely different masthead remains page-owned.');
 
-// Converted chrome can also carry route state outside navigation links: a
-// list-item group whose id is replaced by a state id, and the disclosure
-// state of the nested menu that holds the served route.
-$chrome = static function (string $current): string {
-    $markup = '<!-- wp:group {"className":"masthead"} --><div class="wp-block-group masthead">';
-    foreach (array('home' => 'Home', 'projects' => 'Projects') as $slug => $label) {
-        $id = $slug === $current ? 'active' : 'item-' . $slug;
-        $markup .= '<!-- wp:group {"anchor":"' . $id . '","className":"menu-item","tagName":"li"} --><li class="wp-block-group menu-item" id="' . $id . '"><!-- wp:paragraph --><p><a href="/' . $slug . '">' . $label . '</a></p><!-- /wp:paragraph -->';
-        if ('projects' === $slug) {
-            $markup .= '<!-- wp:navigation {"className":"submenu' . (in_array($current, array('one', 'two'), true) ? ' open' : '') . '","overlayMenu":"never"} -->';
-            foreach (array('one' => 'One', 'two' => 'Two', 'three' => 'Three') as $sub => $subLabel) {
-                $markup .= $sub === $current
-                    ? '<!-- wp:navigation-link {"className":"submenu-item submenu-link blocks-engine-current-navigation-item","label":"' . $subLabel . '","url":"/' . $sub . '","kind":"custom"} /-->'
-                    : '<!-- wp:navigation-link {"anchor":"sub-' . $sub . '","className":"submenu-item","metadata":{"blocksEngineNavigationAnchor":{"style":"","className":"submenu-link"}},"label":"' . $subLabel . '","url":"/' . $sub . '","kind":"custom"} /-->';
-            }
-            $markup .= '<!-- /wp:navigation -->';
-        }
-        $markup .= '</li><!-- /wp:group -->';
+// Converted chrome: a nested menu is disclosed (`open`) only on the routes it
+// holds, and its authored current item renders without the anchor subject
+// its resting siblings use, carrying stand-in line-height/box markers instead.
+$box = 'blocks-engine-navigation-link-box-' . str_repeat('b', 64);
+$lineHeight = 'blocks-engine-navigation-anchor-line-height-' . str_repeat('c', 64);
+$chrome = static function (string $current) use ($box, $lineHeight): string {
+    $markup = '<!-- wp:group {"className":"masthead"} --><div class="wp-block-group masthead"><!-- wp:paragraph --><p><a href="/">Brand</a></p><!-- /wp:paragraph -->';
+    $markup .= '<!-- wp:navigation {"className":"submenu' . ('none' === $current ? '' : ' open') . '","overlayMenu":"never"} -->';
+    foreach (array('one' => 'One', 'two' => 'Two', 'three' => 'Three') as $sub => $label) {
+        $markup .= $sub === $current
+            ? '<!-- wp:navigation-link {"anchor":"sub-' . $sub . '","className":"submenu-item submenu-link ' . $lineHeight . ' blocks-engine-navigation-link-color-states-1 ' . $box . ' blocks-engine-current-navigation-item","label":"' . $label . '","url":"/' . $sub . '","kind":"custom"} /-->'
+            : '<!-- wp:navigation-link {"anchor":"sub-' . $sub . '","className":"submenu-item","metadata":{"blocksEngineNavigationAnchor":{"style":"","className":"submenu-link"}},"label":"' . $label . '","url":"/' . $sub . '","kind":"custom"} /-->';
     }
-    return $markup . '</div><!-- /wp:group -->';
+    return $markup . '<!-- /wp:navigation --></div><!-- /wp:group -->';
 };
 $resting = ShellExtraction::identityMarkup($chrome('none'));
-foreach (array('home', 'projects', 'one', 'two') as $current) {
+foreach (array('one', 'two', 'three') as $current) {
     $assert($resting === ShellExtraction::identityMarkup($chrome($current)), "Chrome serving {$current} has the resting chrome identity.");
 }
-$assert($resting !== ShellExtraction::identityMarkup(str_replace('>Projects<', '>Portfolio<', $chrome('none'))), 'A different menu label is a different chrome identity.');
+$assert($resting !== ShellExtraction::identityMarkup(str_replace('"Two"', '"Portfolio"', $chrome('none'))), 'A different menu label is a different chrome identity.');
+$assert(str_contains(ShellExtraction::identityMarkup(str_replace('"className":"submenu"', '"className":"submenu open"', $chrome('none'))), 'open'), 'Disclosure state on a menu that does not hold the served route stays part of the identity.');
 $part = ShellExtraction::withoutCurrentNavigationState($chrome('two'));
-$assert(!str_contains($part, 'active') && !str_contains($part, 'submenu open') && str_contains($part, '"anchor":"item-projects"') && str_contains($part, '"className":"submenu-item","metadata":{"blocksEngineNavigationAnchor":{"style":"","className":"submenu-link"}}'), 'The shared part keeps stable ids and freezes neither the state id, the disclosed submenu, nor the selected item presentation: ' . $part);
+preg_match('/<!-- wp:navigation-link (\{[^>]*"label":"Two"[^>]*\}) \/-->/', $part, $two);
+$twoAttrs = json_decode($two[1] ?? 'null', true) ?? array();
+$twoClasses = preg_split('/\s+/', (string) ($twoAttrs['className'] ?? '')) ?: array();
+$assert(!str_contains($part, 'submenu open') && in_array('submenu-item', $twoClasses, true) && !in_array('submenu-link', $twoClasses, true) && !in_array('blocks-engine-current-navigation-item', $twoClasses, true) && array('style' => '', 'className' => 'submenu-link') === ($twoAttrs['metadata']['blocksEngineNavigationAnchor'] ?? null), 'The shared part freezes neither the disclosed menu nor the selected item; the item renders through its siblings\' anchor subject: ' . $part);
 
 echo "shared-shell-route-state contract passed\n";

@@ -2018,9 +2018,10 @@ final class ShellExtraction
             if (is_array($subject) && !isset($attrs['metadata']['blocksEngineNavigationAnchor'])) {
                 // An authored current item renders its anchor classes on the
                 // item itself; its resting peers keep them on their anchor
-                // subject, which the item adopts. Its link-state carrier only
-                // paints the served route, so it is not chrome identity.
-                $classes = array_values(array_filter(array_diff($classes, preg_split('/\s+/', trim((string) ($subject['className'] ?? ''))) ?: array()), static fn(string $class): bool => !$semanticIdentity || 1 !== preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class)));
+                // subject, which the item adopts. Its link-state carrier and the
+                // anchor line-height/box markers that stand in for the subject
+                // only paint the served route, so they are not chrome identity.
+                $classes = array_values(array_filter(array_diff($classes, preg_split('/\s+/', trim((string) ($subject['className'] ?? ''))) ?: array()), static fn(string $class): bool => !$semanticIdentity || 1 !== preg_match('/^blocks-engine-navigation-(?:link-color-states-\d+|anchor-line-height-[a-f0-9]{64}|link-box-[a-f0-9]{64})$/', $class)));
                 $attrs['className'] = implode(' ', $classes);
                 $attrs['metadata']['blocksEngineNavigationAnchor'] = $subject;
                 $match[0] = '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
@@ -2083,17 +2084,6 @@ final class ShellExtraction
         // part serves every route, so that page-scoped state is neither part of
         // the chrome's identity nor frozen into the part.
         $markup = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $markup) ?? $markup;
-        // A source menu can mark the served route's list item by giving it a
-        // state id in place of its own; that id is route state too. Because
-        // the served item's own id is then absent, list-item ids are not part
-        // of the chrome's identity, as with navigation links above.
-        $markup = preg_replace_callback('/<!--\s*wp:([a-z0-9\/-]+)\s+(\{[^>]*"anchor":"([^"]*)"[^>]*\})\s*(\/?)-->(\s*<li\b[^>]*>)?/', static function (array $match) use ($semanticIdentity): string {
-            $attrs = json_decode($match[2], true);
-            if (!is_array($attrs) || 'li' !== ($attrs['tagName'] ?? null) || (!$semanticIdentity && !in_array($match[3], array('active', 'current', 'selected'), true))) return $match[0];
-            unset($attrs['anchor']);
-            $tag = preg_replace('/\s+id="' . preg_quote($match[3], '/') . '"/', '', $match[5] ?? '', 1) ?? ($match[5] ?? '');
-            return '<!-- wp:' . $match[1] . ' ' . (array() === $attrs ? '' : json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ') . ('' !== $match[4] ? '/' : '') . '-->' . $tag;
-        }, $markup) ?? $markup;
         return self::withoutMenuSelectionState($markup, true);
     }
 
