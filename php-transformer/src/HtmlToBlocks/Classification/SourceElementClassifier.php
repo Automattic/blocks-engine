@@ -330,7 +330,7 @@ final class SourceElementClassifier
             }
 
             $tagName = strtolower($child->tagName);
-            if ( ! in_array($tagName, array( 'script', 'style', 'template' ), true) && ! $this->isInlineSourceElement($tagName) ) {
+            if ( ! in_array($tagName, array( 'br', 'script', 'style', 'template' ), true) && ! $this->isInlineSourceElement($tagName) ) {
                 return true;
             }
         }
