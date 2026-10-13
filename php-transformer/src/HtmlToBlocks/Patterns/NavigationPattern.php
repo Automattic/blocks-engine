@@ -2507,7 +2507,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $depth   = 0;
         while ( $node instanceof DOMElement && ! $node->isSameNode($navigation) && $depth < 6 ) {
             ++$depth;
-            if ( 'li' === strtolower($node->tagName) ) {
+            // A wrapper that also holds another item's link is the list (or a
+            // panel of it), not a wrapper core collapsed between item and link.
+            if ( 'li' === strtolower($node->tagName) || $this->holdsAnotherLabelledAnchor($node, $anchor) ) {
                 break;
             }
             foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $candidate ) {
@@ -2519,6 +2521,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $classes;
+    }
+
+    private function holdsAnotherLabelledAnchor(DOMElement $wrapper, DOMElement $anchor): bool
+    {
+        foreach ( $wrapper->getElementsByTagName('a') as $candidate ) {
+            if ( ! $candidate->isSameNode($anchor) && '' !== trim($candidate->textContent ?? '') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -2954,8 +2967,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             // A cluster of child links that follows the item's own anchor is its
-            // submenu, not a second anchor carrier.
-            if ( array() !== $anchors && $this->isAnchorOnlyCluster($child) ) {
+            // submenu, not a second anchor carrier. An anchor found inside a
+            // sibling wrapper is a peer item's, so the next wrapper is a peer too.
+            if ( array() !== $anchors && $element->isSameNode($anchors[0]->parentNode) && $this->isAnchorOnlyCluster($child) ) {
                 continue;
             }
 
@@ -3024,7 +3038,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $tagName = strtolower($child->tagName);
             if ( in_array($tagName, array( 'nav', 'ul', 'ol' ), true)
                 || $this->hasSubmenuSignal($child)
-                || $this->isAnchorOnlyCluster($child)
+                || ( $element->isSameNode($primaryAnchor->parentNode) && $this->isAnchorOnlyCluster($child) )
                 || ( $this->isNavigationWrapperElement($child)
                     && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length ) )
             ) {
@@ -3165,7 +3179,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * list semantics or a `dropdown`-style name still express it this way:
      * `<div><a>Parent</a><div><a>Child</a><a>Child</a></div></div>`. Structure
      * alone carries the parent/child relationship, so no class vocabulary is
-     * needed to read the wrapper as the item's submenu.
+     * needed to read the wrapper as the item's submenu. Only an anchor that is
+     * the wrapper's own direct child owns it: in `<div><div><a>One</a></div>
+     * <div><a>Two</a></div></div>` the wrappers are peer items of one list.
      */
     private function isAnchorOnlyCluster(DOMElement $element): bool
     {
