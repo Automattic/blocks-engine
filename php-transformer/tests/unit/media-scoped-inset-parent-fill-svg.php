@@ -5,7 +5,7 @@ declare(strict_types=1);
  * The inset-pinned parent fill from #2494, when the source states it only
  * inside a media query.
  *
- * A responsive capture (Data Liberation Agent) links the desktop stylesheet
+ * A responsive capture links the desktop stylesheet
  * with `media="(min-width:768px)"`, which puts the Wix logo SVG's
  * `width:var(--svg-calculated-width,100%)` and its wrapper's
  * `position:absolute; inset:0` under `@media (min-width:768px)`. The resting

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -273,7 +274,7 @@ final class ThemeJsonProjection
                 $properties = array();
                 foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
                     $parts = explode(':', $declaration, 2);
-                    if (2 === count($parts)) $properties[strtolower(trim($parts[0]))] = trim($parts[1]);
+                    if (2 === count($parts) && !CssPropertyName::startsLikeNumber(trim($parts[0]))) $properties[strtolower(trim($parts[0]))] = trim($parts[1]);
                 }
                 $family = isset($properties['font-family']) ? trim($properties['font-family'], " \t\n\r\0\x0B\"'") : '';
                 if ('' === $family || !isset($properties['src'])) continue;
@@ -334,7 +335,7 @@ final class ThemeJsonProjection
             $parts = explode(':', $declaration, 2);
             if (2 !== count($parts)) continue;
             $name = strtolower(trim($parts[0])); $value = trim($parts[1]);
-            if ('' !== $name && '' !== $value && !str_contains(strtolower($value), '!important')) $declarations[$name] = $value;
+            if ('' !== $name && '' !== $value && !CssPropertyName::startsLikeNumber($name) && !str_contains(strtolower($value), '!important')) $declarations[$name] = $value;
         }
         return $declarations;
     }

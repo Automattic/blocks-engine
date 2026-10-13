@@ -86,7 +86,7 @@ $assert(
 );
 
 // A trigger with nothing of its own to carry stays unmarked.
-$provedIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="source-icon" data-dla-disclosure-closed-class="source-icon" data-dla-disclosure-open-class="source-icon source-open"><path d="m6 9 6 6 6-6"/></svg>';
+$provedIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="source-icon" data-blocks-engine-capture-disclosure-closed-class="source-icon" data-blocks-engine-capture-disclosure-open-class="source-icon source-open"><path d="m6 9 6 6 6-6"/></svg>';
 $icons = $transform('<style>.source-icon{color:#345;transition-property:transform;transition-duration:150ms}main button .source-open{transform:rotate(135deg)}</style><main><div>'
     . '<div><button aria-expanded="false" aria-controls="one">One' . $provedIcon . '</button><div role="region" id="one" hidden><p>A</p></div></div>'
     . '<div><button aria-expanded="false" aria-controls="two">Two' . $provedIcon . '</button><div role="region" id="two" hidden><p>B</p></div></div>'
@@ -127,7 +127,7 @@ $assert(
 );
 
 $iconItem = static fn (string $label): string => '<article><button type="button" aria-expanded="false">'
-    . $label . '<svg xmlns="http://www.w3.org/2000/svg" class="resting-mark" data-dla-disclosure-open-class="expanded-mark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button><div role="region" hidden><p>Answer</p></div></article>';
+    . $label . '<svg xmlns="http://www.w3.org/2000/svg" class="resting-mark" data-blocks-engine-capture-disclosure-open-class="expanded-mark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button><div role="region" hidden><p>Answer</p></div></article>';
 $iconResult = $transform('<style>.resting-mark{color:#345678;rotate:0deg}.expanded-mark{rotate:180deg}</style><main><section>'
     . $iconItem('Neutral one') . $iconItem('Neutral two') . '</section></main>');
 $iconCss = $supportCss($iconResult);
@@ -148,7 +148,7 @@ preg_match('/<!-- wp:accordion-heading (\{.*?\}) -->/', (string) $iconResult['se
 $headingAttrs = json_decode($headingComment[1] ?? 'null', true);
 $renderedIcon = (string) ($headingAttrs['metadata']['blocksEngineIcon'] ?? '');
 $assert(str_starts_with($renderedIcon, '<svg') && str_contains($renderedIcon, 'm6 9 6 6 6-6'), 'the observed vector rides in block metadata for the theme to render into core\'s slot', (string) $iconResult['serialized_blocks']);
-$assert(! str_contains($renderedIcon, 'data-dla-') && ! str_contains($renderedIcon, 'rotate'), 'rendered artwork carries neither capture annotations nor a baked state transform', $renderedIcon);
+$assert(! str_contains($renderedIcon, 'data-blocks-engine-capture-') && ! str_contains($renderedIcon, 'rotate'), 'rendered artwork carries neither capture annotations nor a baked state transform', $renderedIcon);
 $assert(str_contains($iconCss, '[aria-expanded]>.wp-block-accordion-heading__toggle-icon:has(>svg){background-image:none;transform:none'), 'a rendered vector replaces the background artwork and the slot stops transforming', $iconCss);
 $assert(str_contains($iconCss, '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-icon>svg{transform:none;rotate:180deg}'), 'the rendered vector owns the observed expanded transform', $iconCss);
 $assert('pass' === ($iconResult['source_reports']['wp_block_validity']['status'] ?? null), 'icon metadata keeps canonical Core block validity');

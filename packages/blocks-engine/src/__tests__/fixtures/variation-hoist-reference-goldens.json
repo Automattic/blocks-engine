@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "derivation": "Mechanically generated from DLA src/lib/replicate/variation-hoist.ts at commit 1e393c535850ee1a9482f83459f779d0e225b027 with blob 62b9cf4c87b62dfc03bffe2e25ffbe4e6109438b.",
+  "derivation": "Mechanically generated from the reference implementation src/lib/replicate/variation-hoist.ts at commit 1e393c535850ee1a9482f83459f779d0e225b027 with blob 62b9cf4c87b62dfc03bffe2e25ffbe4e6109438b.",
   "oracle": {
     "commit": "1e393c535850ee1a9482f83459f779d0e225b027",
     "path": "src/lib/replicate/variation-hoist.ts",

@@ -199,7 +199,7 @@ final class CustomElementRuntimeDependency
             if ( preg_match('/javascript\s*:/i', $value) ) {
                 continue;
             }
-            $attributes[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
+            $attributes[$name] = strlen($value) > 300 ? mb_strcut($value, 0, 300, 'UTF-8') . '...' : $value;
         }
 
         return array_filter(array(
@@ -226,7 +226,7 @@ final class CustomElementRuntimeDependency
 
     private function bounded(string $source): string
     {
-        return strlen($source) > self::MAX_SCRIPT_BYTES ? substr($source, 0, self::MAX_SCRIPT_BYTES) : $source;
+        return strlen($source) > self::MAX_SCRIPT_BYTES ? mb_strcut($source, 0, self::MAX_SCRIPT_BYTES, 'UTF-8') : $source;
     }
 
     private function isExecutableScript(DOMElement $script): bool

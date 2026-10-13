@@ -620,7 +620,7 @@ function islandDecision(
 export const classifySemanticStrategy: SectionStrategy = {
   name: 'classify-semantic',
   render(section, options, ctx) {
-    // Convert-or-island hybrid (ported from data-liberation-agent): a clean canonical
+    // Convert-or-island hybrid (ported from the reference implementation): a clean canonical
     // conversion (wpHtmlResidue 0) becomes editable blocks; otherwise the section
     // falls back to a faithful verbatim island. nativeDecision is the last resort for
     // synthetic specs that carry no source HTML to island.
@@ -633,7 +633,7 @@ export const classifySemanticStrategy: SectionStrategy = {
   },
 };
 
-// Default reconstruction (the DLA-faithful path): preserve-dom first — native editable
+// Default reconstruction (the reference-faithful path): preserve-dom first — native editable
 // blocks that keep their source classes (so carried CSS binds → visual parity), with nested
 // core/html islands for the elements that can't become core blocks. Falls back to a whole-
 // section verbatim island, then native rendering, only when preserve-dom has no usable source
@@ -650,13 +650,13 @@ export const defaultReconstructStrategy: SectionStrategy = {
   },
 };
 
-// Structured reconstruction (the pre-preserve-dom DLA blocks-path fidelity): interpret the
+// Structured reconstruction (the pre-preserve-dom reference blocks-path fidelity): interpret the
 // SectionSpec into clean, theme-styled canonical blocks FIRST (nativeDecision → renderSection →
 // renderCover/renderCardGrid/renderMediaText/…), with a verbatim core/html island only as the
 // coverage fallback. Unlike defaultReconstructStrategy/classifySemanticStrategy, it does NOT
 // preserve source classes or island whole sections by default — so the output is self-contained
 // and renders from the THEME alone, with no dependency on carried source CSS. This is the right
-// strategy for a no-CSS-carry blocks pipeline (e.g. data-liberation's blocks reconstruct path);
+// strategy for a no-CSS-carry blocks pipeline (e.g. a capture producer's blocks reconstruct path);
 // the carried-CSS paths (local-convert, theme-carry) keep defaultReconstructStrategy. Additive:
 // selecting it does not change the default, so those paths are unaffected.
 export const structuredStrategy: SectionStrategy = {

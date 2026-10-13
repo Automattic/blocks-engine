@@ -17,13 +17,13 @@ $assert = static function (bool $ok, string $message) use (&$failures, &$passes)
 $html = $result['serialized_blocks'];
 $assert(0 === substr_count($html, '<!-- wp:html'), 'A declared document and script-bound role button must produce zero core/html blocks.');
 $assert(str_contains($html, '/authored-button') && str_contains($html, 'role="button"') && str_contains($html, 'tabindex="0"'), 'Role button uses the existing editable authored control and preserves its source root semantics.');
-$assert(str_contains($html, '/layout-shell') && str_contains($html, 'data-dla-device-document="slate"') && str_contains($html, 'frame host-state profile-slate more-context'), 'Any declared profile preserves its root attributes/class state through layout-shell.');
+$assert(str_contains($html, '/layout-shell') && str_contains($html, 'data-blocks-engine-capture-device-document="slate"') && str_contains($html, 'frame host-state profile-slate more-context'), 'Any declared profile preserves its root attributes/class state through layout-shell.');
 $assert('pass' === (new BlockValidityValidator())->validateBlocks($result['blocks'])['status'], 'Canonical block structure remains valid.');
 $assert(array() === ($result['source_reports']['runtime_dependency_parity']['findings'] ?? array()), 'Runtime target proof remains strict and passes.');
 $roleBlocks = array(); $roots = array();
 $collect = static function (array $blocks) use (&$collect, &$roleBlocks, &$roots): void { foreach ($blocks as $block) {
     if (str_ends_with($block['blockName'] ?? '', '/authored-button') && 'div' === ($block['attrs']['tagName'] ?? '')) $roleBlocks[] = $block;
-    foreach ($block['attrs']['wrappers'] ?? array() as $wrapper) if (isset($wrapper['attributes']['data-dla-device-document'])) $roots[] = $wrapper;
+    foreach ($block['attrs']['wrappers'] ?? array() as $wrapper) if (isset($wrapper['attributes']['data-blocks-engine-capture-device-document'])) $roots[] = $wrapper;
     $collect($block['innerBlocks'] ?? array());
 } };
 $collect($result['blocks']);
@@ -33,7 +33,7 @@ foreach ($roleBlocks as $block) $assert($generator->markup($block['attrs']) === 
 $assert(array() === array_filter($result['diagnostics'], static fn(array $row): bool => 'runtime_dom_contract_fallback' === ($row['code'] ?? '') || str_starts_with($row['code'] ?? '', 'html_semantic_parity_landmark')), 'Declared wrapper/control ownership carries no raw-contract or landmark loss.');
 $document = new DOMDocument(); $document->loadHTML($source, LIBXML_NOERROR | LIBXML_NOWARNING);
 $root = $document->getElementsByTagName('main')->item(2);
-$assert($root instanceof DOMElement && 'slate' === SourceDom::documentVariantRoot($root)?->getAttribute('data-dla-device-document'), 'Explicit scope, independent of class cardinality or profile names, owns document ancestry.');
+$assert($root instanceof DOMElement && 'slate' === SourceDom::documentVariantRoot($root)?->getAttribute('data-blocks-engine-capture-device-document'), 'Explicit scope, independent of class cardinality or profile names, owns document ancestry.');
 if (isset($result['source_reports']['wordpress_site_plan'])) {
     $resolved = (new WordPressSitePlanResolver())->resolve($result['source_reports']['wordpress_site_plan'], array('theme_uri' => 'https://example.test/theme', 'require_proven_dynamic_client_assets' => true));
     $assert(isset($resolved['resolution']), 'The scoped source reaches strict materialization.');
@@ -41,7 +41,7 @@ if (isset($result['source_reports']['wordpress_site_plan'])) {
     $assert(4 === count($mediaAssets), 'All four declared profiles retain authored media provenance as canonical asset data.');
     foreach ($mediaAssets as $asset) $assert(!str_contains($asset['content'], '@media not all'), 'Inactive activation state cannot be baked into the stylesheet payload.');
 }
-$modal = (new ArtifactCompiler())->compile(array('files' => array('index.html' => '<section><button type="button" aria-haspopup="dialog" aria-controls="modal-panel" data-dla-dialog-trigger="modal-panel">Open modal</button><div id="modal-panel" role="dialog" aria-modal="true" hidden data-dla-dialog-panel="modal-panel"><p>Modal body</p></div></section><script>document.querySelectorAll("[data-dla-dialog-trigger]").forEach(function(control){control.addEventListener("click",function(){document.getElementById(control.getAttribute("aria-controls")).hidden=false;});});</script>')))->toArray();
+$modal = (new ArtifactCompiler())->compile(array('files' => array('index.html' => '<section><button type="button" aria-haspopup="dialog" aria-controls="modal-panel" data-blocks-engine-capture-dialog-trigger="modal-panel">Open modal</button><div id="modal-panel" role="dialog" aria-modal="true" hidden data-blocks-engine-capture-dialog-panel="modal-panel"><p>Modal body</p></div></section><script>document.querySelectorAll("[data-blocks-engine-capture-dialog-trigger]").forEach(function(control){control.addEventListener("click",function(){document.getElementById(control.getAttribute("aria-controls")).hidden=false;});});</script>')))->toArray();
 $assert(!str_contains($modal['serialized_blocks'], 'wp:details') && str_contains($modal['serialized_blocks'], 'id="modal-panel"'), 'A real modal must retain its own target and focus/close contract rather than become details.');
 $assert(array() === ($modal['source_reports']['runtime_dependency_parity']['findings'] ?? array()), 'Modal script target proof remains strict after native wrapper dispatch.');
 if ($failures) {

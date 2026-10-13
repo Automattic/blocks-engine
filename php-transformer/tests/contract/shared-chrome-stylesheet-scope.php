@@ -274,8 +274,22 @@ $conflict = (new ArtifactCompiler())->compile(array(
         'nested/mark.png' => array('path' => 'nested/mark.png', 'kind' => 'image', 'mime_type' => 'image/png', 'content_base64' => $conflictPng),
     ),
 ))->toArray();
-$conflictMessage = (string) (array_values(array_filter($conflict['diagnostics'] ?? array(), static fn(array $diagnostic): bool => str_contains((string) ($diagnostic['message'] ?? ''), 'colliding asset targets')))[0]['message'] ?? '');
-$assert('failed' === ($conflict['status'] ?? null) && str_contains($conflictMessage, 'shared-chrome-') && str_contains($conflictMessage, 'css/home') && str_contains($conflictMessage, 'nested/about') && strlen($conflictMessage) <= 256, 'Divergent shared-chrome url() origins still fail and name the target and both sources: ' . $conflictMessage);
+// Divergent url() origins make the same text two different payloads. The later
+// projection gets a deterministic suffixed target instead of failing the plan.
+$conflictPlan = $conflict['source_reports']['wordpress_site_plan'] ?? null;
+$assert('failed' !== ($conflict['status'] ?? null) && is_array($conflictPlan), 'Divergent shared-chrome url() origins no longer fail the plan.');
+WordPressSitePlan::assertValid($conflictPlan);
+$conflictShared = array_values(array_filter($conflictPlan['assets'], static fn(array $asset): bool => 1 === preg_match('~^assets/css/shared-chrome-[a-f0-9]{16}(?:-2)?\.css$~', (string) $asset['target_path'])));
+$assert(2 === count($conflictShared) && $conflictShared[0]['target_path'] !== $conflictShared[1]['target_path'] && str_replace('-2.css', '.css', $conflictShared[1]['target_path']) === $conflictShared[0]['target_path'], 'The later divergent projection is written to the suffixed target.');
+$conflictWrites = array_column($conflictPlan['writes'], null, 'target_path');
+$conflictTokens = array_column($conflictPlan['reference_tokens'], 'token', 'source_path');
+foreach (array(0 => 'css/mark.png', 1 => 'nested/mark.png') as $index => $image) {
+    $assert($conflictShared[$index]['token'] === 'asset-' . substr(hash('sha256', $conflictShared[$index]['target_path']), 0, 16), 'Each divergent projection has a token derived from its own target.');
+    $assert(str_contains((string) ($conflictWrites[$conflictShared[$index]['target_path']]['payload']['data'] ?? ''), 'url({{wordpress-site-plan:asset:' . $conflictTokens[$image] . '}})'), "Each divergent projection resolves url() against its own origin ({$image}).");
+}
+$conflictFindings = array_values(array_filter($conflictPlan['diagnostics'], static fn(array $row): bool => 'wordpress_site_plan_colliding_asset_target' === ($row['code'] ?? null)));
+$assert(1 === count($conflictFindings) && 'warning' === $conflictFindings[0]['severity'] && 'asset' === $conflictFindings[0]['unit'] && 'colliding_asset_target' === $conflictFindings[0]['reason_code'] && $conflictShared[0]['target_path'] === $conflictFindings[0]['target_path'] && $conflictShared[1]['target_path'] === $conflictFindings[0]['resolved_target_path'] && str_starts_with($conflictFindings[0]['source_path'], 'nested/about') && str_starts_with($conflictFindings[0]['colliding_source_path'], 'css/home'), 'The suffixed target is reported as an asset-unit finding naming both sources.');
+$assert(in_array('wordpress_site_plan_colliding_asset_target', $conflictPlan['reporting']['diagnostic_codes'], true), 'The colliding-target finding is linked to plan reporting.');
 
 $collidingPlan = $plan;
 $collidingPlan['assets'][1]['target_path'] = $collidingPlan['assets'][0]['target_path'];
