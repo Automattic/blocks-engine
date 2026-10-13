@@ -723,6 +723,41 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether the element is still one horizontal, non-wrapping flex row at
+     * the mobile reference viewport. Such a row never stacks its items, so a
+     * core/columns standing in for it must not stack below core's breakpoint.
+     */
+    public function isSingleFlexRowAtMobile(DOMElement $element): bool
+    {
+        $direction = 'row';
+        $wrap = 'nowrap';
+        $display = '';
+        foreach ( $this->collapsedViewportAuthorDeclarations($element, array( 'display', 'flex-direction', 'flex-wrap', 'flex-flow' )) as $property => $value ) {
+            $value = CssValueInspector::comparable($value);
+            if ( 'display' === $property ) {
+                $display = $value;
+                continue;
+            }
+            if ( 'flex-flow' === $property ) {
+                // The shorthand resets the longhand it leaves unstated.
+                $direction = 'row';
+                $wrap = 'nowrap';
+            }
+            foreach ( preg_split('/\s+/', $value) ?: array() as $token ) {
+                if ( in_array($token, array( 'row', 'row-reverse', 'column', 'column-reverse' ), true) ) {
+                    $direction = $token;
+                } elseif ( in_array($token, array( 'nowrap', 'wrap', 'wrap-reverse' ), true) ) {
+                    $wrap = $token;
+                }
+            }
+        }
+
+        return in_array($display, array( 'flex', 'inline-flex' ), true)
+            && str_starts_with($direction, 'row')
+            && 'nowrap' === $wrap;
+    }
+
+    /**
      * The same author-analysis cascade as
      * {@see collapsedViewportAuthorDeclarations()}, with conditions evaluated at
      * the desktop reference viewport ({@see self::DESKTOP_REFERENCE_WIDTH}).
