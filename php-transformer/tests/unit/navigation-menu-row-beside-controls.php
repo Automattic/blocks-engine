@@ -17,8 +17,8 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $item = static fn (string $id, string $label, string $links): string =>
-    '<div class="item"><button id="' . $id . '" type="button" aria-haspopup="menu" aria-controls="p-' . $id . '" aria-expanded="false" data-dla-dialog-trigger="p-' . $id . '">' . $label . '</button>'
-    . '<div class="panel dla-dialog dla-dropdown" hidden id="p-' . $id . '" data-dla-dialog-panel="p-' . $id . '">' . $links . '</div></div>';
+    '<div class="item"><button id="' . $id . '" type="button" aria-haspopup="menu" aria-controls="p-' . $id . '" aria-expanded="false" data-blocks-engine-capture-dialog-trigger="p-' . $id . '">' . $label . '</button>'
+    . '<div class="panel data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown" hidden id="p-' . $id . '" data-blocks-engine-capture-dialog-panel="p-' . $id . '">' . $links . '</div></div>';
 $switcher = '<div class="lang" aria-label="Switch language"><button type="button" aria-pressed="true">EN</button><span>|</span><button type="button" aria-pressed="false">ES</button></div>';
 $cta = '<a class="cta" href="#book">Book now</a>';
 $transform = static fn (string $html): string => (string) ( ( new HtmlTransformer() )->transform($html)->toArray()['serialized_blocks'] ?? '' );
@@ -33,7 +33,7 @@ $markup = $transform($html);
 $assert(1 === substr_count($markup, '<!-- wp:navigation '), 'the menu items beside a language switcher are one core/navigation', $markup);
 $assert(2 === preg_match_all('/<!-- wp:navigation-submenu \{[^}]*"label":"(?:Shop|Help)","kind":"custom"\}/', $markup), 'both dropdown buttons become submenus', $markup);
 $assert(5 === preg_match_all('/<!-- wp:navigation-link \{[^}]*"label":"(?:New in|Sale|FAQ|Contact|About)"/', $markup), 'the panel links and the plain link stay navigation links', $markup);
-$assert(! str_contains($markup, 'wp:details') && ! str_contains($markup, 'data-dla-dialog-panel'), 'no leftover disclosure or wired panel', $markup);
+$assert(! str_contains($markup, 'wp:details') && ! str_contains($markup, 'data-blocks-engine-capture-dialog-panel'), 'no leftover disclosure or wired panel', $markup);
 $assert(str_contains($markup, '>EN<') && str_contains($markup, '>ES<'), 'the language switcher is kept', $markup);
 $assert(1 === preg_match('/<!-- \/wp:navigation -->.*>EN<.*Book now/s', $markup), 'the switcher and the call to action follow the menu in authored order', $markup);
 $assert(! str_contains($markup, '"label":"Book now"') && ! str_contains($markup, '"label":"EN"'), 'controls are not turned into menu items', $markup);
