@@ -72,6 +72,11 @@ replay by case:
   the attribute in `46f79246` and `e2e35d0c`. The extra display lookups only
   move the style-rule candidate cache counters in `2448c3c2`, `2890e8f1`,
   `448ead36`, `a5a08a86`, `b550beb0`, `c7fff215` and `f025cf28`.
+- **Self-placed modal box reset** (#2726). The captured-dialog block
+  stylesheet gains the zero-specificity reset for a modal whose source panel
+  positions itself. Only the emitted `style.css` text and the hashes derived
+  from it change again in the twelve native dialog cases above (`7a7af898`
+  also gains one style-rule candidate cache hit from the position lookup).
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.

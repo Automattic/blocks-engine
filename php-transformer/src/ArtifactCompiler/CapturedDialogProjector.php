@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
@@ -356,7 +357,7 @@ final class CapturedDialogProjector
     }
 
     /**
-     * @param array{nodes:array<int, \DOMNode>, class:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool} $fragment
+     * @param array{nodes:array<int, \DOMNode>, class:string, id:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool} $fragment
      * @param array<int, DOMElement> $triggers
      * @param array<int, string> $triggerIds
      */
@@ -377,6 +378,16 @@ final class CapturedDialogProjector
         $dialogElement->setAttribute('data-blocks-engine-captured-dialog', 'true');
         $dialogElement->setAttribute('data-blocks-engine-triggers', implode(' ', $triggerIds));
         if (is_string($fragment['class']) && '' !== $fragment['class']) $dialogElement->setAttribute('class', $fragment['class']);
+        // The dialog copies a source panel whose id another element of the
+        // document still holds (the capture's own hidden copy), so it cannot
+        // take that id. Author rules that name the panel by id (its width,
+        // offset, paint variables) would then reach only the hidden copy.
+        // Carry the id as the editor anchor class the author stylesheet
+        // projector already keeps such id selectors live through.
+        $sourceId = $fragment['id'];
+        if ('' !== $sourceId && $sourceId !== $dialogId && $this->documentHoldsId($document, $sourceId)) {
+            $dialogElement->setAttribute('class', trim($dialogElement->getAttribute('class') . ' ' . EngineMarker::editorAnchorClass($sourceId)));
+        }
         // The producer observed whether the source panel was modal or a
         // dropdown. A dropdown opens without trapping the page and keeps the
         // source trigger as its toggle. Where it sits follows the evidence:
@@ -1100,7 +1111,7 @@ final class CapturedDialogProjector
         return false;
     }
 
-    /** @return array{nodes:array<int, \DOMNode>, class:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool}|null */
+    /** @return array{nodes:array<int, \DOMNode>, class:string, id:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool, self_positioned:bool}|null */
     private function safeDialogFragment(string $html): ?array
     {
         $previous = libxml_use_internal_errors(true);
@@ -1153,6 +1164,7 @@ final class CapturedDialogProjector
         return array(
             'nodes' => iterator_to_array($container->childNodes),
             'class' => $sourceRoot instanceof DOMElement ? trim($sourceRoot->getAttribute('class')) : '',
+            'id' => $sourceRoot instanceof DOMElement ? SourceDom::safeAnchor($sourceRoot->getAttribute('id')) : '',
             'aria_label' => $sourceRoot instanceof DOMElement ? trim($sourceRoot->getAttribute('aria-label')) : '',
             'aria_labelledby' => $sourceRoot instanceof DOMElement ? trim($sourceRoot->getAttribute('aria-labelledby')) : '',
             'aria_describedby' => $sourceRoot instanceof DOMElement ? trim($sourceRoot->getAttribute('aria-describedby')) : '',
@@ -1162,6 +1174,18 @@ final class CapturedDialogProjector
                 || 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed|sticky)/i', $sourceRoot->getAttribute('style'))
             ),
         );
+    }
+
+    /**
+     * Whether a source element still holds the id. The capture's own panel
+     * envelope does not count: its id is the wiring key, not the source
+     * panel's identity, and no author rule names it.
+     */
+    private function documentHoldsId(DOMDocument $document, string $id): bool
+    {
+        $matches = (new DOMXPath($document))->query('//*[@id=' . $this->xpathLiteral($id) . '][not(@' . CaptureEvidence::DIALOG_PANEL . ')]');
+
+        return $matches instanceof \DOMNodeList && 0 < $matches->length;
     }
 
     /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */
