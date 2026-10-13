@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -600,7 +601,7 @@ final class NavigationToggleSuppressor
     {
         foreach ($root->getElementsByTagName('*') as $element) {
             if (!$element instanceof DOMElement || !NavigationPattern::ownsCapturedSubmenuTrigger($element)) continue;
-            foreach (array($element->getAttribute('id'), $element->getAttribute('aria-controls'), $element->getAttribute('data-dla-dialog-trigger')) as $id) {
+            foreach (array($element->getAttribute('id'), $element->getAttribute('aria-controls'), $element->getAttribute(CaptureEvidence::DIALOG_TRIGGER)) as $id) {
                 $id = ltrim(trim($id), '#');
                 if ('' !== $id && 1 === preg_match('/^[A-Za-z][A-Za-z0-9_.:-]*$/', $id)) $this->context->runtimeSelectors()->supersede('#' . $id);
             }
@@ -1526,11 +1527,11 @@ final class NavigationToggleSuppressor
      */
     public function projectedOverlayMenu(DOMElement $control): string
     {
-        if ( $control->hasAttribute('data-dla-dialog-trigger') ) {
+        if ( $control->hasAttribute(CaptureEvidence::DIALOG_TRIGGER) ) {
             return 'always';
         }
         if ( ! NavigationPattern::ownsCapturedSubmenuTrigger($control)
-            && ( $control->hasAttribute('data-dla-dialog-trigger') || 'dialog' === strtolower(trim(SourceDom::attr($control, 'aria-haspopup'))) )
+            && ( $control->hasAttribute(CaptureEvidence::DIALOG_TRIGGER) || 'dialog' === strtolower(trim(SourceDom::attr($control, 'aria-haspopup'))) )
             && ! $this->isHiddenAtDefaultViewport($control)
             && ! $this->hasDefaultViewportVisibleNavigationTwin($control)
         ) {

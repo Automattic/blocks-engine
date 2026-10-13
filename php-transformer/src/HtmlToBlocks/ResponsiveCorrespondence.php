@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ResponsiveDocumentVariants;
 
 /**
@@ -25,7 +26,6 @@ final class ResponsiveCorrespondence
 {
     public const SCHEMA = 'blocks-engine/responsive-counterpart-contracts/v1';
     public const TOKEN_CLASS_PREFIX = ResponsiveDocumentVariants::CORRESPONDENCE_CLASS_PREFIX;
-    private const CAPTURE_TOKEN_CLASS_PREFIX = 'data-liberation-responsive-counterpart-';
     private const VARIANT_CLASS_PREFIX = 'site-document-variant-';
     private const MAX_DECLINED = 50;
 
@@ -110,7 +110,7 @@ final class ResponsiveCorrespondence
             'token' => $token,
             'kind' => $supported['kind'],
             'attribute' => $supported['attribute'],
-            'source_id' => (string) ($default['provenance']['context']['data_attributes']['data-dla-responsive-source']
+            'source_id' => (string) ($default['provenance']['context']['data_attributes'][CaptureEvidence::RESPONSIVE_SOURCE]
                 ?? $default['provenance']['source_attributes']['id']
                 ?? ''),
             'variants' => array(
@@ -177,7 +177,7 @@ final class ResponsiveCorrespondence
     {
         $tokens = array();
         foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
-            if (preg_match('/^(?:' . preg_quote(self::TOKEN_CLASS_PREFIX, '/') . '|' . preg_quote(self::CAPTURE_TOKEN_CLASS_PREFIX, '/') . ')[a-f0-9]{12}$/', (string) $class)) {
+            if (preg_match('/^(?:' . preg_quote(self::TOKEN_CLASS_PREFIX, '/') . '|' . preg_quote(CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX, '/') . ')[a-f0-9]{12}$/', (string) $class)) {
                 $tokens[] = (string) $class;
             }
         }
@@ -187,10 +187,10 @@ final class ResponsiveCorrespondence
     private function variantClassContext(string $className): ?string
     {
         foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
-            if ('data-liberation-desktop-document' === $class) {
+            if (CaptureEvidence::DESKTOP_DOCUMENT_CLASS === $class) {
                 return 'default';
             }
-            if ('data-liberation-mobile-document' === $class) {
+            if (CaptureEvidence::MOBILE_DOCUMENT_CLASS === $class) {
                 return 'mobile';
             }
             if (preg_match('/^' . preg_quote(self::VARIANT_CLASS_PREFIX, '/') . '([a-z][a-z0-9_-]{0,31})$/', (string) $class, $match)) {
@@ -216,7 +216,7 @@ final class ResponsiveCorrespondence
             if (null !== $variant) {
                 return $variant;
             }
-            if (array_key_exists('data-dla-document-scope', $attributes) && is_string($attributes['data-dla-device-document'] ?? null) && preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $attributes['data-dla-device-document'])) return $attributes['data-dla-device-document'];
+            if (array_key_exists(CaptureEvidence::DOCUMENT_SCOPE, $attributes) && is_string($attributes[CaptureEvidence::DEVICE_DOCUMENT] ?? null) && preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $attributes[CaptureEvidence::DEVICE_DOCUMENT])) return $attributes[CaptureEvidence::DEVICE_DOCUMENT];
         }
         return null;
     }

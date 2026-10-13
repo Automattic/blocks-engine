@@ -94,12 +94,11 @@ $missingScript = $compile(array('website/index.html' => '<!doctype html><html><h
 $missingScriptDiagnostic = $missingScript['source_reports']['wordpress_site_plan_diagnostics'][0] ?? array();
 $assert(!isset($missingScript['source_reports']['wordpress_site_plan']) && 'script' === ($missingScriptDiagnostic['declaration_kind'] ?? null) && 'unresolved_local_url' === ($missingScriptDiagnostic['reason'] ?? null), 'An unresolved local script source still fails closed.');
 
-// The omission is scoped to relations that name no subresource. A relation that
-// mixes a rendered resource in keeps failing closed, and an explicit absolute
-// endpoint is a truthful destination that stays declared.
+// A relation that also names a rendered resource is still an unresolved local
+// link with nothing to bind: it is omitted and reported rather than failing the
+// plan. An explicit absolute endpoint is a truthful destination that stays declared.
 $mixed = $compile(array('website/index.html' => '<!doctype html><html><head><link rel="pingback stylesheet" href="/xmlrpc.php"></head><body><main>Home</main></body></html>'));
-$mixedDiagnostic = $mixed['source_reports']['wordpress_site_plan_diagnostics'][0] ?? array();
-$assert(!isset($mixed['source_reports']['wordpress_site_plan']) && 'link' === ($mixedDiagnostic['declaration_kind'] ?? null) && 'unresolved_local_url' === ($mixedDiagnostic['reason'] ?? null), 'A relation that also names a rendered resource is not weakened by the omission.');
+$assert(isset($mixed['source_reports']['wordpress_site_plan']) && !isset($mixed['source_reports']['wordpress_site_plan_diagnostics']) && array() === $links($mixed) && 1 === count($omissions($mixed)) && 'pingback stylesheet' === ($omissions($mixed)[0]['rel'] ?? null), 'A relation that also names a rendered resource is omitted and reported instead of failing the plan.');
 $absoluteEndpoint = $compile(array('website/index.html' => '<!doctype html><html><head><link rel="pingback" href="https://other.example.test/xmlrpc.php"></head><body><main>Home</main></body></html>'));
 $absoluteLinks = $links($absoluteEndpoint);
 $assert(isset($absoluteEndpoint['source_reports']['wordpress_site_plan']) && 1 === count($absoluteLinks) && 'https://other.example.test/xmlrpc.php' === ($absoluteLinks[0]['url'] ?? null) && array() === $omissions($absoluteEndpoint), 'An absolute discovery endpoint stays declared and unreported.');
@@ -117,7 +116,7 @@ $assert(isset($oembed['source_reports']['wordpress_site_plan']), 'An oEmbed disc
 $assert(array() === $links($oembed), 'Both oEmbed discovery links are omitted.');
 $assert(2 === count($oembedOmissions), 'Both oEmbed omissions are reported.');
 $oembedMixed = $compile(array('website/index.html' => '<!doctype html><html><head><link rel="alternate stylesheet" type="application/json+oembed" href="/wp-json/oembed/1.0/embed"></head><body><main>Home</main></body></html>'));
-$assert(!isset($oembedMixed['source_reports']['wordpress_site_plan']), 'An oEmbed type on a relation that also names a rendered resource still fails closed.');
+$assert(isset($oembedMixed['source_reports']['wordpress_site_plan']) && array() === $links($oembedMixed) && 1 === count($omissions($oembedMixed)), 'An oEmbed type on a relation that also names a rendered resource is omitted and reported.');
 
 // A diagnostic field is clipped to a byte budget, so a clip that split a UTF-8
 // sequence would leave an invalid string -- and planIdentity() json_encode()s
@@ -181,7 +180,7 @@ $assert(isset($parameterized['source_reports']['wordpress_site_plan']), 'A param
 $assert(array() === $links($parameterized), 'Both parameterized oEmbed links are omitted.');
 $assert(2 === count($omissions($parameterized)), 'Both parameterized omissions are reported.');
 $notOembed = $compile(array('website/index.html' => '<!doctype html><html><head><link rel="alternate" type="application/json" href="/wp-json/oembed/1.0/embed"></head><body><main>Home</main></body></html>'));
-$assert(!isset($notOembed['source_reports']['wordpress_site_plan']) || array() === $omissions($notOembed), 'A non-oEmbed media type is not swept up by the suffix match.');
+$assert(isset($notOembed['source_reports']['wordpress_site_plan']) && array() === $links($notOembed) && 1 === count($omissions($notOembed)), 'A non-oEmbed alternate is no longer a special case: any unresolved local link is omitted and reported.');
 
 // `occurrences` counts the pages that carried a declaration, not the tags that
 // matched it: fullDocumentMetadata() keeps duplicates, so one head printing the

@@ -16,10 +16,10 @@ $responsive = <<<'HTML'
 .brandbox{display:block;width:48px;height:48px;background:#ddd}
 .navigation{display:none}.menu-icon{display:block;width:20px;height:20px}
 summary{list-style:none}.p-2{padding:8px}.screen-reader-text{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-:where(details.dla-disclosure>summary){cursor:pointer;display:inline-block}
+:where(details.data-blocks-engine-capture-disclosure>summary){cursor:pointer;display:inline-block}
 @media(min-width:640px){.site-header{padding:40px 0;margin-bottom:32px}.bar{height:24px}.brandbox{width:83px;height:24px}.navigation{display:block}.small-hidden{display:none}}
 </style>
-<div class="site-header"><div class="bar"><div class="brandbox"></div><nav class="navigation">About Writing Projects Speaking</nav><details class="dla-disclosure dla-dropdown"><summary class="small-hidden p-2 text-muted-foreground hover:text-foreground transition-colors touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md cursor-pointer"><svg class="menu-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M1 4h18M1 10h18M1 16h18"></path></svg><span class="screen-reader-text">Open menu</span></summary><div class="dla-dialog">Menu</div></details></div></div><div class="content"><h1>Speaking</h1></div>
+<div class="site-header"><div class="bar"><div class="brandbox"></div><nav class="navigation">About Writing Projects Speaking</nav><details class="data-blocks-engine-capture-disclosure data-blocks-engine-capture-dropdown"><summary class="small-hidden p-2 text-muted-foreground hover:text-foreground transition-colors touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md cursor-pointer"><svg class="menu-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M1 4h18M1 10h18M1 16h18"></path></svg><span class="screen-reader-text">Open menu</span></summary><div class="data-blocks-engine-capture-dialog">Menu</div></details></div></div><div class="content"><h1>Speaking</h1></div>
 HTML;
 $responsiveResult = (new HtmlTransformer())->transform($responsive)->toArray();
 $responsiveCss = implode('', array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string)($asset['content'] ?? '') : '', $responsiveResult['assets'] ?? array()));

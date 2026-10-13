@@ -93,7 +93,7 @@ $assert(str_contains($gridPercentageHeightCss, '.image-well{height:100%!importan
 
 $viewportRoot = (new HtmlTransformer())->transform(
     '<style>html,body,#root{height:100%}.canvas{height:100%;overflow:hidden}.page{position:absolute;inset:0}</style>'
-    . '<div class="data-liberation-desktop-document"><div id="root"><main class="canvas"><div class="page"><p>Hero</p></div></main></div></div>'
+    . '<div class="data-blocks-engine-capture-desktop-document"><div id="root"><main class="canvas"><div class="page"><p>Hero</p></div></main></div></div>'
 )->toArray();
 $viewportRootMarkup = (string) ($viewportRoot['serialized_blocks'] ?? '');
 $viewportRootCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $viewportRoot['assets'] ?? array()));

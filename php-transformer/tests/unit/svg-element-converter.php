@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementMaterializer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgTextRunLowering;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
@@ -87,7 +88,13 @@ $materializer = new class($state) implements SvgElementMaterializer {
         return in_array($this->state->mode, array( 'visual', 'decorative-empty', 'drawable-block', 'drawable-phrasing', 'drawable-empty' ), true);
     }
 };
-$converter = new SvgElementConverter($context, $materializer);
+$textRun = new SvgTextRunLowering(
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array()),
+    static fn (string $value, DOMElement $element): string => $value,
+    new SourceBlockCreatorFixture(static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array( 'blockName' => $name, 'attrs' => $attrs, 'sourceTag' => $source?->tagName )),
+    static function (array $finding): void {}
+);
+$converter = new SvgElementConverter($context, $materializer, $textRun);
 $svg = $elementFrom('<svg><path d="M0 0"></path></svg>');
 $fallbacks = array();
 

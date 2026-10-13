@@ -166,7 +166,7 @@ describe('theme section coverage contract', () => {
     });
   });
 
-  describe('measureConvertedCoverage DLA parity', () => {
+  describe('measureConvertedCoverage reference parity', () => {
     it('reports full converted text and image coverage as not lost', () => {
       const result = measureConvertedCoverage(
         captured(['Hero headline', 'Detailed copy', 'Start now'], ['assets/hero.jpg']),
@@ -223,7 +223,7 @@ describe('theme section coverage contract', () => {
       expect(result.lost).toBe(true);
     });
 
-    it('folds glyph variants like the DLA section coverage oracle', () => {
+    it('folds glyph variants like the reference section coverage oracle', () => {
       expect(
         foldText(
           '\u2018Smart\u2019 \u201cquotes\u201d \u2013 \u2014 \u2012 wait\u2026\nagain'

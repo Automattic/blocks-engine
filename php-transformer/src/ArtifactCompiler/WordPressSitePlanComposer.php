@@ -52,15 +52,26 @@ final class WordPressSitePlanComposer
         }
         if (null !== $runtimeParity) {
             $sourceReports['runtime_dependency_parity'] = $runtimeParity($wordpressSitePlan);
+            // A runtime target missing from the emitted markup costs that one
+            // block its runtime behavior. The block keeps its static markup and
+            // the rest of the site plan stays usable, so it is reported, not fatal.
+            $dependencyMisses = array();
             foreach ($sourceReports['runtime_dependency_parity']['findings'] ?? array() as $finding) {
                 if ('runtime_dependency_target_missing' !== ($finding['code'] ?? '') || 'telemetry' === ($finding['script_kind'] ?? '')) continue;
-                $diagnostics[] = $this->diagnostic('runtime_dependency_contract_failed', 'error', (string) $finding['message'], array_filter(array(
+                $dependencyMisses[] = array_filter(array(
+                    'code' => 'runtime_dependency_target_missing',
+                    'severity' => 'warning',
+                    'message' => (string) $finding['message'],
+                    'source' => ArtifactCompiler::class,
+                    'unit' => 'block',
+                    'source_path' => $finding['source_path'] ?? null,
                     'selector' => $finding['selector'] ?? null,
                     'script_path' => $finding['script_path'] ?? null,
-                    'source_path' => $finding['source_path'] ?? null,
-                ), static fn(mixed $value): bool => null !== $value && '' !== $value));
-                $wordpressSitePlan = null;
+                    'reason_code' => $finding['reason_code'] ?? null,
+                ), static fn(mixed $value): bool => null !== $value && '' !== $value);
             }
+            array_push($diagnostics, ...$dependencyMisses);
+            if (null !== $wordpressSitePlan) $wordpressSitePlan = WordPressSitePlan::withFindings($wordpressSitePlan, $dependencyMisses);
         }
         if ( null !== $wordpressSitePlan ) {
             $fontMaterialization = $wordpressSitePlan['theme']['font_materialization'] ?? array();

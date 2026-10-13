@@ -6,8 +6,8 @@ import {
   stripActiveNavState,
 } from '../theme/index.js';
 
-describe('chrome signature DLA parity', () => {
-  it('strips active nav state exactly like DLA chrome-canonicalize', () => {
+describe('chrome signature reference parity', () => {
+  it('strips active nav state exactly like reference chrome-canonicalize', () => {
     expect(
       stripActiveNavState(
         '<a href="/" data-selected="true" aria-current="page" data-interactive="false" selected="true" data-selectedness="true" data-state="data-selected">Home</a>'

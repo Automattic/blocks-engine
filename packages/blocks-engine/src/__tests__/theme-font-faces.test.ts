@@ -122,7 +122,7 @@ describe('stripUnusedFontFaces', () => {
   });
 });
 
-describe('font helper DLA parity surface', () => {
+describe('font helper reference parity surface', () => {
   it('extractGoogleFontCssUrls finds unique css/css2 URLs and decodes HTML ampersands', () => {
     const urls = extractGoogleFontCssUrls([
       '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&amp;display=swap" rel="stylesheet">',
@@ -136,7 +136,7 @@ describe('font helper DLA parity surface', () => {
     ]);
   });
 
-  it('parseCapturedFontFaces preserves the DLA third-party host filter', () => {
+  it('parseCapturedFontFaces preserves the reference third-party host filter', () => {
     const faces = parseCapturedFontFaces(`
       @font-face {
         font-family: "Roboto";
@@ -221,7 +221,7 @@ describe('font helper DLA parity surface', () => {
     );
   });
 
-  it('absolutizeFontUrl and fontFilename match DLA golden behavior', () => {
+  it('absolutizeFontUrl and fontFilename match reference golden behavior', () => {
     expect(absolutizeFontUrl('//cdn.example.com/fonts/acme.woff2')).toBe(
       'https://cdn.example.com/fonts/acme.woff2'
     );
@@ -240,7 +240,7 @@ describe('font helper DLA parity surface', () => {
     expect(fontFilename(face)).toBe('Acme-Display-400.woff2');
   });
 
-  it('buildFontFaceCss emits the DLA self-hosted source-font block', () => {
+  it('buildFontFaceCss emits the reference self-hosted source-font block', () => {
     const faces: LocalFontFace[] = [
       {
         family: 'Acme Display',
@@ -289,7 +289,7 @@ describe('font helper DLA parity surface', () => {
     ).toBe('a{}b{}');
   });
 
-  it('stripUnusedCarryFontFaces returns kept URLs and DLA stripped count', () => {
+  it('stripUnusedCarryFontFaces returns kept URLs and reference stripped count', () => {
     const usedFace =
       "@font-face{font-family:'Libre Baskerville';src:url(/fonts/libre.woff2) format('woff2')}";
     const unusedFace =

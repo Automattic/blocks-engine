@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
@@ -91,6 +92,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DetailsElementC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DetailsElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgTextRunLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
@@ -185,6 +187,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\OwnSaveShapeInverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
@@ -414,6 +417,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private string $currentSourcePath = 'html';
 
+    /** @var array<string, array<string, mixed>> Undecodable glyph findings keyed by format and source. */
+    private array $glyphColorUndecodable = array();
+
+    /** @var \SplObjectStorage<DOMElement, string>|null Captured `data-blocks-engine-capture-glyph-color` values keyed by glyph element. */
+    private ?\SplObjectStorage $capturedGlyphColors = null;
+
     private readonly ReusableComponentRecognizer $reusableComponentRecognizer;
 
     private HtmlTransformerSession $session;
@@ -607,7 +616,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (DOMElement $element, array &$fallbacks): void {
                 $this->captureInlineSvgFallback($element, $fallbacks);
             }
-        ), $this->svgMaterializer);
+        ), $this->svgMaterializer, new SvgTextRunLowering(
+            $this->styleResolver,
+            fn (string $value, DOMElement $element): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
+            $this,
+            function (array $finding): void {
+                $this->transformationEvidence()->recordFrozenHiddenState($finding);
+            }
+        ));
         $inlineContentConverter = new InlineContentElementConverter(new InlineContentElementContext(
             $this->sourceElementClassifier,
             fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
@@ -1285,8 +1301,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $this->runtimeBehavior()->rememberNativeDisclosureRoot($root->getNodePath() ?? '');
         foreach ( array_merge(array( $root ), iterator_to_array($root->getElementsByTagName('*'), false)) as $node ) {
-            if ( $node instanceof DOMElement && 'true' === strtolower($node->getAttribute('data-dla-local-disclosure')) ) {
-                $this->runtimeSelectors()->supersede('[data-dla-local-disclosure]');
+            if ( $node instanceof DOMElement && 'true' === strtolower($node->getAttribute(CaptureEvidence::LOCAL_DISCLOSURE)) ) {
+                $this->runtimeSelectors()->supersede('[' . CaptureEvidence::LOCAL_DISCLOSURE . ']');
                 if ( '' !== $node->getAttribute('id') ) {
                     $this->runtimeSelectors()->supersede('#' . $node->getAttribute('id'));
                 }
@@ -1516,6 +1532,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             is_array($options['theme_preference_ownership'] ?? null) ? $options['theme_preference_ownership'] : array()
         );
         $this->projectedSelectorBindings = array();
+        $this->glyphColorUndecodable = array();
+        $this->capturedGlyphColors = null;
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
         $this->session->installSourcePath($this->currentSourcePath);
         $this->sharedStylesheetPaths = array();
@@ -1576,6 +1594,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $resultComposer->emptyBody($html, $provenance, $context, $startedAt, $selectorCache);
         }
         SourceDom::removeIntegerKeyAttributes($body);
+        // Capture evidence, not content: read before anything serializes the source.
+        $this->capturedGlyphColors = CapturedGlyphColor::detach($body);
 
         if ( array() !== $sourceBodyClasses ) {
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
@@ -1710,6 +1730,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 'source'  => HtmlTransformer::class,
                 'message' => (string) ($finding['summary'] ?? ''),
             )));
+        }
+        foreach ( $this->glyphColorUndecodable as $finding ) {
+            $diagnostics[] = ConversionFindingContract::withClassification($finding);
         }
         $headMetadata = $this->headMetadataReport($html);
         $authorLayoutTopologyFindings = $this->transformationEvidence()->authorLayoutTopologyFindings();
@@ -3110,6 +3133,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
+    private function recordGlyphColorUndecodable(string $mimeType, string $src): void
+    {
+        $format = '' !== $mimeType ? strtolower($mimeType) : 'unknown';
+        $this->glyphColorUndecodable[$format . "\0" . $src] = array(
+            'code'        => 'glyph_color_undecodable',
+            'severity'    => 'warning',
+            'message'     => 'A social icon glyph could not be decoded by this PHP image library, so its authored icon colour was not carried and core default icon colours apply.',
+            'source'      => HtmlTransformer::class,
+            'mime_type'   => $format,
+            'src'         => $src,
+            'source_path' => $this->currentSourcePath,
+        );
+    }
+
     private function createPatternContext(): PatternContext
     {
         return new PatternContext(
@@ -3140,7 +3177,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             new ColumnsPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->cssDeclarationString($this->styleResolver->structuralPresentationDeclarations($sourceElement)),
-                fn (DOMElement $sourceElement): string => $this->styleResolver->controlSurfaceResolvedStyle($sourceElement)
+                fn (DOMElement $sourceElement): string => $this->styleResolver->controlSurfaceResolvedStyle($sourceElement),
+                fn (DOMElement $sourceElement): bool => $this->styleResolver->isSingleFlexRowAtMobile($sourceElement)
             ),
             new MarkupPatternContext(
                 fn (DOMElement $sourceElement): string => SourceDom::safeFallbackHtml($sourceElement, $this->authorSelectorProjections()->tagMarkers()),
@@ -3177,7 +3215,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
             fn (DOMElement $control): array => $this->disclosureControlPresentation()->accordionToggle($control),
             fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
-            fn (string $url): string => (string) ($this->materializedAssets()->metadataForUrl($url)['glyph_color'] ?? '')
+            fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array(),
+            fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src),
+            fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : ''
         );
     }
 
@@ -3268,7 +3308,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
              disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureControlPresentation()->disclosureSummaryMarker($summary),
              accordionToggle: fn (DOMElement $control): array => $this->disclosureControlPresentation()->accordionToggle($control),
              authoredIconColor: fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
-             assetGlyphColor: fn (string $url): string => (string) ($this->materializedAssets()->metadataForUrl($url)['glyph_color'] ?? '')
+             assetMetadata: fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array()
          );
     }
 
@@ -5667,6 +5707,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             );
         }
 
+        // An SVG text run lowered to a native text block keeps its text and
+        // typography; its line box approximates the SVG glyph placement.
+        if ( 'text' === $tagName ) {
+            return array(
+                'conversion_classification' => 'editable_approximation',
+                'preservation_strategy'     => 'svg_text_run_as_native_text',
+            );
+        }
+
         if ( in_array($tagName, array('form', 'input', 'select', 'textarea'), true) && 'core/search' !== $blockName ) {
             return array(
                 'conversion_classification' => 'editable_approximation',
@@ -6106,7 +6155,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $tagMarker ) {
             $classes[] = $tagMarker;
         }
-        if ($element->hasAttribute('data-dla-document-scope') && SourceDom::isDocumentVariantRoot($element)) return SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), implode(' ', $classes));
+        if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element)) return SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), implode(' ', $classes));
         $runtime = array();
         foreach ( $this->runtimeIslands->runtimeDomSelectorsForElement($element) as $selector ) {
             if ( str_starts_with($selector, '.') ) {
@@ -6124,7 +6173,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function preservesScriptStateWrapper(DOMElement $element): bool
     {
-        if ($element->hasAttribute('data-dla-document-scope') && SourceDom::isDocumentVariantRoot($element)) return true;
+        if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element)) return true;
         if ( $this->isInertHiddenEmptyElement($element) ) {
             return false;
         }
@@ -12206,6 +12255,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
     }
 
+    /**
+     * core/code content is a RichText value: always HTML. Plain code text is
+     * escaped here, so text that mentions markup (`&lt;span&gt;`) stays text.
+     */
     private function codeContent(DOMElement $code): string
     {
         foreach ( $code->childNodes as $child ) {
@@ -12214,7 +12267,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        return $code->textContent ?? '';
+        return htmlspecialchars($code->textContent ?? '', ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
     private function sanitizedSyntaxHtml(DOMElement $element): string

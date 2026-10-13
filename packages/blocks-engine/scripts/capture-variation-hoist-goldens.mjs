@@ -4,7 +4,6 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const DEFAULT_DLA_ROOT = '/Users/matt/projects/a8c/data-liberation-agent';
 const TSX_BOOTSTRAP_ENV = 'BLOCKS_ENGINE_VARIATION_HOIST_GOLDENS_TSX';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -12,7 +11,7 @@ const packageRoot = path.resolve(__dirname, '..');
 const corpusUrl = pathToFileURL(
   path.join(packageRoot, 'src/__tests__/fixtures/variation-hoist-corpus.js')
 ).href;
-const outputPath = path.join(packageRoot, 'src/__tests__/fixtures/variation-hoist-dla-goldens.json');
+const outputPath = path.join(packageRoot, 'src/__tests__/fixtures/variation-hoist-reference-goldens.json');
 
 function hasTsxLoader() {
   return process.execArgv.some((arg, index, argv) => {
@@ -32,9 +31,9 @@ if (!process.env[TSX_BOOTSTRAP_ENV] && !hasTsxLoader()) {
 }
 
 const {
-  DLA_VARIATION_HOIST_BLOB,
-  DLA_VARIATION_HOIST_COMMIT,
-  DLA_VARIATION_HOIST_PATH,
+  REFERENCE_VARIATION_HOIST_BLOB,
+  REFERENCE_VARIATION_HOIST_COMMIT,
+  REFERENCE_VARIATION_HOIST_PATH,
   runVariationHoistParity,
 } = await import(corpusUrl);
 
@@ -42,7 +41,10 @@ const args = new Set(process.argv.slice(2));
 const shouldWrite = args.has('--write');
 const shouldCheck = args.has('--check');
 const shouldStdout = args.has('--stdout') || (!shouldWrite && !shouldCheck);
-const dlaRoot = process.env.DLA_ROOT || DEFAULT_DLA_ROOT;
+const referenceRoot = process.env.REFERENCE_ROOT;
+if (!referenceRoot) {
+  throw new Error('Set REFERENCE_ROOT to a checkout of the reference implementation at the pinned commit.');
+}
 
 const explicitModeCount = [shouldWrite, shouldCheck, args.has('--stdout')].filter(Boolean).length;
 if (explicitModeCount > 1) {
@@ -50,30 +52,30 @@ if (explicitModeCount > 1) {
 }
 
 function git(gitArgs) {
-  return execFileSync('git', ['-C', dlaRoot, ...gitArgs], { encoding: 'utf8' }).trim();
+  return execFileSync('git', ['-C', referenceRoot, ...gitArgs], { encoding: 'utf8' }).trim();
 }
 
 function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function verifyDlaOracle() {
+function verifyReferenceOracle() {
   const currentCommit = git(['rev-parse', 'HEAD']);
-  if (currentCommit !== DLA_VARIATION_HOIST_COMMIT) {
-    throw new Error(`DLA checkout must be at ${DLA_VARIATION_HOIST_COMMIT}; got ${currentCommit}`);
+  if (currentCommit !== REFERENCE_VARIATION_HOIST_COMMIT) {
+    throw new Error(`reference checkout must be at ${REFERENCE_VARIATION_HOIST_COMMIT}; got ${currentCommit}`);
   }
 
-  const headBlob = git(['rev-parse', `HEAD:${DLA_VARIATION_HOIST_PATH}`]);
-  if (headBlob !== DLA_VARIATION_HOIST_BLOB) {
+  const headBlob = git(['rev-parse', `HEAD:${REFERENCE_VARIATION_HOIST_PATH}`]);
+  if (headBlob !== REFERENCE_VARIATION_HOIST_BLOB) {
     throw new Error(
-      `DLA ${DLA_VARIATION_HOIST_PATH} HEAD blob must be ${DLA_VARIATION_HOIST_BLOB}; got ${headBlob}`
+      `reference ${REFERENCE_VARIATION_HOIST_PATH} HEAD blob must be ${REFERENCE_VARIATION_HOIST_BLOB}; got ${headBlob}`
     );
   }
 
-  const liveBlob = git(['hash-object', DLA_VARIATION_HOIST_PATH]);
-  if (liveBlob !== DLA_VARIATION_HOIST_BLOB) {
+  const liveBlob = git(['hash-object', REFERENCE_VARIATION_HOIST_PATH]);
+  if (liveBlob !== REFERENCE_VARIATION_HOIST_BLOB) {
     throw new Error(
-      `DLA ${DLA_VARIATION_HOIST_PATH} working tree blob must be ${DLA_VARIATION_HOIST_BLOB}; got ${liveBlob}`
+      `reference ${REFERENCE_VARIATION_HOIST_PATH} working tree blob must be ${REFERENCE_VARIATION_HOIST_BLOB}; got ${liveBlob}`
     );
   }
 
@@ -81,33 +83,33 @@ function verifyDlaOracle() {
     'status',
     '--porcelain',
     '--',
-    DLA_VARIATION_HOIST_PATH,
+    REFERENCE_VARIATION_HOIST_PATH,
     'src/lib/replicate/form-blocks.ts',
   ]);
   if (requiredStatus) {
-    throw new Error(`DLA required variation-hoist sources must be clean:\n${requiredStatus}`);
+    throw new Error(`reference required variation-hoist sources must be clean:\n${requiredStatus}`);
   }
 }
 
 function report(mode, parityFile) {
   process.stderr.write(
-    `variation-hoist goldens ${mode}: DLA commit=${DLA_VARIATION_HOIST_COMMIT} blob=${DLA_VARIATION_HOIST_BLOB} cases=${parityFile.cases.length}\n`
+    `variation-hoist goldens ${mode}: reference commit=${REFERENCE_VARIATION_HOIST_COMMIT} blob=${REFERENCE_VARIATION_HOIST_BLOB} cases=${parityFile.cases.length}\n`
   );
 }
 
-verifyDlaOracle();
+verifyReferenceOracle();
 
-const dlaVariationHoist = await import(pathToFileURL(path.join(dlaRoot, DLA_VARIATION_HOIST_PATH)).href);
+const referenceVariationHoist = await import(pathToFileURL(path.join(referenceRoot, REFERENCE_VARIATION_HOIST_PATH)).href);
 const parityFile = runVariationHoistParity({
-  hoistVariations: dlaVariationHoist.hoistVariations,
-  applyHoistSwaps: dlaVariationHoist.applyHoistSwaps,
+  hoistVariations: referenceVariationHoist.hoistVariations,
+  applyHoistSwaps: referenceVariationHoist.applyHoistSwaps,
 });
 const json = stableJson(parityFile);
 
 if (shouldCheck) {
   const existing = readFileSync(outputPath, 'utf8');
   if (existing !== json) {
-    throw new Error(`${outputPath} is out of date with DLA blob ${DLA_VARIATION_HOIST_BLOB}`);
+    throw new Error(`${outputPath} is out of date with reference blob ${REFERENCE_VARIATION_HOIST_BLOB}`);
   }
   report('check', parityFile);
 }

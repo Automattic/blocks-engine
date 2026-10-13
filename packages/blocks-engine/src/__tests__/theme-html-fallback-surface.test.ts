@@ -41,7 +41,7 @@ describe('theme html fallback public surface', () => {
     );
   });
 
-  it('classifies WordPress layout markup by the DLA marker set', () => {
+  it('classifies WordPress layout markup by the reference marker set', () => {
     expect(
       [
         '<section class="is-layout-constrained"></section>',
@@ -137,7 +137,7 @@ describe('theme html fallback public surface', () => {
     );
   });
 
-  it('rewrites internal hrefs with DLA path, host, fragment, and quote semantics', () => {
+  it('rewrites internal hrefs with reference path, host, fragment, and quote semantics', () => {
     const missed: string[] = [];
     const linkMap: InternalLinkMap = new Map([
       ['example.test/contact', '/contact/'],
@@ -158,7 +158,7 @@ describe('theme html fallback public surface', () => {
     expect(missed).toEqual(['/missing']);
   });
 
-  it('reports DLA injection vectors and allows sanctioned theme PHP forms', () => {
+  it('reports reference injection vectors and allows sanctioned theme PHP forms', () => {
     expect(
       scanForInjection(
         '<?php echo "bad"; ?><script>run()</script><img src="x"onerror="alert(1)">',

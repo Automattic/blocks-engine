@@ -1081,9 +1081,9 @@ $assert(str_contains($closedDetailsMarkup, '<details class="wp-block-details"><s
 $assert(strpos($closedDetailsMarkup, '<summary>Closed summary</summary>') < strpos($closedDetailsMarkup, '<p>Closed content.</p>'), 'closed native details preserves summary before content through final serialization');
 $assert('pass' === ($closedDetailsResult['source_reports']['wp_block_validity']['status'] ?? ''), 'closed native details serialization remains Gutenberg-valid');
 
-// Native DLA disclosures without explicit dialog trigger linkage retain their
+// Native captured disclosures without explicit dialog trigger linkage retain their
 // browser-native summary behavior through core/details.
-$capturedDisclosureResult = ( new HtmlTransformer() )->transform('<div class="rich-text"><p>Copyright text</p><details class="dla-disclosure"><summary>&nbsp;</summary><div class="dla-dialog" role="dialog"><nav><a href="/about">About</a><a href="/contact">Contact</a></nav></div></details></div>')->toArray();
+$capturedDisclosureResult = ( new HtmlTransformer() )->transform('<div class="rich-text"><p>Copyright text</p><details class="data-blocks-engine-capture-disclosure"><summary>&nbsp;</summary><div class="data-blocks-engine-capture-dialog" role="dialog"><nav><a href="/about">About</a><a href="/contact">Contact</a></nav></div></details></div>')->toArray();
 $capturedDisclosureRoot = $capturedDisclosureResult['blocks'][0] ?? array();
 $capturedDisclosureChildren = $capturedDisclosureRoot['innerBlocks'] ?? array();
 $capturedDisclosureDialog = $capturedDisclosureChildren[1] ?? array();
@@ -1092,7 +1092,7 @@ $assert('core/group' === ($capturedDisclosureRoot['blockName'] ?? null) && 'core
 $assert('core/details' === ($capturedDisclosureDialog['blockName'] ?? null) && 'core/navigation' === (($capturedDisclosureDialog['innerBlocks'][0]['innerBlocks'][0] ?? array())['blockName'] ?? null), 'bounded empty-summary dialog disclosures retain a native details trigger with navigation children');
 $assert(str_contains($capturedDisclosureMarkup, '<!-- wp:details') && ! str_contains($capturedDisclosureMarkup, '/collection') && str_contains($capturedDisclosureMarkup, '<summary>'), 'empty-summary dialog disclosures preserve their source disclosure instead of lowering to a triggerless dialog');
 
-$capturedMenuDisclosure = ( new HtmlTransformer() )->transform('<details class="dla-disclosure"><summary aria-label="Menu"><svg aria-hidden="true"><path d="M0 0h1v1"></path></svg></summary><div class="dla-dialog" role="dialog" aria-label="Site"><nav aria-label="Site"><a href="/">Home</a><a href="/contact">Contact</a></nav></div></details>')->toArray();
+$capturedMenuDisclosure = ( new HtmlTransformer() )->transform('<details class="data-blocks-engine-capture-disclosure"><summary aria-label="Menu"><svg aria-hidden="true"><path d="M0 0h1v1"></path></svg></summary><div class="data-blocks-engine-capture-dialog" role="dialog" aria-label="Site"><nav aria-label="Site"><a href="/">Home</a><a href="/contact">Contact</a></nav></div></details>')->toArray();
 $capturedMenuDisclosureMarkup = (string) ($capturedMenuDisclosure['serialized_blocks'] ?? '');
 $capturedMenuDisclosureBlock = $capturedMenuDisclosure['blocks'][0] ?? array();
 $assert('core/details' === ($capturedMenuDisclosureBlock['blockName'] ?? null) && 'core/navigation' === (($capturedMenuDisclosureBlock['innerBlocks'][0]['innerBlocks'][0] ?? array())['blockName'] ?? null), 'icon-only menu disclosures preserve their native trigger and navigation content');
@@ -1102,7 +1102,7 @@ $capturedMobileMenuDisclosure = ( new ArtifactCompiler() )->compile(
     array(
         'entry' => 'index.html',
         'files' => array(
-            'index.html' => '<header><details class="dla-disclosure"><summary aria-label="Menu"><svg aria-hidden="true"></svg></summary><div class="dla-dialog" role="dialog"><nav class="mobile-nav"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav></div></details></header>',
+            'index.html' => '<header><details class="data-blocks-engine-capture-disclosure"><summary aria-label="Menu"><svg aria-hidden="true"></svg></summary><div class="data-blocks-engine-capture-dialog" role="dialog"><nav class="mobile-nav"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav></div></details></header>',
         ),
     )
 )->toArray();
@@ -1110,11 +1110,11 @@ $capturedMobileMenuDisclosureMarkup = (string) ($capturedMobileMenuDisclosure['s
 $assert(str_contains($capturedMobileMenuDisclosureMarkup, '"overlayMenu":"never"') && ! str_contains($capturedMobileMenuDisclosureMarkup, 'blocks-engine-native-responsive-navigation'), 'navigation inside a captured native disclosure does not create a nested mobile overlay', $capturedMobileMenuDisclosureMarkup);
 
 $structuralDisclosureReveal = ( new HtmlTransformer() )->transform(
-    '<style>details.dla-disclosure[open]>.dla-dialog>:first-child{display:block!important;visibility:visible!important}</style>'
-    . '<details class="dla-disclosure"><summary>Menu</summary><div class="dla-dialog"><button>Close</button><nav><a href="/">Home</a></nav></div></details>'
+    '<style>details.data-blocks-engine-capture-disclosure[open]>.data-blocks-engine-capture-dialog>:first-child{display:block!important;visibility:visible!important}</style>'
+    . '<details class="data-blocks-engine-capture-disclosure"><summary>Menu</summary><div class="data-blocks-engine-capture-dialog"><button>Close</button><nav><a href="/">Home</a></nav></div></details>'
 )->toArray();
 $structuralDisclosureRevealCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $structuralDisclosureReveal['assets'] ?? array()));
-$assert(str_contains($structuralDisclosureRevealCss, 'details.dla-disclosure[open]>.dla-dialog>:first-child{display:block!important;visibility:visible!important}'), 'universal structural child selectors preserve their relationship instead of binding to the captured child identity', $structuralDisclosureRevealCss);
+$assert(str_contains($structuralDisclosureRevealCss, 'details.data-blocks-engine-capture-disclosure[open]>.data-blocks-engine-capture-dialog>:first-child{display:block!important;visibility:visible!important}'), 'universal structural child selectors preserve their relationship instead of binding to the captured child identity', $structuralDisclosureRevealCss);
 
 // Separate desktop and mobile source surfaces are not an overlay pair when the
 // mobile menu keeps its own native details interaction. In particular, the
@@ -1125,11 +1125,11 @@ $separateResponsiveMenuArtifact = ( new ArtifactCompiler() )->compile(
         'entry' => 'index.html',
         'files' => array(
             'index.html' => '<!doctype html><html><head><style>'
-                . '.data-liberation-mobile-document{display:none!important}'
-                . '@media(max-width:768px){.data-liberation-desktop-document{display:none!important}.data-liberation-mobile-document{display:contents!important}}'
+                . '.data-blocks-engine-capture-mobile-document{display:none!important}'
+                . '@media(max-width:768px){.data-blocks-engine-capture-desktop-document{display:none!important}.data-blocks-engine-capture-mobile-document{display:contents!important}}'
                 . '@media(min-width:769px){.desktop-navbar{display:block}}'
-                . '</style></head><body><div class="data-liberation-desktop-document"><header><nav class="desktop-navbar"><ul><li><a href="/">Home</a></li><li><a href="/contact">Contact</a></li></ul></nav></header></div>'
-                . '<div class="data-liberation-mobile-document"><header><details class="dla-disclosure"><summary aria-label="Menu"><svg aria-hidden="true"></svg></summary><div class="dla-dialog" role="dialog"><nav class="mobile-navbar"><ul><li><a href="/">Home</a></li><li><a href="/contact">Contact</a></li></ul></nav></div></details></header></div></body></html>',
+                . '</style></head><body><div class="data-blocks-engine-capture-desktop-document"><header><nav class="desktop-navbar"><ul><li><a href="/">Home</a></li><li><a href="/contact">Contact</a></li></ul></nav></header></div>'
+                . '<div class="data-blocks-engine-capture-mobile-document"><header><details class="data-blocks-engine-capture-disclosure"><summary aria-label="Menu"><svg aria-hidden="true"></svg></summary><div class="data-blocks-engine-capture-dialog" role="dialog"><nav class="mobile-navbar"><ul><li><a href="/">Home</a></li><li><a href="/contact">Contact</a></li></ul></nav></div></details></header></div></body></html>',
         ),
     )
 )->toArray();
@@ -1475,10 +1475,10 @@ $shadowedLayoutGraph = (new HtmlTransformer())->transform('<form method="post" a
 $shadowedLayoutNodes = array_column($shadowedLayoutGraph['nodes'] ?? array(), null, 'id');
 $assert('19px' === ($shadowedLayoutNodes['wrapper-0']['layout']['gap'] ?? null), 'an invalid local custom property shadows an inherited token and falls through to the consuming declaration fallback.');
 $capturedPseudoFormDocument = new DOMDocument();
-@$capturedPseudoFormDocument->loadHTML('<div class="data-liberation-desktop-document"><div class="comp"><div class="sN4uTVR"><div class="ckHV4G"><input name="email"></div></div></div></div><div class="data-liberation-mobile-document"><div class="comp"><div class="sN4uTVR"><div class="ckHV4G"><input name="email"></div></div></div></div>');
+@$capturedPseudoFormDocument->loadHTML('<div class="data-blocks-engine-capture-desktop-document"><div class="comp"><div class="sN4uTVR"><div class="ckHV4G"><input name="email"></div></div></div></div><div class="data-blocks-engine-capture-mobile-document"><div class="comp"><div class="sN4uTVR"><div class="ckHV4G"><input name="email"></div></div></div></div>');
 $capturedPseudoFormStylesheets = array(
     array('content' => '.comp{--rowSpacing:32}.sN4uTVR{--wix-forms-formRowSpacing:calc(var(--rowSpacing) * 1px)}.ckHV4G{display:flex;flex-direction:column;gap:var(--wix-forms-formRowSpacing,24px)}', 'source_path' => 'desktop.css', 'source_hash' => hash('sha256', 'desktop'), 'media' => '(min-width:769px)'),
-    array('content' => ':where(.data-liberation-mobile-document) .comp{--rowSpacing:32}:where(.data-liberation-mobile-document) .sN4uTVR{--wix-forms-formRowSpacing:calc(var(--rowSpacing) * 1px)}:where(.data-liberation-mobile-document) .ckHV4G{display:flex;flex-direction:column;gap:var(--wix-forms-formRowSpacing,24px)}', 'source_path' => 'mobile.css', 'source_hash' => hash('sha256', 'mobile'), 'media' => '(max-width:768px)'),
+    array('content' => ':where(.data-blocks-engine-capture-mobile-document) .comp{--rowSpacing:32}:where(.data-blocks-engine-capture-mobile-document) .sN4uTVR{--wix-forms-formRowSpacing:calc(var(--rowSpacing) * 1px)}:where(.data-blocks-engine-capture-mobile-document) .ckHV4G{display:flex;flex-direction:column;gap:var(--wix-forms-formRowSpacing,24px)}', 'source_path' => 'mobile.css', 'source_hash' => hash('sha256', 'mobile'), 'media' => '(max-width:768px)'),
 );
 $capturedDesktopPseudoFormGraph = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder())->build($capturedPseudoFormDocument->getElementsByTagName('div')->item(3), $capturedPseudoFormStylesheets);
 $capturedMobilePseudoFormGraph = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder())->build($capturedPseudoFormDocument->getElementsByTagName('div')->item(7), $capturedPseudoFormStylesheets);
@@ -1881,7 +1881,7 @@ $retainedViewportArtifact = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'website/index.html',
     'files' => array(
         'website/index.html' => '<html><body><main>Desktop</main></body></html>',
-        'website/mobile.html' => '<html><head><style>.iL7Pq5 svg{width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%);margin:auto;position:absolute;inset:0}</style></head><body class="data-liberation-mobile-document"><main><div id="comp-m1yrz8m1"><div class="iL7Pq5 gx51wo"><svg preserveAspectRatio="none" viewBox="29.524 20 140.952 159.999" width="200" height="200"><path/></svg></div></div></main></body></html>',
+        'website/mobile.html' => '<html><head><style>.iL7Pq5 svg{width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%);margin:auto;position:absolute;inset:0}</style></head><body class="data-blocks-engine-capture-mobile-document"><main><div id="comp-m1yrz8m1"><div class="iL7Pq5 gx51wo"><svg preserveAspectRatio="none" viewBox="29.524 20 140.952 159.999" width="200" height="200"><path/></svg></div></div></main></body></html>',
     ),
     'document_variants' => array(array(
         'source_path' => 'website/index.html',
@@ -3414,27 +3414,27 @@ $assert(str_contains($sharedBodyClassCss, '.body{padding:4px}'), 'body classes s
 // painting the projected root blocks over the negative z-index hero layers.
 $variantBodySubject = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><body class="body">'
-    . '<div class="data-liberation-desktop-document body"><div class="main-wrapper"><section class="hero"><figure class="hero-bg" style="position:absolute;inset:0;z-index:-2"><img src="hero.jpg" alt=""></figure><div class="gradient-bg" style="position:absolute;inset:0;z-index:-1"></div><h1>Hero</h1></section></div></div>'
-    . '<div class="data-liberation-mobile-document body"><div class="main-wrapper"><section class="hero"><h1>Hero</h1></section></div></div>'
+    . '<div class="data-blocks-engine-capture-desktop-document body"><div class="main-wrapper"><section class="hero"><figure class="hero-bg" style="position:absolute;inset:0;z-index:-2"><img src="hero.jpg" alt=""></figure><div class="gradient-bg" style="position:absolute;inset:0;z-index:-1"></div><h1>Hero</h1></section></div></div>'
+    . '<div class="data-blocks-engine-capture-mobile-document body"><div class="main-wrapper"><section class="hero"><h1>Hero</h1></section></div></div>'
     . '</body></html>',
     array( 'static_css' => '.body{background-color:#f0f0f0;flex-flow:column;font-family:Georgia,serif}.body .hero{position:relative}@media (max-width:479px){.body{display:flex}}' )
 )->toArray();
 $variantBodySubjectSerialized = (string) ($variantBodySubject['serialized_blocks'] ?? '');
 $variantBodySubjectCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $variantBodySubject['assets'] ?? array()));
-$assert(str_contains($variantBodySubjectSerialized, 'data-liberation-desktop-document body'), 'captured document variant roots keep the projected body class for descendant matching');
+$assert(str_contains($variantBodySubjectSerialized, 'data-blocks-engine-capture-desktop-document body'), 'captured document variant roots keep the projected body class for descendant matching');
 $assert(str_contains($variantBodySubjectCss, ':where(body).body{background-color:#f0f0f0;flex-flow:column;font-family:Georgia,serif}'), 'synthetic document variant classes target the real body without losing state or class specificity');
 $assert(str_contains($variantBodySubjectCss, '@media (max-width:479px){:where(body).body{display:flex}}'), 'conditional variant body-subject rules retain their state');
 $assert(str_contains($variantBodySubjectCss, '.body .hero{position:relative}'), 'body-class descendant selectors keep matching inside a captured document variant');
 
 $escapedVariantBodySubject = (new HtmlTransformer())->transform(
-    '<body class="paint:canvas"><div class="data-liberation-desktop-document paint:canvas"><p>Content</p></div></body>',
+    '<body class="paint:canvas"><div class="data-blocks-engine-capture-desktop-document paint:canvas"><p>Content</p></div></body>',
     array('static_css' => '.paint\\:canvas{background-color:#f0f0f0}')
 )->toArray();
 $escapedVariantBodyCss = implode("\n", array_column($escapedVariantBodySubject['assets'] ?? array(), 'content'));
 $assert(str_contains($escapedVariantBodyCss, ':where(body).paint\\:canvas{background-color:#f0f0f0}'), 'escaped body class subjects keep canvas ownership when copied onto synthetic document variants');
 
 $variantSharedBodyClass = ( new HtmlTransformer() )->transform(
-    '<!doctype html><html><body class="body"><div class="data-liberation-desktop-document body"><div class="card"><div class="body">Card body</div></div></div></body></html>',
+    '<!doctype html><html><body class="body"><div class="data-blocks-engine-capture-desktop-document body"><div class="card"><div class="body">Card body</div></div></div></body></html>',
     array( 'static_css' => '.body{padding:4px;background-color:#f0f0f0}' )
 )->toArray();
 $variantSharedBodyClassCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $variantSharedBodyClass['assets'] ?? array()));
@@ -4898,8 +4898,8 @@ $missingRuntimeCompile = $compiler->compile(
         ),
     )
 )->toArray();
-$missingRuntimeCompileDiagnostics = array_values(array_filter($missingRuntimeCompile['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? '')));
-$assert('failed' === ($missingRuntimeCompile['status'] ?? '') && '[data-counter]' === ($missingRuntimeCompileDiagnostics[0]['context']['selector'] ?? ''), 'ArtifactCompiler promotes required runtime selector parity failures to deterministic top-level errors');
+$missingRuntimeCompileDiagnostics = array_values(array_filter($missingRuntimeCompile['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_target_missing' === ($diagnostic['code'] ?? '')));
+$assert('success_with_warnings' === ($missingRuntimeCompile['status'] ?? '') && 'warning' === ($missingRuntimeCompileDiagnostics[0]['severity'] ?? '') && 'block' === ($missingRuntimeCompileDiagnostics[0]['unit'] ?? '') && '[data-counter]' === ($missingRuntimeCompileDiagnostics[0]['selector'] ?? '') && is_array($missingRuntimeCompile['source_reports']['wordpress_site_plan'] ?? null), 'ArtifactCompiler reports a required runtime selector parity miss as a deterministic block-level warning and keeps the site plan');
 
 $expandedRuntimeTargetsSite = $compiler->compile(
     array(
@@ -5052,16 +5052,16 @@ $undeclaredCompanionRenderReport = (new \Automattic\BlocksEngine\PhpTransformer\
 );
 $assert('warning' === ($undeclaredCompanionRenderReport['status'] ?? '') && 'runtime_dependency_target_missing' === ($undeclaredCompanionRenderReport['findings'][0]['code'] ?? ''), 'undeclared companion render strings cannot suppress missing-target failures');
 
-$rendererContentMarkup = '<!-- wp:custom/responsive-layout ' . strtr(json_encode(array( 'content' => '<button type="button" data-dla-dialog-close="menu" style="color:red}">Close</button><script data-stripped="1"></script>' ), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), array( '\\\\' => '\\u005c', '--' => '\\u002d\\u002d', '<' => '\\u003c', '>' => '\\u003e', '&' => '\\u0026', '\\"' => '\\u0022' )) . ' /-->';
-$rendererContentScript = 'document.querySelector("[data-dla-dialog-close]").addEventListener("click", function () {}); document.querySelector("[data-stripped]");';
-$rendererContentSource = '<main><button data-dla-dialog-close="menu">Close</button><script data-stripped="1"></script></main>';
+$rendererContentMarkup = '<!-- wp:custom/responsive-layout ' . strtr(json_encode(array( 'content' => '<button type="button" data-blocks-engine-capture-dialog-close="menu" style="color:red}">Close</button><script data-stripped="1"></script>' ), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), array( '\\\\' => '\\u005c', '--' => '\\u002d\\u002d', '<' => '\\u003c', '>' => '\\u003e', '&' => '\\u0026', '\\"' => '\\u0022' )) . ' /-->';
+$rendererContentScript = 'document.querySelector("[data-blocks-engine-capture-dialog-close]").addEventListener("click", function () {}); document.querySelector("[data-stripped]");';
+$rendererContentSource = '<main><button data-blocks-engine-capture-dialog-close="menu">Close</button><script data-stripped="1"></script></main>';
 $undeclaredRendererContentReport = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDependencyParityReport())->fromArtifact(
     array(array('path' => 'js/app.js', 'kind' => 'js', 'content' => $rendererContentScript)),
     $rendererContentSource,
     $rendererContentMarkup,
     'index.html'
 );
-$assert('warning' === ($undeclaredRendererContentReport['status'] ?? '') && in_array('[data-dla-dialog-close]', array_column($undeclaredRendererContentReport['findings'] ?? array(), 'selector'), true), 'renderer content cannot supply a runtime target without a declared content renderer');
+$assert('warning' === ($undeclaredRendererContentReport['status'] ?? '') && in_array('[data-blocks-engine-capture-dialog-close]', array_column($undeclaredRendererContentReport['findings'] ?? array(), 'selector'), true), 'renderer content cannot supply a runtime target without a declared content renderer');
 $declaredRendererContentReport = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDependencyParityReport())->fromArtifact(
     array(array('path' => 'js/app.js', 'kind' => 'js', 'content' => $rendererContentScript)),
     $rendererContentSource,
@@ -5073,7 +5073,7 @@ $declaredRendererContentReport = (new \Automattic\BlocksEngine\PhpTransformer\Ar
     array(),
     array(array('renderer' => 'blocks-engine/responsive-layout/v1', 'block_json' => array('name' => 'custom/responsive-layout')))
 );
-$declaredRendererClose = array_values(array_filter($declaredRendererContentReport['dependencies'] ?? array(), static fn (array $dependency): bool => '[data-dla-dialog-close]' === ($dependency['selector'] ?? '')))[0] ?? array();
+$declaredRendererClose = array_values(array_filter($declaredRendererContentReport['dependencies'] ?? array(), static fn (array $dependency): bool => '[data-blocks-engine-capture-dialog-close]' === ($dependency['selector'] ?? '')))[0] ?? array();
 $declaredRendererStripped = array_values(array_filter($declaredRendererContentReport['findings'] ?? array(), static fn (array $finding): bool => '[data-stripped]' === ($finding['selector'] ?? '')));
 $assert(true === ($declaredRendererClose['generated_present'] ?? null) && 'declared_renderer_content' === ($declaredRendererClose['generated_target_evidence'] ?? '') && array() !== $declaredRendererStripped, 'declared responsive-layout content is a live target, and markup the renderer strips is not');
 
@@ -5121,7 +5121,7 @@ $authoredCanvasSite = $compiler->compile(array(
 ))->toArray();
 $authoredCanvasMarkup = (string) ($authoredCanvasSite['serialized_blocks'] ?? '');
 $assert(str_contains($authoredCanvasMarkup, 'data-blocks-engine-canvas-effect="particle-ripple"') && str_contains($authoredCanvasMarkup, 'data-blocks-engine-canvas-spacing="90"'), 'authored portable ripple settings survive as native editable canvas block attributes');
-$assert(array() === array_values(array_filter($authoredCanvasSite['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? ''))), 'authored runtime canvas selector remains present in generated block markup');
+$assert(array() === array_values(array_filter($authoredCanvasSite['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_target_missing' === ($diagnostic['code'] ?? ''))), 'authored runtime canvas selector remains present in generated block markup');
 
 $portableMarkerSite = $compiler->compile(array(
     'entrypoint' => 'index.html',
@@ -5150,8 +5150,8 @@ $motionFixture = array(
     'files' => array(
         'index.html' => '<main><p id="status">Current editable text</p></main>',
         'capture-receipt.json' => json_encode(array(
-            'schema' => 'data-liberation/capture-receipt/v1',
-            'sourceInteractivity' => array('schema' => 'data-liberation/source-interactivity/v1', 'unreproduced_route_count' => 1),
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
+            'sourceInteractivity' => array('schema' => 'blocks-engine-capture/source-interactivity/v1', 'unreproduced_route_count' => 1),
         ), JSON_THROW_ON_ERROR),
     ),
 );
@@ -5873,13 +5873,13 @@ $capturedDialog = $compiler->compile(array(
     'site' => array('name' => 'Captured Dialog Site', 'slug' => 'captured-dialog-site'),
     'entrypoint' => 'website/index.html',
     'files' => array(
-        array('path' => 'website/index.html', 'content' => '<header class="data-liberation-semantic-header"><nav aria-label="Primary"><a class="brand" href="/">Home</a><a class="contact" role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a><a class="about" href="/about/">About</a></nav></header><main><form action="/directory"><label>Location<input name="location"></label><button type="submit">Filter</button></form></main>'),
+        array('path' => 'website/index.html', 'content' => '<header class="data-blocks-engine-capture-semantic-header"><nav aria-label="Primary"><a class="brand" href="/">Home</a><a class="contact" role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a><a class="about" href="/about/">About</a></nav></header><main><form action="/directory"><label>Location<input name="location"></label><button type="submit">Filter</button></form></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/capture-receipt/v1',
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
                 'states' => array(array(
@@ -5924,11 +5924,11 @@ $capturedSelectableSet = $compiler->compile(array(
     'files' => array(
         array('path' => 'website/index.html', 'content' => '<main><div><button type="button">Alpha</button><button type="button">Beta</button></div><div><p>Select an item to view details</p></div></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/capture-receipt/v1',
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
                 'states' => array(
@@ -5970,11 +5970,11 @@ $triggerRowSelectableSet = $compiler->compile(array(
     'files' => array(
         array('path' => 'website/index.html', 'content' => '<main><div class="step-row"><button type="button">Alpha</button><button type="button">Beta</button></div><div class="detail"><p>Select an item to view details</p></div></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/capture-receipt/v1',
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
                 'states' => array(
@@ -6048,11 +6048,11 @@ $sideBySideSelectableSet = $compiler->compile(array(
     'files' => array(
         array('path' => 'website/index.html', 'content' => '<main><div class="split" style="display:grid;grid-template-columns:1fr 1fr"><div>' . $sideBySideActive . '</div><ul class="items"><li><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->1</span><span class="name">Alpha</span></button></li><li style="margin-top:.5rem"><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->2</span><span class="name">Beta</span></button></li><li style="margin-top:.5rem"><button type="button" style="display:flex;gap:1rem;width:100%;padding:1rem;border:1px solid #333"><span class="num">0<!---->3</span><span class="name">Gamma</span></button></li></ul></div></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/capture-receipt/v1',
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
                 'states' => array(
@@ -6083,11 +6083,11 @@ $regionLayoutSelectableSet = $compiler->compile(array(
     'files' => array(
         array('path' => 'website/index.html', 'content' => '<main><div class="step-row"><button type="button">Alpha</button><button type="button">Beta</button></div><div class="card-host" style="display:grid"><p>Select an item to view details</p></div></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/capture-receipt/v1',
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
                 'states' => array(
@@ -6129,11 +6129,11 @@ $graphicSelectableSet = $compiler->compile(array(
     'files' => array(
         array('path' => 'website/index.html', 'content' => '<main><div><svg><g><text>FR1</text><text>1,530 ft²</text></g><g><text>FR2</text><text>1,530 ft²</text></g></svg></div><div><p>Select a zone</p></div></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/capture-receipt/v1',
+            'schema' => 'blocks-engine-capture/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
         ), JSON_UNESCAPED_SLASHES)),
         array('path' => 'interaction-states.json', 'content' => json_encode(array(
-            'schema' => 'data-liberation/captured-interactions/v1',
+            'schema' => 'blocks-engine-capture/captured-interactions/v1',
             'pages' => array(array(
                 'sourceUrl' => 'https://example.com/',
                 'states' => array(
@@ -6189,8 +6189,8 @@ $choiceGroupInput = array(
     'entrypoint' => 'website/index.html',
     'files' => array(
         array('path' => 'website/index.html', 'content' => '<main><form action="/collect" method="post"><label>Choose one</label><div><button type="button">One</button><button type="button">Two</button></div><textarea name="comment"></textarea><button type="submit">Send</button></form></main>'),
-        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.com/', 'states' => array(
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.com/', 'states' => array(
             $choiceState(0, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
             $choiceState(1, '<div class="choices"><button type="button"><span>One</span></button><button type="button"><span>Two</span></button></div>'),
         )))), JSON_UNESCAPED_SLASHES)),
