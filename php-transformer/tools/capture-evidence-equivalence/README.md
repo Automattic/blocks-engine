@@ -62,6 +62,10 @@ replay by case:
   group cannot save those attributes. The corpus input carries no CSS for its
   empty Wix background and header layers, so they no longer emit empty groups
   and their wrappers re-nest in `90234027`.
+- **Plain tab triggers.** The selectable-set projector now marks plain-text
+  source trigger buttons with `data-blocks-engine-tab-trigger`, so their box
+  styling carries onto native tab buttons. The projected HTML gains the marker
+  and the tab-list carrier class hash changes in `173a88a2`, `56cfc02b`, `5ad295f6`, `5af9c0c1`, `6657cdac`, `6a79dc90`, `88ac82df`, `8a631c3c`, `8c22a321`, `983aa909`, `9885239b`, `ca0b670d`, `d28fa845`, `d76cc245`, `e970e58c`, `f159a7b6`.
 - **Layout shell labels.** The layout-shell editor script now skips utility
   classes when naming a shell, names `<li>` shells and labels viewport-entrance
   targets "Scroll reveal". Only the emitted `index.js` text and the companion
