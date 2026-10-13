@@ -74,6 +74,20 @@ foreach (array('one', 'two', 'three') as $current) {
 }
 $assert($resting !== ShellExtraction::identityMarkup(str_replace('"Two"', '"Portfolio"', $chrome('none'))), 'A different menu label is a different chrome identity.');
 $assert(str_contains(ShellExtraction::identityMarkup(str_replace('"className":"submenu"', '"className":"submenu open"', $chrome('none'))), 'open'), 'Disclosure state on a menu that does not hold the served route stays part of the identity.');
+// An authored current submenu omits the resting colour marker its siblings
+// share; identity recovers it from siblings with the same classes, whatever
+// order the source listed them in.
+$color = 'blocks-engine-navigation-link-color-' . str_repeat('d', 64);
+$submenus = static function (bool $current) use ($color): string {
+    $markup = '<!-- wp:navigation {"className":"menu","overlayMenu":"never"} -->';
+    foreach (array('A', 'B') as $label) {
+        $classes = 'z-item a-item blocks-engine-navigation-link-color-states-1 ' . ($current && 'A' === $label ? 'blocks-engine-current-navigation-item' : $color);
+        $markup .= '<!-- wp:navigation-submenu {"className":"' . $classes . '","label":"' . $label . '","url":"/' . strtolower($label) . '","kind":"custom"} --><!-- wp:navigation-link {"className":"leaf","label":"' . $label . ' leaf","url":"/' . strtolower($label) . '-leaf","kind":"custom"} /--><!-- /wp:navigation-submenu -->';
+    }
+    return $markup . '<!-- /wp:navigation -->';
+};
+$assert(ShellExtraction::identityMarkup($submenus(false)) === ShellExtraction::identityMarkup($submenus(true)), 'An authored current submenu has its resting siblings\' identity.');
+
 $part = ShellExtraction::withoutCurrentNavigationState($chrome('two'));
 preg_match('/<!-- wp:navigation-link (\{[^>]*"label":"Two"[^>]*\}) \/-->/', $part, $two);
 $twoAttrs = json_decode($two[1] ?? 'null', true) ?? array();

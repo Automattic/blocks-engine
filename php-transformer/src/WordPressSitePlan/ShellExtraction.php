@@ -2070,7 +2070,7 @@ final class ShellExtraction
                 return true;
             }));
             if ($semanticIdentity && $current && $isLink) {
-                $resting = $restingColorBySignature[implode(' ', $classes)] ?? null;
+                $resting = $restingColorBySignature[self::navigationClassSignature($classes)] ?? null;
                 $classes = array_values(array_unique(array_merge($classes, $sharedLinkColors, is_string($resting) ? array($resting) : array())));
             }
             $attrs['className'] = implode(' ', $classes);
