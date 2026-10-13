@@ -53,6 +53,11 @@ replay by case:
   hashes and sizes derived from it change in `0a9c1bea`, `15082c2d`,
   `21e5cdbf`, `2915d21f`, `37284b0e`, `55b724ac`, `7a7af898`, `7c2d1217`,
   `927aa368`, `944dd63d`, `df9c24a8`, `e5ea5743`.
+- **Self-placed modal box reset** (#2726). The captured-dialog block
+  stylesheet gains the zero-specificity reset for a modal whose source panel
+  positions itself. Only the emitted `style.css` text and the hashes derived
+  from it change again in the twelve native dialog cases above (`7a7af898`
+  also gains one style-rule candidate cache hit from the position lookup).
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.

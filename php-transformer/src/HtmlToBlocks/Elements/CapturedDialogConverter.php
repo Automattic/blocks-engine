@@ -17,10 +17,12 @@ final class CapturedDialogConverter implements ElementConverter
 {
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
+     * @param (Closure(DOMElement): string)|null $resolvedStyle The element's authored, cascade-resolved declarations.
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $convertChildren
+        private readonly Closure $convertChildren,
+        private readonly ?Closure $resolvedStyle = null
     ) {
     }
 
@@ -55,6 +57,22 @@ final class CapturedDialogConverter implements ElementConverter
     }
 
     /**
+     * A modal whose source panel positions itself (`position:fixed` or
+     * `absolute` from its own author rules) drew its own box: the source panel
+     * was not a `<dialog>`, so it had no user agent padding, border, auto
+     * margins, insets or size caps. Mark it so the block stylesheet drops that
+     * geometry and the source rules alone place the panel.
+     */
+    private function modalPlacement(DOMElement $element): string
+    {
+        if ( 'dialog' !== strtolower($element->tagName) || '' !== SourceDom::attr($element, 'data-blocks-engine-presentation') || null === $this->resolvedStyle ) {
+            return '';
+        }
+
+        return 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/i', ($this->resolvedStyle)($element)) ? 'source' : '';
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>
      */
@@ -76,7 +94,7 @@ final class CapturedDialogConverter implements ElementConverter
             'ariaDescribedby' => trim(SourceDom::attr($element, 'aria-describedby')),
             'className' => trim(SourceDom::attr($element, 'class')),
             'presentation' => 'dropdown' === SourceDom::attr($element, 'data-blocks-engine-presentation') ? 'dropdown' : '',
-            'placement' => in_array(SourceDom::attr($element, 'data-blocks-engine-placement'), array('in-place', 'under-header', 'source'), true) ? SourceDom::attr($element, 'data-blocks-engine-placement') : '',
+            'placement' => in_array(SourceDom::attr($element, 'data-blocks-engine-placement'), array('in-place', 'under-header', 'source'), true) ? SourceDom::attr($element, 'data-blocks-engine-placement') : $this->modalPlacement($element),
             'addCloseButton' => 'true' === SourceDom::attr($element, 'data-blocks-engine-add-close'),
             'gallerySelection' => json_decode(SourceDom::attr($element, 'data-blocks-engine-gallery-selection'), true) ?: array(),
             'ancestorState' => CapturedDialogBlockGenerator::ancestorState(json_decode(SourceDom::attr($element, 'data-blocks-engine-ancestor-state'), true)),
