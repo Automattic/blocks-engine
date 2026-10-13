@@ -26,6 +26,7 @@ final class PatternContext
      * @param Closure(DOMElement): string|null $authoredIconColor
      * @param Closure(string): array<string, mixed>|null $assetMetadata
      * @param Closure(string, string): void|null $glyphColorUndecodable
+     * @param Closure(DOMElement): string|null $capturedGlyphColor
      */
     public function __construct(
         private readonly Closure $presentationAttributes,
@@ -45,7 +46,8 @@ final class PatternContext
         private readonly ?Closure $accordionToggle = null,
         private readonly ?Closure $authoredIconColor = null,
         private readonly ?Closure $assetMetadata = null,
-        private readonly ?Closure $glyphColorUndecodable = null
+        private readonly ?Closure $glyphColorUndecodable = null,
+        private readonly ?Closure $capturedGlyphColor = null
     ) {
     }
 
@@ -139,5 +141,14 @@ final class PatternContext
         if ( null !== $this->glyphColorUndecodable ) {
             ($this->glyphColorUndecodable)($mimeType, $src);
         }
+    }
+
+    /**
+     * Rendered colour capture recorded on a glyph element as
+     * `data-dla-glyph-color` (lowercase `#rrggbb`), or empty when there is none.
+     */
+    public function capturedGlyphColor(DOMElement $glyph): string
+    {
+        return null === $this->capturedGlyphColor ? '' : (string) ($this->capturedGlyphColor)($glyph);
     }
 }

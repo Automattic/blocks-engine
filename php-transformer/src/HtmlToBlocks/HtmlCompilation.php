@@ -185,6 +185,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\OwnSaveShapeInverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
@@ -416,6 +417,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     /** @var array<string, array<string, mixed>> Undecodable glyph findings keyed by format and source. */
     private array $glyphColorUndecodable = array();
+
+    /** @var \SplObjectStorage<DOMElement, string>|null Captured `data-dla-glyph-color` values keyed by glyph element. */
+    private ?\SplObjectStorage $capturedGlyphColors = null;
 
     private readonly ReusableComponentRecognizer $reusableComponentRecognizer;
 
@@ -1520,6 +1524,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
         $this->projectedSelectorBindings = array();
         $this->glyphColorUndecodable = array();
+        $this->capturedGlyphColors = null;
         $this->currentSourcePath = (string) ($options['source'] ?? 'html');
         $this->session->installSourcePath($this->currentSourcePath);
         $this->sharedStylesheetPaths = array();
@@ -1580,6 +1585,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $resultComposer->emptyBody($html, $provenance, $context, $startedAt, $selectorCache);
         }
         SourceDom::removeIntegerKeyAttributes($body);
+        // Capture evidence, not content: read before anything serializes the source.
+        $this->capturedGlyphColors = CapturedGlyphColor::detach($body);
 
         if ( array() !== $sourceBodyClasses ) {
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
@@ -3199,7 +3206,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $control): array => $this->disclosureControlPresentation()->accordionToggle($control),
             fn (DOMElement $sourceElement): string => $this->styleResolver->authoredInheritedPropertyWinner($sourceElement, 'color'),
             fn (string $url): array => $this->materializedAssets()->metadataForUrl($url) ?? array(),
-            fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src)
+            fn (string $mimeType, string $src) => $this->recordGlyphColorUndecodable($mimeType, $src),
+            fn (DOMElement $glyph): string => null !== $this->capturedGlyphColors && isset($this->capturedGlyphColors[$glyph]) ? $this->capturedGlyphColors[$glyph] : ''
         );
     }
 
