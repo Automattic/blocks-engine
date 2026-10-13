@@ -66,6 +66,12 @@ replay by case:
   source trigger buttons with `data-blocks-engine-tab-trigger`, so their box
   styling carries onto native tab buttons. The projected HTML gains the marker
   and the tab-list carrier class hash changes in `173a88a2`, `56cfc02b`, `5ad295f6`, `5af9c0c1`, `6657cdac`, `6a79dc90`, `88ac82df`, `8a631c3c`, `8c22a321`, `983aa909`, `9885239b`, `ca0b670d`, `d28fa845`, `d76cc245`, `e970e58c`, `f159a7b6`.
+- **Declared block menu items stack in core flow** (#2726). A list
+  navigation whose items all declare a block-level display, with no display
+  on the nav or its list, records `"layout":{"type":"default"}`. That adds
+  the attribute in `46f79246` and `e2e35d0c`. The extra display lookups only
+  move the style-rule candidate cache counters in `2448c3c2`, `2890e8f1`,
+  `448ead36`, `a5a08a86`, `b550beb0`, `c7fff215` and `f025cf28`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
