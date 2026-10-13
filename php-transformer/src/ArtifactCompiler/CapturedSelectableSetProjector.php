@@ -3,8 +3,10 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMDocument;
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 
 /**
  * Projects captured selectable-set evidence (N members driving one shared
@@ -12,8 +14,6 @@ use DOMElement;
  */
 final class CapturedSelectableSetProjector
 {
-    private const REPORT_SCHEMA = 'data-liberation/captured-interactions/v1';
-    private const RECEIPT_SCHEMA = 'data-liberation/capture-receipt/v1';
     private const KIND = 'selectable-set';
     public const ACTIVE_TAB_ATTRIBUTE = 'data-blocks-engine-active-tab';
     public const FLOW_ATTRIBUTE = 'data-blocks-engine-tabs-flow';
@@ -43,7 +43,7 @@ final class CapturedSelectableSetProjector
         if (null === $report) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
-        if (self::REPORT_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
+        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
         if (count($report['pages']) > self::MAX_PAGES) {
@@ -67,7 +67,7 @@ final class CapturedSelectableSetProjector
         }
 
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
-        if (null === $receipt || self::RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
+        if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_selectable_set_route_map_missing', 'warning', 'Captured selectable sets were not projected because the capture receipt route map is unavailable.')), 'projected_count' => 0);
         }
 
@@ -183,6 +183,7 @@ final class CapturedSelectableSetProjector
                 'html' => $sanitized,
                 'tag' => is_string($state['trigger']['tag'] ?? null) ? strtolower($state['trigger']['tag']) : '',
                 'selector' => is_string($state['trigger']['selector'] ?? null) ? trim($state['trigger']['selector']) : '',
+                'key' => is_string($state['trigger']['tabKey'] ?? null) && 1 === preg_match('/^[A-Za-z0-9_-]{1,64}$/', $state['trigger']['tabKey']) ? $state['trigger']['tabKey'] : '',
             );
         }
 
@@ -287,6 +288,7 @@ final class CapturedSelectableSetProjector
                 $rowIdentity = $identity . '-' . ($scopeIndex + 1);
                 $triggerRow = $hideTabList ? null : $this->triggerRowForRegion($region, $members, $set['selector']);
                 $regionMembers = $this->withInitialMember($document, $region, $set, $members);
+                $this->removeEmptySourcePanels($region, $regionMembers['members']);
                 $this->fillRegion($document, $region, $regionMembers['members'], $rowIdentity, $hideTabList, $triggerRow, $regionMembers['active']);
                 $applied = true;
             }
@@ -296,6 +298,71 @@ final class CapturedSelectableSetProjector
         $output = $document->saveHTML();
         $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
+    }
+
+    /**
+     * Panel ids. A member carrying the source's own tab key uses it as the
+     * panel id, so a `#key` fragment selects that tab natively in core Tabs.
+     * Keys are used only when every member has one, they are unique, and none
+     * collides with an id already on the page; otherwise ids stay generated.
+     *
+     * @param array<int, array<string, mixed>> $members
+     * @return array<int, string>
+     */
+    private function panelIds(DOMDocument $document, array $members, string $identity): array
+    {
+        $generated = array();
+        $keys = array();
+        foreach ($members as $index => $member) {
+            $generated[$index] = 'blocks-engine-set-' . $identity . '-panel-' . $index;
+            $keys[$index] = is_string($member['key'] ?? null) ? $member['key'] : '';
+        }
+        if (in_array('', $keys, true) || count(array_unique($keys)) !== count($keys)) {
+            return $generated;
+        }
+        $xpath = new \DOMXPath($document);
+        foreach ($keys as $key) {
+            $found = $xpath->query('//*[@id="' . $key . '"]');
+            if (false !== $found && $found->length > 0) {
+                return $generated;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
+     * Tab libraries render the inactive panels as empty, hidden siblings of the
+     * active panel (the captured region). Once every member has its own native
+     * panel those leftovers hold nothing and only add empty container blocks
+     * inside the tabs wrapper. Remove a sibling only when it is an empty
+     * tabpanel labelled by one of this set's own triggers.
+     *
+     * @param array<int, array<string, mixed>> $members
+     */
+    private function removeEmptySourcePanels(DOMElement $region, array $members): void
+    {
+        $triggerIds = array();
+        foreach ($members as $member) {
+            $element = $member['element'] ?? null;
+            if ($element instanceof DOMElement && '' !== $element->getAttribute('id')) {
+                $triggerIds[$element->getAttribute('id')] = true;
+            }
+        }
+        $parent = $region->parentNode;
+        if (array() === $triggerIds || ! $parent instanceof DOMElement) {
+            return;
+        }
+        foreach (iterator_to_array($parent->childNodes) as $sibling) {
+            if (! $sibling instanceof DOMElement || $sibling->isSameNode($region) || 'tabpanel' !== strtolower(trim($sibling->getAttribute('role')))) {
+                continue;
+            }
+            $labelledBy = trim($sibling->getAttribute('aria-labelledby'));
+            if (! isset($triggerIds[$labelledBy]) || '' !== trim($sibling->textContent ?? '') || $sibling->getElementsByTagName('img')->length > 0 || $sibling->getElementsByTagName('svg')->length > 0 || $sibling->getElementsByTagName('video')->length > 0 || $sibling->getElementsByTagName('iframe')->length > 0) {
+                continue;
+            }
+            $parent->removeChild($sibling);
+        }
     }
 
     /**
@@ -334,9 +401,10 @@ final class CapturedSelectableSetProjector
                 $triggerRow->setAttribute('data-blocks-engine-tablist-row', $identity);
             }
         }
+        $panelIds = $this->panelIds($document, $members, $identity);
         foreach ($members as $index => $member) {
             $tabId = 'blocks-engine-set-' . $identity . '-tab-' . $index;
-            $panelId = 'blocks-engine-set-' . $identity . '-panel-' . $index;
+            $panelId = $panelIds[$index];
             $button = $document->createElement('button');
             $button->setAttribute('type', 'button');
             $button->setAttribute('role', 'tab');
@@ -347,16 +415,20 @@ final class CapturedSelectableSetProjector
             if ($markup instanceof \DOMDocumentFragment) {
                 $button->setAttribute(self::LABEL_ATTRIBUTE, $member['label']);
                 $button->appendChild($markup);
-                $member['element']->setAttribute(self::TRIGGER_ATTRIBUTE, $identity);
             } else {
                 $button->appendChild($document->createTextNode($member['label']));
+            }
+            // Mark every source trigger, plain-text ones included, so the tab
+            // list can carry the source trigger's box styling.
+            if ($triggerRow instanceof DOMElement && ($member['element'] ?? null) instanceof DOMElement) {
+                $member['element']->setAttribute(self::TRIGGER_ATTRIBUTE, $identity);
             }
             $tabList->appendChild($button);
         }
         $region->appendChild($tabList);
         foreach ($members as $index => $member) {
             $panel = $document->createElement('section');
-            $panel->setAttribute('id', 'blocks-engine-set-' . $identity . '-panel-' . $index);
+            $panel->setAttribute('id', $panelIds[$index]);
             $panel->setAttribute('role', 'tabpanel');
             $panel->setAttribute('aria-labelledby', 'blocks-engine-set-' . $identity . '-tab-' . $index);
             foreach ($this->fragmentNodes($member['html']) as $node) {
@@ -590,7 +662,7 @@ final class CapturedSelectableSetProjector
     private function isResponsiveDocumentWrapper(DOMElement $element): bool
     {
         foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
-            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)) {
+            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)) {
                 return true;
             }
         }
@@ -931,8 +1003,9 @@ final class CapturedSelectableSetProjector
             return null;
         }
         $xpath = new \DOMXPath($document);
+        $this->keepSafeVisualIframes($xpath);
         foreach (array('script', 'iframe', 'object', 'embed', 'template', 'canvas') as $tag) {
-            $matches = $xpath->query('//' . $tag);
+            $matches = $xpath->query('iframe' === $tag ? '//iframe[not(@data-be-safe-iframe)]' : '//' . $tag);
             if (false === $matches) {
                 continue;
             }
@@ -961,6 +1034,11 @@ final class CapturedSelectableSetProjector
                 }
             }
         }
+        foreach (iterator_to_array($xpath->query('//iframe[@data-be-safe-iframe]') ?: array()) as $iframe) {
+            if ($iframe instanceof DOMElement) {
+                $iframe->removeAttribute('data-be-safe-iframe');
+            }
+        }
         $wrapper = $xpath->query('//*[@data-region-root="true"]')?->item(0);
         if (! $wrapper instanceof DOMElement) {
             return null;
@@ -971,6 +1049,35 @@ final class CapturedSelectableSetProjector
         }
 
         return is_string($html) ? $html : null;
+    }
+
+    /**
+     * Keeps plain https visual iframes and strips every attribute outside the
+     * bounded embed set. Kept frames get a temporary marker so the removal pass
+     * skips them; a marker that came from the source is dropped first.
+     */
+    private function keepSafeVisualIframes(\DOMXPath $xpath): void
+    {
+        $allowed = array('src', 'title', 'width', 'height', 'class', 'allow', 'allowfullscreen', 'loading', 'referrerpolicy');
+        $classifier = new SourceElementClassifier();
+        foreach (iterator_to_array($xpath->query('//iframe') ?: array()) as $iframe) {
+            if (! $iframe instanceof DOMElement) {
+                continue;
+            }
+            $iframe->removeAttribute('data-be-safe-iframe');
+            if ($iframe->hasAttribute('srcdoc') || ! $classifier->isSafeVisualIframeUrl(trim($iframe->getAttribute('src')))) {
+                continue;
+            }
+            foreach (iterator_to_array($iframe->attributes) as $attribute) {
+                if (! in_array(strtolower($attribute->name), $allowed, true)) {
+                    $iframe->removeAttribute($attribute->name);
+                }
+            }
+            while ($iframe->firstChild) {
+                $iframe->removeChild($iframe->firstChild);
+            }
+            $iframe->setAttribute('data-be-safe-iframe', '1');
+        }
     }
 
     /** @return array<int, \DOMNode> */

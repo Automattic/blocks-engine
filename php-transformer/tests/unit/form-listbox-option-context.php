@@ -61,8 +61,8 @@ $controlsBy = static function (array $result, string $key): array {
 // Enough option rows that the panel's combined text exceeds a field-description
 // bound, so each row would otherwise be an ambiguous description candidate.
 $phone = '<main><form method="post" action="/preorder"><div><span>'
-    . '<button type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Phone. Select a country code" data-dla-listbox-trigger="0"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"></svg></button>'
-    . '<div hidden data-dla-listbox-panel="0"><div role="listbox" id="country-codes">' . $optionRows(18, true) . '</div></div>'
+    . '<button type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Phone. Select a country code" data-blocks-engine-capture-listbox-trigger="0"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"></svg></button>'
+    . '<div hidden data-blocks-engine-capture-listbox-panel="0"><div role="listbox" id="country-codes">' . $optionRows(18, true) . '</div></div>'
     . '</span><input type="tel" name="phone" aria-label="Phone"></div><button type="submit">Send</button></form></main>';
 $phoneResult = $compile($phone);
 $phoneControls = $controlsBy($phoneResult, 'name');

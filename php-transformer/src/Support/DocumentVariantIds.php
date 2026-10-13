@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 
 /**
@@ -11,31 +12,29 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
  * A capture ships one copy of the page per responsive variant (for example a
  * Wix desktop and mobile document). When both copies of a source id land on
  * the same WordPress page, the non-default copy is renamed with a suffix
- * (`#SITE_FOOTER` / `#SITE_FOOTER--dla-mobile`) so the page keeps unique ids.
+ * (`#SITE_FOOTER` / `#SITE_FOOTER--data-blocks-engine-capture-mobile`) so the page keeps unique ids.
  * This class owns that suffix, and keeps the author stylesheets that are
  * delivered to the page pointing at the renamed elements.
  */
 final class DocumentVariantIds
 {
-    public const MOBILE_DOCUMENT_CLASS = 'data-liberation-mobile-document';
-    public const DESKTOP_DOCUMENT_CLASS = 'data-liberation-desktop-document';
 
     /**
      * The id suffix a document variant root class gives its copies of shared
-     * ids: `--dla-mobile` for the mobile document, `--dla-<name>` for a named
+     * ids: `--data-blocks-engine-capture-mobile` for the mobile document, `--data-blocks-engine-capture-<name>` for a named
      * `site-document-variant-<name>`, '' for the default (desktop) variant,
      * and null for a class that does not declare a variant.
      */
     public static function suffixForClass(string $class): ?string
     {
-        if ( self::MOBILE_DOCUMENT_CLASS === $class ) {
-            return '--dla-mobile';
+        if ( CaptureEvidence::MOBILE_DOCUMENT_CLASS === $class ) {
+            return CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX . 'mobile';
         }
-        if ( self::DESKTOP_DOCUMENT_CLASS === $class || 'site-document-variant-default' === $class ) {
+        if ( CaptureEvidence::DESKTOP_DOCUMENT_CLASS === $class || 'site-document-variant-default' === $class ) {
             return '';
         }
         if ( 1 === preg_match('/^site-document-variant-([a-z][a-z0-9_-]{0,31})$/', $class, $match) ) {
-            return '--dla-' . $match[1];
+            return CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX . $match[1];
         }
 
         return null;
@@ -46,10 +45,10 @@ final class DocumentVariantIds
      * variant's renamed copies as well as the bare id.
      *
      * Capture stylesheets scope variant rules by the variant root
-     * (`:where(.data-liberation-mobile-document) #comp-x {…}`). After the
+     * (`:where(.data-blocks-engine-capture-mobile-document) #comp-x {…}`). After the
      * variant's shared ids are suffixed, a bare `#comp-x` no longer reaches the
      * mobile copy, so the whole mobile presentation silently drops out. Each
-     * `#id` in such a selector becomes `:is(#id,#id--dla-mobile)`: it matches
+     * `#id` in such a selector becomes `:is(#id,#id--data-blocks-engine-capture-mobile)`: it matches
      * whichever id the element ended up with, and `:is()` takes its most
      * specific argument, so the rule keeps the exact specificity of the source
      * selector and its place in the cascade. An id unique to the variant keeps
@@ -57,7 +56,7 @@ final class DocumentVariantIds
      */
     public static function scopeIdSelectors(string $stylesheet): string
     {
-        if ( ! str_contains($stylesheet, self::MOBILE_DOCUMENT_CLASS) && ! str_contains($stylesheet, 'site-document-variant-') ) {
+        if ( ! str_contains($stylesheet, CaptureEvidence::MOBILE_DOCUMENT_CLASS) && ! str_contains($stylesheet, 'site-document-variant-') ) {
             return $stylesheet;
         }
 

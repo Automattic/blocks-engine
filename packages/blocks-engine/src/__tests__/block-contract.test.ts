@@ -34,9 +34,9 @@ describe('validateBlockContract', () => {
   });
 
   it('skips deliberate non-core blocks and allowlisted core/html untouched', () => {
-    const markup = `<!-- wp:dla/reveal {"madeUp":1} -->
-<section data-wp-interactive="dla/reveal">x</section>
-<!-- /wp:dla/reveal -->
+    const markup = `<!-- wp:example/reveal {"madeUp":1} -->
+<section data-wp-interactive="example/reveal">x</section>
+<!-- /wp:example/reveal -->
 <!-- wp:html -->
 <div onclickish="weird">island</div>
 <!-- /wp:html -->`;

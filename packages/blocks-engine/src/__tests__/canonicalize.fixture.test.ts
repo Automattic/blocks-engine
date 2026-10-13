@@ -15,7 +15,7 @@ const canonicalizeCases = (cases as CanonicalizeFixture[]).filter(
 
 describe('canonicalize golden fixtures', () => {
   for (const fixture of canonicalizeCases) {
-    it(`${fixture.id} is byte-identical to the DLA golden`, () => {
+    it(`${fixture.id} is byte-identical to the reference golden`, () => {
       expect(canonicalize(fixture.input)).toMatchObject(fixture.expected);
     });
   }

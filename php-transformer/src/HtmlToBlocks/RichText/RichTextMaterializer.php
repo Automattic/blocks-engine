@@ -123,7 +123,15 @@ final class RichTextMaterializer implements RichTextMaterialization
             // and an inline declaration out-ranks every stylesheet rule — a base
             // value projected here would freeze the breakpoint it came from onto
             // the carrier and silence the responsive class rule at every width.
+            $projected = $inline;
             $inline = $this->styleResolver->stripResponsiveClassOwnedDeclarations($sourceInline, $inline);
+            $this->carryStrippedLegacyFontSize($sourceInline, $marker, $projected, $inline);
+            // The resolved `size` hint is final here, where the full source
+            // cascade is visible; a later pass over the detached content must
+            // not re-derive it.
+            if ( 'font' === strtolower($targetInline->tagName) ) {
+                $targetInline->removeAttribute('size');
+            }
             if ( array() === $inline ) {
                 continue;
             }
@@ -207,6 +215,10 @@ final class RichTextMaterializer implements RichTextMaterialization
         }
 
         $declarations = array_intersect_key($declarations, $allowed);
+        // The source inline's custom properties feed the author rules and
+        // carried values that style it (`font-family: var(--font)`); the
+        // carrier replaces its inline style, so it must define them too.
+        $declarations += $this->styleResolver->consumedInlineCustomProperties($element, $declarations);
         if ( ! SourceDom::hasAncestorTag($element, array( 'header' )) ) {
             unset($declarations['box-shadow'], $declarations['place-items']);
         }
@@ -392,6 +404,31 @@ final class RichTextMaterializer implements RichTextMaterialization
     {
         $content = preg_replace('/<(?:span|i|b)\b(?=[^>]*\baria-hidden\s*=\s*(["\'])true\1)[^>]*>\s*<svg\b[\s\S]*?<\/svg>\s*<\/(?:span|i|b)>\s*/i', '', $content) ?? $content;
         return preg_replace('/<svg\b(?=[^>]*\baria-hidden\s*=\s*(["\'])true\1)[\s\S]*?<\/svg>\s*/i', '', $content) ?? $content;
+    }
+
+    /**
+     * A `<font size>` value is a presentational hint: every author rule that
+     * sets `font-size` on the element outranks it. When author rules own the
+     * size at some breakpoint the inline value was stripped, so restate the
+     * hint at zero specificity ahead of the author stylesheet. It then renders
+     * only where no author rule applies, as in the source.
+     *
+     * @param array<string, string> $projected
+     * @param array<string, string> $carried
+     */
+    private function carryStrippedLegacyFontSize(DOMElement $source, string $marker, array $projected, array $carried): void
+    {
+        if ( '' === $marker || isset($carried['font-size']) || 'font' !== strtolower($source->tagName) ) {
+            return;
+        }
+        $hint = $this->legacyFontSize($source);
+        if ( '' === $hint || $hint !== ($projected['font-size'] ?? '') ) {
+            return;
+        }
+        $this->session->generatedSupportStylesheetState()->registerRichTextPresentationalHint(
+            $marker,
+            ':where(' . RichTextMarkerSelector::carrierSelectorList($marker) . '){font-size:' . $hint . '}'
+        );
     }
 
     private function legacyFontSize(DOMElement $element): string

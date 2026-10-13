@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
@@ -181,7 +182,10 @@ final class AuthorSelectorSemanticPreparer
                 $inlineTag = strtolower($element->tagName);
                 $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
                 $directAuthorLayoutItem = $directChildSelector && $this->context->isDirectChildOfAuthorOwnedLayout($element);
-                if ( ! $this->context->isInlineContentElement($inlineTag) || ('span' !== $inlineTag && ! $directAuthorLayoutItem) ) {
+                // `span` and `font` are replaced by a `<mark>` RichText carrier,
+                // so an author rule naming them needs a marker hook to keep
+                // matching after conversion.
+                if ( ! $this->context->isInlineContentElement($inlineTag) || (! in_array($inlineTag, array( 'span', 'font' ), true) && ! $directAuthorLayoutItem) ) {
                     continue;
                 }
                 if ( '' === $path ) {
@@ -332,8 +336,8 @@ final class AuthorSelectorSemanticPreparer
     /**
      * A data predicate that a source script writes is runtime state, not
      * captured state. Device documents show this: the head selection script sets
-     * `data-dla-selected-document` on <html> after capture, so
-     * `html:not([data-dla-selected-document]) [data-dla-device-document="desktop"]`
+     * `data-blocks-engine-capture-selected-document` on <html> after capture, so
+     * `html:not([data-blocks-engine-capture-selected-document]) [data-blocks-engine-capture-device-document="desktop"]`
      * must stay a live attribute test. A marker frozen from the captured
      * root (which never had the attribute) would match on every device and
      * show the desktop document beside the selected one.
@@ -342,7 +346,7 @@ final class AuthorSelectorSemanticPreparer
      * declared document variant root, whose source attributes the output
      * keeps, so the authored selector still finds it. A compile with no
      * subject (a shared header compiled without the device roots) keeps it
-     * only for the document selector's own state: a negated `data-dla-*`
+     * only for the document selector's own state: a negated `data-blocks-engine-capture-*`
      * attribute on the root (`html` or `:root`), which a source script
      * writes. Any other negation keeps its existing projection.
      *
@@ -368,7 +372,7 @@ final class AuthorSelectorSemanticPreparer
                 if ( $this->sourceScriptsWriteAttribute($authorStyles, $projections, $name) ) {
                     $runtimeOwned = true;
                     $runtimeSelectedRoot = $runtimeSelectedRoot
-                        || ($isRoot && str_starts_with($name, 'data-dla-') && in_array($name, array_map('strtolower', $negated), true));
+                        || ($isRoot && str_starts_with($name, CaptureEvidence::ATTRIBUTE_PREFIX) && in_array($name, array_map('strtolower', $negated), true));
                 }
             }
         }
@@ -377,7 +381,7 @@ final class AuthorSelectorSemanticPreparer
         }
         $subjects = $this->matchingSourceElements($authorStyles, $selector, $parsed);
         foreach ( $subjects as $subject ) {
-            if ( ! $subject->hasAttribute('data-dla-document-scope') || ! SourceDom::isDocumentVariantRoot($subject) ) {
+            if ( ! $subject->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) || ! SourceDom::isDocumentVariantRoot($subject) ) {
                 return false;
             }
         }

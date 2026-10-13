@@ -44,6 +44,22 @@ try {
     assert.match(rejecting.failures.at(-1).error, new RegExp(reason));
   }
   assert.equal(rejecting.failures.length, 3);
+
+  // The served document is the one being measured, so it is resolved as an
+  // entrypoint: a page-local include limit never serves it unresolved, even
+  // when no other document in the root fails.
+  const isolated = await fs.mkdtemp(path.join(process.env.BLOCKS_ENGINE_ARTIFACT_ROOT ?? os.tmpdir(), 'source-root-includes-isolated-'));
+  await fs.mkdir(path.join(isolated, 'parts'));
+  await fs.writeFile(path.join(isolated, 'about.html'), '<body><!--#include virtual="/parts/absent.html" --></body>');
+  const isolatedServer = await serveSourceRoot(isolated);
+  try {
+    const response = await fetch(`${isolatedServer.origin}/about.html`);
+    assert.equal(response.status, 500, 'A non-index document with a missing include is not served unresolved.');
+    assert.match(isolatedServer.failures.at(-1).error, /html_include_missing_path/);
+  } finally {
+    await isolatedServer.close();
+    await fs.rm(isolated, { recursive: true, force: true });
+  }
   console.log('source-root-includes: resolved source document width 850 (raw 600); invalid include graphs reject');
 } finally {
   await browser.close();
