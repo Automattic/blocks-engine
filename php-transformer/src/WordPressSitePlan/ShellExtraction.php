@@ -1277,7 +1277,7 @@ final class ShellExtraction
         // A frame belongs to one captured device document. When the shells sit
         // in one of several device documents, the others are page content, not
         // chrome around it.
-        preg_match_all('/data-blocks-engine-capture-device-document(?:":"|=")([^"]+)"/', $opening . $closing, $documents);
+        preg_match_all('/' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . '(?:":"|=")([^"]+)"/', $opening . $closing, $documents);
         if (count(array_unique($documents[1])) > 1) return null;
         return array('opening' => $opening, 'closing' => $closing, 'content' => $content);
     }
