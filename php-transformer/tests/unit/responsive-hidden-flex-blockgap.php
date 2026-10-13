@@ -100,7 +100,7 @@ $html = '<style>' . $css . '</style>'
     . '<a href="#inicio" class="group flex flex-col leading-tight"><span>Brand</span></a>'
     . '<nav class="hidden items-center gap-8 md:flex"><a href="#a">Inicio</a><a href="#b">Sobre</a><a href="#c">Terapia</a></nav>'
     . '</div></header>'
-    . '<div class="dla-dialog"><nav class="flex flex-col gap-4"><a href="#a">Inicio</a><a href="#b">Sobre</a><a href="#c">Terapia</a></nav></div>';
+    . '<div class="data-blocks-engine-capture-dialog"><nav class="flex flex-col gap-4"><a href="#a">Inicio</a><a href="#b">Sobre</a><a href="#c">Terapia</a></nav></div>';
 
 $result = ( new HtmlTransformer() )->transform($html, array())->toArray();
 $navs = $findBlocks($result['blocks'] ?? array(), 'core/navigation');

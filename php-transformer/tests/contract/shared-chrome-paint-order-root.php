@@ -40,8 +40,8 @@ $compile = static function (string $header, bool $preceded) use ($background): a
     $document = static function (string $title) use ($header, $preceded, $background): string {
         $main = '<main><h1>' . $title . '</h1></main>';
         $before = $preceded ? $background : '';
-        return '<div class="data-liberation-desktop-document"><div class="frame">' . $before . $header . $main . '</div></div>'
-            . '<div class="data-liberation-mobile-document"><div class="frame">' . $before . str_replace('>Shop<', '>Shop now<', $header) . $main . '</div></div>';
+        return '<div class="data-blocks-engine-capture-desktop-document"><div class="frame">' . $before . $header . $main . '</div></div>'
+            . '<div class="data-blocks-engine-capture-mobile-document"><div class="frame">' . $before . str_replace('>Shop<', '>Shop now<', $header) . $main . '</div></div>';
     };
     $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
         'index.html' => $document('Home'),
@@ -80,8 +80,8 @@ $variant = static fn(string $class, string $id): string => '<!-- wp:group {"clas
     . '<!-- wp:custom/scroll-state {"tagName":"header","anchor":"' . $id . '"} --><header id="' . $id . '">'
     . '<!-- wp:group {"anchor":"bgLayers_' . $id . '"} --><div id="bgLayers_' . $id . '" class="wp-block-group"></div><!-- /wp:group -->'
     . '</header><!-- /wp:custom/scroll-state --></div>' . "\n" . '<!-- /wp:group -->';
-$roots = $method->invoke(null, $variant('data-liberation-desktop-document', 'SITE_HEADER') . "\n" . $variant('data-liberation-mobile-document', 'SITE_HEADER--dla-mobile'));
-$assert(array('SITE_HEADER', 'SITE_HEADER--dla-mobile') === $roots, '4a: each viewport partition contributes its own root anchor: ' . json_encode($roots));
+$roots = $method->invoke(null, $variant('data-blocks-engine-capture-desktop-document', 'SITE_HEADER') . "\n" . $variant('data-blocks-engine-capture-mobile-document', 'SITE_HEADER--data-blocks-engine-capture-mobile'));
+$assert(array('SITE_HEADER', 'SITE_HEADER--data-blocks-engine-capture-mobile') === $roots, '4a: each viewport partition contributes its own root anchor: ' . json_encode($roots));
 $plain = $method->invoke(null, '<!-- wp:group {"anchor":"site-top","tagName":"header"} --><header id="site-top" class="wp-block-group"><!-- wp:group {"anchor":"inner"} --><div id="inner" class="wp-block-group"></div><!-- /wp:group --></header><!-- /wp:group -->');
 $assert(array('site-top') === $plain, '4b: an unpartitioned part names its single root: ' . json_encode($plain));
 $wrapped = $method->invoke(null, '<!-- wp:group {"className":"shell"} --><div class="wp-block-group shell"><!-- wp:group {"anchor":"inner"} --><div id="inner" class="wp-block-group"></div><!-- /wp:group --></div><!-- /wp:group -->');

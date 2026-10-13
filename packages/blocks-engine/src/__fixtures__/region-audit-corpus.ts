@@ -4,16 +4,16 @@ import type {
   SourceLandmark,
 } from '../theme/index.js';
 
-export const DLA_REGION_AUDIT_COMMIT = '1e393c535850ee1a9482f83459f779d0e225b027';
-export const DLA_REGION_AUDIT_PATH = 'src/lib/replicate/region-audit.ts';
-export const DLA_REGION_CENSUS_PATH = 'src/lib/replicate/region-census.ts';
-export const DLA_SECTION_SELECTOR_PATH = 'src/lib/replicate/section-selector.ts';
-export const DLA_REGION_AUDIT_BLOB = '3e4bff0205056183fb3b09612df6caf5018a844f';
-export const DLA_REGION_CENSUS_BLOB = 'c447895fe50d42395ea4a4b8786467bef9eeabda';
-export const DLA_SECTION_SELECTOR_BLOB = 'a900bd3d4fe719af039faf9c586b17ae19403c38';
+export const REFERENCE_REGION_AUDIT_COMMIT = '1e393c535850ee1a9482f83459f779d0e225b027';
+export const REFERENCE_REGION_AUDIT_PATH = 'src/lib/replicate/region-audit.ts';
+export const REFERENCE_REGION_CENSUS_PATH = 'src/lib/replicate/region-census.ts';
+export const REFERENCE_SECTION_SELECTOR_PATH = 'src/lib/replicate/section-selector.ts';
+export const REFERENCE_REGION_AUDIT_BLOB = '3e4bff0205056183fb3b09612df6caf5018a844f';
+export const REFERENCE_REGION_CENSUS_BLOB = 'c447895fe50d42395ea4a4b8786467bef9eeabda';
+export const REFERENCE_SECTION_SELECTOR_BLOB = 'a900bd3d4fe719af039faf9c586b17ae19403c38';
 
 export const REGION_AUDIT_DERIVATION =
-  'DLA region-audit + region-census over source HTML and explicit placed-region corpus';
+  'reference region-audit + region-census over source HTML and explicit placed-region corpus';
 
 export interface RegionAuditCorpusCase {
   id: string;
@@ -141,16 +141,16 @@ export function runRegionAuditParity(impl: RegionAuditImpl): RegionAuditParityFi
     version: 1,
     derivation: REGION_AUDIT_DERIVATION,
     oracle: {
-      commit: DLA_REGION_AUDIT_COMMIT,
+      commit: REFERENCE_REGION_AUDIT_COMMIT,
       paths: {
-        regionAudit: DLA_REGION_AUDIT_PATH,
-        regionCensus: DLA_REGION_CENSUS_PATH,
-        sectionSelector: DLA_SECTION_SELECTOR_PATH,
+        regionAudit: REFERENCE_REGION_AUDIT_PATH,
+        regionCensus: REFERENCE_REGION_CENSUS_PATH,
+        sectionSelector: REFERENCE_SECTION_SELECTOR_PATH,
       },
       blobs: {
-        regionAudit: DLA_REGION_AUDIT_BLOB,
-        regionCensus: DLA_REGION_CENSUS_BLOB,
-        sectionSelector: DLA_SECTION_SELECTOR_BLOB,
+        regionAudit: REFERENCE_REGION_AUDIT_BLOB,
+        regionCensus: REFERENCE_REGION_CENSUS_BLOB,
+        sectionSelector: REFERENCE_SECTION_SELECTOR_BLOB,
       },
     },
     cases: regionAuditCases().map((testCase) => {

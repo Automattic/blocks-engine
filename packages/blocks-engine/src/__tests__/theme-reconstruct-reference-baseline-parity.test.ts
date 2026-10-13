@@ -6,7 +6,7 @@ import {
   reconstructBaselineCases,
   type FrozenConvertedSection,
   type FrozenReconstructCase,
-} from '../__fixtures__/page-reconstruct-dla-baseline.corpus.js';
+} from '../__fixtures__/page-reconstruct-reference-baseline.corpus.js';
 import { reconstructNativeAggregate } from '../theme/reconstruct.js';
 import type { SectionRenderOptions } from '../theme/native-reconstruct-types.js';
 
@@ -35,7 +35,7 @@ interface BaselineFile {
 }
 
 const GOLDEN_PATH = fileURLToPath(
-  new URL('../__fixtures__/page-reconstruct-dla-baseline.goldens.json', import.meta.url),
+  new URL('../__fixtures__/page-reconstruct-reference-baseline.goldens.json', import.meta.url),
 );
 
 function hydrateOptions(testCase: FrozenReconstructCase): SectionRenderOptions {
@@ -84,7 +84,7 @@ function runCorpus(): BaselineFile {
 
 function readGolden(): BaselineFile {
   if (!existsSync(GOLDEN_PATH)) {
-    throw new Error(`Missing DLA reconstruct baseline golden: ${GOLDEN_PATH}`);
+    throw new Error(`Missing reference reconstruct baseline golden: ${GOLDEN_PATH}`);
   }
   return JSON.parse(readFileSync(GOLDEN_PATH, 'utf8')) as BaselineFile;
 }
@@ -119,14 +119,14 @@ function collectDiffs(actual: BaselineFile, expected: BaselineFile): string[] {
   return diffs;
 }
 
-describe('theme reconstruct DLA-today baseline parity', () => {
-  it('matches the 35-case DLA baseline and is byte-stable across two runs', () => {
+describe('theme reconstruct reference baseline parity', () => {
+  it('matches the 35-case reference baseline and is byte-stable across two runs', () => {
     const first = runCorpus();
     const second = runCorpus();
     expect(collectDiffs(first, second)).toEqual([]);
 
     const diffs = collectDiffs(first, readGolden());
-    console.info(`Engine reconstruct DLA baseline parity: cases=${first.cases.length} diffs=${diffs.length}`);
+    console.info(`Engine reconstruct reference baseline parity: cases=${first.cases.length} diffs=${diffs.length}`);
     expect(diffs).toEqual([]);
   });
 });

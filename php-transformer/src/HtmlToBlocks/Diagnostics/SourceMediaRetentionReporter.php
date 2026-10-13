@@ -57,7 +57,7 @@ final class SourceMediaRetentionReporter
             $findings[] = ConversionFindingContract::withClassification(array(
                 'code'     => 'source_media_not_in_output',
                 'severity' => 'error',
-                'text'     => substr($address, 0, self::MAX_SNIPPET),
+                'text'     => mb_strcut($address, 0, self::MAX_SNIPPET, 'UTF-8'),
                 'summary'  => 'A source image is not addressed anywhere in the converted output.',
             ));
         }

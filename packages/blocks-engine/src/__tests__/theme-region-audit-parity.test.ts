@@ -1,4 +1,4 @@
-import expectedGoldens from '../__fixtures__/region-audit-dla-goldens.json' with { type: 'json' };
+import expectedGoldens from '../__fixtures__/region-audit-reference-goldens.json' with { type: 'json' };
 import {
   regionAuditCases,
   runRegionAuditParity,
@@ -26,7 +26,7 @@ function collectDiffs(actual: RegionAuditParityFile, expected: RegionAuditParity
   for (const actualCase of actual.cases) {
     const expectedCase = expectedById.get(actualCase.id);
     if (!expectedCase) {
-      diffs.push(`${actualCase.id}: missing from checked-in DLA goldens`);
+      diffs.push(`${actualCase.id}: missing from checked-in reference goldens`);
       continue;
     }
     if (stableJson(actualCase.input) !== stableJson(expectedCase.input)) {
@@ -53,8 +53,8 @@ function collectDiffs(actual: RegionAuditParityFile, expected: RegionAuditParity
   return diffs;
 }
 
-describe('region audit DLA parity', () => {
-  it('matches checked-in DLA region census and reconciliation goldens byte-for-byte', () => {
+describe('region audit reference parity', () => {
+  it('matches checked-in reference region census and reconciliation goldens byte-for-byte', () => {
     const first = runRegionAuditParity({
       extractSourceLandmarksFromHtml,
       selectorForHtmlRoot,

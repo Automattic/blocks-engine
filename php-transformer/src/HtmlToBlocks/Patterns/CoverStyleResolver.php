@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
 /**
@@ -42,7 +43,7 @@ final class CoverStyleResolver
             $name  = strtolower(trim((string) array_shift($parts)));
             $value = trim(implode(':', $parts));
             $value = trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value, 1));
-            if ( '' !== $name && '' !== $value ) {
+            if ( '' !== $name && '' !== $value && ! CssPropertyName::startsLikeNumber($name) ) {
                 if ( array_key_exists($name, $declarations) ) {
                     unset($declarations[ $name ]);
                 }

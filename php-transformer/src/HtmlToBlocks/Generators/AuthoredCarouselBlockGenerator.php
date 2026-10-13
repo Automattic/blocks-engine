@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -326,8 +327,8 @@ const syncSrcSwap = ( root, context ) => {
     const slides = slidesOf( root );
     const images = slides.map( ( slide ) => slide.querySelector( 'img' ) );
     if ( images.some( ( image ) => ! image ) ) return;
-    root.querySelectorAll( '[data-dla-gallery-slot]' ).forEach( ( slot ) => {
-        const offset = Number( slot.getAttribute( 'data-dla-gallery-slot' ) );
+    root.querySelectorAll( '[__GALLERY_SLOT__]' ).forEach( ( slot ) => {
+        const offset = Number( slot.getAttribute( '__GALLERY_SLOT__' ) );
         if ( ! Number.isInteger( offset ) ) return;
         const index = ( context.index + offset + images.length ) % images.length;
         slot.setAttribute( 'src', images[ index ].getAttribute( 'src' ) );
@@ -524,7 +525,7 @@ JS;
                 'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__', '__ROOT_GEOMETRY_PROPERTIES__', '__GEOMETRY_VALUE_PATTERN__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), json_encode(self::ROOT_GEOMETRY_PROPERTIES, JSON_THROW_ON_ERROR), json_encode(self::GEOMETRY_VALUE_PATTERN, JSON_THROW_ON_ERROR)), $editor),
                 'style.css' => $style,
             ),
-            'view_js' => $view,
+            'view_js' => str_replace('__GALLERY_SLOT__', CaptureEvidence::GALLERY_SLOT, $view),
             'script_dependencies' => array(
                 'index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element', 'wp-components'),
                 'view.js' => array('@wordpress/interactivity'),
@@ -731,11 +732,11 @@ JS;
         // Portable src-swap galleries expose a handful of live frame slots,
         // not one DOM node per slide. Their ordered sequence is the authored
         // slide collection; use the offset-zero image only as an image template.
-        if ($element->hasAttribute('data-dla-gallery-sequence')) {
-            $sequence = json_decode($element->getAttribute('data-dla-gallery-sequence'), true);
+        if ($element->hasAttribute(CaptureEvidence::GALLERY_SEQUENCE)) {
+            $sequence = json_decode($element->getAttribute(CaptureEvidence::GALLERY_SEQUENCE), true);
             $primary = null;
             foreach ($element->getElementsByTagName('img') as $slot) {
-                if ($slot instanceof DOMElement && '0' === trim($slot->getAttribute('data-dla-gallery-slot'))) {
+                if ($slot instanceof DOMElement && '0' === trim($slot->getAttribute(CaptureEvidence::GALLERY_SLOT))) {
                     $primary = $slot;
                     break;
                 }
@@ -750,7 +751,7 @@ JS;
                     $image->setAttribute('src', $url);
                     $image->removeAttribute('srcset');
                     $image->removeAttribute('id');
-                    $image->removeAttribute('data-dla-gallery-slot');
+                    $image->removeAttribute(CaptureEvidence::GALLERY_SLOT);
                     $slide = $convertImage($image);
                     if (null === $slide || 'core/image' !== ($slide['blockName'] ?? null)) return null;
                     $slides[] = $slide;
@@ -759,12 +760,12 @@ JS;
                 if (!$sourceClone instanceof DOMElement) return null;
                 foreach ($sourceClone->getElementsByTagName('button') as $control) {
                     if (!$control instanceof DOMElement) continue;
-                    $direction = trim($control->getAttribute('data-dla-gallery-direction'));
+                    $direction = trim($control->getAttribute(CaptureEvidence::GALLERY_DIRECTION));
                     if (!in_array($direction, array('-1', '1'), true)) continue;
                     $next = '1' === $direction;
                     $control->setAttribute('data-carousel-' . ($next ? 'next' : 'previous'), 'true');
                     $control->setAttribute('data-wp-on--click', $next ? 'actions.next' : 'actions.previous');
-                    $control->removeAttribute('data-dla-gallery-direction');
+                    $control->removeAttribute(CaptureEvidence::GALLERY_DIRECTION);
                 }
                 $sourceMarkup = '';
                 foreach ($sourceClone->childNodes as $child) $sourceMarkup .= $sourceClone->ownerDocument?->saveHTML($child) ?: '';
@@ -776,7 +777,7 @@ JS;
                     $name = strtolower($attribute->name);
                     if ('id' === $name || str_starts_with($name, 'data-') || str_starts_with($name, 'aria-')) $sourceIdentityAttributes[$name] = $attribute->value;
                 }
-                $sourceIdentityAttributes['data-dla-gallery-index'] = '0';
+                $sourceIdentityAttributes[CaptureEvidence::GALLERY_INDEX] = '0';
                 $registry->register(self::class, $this->definition($registry->namespace()));
                 $attributes = array(
                     'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
@@ -872,10 +873,10 @@ JS;
         }
 
         $slides = array();
-        $capturedGallery = $list->hasAttribute('data-dla-gallery-initial');
+        $capturedGallery = $list->hasAttribute(CaptureEvidence::GALLERY_INITIAL);
         if ($capturedGallery) foreach ($items as $item) {
             $item->removeAttribute('hidden');
-            $display = $item->getAttribute('data-dla-gallery-display');
+            $display = $item->getAttribute(CaptureEvidence::GALLERY_DISPLAY);
             if (preg_match('/^[a-z-]+$/D', $display)) {
                 $declarations = $styleResolver->cssDeclarations($item->getAttribute('style'));
                 $declarations['display'] = $display;
@@ -962,7 +963,7 @@ JS;
         }
         if ($capturedGallery) {
             $presentation = 'slideshow';
-            $initialSlide = min(count($items) - 1, max(0, (int) $list->getAttribute('data-dla-gallery-initial')));
+            $initialSlide = min(count($items) - 1, max(0, (int) $list->getAttribute(CaptureEvidence::GALLERY_INITIAL)));
         }
 
         $showDots = $paginationCount >= 2;
@@ -1040,7 +1041,7 @@ JS;
             $this->stageGeometryTargets($element, $geometryList)
         );
         $sourceScope = $styleResolver->sourceCustomPropertyScope($element, $presentationTargets, $items);
-        if ($list->hasAttribute('data-dla-dialog-trigger') && '' !== $list->getAttribute('id')) $sourceScope['attributes']['id'] = $list->getAttribute('id');
+        if ($list->hasAttribute(CaptureEvidence::DIALOG_TRIGGER) && '' !== $list->getAttribute('id')) $sourceScope['attributes']['id'] = $list->getAttribute('id');
         $controlContainer = $sourceControls['previous'] instanceof DOMElement && $sourceControls['next'] instanceof DOMElement
             ? $this->navigationControlContainer($sourceControls['previous'], $sourceControls['next'])
             : null;

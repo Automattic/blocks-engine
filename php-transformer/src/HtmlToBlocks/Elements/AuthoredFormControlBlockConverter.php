@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -165,14 +166,14 @@ final class AuthoredFormControlBlockConverter
     public function listbox(DOMElement $trigger, ?DOMElement $panel = null): ?array
     {
         if (!$panel instanceof DOMElement) {
-            $key = trim(SourceDom::attr($trigger, 'data-dla-listbox-trigger'));
+            $key = trim(SourceDom::attr($trigger, CaptureEvidence::LISTBOX_TRIGGER));
             $document = $trigger->ownerDocument;
             if ('' === $key || !$document instanceof \DOMDocument) {
                 return null;
             }
             foreach ($document->getElementsByTagName('*') as $candidate) {
                 if ($candidate instanceof DOMElement
-                    && $candidate->getAttribute('data-dla-listbox-panel') === $key
+                    && $candidate->getAttribute(CaptureEvidence::LISTBOX_PANEL) === $key
                     && 'listbox' === strtolower(trim($candidate->getAttribute('role')))) {
                     $panel = $candidate;
                     break;
@@ -432,7 +433,7 @@ final class AuthoredFormControlBlockConverter
         $attributes = array();
         foreach ( $input->attributes as $attribute ) {
             $name = strtolower($attribute->nodeName);
-            if ( 1 !== preg_match('/^data-(?!wp-)[a-z0-9_.:-]+$/', $name) || in_array($name, array(NativeControlState::ATTRIBUTE, 'data-blocks-engine-control-state'), true) ) {
+            if ( 1 !== preg_match('/^data-(?!wp-)[a-z0-9_.:-]+$/', $name) || in_array($name, array(CaptureEvidence::NATIVE_CONTROL_STATE, 'data-blocks-engine-control-state'), true) ) {
                 continue;
             }
             $attributes[$name] = $attribute->nodeValue ?? '';

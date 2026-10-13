@@ -9,8 +9,8 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
  * A link button inside a device document keeps the source look.
  *
  * Device captures ship each device's author CSS in a head <style> that a
- * script turns on (`media="not all"` plus `data-dla-source-media="all"`), and
- * every rule is scoped to `[data-dla-device-document="desktop"]`. The inline
+ * script turns on (`media="not all"` plus `data-blocks-engine-capture-source-media="all"`), and
+ * every rule is scoped to `[data-blocks-engine-capture-device-document="desktop"]`. The inline
  * anchor becomes a synthetic paragraph that holds the anchor itself.
  *
  * 1. The `a { text-decoration: none }` reset in that sheet still counts as
@@ -34,15 +34,15 @@ $css = 'a{cursor:pointer;text-decoration:none}'
     . '.box{position:relative;width:204px;height:40px}';
 $scoped = static fn (string $sheet): string => (string) preg_replace_callback(
     '/(^|})([^{}]+)\{/',
-    static fn (array $m): string => $m[1] . ':where([data-dla-device-document="desktop"]) ' . trim($m[2]) . '{',
+    static fn (array $m): string => $m[1] . ':where([data-blocks-engine-capture-device-document="desktop"]) ' . trim($m[2]) . '{',
     $sheet
 );
 $page = static fn (string $sheet): string => '<!doctype html><html lang="en"><head><title>Hero</title>'
-    . '<style data-dla-device-visibility="">[data-dla-device-document]{display:none!important}'
-    . 'html:not([data-dla-selected-document]) [data-dla-device-document="desktop"]{display:contents!important}</style>'
-    . '<style data-dla-device-style="desktop" data-dla-source-media="all" media="not all">' . $sheet . '</style>'
-    . '<script data-dla-device-selection="">document.documentElement.setAttribute("data-dla-selected-document","desktop");</script>'
-    . '</head><body><div class="data-liberation-desktop-document" data-dla-device-document="desktop" data-dla-document-scope="">'
+    . '<style data-blocks-engine-capture-device-visibility="">[data-blocks-engine-capture-device-document]{display:none!important}'
+    . 'html:not([data-blocks-engine-capture-selected-document]) [data-blocks-engine-capture-device-document="desktop"]{display:contents!important}</style>'
+    . '<style data-blocks-engine-capture-device-style="desktop" data-blocks-engine-capture-source-media="all" media="not all">' . $sheet . '</style>'
+    . '<script data-blocks-engine-capture-device-selection="">document.documentElement.setAttribute("data-blocks-engine-capture-selected-document","desktop");</script>'
+    . '</head><body><div class="data-blocks-engine-capture-desktop-document" data-blocks-engine-capture-device-document="desktop" data-blocks-engine-capture-document-scope="">'
     . '<section class="hero"><div class="box" aria-disabled="false"><a href="/account/" class="btn"><span>Sign In</span></a></div>'
     . '<div class="box" aria-disabled="false"><a href="/contact/" class="btn"><span>Contact Us</span></a></div></section>'
     . '</div></body></html>';

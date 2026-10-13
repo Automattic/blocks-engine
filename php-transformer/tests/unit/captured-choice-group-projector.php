@@ -17,7 +17,7 @@ $htmlFor = static function (int $selected): string {
     $buttons = '';
     for ($index = 0; $index < 3; ++$index) {
         $fill = $index <= $selected ? 'fill:gold' : 'fill:none';
-        $buttons .= '<button type="button" data-dla-choice-index="' . $index . '"><svg style="' . $fill . '"><path d="M1 1"></path></svg></button>';
+        $buttons .= '<button type="button" data-blocks-engine-capture-choice-index="' . $index . '"><svg style="' . $fill . '"><path d="M1 1"></path></svg></button>';
     }
     return '<div class="choices"><span>Choice controls</span>' . $buttons . '</div>';
 };
@@ -40,15 +40,15 @@ $source = '<html><body><main><form><label>Rating</label><div class="choices"><bu
 $states = array($state(0, $htmlFor(0)), $state(1, $htmlFor(1)), $state(2, $htmlFor(2)));
 $files = array(
     array('path' => 'website/index.html', 'content' => $source),
-    array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/feedback/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-    array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/feedback/', 'states' => $states))), JSON_UNESCAPED_SLASHES)),
+    array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/feedback/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
+    array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/feedback/', 'states' => $states))), JSON_UNESCAPED_SLASHES)),
 );
 $projected = (new CapturedChoiceGroupProjector())->project($files);
 $markup = (string) ($projected['files'][0]['content'] ?? '');
 $assert(1 === ($projected['projected_count'] ?? 0), 'complete choice transitions project one group');
 $assert(str_contains($markup, 'data-blocks-engine-choice-group="true"'), 'projected group carries the companion marker');
 $assert(str_contains($markup, 'data-blocks-engine-choice-config='), 'projected group carries bounded replay configuration');
-$assert(! str_contains($markup, 'data-dla-choice-index'), 'capture-only choice markers do not ship');
+$assert(! str_contains($markup, 'data-blocks-engine-capture-choice-index'), 'capture-only choice markers do not ship');
 $assert(str_contains($markup, 'fill:gold') && str_contains($markup, 'fill:none'), 'the initial transition preserves source visual state');
 
 $sourcePreserved = '<html><body><main><form><label>Rating</label><div class="choices"><button type="button">Saved source label</button><button type="button">Two</button><button type="button">Three</button></div></form></main></body></html>';
@@ -77,7 +77,7 @@ $contentChangingResult = (new CapturedChoiceGroupProjector())->project($contentC
 $assert(0 === ($contentChangingResult['projected_count'] ?? -1), 'content-changing transitions are not projected without editable state bindings');
 
 $incomplete = $files;
-$incomplete[2]['content'] = json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/feedback/', 'states' => array($states[0], $states[1])))), JSON_UNESCAPED_SLASHES);
+$incomplete[2]['content'] = json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/feedback/', 'states' => array($states[0], $states[1])))), JSON_UNESCAPED_SLASHES);
 $incompleteResult = (new CapturedChoiceGroupProjector())->project($incomplete);
 $assert(0 === ($incompleteResult['projected_count'] ?? -1), 'incomplete observed transitions are not replayed');
 $assert(str_contains(json_encode($incompleteResult['diagnostics'] ?? array()), 'captured_choice_group_incomplete'), 'incomplete transitions emit a bounded diagnostic');

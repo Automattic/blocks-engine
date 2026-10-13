@@ -11,7 +11,8 @@ final class SvgElementConverter implements ElementConverter
 {
     public function __construct(
         private readonly SvgElementContext $context,
-        private readonly SvgElementMaterializer $materializer
+        private readonly SvgElementMaterializer $materializer,
+        private readonly SvgTextRunLowering $textRun
     ) {
     }
 
@@ -40,6 +41,13 @@ final class SvgElementConverter implements ElementConverter
                     array(),
                     $element
                 ));
+            }
+        }
+
+        if ( ! $this->materializer->svgNeedsPhrasingHost($element) ) {
+            $textRun = $this->textRun->block($element);
+            if ( null !== $textRun ) {
+                return ConversionOutcome::handled($textRun);
             }
         }
 

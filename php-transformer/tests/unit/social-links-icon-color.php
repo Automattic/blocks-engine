@@ -63,7 +63,29 @@ $avifGlyphs = (new HtmlTransformer())->transform(
     '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><img src="' . $avif . '" width="8" height="8" alt=""></a></li>'
     . '<li><a href="https://www.instagram.com/example" aria-label="Instagram"><img src="' . $avif . '" width="8" height="8" alt=""></a></li></ul>'
 )->toArray();
-$assertColor($social($avifGlyphs), (string) ($avifGlyphs['serialized_blocks'] ?? ''), '#ffffff');
+$undecodable = static function (array $result): array {
+    return array_values(array_filter(
+        $result['diagnostics'] ?? array(),
+        static fn (mixed $diagnostic): bool => is_array($diagnostic) && 'glyph_color_undecodable' === ($diagnostic['code'] ?? null)
+    ));
+};
+$hostDecodesAvif = function_exists('imagetypes') && defined('IMG_AVIF') && 0 !== (imagetypes() & IMG_AVIF);
+if ( $hostDecodesAvif ) {
+    $assertColor($social($avifGlyphs), (string) ($avifGlyphs['serialized_blocks'] ?? ''), '#ffffff');
+    $assert(array() === $undecodable($avifGlyphs), 'a decodable AVIF glyph records no glyph_color_undecodable finding');
+} else {
+    $avifBlock = $social($avifGlyphs);
+    $avifFindings = $undecodable($avifGlyphs);
+    $assert('core/social-links' === ($avifBlock['blockName'] ?? ''), 'an undecodable AVIF icon cluster still lowers to core/social-links');
+    $assert(! isset($avifBlock['attrs']['iconColorValue']), 'an AVIF glyph the host GD cannot decode keeps the default icon color, got ' . json_encode($avifBlock['attrs'] ?? null));
+    $assert(1 === count($avifFindings), 'an undecodable AVIF glyph records one glyph_color_undecodable finding, got ' . json_encode($avifFindings));
+    $assert('warning' === ($avifFindings[0]['severity'] ?? null) && 'image/avif' === ($avifFindings[0]['mime_type'] ?? null), 'the glyph_color_undecodable finding is a warning naming image/avif, got ' . json_encode($avifFindings));
+}
+$assert(array() === $undecodable($glyphs), 'a decodable PNG glyph records no glyph_color_undecodable finding');
+$assert(array() === $undecodable((new HtmlTransformer())->transform(
+    '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" width="8" height="8" alt=""></a></li>'
+    . '<li><a href="https://www.instagram.com/example" aria-label="Instagram"><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" width="8" height="8" alt=""></a></li></ul>'
+)->toArray()), 'a decodable glyph that is not monochrome records no glyph_color_undecodable finding');
 
 $compiled = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'website/index.html',
