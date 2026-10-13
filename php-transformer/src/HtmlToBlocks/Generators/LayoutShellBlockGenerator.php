@@ -153,7 +153,7 @@ final class LayoutShellBlockGenerator
         ( wrappers || [] ).forEach( function( wrapper ) {
             var tagName = String( wrapper.tagName || 'div' ).toLowerCase();
             var attributes = wrapper.attributes || {};
-            if ( attributes[ 'data-dla-viewport-entrance' ] ) { reveal = true; }
+            if ( attributes[ 'data-blocks-engine-capture-viewport-entrance' ] ) { reveal = true; }
             if ( ! semantic && semanticTags[ tagName ] ) { semantic = semanticTags[ tagName ]; }
             if ( ! detail ) { detail = readableName( attributes.id ); }
             if ( ! detail ) {
