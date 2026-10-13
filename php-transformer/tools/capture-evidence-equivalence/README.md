@@ -53,6 +53,19 @@ replay by case:
   hashes and sizes derived from it change in `0a9c1bea`, `15082c2d`,
   `21e5cdbf`, `2915d21f`, `37284b0e`, `55b724ac`, `7a7af898`, `7c2d1217`,
   `927aa368`, `944dd63d`, `df9c24a8`, `e5ea5743`.
+- **Consumed inline custom properties.** A RichText carrier now checks which
+  of its source inline's custom properties author rules read. The emitted
+  blocks and stylesheets are unchanged; only the style-rule candidate cache
+  miss and peak-entry counters rise by one in `c7fff215` and `f025cf28`.
+- **Empty attribute-only containers.** An empty element kept only for a bare
+  `role`, `tabindex`, `aria-*` or `data-*` attribute is dropped, since a native
+  group cannot save those attributes. The corpus input carries no CSS for its
+  empty Wix background and header layers, so they no longer emit empty groups
+  and their wrappers re-nest in `90234027`.
+- **Plain tab triggers.** The selectable-set projector now marks plain-text
+  source trigger buttons with `data-blocks-engine-tab-trigger`, so their box
+  styling carries onto native tab buttons. The projected HTML gains the marker
+  and the tab-list carrier class hash changes in `173a88a2`, `56cfc02b`, `5ad295f6`, `5af9c0c1`, `6657cdac`, `6a79dc90`, `88ac82df`, `8a631c3c`, `8c22a321`, `983aa909`, `9885239b`, `ca0b670d`, `d28fa845`, `d76cc245`, `e970e58c`, `f159a7b6`.
 - **Declared block menu items stack in core flow** (#2726). A list
   navigation whose items all declare a block-level display, with no display
   on the nav or its list, records `"layout":{"type":"default"}`. That adds

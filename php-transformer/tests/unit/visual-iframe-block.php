@@ -101,4 +101,13 @@ $assert(array( 'ambiguous_iframe_destination', 'unsafe_iframe_destination', 'cre
 $assert(array() === array_values(array_filter($unsafe['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? null))), 'classified custom iframe surfaces do not use unsupported-element fallbacks');
 $assert(! str_contains((string) ($unsafe['serialized_blocks'] ?? ''), '<iframe') && ! str_contains((string) ($unsafe['serialized_blocks'] ?? ''), '<!-- wp:html') && ! str_contains((string) ($unsafe['serialized_blocks'] ?? ''), 'user:secret'), 'rejected custom iframe surfaces emit no raw HTML and no credentials');
 
+$fillStyle = '<style>.fill{width:100%;height:100%}.box{aspect-ratio:16/9;overflow:hidden}</style>';
+$fillFrame = static fn (string $class): string => '<iframe class="' . $class . '" src="https://www.youtube-nocookie.com/embed/aBcDeFgHiJk" title="Demo" width="290" height="163"></iframe>';
+$fill = (new HtmlTransformer())->transform($fillStyle . '<main><div class="box">' . $fillFrame('fill') . '</div></main>')->toArray();
+$fillMarkup = (string) ($fill['serialized_blocks'] ?? '');
+$assert(str_contains($fillMarkup, 'wp:embed') && str_contains($fillMarkup, 'wp-embed-aspect-16-9'), 'a frame that fills its box keeps its ratio as a core embed aspect class');
+$assert(! str_contains($fillMarkup, 'be-inline-geometry-'), 'a frame that fills its box does not freeze the capture-time pixel height');
+$fixedFrame = (new HtmlTransformer())->transform($fillStyle . '<main><div class="box">' . $fillFrame('') . '</div></main>')->toArray();
+$assert(str_contains((string) ($fixedFrame['serialized_blocks'] ?? ''), 'be-inline-geometry-'), 'a frame with its own authored pixel size still carries that height');
+
 echo "Visual iframe companion tests passed ({$assertions} assertions)\n";
