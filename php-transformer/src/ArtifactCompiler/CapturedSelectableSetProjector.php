@@ -287,6 +287,7 @@ final class CapturedSelectableSetProjector
                 $rowIdentity = $identity . '-' . ($scopeIndex + 1);
                 $triggerRow = $hideTabList ? null : $this->triggerRowForRegion($region, $members, $set['selector']);
                 $regionMembers = $this->withInitialMember($document, $region, $set, $members);
+                $this->removeEmptySourcePanels($region, $regionMembers['members']);
                 $this->fillRegion($document, $region, $regionMembers['members'], $rowIdentity, $hideTabList, $triggerRow, $regionMembers['active']);
                 $applied = true;
             }
@@ -296,6 +297,40 @@ final class CapturedSelectableSetProjector
         $output = $document->saveHTML();
         $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
+    }
+
+    /**
+     * Tab libraries render the inactive panels as empty, hidden siblings of the
+     * active panel (the captured region). Once every member has its own native
+     * panel those leftovers hold nothing and only add empty container blocks
+     * inside the tabs wrapper. Remove a sibling only when it is an empty
+     * tabpanel labelled by one of this set's own triggers.
+     *
+     * @param array<int, array<string, mixed>> $members
+     */
+    private function removeEmptySourcePanels(DOMElement $region, array $members): void
+    {
+        $triggerIds = array();
+        foreach ($members as $member) {
+            $element = $member['element'] ?? null;
+            if ($element instanceof DOMElement && '' !== $element->getAttribute('id')) {
+                $triggerIds[$element->getAttribute('id')] = true;
+            }
+        }
+        $parent = $region->parentNode;
+        if (array() === $triggerIds || ! $parent instanceof DOMElement) {
+            return;
+        }
+        foreach (iterator_to_array($parent->childNodes) as $sibling) {
+            if (! $sibling instanceof DOMElement || $sibling->isSameNode($region) || 'tabpanel' !== strtolower(trim($sibling->getAttribute('role')))) {
+                continue;
+            }
+            $labelledBy = trim($sibling->getAttribute('aria-labelledby'));
+            if (! isset($triggerIds[$labelledBy]) || '' !== trim($sibling->textContent ?? '') || $sibling->getElementsByTagName('img')->length > 0 || $sibling->getElementsByTagName('svg')->length > 0 || $sibling->getElementsByTagName('video')->length > 0 || $sibling->getElementsByTagName('iframe')->length > 0) {
+                continue;
+            }
+            $parent->removeChild($sibling);
+        }
     }
 
     /**
