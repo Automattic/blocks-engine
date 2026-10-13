@@ -12,7 +12,8 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     ++$failures;
     fwrite(STDERR, 'FAIL: ' . $message . ('' !== $detail ? ' - ' . $detail : '') . PHP_EOL);
 };
-$helper = 'document.querySelectorAll("[data-blocks-engine-capture-dialog-trigger]").forEach(function(node){var panel=document.getElementById(node.getAttribute("aria-controls"));if(panel)panel.hidden=false;});';
+// Only the published disclosure runtime is retired (CaptureEvidence::DISCLOSURE_RUNTIME_SHA256).
+$helper = trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-disclosure-runtime.js'));
 $item = static function (string $id, string $label, string $extra = ''): string {
     return '<li class="item"><a id="' . $id . '" href="/' . $id . '" aria-haspopup="menu" aria-controls="' . $id . '-panel" aria-expanded="false" data-blocks-engine-capture-dialog-trigger="' . $id . '-panel"' . $extra . '>' . $label . '</a>'
         . '<ul hidden id="' . $id . '-panel" data-blocks-engine-capture-dialog-panel="' . $id . '-panel" class="dropdown"><li><a href="/' . $id . '/a">Alpha</a></li><li><a href="/' . $id . '/b">Beta</a></li></ul></li>';
@@ -23,8 +24,8 @@ $nav = '<header><nav class="bar"><ul><li><a href="/">Home</a></li>'
 $scope = static function (string $name, string $extra = '') use ($nav): string {
     return '<div data-blocks-engine-capture-device-document="' . $name . '" data-blocks-engine-capture-document-scope="' . $name . '">' . $nav . $extra . '<main><h1>' . $name . '</h1><p>Neutral page copy.</p></main></div>';
 };
-$page = static function (string $body) use ($helper): string {
-    return '<!doctype html><html><head><script>window.captureMarker=true;</script><script data-blocks-engine-capture-disclosure-runtime="true">' . $helper . '</script></head><body>' . $body . '</body></html>';
+$page = static function (string $body, ?string $runtime = null) use ($helper): string {
+    return '<!doctype html><html><head><script>window.captureMarker=true;</script><script data-blocks-engine-capture-disclosure-runtime="true">' . ($runtime ?? $helper) . '</script></head><body>' . $body . '</body></html>';
 };
 $dialog = '<ul><li><a href="/shop/a">Alpha</a></li><li><a href="/shop/b">Beta</a></li></ul>';
 $state = static function (string $selector, string $label) use ($dialog): array {
@@ -78,6 +79,18 @@ foreach (array('no observed states', 'no interaction report') as $case) {
         $assert(!in_array($helper, $assetBodies, true), $case . ' still proves native ownership from the in-place controls');
         $assert(array() !== ($result['source_reports']['native_runtime_replacements'] ?? array()), $case . ' records retirement provenance');
         $assert(in_array('window.captureMarker=true;', $assetBodies, true), $case . ' retains the unrelated inline script');
+    }
+}
+// One changed byte makes the body unknown. Every navigation retirement path
+// (observed states, no observed states, no interaction report) keeps it.
+$altered = str_replace('function triggers(){', 'function triggers( ){', $helper);
+$assert($altered !== $helper, 'the altered body differs by one byte');
+foreach (array('observed states' => $ownedStates, 'no observed states' => array(), 'no interaction report' => null) as $case => $states) {
+    $input = $artifact($page($scope('desktop') . $scope('mobile'), $altered), $states ?? array());
+    if (null === $states) array_pop($input['files']);
+    foreach ($compileBoth($input) as $result) {
+        $assert(array() === ($result['source_reports']['native_runtime_replacements'] ?? array()), $case . ': an unrecognized disclosure body is not retired', json_encode($result['source_reports']['native_runtime_replacements'] ?? null));
+        $assert(in_array($altered, array_column($result['assets'] ?? array(), 'content'), true), $case . ': the unrecognized disclosure body ships with the page');
     }
 }
 $unresolved = '<section><div id="notes-toggle" class="menu-cue" role="button" tabindex="0" aria-label="Notes" aria-haspopup="dialog" aria-controls="notes-panel" data-blocks-engine-capture-dialog-trigger="notes-panel"><span></span><span></span><span></span></div><div hidden id="notes-panel" data-blocks-engine-capture-dialog-panel="notes-panel"><p>Unresolved notes.</p></div></section>';

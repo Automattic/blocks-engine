@@ -10,7 +10,8 @@ $state = array('kind' => 'gallery', 'status' => 'captured', 'gallery' => array('
 $items = static fn(string $directory): string => '<div><img src="/' . $directory . '/a.png" alt="A"></div><div><img src="/' . $directory . '/b.png" alt="B"></div>';
 $helper = 'document.querySelector("meta[data-mode]").setAttribute("content","ready");';
 $head = '<meta data-mode content="waiting"><script type="application/json" id="route-data">{"mode":"gallery"}</script><script id="empty"> </script>'
-    . '<script data-blocks-engine-capture-gallery-runtime>window.captureGallery=true;</script>'
+    // Only the published gallery runtime is retired with its native replacement.
+    . '<script data-blocks-engine-capture-gallery-runtime>' . trim((string) file_get_contents(__DIR__ . '/capture-gallery-runtime.js')) . '</script>'
     . '<script id="retained-first">' . $helper . '</script><script src="/script.js"></script><script id="retained-second">' . $helper . '</script>';
 $body = '<section id="pictures" data-blocks-engine-capture-gallery data-blocks-engine-capture-gallery-source="#pictures" data-blocks-engine-capture-gallery-capture-width="1440"><h2>Pictures</h2><div class="gallery carousel"><div id="stage" data-blocks-engine-capture-gallery-stage data-blocks-engine-capture-gallery-initial="0" data-blocks-engine-capture-dialog-trigger="panel" aria-controls="panel">' . $items('inline') . '</div><button aria-label="Previous image">Previous</button><button aria-label="Next image">Next</button></div><div id="panel" data-blocks-engine-capture-dialog-panel="panel" hidden><div data-blocks-engine-capture-gallery-stage>' . $items('full') . '</div></div></section>';
 $files = array(

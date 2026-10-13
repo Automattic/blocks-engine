@@ -177,6 +177,13 @@ final class DetailsPattern implements PatternRecognizerInterface
         if ( ! $panel instanceof DOMElement || $this->isNavigationLandmark($panel) ) {
             return null;
         }
+        // A projected captured dialog replaces the capture's disclosure
+        // runtime, which also closes on Escape, keeps aria-expanded and
+        // replays ancestor bindings. core/details expresses none of that, so
+        // the native dialog block keeps the panel.
+        if ( 'true' === $panel->getAttribute('data-blocks-engine-captured-dialog') ) {
+            return null;
+        }
         // A modal has a distinct focus/close contract. Native details cannot
         // replace that behavior or consume the source's runtime binding.
         if ('dialog' === strtolower($this->trimmedAttribute($toggle, 'aria-haspopup'))
