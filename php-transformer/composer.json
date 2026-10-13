@@ -564,7 +564,8 @@
       "php tests/unit/navigation-collapsed-cascade.php",
       "php tests/unit/columns-sidebar-partner-desktop-layout.php",
       "php tests/unit/columns-row-stacking-from-source.php",
-      "php tests/unit/consumed-inline-custom-properties.php"
+      "php tests/unit/consumed-inline-custom-properties.php",
+      "php tests/unit/button-block-level-grid-item-fill.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
