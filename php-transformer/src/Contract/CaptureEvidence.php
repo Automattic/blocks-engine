@@ -160,6 +160,8 @@ final class CaptureEvidence
     public const GLYPH_COLOR = 'data-blocks-engine-capture-glyph-color';
     /** Diagnostic recording an anchor the capture could not resolve; not render-significant. */
     public const ANCHOR_UNRESOLVED = 'data-blocks-engine-capture-anchor-unresolved';
+    /** Recorded scroll-entrance states of an element the source reveals on viewport entry. */
+    public const VIEWPORT_ENTRANCE = 'data-blocks-engine-capture-viewport-entrance';
 
     // Sidecar schemas.
 

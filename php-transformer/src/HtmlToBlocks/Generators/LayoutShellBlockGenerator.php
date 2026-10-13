@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+
 /** Builds a bounded List View carrier for exact source wrapper chains. */
 final class LayoutShellBlockGenerator
 {
@@ -153,7 +155,7 @@ final class LayoutShellBlockGenerator
         ( wrappers || [] ).forEach( function( wrapper ) {
             var tagName = String( wrapper.tagName || 'div' ).toLowerCase();
             var attributes = wrapper.attributes || {};
-            if ( attributes[ 'data-blocks-engine-capture-viewport-entrance' ] ) { reveal = true; }
+            if ( attributes[ __VIEWPORT_ENTRANCE__ ] ) { reveal = true; }
             if ( ! semantic && semanticTags[ tagName ] ) { semantic = semanticTags[ tagName ]; }
             if ( ! detail ) { detail = readableName( attributes.id ); }
             if ( ! detail ) {
@@ -208,7 +210,7 @@ JS;
                 'attributes' => array('wrappers' => array('type' => 'array', 'default' => array())),
                 'supports' => array('html' => false, 'reusable' => false, 'renaming' => false),
             ),
-            'assets' => array('index.js' => str_replace(array('__BLOCK_NAME__', '__BOOLEAN_ATTRIBUTES__'), array($blockName, json_encode(array_fill_keys(self::BOOLEAN_ATTRIBUTES, true), JSON_THROW_ON_ERROR)), $script)),
+            'assets' => array('index.js' => str_replace(array('__BLOCK_NAME__', '__BOOLEAN_ATTRIBUTES__', '__VIEWPORT_ENTRANCE__'), array($blockName, json_encode(array_fill_keys(self::BOOLEAN_ATTRIBUTES, true), JSON_THROW_ON_ERROR), json_encode(CaptureEvidence::VIEWPORT_ENTRANCE, JSON_THROW_ON_ERROR)), $script)),
             'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element')),
         );
     }
