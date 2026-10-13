@@ -66,6 +66,17 @@ replay by case:
   source trigger buttons with `data-blocks-engine-tab-trigger`, so their box
   styling carries onto native tab buttons. The projected HTML gains the marker
   and the tab-list carrier class hash changes in `173a88a2`, `56cfc02b`, `5ad295f6`, `5af9c0c1`, `6657cdac`, `6a79dc90`, `88ac82df`, `8a631c3c`, `8c22a321`, `983aa909`, `9885239b`, `ca0b670d`, `d28fa845`, `d76cc245`, `e970e58c`, `f159a7b6`.
+- **Declared block menu items stack in core flow** (#2726). A list
+  navigation whose items all declare a block-level display, with no display
+  on the nav or its list, records `"layout":{"type":"default"}`. That adds
+  the attribute in `46f79246` and `e2e35d0c`. The extra display lookups only
+  move the style-rule candidate cache counters in `2448c3c2`, `2890e8f1`,
+  `448ead36`, `a5a08a86`, `b550beb0`, `c7fff215` and `f025cf28`.
+- **Self-placed modal box reset** (#2726). The captured-dialog block
+  stylesheet gains the zero-specificity reset for a modal whose source panel
+  positions itself. Only the emitted `style.css` text and the hashes derived
+  from it change again in the twelve native dialog cases above (`7a7af898`
+  also gains one style-rule candidate cache hit from the position lookup).
 - **Shell frame in the template.** A page whose shared header and footer sit
   inside a layout frame keeps only the blocks between them; the frame and the
   template-part references move to its route template around post-content.
