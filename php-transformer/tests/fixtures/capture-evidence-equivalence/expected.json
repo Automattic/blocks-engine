@@ -35,7 +35,7 @@
         {
             "id": "06596271895ea1dd30fc3c9cc208b958f07a44ad",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "cdc0f916248023804de1e06ff4f22f18c7fc04ea3947db9db43acf0d5582eaf5",
+            "expected_sha256": "077dbb5564bbd77b80540d2c4ab1a6653f83488361209fded336ca9e8d152a23",
             "outcome": "output"
         },
         {
@@ -95,13 +95,13 @@
         {
             "id": "0b294e2c7717464c3fe1233ef35f06986124c78d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "8c03165cac82c68ece9e53d000a6d4d587a9e6719bc82ee0d09d10b905f7d874",
+            "expected_sha256": "8cbcd7f8229277eb7294d9df9e77dc8d216e592ce755e0a95e67f60e97a114ed",
             "outcome": "output"
         },
         {
             "id": "0bf7a2ea6d25e14b83b035068d817a3c2822ba4b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "ce1a274f1f23cdf1a92f21cef22f9ded8e411acd999cb3069132d4311e1ec267",
+            "expected_sha256": "677ed824c71075992a5b6a271f295b3baf0a96de02515b34819cdc2e45a5d660",
             "outcome": "output"
         },
         {
@@ -167,7 +167,7 @@
         {
             "id": "17d97f2cc668f1c6ffda89bf7497cc9b27cad37e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "48029ebca74af7274f202c6997e31244248bf7ec00c7dacf7a5692172f977147",
+            "expected_sha256": "6803ccade9b58578070c5291d2ceb5143e5d39c2ddfb008a0a8ec3b36a3b69cc",
             "outcome": "output"
         },
         {
@@ -185,7 +185,7 @@
         {
             "id": "1cfefbc9c4826f74e82159aa064fb495c905dae9",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "0f3d54f1ba7a05b1b508b0946af675493f9f79058acecf7775d2f237737cce87",
+            "expected_sha256": "2926266fb8f624c4792568f32ccba74ce20a5cf96569dd97d11df987ac2e0ac0",
             "outcome": "output"
         },
         {
@@ -251,7 +251,7 @@
         {
             "id": "2322e02155a0da77d1bfbb1de742c7a858aba0e6",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "2549d94ae577b276865ef56fc5657c93d30d2dcfa73844dcfe7d60d155476e49",
+            "expected_sha256": "1260b2d1f689f3e3844ac4dcc6698810ab68ac5476a948237b91e23f9e6ad976",
             "outcome": "output"
         },
         {
@@ -263,7 +263,7 @@
         {
             "id": "23fdbeb0fd920e2d4c011890e4b9853603060658",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "c3ae1d2032983dc66aa8e9549d5e55db7f69de5719beed98940be9a02618ec1c",
+            "expected_sha256": "a024892f32721fdeb8a43db7e6209040fdd543163a8c666978e4981158194108",
             "outcome": "output"
         },
         {
@@ -299,7 +299,7 @@
         {
             "id": "26110ab3df1bcffcc9a1ce8e351a781950cc1bad",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "a7d61f1471538b9894df10ea5addd69dc71bd83e8686e0f578699ace62046d8e",
+            "expected_sha256": "619404904b487c5ff3314c7f663d5e4aa891f1b9923a3e82421bc16f1bb58887",
             "outcome": "output"
         },
         {
@@ -311,19 +311,19 @@
         {
             "id": "26f0879275d871f4ec68db391742844a74441150",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "0a2b697bd6c949709eb5712ea08d041c32e5186ec92181d20327d969fd0819ec",
+            "expected_sha256": "63ce2788e88a05049cb0bffd0c061adba37acce9c4db99298a34679ee0e68bbf",
             "outcome": "output"
         },
         {
             "id": "28699fde8cc7b55e46dceff5674ab9379ed8a6f8",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "7c484d55e201bd4cb6d732ac216db578214b309f9c6b8963410efd87a979a534",
+            "expected_sha256": "2ec9f9858441f37697f0d1418bd93b9abf56d571cfa8f2d2de8ea4603206cda1",
             "outcome": "output"
         },
         {
             "id": "2890e8f1ed5ae188e261c80d3c9a1ad1e1928cd2",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "eb37f1652823bd47a70755937fe0632ca5d1464660cad51b999e4dabc1419163",
+            "expected_sha256": "850b5c9a9d6c41768121b393a1fc9767248c3e6ca1af56a773c071e584c86e81",
             "outcome": "output"
         },
         {
@@ -365,7 +365,7 @@
         {
             "id": "2df01069239489730e5eb069ba3ba39c848e7a1e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "0a01373110a2f4b5f6290f4a49c6a20544cda94520dca83ab69b043a5ef5bba9",
+            "expected_sha256": "ab6352636fa8be8c56b145869aa9fc0fceb4f4bb2eb027473faa8548b59a0577",
             "outcome": "output"
         },
         {
@@ -383,7 +383,7 @@
         {
             "id": "2f545afa2f6cffe9b9b8fa287e1bac1c40271b17",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "68f25bc4c6fbf010ab9a4b0670e0f4cbc669298870b804a94fe0b94db1b851e1",
+            "expected_sha256": "b4e28feac2ab33d7d30afc50c6695fed7ed6be7e6c974ef1b16c2d9e7a9eaef6",
             "outcome": "output"
         },
         {
@@ -431,7 +431,7 @@
         {
             "id": "366a6664923b3a4c3dff386af7f1da8864806998",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "4275205497d7dd45cd747aadea59d015996d81cc58e2984d05785151e225f6cd",
+            "expected_sha256": "97c5926fc7386b249bc0ef311dfebcbb9a414c947d0e113459426234ba4abe83",
             "outcome": "output"
         },
         {
@@ -467,13 +467,13 @@
         {
             "id": "3ac0d0bbe76c13b33e1af1dddcfb90b450411f6d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "d2fb4bf65c23a0fcd22a23b52a1ea800a2fc8ba87494b821e4c4f979420f8478",
+            "expected_sha256": "c5597d3218ebe158a242d6fe7948409dffa75c03f4fb39303a61b7fa1f2e933c",
             "outcome": "output"
         },
         {
             "id": "3b0aed43853d869d1ae9c0a6eb7f65fb8d41333c",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "1f73eb98e675cff9447fa2e6ef7842c0bcbcccba5e12cead69747b26a6cc6db7",
+            "expected_sha256": "4b3a56aee901f2bc4bea3b5202d218a4fa9a6ba4d3bfa24a424ddc3cb0039730",
             "outcome": "output"
         },
         {
@@ -485,7 +485,7 @@
         {
             "id": "3e2836686c56a0d68490a0e9ee8c602eda3897fa",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "2dc61a80cb2571b67fd8db160e03ba9a407081a4378ac597ebfa643cb11074d7",
+            "expected_sha256": "f0f2712ea771605babc757e41e2eed257d108641fcd3ff992360281708ac1585",
             "outcome": "output"
         },
         {
@@ -539,7 +539,7 @@
         {
             "id": "448ead36f649a72e98e642cebc29f9f71af779f5",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "631b17e61a09b144cf92acf35c1388d3cbf1542fc15e5aeb858a0dfacac142b7",
+            "expected_sha256": "6d0755d67e30a2925f4f2bae49dd5ff25a345cfa9e738c602eb0470c4d7418f8",
             "outcome": "output"
         },
         {
@@ -569,13 +569,13 @@
         {
             "id": "46f79246a3c128cd0672e296d1164e4d6882750a",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "7bd66a28531c17d5e2b7c45a491a8ab8c1acaa98f59adc4b748fbfe65afcf2b4",
+            "expected_sha256": "7bea6902edbd6f4f9952134492fe8ad6f972a49c610aadabfc3fb50e204243c3",
             "outcome": "output"
         },
         {
             "id": "477397df6188e562a6335c6530af97f177e74a8a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "50c2fbee24502a5242d9988af4ec76ff847575c70fc07e93e497731d1dcaffb1",
+            "expected_sha256": "8d6b7f488de4418ae42bdaafffbb815baf1bb112c5cda0e5e6b0be79f65810d2",
             "outcome": "output"
         },
         {
@@ -593,7 +593,7 @@
         {
             "id": "493ddae72217e5c7617b57d43b4bcb17772f1aa6",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "f6ca622d8d8b9f3b46c0a721abd9b05127b0654a6ea8b797c045b2a40a065142",
+            "expected_sha256": "635170ff6caa64fa3faf2b4b026d515970aff08f25e4afb8befb931a3a25354b",
             "outcome": "output"
         },
         {
@@ -611,7 +611,7 @@
         {
             "id": "4cdf968e0f8b7419bacac291119f034fb59e18fb",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "d4e7751810fc81a2c095df26267bd67dc23549f9cb6131e503fc028367dfd41f",
+            "expected_sha256": "4f896d716e92bc9a116ca7e79e495fc32381b9db3efaf0d96dcb94c14224d67f",
             "outcome": "output"
         },
         {
@@ -629,7 +629,7 @@
         {
             "id": "52210e3ab333cc684b93444bf01ed39943a03c0b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "4078393ecda44ec5c61d6d20ee1a185d259f2c3ce6468c22d0ce781bf26df5ac",
+            "expected_sha256": "01d2b059a871bc3e307f1418ec58eef2c51640dc4bd51a4f720a3e8a37059726",
             "outcome": "output"
         },
         {
@@ -665,7 +665,7 @@
         {
             "id": "587e3a2de7a175872e04413e17703cd15d55e31e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "5c7b942f113048815a504721780a9e53b6581dcca544fbf469e18304fe941504",
+            "expected_sha256": "0b714f97b9827a397ad44882933dfe10bb5100aa626f83f4f4b3f6f6deeacd96",
             "outcome": "output"
         },
         {
@@ -725,7 +725,7 @@
         {
             "id": "5d5803dd6555e66ba80e5c7d9327e211885f5a10",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "9c3fe99375c867c779bd9a3d0124935746c866e6aa46a9d844418037d170bb70",
+            "expected_sha256": "d8f4cbcf48500a9577f933cffde816946345bad968f56529a7f5f0467a893097",
             "outcome": "output"
         },
         {
@@ -773,7 +773,7 @@
         {
             "id": "6220283ca7e079f9b3abcecd4b647a4fd2dcfc28",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "7b8306e5967342ad7e12e0e7bd69e475d6250b0bccaa962ff63bb922e8b613b6",
+            "expected_sha256": "d1abecc1722f3f95043ca907f7c80bb41edb38ba3de74aa5751a63010d153fe9",
             "outcome": "output"
         },
         {
@@ -845,7 +845,7 @@
         {
             "id": "6982a81d4f33075cb7aafea143e729fb62128c06",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "ed82d9fecdd28f2a5782f7ec4096153054d6fb6369ea2ca37c012c5cdad2fa52",
+            "expected_sha256": "7d90ed6b71e351bd2f6aaf2a826c4a0664ecd1c72c5722fb78413e203e34e87e",
             "outcome": "output"
         },
         {
@@ -869,7 +869,7 @@
         {
             "id": "6b0e8e51e2be5ad86fd70a90adbf20e26169ab8a",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "78fe527be8df42f17bee663b2b92e0839a17cbe6d2dd3ed5a090a3098006538c",
+            "expected_sha256": "7e473d923625944e2f00966c75cc5c86e3cbb7c39ddf3b877ef2e58edb6bb561",
             "outcome": "output"
         },
         {
@@ -893,7 +893,7 @@
         {
             "id": "6ed86c41afcf40c191e8f8c33d9ab000c8b72e3f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "335be6e123fdf15d9a152a1cec10180854414fe1dd36d85a5f5dfb1132753e8a",
+            "expected_sha256": "4883967c7ca09e5573779e8cf686dcf998bafd4d6180c286d8e179c48c76a4bc",
             "outcome": "output"
         },
         {
@@ -953,7 +953,7 @@
         {
             "id": "771a8a460e63141f8b0101e7109dc8867df7272d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "10052b4e8dfc7f294bdc42ded7b2aa40e2c54c1953b62c1343cd22fdb9223839",
+            "expected_sha256": "3924dd7befd6ff4d32815465551f2b12fe2655603b9957fc0c4a2d8e6cb49136",
             "outcome": "output"
         },
         {
@@ -965,7 +965,7 @@
         {
             "id": "77f446a6276117581f8d93b311bea4f9e0ad4a8f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "e894884d152b8854734d4363b13dc62c6ce4765531249c5e69ea5a2bfbbdb9e5",
+            "expected_sha256": "77bc618603502ee8c07e445eab87bcc95b91d2f3354a32de0506fca71a137756",
             "outcome": "output"
         },
         {
@@ -995,7 +995,7 @@
         {
             "id": "796065fdb0fc80934a5e6e74a1a4ed2b6c065ec1",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "34a5c12e98fb308d57e553693dc65c473879fd7241701269fcc72affc0b03aad",
+            "expected_sha256": "f8dc0fb4666fa5c687414554e17a34f90f942eecd6b00825232e055c8eda86d6",
             "outcome": "output"
         },
         {
@@ -1037,7 +1037,7 @@
         {
             "id": "7b5ed425a9a715004e1b133013371ad52b65b387",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "cde2455f05ca68553fc0e1884b1ee83dde9a1b39bd9c24a47e26b97c5247b893",
+            "expected_sha256": "6f33083431947e747bab5f8ecb3c1decbf51be84a4a898ac7422187860835945",
             "outcome": "output"
         },
         {
@@ -1079,7 +1079,7 @@
         {
             "id": "81a94623de887f97af99ca9fe18508f00f79b3be",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "e61f27d0b4a62c987bcb73cff7b3a59a5f208769f5bf111d7e70dee1c0cc1855",
+            "expected_sha256": "cd41d0159faf399fbe2cabd55f78a168e08bc1c49ffbc84a224ae8a5191e7dca",
             "outcome": "output"
         },
         {
@@ -1115,7 +1115,7 @@
         {
             "id": "867fe3db1fbc65a2c58a1cb3d48075f8ba0601c7",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "07255c90ab1818365e5f3cff0f4a10064837e45a8a4c3b91ee9f2ae2957f2282",
+            "expected_sha256": "c12db5e3e1388eec8e0e472470f8614ca72b1fe14fc7b32b60cf753f7f29e64b",
             "outcome": "output"
         },
         {
@@ -1175,7 +1175,7 @@
         {
             "id": "8d155e3be64f60344947488082b39546db16069e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "0d20efea518e57d70ff128811c5f64dae3af4ef81b97b2a43d5f7c3e0dd0ad69",
+            "expected_sha256": "dd2c012c867dce02280fbe9d3261edc3337e0ea2cba42ed1a112e686d976d47c",
             "outcome": "output"
         },
         {
@@ -1193,7 +1193,7 @@
         {
             "id": "8ea9b354cdff96c5c44b732ddedc532c2795d419",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "3719e9001e201733d30fb28457bbe1bdf67ea0ba3f876a5ea7811da50ebe83d0",
+            "expected_sha256": "6ff5429e4518a7d2bffe328e0b7b9879fd7361ad99e43b277b9d85fcec3ca5a5",
             "outcome": "output"
         },
         {
@@ -1217,7 +1217,7 @@
         {
             "id": "90234027dbc4e72421081dd41f5331c2fe37e456",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "5a4bfb52a0ee00086cf3044ee1bd17d6aa5b75f21b372d1c3194f8bf5b915b7d",
+            "expected_sha256": "735b9c19da8180b94458585211f94c44f018e27f890f0a85f1cfe526574b79c2",
             "outcome": "output"
         },
         {
@@ -1229,13 +1229,13 @@
         {
             "id": "90e29340efa7bfc78f594cdb39ff3398fd946da7",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "b84bb3cda2cd3e3cfee440049025d5c62efcbf2a187e8fc8bf29a95b65c7c3ca",
+            "expected_sha256": "9bd016a775f6ce6b2f1a13ab59660d63ab13a196da2be0299781d2196c537675",
             "outcome": "output"
         },
         {
             "id": "90f2a32f33f1d649074b3c2b77964288e92b0a66",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "405b3e85e19b302c3df89ce55bf36016d7ce8da23616230d7420014f735b3061",
+            "expected_sha256": "f57141c8d13b43cf2e4dbacf758ff50ee7ae3d832834445db15812f0f372ef9b",
             "outcome": "output"
         },
         {
@@ -1253,7 +1253,7 @@
         {
             "id": "9389ce06adc9858ecf2a1cef4a47a19b2c2e2d96",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "221415e4293d99f99cdc4b728890cecd78255f1e32d7b51af8ae3c19cee48ade",
+            "expected_sha256": "fe861d5ea3863da646c5dd4f40a973731d1469665ee9ec6e42ac6ed2b1171b80",
             "outcome": "output"
         },
         {
@@ -1265,7 +1265,7 @@
         {
             "id": "94fdfe3fa1d758ad3d84fcd4a76c65130f447b34",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "b8048ca6f259b8a9f9312e6f92e801f95b94af6d44cf57829d6ff32c8edc3377",
+            "expected_sha256": "a7c30df40b8302d55b5b2a73df2505afdfefaaef589cf17ecb2e182e8992ef4c",
             "outcome": "output"
         },
         {
@@ -1277,7 +1277,7 @@
         {
             "id": "95c8417b7eb39c48231f5fd243dbb3e22b9ee7de",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "6d4a1ff826aeb56a1d884af081075b5c02465195390c6d548b6977a0bfac521d",
+            "expected_sha256": "79fdb4ee1da6e0b60c650aa3b3191d94d78c6cf2ff16928333111785315cde58",
             "outcome": "output"
         },
         {
@@ -1331,7 +1331,7 @@
         {
             "id": "9e7bce7678d5213aeb922320aefd56037c02c58e",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "c672071d4f2914cfa53f4a683b08212a6f46ea76c938390c943c4f4ae6c06855",
+            "expected_sha256": "d79c17e70658978604d66eb03b9021ee8990117391a1e312dfff7ab72f304d68",
             "outcome": "output"
         },
         {
@@ -1349,7 +1349,7 @@
         {
             "id": "a5a08a8615d2682ce0d38a5053bcec23199be36f",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "7fb14b9b715633998d19b1f060d54e71396285c5e63c30103dfe33760db2c034",
+            "expected_sha256": "3c70934df690abc04c889b4bb948dc9ee0af6b3f088cb9405d5e7be9c83671b0",
             "outcome": "output"
         },
         {
@@ -1379,7 +1379,7 @@
         {
             "id": "a98742a01f9e63be4e5d0e116aaea459f221161d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "3dbd3c21769cf9258a45ca40ee745dc2d20c8f011aa4f685d6d73f10dc4bddc8",
+            "expected_sha256": "df218913b05978431cd1f5052efc14afb37ca7aaf225ed5b17dd8ec4678fc733",
             "outcome": "output"
         },
         {
@@ -1409,7 +1409,7 @@
         {
             "id": "ae8197159e63beecd5a94ff303cd1934f9c6eb36",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "8cc7d5ba3a28315b5523b5ea6e06f7b957cb2ccccd4a171e449b1a2e558376d4",
+            "expected_sha256": "0391faf71157c1ba2ba1d043506516a676261383070734496029491fe7f53c1f",
             "outcome": "output"
         },
         {
@@ -1427,7 +1427,7 @@
         {
             "id": "b0e045a784bd2fa915641303d79bbb3d5a5310ab",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "e66109d6e7470fef1ef0b1fb7a9872833f827d9bd324f932a4192d2f2e49afec",
+            "expected_sha256": "e88f3bc0c7ab5d0831ed511d66b930916438a49476b7c38a1b43213d874b01e4",
             "outcome": "output"
         },
         {
@@ -1439,7 +1439,7 @@
         {
             "id": "b550beb0271acdd852382b101d2fc6653b1cb107",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "03c14aaf5f28dc4d2bc8846e033f7b7a8d4e3e4e92b081af72582825de6f956c",
+            "expected_sha256": "d63b4db8dacea0cf5e9c1ea8cad0d271f7cbb5fe1da33c3f80858f031524d4df",
             "outcome": "output"
         },
         {
@@ -1463,7 +1463,7 @@
         {
             "id": "b79533155fdf23c409b907a7d7cf1388d381d7d9",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "11b26d61f4b1be6fd8ba1463ca4d0e4dffc06b9c3f78ad0449b465bfc86eb612",
+            "expected_sha256": "4d9ef4edc39189c02aff6b9f63c306132e2b81a420be416d903c5a2b4efd8f41",
             "outcome": "output"
         },
         {
@@ -1475,13 +1475,13 @@
         {
             "id": "b913b3b49e19c7dd90ced1e39951b0cd843dbb42",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "519ccaa755d56782ab0bc3d2dbf4acec7aef442056605c6afeb279872adfb976",
+            "expected_sha256": "ecc3ef0adc7d2d46d59aad557f1e85eacc2cc49c1685c9dfb02cbd5d91402f5f",
             "outcome": "output"
         },
         {
             "id": "bab702ca37fa3cfa6c3222704fcd92dd6482ce75",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "89e31f0b670ed965b5f276e61712fd5c74a13bf72cc48aa5e9443bbcfa189cef",
+            "expected_sha256": "1251758a9067379d72a42674e810f0bf10db705b30827ec4383de41dcbfb5b63",
             "outcome": "output"
         },
         {
@@ -1499,7 +1499,7 @@
         {
             "id": "bcd4e29be7c894ed7848a5937bb9f660ee280779",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "58fe1a0f75f0eb40bc1ef90c1c3c190704c0a6a3176b88709c28eb3aae529497",
+            "expected_sha256": "197d9fd90d42aa9d3a0a8e5a6171cb59c16cbc66a4938469e04a7ff8b60d6607",
             "outcome": "output"
         },
         {
@@ -1511,7 +1511,7 @@
         {
             "id": "bda59bb962f6f24b9dfe35cae8df1391b943874f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "a65eb8176f5091811dd45d9b8aa4368d84db883eb100cbbc365df68af17026f0",
+            "expected_sha256": "bda6ca41f4539757e0eecd939456f65cb6e529854fb4db61168fdba9be588c5f",
             "outcome": "output"
         },
         {
@@ -1535,7 +1535,7 @@
         {
             "id": "c015fa89363ce421a7de71b0bed995c12e287bfb",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "59c851eb7d58685b180f07bb78216a4495962a5b88f9dd8295a3f1ad451179c8",
+            "expected_sha256": "9965f076d8feff21478c12b3425de621e954a5129c9c3c9d332210db503b4cb7",
             "outcome": "output"
         },
         {
@@ -1607,13 +1607,13 @@
         {
             "id": "c7fff215fed715e93aa155c4e0e5e31d7db084b1",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "617d6414e9b6c7ea4b1449c99e3032204fadbed75f2928c5fdaaa926d54dba4a",
+            "expected_sha256": "6c160ce4d151f1e9f5fe4668ca8f9e50b269a00c31b8cd6dc84586500109e8e8",
             "outcome": "output"
         },
         {
             "id": "c98ea0382a0e11ab21ed687a0c528a3df60881ff",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "76ebb97094542a61c8a7ff312a897e89f86b4bd6dc481d36ae64f81804976a78",
+            "expected_sha256": "a46d6b20cde78bc233fc1b0a65f85253fb8e471bedfcc4d4ed0ea1eab320bbc0",
             "outcome": "output"
         },
         {
@@ -1649,7 +1649,7 @@
         {
             "id": "d155dabd3acf3a7324a5d9d430a53355e2a958e6",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "daf896f6ef8c04657850f368139185aeff58a0b286edef94efb99c3b58dbb29c",
+            "expected_sha256": "7f168d28a47c0fa041f5e2754f32127daac851f8705c9669fa8ee1d32c6555d9",
             "outcome": "output"
         },
         {
@@ -1661,7 +1661,7 @@
         {
             "id": "d243e2be6ccdda45f063a3dcbab9536217351bd7",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "7c953f277967b9bd8d596287fc4ec271a56e1ad574b4280d2c938f80d7e7a8f5",
+            "expected_sha256": "716a8c8a902677ff72230c29a1975b5e800f097e264d0ea5582cc83a352eb00d",
             "outcome": "output"
         },
         {
@@ -1685,7 +1685,7 @@
         {
             "id": "d3b1b8925de7a1e1f74a892cd597d5773caff059",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "8636f2444e4bb6205a21da68b9c8371e187538345ead41f390986be71e591b58",
+            "expected_sha256": "3d5f54499802b330a49cc8d780803892fcae8295442ae3b5adc090262497dd84",
             "outcome": "output"
         },
         {
@@ -1745,7 +1745,7 @@
         {
             "id": "dae00d128fd981634fc197a6a101ca52966da2ee",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "bc77e15ccf7c6a47c4a802e38b0f22a6e50137e6a105192e1446b1e4f36c95ec",
+            "expected_sha256": "da477e0e1801fef0af53ae41de6bf53fc840a71c2a2e09e19e232c775c7b94a3",
             "outcome": "output"
         },
         {
@@ -1787,7 +1787,7 @@
         {
             "id": "df7fe272714151e12093e6497098b86a8b779cb0",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "b68529335e653db20b5badd841a6bb5d0b1386a52d41611d5bc7ec24de591661",
+            "expected_sha256": "38e8ac555ca1587540903139e795f147c35f54fc01a01671f19a656dc34c7426",
             "outcome": "output"
         },
         {
@@ -1817,7 +1817,7 @@
         {
             "id": "e2e35d0c5c02ff06b23bc87fb59bc585201bc46f",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "21ac153f4c03dc58a8aa26d880caed406d3a1c5eff6b433998c6a6be5356f24a",
+            "expected_sha256": "b9dde6e83a6b12df917cbe3824411c13d49938f8567579a4bcc7280c9c76545a",
             "outcome": "output"
         },
         {
@@ -1829,7 +1829,7 @@
         {
             "id": "e40ee9dcecfe029b6bb1d6c682d8006ad513c1c4",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "2669a70225139d92fa856e0ada1bf0a6133dfda8d106981917d3f7b76297c519",
+            "expected_sha256": "4ace30e01c9d83ecbea9617b049bcbae856f9a6bef0a797f940c9e8771719f71",
             "outcome": "output"
         },
         {
@@ -1895,7 +1895,7 @@
         {
             "id": "eaad29efccc2e7fa6a01a2334673eeef84e9e98f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "0e8be2098ca4f5b4807515ef9e8cc41e0bc8e59bc33bcf01ca4d87976646f71c",
+            "expected_sha256": "0f35fdd70612421eab146f3abf9748755b69b7b9838c75700c4cc80f04c195ca",
             "outcome": "output"
         },
         {
@@ -1907,7 +1907,7 @@
         {
             "id": "ed102407fccc74ad3a5d3f9c542972fa46faa517",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "28610774bd1b0809f08c611696a8be5c49bed9facb651e7f24f5fe2cad7b9373",
+            "expected_sha256": "c489234679eedce7e511a5b6a62fd676b56f93f9f3ed0f74f18a459647e0605b",
             "outcome": "output"
         },
         {
@@ -1937,7 +1937,7 @@
         {
             "id": "f025cf281f15d03cf61d0c76c1f4bd7adc3b257e",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "d593dbb9d4e959252de18457290377da1fb9ccd0b8a840a2cd747d9349c0916d",
+            "expected_sha256": "c2b9fdf44f91e34171bfe6da6343afb0da6ff86b0e842c78baa6f3dde2a55555",
             "outcome": "output"
         },
         {
@@ -1955,7 +1955,7 @@
         {
             "id": "f0e1a42cec172b213f08a09f5c7d3b1231af846a",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "58d525ecf528e33849049639cc948f9b5b6448c04d5a82134ac3d5a9f98443f6",
+            "expected_sha256": "d2d93951ab608071868d14500d98968ed6faa9643923de4115b13ed789841bc6",
             "outcome": "output"
         },
         {
@@ -1973,7 +1973,7 @@
         {
             "id": "f2390e98c1d5de9d888c15243041fbc370bf4067",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "c89ca629b97e5b7c5599993ded5c9ba5e9b09ce6c718b50880c1a9f3d1cf141f",
+            "expected_sha256": "43b0278bf89617305b9ed0fa15a50f4da2644bf1fa6d5fed00c6c9848b0cf029",
             "outcome": "output"
         },
         {
@@ -1985,7 +1985,7 @@
         {
             "id": "f2a509d45413880dc0d7cafde266299ad509e644",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "6f9b8e9afa1ff800f01381d603513af46aaeca2905c2507defe6773a10856526",
+            "expected_sha256": "4ab1ce2e02dab7516241b1b4a9b055d5951f00d68a05532c6963bbf9c83aa450",
             "outcome": "output"
         },
         {
@@ -2069,7 +2069,7 @@
         {
             "id": "fcc75319509e48a8405c1f14f69d2e1f7e66cb4a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "6cf18dd80849ec19ae1435fde5121fce1d32e42834217a11954352700c88dc9c",
+            "expected_sha256": "352d3b3190efa465fd70615a76648dd7aaacd2fa0b564ffc6fbb948b3d459603",
             "outcome": "output"
         },
         {
@@ -2081,7 +2081,7 @@
         {
             "id": "feef8efc18785eed32b02bb0eb3a90d94ac4d840",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "8c594c347b0870d0b946556dc075ca6f2a86baec01905253b05c5d9b8aba2ab2",
+            "expected_sha256": "40e3d81b14e143c11336a182a27bfc47d36d0f2c078665ed7864bfe255fd2b3c",
             "outcome": "output"
         },
         {
