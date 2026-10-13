@@ -656,7 +656,11 @@ final class GeneratedBlockStyleProjector
     {
         // `display:flex` and friends are block-level too: they span the line
         // exactly like a block. Only the `inline-*` forms size to content.
-        if ( ! in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'block', 'flex', 'grid', 'table' ), true) ) {
+        // A `<button>` keeps its fit-content width as a flex or grid
+        // container, so only other controls span the line that way.
+        $display = CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? ''));
+        $blockLevel = 'button' === strtolower($sourceControl->tagName) ? array( 'block' ) : array( 'block', 'flex', 'grid', 'table' );
+        if ( ! in_array($display, $blockLevel, true) ) {
             return false;
         }
         $float = CssValueInspector::comparable((string) ($sourceDeclarations['float'] ?? ''));
