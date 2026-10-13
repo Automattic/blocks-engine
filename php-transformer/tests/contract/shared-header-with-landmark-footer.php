@@ -40,10 +40,14 @@ foreach ($plan['diagnostics'] as $diagnostic) if ('header' === ($diagnostic['are
 $assert(1 === count($headers), 'The shared header becomes one template part: ' . implode(',', $diagnostics));
 $menus = array_values(array_filter($plan['menus'], static fn(array $menu): bool => 'navigation_entity' === ($menu['source_relation'] ?? null)));
 $assert(1 === count($menus), 'The four pages share one navigation entity, got ' . count($menus));
+// The header reference sits in the page or, once its layout frame is hoisted,
+// in the route template that renders the page.
+$templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
 foreach ($plan['pages'] as $document) {
     $markup = (string) ($document['canonical_block_markup'] ?? '');
+    $template = !empty($document['entrypoint']) ? 'front-page' : (isset($templates['page-' . $document['slug']]) ? 'page-' . $document['slug'] : 'page');
     $assert(! str_contains($markup, '<!-- wp:navigation'), $document['source_path'] . ' no longer carries its own navigation');
-    $assert(1 === substr_count($markup, '"slug":"header"'), $document['source_path'] . ' binds the shared header once');
+    $assert(1 === substr_count($markup . ($templates[$template] ?? ''), '"slug":"header"'), $document['source_path'] . ' binds the shared header once');
     $assert(str_contains($markup, 'Body of'), $document['source_path'] . ' keeps its own content');
 }
 $assert(str_contains($headers[0]['canonical_block_markup'], '>EN<') && str_contains($menus[0]['block_markup'], '"label":"Contact"'), 'The part keeps the switcher and the menu keeps the lone link');
