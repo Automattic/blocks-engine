@@ -77,6 +77,10 @@ replay by case:
   positions itself. Only the emitted `style.css` text and the hashes derived
   from it change again in the twelve native dialog cases above (`7a7af898`
   also gains one style-rule candidate cache hit from the position lookup).
+- **Shell frame in the template.** A page whose shared header and footer sit
+  inside a layout frame keeps only the blocks between them; the frame and the
+  template-part references move to its route template around post-content.
+  Only the site plan page, template and write payloads change in `dae00d12`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
