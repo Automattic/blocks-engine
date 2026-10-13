@@ -145,9 +145,9 @@ final class MissingMediaRecovery
         $this->diagnostics[$key] = array_filter(array(
             'code' => self::DIAGNOSTIC_CODE,
             'severity' => 'warning',
-            'message' => substr(sprintf('Replaced %s with a placeholder image because the artifact does not contain that file.', $path), 0, 256),
-            'source_path' => substr($origin, 0, 256),
-            'value' => substr($path, 0, 256),
+            'message' => mb_strcut(sprintf('Replaced %s with a placeholder image because the artifact does not contain that file.', $path), 0, 256, 'UTF-8'),
+            'source_path' => mb_strcut($origin, 0, 256, 'UTF-8'),
+            'value' => mb_strcut($path, 0, 256, 'UTF-8'),
             'element' => '' === $element ? null : $element,
             'attribute' => substr($attribute, 0, 64),
             'resolution' => 'placeholder_media',

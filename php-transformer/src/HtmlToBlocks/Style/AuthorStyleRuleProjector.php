@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -348,7 +349,7 @@ final class AuthorStyleRuleProjector
             $matchedSurface = true;
             foreach ( $matches as $element ) {
                 $scope = SourceDom::documentVariantRoot($element);
-                if ($scope instanceof DOMElement && $scope->hasAttribute('data-dla-document-scope')) return $body;
+                if ($scope instanceof DOMElement && $scope->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)) return $body;
                 if ( ! $this->isWideAbsoluteMinimumWidth($this->styleResolver->resolveCssVariablesInValue($minimumWidth, $element)) ) {
                     return $body;
                 }

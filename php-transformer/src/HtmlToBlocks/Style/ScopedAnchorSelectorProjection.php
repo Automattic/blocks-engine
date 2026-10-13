@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
@@ -16,11 +17,14 @@ final class ScopedAnchorSelectorProjection
         foreach ($source->sourceElementIds() as $id) {
             $id = (string) $id;
             if ('' === SourceDom::safeAnchor($id)) continue;
+            // A projected captured dialog copies an element whose id stays on
+            // that hidden copy; the dialog carries the id as its anchor class.
+            if (array() !== $source->sourceElementsByClass(EngineMarker::editorAnchorClass($id))) { $ids[$id] = true; continue; }
             $elements = $source->sourceElementsById($id);
             if (count($elements) < 2) continue;
             foreach ($elements as $element) {
                 $root = SourceDom::documentVariantRoot($element);
-                if ($root && $root->hasAttribute('data-dla-document-scope') && '' !== SourceDom::documentVariantIdSuffix($element)) { $ids[$id] = true; break; }
+                if ($root && $root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && '' !== SourceDom::documentVariantIdSuffix($element)) { $ids[$id] = true; break; }
             }
         }
         return $ids;

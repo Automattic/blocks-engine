@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
@@ -333,7 +334,7 @@ final class RevealAnimationSettler
             $property = strtolower(trim(substr($declaration, 0, $separator)));
             $value = trim(substr($declaration, $separator + 1));
             $value = trim((string) preg_replace('/!\s*important\s*$/i', '', $value));
-            if ( '' !== $property && '' !== $value ) {
+            if ( '' !== $property && '' !== $value && ! CssPropertyName::startsLikeNumber($property) ) {
                 $declarations[ $property ] = $value;
             }
         }

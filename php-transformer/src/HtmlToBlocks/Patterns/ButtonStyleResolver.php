@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
@@ -197,7 +198,7 @@ final class ButtonStyleResolver
             }
             [ $name, $value ] = array_map('trim', explode(':', $declaration, 2));
             $name = strtolower($name);
-            if ( '' === $name || '' === $value ) {
+            if ( '' === $name || '' === $value || CssPropertyName::startsLikeNumber($name) ) {
                 continue;
             }
             if ( 'background' === $name ) {

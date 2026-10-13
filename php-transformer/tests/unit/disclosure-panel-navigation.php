@@ -24,14 +24,14 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
 
 $item = static fn (string $href, string $label, string $submenu = ''): string => '<li class="item"><span class="label"><a href="' . $href . '">' . $label . '</a></span>'
     . ('' === $submenu ? '' : '<button aria-expanded="false" aria-haspopup="true" aria-label="' . $label . '" class="expander"></button><ul class="submenu">' . $submenu . '</ul>') . '</li>';
-$drawer = '<details class="dla-disclosure"><summary role="button" aria-label="Open navigation menu"><span class="bar"></span><span class="bar"></span><span class="bar"></span></summary>'
-    . '<div class="dla-dialog" role="dialog" aria-modal="true"><button class="login"><span>Log In</span></button><nav aria-label="Site"><ul class="menu">'
+$drawer = '<details class="data-blocks-engine-capture-disclosure"><summary role="button" aria-label="Open navigation menu"><span class="bar"></span><span class="bar"></span><span class="bar"></span></summary>'
+    . '<div class="data-blocks-engine-capture-dialog" role="dialog" aria-modal="true"><button class="login"><span>Log In</span></button><nav aria-label="Site"><ul class="menu">'
     . $item('/', 'Home')
     . $item('/about', 'About', $item('/blog', 'Blog'))
     . $item('/shop', 'Shop', $item('/peptides', 'Peptides') . $item('/apparel', 'Apparel'))
     . $item('/contact', 'Contact')
     . '</ul></nav></div></details>';
-$css = 'details.dla-disclosure:not([open])>.dla-dialog{display:none!important}';
+$css = 'details.data-blocks-engine-capture-disclosure:not([open])>.data-blocks-engine-capture-dialog{display:none!important}';
 
 $result = ( new HtmlTransformer() )->transform('<html><head><style>' . $css . '</style></head><body><header>' . $drawer . '</header></body></html>')->toArray();
 $serialized = (string) ($result['serialized_blocks'] ?? '');
@@ -48,7 +48,7 @@ $assert(0 === substr_count(substr($serialized, 0, (int) $details), 'wp:navigatio
 // the reference viewport. Its independent links belong to core/details.
 $externalToggle = '<header><button class="menu-toggle" aria-expanded="false" aria-controls="mobile-drawer" aria-label="Menu"><span class="bar"></span><span class="bar"></span></button>'
     . '<nav class="desktop-navigation"><a href="/">Home</a><a href="/about">About</a></nav>'
-    . '<details class="dla-disclosure"><summary>Open Menu</summary><div id="mobile-drawer" class="dla-dialog" role="dialog" aria-modal="true"><nav><a href="/">Home</a><a href="/about">About</a></nav></div></details></header>';
+    . '<details class="data-blocks-engine-capture-disclosure"><summary>Open Menu</summary><div id="mobile-drawer" class="data-blocks-engine-capture-dialog" role="dialog" aria-modal="true"><nav><a href="/">Home</a><a href="/about">About</a></nav></div></details></header>';
 $externalCss = '#mobile-drawer{display:none}details[open]>#mobile-drawer{display:block}.desktop-navigation{display:flex}';
 $projected = ( new HtmlTransformer() )->transform('<html><head><style>' . $externalCss . '</style></head><body>' . $externalToggle . '</body></html>')->toArray();
 $projectedMarkup = (string) ($projected['serialized_blocks'] ?? '');

@@ -69,6 +69,8 @@ final class FormPresentationGraphBuilder
     );
 
     private array $diagnostics = array();
+    /** @var array<string,true> Source declarations whose value cannot be represented, keyed by source and property. */
+    private array $unrepresentable = array();
     private bool $truncated = false;
     /** Memoized rule sets for {@see typographyStyles()}, analyzed once per transform. */
     private ?array $typographyAnalysis = null;
@@ -83,6 +85,7 @@ final class FormPresentationGraphBuilder
     public function buildContainer(DOMElement $form, array $stylesheets, string $inlineCss = ''): array
     {
         $this->truncated = false;
+        $this->unrepresentable = array();
         $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, self::cascadeFilter(array($form)), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         if ($analysis['truncated']) return array();
         $matched = $this->matched($form, $analysis['rules']);
@@ -102,6 +105,7 @@ final class FormPresentationGraphBuilder
     {
         $this->diagnostics = array();
         $this->truncated = false;
+        $this->unrepresentable = array();
         $this->typographyAnalysis ??= $this->typographyAnalysis($stylesheets, $inlineCss);
         $analysis = $this->typographyAnalysis;
         $this->truncated = $analysis['truncated'];
@@ -432,6 +436,7 @@ final class FormPresentationGraphBuilder
     {
         $this->diagnostics = array();
         $this->truncated = false;
+        $this->unrepresentable = array();
         $controlsForCustomProperties = $this->presentationElements($form);
         $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, self::cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
@@ -1038,19 +1043,27 @@ final class FormPresentationGraphBuilder
             $owner = $fact['element'] ?? $element;
             $value = FormCustomPropertyResolver::resolve($fact['value'], $owner, $condition, $rules, $unconditionalBase);
             if ( null !== $this->resolveValue && str_contains($value, 'var(') ) $value = ($this->resolveValue)($element, $value);
+            // A value that is empty or over the style budget cannot be carried.
+            // Drop that one property and report it; the rest of the form keeps its presentation.
+            if ( '' === trim($value) || strlen($value) > self::MAX_STYLE_VALUE_BYTES ) {
+                $this->unrepresentable[self::declarationKey($fact, $property)] = true;
+                $this->diagnostics[] = 'style_value_unrepresentable:' . $property;
+                continue;
+            }
             $result[self::key($property)] = $value;
         }
         ksort($result);
         return $result;
     }
 
+    private static function declarationKey(array $fact, string $property): string { return $fact['path'] . "\n" . $fact['selector'] . "\n" . $property; }
     private static function key(string $property): string { return str_replace('-', '_', $property); }
     /** @return array<string, int> */
     private function intrinsicSize(DOMElement $svg): array { $width = $this->dimension(SourceDom::attr($svg, 'width')); $height = $this->dimension(SourceDom::attr($svg, 'height')); return null !== $width && null !== $height ? array( 'width' => $width, 'height' => $height ) : array(); }
     private function dimension(string $value): ?int { return 1 === preg_match('/^[1-9][0-9]{0,3}$/D', trim($value)) && (int) $value <= self::MAX_VISUAL_DIMENSION ? (int) $value : null; }
     private static function validDimension(mixed $value): bool { return is_int($value) && $value > 0 && $value <= self::MAX_VISUAL_DIMENSION; }
-    private function precedence(array $facts): array { $result = array(); foreach ( $facts as $property => $fact ) $result[$property] = array( 'source_order' => $fact['order'], 'specificity' => $fact['specificity'], 'important' => $fact['important'] ); ksort($result); return $result; }
-    private function provenance(array $facts, ?array $condition): array { $grouped = array(); foreach ( $facts as $property => $fact ) { $key = $fact['path'] . "\n" . $fact['selector']; $grouped[$key] ??= array( 'source_path' => $fact['path'], 'source_sha256' => $fact['hash'], 'selector' => $fact['selector'], 'condition' => $condition, 'properties' => array() ); $grouped[$key]['properties'][] = $property; } foreach ( $grouped as &$item ) sort($item['properties'], SORT_STRING); unset($item); if ( count($grouped) > self::MAX_PROVENANCE ) { $this->truncated = true; $this->diagnostics[] = 'provenance_limit'; } return array_slice(array_values($grouped), 0, self::MAX_PROVENANCE); }
+    private function precedence(array $facts): array { $result = array(); foreach ( $facts as $property => $fact ) if ( ! isset($this->unrepresentable[self::declarationKey($fact, $property)]) ) $result[$property] = array( 'source_order' => $fact['order'], 'specificity' => $fact['specificity'], 'important' => $fact['important'] ); ksort($result); return $result; }
+    private function provenance(array $facts, ?array $condition): array { $grouped = array(); foreach ( $facts as $property => $fact ) { if ( isset($this->unrepresentable[self::declarationKey($fact, $property)]) ) continue; $key = $fact['path'] . "\n" . $fact['selector']; $grouped[$key] ??= array( 'source_path' => $fact['path'], 'source_sha256' => $fact['hash'], 'selector' => $fact['selector'], 'condition' => $condition, 'properties' => array() ); $grouped[$key]['properties'][] = $property; } foreach ( $grouped as &$item ) sort($item['properties'], SORT_STRING); unset($item); if ( count($grouped) > self::MAX_PROVENANCE ) { $this->truncated = true; $this->diagnostics[] = 'provenance_limit'; } return array_slice(array_values($grouped), 0, self::MAX_PROVENANCE); }
 
     private static function validCondition(array $condition, int $depth = 0): bool
     {

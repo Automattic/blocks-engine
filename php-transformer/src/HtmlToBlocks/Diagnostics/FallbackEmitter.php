@@ -895,7 +895,7 @@ final class FallbackEmitter
             if ( preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:/i', $value) ) {
                 continue;
             }
-            $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
+            $safe[$name] = strlen($value) > 300 ? mb_strcut($value, 0, 300, 'UTF-8') . '...' : $value;
         }
 
         return $safe;
@@ -967,7 +967,7 @@ final class FallbackEmitter
         $allowed = array_flip(array( 'async', 'class', 'defer', 'id', 'src', 'type' ));
         foreach ( $this->htmlAttributes($element) as $name => $value ) {
             if ( isset($allowed[$name]) && ! preg_match('/javascript\s*:/i', $value) ) {
-                $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
+                $safe[$name] = strlen($value) > 300 ? mb_strcut($value, 0, 300, 'UTF-8') . '...' : $value;
             }
         }
 
@@ -983,7 +983,7 @@ final class FallbackEmitter
         $allowed = array_flip(array( 'aria-label', 'class', 'height', 'id', 'role', 'style', 'title', 'width' ));
         foreach ( $this->htmlAttributes($element) as $name => $value ) {
             if ( isset($allowed[$name]) ) {
-                $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
+                $safe[$name] = strlen($value) > 300 ? mb_strcut($value, 0, 300, 'UTF-8') . '...' : $value;
             }
         }
 
@@ -1000,7 +1000,7 @@ final class FallbackEmitter
             if ( preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:/i', $value) ) {
                 continue;
             }
-            $attributes[$name] = strlen($value) > 200 ? substr($value, 0, 200) . '...' : $value;
+            $attributes[$name] = strlen($value) > 200 ? mb_strcut($value, 0, 200, 'UTF-8') . '...' : $value;
         }
 
         return $attributes;

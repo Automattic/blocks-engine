@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import expectedGoldens from '../__fixtures__/native-low-level-dla-goldens.json' with { type: 'json' };
+import expectedGoldens from '../__fixtures__/native-low-level-reference-goldens.json' with { type: 'json' };
 import {
   runNativeLowLevelParity,
   type NativeLowLevelImpl,
@@ -101,8 +101,8 @@ function collectDiffs(actual: NativeLowLevelParityFile, expected: NativeLowLevel
   return diffs;
 }
 
-describe('native low-level helper DLA-today parity', () => {
-  it('matches mechanically derived DLA helper outputs byte-for-byte and is stable on rerun', () => {
+describe('native low-level helper reference parity', () => {
+  it('matches mechanically derived reference helper outputs byte-for-byte and is stable on rerun', () => {
     const first = runNativeLowLevelParity(engineImpl);
     const second = runNativeLowLevelParity(engineImpl);
     expect(stableJson(first)).toBe(stableJson(second));

@@ -5,8 +5,8 @@ require getenv('BLOCKS_ENGINE_TEST_AUTOLOAD') ?: dirname(__DIR__, 2) . '/vendor/
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
-$html = '<!doctype html><html><head><style>:root{--canvas-width:1040px}#canvas{width:100%;min-width:var(--canvas-width)}[data-dla-device-document="slate"] #grid{display:grid;grid-template-columns:100%;position:relative}[data-dla-device-document="slate"] [id="card"]{position:relative;left:17px;width:120px}</style></head><body>';
-foreach (array('default', 'compact', 'slate') as $profile) $html .= '<div data-dla-device-document="' . $profile . '" data-dla-document-scope="" class="scope-context"><div id="canvas"><div id="grid"><header><p>Heading</p></header><main><div id="card"><p>Card</p></div></main><footer><p>Footer</p></footer></div></div></div>';
+$html = '<!doctype html><html><head><style>:root{--canvas-width:1040px}#canvas{width:100%;min-width:var(--canvas-width)}[data-blocks-engine-capture-device-document="slate"] #grid{display:grid;grid-template-columns:100%;position:relative}[data-blocks-engine-capture-device-document="slate"] [id="card"]{position:relative;left:17px;width:120px}</style></head><body>';
+foreach (array('default', 'compact', 'slate') as $profile) $html .= '<div data-blocks-engine-capture-device-document="' . $profile . '" data-blocks-engine-capture-document-scope="" class="scope-context"><div id="canvas"><div id="grid"><header><p>Heading</p></header><main><div id="card"><p>Card</p></div></main><footer><p>Footer</p></footer></div></div></div>';
 $html .= '</body></html>';
 $result = (new ArtifactCompiler())->compile(array('files' => array('index.html' => $html)))->toArray();
 $css = implode("\n", array_column(array_filter($result['assets'], static fn(array $asset): bool => 'editor' !== ($asset['stylesheet_target'] ?? 'both')), 'content'));
