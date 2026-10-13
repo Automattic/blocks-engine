@@ -97,9 +97,9 @@ $assert('core/heading' === ($hero['variants']['default']['block_name'] ?? '') &&
 // Both sides share the same source id, which would otherwise collide as a
 // duplicate HTML id once both variants compile into the same page: the
 // default side keeps the bare id, and the mobile side's copy is disambiguated
-// with the same suffix Data Liberation Agent itself uses to pair a
+// with the capture-evidence variant id suffix that pairs a
 // mobile-specific identity with its desktop counterpart.
-$assert('hero-title' === ($hero['variants']['default']['anchor'] ?? '') && 'hero-title--dla-mobile' === ($hero['variants']['mobile']['anchor'] ?? ''), '1: both sides persist their stable source anchor, disambiguated so it stays unique on the page');
+$assert('hero-title' === ($hero['variants']['default']['anchor'] ?? '') && 'hero-title--data-blocks-engine-capture-mobile' === ($hero['variants']['mobile']['anchor'] ?? ''), '1: both sides persist their stable source anchor, disambiguated so it stays unique on the page');
 $assert('blocks.0' === ($hero['variants']['default']['block_path'] ?? '') || str_starts_with((string) ($hero['variants']['default']['block_path'] ?? ''), 'blocks.'), '1: default side resolves under the default variant root');
 $assert(str_starts_with((string) ($hero['variants']['mobile']['block_path'] ?? 'missing'), 'blocks.'), '1: mobile side resolves a concrete block path');
 
@@ -225,12 +225,12 @@ $assert(!isset($standalone['source_reports']['responsive_counterpart_contracts']
 // ---------------------------------------------------------------------------
 // 8. Captured per-device documents retain producer-declared source slots.
 // ---------------------------------------------------------------------------
-$captureHeadingToken = 'data-liberation-responsive-counterpart-a1b2c3d4e5f6';
-$captureNavToken = 'data-liberation-responsive-counterpart-123456abcdef';
+$captureHeadingToken = 'data-blocks-engine-capture-responsive-counterpart-a1b2c3d4e5f6';
+$captureNavToken = 'data-blocks-engine-capture-responsive-counterpart-123456abcdef';
 $capturedResponsive = (new HtmlTransformer())->transform(
     '<html><body>'
-    . '<div class="data-liberation-desktop-document"><main><section id="hero"><h1 class="' . $captureHeadingToken . '" data-dla-responsive-source="hero:h1:1">Desktop title</h1></section><nav><a class="' . $captureNavToken . '" data-dla-responsive-source="primary-nav:a:1" href="/">Home</a></nav></main></div>'
-    . '<div class="data-liberation-mobile-document"><main><section id="hero"><div><h1 class="' . $captureHeadingToken . '" data-dla-responsive-source="hero:h1:1">Mobile title</h1></div></section><nav><div><a class="' . $captureNavToken . '" data-dla-responsive-source="primary-nav:a:1" href="/">Mobile home</a></div></nav></main></div>'
+    . '<div class="data-blocks-engine-capture-desktop-document"><main><section id="hero"><h1 class="' . $captureHeadingToken . '" data-blocks-engine-capture-responsive-source="hero:h1:1">Desktop title</h1></section><nav><a class="' . $captureNavToken . '" data-blocks-engine-capture-responsive-source="primary-nav:a:1" href="/">Home</a></nav></main></div>'
+    . '<div class="data-blocks-engine-capture-mobile-document"><main><section id="hero"><div><h1 class="' . $captureHeadingToken . '" data-blocks-engine-capture-responsive-source="hero:h1:1">Mobile title</h1></div></section><nav><div><a class="' . $captureNavToken . '" data-blocks-engine-capture-responsive-source="primary-nav:a:1" href="/">Mobile home</a></div></nav></main></div>'
     . '</body></html>'
 )->toArray();
 $captureContracts = $capturedResponsive['source_reports']['responsive_counterpart_contracts'] ?? array();
@@ -239,10 +239,10 @@ $assert(2 === count($captureByToken), '8: producer-declared source slots pair ac
 $assert('hero:h1:1' === ($captureByToken[$captureHeadingToken]['source_id'] ?? null), '8: heading correspondence reports its stable ancestor-owned source slot');
 $assert('content' === ($captureByToken[$captureHeadingToken]['attribute'] ?? null), '8: captured heading correspondence mirrors native heading content');
 $assert('label' === ($captureByToken[$captureNavToken]['attribute'] ?? null), '8: captured navigation correspondence mirrors the native navigation label');
-$assert(str_contains((string) ($captureContracts['editor_module']['content'] ?? ''), 'data-liberation-responsive-counterpart-') && str_contains((string) ($captureContracts['editor_module']['content'] ?? ''), "'core/navigation-link': 'label'"), '8: the bounded editor module consumes captured tokens and navigation labels');
+$assert(str_contains((string) ($captureContracts['editor_module']['content'] ?? ''), 'data-blocks-engine-capture-responsive-counterpart-') && str_contains((string) ($captureContracts['editor_module']['content'] ?? ''), "'core/navigation-link': 'label'"), '8: the bounded editor module consumes captured tokens and navigation labels');
 
 $capturedLayoutShell = (new HtmlTransformer())->transform(
-    '<html><body><div class="data-liberation-desktop-document"><div><h1 class="' . $captureHeadingToken . '" data-dla-responsive-source="hero:h1:1">Desktop title</h1></div></div><div class="data-liberation-mobile-document"><div><h1 class="' . $captureHeadingToken . '" data-dla-responsive-source="hero:h1:1">Mobile title</h1></div></div></body></html>',
+    '<html><body><div class="data-blocks-engine-capture-desktop-document"><div><h1 class="' . $captureHeadingToken . '" data-blocks-engine-capture-responsive-source="hero:h1:1">Desktop title</h1></div></div><div class="data-blocks-engine-capture-mobile-document"><div><h1 class="' . $captureHeadingToken . '" data-blocks-engine-capture-responsive-source="hero:h1:1">Mobile title</h1></div></div></body></html>',
     array('computed_layout_graph' => array(
         'schema' => 'generic/computed-layout-graph/v2',
         'nodes' => array(),

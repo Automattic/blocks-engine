@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -165,7 +167,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( $descendant instanceof DOMElement
                 && (('menu' === strtolower(trim(SourceDom::attr($descendant, 'aria-haspopup')))
                         && '' === trim($descendant->textContent ?? '')
-                        && (SourceDom::isBoundCapturedDialogTrigger($descendant) || $descendant->hasAttribute('data-dla-dialog-trigger')))
+                        && (SourceDom::isBoundCapturedDialogTrigger($descendant) || $descendant->hasAttribute(CaptureEvidence::DIALOG_TRIGGER)))
                     || 'details' === strtolower($descendant->tagName)) ) {
                 return null;
             }
@@ -479,11 +481,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         $hasDialogPanel = false;
         for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
             $classes = ' ' . trim(SourceDom::attr($ancestor, 'class')) . ' ';
-            if ( str_contains($classes, ' dla-dialog ') ) {
+            if ( str_contains($classes, ' ' . CaptureEvidence::DIALOG_CLASS . ' ') ) {
                 $hasDialogPanel = true;
                 continue;
             }
-            if ( $hasDialogPanel && 'details' === strtolower($ancestor->tagName) && str_contains($classes, ' dla-disclosure ') ) {
+            if ( $hasDialogPanel && 'details' === strtolower($ancestor->tagName) && str_contains($classes, ' ' . CaptureEvidence::DISCLOSURE_CLASS . ' ') ) {
                 return true;
             }
         }
@@ -1370,7 +1372,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
             $property = strtolower(trim(substr($declaration, 0, $separator)));
             $value = trim(substr($declaration, $separator + 1));
-            if ( '' === $property || '' === $value ) {
+            if ( '' === $property || '' === $value || CssPropertyName::startsLikeNumber($property) ) {
                 continue;
             }
             $declarations[$property] = $value;
@@ -3033,8 +3035,8 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     /**
      * An item made of a labelled button and the hidden dropdown panel that
-     * button opens (`aria-haspopup="menu"`, bound by `data-dla-dialog-trigger`
-     * and `data-dla-dialog-panel`). The panel may wrap its links in single
+     * button opens (`aria-haspopup="menu"`, bound by `data-blocks-engine-capture-dialog-trigger`
+     * and `data-blocks-engine-capture-dialog-panel`). The panel may wrap its links in single
      * plain wrappers; the links themselves must be the whole content.
      *
      * @return array{label:string, cluster:DOMElement, button:DOMElement}|null
@@ -3052,7 +3054,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
             if ( 'button' === strtolower($child->tagName) && null === $button ) {
                 $button = $child;
-            } elseif ( null !== $button && null === $panel && $child->hasAttribute('data-dla-dialog-panel') ) {
+            } elseif ( null !== $button && null === $panel && $child->hasAttribute(CaptureEvidence::DIALOG_PANEL) ) {
                 $panel = $child;
             } else {
                 return null;
@@ -3060,8 +3062,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         if ( null === $button || null === $panel
             || 'menu' !== strtolower(trim($button->getAttribute('aria-haspopup')))
-            || '' === $panel->getAttribute('data-dla-dialog-panel')
-            || $button->getAttribute('data-dla-dialog-trigger') !== $panel->getAttribute('data-dla-dialog-panel')
+            || '' === $panel->getAttribute(CaptureEvidence::DIALOG_PANEL)
+            || $button->getAttribute(CaptureEvidence::DIALOG_TRIGGER) !== $panel->getAttribute(CaptureEvidence::DIALOG_PANEL)
         ) {
             return null;
         }
@@ -3108,13 +3110,13 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function capturedSubmenuTrigger(DOMElement $trigger): bool
     {
-        if ('' === trim($trigger->getAttribute('data-dla-dialog-trigger'))) return false;
+        if ('' === trim($trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER))) return false;
         for ($node = $trigger->parentNode, $depth = 0; $depth < 6 && $node instanceof DOMElement; $node = $node->parentNode, ++$depth) {
             $button = $this->buttonDropdownItem($node);
             if (null !== $button && $button['button']->isSameNode($trigger)) return true;
             $anchor = $this->primaryNavigationAnchor($node);
             if (!$anchor instanceof DOMElement || !$anchor->isSameNode($trigger)) continue;
-            $key = trim($trigger->getAttribute('data-dla-dialog-trigger'));
+            $key = trim($trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER));
             if ($key !== trim($trigger->getAttribute('aria-controls')) || !$this->navigationWillClaimItem($node)) continue;
             foreach ($this->submenuContainers($node, $anchor) as $container) {
                 if ($this->elementCarriesDialogPanel($container, $key)) return true;
@@ -3133,9 +3135,9 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function elementCarriesDialogPanel(DOMElement $element, string $key): bool
     {
-        if ($element->getAttribute('data-dla-dialog-panel') === $key || $element->getAttribute('id') === $key) return true;
+        if ($element->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $element->getAttribute('id') === $key) return true;
         foreach ($element->getElementsByTagName('*') as $descendant) {
-            if ($descendant instanceof DOMElement && ($descendant->getAttribute('data-dla-dialog-panel') === $key || $descendant->getAttribute('id') === $key)) return true;
+            if ($descendant instanceof DOMElement && ($descendant->getAttribute(CaptureEvidence::DIALOG_PANEL) === $key || $descendant->getAttribute('id') === $key)) return true;
         }
         return false;
     }
@@ -3235,9 +3237,9 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function containsDialogCloseTarget(DOMElement $element): bool
     {
-        if ($element->hasAttribute('data-dla-dialog-close')) return true;
+        if ($element->hasAttribute(CaptureEvidence::DIALOG_CLOSE)) return true;
         foreach ($element->getElementsByTagName('*') as $node) {
-            if ($node instanceof DOMElement && $node->hasAttribute('data-dla-dialog-close')) return true;
+            if ($node instanceof DOMElement && $node->hasAttribute(CaptureEvidence::DIALOG_CLOSE)) return true;
         }
         return false;
     }
@@ -3622,15 +3624,15 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $panel instanceof DOMElement && 'dialog' === strtolower($panel->tagName) && 'true' === $panel->getAttribute('data-blocks-engine-captured-menu') ) {
             return true;
         }
-        if ( ! $panel instanceof DOMElement || ! $panel->hasAttribute('data-dla-dialog-panel') ) {
+        if ( ! $panel instanceof DOMElement || ! $panel->hasAttribute(CaptureEvidence::DIALOG_PANEL) ) {
             return false;
         }
 
-        $key = $panel->getAttribute('data-dla-dialog-panel');
+        $key = $panel->getAttribute(CaptureEvidence::DIALOG_PANEL);
         foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $button ) {
             if ( $button instanceof DOMElement
                 && ('button' === strtolower($button->tagName) || AuthoredButtonBlockGenerator::isRoleButton($button))
-                && $button->getAttribute('data-dla-dialog-trigger') === $key
+                && $button->getAttribute(CaptureEvidence::DIALOG_TRIGGER) === $key
                 && 'menu' === strtolower(trim($button->getAttribute('aria-haspopup')))
             ) {
                 return true;

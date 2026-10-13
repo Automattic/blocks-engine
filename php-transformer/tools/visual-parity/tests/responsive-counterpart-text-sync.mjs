@@ -13,12 +13,12 @@ const page = await browser.newPage();
 await page.setContent('<!doctype html><html><body></body></html>');
 const results = await page.evaluate((moduleScript) => {
   const blocks = {
-    desktop: { clientId: 'desktop', name: 'core/heading', attributes: { className: 'data-liberation-responsive-counterpart-aaaaaaaaaaaa', content: '' } },
-    mobile: { clientId: 'mobile', name: 'core/heading', attributes: { className: 'data-liberation-responsive-counterpart-aaaaaaaaaaaa', content: '' } },
+    desktop: { clientId: 'desktop', name: 'core/heading', attributes: { className: 'data-blocks-engine-capture-responsive-counterpart-aaaaaaaaaaaa', content: '' } },
+    mobile: { clientId: 'mobile', name: 'core/heading', attributes: { className: 'data-blocks-engine-capture-responsive-counterpart-aaaaaaaaaaaa', content: '' } },
   };
   const roots = [
-    { clientId: 'desktop-root', attributes: { className: 'data-liberation-desktop-document' }, innerBlocks: [ blocks.desktop ] },
-    { clientId: 'mobile-root', attributes: { className: 'data-liberation-mobile-document' }, innerBlocks: [ blocks.mobile ] },
+    { clientId: 'desktop-root', attributes: { className: 'data-blocks-engine-capture-desktop-document' }, innerBlocks: [ blocks.desktop ] },
+    { clientId: 'mobile-root', attributes: { className: 'data-blocks-engine-capture-mobile-document' }, innerBlocks: [ blocks.mobile ] },
   ];
   const parents = { desktop: [ 'desktop-root' ], mobile: [ 'mobile-root' ] };
   let blockEditFilter = null;

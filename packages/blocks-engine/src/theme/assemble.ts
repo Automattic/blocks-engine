@@ -100,7 +100,7 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
  * global block gap would otherwise inject a ~24px margin above every section after
  * the first, reading as a stray stripe above full-bleed bands. This neutralizes the
  * block gap on those wrappers only — via CSS, so the section block markup stays
- * byte-identical to the DLA reference. Blocks the user adds in the editor are not
+ * byte-identical to the reference implementation. Blocks the user adds in the editor are not
  * align:full, so they keep WordPress's default block gap. The selector outweighs
  * core's zero-specificity `:where(...) > * + *` gap rule.
  */

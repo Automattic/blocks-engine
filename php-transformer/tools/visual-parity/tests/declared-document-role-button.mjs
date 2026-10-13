@@ -59,10 +59,10 @@ try {
       const errors = []; page.on('pageerror', error => errors.push(error.message));
       await page.goto(url, { waitUntil: 'load' });
       const state = await page.evaluate(profile => {
-        const scope = document.querySelector(`[data-dla-device-document="${profile}"]`);
+        const scope = document.querySelector(`[data-blocks-engine-capture-device-document="${profile}"]`);
         const trigger = document.getElementById(`toggle-${profile}`);
         const rect = trigger.getBoundingClientRect();
-        return { scopes: document.querySelectorAll('[data-dla-device-document]').length, selected: document.documentElement.dataset.selectedProfile, classes: scope.className.split(/\s+/).filter(name => !name.startsWith('blocks-engine-')), bars: trigger.querySelectorAll('.bar').length, width: rect.width, height: rect.height, gap: getComputedStyle(scope.querySelector('.copy')).marginTop, viewports: document.querySelectorAll('meta[name=viewport]').length, media: [...document.querySelectorAll('style[data-dla-document-scope]')].map(style => ({ profile: style.dataset.dlaDocumentScope, media: style.media, authored: style.dataset.dlaSourceMedia })) };
+        return { scopes: document.querySelectorAll('[data-blocks-engine-capture-device-document]').length, selected: document.documentElement.dataset.selectedProfile, classes: scope.className.split(/\s+/).filter(name => !name.startsWith('blocks-engine-')), bars: trigger.querySelectorAll('.bar').length, width: rect.width, height: rect.height, gap: getComputedStyle(scope.querySelector('.copy')).marginTop, viewports: document.querySelectorAll('meta[name=viewport]').length, media: [...document.querySelectorAll('style[data-blocks-engine-capture-document-scope]')].map(style => ({ profile: style.dataset.blocksEngineCaptureDocumentScope, media: style.media, authored: style.dataset.dlaSourceMedia })) };
       }, profile);
       assert.equal(state.scopes, 4); assert.equal(state.selected, profile); assert.equal(state.bars, 3); assert.equal(state.viewports, 1);
       const trigger = page.locator(`#toggle-${profile}`);

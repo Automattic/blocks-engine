@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -99,7 +100,7 @@ final class ArtifactNormalizer
         }
 
         $rawFiles = $this->rawFiles($artifact);
-        $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports);
+        $rawFiles = (new HtmlFragmentIncludes())->expand($rawFiles, $entrypoints, $limits, fn(array $file, string $path): array => $this->payload($file, $path), $declaredReports, $diagnostics);
         $reservedPaths = array();
         foreach ( $rawFiles as $file ) {
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
@@ -400,7 +401,7 @@ final class ArtifactNormalizer
     private function rejectionSample(string $code, array $file, string $path, ?int $bytes): array
     {
         $sample = array('code' => $code);
-        if ('' !== $path) $sample['path'] = substr($path, 0, self::MAX_REJECTION_SAMPLE_PATH_BYTES);
+        if ('' !== $path) $sample['path'] = mb_strcut($path, 0, self::MAX_REJECTION_SAMPLE_PATH_BYTES, 'UTF-8');
         if (null !== $bytes) $sample['bytes'] = $bytes;
         $role = $this->sanitizeKey((string) ($file['role'] ?? ''));
         if (in_array($role, self::SAMPLE_ROLES, true)) $sample['declared_role'] = $role;
@@ -627,7 +628,7 @@ final class ArtifactNormalizer
                     continue;
                 }
                 $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
-                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'source_media' => array_key_exists('data-dla-source-media', \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
+                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'source_media' => array_key_exists(CaptureEvidence::SOURCE_MEDIA, \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
             // Spacing an author declares inline on <body> is page content the
             // reader sees, but the document is re-wrapped in a bare <body>

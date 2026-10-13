@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -53,7 +54,7 @@ final class NativeGetFormControlConverter implements ElementConverter
 
         if ( 'label' === $tagName && '' !== SourceDom::attr($element, 'for') ) {
             $target = $element->ownerDocument?->getElementById(SourceDom::attr($element, 'for'));
-            if ($target instanceof DOMElement && $target->hasAttribute(NativeControlState::ATTRIBUTE)) return ConversionOutcome::unhandled();
+            if ($target instanceof DOMElement && $target->hasAttribute(CaptureEvidence::NATIVE_CONTROL_STATE)) return ConversionOutcome::unhandled();
             return ConversionOutcome::handled(null);
         }
 
@@ -81,7 +82,7 @@ final class NativeGetFormControlConverter implements ElementConverter
             return null;
         }
         if ( 'input' === $tagName ) {
-            return $this->authoredFormControlBlockConverter->input($element, $element->hasAttribute(NativeControlState::ATTRIBUTE) ? null : $this->formControlMetadataBuilder->associatedLabel($element), false, true);
+            return $this->authoredFormControlBlockConverter->input($element, $element->hasAttribute(CaptureEvidence::NATIVE_CONTROL_STATE) ? null : $this->formControlMetadataBuilder->associatedLabel($element), false, true);
         }
         if ( 'select' === $tagName ) {
             return $this->authoredFormControlBlockConverter->select($element, true, $this->formControlMetadataBuilder->associatedLabel($element));

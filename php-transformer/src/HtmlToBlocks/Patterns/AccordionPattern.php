@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -42,7 +43,7 @@ final class AccordionPattern implements PatternRecognizerInterface
 
         $attributes = $presentationAttributes($element);
         for ($node = $itemElements[0]->parentNode, $depth = 0; $node instanceof DOMElement && $depth < 8; $node = $node->parentNode, $depth++) {
-            if ('true' === strtolower(SourceDom::attr($node, 'data-dla-exclusive-disclosures'))) {
+            if ('true' === strtolower(SourceDom::attr($node, CaptureEvidence::EXCLUSIVE_DISCLOSURES))) {
                 $attributes['autoclose'] = true;
                 break;
             }
@@ -315,7 +316,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $parent = $title->parentNode;
         if ( '' !== $controlledId && $parent instanceof DOMElement ) {
             foreach ( $parent->getElementsByTagName('*') as $candidate ) {
-                if ( $candidate instanceof DOMElement && 'true' === strtolower($candidate->getAttribute('data-dla-local-disclosure')) && $candidate->getAttribute('id') === $controlledId ) {
+                if ( $candidate instanceof DOMElement && 'true' === strtolower($candidate->getAttribute(CaptureEvidence::LOCAL_DISCLOSURE)) && $candidate->getAttribute('id') === $controlledId ) {
                     return $candidate;
                 }
             }

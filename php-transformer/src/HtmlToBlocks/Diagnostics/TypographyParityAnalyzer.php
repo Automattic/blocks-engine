@@ -315,7 +315,7 @@ final class TypographyParityAnalyzer
     {
         $snippet = trim($snippet);
         if ( strlen($snippet) > self::SNIPPET_BYTE_LIMIT ) {
-            return substr($snippet, 0, self::SNIPPET_BYTE_LIMIT) . '...';
+            return mb_strcut($snippet, 0, self::SNIPPET_BYTE_LIMIT, 'UTF-8') . '...';
         }
 
         return $snippet;
