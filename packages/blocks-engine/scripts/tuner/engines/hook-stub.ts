@@ -1,7 +1,7 @@
 /**
  * Tier-B seam — deterministic stub hook (v1 wiring only, NOT ratcheted).
  *
- * Proves the propose/realize/cache contract the real DLA hook will plug into,
+ * Proves the propose/realize/cache contract the real reference hook will plug into,
  * with no model call and no network:
  *   - propose(specs): the costly, non-deterministic step in a real hook (an LLM
  *     polish/repair pass). Here it is a deterministic stand-in, cached by
@@ -9,7 +9,7 @@
  *     cache instead of recomputing.
  *   - realize(raw): the deterministic tail — validate the cached artifact.
  *
- * A real DLA-hook capture lands as a fast follow by populating the cache with
+ * A real reference-hook capture lands as a fast follow by populating the cache with
  * actual hook output; nothing in this file's shape changes.
  */
 import { reconstructEngine } from './reconstruct.js';

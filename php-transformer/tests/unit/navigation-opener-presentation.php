@@ -14,9 +14,9 @@ if ('' === $page) foreach ($plan['pages'] as $document) $page .= $document['cano
 $assert(str_contains($page, 'blocksEngineNavigationOpener'), 'source-only single passive SVG reaches native navigation metadata');
 $assert(str_contains($page, 'M2 3h16v2H2zM2 9h16v2H2zM2 15h16v2H2z'), 'original source artwork is retained rather than a generic menu variant');
 foreach (array(
-    'mixed label' => str_replace('data-dla-dialog-trigger="phone-menu">', 'data-dla-dialog-trigger="phone-menu">Menu', $source),
-    'multiple icons' => str_replace('data-dla-dialog-trigger="phone-menu">', 'data-dla-dialog-trigger="phone-menu"><svg width="12" height="12"><circle r="4" /></svg>', $source),
-    'document-dependent svg' => str_replace('data-dla-dialog-trigger="phone-menu">' . $icon, 'data-dla-dialog-trigger="phone-menu"><svg width="20" height="20"><defs><linearGradient id="paint" /></defs><rect fill="url(#paint)" width="20" height="20" /></svg>', $source),
+    'mixed label' => str_replace('data-blocks-engine-capture-dialog-trigger="phone-menu">', 'data-blocks-engine-capture-dialog-trigger="phone-menu">Menu', $source),
+    'multiple icons' => str_replace('data-blocks-engine-capture-dialog-trigger="phone-menu">', 'data-blocks-engine-capture-dialog-trigger="phone-menu"><svg width="12" height="12"><circle r="4" /></svg>', $source),
+    'document-dependent svg' => str_replace('data-blocks-engine-capture-dialog-trigger="phone-menu">' . $icon, 'data-blocks-engine-capture-dialog-trigger="phone-menu"><svg width="20" height="20"><defs><linearGradient id="paint" /></defs><rect fill="url(#paint)" width="20" height="20" /></svg>', $source),
 ) as $name => $negative) {
     $result = $compile($negative);
     $markup = '';

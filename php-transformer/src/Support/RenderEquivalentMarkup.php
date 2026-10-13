@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+
 /**
  * One spelling for markup that renders identically but serializes differently.
  *
@@ -10,14 +12,14 @@ namespace Automattic\BlocksEngine\PhpTransformer\Support;
  * written down: a server-rendered string versus a browser-reserialized DOM
  * (`style="display:grid" class="x"` versus `class="x" style="display: grid;"`),
  * a zero box length spelled `0px`, `0%` or `calc(0px)`, or a capture diagnostic
- * attribute (`data-dla-anchor-unresolved`) recording how one page was observed.
+ * attribute (`data-blocks-engine-capture-anchor-unresolved`) recording how one page was observed.
  * Anything comparing such components for identity reads them through this
  * canonical form; emitted markup is never rewritten by it.
  */
 final class RenderEquivalentMarkup
 {
     /** Capture diagnostics that describe how a page was observed, not what it renders. */
-    private const DIAGNOSTIC_ATTRIBUTES = array('data-dla-anchor-unresolved');
+    private const DIAGNOSTIC_ATTRIBUTES = array(CaptureEvidence::ANCHOR_UNRESOLVED);
 
     /**
      * Whether a single CSS value is a zero length or percentage: `0`, `0px`,

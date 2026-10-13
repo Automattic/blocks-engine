@@ -13,7 +13,7 @@ const input = process.argv[2];
 const evidenceRoot = process.argv[3];
 assert.ok(input && evidenceRoot, 'Usage: node document-head-paired.mjs <input.json> <fresh evidence directory>');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const checkpoint = `<script>window.__headCheckpoint={bodyAbsent:document.body===null,viewports:[...document.querySelectorAll('meta[name="viewport"]')].map(e=>({content:e.getAttribute('content'),id:e.id})),selectedDocument:document.documentElement.getAttribute('data-dla-selected-document'),styles:[...document.head.querySelectorAll('style,link[rel="stylesheet"]')].map(e=>({tag:e.tagName.toLowerCase(),media:e.getAttribute('media'),attributes:Object.fromEntries([...e.attributes].filter(a=>a.name.startsWith('data-')).map(a=>[a.name,a.value]))}))};</script>`;
+const checkpoint = `<script>window.__headCheckpoint={bodyAbsent:document.body===null,viewports:[...document.querySelectorAll('meta[name="viewport"]')].map(e=>({content:e.getAttribute('content'),id:e.id})),selectedDocument:document.documentElement.getAttribute('data-blocks-engine-capture-selected-document'),styles:[...document.head.querySelectorAll('style,link[rel="stylesheet"]')].map(e=>({tag:e.tagName.toLowerCase(),media:e.getAttribute('media'),attributes:Object.fromEntries([...e.attributes].filter(a=>a.name.startsWith('data-')).map(a=>[a.name,a.value]))}))};</script>`;
 const server = http.createServer(async (request, response) => {
   try {
     const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);

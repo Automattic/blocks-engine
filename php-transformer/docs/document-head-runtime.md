@@ -85,10 +85,10 @@ materialization. Ordinary descriptive metadata retains its existing routing.
 ## Device-document source contracts
 
 Source-owned scope and authored-media attributes travel unchanged. In particular,
-`data-dla-document-scope` and `data-dla-source-media` are ordinary attribute data
+`data-blocks-engine-capture-document-scope` and `data-blocks-engine-capture-source-media` are ordinary attribute data
 to the head materializer; it contains no destination-specific selector logic.
 The source selector owns device activation. A stored `media="not all"` can be
-an inactive device's activation state, while `data-dla-source-media` records its
+an inactive device's activation state, while `data-blocks-engine-capture-source-media` records its
 author condition. These are distinct values; materialization preserves both and
 executes the source selectors in their declared head positions.
 

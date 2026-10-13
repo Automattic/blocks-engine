@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
@@ -13,15 +14,10 @@ use DOMXPath;
 /** Projects bounded captured-dialog evidence into the matching source document. */
 final class CapturedDialogProjector
 {
-    private const REPORT_SCHEMA = 'data-liberation/captured-interactions/v1';
-    private const RECEIPT_SCHEMA = 'data-liberation/capture-receipt/v1';
     private const MAX_PAGES = 128;
     private const MAX_STATES_PER_PAGE = 8;
     private const MAX_DIALOG_BYTES = 65536;
 
-    // Identity of DLA's generated, site-independent disclosure interpreter.
-    // A marker alone does not establish ownership of an arbitrary source script.
-    private const SCOPED_DISCLOSURE_HASH = 'db750332c5e6db4d359188bc5217f5fab88e4badc5e9911bf6fd95f3d8624614';
 
     /** @var list<DOMElement> Panels proven by the existing complete gallery contract. */
     private array $nativeGalleryPanels = array();
@@ -37,7 +33,7 @@ final class CapturedDialogProjector
         if (null === $report) {
             return $this->retireOwnedDisclosureWithoutProjection($files, array());
         }
-        if (self::REPORT_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
+        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_invalid', 'warning', 'The captured interaction report has an unsupported schema or pages shape.')), 'projected_count' => 0);
         }
         if (count($report['pages']) > self::MAX_PAGES) {
@@ -48,7 +44,7 @@ final class CapturedDialogProjector
         }
 
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
-        if (null === $receipt || self::RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
+        if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
             return $this->retireOwnedDisclosureWithoutProjection($files, array($this->diagnostic('captured_interactions_route_map_missing', 'warning', 'Captured dialogs were not projected because the capture receipt route map is unavailable.')));
         }
 
@@ -213,7 +209,7 @@ final class CapturedDialogProjector
             if ('listbox' === strtolower(trim((string) ($dialog['role'] ?? '')))) {
                 $key = 'blocks-engine-listbox-' . $identity;
                 foreach ($triggers as $trigger) {
-                    $trigger->setAttribute('data-dla-listbox-trigger', $key);
+                    $trigger->setAttribute(CaptureEvidence::LISTBOX_TRIGGER, $key);
                     $trigger->setAttribute('type', 'button');
                     $trigger->removeAttribute('aria-expanded');
                     $trigger->removeAttribute('aria-controls');
@@ -221,7 +217,7 @@ final class CapturedDialogProjector
                 $listbox = $document->createElement('div');
                 $listbox->setAttribute('hidden', '');
                 $listbox->setAttribute('role', 'listbox');
-                $listbox->setAttribute('data-dla-listbox-panel', $key);
+                $listbox->setAttribute(CaptureEvidence::LISTBOX_PANEL, $key);
                 foreach ($fragment['nodes'] as $node) {
                     $listbox->appendChild($document->importNode($node, true));
                 }
@@ -245,9 +241,9 @@ final class CapturedDialogProjector
         $retired = array();
         if ($galleryCount > 0) {
             foreach (iterator_to_array($document->getElementsByTagName('script')) as $script) {
-                if (!$script instanceof DOMElement || !$script->hasAttribute('data-dla-gallery-runtime')) continue;
+                if (!$script instanceof DOMElement || !$script->hasAttribute(CaptureEvidence::GALLERY_RUNTIME)) continue;
                 $body = trim($script->textContent ?? '');
-                if ('' !== $body) $retired[] = array('body' => $body, 'attribute' => 'data-dla-gallery-runtime', 'reason' => 'native_carousel_and_dialog_replace_capture_gallery');
+                if ('' !== $body) $retired[] = array('body' => $body, 'attribute' => CaptureEvidence::GALLERY_RUNTIME, 'reason' => 'native_carousel_and_dialog_replace_capture_gallery');
                 $script->parentNode?->removeChild($script);
             }
         }
@@ -280,14 +276,14 @@ final class CapturedDialogProjector
             $fullFrames = $lightbox['frames'] ?? array();
             $validCycle = static fn(array $cycle): bool => 'complete' === ($cycle['coverage'] ?? '') && 'verified' === ($cycle['restoration'] ?? '') && is_array($cycle['frames'] ?? null) && count($cycle['frames']) >= 2 && count($cycle['frames']) <= 24;
             if (!$validCycle($inline)) continue;
-            $roots = $xpath->query('//*[@data-dla-gallery-source=' . $this->xpathLiteral((string) ($inline['selector'] ?? '')) . ' and @data-dla-gallery-capture-width=' . $this->xpathLiteral((string) ($inline['viewport']['width'] ?? '')) . ']');
+            $roots = $xpath->query('//*[@' . CaptureEvidence::GALLERY_SOURCE . '=' . $this->xpathLiteral((string) ($inline['selector'] ?? '')) . ' and @' . CaptureEvidence::GALLERY_CAPTURE_WIDTH . '=' . $this->xpathLiteral((string) ($inline['viewport']['width'] ?? '')) . ']');
             if ($roots && 0 === $roots->length) continue; // A responsive collapse can retain only one captured viewport.
             if (!$roots || 1 !== $roots->length) {
                 $diagnostics[] = $this->diagnostic('captured_gallery_source_unmatched', 'warning', 'The observed gallery did not match one viewport-scoped authoring root.', array('source_path' => $path));
                 continue;
             }
             $root = $roots->item(0);
-            $stage = $xpath->query('.//*[@data-dla-gallery-stage]', $root)?->item(0);
+            $stage = $xpath->query('.//*[@' . CaptureEvidence::GALLERY_STAGE . ']', $root)?->item(0);
             if (!$stage instanceof DOMElement) continue;
             $stage->setAttribute('role', 'list');
             foreach ($stage->childNodes as $item) if ($item instanceof DOMElement) $item->setAttribute('role', 'listitem');
@@ -306,13 +302,13 @@ final class CapturedDialogProjector
                     continue 2;
                 }
             }
-            $key = $stage->getAttribute('data-dla-dialog-trigger');
+            $key = $stage->getAttribute(CaptureEvidence::DIALOG_TRIGGER);
             $scope = $document->documentElement;
             foreach ($this->documentScopes($document) as $candidateScope) if (SourceDom::elementContains($candidateScope, $root)) { $scope = $candidateScope; break; }
-            $panels = $xpath->query('.//*[@data-dla-dialog-panel=' . $this->xpathLiteral($key) . ']', $scope);
+            $panels = $xpath->query('.//*[@' . CaptureEvidence::DIALOG_PANEL . '=' . $this->xpathLiteral($key) . ']', $scope);
             $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
             if (!$panel instanceof DOMElement) continue;
-            $fullStage = $xpath->query('.//*[@data-dla-gallery-stage]', $panel)?->item(0);
+            $fullStage = $xpath->query('.//*[@' . CaptureEvidence::GALLERY_STAGE . ']', $panel)?->item(0);
             if (!$fullStage instanceof DOMElement) continue;
             $children = array_values(array_filter(iterator_to_array($fullStage->childNodes), static fn($child): bool => $child instanceof DOMElement));
             if (count($children) !== count($fullFrames)) continue;
@@ -322,7 +318,7 @@ final class CapturedDialogProjector
             $list = $document->createElement('div');
             $list->setAttribute('class', 'slideshow');
             $list->setAttribute('role', 'list');
-            $list->setAttribute('data-dla-gallery-initial', (string) ($lightbox['initial'] ?? 0));
+            $list->setAttribute(CaptureEvidence::GALLERY_INITIAL, (string) ($lightbox['initial'] ?? 0));
             foreach ($children as $index => $child) {
                 $image = $child->getElementsByTagName('img')->item(0);
                 if (!$image instanceof DOMElement || '' === $image->getAttribute('src')) continue 2;
@@ -407,7 +403,7 @@ final class CapturedDialogProjector
     /**
      * The responsive document (desktop, mobile, ...) that holds every trigger,
      * else the body. A dialog mounted there keeps the document's variant-scoped
-     * author rules (`:where([data-dla-device-document="mobile"]) .panel`) and
+     * author rules (`:where([data-blocks-engine-capture-device-document="mobile"]) .panel`) and
      * its display state, as the source panel had them. A modal still renders in
      * the top layer, so the mount point does not move it on screen.
      *
@@ -433,7 +429,7 @@ final class CapturedDialogProjector
     private function triggerAncestorState(array $triggers): array
     {
         foreach ($triggers as $trigger) {
-            $bindings = json_decode($trigger->getAttribute('data-dla-dialog-ancestor-state'), true);
+            $bindings = json_decode($trigger->getAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE), true);
             if (! is_array($bindings) || array() === $bindings || count($bindings) > 8) continue;
             $state = array();
             foreach ($bindings as $binding) {
@@ -456,8 +452,8 @@ final class CapturedDialogProjector
 
     /**
      * A capture that already wired its dialogs in the exported document keeps
-     * each trigger (`data-dla-dialog-trigger`) beside an in-place hidden panel
-     * (`data-dla-dialog-panel`). Adopt that panel as the native dialog bound to
+     * each trigger (`data-blocks-engine-capture-dialog-trigger`) beside an in-place hidden panel
+     * (`data-blocks-engine-capture-dialog-panel`). Adopt that panel as the native dialog bound to
      * its trigger, so the wiring runtime is retired like any other projected
      * dialog instead of leaving an unbound trigger target behind.
      *
@@ -475,10 +471,10 @@ final class CapturedDialogProjector
         }
         foreach ($scopes as $scopeIndex => $scope) {
             $groups = array();
-            foreach ($xpath->query('.//*[@data-dla-dialog-trigger]', $scope) ?: array() as $trigger) {
+            foreach ($xpath->query('.//*[@' . CaptureEvidence::DIALOG_TRIGGER . ']', $scope) ?: array() as $trigger) {
                 if (! $trigger instanceof DOMElement || $this->insideProjectedDialog($trigger)) continue;
                 if ($this->isNavigationDropdownTrigger($trigger)) continue;
-                $key = trim($trigger->getAttribute('data-dla-dialog-trigger'));
+                $key = trim($trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER));
                 if (1 === preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key) && $key === trim($trigger->getAttribute('aria-controls'))) {
                     $groups[$key][] = $trigger;
                 }
@@ -486,7 +482,7 @@ final class CapturedDialogProjector
             if (count($groups) > self::MAX_STATES_PER_PAGE) continue;
             foreach ($groups as $key => $triggers) {
                 if (count($triggers) > self::MAX_STATES_PER_PAGE) continue;
-                $panels = $xpath->query('.//*[@data-dla-dialog-panel=' . $this->xpathLiteral((string) $key) . ']', $scope);
+                $panels = $xpath->query('.//*[@' . CaptureEvidence::DIALOG_PANEL . '=' . $this->xpathLiteral((string) $key) . ']', $scope);
                 $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
                 if (! $panel instanceof DOMElement || array() !== array_filter($triggers, static fn(DOMElement $trigger): bool => SourceDom::elementContains($panel, $trigger))) continue;
                 if (array() !== array_filter($triggers, fn(DOMElement $trigger): bool => $this->isCapturedNavigationOverlayTrigger($trigger))) continue;
@@ -499,7 +495,7 @@ final class CapturedDialogProjector
                 // scope into a modal changes the captured document contract.
                 // Keep the bounded source wiring and let normal runtime proof
                 // validate it rather than replacing it from a second report.
-                if ($scope->hasAttribute('data-dla-document-scope')) {
+                if ($scope->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)) {
                     if (!$nativeScopedWiring) {
                         array_push($adopted, ...$triggers);
                         continue;
@@ -520,19 +516,19 @@ final class CapturedDialogProjector
                     $triggerIds[] = $triggerId;
                     $menu = $menu || 'menu' === strtolower(trim($trigger->getAttribute('aria-haspopup')));
                 }
-                // The producer marks an in-place dropdown panel with `dla-dropdown`.
-                $dropdown = in_array('dla-dropdown', preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), true);
+                // The producer marks an in-place dropdown panel with `data-blocks-engine-capture-dropdown`.
+                $dropdown = in_array(CaptureEvidence::DROPDOWN_CLASS, preg_split('/\s+/', trim($panel->getAttribute('class'))) ?: array(), true);
                 // The producer placed a dropdown panel where the source rendered
-                // it (`data-dla-observed-placement`); the dialog stays there.
-                $scopedPanel = $nativeScopedWiring && $scope->hasAttribute('data-dla-document-scope') && $dropdown;
-                $sourcePlace = ($dropdown && ($scopedPanel || $panel->hasAttribute('data-dla-observed-placement'))) || $this->isNativeGalleryPanel($panel) ? $panel : null;
+                // it (`data-blocks-engine-capture-observed-placement`); the dialog stays there.
+                $scopedPanel = $nativeScopedWiring && $scope->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && $dropdown;
+                $sourcePlace = ($dropdown && ($scopedPanel || $panel->hasAttribute(CaptureEvidence::OBSERVED_PLACEMENT))) || $this->isNativeGalleryPanel($panel) ? $panel : null;
                 $dialog = $this->appendProjectedDialog($document, $fragment, $triggers, $triggerIds, $identity, $dropdown, $sourcePlace, $scopedPanel);
                 if ($scopedPanel) {
                     foreach ($triggers as $trigger) {
-                        foreach (array('data-dla-dialog-panel-state', 'data-dla-dialog-ancestor-state', 'data-dla-disclosure-label') as $attribute) $trigger->removeAttribute($attribute);
+                        foreach (array(CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DIALOG_ANCESTOR_STATE, CaptureEvidence::DISCLOSURE_LABEL) as $attribute) $trigger->removeAttribute($attribute);
                     }
-                    if ($triggers[0]->hasAttribute('data-dla-dialog-ancestor-unverified')) {
-                        $dialog->setAttribute('data-dla-dialog-ancestor-unverified', $triggers[0]->getAttribute('data-dla-dialog-ancestor-unverified'));
+                    if ($triggers[0]->hasAttribute(CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED)) {
+                        $dialog->setAttribute(CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED, $triggers[0]->getAttribute(CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED));
                     }
                 }
                 $selection = json_decode($panel->getAttribute('data-blocks-engine-gallery-selection'), true);
@@ -542,7 +538,7 @@ final class CapturedDialogProjector
                 if ($menu) $dialog->setAttribute('data-blocks-engine-captured-menu', 'true');
                 $panel->parentNode?->removeChild($panel);
                 foreach (iterator_to_array($scope->getElementsByTagName('button')) as $button) {
-                    if ($button instanceof DOMElement && $button->getAttribute('data-dla-dialog-close') === (string) $key && $button->hasAttribute('hidden') && ! SourceDom::elementContains($dialog, $button)) {
+                    if ($button instanceof DOMElement && $button->getAttribute(CaptureEvidence::DIALOG_CLOSE) === (string) $key && $button->hasAttribute('hidden') && ! SourceDom::elementContains($dialog, $button)) {
                         $button->parentNode?->removeChild($button);
                     }
                 }
@@ -561,12 +557,14 @@ final class CapturedDialogProjector
     {
         $known = false;
         foreach ($document->getElementsByTagName('script') as $script) {
-            if ($script->hasAttribute('data-dla-disclosure-runtime')) {
-                if (self::SCOPED_DISCLOSURE_HASH !== hash('sha256', trim($script->textContent ?? ''))) return false;
+            if ($script->hasAttribute(CaptureEvidence::DISCLOSURE_RUNTIME)) {
+                // A marker alone does not establish ownership of an arbitrary source
+                // script; the body must be the recognized capture interpreter.
+                if (CaptureEvidence::DISCLOSURE_RUNTIME_SHA256 !== hash('sha256', trim($script->textContent ?? ''))) return false;
                 $known = true;
-            } elseif ($script->hasAttribute('data-dla-gallery-runtime')) {
-                if ('1321b380fa549db7e589c3e7cf67dfec91c2810da2f4c237dc9fefb5a649c5a7' !== hash('sha256', trim($script->textContent ?? ''))) return false;
-            } elseif (!$script->hasAttribute('data-dla-native-control-runtime')
+            } elseif ($script->hasAttribute(CaptureEvidence::GALLERY_RUNTIME)) {
+                if (CaptureEvidence::GALLERY_RUNTIME_SHA256 !== hash('sha256', trim($script->textContent ?? ''))) return false;
+            } elseif (!$script->hasAttribute(CaptureEvidence::NATIVE_CONTROL_RUNTIME)
                 && \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::isExecutableScriptType($script->getAttribute('type'), 'module' === $script->getAttribute('type'))
             ) {
                 return false;
@@ -575,20 +573,20 @@ final class CapturedDialogProjector
         if (!$known || count($scopes) > self::MAX_STATES_PER_PAGE) return false;
         $xpath = new DOMXPath($document);
         foreach ($scopes as $scope) {
-            $triggers = $xpath->query('.//*[@data-dla-dialog-trigger]', $scope);
+            $triggers = $xpath->query('.//*[@' . CaptureEvidence::DIALOG_TRIGGER . ']', $scope);
             if (!$triggers || $triggers->length > self::MAX_STATES_PER_PAGE) return false;
             $snapshots = array();
             foreach ($triggers as $trigger) {
                 if (!$trigger instanceof DOMElement) return false;
-                $key = $trigger->getAttribute('data-dla-dialog-trigger');
+                $key = $trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER);
                 if (1 !== preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key) || $key !== $trigger->getAttribute('aria-controls')) return false;
                 $panels = $xpath->query('.//*[@id=' . $this->xpathLiteral($key) . ']', $scope);
                 $panel = $panels && 1 === $panels->length ? $panels->item(0) : null;
                 $gallery = $panel instanceof DOMElement && $this->isNativeGalleryPanel($panel);
                 if (!$gallery && !in_array(strtolower($trigger->tagName), array('button', 'a', 'summary'), true) && 'button' !== strtolower($trigger->getAttribute('role'))) return false;
                 if (!$panel instanceof DOMElement || 'div' !== strtolower($panel->tagName)
-                    || $key !== $panel->getAttribute('data-dla-dialog-panel')
-                    || (!$gallery && !SourceDom::hasClass($panel, 'dla-dropdown'))
+                    || $key !== $panel->getAttribute(CaptureEvidence::DIALOG_PANEL)
+                    || (!$gallery && !SourceDom::hasClass($panel, CaptureEvidence::DROPDOWN_CLASS))
                     || !$panel->hasAttribute('hidden')
                     || (!$gallery && !$trigger->parentNode?->isSameNode($panel->parentNode))
                     || strlen((string) $document->saveHTML($panel)) > self::MAX_DIALOG_BYTES
@@ -597,7 +595,7 @@ final class CapturedDialogProjector
                 foreach (array_merge(array($trigger, $panel), iterator_to_array($panel->getElementsByTagName('*'))) as $node) {
                     if (array() !== SourceDom::eventMetadata($node) || $node->hasAttribute('jsaction')) return false;
                 }
-                $snapshot = $trigger->getAttribute('data-dla-dialog-panel-state');
+                $snapshot = $trigger->getAttribute(CaptureEvidence::DIALOG_PANEL_STATE);
                 if (isset($snapshots[$key]) && $snapshots[$key] !== $snapshot) return false;
                 $snapshots[$key] = $snapshot;
             }
@@ -630,7 +628,7 @@ final class CapturedDialogProjector
         $label = $this->normalizedLabel((string) ($trigger['label'] ?? ''));
         if ('' === $label) return false;
         foreach ($adopted as $candidate) {
-            $name = $this->normalizedLabel($candidate->getAttribute('data-dla-disclosure-label'));
+            $name = $this->normalizedLabel($candidate->getAttribute(CaptureEvidence::DISCLOSURE_LABEL));
             if ('' !== $name && (str_starts_with($name, $label) || str_starts_with($label, $name))) return true;
         }
 
@@ -651,7 +649,7 @@ final class CapturedDialogProjector
     private function hasNavigationOwnedDialogTrigger(DOMDocument $document): bool
     {
         foreach ($document->getElementsByTagName('*') as $node) {
-            if ($node instanceof DOMElement && '' !== trim($node->getAttribute('data-dla-dialog-trigger')) && $this->isNavigationDropdownTrigger($node)) return true;
+            if ($node instanceof DOMElement && '' !== trim($node->getAttribute(CaptureEvidence::DIALOG_TRIGGER)) && $this->isNavigationDropdownTrigger($node)) return true;
         }
         return false;
     }
@@ -671,9 +669,9 @@ final class CapturedDialogProjector
     {
         $retired = array();
         foreach (iterator_to_array($document->getElementsByTagName('script')) as $script) {
-            if (!$script instanceof DOMElement || !$script->hasAttribute('data-dla-disclosure-runtime')) continue;
+            if (!$script instanceof DOMElement || !$script->hasAttribute(CaptureEvidence::DISCLOSURE_RUNTIME)) continue;
             $body = trim($script->textContent ?? '');
-            if ('' !== $body) $retired[] = array('body' => $body, 'attribute' => 'data-dla-disclosure-runtime', 'reason' => $reason);
+            if ('' !== $body) $retired[] = array('body' => $body, 'attribute' => CaptureEvidence::DISCLOSURE_RUNTIME, 'reason' => $reason);
             $script->parentNode?->removeChild($script);
         }
         return $retired;
@@ -693,7 +691,7 @@ final class CapturedDialogProjector
         foreach ($files as $index => $file) {
             $content = $file['content'] ?? null;
             $path = (string) ($file['path'] ?? '');
-            if (!preg_match('/\.html?$/i', $path) || !is_string($content) || !str_contains($content, 'data-dla-disclosure-runtime') || !str_contains($content, 'data-dla-dialog-trigger')) continue;
+            if (!preg_match('/\.html?$/i', $path) || !is_string($content) || !str_contains($content, CaptureEvidence::DISCLOSURE_RUNTIME) || !str_contains($content, CaptureEvidence::DIALOG_TRIGGER)) continue;
             $previous = libxml_use_internal_errors(true);
             $document = new DOMDocument('1.0', 'UTF-8');
             $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
@@ -721,10 +719,10 @@ final class CapturedDialogProjector
     private function consumeMatchedCloseHelper(DOMDocument $document, array $triggers, DOMElement $dialog): void
     {
         foreach ($triggers as $trigger) {
-            $key = trim($trigger->getAttribute('data-dla-dialog-trigger'));
+            $key = trim($trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER));
             if ('' === $key || !preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key)) continue;
             foreach (iterator_to_array($document->getElementsByTagName('button')) as $button) {
-                if (!$button instanceof DOMElement || $button->getAttribute('data-dla-dialog-close') !== $key || !$button->hasAttribute('hidden')) continue;
+                if (!$button instanceof DOMElement || $button->getAttribute(CaptureEvidence::DIALOG_CLOSE) !== $key || !$button->hasAttribute('hidden')) continue;
                 if (SourceDom::elementContains($dialog, $button)) continue;
                 if ('close' !== strtolower(trim($button->textContent ?? ''))) continue;
                 $button->parentNode?->removeChild($button);
@@ -735,7 +733,7 @@ final class CapturedDialogProjector
     private function hasDialogCloseHelper(DOMDocument $document): bool
     {
         foreach ($document->getElementsByTagName('button') as $button) {
-            if ($button instanceof DOMElement && '' !== trim($button->getAttribute('data-dla-dialog-close'))) return true;
+            if ($button instanceof DOMElement && '' !== trim($button->getAttribute(CaptureEvidence::DIALOG_CLOSE))) return true;
         }
         return false;
     }
@@ -750,7 +748,7 @@ final class CapturedDialogProjector
             }
         }
         foreach ($document->getElementsByTagName('*') as $node) {
-            if (!$node instanceof DOMElement || '' === trim($node->getAttribute('data-dla-dialog-trigger'))) continue;
+            if (!$node instanceof DOMElement || '' === trim($node->getAttribute(CaptureEvidence::DIALOG_TRIGGER))) continue;
             // A navigation dropdown trigger becomes a submenu, so it needs no dialog binding.
             if ($this->isNavigationDropdownTrigger($node)) continue;
             $id = trim($node->getAttribute('id'));

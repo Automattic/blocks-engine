@@ -27,7 +27,7 @@ $undecodable = static fn (array $result): array => array_values(array_filter(
     static fn (mixed $diagnostic): bool => is_array($diagnostic) && 'glyph_color_undecodable' === ($diagnostic['code'] ?? null)
 ));
 $cluster = static function (string $src, string $glyphAttribute = ''): string {
-    $attribute = '' === $glyphAttribute ? '' : ' data-dla-glyph-color="' . $glyphAttribute . '"';
+    $attribute = '' === $glyphAttribute ? '' : ' data-blocks-engine-capture-glyph-color="' . $glyphAttribute . '"';
 
     return '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><img src="' . $src . '"' . $attribute . ' width="8" height="8" alt=""></a></li>'
         . '<li><a href="https://www.instagram.com/example" aria-label="Instagram"><img src="' . $src . '"' . $attribute . ' width="8" height="8" alt=""></a></li></ul>';
@@ -42,7 +42,7 @@ $capturedBlock = $social($captured);
 $assert('core/social-links' === ($capturedBlock['blockName'] ?? ''), 'a captured glyph cluster lowers to core/social-links');
 $assert('#1877f2' === ($capturedBlock['attrs']['iconColorValue'] ?? null), 'a captured glyph colour becomes the lowercase iconColorValue without decoding the AVIF, got ' . json_encode($capturedBlock['attrs'] ?? null));
 $assert(array() === $undecodable($captured), 'a captured glyph colour records no glyph_color_undecodable, got ' . json_encode($undecodable($captured)));
-$assert(! str_contains((string) json_encode($captured), 'data-dla-glyph-color'), 'the captured glyph colour attribute never reaches the result');
+$assert(! str_contains((string) json_encode($captured), 'data-blocks-engine-capture-glyph-color'), 'the captured glyph colour attribute never reaches the result');
 
 $absent = (new HtmlTransformer())->transform($cluster($garbageUri))->toArray();
 $assert(! isset($social($absent)['attrs']['iconColorValue']), 'without the attribute an undecodable glyph keeps the default icon colour');
@@ -52,7 +52,7 @@ foreach ( array( '1877f2', '#1877f', '#1877f2ff', 'rgb(24,119,242)', '#18 77f2',
     $fallback = (new HtmlTransformer())->transform($cluster($garbageUri, $invalid))->toArray();
     $assert(! isset($social($fallback)['attrs']['iconColorValue']), 'an invalid captured value ' . json_encode($invalid) . ' is treated as absent');
     $assert(1 === count($undecodable($fallback)), 'an invalid captured value ' . json_encode($invalid) . ' falls back to decoding');
-    $assert(! str_contains((string) json_encode($fallback), 'data-dla-glyph-color'), 'an invalid captured value ' . json_encode($invalid) . ' is stripped too');
+    $assert(! str_contains((string) json_encode($fallback), 'data-blocks-engine-capture-glyph-color'), 'an invalid captured value ' . json_encode($invalid) . ' is stripped too');
 }
 
 $image = imagecreatetruecolor(8, 8);
@@ -70,27 +70,27 @@ $preferred = (new HtmlTransformer())->transform($cluster($pngUri, '#1877f2'))->t
 $assert('#1877f2' === ($social($preferred)['attrs']['iconColorValue'] ?? null), 'the captured rendered colour wins over the decoded image colour');
 
 $svg = (new HtmlTransformer())->transform(
-    '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><svg data-dla-glyph-color="#1877f2" width="16" height="16" fill="currentColor"><path d="M0 0h16v16z"/></svg></a></li>'
-    . '<li><a href="https://www.instagram.com/example" aria-label="Instagram"><svg data-dla-glyph-color="#1877f2" width="16" height="16" fill="currentColor"><path d="M0 0h16v16z"/></svg></a></li></ul>'
+    '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><svg data-blocks-engine-capture-glyph-color="#1877f2" width="16" height="16" fill="currentColor"><path d="M0 0h16v16z"/></svg></a></li>'
+    . '<li><a href="https://www.instagram.com/example" aria-label="Instagram"><svg data-blocks-engine-capture-glyph-color="#1877f2" width="16" height="16" fill="currentColor"><path d="M0 0h16v16z"/></svg></a></li></ul>'
 )->toArray();
 $assert('#1877f2' === ($social($svg)['attrs']['iconColorValue'] ?? null), 'a captured colour on an inline svg glyph becomes iconColorValue');
 
 $background = (new HtmlTransformer())->transform(
-    '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><span class="icon" data-dla-glyph-color="#1877f2"></span></a></li>'
-    . '<li><a href="https://www.instagram.com/example" aria-label="Instagram"><span class="icon" data-dla-glyph-color="#1877f2"></span></a></li></ul>'
+    '<ul class="social-links"><li><a href="https://www.youtube.com/example" aria-label="YouTube"><span class="icon" data-blocks-engine-capture-glyph-color="#1877f2"></span></a></li>'
+    . '<li><a href="https://www.instagram.com/example" aria-label="Instagram"><span class="icon" data-blocks-engine-capture-glyph-color="#1877f2"></span></a></li></ul>'
 )->toArray();
 $assert('#1877f2' === ($social($background)['attrs']['iconColorValue'] ?? null), 'a captured colour on a background-image glyph element becomes iconColorValue');
 
 // Outside a social cluster the attribute is stripped from whatever markup the glyph lowers to.
 foreach ( array(
-    '<a href="/contact"><picture><source srcset="/i.avif" type="image/avif"><img src="/i.png" data-dla-glyph-color="#1877f2" width="20" height="20" alt="Contact"></picture></a>',
-    '<button class="menu"><span class="icon" style="background-image:url(/i.png);width:16px;height:16px;display:inline-block" data-dla-glyph-color="#1877f2"></span>Menu</button>',
-    '<a href="/next" class="cta"><svg data-dla-glyph-color="#1877f2" width="16" height="16" viewBox="0 0 16 16"><path d="M0 0h16v16z"/></svg> Next</a>',
-    '<div onclick="go()"><a href="/x"><img src="/i.png" data-dla-glyph-color="#1877f2" alt=""></a><canvas></canvas></div>',
+    '<a href="/contact"><picture><source srcset="/i.avif" type="image/avif"><img src="/i.png" data-blocks-engine-capture-glyph-color="#1877f2" width="20" height="20" alt="Contact"></picture></a>',
+    '<button class="menu"><span class="icon" style="background-image:url(/i.png);width:16px;height:16px;display:inline-block" data-blocks-engine-capture-glyph-color="#1877f2"></span>Menu</button>',
+    '<a href="/next" class="cta"><svg data-blocks-engine-capture-glyph-color="#1877f2" width="16" height="16" viewBox="0 0 16 16"><path d="M0 0h16v16z"/></svg> Next</a>',
+    '<div onclick="go()"><a href="/x"><img src="/i.png" data-blocks-engine-capture-glyph-color="#1877f2" alt=""></a><canvas></canvas></div>',
 ) as $html ) {
     $result = (new HtmlTransformer())->transform($html)->toArray();
     $assert('' !== (string) ($result['serialized_blocks'] ?? ''), 'glyph markup still converts');
-    $assert(! str_contains((string) json_encode($result), 'data-dla-glyph-color'), 'the captured glyph colour attribute does not leak from ' . $html);
+    $assert(! str_contains((string) json_encode($result), 'data-blocks-engine-capture-glyph-color'), 'the captured glyph colour attribute does not leak from ' . $html);
 }
 
 // Artifact compile: a captured reference is never decoded, so no payload read and no finding.
@@ -127,7 +127,7 @@ $compileReferenced = static function (string $html) use ($reference, $garbageAvi
 $assert('#1877f2' === ($social($compiled)['attrs']['iconColorValue'] ?? null), 'a compiled captured AVIF glyph carries iconColorValue #1877f2, got ' . json_encode($social($compiled)['attrs'] ?? null));
 $assert(array() === $undecodable($compiled), 'a compiled captured AVIF glyph records no glyph_color_undecodable');
 $assert(0 === $reads, 'a glyph asset whose every reference is captured is never read for decoding, got ' . $reads . ' reads');
-$assert(! str_contains((string) ($compiled['serialized_blocks'] ?? ''), 'data-dla-glyph-color'), 'compiled block markup carries no captured glyph colour attribute');
+$assert(! str_contains((string) ($compiled['serialized_blocks'] ?? ''), 'data-blocks-engine-capture-glyph-color'), 'compiled block markup carries no captured glyph colour attribute');
 [ $uncaptured, $uncapturedReads ] = $compileReferenced($cluster('/icons/item.avif'));
 $assert(1 === $uncapturedReads, 'an uncaptured glyph asset is still decoded');
 $assert(! isset($social($uncaptured)['attrs']['iconColorValue']) && array() !== $undecodable($uncaptured), 'an uncaptured undecodable glyph keeps today\'s finding');
@@ -152,7 +152,7 @@ $headerPart = current(array_filter(
 ));
 $headerMarkup = is_array($headerPart) ? (string) ($headerPart['canonical_block_markup'] ?? '') : '';
 $assert(str_contains($headerMarkup, '"iconColorValue":"#1877f2"'), 'a shared header template part carries the captured glyph colour, got ' . $headerMarkup);
-$assert(! str_contains($headerMarkup, 'data-dla-glyph-color'), 'the header template part carries no captured glyph colour attribute');
+$assert(! str_contains($headerMarkup, 'data-blocks-engine-capture-glyph-color'), 'the header template part carries no captured glyph colour attribute');
 $assert(array() === $undecodable($site), 'a captured shared header records no glyph_color_undecodable');
 
 echo "Captured glyph color tests passed\n";

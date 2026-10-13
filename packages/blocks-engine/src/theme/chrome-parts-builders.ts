@@ -218,10 +218,10 @@ function stickyStateBlock(sticky: StickyBehavior): string {
     '\\u0027'
   );
   return (
-    `\n<!-- wp:dla/sticky ${json} -->\n` +
-    `<div class="wp-block-dla-sticky" style="display:none" data-wp-interactive="dla/sticky"` +
+    `\n<!-- wp:blocks-engine/sticky ${json} -->\n` +
+    `<div class="wp-block-blocks-engine-sticky" style="display:none" data-wp-interactive="blocks-engine/sticky"` +
     ` data-wp-context='${json}' data-wp-init="callbacks.init"></div>\n` +
-    `<!-- /wp:dla/sticky -->`
+    `<!-- /wp:blocks-engine/sticky -->`
   );
 }
 

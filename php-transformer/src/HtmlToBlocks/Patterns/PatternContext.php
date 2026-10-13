@@ -145,7 +145,7 @@ final class PatternContext
 
     /**
      * Rendered colour capture recorded on a glyph element as
-     * `data-dla-glyph-color` (lowercase `#rrggbb`), or empty when there is none.
+     * `data-blocks-engine-capture-glyph-color` (lowercase `#rrggbb`), or empty when there is none.
      */
     public function capturedGlyphColor(DOMElement $glyph): string
     {

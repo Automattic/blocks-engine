@@ -5,7 +5,7 @@ declare(strict_types=1);
  * A typed item rule under a captured document scope keeps its source rank.
  *
  * Responsive captures scope every author rule to its device document
- * (`:where([data-dla-device-document="mobile"]) .menu>ul li`). That data
+ * (`:where([data-blocks-engine-capture-device-document="mobile"]) .menu>ul li`). That data
  * ancestry sends the rule to the attribute-ancestry projection, which binds
  * the subject to the item's element identity at bare source weight. Untyped
  * rules on the same item (`.item{display:flex}`) take the shared native
@@ -32,7 +32,7 @@ $assert = static function (bool $ok, string $message, string $detail = '') use (
     fwrite(STDERR, 'FAIL: ' . $message . ( '' !== $detail ? ' - ' . $detail : '' ) . PHP_EOL);
 };
 
-$scope = ':where([data-dla-device-document="mobile"]) ';
+$scope = ':where([data-blocks-engine-capture-device-document="mobile"]) ';
 $items = '';
 foreach ( array( 'Home' => '/', 'About' => '/about', 'Contact' => '/contact' ) as $label => $href ) {
     $items .= '<li class="item"><div class="box"><span class="label"><a class="link" href="' . $href . '">' . $label . '</a></span></div></li>';
@@ -43,7 +43,7 @@ $css = $scope . '.item{display:flex;min-width:100px;position:relative}'
     . $scope . '.item .box>.label>.link{position:absolute;inset:0}';
 $compile = static function (string $css) use ($items): array {
     $source = '<style>' . $css . '</style>'
-        . '<div class="data-liberation-mobile-document" data-dla-device-document="mobile" data-dla-document-scope="">'
+        . '<div class="data-blocks-engine-capture-mobile-document" data-blocks-engine-capture-device-document="mobile" data-blocks-engine-capture-document-scope="">'
         . '<header><nav class="menu"><ul>' . $items . '</ul></nav></header><main><p>Body</p></main></div>';
     $result = ( new HtmlTransformer() )->transform($source, array())->toArray();
     $candidateCss = implode("\n", array_map(
@@ -87,7 +87,7 @@ foreach ( preg_split('/}\s*/', $candidateCss) ?: array() as $rule ) {
         array_push($typedSelectors, ...array_map('trim', explode(',', substr(trim($rule), 0, -strlen('{display:block')))));
     }
 }
-$native = array_filter($typedSelectors, static fn (string $selector): bool => 1 === preg_match('/^:root :where\(\[data-dla-device-document="mobile"\]\) \.wp-block-navigation \.wp-block-navigation-item\.blocks-engine-navigation-item-[a-f0-9]{12}-\d+:not\(/', $selector));
+$native = array_filter($typedSelectors, static fn (string $selector): bool => 1 === preg_match('/^:root :where\(\[data-blocks-engine-capture-device-document="mobile"\]\) \.wp-block-navigation \.wp-block-navigation-item\.blocks-engine-navigation-item-[a-f0-9]{12}-\d+:not\(/', $selector));
 $assert(
     3 === count($native),
     'each rendered item takes the scoped native subject baseline',
@@ -97,14 +97,14 @@ $assert(
 // The scope must stay on the projected rule. A typed rule scoped to another
 // device document (here desktop) never reaches the mobile items, so they keep
 // the mobile rule's `block` rather than taking the desktop `table`.
-[ $leakCss, $leakDisplays ] = $compile(':where([data-dla-device-document="desktop"]) .menu>ul li{display:table}' . $css);
+[ $leakCss, $leakDisplays ] = $compile(':where([data-blocks-engine-capture-device-document="desktop"]) .menu>ul li{display:table}' . $css);
 $assert(
     array( 'Home' => 'block', 'About' => 'block', 'Contact' => 'block' ) === ($leakDisplays['native'] ?? null),
     'a typed item rule scoped to another device document does not reach the mobile items',
     json_encode($leakDisplays)
 );
 $assert(
-    1 !== preg_match('/:root (?!:where\(\[data-dla-device-document="desktop"\]\) )[^{}]*\.wp-block-navigation-item\.blocks-engine-navigation-item-[^{}]*\{display:table/', $leakCss),
+    1 !== preg_match('/:root (?!:where\(\[data-blocks-engine-capture-device-document="desktop"\]\) )[^{}]*\.wp-block-navigation-item\.blocks-engine-navigation-item-[^{}]*\{display:table/', $leakCss),
     'no unscoped native item selector carries the desktop declaration',
     ''
 );

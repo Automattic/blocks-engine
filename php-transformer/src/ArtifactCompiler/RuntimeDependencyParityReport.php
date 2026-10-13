@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
@@ -279,8 +280,8 @@ final class RuntimeDependencyParityReport
     /** One responsive document copy's identity, the same on its source and emitted roots. */
     private static function documentVariantKey(DOMElement $root): ?string
     {
-        $device = trim($root->getAttribute('data-dla-device-document'));
-        if ('' !== $device && $root->hasAttribute('data-dla-document-scope')) return 'device:' . $device;
+        $device = trim($root->getAttribute(CaptureEvidence::DEVICE_DOCUMENT));
+        if ('' !== $device && $root->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)) return 'device:' . $device;
         foreach (preg_split('/\s+/', trim($root->getAttribute('class'))) ?: array() as $class) {
             if (null !== DocumentVariantIds::suffixForClass($class)) return 'class:' . $class;
         }

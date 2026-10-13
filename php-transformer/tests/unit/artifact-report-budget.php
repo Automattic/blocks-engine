@@ -25,8 +25,8 @@ $throws = static function (callable $callable, string $message, string $expected
 // the capture that no projector decodes, refused by the budget sized for the
 // page source the compiler converts to blocks.
 $html = '<!doctype html><html><body><main><h1>Ghestilistes</h1></main></body></html>';
-$evidence = str_pad('{"schema":"data-liberation/asset-evidence/v1","assets":[', 10666142 - 2, 'x') . ']}';
-$receipt = '{"schema":"data-liberation/capture-receipt/v1","websiteRoot":"website"}';
+$evidence = str_pad('{"schema":"blocks-engine-capture/asset-evidence/v1","assets":[', 10666142 - 2, 'x') . ']}';
+$receipt = '{"schema":"blocks-engine-capture/capture-receipt/v1","websiteRoot":"website"}';
 $payloads = array('index' => $html, 'asset-evidence' => $evidence, 'capture-receipt' => $receipt);
 $reference = static fn(string $id): array => array(
     'schema' => 'blocks-engine/payload-reference/v1',

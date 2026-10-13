@@ -279,11 +279,11 @@ $assert(
 // device document is still hidden in every condition.
 foreach ( array(
     'plain all' => '<style media="all">#msg{visibility:hidden !important}</style>',
-    'declared device sheets' => '<style data-dla-device-style="desktop" data-dla-source-media="all" media="not all">:where([data-dla-device-document="desktop"]) #msg{visibility:hidden !important}</style>'
-        . '<style data-dla-device-style="mobile" data-dla-source-media="all" media="not all">:where([data-dla-device-document="mobile"]) #msg{visibility:hidden !important}</style>',
+    'declared device sheets' => '<style data-blocks-engine-capture-device-style="desktop" data-blocks-engine-capture-source-media="all" media="not all">:where([data-blocks-engine-capture-device-document="desktop"]) #msg{visibility:hidden !important}</style>'
+        . '<style data-blocks-engine-capture-device-style="mobile" data-blocks-engine-capture-source-media="all" media="not all">:where([data-blocks-engine-capture-device-document="mobile"]) #msg{visibility:hidden !important}</style>',
 ) as $case => $sheets ) {
     $allMedia = $formContext(
-        $sheets . '<div data-dla-device-document="desktop" data-dla-document-scope=""><main><form method="post"><input type="email" name="email"><input type="submit" value="Send">'
+        $sheets . '<div data-blocks-engine-capture-device-document="desktop" data-blocks-engine-capture-document-scope=""><main><form method="post"><input type="email" name="email"><input type="submit" value="Send">'
         . '<div id="msg"><p>Thanks for submitting!</p></div></form></main></div>'
     );
     $assert(

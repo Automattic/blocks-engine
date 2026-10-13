@@ -906,8 +906,8 @@ PHP;
      * Keep variant-scoped author rules on the ids the page actually renders.
      *
      * When a captured desktop/mobile pair shares an id, the mobile copy is
-     * rendered as `<id>--dla-mobile` so the page keeps unique ids. The delivered
-     * stylesheets still address the source id (`:where(.data-liberation-mobile-document)
+     * rendered as `<id>--data-blocks-engine-capture-mobile` so the page keeps unique ids. The delivered
+     * stylesheets still address the source id (`:where(.data-blocks-engine-capture-mobile-document)
      * #<id>`), so without this pass every mobile id rule misses its element.
      * It runs after shared-chrome extraction, which reasons about the source
      * ids, and only changes selectors scoped to a non-default document variant.
@@ -1236,7 +1236,7 @@ PHP;
         }
         if ('' !== $current) $compounds[] = $current;
         // A capture scopes a responsive variant's rules by that variant's root
-        // (`:where(.data-liberation-mobile-document) #page-root #footer`). The
+        // (`:where(.data-blocks-engine-capture-mobile-document) #page-root #footer`). The
         // variant root is not an ancestor the chrome was hoisted out of: the
         // part carries its own variant group. Keep the scope in front of the
         // run being re-anchored, and require it on the wrapper arm, so the
@@ -1271,7 +1271,7 @@ PHP;
         if ($first === $run) return $selector;
         $wrappers = array_map(static fn (string $root): string => ':has(> #' . CssIdent::escape($root) . ')', $roots);
         if (array() !== $scope) {
-            // The variant group is the part's own child wrapper (`.data-liberation-mobile-document > #footer`),
+            // The variant group is the part's own child wrapper (`.data-blocks-engine-capture-mobile-document > #footer`),
             // or an ancestor of the wrapper that holds the chrome.
             $scopeClass = implode('', array_map(static fn (string $class): string => '.' . CssIdent::escape($class), array_merge(...$scope)));
             $wrappers = array_merge(
@@ -1284,7 +1284,7 @@ PHP;
 
     /**
      * The responsive variant root classes a compound consists of, such as
-     * `:where(.data-liberation-mobile-document)`; null for any other compound.
+     * `:where(.data-blocks-engine-capture-mobile-document)`; null for any other compound.
      *
      * @return list<string>|null
      */

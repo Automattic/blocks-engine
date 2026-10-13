@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\DisclosureControlPresentation;
 use DOMElement;
@@ -80,7 +81,7 @@ final class DetailsPattern implements PatternRecognizerInterface
         if ($summary instanceof DOMElement && '' === trim(strip_tags($summaryHtml))) {
             $label = trim($summary->getAttribute('aria-label'));
             if ('' === $label) {
-                $label = trim($summary->getAttribute('data-dla-disclosure-label'));
+                $label = trim($summary->getAttribute(CaptureEvidence::DISCLOSURE_LABEL));
             }
             if ('' !== $label) {
                 $summaryHtml .= '<span class="screen-reader-text" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">' . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</span>';

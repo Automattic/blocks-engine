@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
@@ -418,7 +419,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @var array<string, array<string, mixed>> Undecodable glyph findings keyed by format and source. */
     private array $glyphColorUndecodable = array();
 
-    /** @var \SplObjectStorage<DOMElement, string>|null Captured `data-dla-glyph-color` values keyed by glyph element. */
+    /** @var \SplObjectStorage<DOMElement, string>|null Captured `data-blocks-engine-capture-glyph-color` values keyed by glyph element. */
     private ?\SplObjectStorage $capturedGlyphColors = null;
 
     private readonly ReusableComponentRecognizer $reusableComponentRecognizer;
@@ -1292,8 +1293,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $this->runtimeBehavior()->rememberNativeDisclosureRoot($root->getNodePath() ?? '');
         foreach ( array_merge(array( $root ), iterator_to_array($root->getElementsByTagName('*'), false)) as $node ) {
-            if ( $node instanceof DOMElement && 'true' === strtolower($node->getAttribute('data-dla-local-disclosure')) ) {
-                $this->runtimeSelectors()->supersede('[data-dla-local-disclosure]');
+            if ( $node instanceof DOMElement && 'true' === strtolower($node->getAttribute(CaptureEvidence::LOCAL_DISCLOSURE)) ) {
+                $this->runtimeSelectors()->supersede('[' . CaptureEvidence::LOCAL_DISCLOSURE . ']');
                 if ( '' !== $node->getAttribute('id') ) {
                     $this->runtimeSelectors()->supersede('#' . $node->getAttribute('id'));
                 }
@@ -6136,7 +6137,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $tagMarker ) {
             $classes[] = $tagMarker;
         }
-        if ($element->hasAttribute('data-dla-document-scope') && SourceDom::isDocumentVariantRoot($element)) return SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), implode(' ', $classes));
+        if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element)) return SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), implode(' ', $classes));
         $runtime = array();
         foreach ( $this->runtimeIslands->runtimeDomSelectorsForElement($element) as $selector ) {
             if ( str_starts_with($selector, '.') ) {
@@ -6154,7 +6155,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function preservesScriptStateWrapper(DOMElement $element): bool
     {
-        if ($element->hasAttribute('data-dla-document-scope') && SourceDom::isDocumentVariantRoot($element)) return true;
+        if ($element->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE) && SourceDom::isDocumentVariantRoot($element)) return true;
         if ( $this->isInertHiddenEmptyElement($element) ) {
             return false;
         }
