@@ -1607,7 +1607,7 @@
         {
             "id": "c7fff215fed715e93aa155c4e0e5e31d7db084b1",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "fc8db45234751aac47d0efffd24822682881715c898e077c103027fd034ad0ff",
+            "expected_sha256": "617d6414e9b6c7ea4b1449c99e3032204fadbed75f2928c5fdaaa926d54dba4a",
             "outcome": "output"
         },
         {
@@ -1937,7 +1937,7 @@
         {
             "id": "f025cf281f15d03cf61d0c76c1f4bd7adc3b257e",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "e91fb22dc0beafe7c96b49a1e2a7c93693305dc1d09c65380f521165d4f4de6b",
+            "expected_sha256": "d593dbb9d4e959252de18457290377da1fb9ccd0b8a840a2cd747d9349c0916d",
             "outcome": "output"
         },
         {
