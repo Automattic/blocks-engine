@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -803,7 +804,7 @@ final class SourceElementClassifier
 
     public function hasCarouselIdentity(DOMElement $element): bool
     {
-        if ($element->hasAttribute('data-dla-gallery-stage')) return true;
+        if ($element->hasAttribute(CaptureEvidence::GALLERY_STAGE)) return true;
         $identity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
             $element->tagName,
             SourceDom::attr($element, 'id'),
@@ -887,9 +888,9 @@ final class SourceElementClassifier
     {
         // A proved directional stage is a behavior owner, including below a
         // thin host. A static media collection cannot flatten that boundary.
-        if ($element->hasAttribute('data-dla-gallery-stage')) return array();
+        if ($element->hasAttribute(CaptureEvidence::GALLERY_STAGE)) return array();
         foreach ($element->getElementsByTagName('*') as $child) {
-            if ($child instanceof DOMElement && $child->hasAttribute('data-dla-gallery-stage')) return array();
+            if ($child instanceof DOMElement && $child->hasAttribute(CaptureEvidence::GALLERY_STAGE)) return array();
         }
         $root = $this->slideshowCollectionRoot($element);
 

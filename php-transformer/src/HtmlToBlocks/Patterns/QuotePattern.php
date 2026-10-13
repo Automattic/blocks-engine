@@ -87,7 +87,7 @@ final class QuotePattern implements PatternRecognizerInterface
         $fallbacks = array();
         $innerBlocks = array();
         foreach ( $figure->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || $child->isSameNode($blockquote) || $child->isSameNode($caption) ) {
+            if ( ! $child instanceof DOMElement || $child->isSameNode($blockquote) || ( $caption instanceof DOMElement && $child->isSameNode($caption) ) ) {
                 continue;
             }
             $content = SourceDom::innerHtml($child);

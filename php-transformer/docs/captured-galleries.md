@@ -18,8 +18,8 @@ different inline and expanded order; selection maps each inline frame to its
 observed expanded frame by image identity, rather than assuming equal indices.
 
 The consumer admits 2–24 frames and a complete, identity-checked selection
-bijection. The root's `data-dla-gallery-source` and
-`data-dla-gallery-capture-width` bind evidence to the emitted responsive document.
+bijection. The root's `data-blocks-engine-capture-gallery-source` and
+`data-blocks-engine-capture-gallery-capture-width` bind evidence to the emitted responsive document.
 A collapsed responsive document can retain one captured viewport. Each emitted
 native carousel keeps its own initial state. Complete inline-only evidence still
 produces native navigation; an unobserved lightbox remains unproven.
@@ -43,7 +43,7 @@ contracts used by independently authored carousels and dialogs.
 checks trigger identity and native-image roundtrip, and rejects an identity-wrong
 selection that has the correct array shape.
 
-For the actual producer-to-WordPress gate, provide a genuine portable DLA capture
+For the actual producer-to-WordPress gate, provide a genuine portable capture
 at `tests/fixtures/captured-gallery/`, including `website/`, the matching capture
 receipt, and interaction report. Then run:
 

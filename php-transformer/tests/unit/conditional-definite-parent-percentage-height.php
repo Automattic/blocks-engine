@@ -86,7 +86,7 @@ $assert(
     'a wrapper height scoped to another media query does not make the desktop fill definite, got ' . implode(' ', $rules)
 );
 
-// A data-liberation capture links each desktop stylesheet with
+// A blocks-engine-capture capture links each desktop stylesheet with
 // `media="(min-width:768px)"` instead of an @media block, and Wix repeats the
 // button stylesheet. The link's media scopes every rule in the asset.
 $linked = ( new ArtifactCompiler() )->compile(array(

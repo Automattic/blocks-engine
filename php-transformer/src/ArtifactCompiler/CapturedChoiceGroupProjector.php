@@ -3,14 +3,13 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMDocument;
 use DOMElement;
 
 /** Projects verified choice-group transitions into an editable companion marker. */
 final class CapturedChoiceGroupProjector
 {
-    private const REPORT_SCHEMA = 'data-liberation/captured-interactions/v1';
-    private const RECEIPT_SCHEMA = 'data-liberation/capture-receipt/v1';
     private const KIND = 'choice-group';
     private const MAX_PAGES = 128;
     private const MAX_GROUPS_PER_PAGE = 8;
@@ -26,7 +25,7 @@ final class CapturedChoiceGroupProjector
     public function project(array $files): array
     {
         $report = $this->jsonFile($files, 'interaction-states.json');
-        if (null === $report || self::REPORT_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
+        if (null === $report || CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
         if (count($report['pages']) > self::MAX_PAGES) {
@@ -34,7 +33,7 @@ final class CapturedChoiceGroupProjector
         }
 
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
-        if (null === $receipt || self::RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
+        if (null === $receipt || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
         $routes = array();
@@ -444,7 +443,7 @@ final class CapturedChoiceGroupProjector
     private function isResponsiveDocumentWrapper(DOMElement $element): bool
     {
         foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
-            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)) {
+            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array(CaptureEvidence::DESKTOP_DOCUMENT_CLASS, CaptureEvidence::MOBILE_DOCUMENT_CLASS), true)) {
                 return true;
             }
         }
@@ -523,7 +522,7 @@ final class CapturedChoiceGroupProjector
             foreach (iterator_to_array($element->attributes) as $attribute) {
                 $name = strtolower($attribute->name);
                 $value = trim($attribute->value);
-                if (str_starts_with($name, 'on') || 'srcdoc' === $name || 'data-dla-choice-index' === $name || (in_array($name, array('href', 'src'), true) && preg_match('/^\s*(?:javascript|data\s*:\s*text\/html)/i', $value))) {
+                if (str_starts_with($name, 'on') || 'srcdoc' === $name || CaptureEvidence::CHOICE_INDEX === $name || (in_array($name, array('href', 'src'), true) && preg_match('/^\s*(?:javascript|data\s*:\s*text\/html)/i', $value))) {
                     $element->removeAttribute($attribute->name);
                 }
             }

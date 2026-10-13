@@ -16,7 +16,7 @@ $assert = static function (bool $condition, string $message): void {
 // `grid-area` for `grid-row`/`grid-column`, a `calc(0px)` zero, and a capture
 // diagnostic on one link. It renders the same chrome and must share the parts.
 $serverHeader = '<header id="top"><div style="display:grid;grid-template-columns:repeat(2, 1fr)" class="bar"><a href="#welcome" class="logo">Studio</a><nav><a href="index.html">Home</a><a href="about.html">About</a><a href="team.html">Team</a></nav></div></header>';
-$browserHeader = '<header id="top"><div class="bar" style="display: grid; grid-template-columns: repeat(2, 1fr);"><a class="logo" href="#welcome" data-dla-anchor-unresolved="runtime scroll did not move before timeout">Studio</a><nav><a href="index.html">Home</a><a href="about.html">About</a><a href="team.html">Team</a></nav></div></header>';
+$browserHeader = '<header id="top"><div class="bar" style="display: grid; grid-template-columns: repeat(2, 1fr);"><a class="logo" href="#welcome" data-blocks-engine-capture-anchor-unresolved="runtime scroll did not move before timeout">Studio</a><nav><a href="index.html">Home</a><a href="about.html">About</a><a href="team.html">Team</a></nav></div></header>';
 $serverFooter = '<footer id="foot"><div style="grid-row:1 / span 1;grid-column:1 / span 2;margin:0" class="cell"><p>© Studio</p></div></footer>';
 $browserFooter = '<footer id="foot"><div class="cell" style="grid-area: 1 / 1 / span 1 / span 2; margin: calc(0px);"><p>© Studio</p></div></footer>';
 $page = static fn (string $header, string $title, string $footer): string => '<!doctype html><html><head><style>.bar{gap:8px}#foot{display:grid}</style></head><body>'

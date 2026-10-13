@@ -1,8 +1,8 @@
-export const DLA_VARIATION_HOIST_COMMIT = '1e393c535850ee1a9482f83459f779d0e225b027';
-export const DLA_VARIATION_HOIST_PATH = 'src/lib/replicate/variation-hoist.ts';
-export const DLA_VARIATION_HOIST_BLOB = '62b9cf4c87b62dfc03bffe2e25ffbe4e6109438b';
+export const REFERENCE_VARIATION_HOIST_COMMIT = '1e393c535850ee1a9482f83459f779d0e225b027';
+export const REFERENCE_VARIATION_HOIST_PATH = 'src/lib/replicate/variation-hoist.ts';
+export const REFERENCE_VARIATION_HOIST_BLOB = '62b9cf4c87b62dfc03bffe2e25ffbe4e6109438b';
 export const VARIATION_HOIST_DERIVATION =
-  `Mechanically generated from DLA ${DLA_VARIATION_HOIST_PATH} at commit ${DLA_VARIATION_HOIST_COMMIT} with blob ${DLA_VARIATION_HOIST_BLOB}.`;
+  `Mechanically generated from the reference implementation ${REFERENCE_VARIATION_HOIST_PATH} at commit ${REFERENCE_VARIATION_HOIST_COMMIT} with blob ${REFERENCE_VARIATION_HOIST_BLOB}.`;
 
 const commentEscapeName =
   'Alpha \\u002d\\u002d \\u003cunsafe\\u003e \\u0026 \\u0022quoted\\u0022 value';
@@ -81,9 +81,9 @@ export function runVariationHoistParity(impl) {
     version: 1,
     derivation: VARIATION_HOIST_DERIVATION,
     oracle: {
-      commit: DLA_VARIATION_HOIST_COMMIT,
-      path: DLA_VARIATION_HOIST_PATH,
-      blob: DLA_VARIATION_HOIST_BLOB,
+      commit: REFERENCE_VARIATION_HOIST_COMMIT,
+      path: REFERENCE_VARIATION_HOIST_PATH,
+      blob: REFERENCE_VARIATION_HOIST_BLOB,
     },
     cases: variationHoistCases().map((entry) => {
       const result = impl.hoistVariations(clone(entry.pages), entry.options ?? {});

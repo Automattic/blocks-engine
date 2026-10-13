@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+
 /**
  * Centralizes the distinction between document shell landmarks and content-local
  * semantic containers so transformer/materialization decisions stay aligned.
@@ -130,8 +132,8 @@ final class ShellLandmarkPolicy
      */
     public static function withoutResponsiveCorrespondenceMarkup(string $markup): string
     {
-        $markup = preg_replace('/\s*(?:data-liberation-responsive-counterpart-|be-responsive-counterpart-)[a-f0-9]+/', '', $markup) ?? $markup;
-        $markup = preg_replace('/\s*data-dla-responsive-source="[^"]*"/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*(?:' . preg_quote(CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX, '/') . '|be-responsive-counterpart-)[a-f0-9]+/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*' . preg_quote(CaptureEvidence::RESPONSIVE_SOURCE, '/') . '="[^"]*"/', '', $markup) ?? $markup;
         $markup = preg_replace('/class="\s+/', 'class="', $markup) ?? $markup;
         $markup = preg_replace('/"className":"\s+/', '"className":"', $markup) ?? $markup;
         $markup = preg_replace('/\s*class="\s*"/', '', $markup) ?? $markup;

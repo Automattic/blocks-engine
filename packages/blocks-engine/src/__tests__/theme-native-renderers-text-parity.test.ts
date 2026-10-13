@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import expectedGoldens from '../__fixtures__/native-text-renderer-dla-goldens.json' with { type: 'json' };
+import expectedGoldens from '../__fixtures__/native-text-renderer-reference-goldens.json' with { type: 'json' };
 import {
   runNativeTextRendererParity,
   type NativeTextRendererImpl,
@@ -53,8 +53,8 @@ function collectDiffs(actual: NativeTextRendererParityFile, expected: NativeText
   return diffs;
 }
 
-describe('native text renderer DLA-today parity', () => {
-  it('matches mechanically derived DLA renderer outputs byte-for-byte and is stable on rerun', () => {
+describe('native text renderer reference parity', () => {
+  it('matches mechanically derived reference renderer outputs byte-for-byte and is stable on rerun', () => {
     const first = runNativeTextRendererParity(engineImpl);
     const second = runNativeTextRendererParity(engineImpl);
     expect(stableJson(first)).toBe(stableJson(second));

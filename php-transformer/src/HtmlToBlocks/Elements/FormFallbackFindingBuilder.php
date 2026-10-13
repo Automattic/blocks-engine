@@ -122,13 +122,17 @@ final class FormFallbackFindingBuilder
                     'role' => is_string($choice['role'] ?? null) ? $choice['role'] : '',
                     'label' => is_string($choice['label'] ?? null) ? $choice['label'] : '',
                     'observed_choice_key' => is_string($choice['observed_choice_key'] ?? null) ? $choice['observed_choice_key'] : '',
-                    'source_value' => array_key_exists('source_value', $choice) ? $choice['source_value'] : null,
+                    'source_value' => is_scalar($choice['source_value'] ?? null) ? $choice['source_value'] : null,
                 ), static fn (mixed $value): bool => null !== $value && '' !== $value);
                 if ( ! array_key_exists('source_value', $choices[array_key_last($choices)]) ) $choices[array_key_last($choices)]['source_value'] = null;
             }
             if ( count($choices) < 2 ) continue;
             $groups[] = array(
-                'group' => $config['group'],
+                // The group is a flat record of named source facts (see
+                // `CapturedChoiceGroupProjector::boundedGroup()`). Nested values
+                // are not part of it, and source markup must not inject them
+                // into the form's fallback and runtime entity.
+                'group' => array_filter($config['group'], static fn (mixed $value, int|string $key): bool => is_string($key) && is_string($value), ARRAY_FILTER_USE_BOTH),
                 'choices' => $choices,
                 'observed_transition' => array(
                     'selected_index' => null,

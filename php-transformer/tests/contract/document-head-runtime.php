@@ -84,8 +84,15 @@ $shared = $compiler->prepareShared($artifact);
 $staged = $compiler->compose($shared, $compiler->compilePreparedPages($shared, $compiler->preparePages($artifact, $shared)))->toArray();
 $assert($plan === $staged['source_reports']['wordpress_site_plan'] && $result['source_reports']['runtime_dependency_parity'] === $staged['source_reports']['runtime_dependency_parity'], 'Whole and staged builds preserve identical head contracts and proof.');
 $duplicate = $artifact;
-$duplicate['files']['index.html'] = str_replace('</head>', '<meta name="viewport" content="width=980"></head>', $duplicate['files']['index.html']);
-$assert($rejects(static fn() => (new ArtifactCompiler())->compile($duplicate)), 'Duplicate authored viewports fail closed.');
+$duplicate['files']['index.html'] = str_replace('<meta charset="utf-8">', '<meta charset="utf-8"><meta name="viewport" content="width=980">', $duplicate['files']['index.html']);
+// Two viewport metas are a page-local limit: keep the last, name the drop, import.
+$duplicateResult = (new ArtifactCompiler())->compile($duplicate)->toArray();
+$duplicatePlan = $duplicateResult['source_reports']['wordpress_site_plan'] ?? null;
+$assert(is_array($duplicatePlan), 'Duplicate authored viewports still produce a plan.');
+$duplicateViewports = array_values(array_filter($duplicatePlan['pages'][0]['document_metadata']['head']['elements'] ?? array(), static fn(array $row): bool => 'meta' === $row['tag'] && 'viewport' === strtolower($row['attributes']['name'] ?? '')));
+$assert(1 === count($duplicateViewports) && isset($duplicateViewports[0]['attributes']['data-selected-viewport']), 'Duplicate authored viewports keep the last one.');
+$duplicateFindings = array_values(array_filter(array_merge($duplicateResult['diagnostics'], $duplicatePlan['diagnostics'] ?? array()), static fn(array $row): bool => 'document_head_duplicate_viewport' === ($row['code'] ?? '')));
+$assert(1 <= count($duplicateFindings) && 'index.html' === $duplicateFindings[0]['source_path'], 'Duplicate authored viewports record a page-attributed finding.');
 $dynamic = $artifact;
 $dynamic['files']['index.html'] = str_replace('window.firstHeadState=', 'document.head.appendChild(document.createElement("script"));window.firstHeadState=', $dynamic['files']['index.html']);
 $dynamicResult = (new ArtifactCompiler())->compile($dynamic)->toArray();
@@ -141,7 +148,26 @@ $assert($rejects(static fn() => DocumentHeadContext::assertValid($oversized)), '
 $unboundLink = $artifact;
 $unboundLink['files']['index.html'] = str_replace('<meta charset="utf-8">', '<meta charset="utf-8"><link rel="icon" href="missing-icon.png">', $unboundLink['files']['index.html']);
 $unboundLinkResult = (new ArtifactCompiler())->compile($unboundLink)->toArray();
-$assert(!isset($unboundLinkResult['source_reports']['wordpress_site_plan']) && in_array('wordpress_site_plan_not_self_contained', array_column($unboundLinkResult['diagnostics'], 'code'), true), 'A local head link without a declared write still fails closed.');
+$unboundLinkPlan = $unboundLinkResult['source_reports']['wordpress_site_plan'] ?? null;
+$unboundLinkFindings = array_values(array_filter($unboundLinkPlan['diagnostics'] ?? array(), static fn(array $row): bool => 'wordpress_site_plan_omitted_link_declaration' === ($row['code'] ?? '')));
+$assert(is_array($unboundLinkPlan) && 'failed' !== $unboundLinkResult['status'] && 1 === count($unboundLinkFindings) && 'missing-icon.png' === $unboundLinkFindings[0]['value'] && 'index.html' === $unboundLinkFindings[0]['source_path'] && !str_contains(json_encode($unboundLinkPlan['pages'][0]['document_metadata']['head']), 'missing-icon.png'), 'A local head link without a declared write is omitted from the head and reported instead of failing the plan.');
+$unboundHead = array('schema' => DocumentHeadContext::SCHEMA, 'elements' => array(array('tag' => 'link', 'attributes' => array('rel' => 'icon'), 'url' => 'missing-icon.png', 'selector' => 'link:nth-of-type(1)')));
+$assert($rejects(static fn() => DocumentHeadContext::assertValid($unboundHead)), 'The strict head validator still rejects a local head link without a declared write.');
+
+// A link with no href, or an empty one, has no URL to bind. Document link
+// metadata already skips it, so the head context skips it too instead of
+// failing the plan. Example: an image preload that names its image only in
+// imagesrcset, which no write or route binds.
+$noUrlLinks = $artifact;
+$noUrlLinks['files']['index.html'] = str_replace('<meta charset="utf-8">', '<meta charset="utf-8"><link rel="preload" as="image" imagesrcset="hero-1x.png 1x, hero-2x.png 2x"><link rel="preconnect" href="">', $noUrlLinks['files']['index.html']);
+$noUrlLinksResult = (new ArtifactCompiler())->compile($noUrlLinks)->toArray();
+$noUrlLinksErrors = array_values(array_filter($noUrlLinksResult['diagnostics'], static fn(array $row): bool => 'error' === ($row['severity'] ?? '')));
+$assert(array() === $noUrlLinksErrors && isset($noUrlLinksResult['source_reports']['wordpress_site_plan']), 'Head links without a URL produce a materializable plan: ' . json_encode($noUrlLinksErrors, JSON_UNESCAPED_SLASHES));
+$noUrlLinksPage = $noUrlLinksResult['source_reports']['wordpress_site_plan']['pages'][0];
+$assert(array('meta', 'meta', 'script', 'style', 'style', 'link', 'script') === array_column($noUrlLinksPage['document_metadata']['head']['elements'], 'tag') && array('link:nth-of-type(3)') === array_values(array_filter(array_column($noUrlLinksPage['document_metadata']['head']['elements'], 'selector'))), 'Head links without a URL are skipped and later links keep their source occurrence.');
+$assert(array('stylesheet') === array_column($noUrlLinksPage['document_metadata']['links'], 'rel'), 'Document link metadata skips the same links.');
+$noUrlLinksHead = DocumentHeadContext::fromPlan((new WordPressSitePlanResolver())->resolve($noUrlLinksResult['source_reports']['wordpress_site_plan'], array('theme_uri' => 'https://example.test/theme', 'require_proven_dynamic_client_assets' => true)), 'index.html');
+$assert(1 === substr_count($noUrlLinksHead, '<link ') && !str_contains($noUrlLinksHead, 'imagesrcset') && !str_contains($noUrlLinksHead, 'href=""'), 'The emitted head has no link without a URL.');
 
 // Execute the actual emitted PHP registration and template/head hook path.
 // This proves bootstrap behavior, not a claim of a full WordPress installation.

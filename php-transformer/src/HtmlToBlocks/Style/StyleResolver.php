@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -719,6 +720,41 @@ final class StyleResolver implements ElementPresentationResolver
     public function collapsedViewportAuthorDeclarations(DOMElement $element, array $properties): array
     {
         return $this->authorDeclarationsAtViewport($element, $properties, self::MOBILE_REFERENCE_WIDTH);
+    }
+
+    /**
+     * Whether the element is still one horizontal, non-wrapping flex row at
+     * the mobile reference viewport. Such a row never stacks its items, so a
+     * core/columns standing in for it must not stack below core's breakpoint.
+     */
+    public function isSingleFlexRowAtMobile(DOMElement $element): bool
+    {
+        $direction = 'row';
+        $wrap = 'nowrap';
+        $display = '';
+        foreach ( $this->collapsedViewportAuthorDeclarations($element, array( 'display', 'flex-direction', 'flex-wrap', 'flex-flow' )) as $property => $value ) {
+            $value = CssValueInspector::comparable($value);
+            if ( 'display' === $property ) {
+                $display = $value;
+                continue;
+            }
+            if ( 'flex-flow' === $property ) {
+                // The shorthand resets the longhand it leaves unstated.
+                $direction = 'row';
+                $wrap = 'nowrap';
+            }
+            foreach ( preg_split('/\s+/', $value) ?: array() as $token ) {
+                if ( in_array($token, array( 'row', 'row-reverse', 'column', 'column-reverse' ), true) ) {
+                    $direction = $token;
+                } elseif ( in_array($token, array( 'nowrap', 'wrap', 'wrap-reverse' ), true) ) {
+                    $wrap = $token;
+                }
+            }
+        }
+
+        return in_array($display, array( 'flex', 'inline-flex' ), true)
+            && str_starts_with($direction, 'row')
+            && 'nowrap' === $wrap;
     }
 
     /**
@@ -2361,6 +2397,21 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * The custom properties an element's inline style defines that something
+     * still reads: an author rule matching it or a descendant, a descendant's
+     * own inline declaration, or one of `$carriedValues`. A carrier that
+     * replaces the element's inline style must keep these, or every reader
+     * falls back to its default.
+     *
+     * @param array<int|string, string> $carriedValues
+     * @return array<string, string>
+     */
+    public function consumedInlineCustomProperties(DOMElement $element, array $carriedValues = array()): array
+    {
+        return $this->inlineCustomPropertyDeclarations($element, $this->cssDeclarations(SourceDom::attr($element, 'style')), array_values($carriedValues));
+    }
+
+    /**
      * @param array<string, string> $declarations
      * @param array<int, string> $geometryValues
      * @return array<string, string>
@@ -2369,7 +2420,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $required = $this->inlineCustomPropertiesRequired(
             $declarations,
-            $this->inlineCustomPropertiesConsumedByAuthorStyles($element, $declarations) + $this->customPropertiesReferencedByValues($geometryValues)
+            $this->inlineCustomPropertiesConsumedByStyles($element, $declarations) + $this->customPropertiesReferencedByValues($geometryValues)
         );
         // Most callers case-fold declaration keys for matching, but custom
         // property names are case-sensitive: `--headerBg` and `--headerbg` are
@@ -2399,7 +2450,7 @@ final class StyleResolver implements ElementPresentationResolver
      * @param array<string, string> $declarations
      * @return array<string, true>
      */
-    private function inlineCustomPropertiesConsumedByAuthorStyles(DOMElement $element, array $declarations): array
+    private function inlineCustomPropertiesConsumedByStyles(DOMElement $element, array $declarations): array
     {
         $declared = array_fill_keys(array_filter(array_keys($declarations), static fn (string $property): bool => str_starts_with($property, '--')), true);
         if (array() === $declared) {
@@ -2407,7 +2458,12 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $consumed = array();
-        $inspect = function (DOMElement $target) use (&$consumed, $declared): void {
+        $inspect = function (DOMElement $target) use (&$consumed, $declared, $element): void {
+            // A descendant's inline declarations ride on its own carrier and
+            // read the definitions this element provides through inheritance.
+            if ($target !== $element) {
+                $consumed += array_intersect_key($this->customPropertiesReferencedByValues(array(SourceDom::attr($target, 'style'))), $declared);
+            }
             foreach ( $this->matchingStyleRules($target, 'static-conditional-pseudo') as $rule ) {
                 // Read the rule's UNFILTERED `var()` references. `declarations`
                 // is the `safeVisualDeclarations()` classification allow-list,
@@ -3020,6 +3076,13 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
+        // The strict gates only read the grow factor of the `flex` shorthand;
+        // folding it into `flex-grow` lets source order decide between them.
+        if ('flex' === $property) {
+            $property = 'flex-grow';
+            $value = $this->flexShorthandGrowFactor($value);
+        }
+
         $current = $cascade[$property] ?? null;
         if (is_array($current)) {
             if ($current['important'] && ! $important) {
@@ -3046,6 +3109,31 @@ final class StyleResolver implements ElementPresentationResolver
             'specificity' => $specificity,
             'sequence' => $sequence,
         );
+    }
+
+    /**
+     * Grow factor of a `flex` shorthand value: `none` is 0, `auto` and a
+     * basis-only value (`flex: 30px`) are 1, otherwise the first unitless
+     * number (`flex: 30px 2` grows by 2). var() and CSS-wide keywords stay
+     * verbatim for the gates to inspect.
+     */
+    private function flexShorthandGrowFactor(string $value): string
+    {
+        $value = strtolower($value);
+        if (1 === preg_match('/var\s*\(/i', $value) || in_array($value, array('inherit', 'initial', 'revert', 'revert-layer', 'unset'), true)) {
+            return $value;
+        }
+        if ('none' === $value) {
+            return '0';
+        }
+
+        foreach (CssValueSplitter::splitTopLevelWhitespace($value) as $component) {
+            if (is_numeric($component)) {
+                return $component;
+            }
+        }
+
+        return '1';
     }
 
     /**
@@ -3959,9 +4047,11 @@ final class StyleResolver implements ElementPresentationResolver
                     'align-items',
                     'direction',
                     'display',
+                    'flex',
                     'flex-basis',
                     'flex-direction',
                     'flex-flow',
+                    'flex-grow',
                     'float',
                     'grid-template-columns',
                     'order',
@@ -4531,6 +4621,10 @@ final class StyleResolver implements ElementPresentationResolver
             // `--btnbg` are distinct properties, and `var(--btnBg)` only
             // reads the first.
             $name = str_starts_with($name, '--') ? $name : strtolower($name);
+            // A browser drops `0: none`; its name would also be an int key.
+            if ( CssPropertyName::startsLikeNumber($name) ) {
+                continue;
+            }
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
             // A consumed custom property can supply the URL to an authored
             // background rule. Keep it for the same sanitized carrier path.

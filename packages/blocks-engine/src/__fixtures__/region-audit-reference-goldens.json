@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "derivation": "DLA region-audit + region-census over source HTML and explicit placed-region corpus",
+  "derivation": "reference region-audit + region-census over source HTML and explicit placed-region corpus",
   "oracle": {
     "commit": "1e393c535850ee1a9482f83459f779d0e225b027",
     "paths": {

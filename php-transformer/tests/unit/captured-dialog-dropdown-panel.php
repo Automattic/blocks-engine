@@ -33,8 +33,8 @@ $compile = static function (?string $presentation, string $rootClass = 'menu-pan
         'entrypoint' => 'website/index.html',
         'files' => array(
             array('path' => 'website/index.html', 'content' => '<header><nav><button type="button" aria-label="Menu">Menu</button></nav></header><main><p>Body</p></main>'),
-            array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-            array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array(
+            array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
+            array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array(
                 'sourceUrl' => 'https://example.test/',
                 'states' => array(array(
                     'status' => 'captured',
@@ -64,20 +64,20 @@ $explicitModal = (string) ($compile('modal')['serialized_blocks'] ?? '');
 $assert($explicitModal === $modalBlocks, 'an observed modal presentation keeps exactly the existing modal output', $explicitModal);
 
 // A capture can instead wire the panel in place beside its trigger and mark it
-// `dla-dropdown`. That adopted panel is the same dropdown, and the producer's
+// `data-blocks-engine-capture-dropdown`. That adopted panel is the same dropdown, and the producer's
 // recorded open-state change on the header travels with the dialog.
 $ancestorState = array(array('selector' => 'body > header', 'tag' => 'header', 'depth' => 2, 'closed' => array('class' => 'top bg-transparent'), 'opened' => array('class' => 'top bg-dark')));
 $compileWired = static function (string $panelClass, string $ancestorJson, bool $observedPlacement = false): array {
-    $trigger = '<button type="button" aria-label="Toggle menu" data-dla-dialog-ancestor-state="' . htmlspecialchars($ancestorJson, ENT_QUOTES) . '" data-dla-disclosure-label="Toggle menu" data-dla-dialog-trigger="dla-dialog-0" aria-controls="dla-dialog-0" aria-expanded="false" aria-haspopup="menu">Menu</button>';
-    $panel = '<div class="' . $panelClass . '" hidden id="dla-dialog-0"' . ($observedPlacement ? ' data-dla-observed-placement="true"' : '') . ' data-dla-dialog-panel="dla-dialog-0"><div><a href="/one">One</a></div><div><a href="/two">Two</a></div></div>';
+    $trigger = '<button type="button" aria-label="Toggle menu" data-blocks-engine-capture-dialog-ancestor-state="' . htmlspecialchars($ancestorJson, ENT_QUOTES) . '" data-blocks-engine-capture-disclosure-label="Toggle menu" data-blocks-engine-capture-dialog-trigger="data-blocks-engine-capture-dialog-0" aria-controls="data-blocks-engine-capture-dialog-0" aria-expanded="false" aria-haspopup="menu">Menu</button>';
+    $panel = '<div class="' . $panelClass . '" hidden id="data-blocks-engine-capture-dialog-0"' . ($observedPlacement ? ' data-blocks-engine-capture-observed-placement="true"' : '') . ' data-blocks-engine-capture-dialog-panel="data-blocks-engine-capture-dialog-0"><div><a href="/one">One</a></div><div><a href="/two">Two</a></div></div>';
     $html = '<html><body><header class="top bg-transparent"><div>' . $trigger . '</div>' . $panel . '</header><main><p>Body</p></main></body></html>';
     return (new ArtifactCompiler())->compile(array(
         'site' => array('name' => 'Wired Site', 'slug' => 'wired-site'),
         'entrypoint' => 'website/index.html',
         'files' => array(
             array('path' => 'website/index.html', 'content' => $html),
-            array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
-            array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array(
+            array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
+            array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array(
                 'sourceUrl' => 'https://example.test/',
                 'states' => array(array(
                     'status' => 'captured',
@@ -88,20 +88,20 @@ $compileWired = static function (string $panelClass, string $ancestorJson, bool 
         ),
     ))->toArray();
 };
-$wired = (string) ($compileWired('px-5 dla-dialog dla-dropdown', json_encode($ancestorState))['serialized_blocks'] ?? '');
-$assert(1 === preg_match('/<dialog[^>]*data-blocks-engine-presentation="dropdown"/', $wired), 'an in-place wired dla-dropdown panel keeps its dropdown presentation', $wired);
+$wired = (string) ($compileWired('px-5 data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown', json_encode($ancestorState))['serialized_blocks'] ?? '');
+$assert(1 === preg_match('/<dialog[^>]*data-blocks-engine-presentation="dropdown"/', $wired), 'an in-place wired data-blocks-engine-capture-dropdown panel keeps its dropdown presentation', $wired);
 $assert(str_contains($wired, '"ancestorState":[{"tag":"header","closed":{"class":"top bg-transparent"},"opened":{"class":"top bg-dark"}}]'), 'the recorded ancestor open state is saved on the dialog block without source-DOM paths', $wired);
 $assert(1 === preg_match('/<dialog[^>]*data-blocks-engine-ancestor-state="\[\{&quot;tag&quot;:&quot;header&quot;/', $wired), 'the dialog markup carries the ancestor open state for the view script', $wired);
 $assert(! str_contains($wired, 'data-blocks-engine-dialog-close'), 'a wired dropdown gets no generated Close control', $wired);
-$inPlaceResult = $compileWired('px-5 dla-dialog dla-dropdown', json_encode($ancestorState), true);
+$inPlaceResult = $compileWired('px-5 data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown', json_encode($ancestorState), true);
 $inPlace = (string) ($inPlaceResult['serialized_blocks'] ?? '');
 $assert(1 === preg_match('/<header[^>]*>.*<dialog[^>]*data-blocks-engine-placement="in-place".*<\/dialog>.*<\/header>/s', $inPlace), 'a dropdown at its observed source place stays inside its source parent', $inPlace);
-$wiredModal = (string) ($compileWired('dla-dialog', '[]')['serialized_blocks'] ?? '');
+$wiredModal = (string) ($compileWired('data-blocks-engine-capture-dialog', '[]')['serialized_blocks'] ?? '');
 $assert(str_contains($wiredModal, '<dialog') && ! str_contains($wiredModal, 'data-blocks-engine-presentation') && ! str_contains($wiredModal, 'ancestor-state'), 'a wired modal panel without the dropdown marker or ancestor state is left alone', $wiredModal);
 $unsafe = $ancestorState;
 $unsafe[0]['opened'] = array('onclick' => 'alert(1)');
 $unsafe[0]['closed'] = array('onclick' => '');
-$wiredUnsafe = (string) ($compileWired('dla-dialog dla-dropdown', json_encode($unsafe))['serialized_blocks'] ?? '');
+$wiredUnsafe = (string) ($compileWired('data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown', json_encode($unsafe))['serialized_blocks'] ?? '');
 $assert(! str_contains($wiredUnsafe, 'ancestor') && ! str_contains($wiredUnsafe, 'onclick'), 'ancestor state outside class, style and hidden is dropped, not replayed', $wiredUnsafe);
 
 $definition = (new CapturedDialogBlockGenerator())->definition('site/captured-dialog');
@@ -128,7 +128,7 @@ file_put_contents(sys_get_temp_dir() . '/captured-dialog-dropdown-panel.json', j
     'css' => $css . $fixtureCss,
     'script' => $view,
     'inPlace' => $inPlace,
-    'underHeader' => (string) ($compileWired('px-5 dla-dialog dla-dropdown', json_encode($ancestorState))['serialized_blocks'] ?? ''),
+    'underHeader' => (string) ($compileWired('px-5 data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown', json_encode($ancestorState))['serialized_blocks'] ?? ''),
     'modal' => $modalBlocks,
 ), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
 
