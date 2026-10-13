@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
@@ -483,7 +484,8 @@ final class SubtreeClassifier
      * not peers. Peers share one shape and make up most of the content;
      * a document flow that wraps each paragraph, figure, and button in the
      * same bare wrapper repeats a kind or two among many, which is not a
-     * collection. Nor is a run of paragraphs or headings: prose is the
+     * collection. Nor is a run of paragraphs, headings, or styled inline
+     * text: prose is the
      * content native text blocks own, however uniformly it is styled.
      */
     private function repeatableChildCount(DOMElement $element): int
@@ -496,7 +498,7 @@ final class SubtreeClassifier
             }
             ++$contentChildren;
             $shape = $this->wrappedShape($child);
-            if ( in_array(strtolower($shape->tagName), self::TEXT_BLOCK_TAGS, true) ) {
+            if ( in_array(strtolower($shape->tagName), self::TEXT_BLOCK_TAGS, true) || $this->isPhrasingRun($shape) ) {
                 continue;
             }
             $classes = $this->authoredClassNames($shape);
@@ -512,6 +514,26 @@ final class SubtreeClassifier
         $largest = max($signatures);
 
         return $largest * 2 >= $contentChildren ? $largest : 1;
+    }
+
+    /**
+     * A run of styled text: an inline formatting element holding only
+     * phrasing. Such runs are pieces of one text flow, which native text
+     * blocks own, not units a collection repeats.
+     */
+    private function isPhrasingRun(DOMElement $element): bool
+    {
+        $phrasing = static fn (string $tag): bool => 'a' === $tag || 'br' === $tag || InlineContentElementConverter::handlesTag($tag);
+        if ( ! InlineContentElementConverter::handlesTag(strtolower($element->tagName)) ) {
+            return false;
+        }
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! $phrasing(strtolower($descendant->tagName)) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** The element that gives a child its shape, seen through anonymous single-element wrappers. */
