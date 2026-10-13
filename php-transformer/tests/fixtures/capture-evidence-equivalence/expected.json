@@ -1745,7 +1745,7 @@
         {
             "id": "dae00d128fd981634fc197a6a101ca52966da2ee",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "da477e0e1801fef0af53ae41de6bf53fc840a71c2a2e09e19e232c775c7b94a3",
+            "expected_sha256": "3dabb08239b02115883d71da782c5b70a98bfb14f358e34a01fe357181b1a75a",
             "outcome": "output"
         },
         {

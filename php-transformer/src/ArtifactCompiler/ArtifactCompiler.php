@@ -24,6 +24,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
@@ -1117,8 +1118,29 @@ final class ArtifactCompiler
                 $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => $rawControls);
                 if ( array() !== $choiceGroups ) $form['choice_groups'] = $choiceGroups;
                 foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null) && preg_match('/^[a-f0-9]{64}$/', $fallback[$identityKey])) $form[$identityKey] = $fallback[$identityKey];
-                if ( is_array($fallback['control_topology'] ?? null) ) $form['control_topology'] = $fallback['control_topology'];
-                if ( is_array($fallback['sibling_relations'] ?? null) && true !== ($fallback['sibling_relations']['truncated'] ?? false) ) $form['sibling_relations'] = $fallback['sibling_relations'];
+                // The control topology is the provider's map of where each flat
+                // control sits, and consumers enforce the same producer contract
+                // against this entity's control list. A topology that fails it
+                // would make the whole forms declaration unusable downstream, so
+                // the form is declined here and named, leaving the converted
+                // source form on the page.
+                if ( is_array($fallback['control_topology'] ?? null) ) {
+                    try {
+                        FormControlTopologyBuilder::assertValid($fallback['control_topology'], count($rawControls));
+                    } catch ( \InvalidArgumentException $error ) {
+                        if ( $declarable ) $diagnostics[] = $this->declinedFormDeclarationDiagnostic($fallback, $sourcePath, $selector, 'control_topology_invalid', 'its control topology violates the producer contract (' . $error->getMessage() . ')');
+                        continue;
+                    }
+                    $form['control_topology'] = $fallback['control_topology'];
+                }
+                if ( is_array($fallback['sibling_relations'] ?? null) && true !== ($fallback['sibling_relations']['truncated'] ?? false) ) {
+                    try {
+                        FormControlTopologyBuilder::assertSiblingRelations($fallback['sibling_relations'], count($rawControls));
+                        $form['sibling_relations'] = $fallback['sibling_relations'];
+                    } catch ( \InvalidArgumentException $error ) {
+                        if ( $declarable ) $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'sibling_relations', $error->getMessage());
+                    }
+                }
                 // `truncated` still means the builder's own budget or scan
                 // limits could be hiding facts anywhere (see
                 // FormLayoutGraphBuilder::MAX_NODES/MAX_RULES and friends),

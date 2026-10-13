@@ -13,25 +13,28 @@ $parts = array_column($plan['template_parts'], null, 'slug');
 $assert(isset($parts['header'], $parts['footer']) && 'inline_shared_shell' === $parts['header']['placement']['kind'] && 'inline_shared_shell' === $parts['footer']['placement']['kind'], 'Nested shared header and footer retain occurrence-owned placement.');
 $assert(3 === count($parts['header']['placement']['source_paths']) && 3 === count($parts['footer']['placement']['source_paths']), 'Shared ownership accounts for every applicable route.');
 $runtime = new Runtime();
-foreach ($plan['pages'] as $page) {
-    $blocks = $runtime->parseBlocks($page['canonical_block_markup']);
+// The frame element stays the flex parent of header, main and footer. It lives
+// in the template now, so the page content holds only the main block.
+$templates = array_column($plan['templates'], 'canonical_block_markup', 'slug');
+foreach (array('front-page', 'page') as $slug) {
     $found = false;
-    $walk = static function (array $blocks) use (&$walk, &$found, $assert, $page): void {
+    $walk = static function (array $blocks) use (&$walk, &$found, $assert, $slug): void {
         foreach ($blocks as $block) {
-            if (str_contains((string) ($block['attrs']['className'] ?? ''), 'frame')) {
-                $children = $block['innerBlocks'];
-                $slugs = array_values(array_filter(array_map(static fn(array $child): ?string => $child['attrs']['slug'] ?? null, $children)));
-                $assert(array('header', 'footer') === $slugs, $page['source_path'] . ' keeps both references under the original flex parent and in source order.');
-                $assert('header' === ($children[0]['attrs']['slug'] ?? null) && 'footer' === ($children[count($children) - 1]['attrs']['slug'] ?? null), 'Page-specific main content remains between shared shell references.');
-                $found = true;
+            if (str_contains((string) ($block['attrs']['className'] ?? ''), 'frame') || 'custom/layout-shell' === ($block['blockName'] ?? '')) {
+                $children = array_values(array_filter($block['innerBlocks'], static fn(array $child): bool => null !== $child['blockName']));
+                $names = array_map(static fn(array $child): string => 'core/template-part' === $child['blockName'] ? (string) $child['attrs']['slug'] : (string) $child['blockName'], $children);
+                if (array('header', 'core/post-content', 'footer') === $names) $found = true;
             }
             $walk($block['innerBlocks'] ?? array());
         }
     };
-    $walk($blocks);
-    $assert($found, 'The authored layout ancestor survives extraction.');
+    $walk($runtime->parseBlocks($templates[$slug]));
+    $assert($found, $slug . ' template keeps header, post-content and footer under the original flex parent in source order.');
 }
-foreach ($plan['templates'] as $template) if (in_array($template['slug'], array('front-page', 'page'), true)) $assert(!str_contains($template['canonical_block_markup'], 'wp:template-part'), 'Templates do not duplicate in-place shared chrome.');
+foreach ($plan['pages'] as $page) {
+    $assert(!str_contains($page['canonical_block_markup'], 'wp:template-part') && !str_contains($page['canonical_block_markup'], 'frame'), $page['source_path'] . ' content holds only the page-specific main block.');
+    $assert(str_contains($page['canonical_block_markup'], '"tagName":"main"'), $page['source_path'] . ' keeps its main block.');
+}
 
 $twoLinkPage = static fn(string $title): string => '<style>a{text-decoration:none}</style><div class="frame"><header><nav><a href="index.html">Home</a><a href="about.html">About</a></nav><details><summary>Menu</summary><nav class="mobile"><a href="index.html">Home</a><a href="about.html">About</a></nav></details></header><main><h1>' . $title . '</h1></main><footer><p>Shared footer</p></footer></div>';
 $twoLink = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $twoLinkPage('Home'), 'about.html' => $twoLinkPage('About'))))->toArray()['source_reports']['wordpress_site_plan'];
