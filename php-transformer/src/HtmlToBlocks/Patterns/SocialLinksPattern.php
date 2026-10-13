@@ -393,6 +393,11 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
     private function iconColor(DOMElement $anchor, PatternContext $context): string
     {
+        $captured = $this->capturedIconColor($anchor, $context);
+        if ( '' !== $captured ) {
+            return $captured;
+        }
+
         $image = $anchor->getElementsByTagName('img')->item(0);
         if ( $image instanceof DOMElement ) {
             $glyph = $this->glyphColor($image, $context);
@@ -427,8 +432,27 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         return $this->concreteColor($context->authoredIconColor($anchor));
     }
 
+    /** Rendered colour capture recorded on the anchor's glyph: an img, an inline svg, or an empty background-image element. */
+    private function capturedIconColor(DOMElement $anchor, PatternContext $context): string
+    {
+        foreach ( $anchor->getElementsByTagName('*') as $glyph ) {
+            $color = $context->capturedGlyphColor($glyph);
+            if ( '' !== $color ) {
+                return $color;
+            }
+        }
+
+        return '';
+    }
+
+    /** A captured rendered colour wins; the image bytes are decoded only without one. */
     private function glyphColor(DOMElement $image, PatternContext $context): string
     {
+        $captured = $context->capturedGlyphColor($image);
+        if ( '' !== $captured ) {
+            return $captured;
+        }
+
         $url = trim($this->attr($image, 'src'));
         if ( '' === $url ) {
             return '';

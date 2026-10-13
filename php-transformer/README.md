@@ -189,6 +189,8 @@ Visual parity tooling should use the product-neutral report/config contracts in 
 
 WordPress materializers that consume the self-contained `wordpress-site-plan/v2` contract should use `WordPressSitePlan\WordPressSitePlanView::fromResult()`. It preserves the exact canonical plan plus Gutenberg gaps, companion-plugin payload, font materialization metadata, and plan diagnostics while omitting the duplicated compiled-site, root asset, document, and block projections.
 
+Icon-only social rows carry a uniform glyph colour onto `core/social-links`. A captured `data-dla-glyph-color` wins over decoding the icon image, and the attribute never reaches output; see [Social icon glyph colour](docs/glyph-color.md).
+
 `HtmlTransformer` preserves syntax-highlight spans inside `<pre><code>` when they use safe inline tags and bounded attributes, while plain code remains escaped as text. Figure-wrapped testimonials and quote shapes are normalized to core quote or pullquote blocks with attribution from `cite`, `footer`, or `figcaption` content.
 
 Use `FormatBridge::convertResult()` for format conversions and unsupported source or target format diagnostics:

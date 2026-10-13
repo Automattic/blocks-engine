@@ -25,6 +25,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
@@ -1465,7 +1466,7 @@ final class ArtifactCompiler
             'author_layer_order'        => (new AuthorCascadeLayerOrder())->statement($layerOrderCss),
             'shared_stylesheet_paths'   => $this->sharedStylesheetPathsFromFiles($files),
             'skip_author_stylesheet_materialization' => true,
-            'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
+            'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files, $html),
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
             'runtime_dom_selectors'     => $runtimeDomSelectors,
             'runtime_behavioral_selectors' => $runtimeDomSelectors,
@@ -3623,9 +3624,10 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<string, array<string, mixed>>
      */
-    private function assetMetadataForSource(string $sourcePath, array $files): array
+    private function assetMetadataForSource(string $sourcePath, array $files, string $html): array
     {
         $metadata = array();
+        $capturedGlyphPaths = $this->capturedGlyphAssetPaths($html, $sourcePath, $files);
         $candidates = array() !== $this->filesByPath ? $this->imageFiles : $files;
         foreach ( $candidates as $file ) {
             if ( $this->isMaterializedHtmlDocument($file) ) {
@@ -3646,7 +3648,8 @@ final class ArtifactCompiler
                 'path'      => $path,
                 'mime_type' => $mimeType,
             );
-            $glyph = $this->glyphColorForFile($file);
+            // Capture already recorded the rendered colour on every reference.
+            $glyph = ($capturedGlyphPaths[$path] ?? false) ? array('color' => '', 'undecodable' => false) : $this->glyphColorForFile($file);
             if ( '' !== $glyph['color'] ) {
                 $asset['glyph_color'] = $glyph['color'];
             }
@@ -3660,6 +3663,35 @@ final class ArtifactCompiler
         }
 
         return $metadata;
+    }
+
+    /**
+     * Image paths whose every `<img>` reference on the page carries a valid
+     * captured `data-dla-glyph-color`. Their glyph colour comes from that
+     * evidence, so their bytes are not decoded.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, bool>
+     */
+    private function capturedGlyphAssetPaths(string $html, string $sourcePath, array $files): array
+    {
+        if ( ! str_contains($html, CapturedGlyphColor::ATTRIBUTE) ) {
+            return array();
+        }
+
+        $captured = array();
+        foreach ( HtmlTagScanner::scan($html, 'img') as $image ) {
+            $attributes = $this->htmlAttributes($image['tag']);
+            $asset = $this->findAssetByHtmlReference($attributes['src'] ?? '', $sourcePath, $files);
+            $path = is_array($asset) ? (string) ($asset['path'] ?? '') : '';
+            if ( '' === $path ) {
+                continue;
+            }
+            $captured[$path] = ($captured[$path] ?? true)
+                && '' !== CapturedGlyphColor::normalize($attributes[CapturedGlyphColor::ATTRIBUTE] ?? '');
+        }
+
+        return $captured;
     }
 
     /**
