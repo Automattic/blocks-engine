@@ -83,7 +83,22 @@ $prose = $transform($deep('<div class="rich-text">' . $copy('One.') . $copy('Two
 $assert(array() === $components($prose), 'A run of paragraphs generates no component.');
 $assert(4 === $count($prose, '<!-- wp:paragraph'), 'Each paragraph materializes natively.');
 
-// 5. Genuine repeated units keep their generated component: content cards and
+// 5. Copy written as inline runs around a list is one text flow: the styled
+// runs are prose, not repeated units, however deep the page nests it.
+$mixed = $transform($deep('<div class="paragraph">'
+    . '<font color="#2a2a2a">First paragraph.<br>&#8203;<br>Second paragraph.<br><br>Lead-in for:</font>'
+    . '<ul><li><font color="#2a2a2a">Item one</font></li><li><font color="#2a2a2a">Item two</font></li></ul>'
+    . '<br><font color="#2a2a2a">Closing sentence.</font>'
+    . '</div>'));
+$mixedMarkup = (string) ($mixed['serialized_blocks'] ?? '');
+$assert(array() === $components($mixed), 'Inline runs around a list generate no component: ' . json_encode(array_column(array_column($components($mixed), 'block_json'), 'name')));
+$assert(0 === $count($mixed, '<!-- wp:html'), 'Inline runs around a list emit no core/html.');
+$coloredParagraph = static fn (string $text): string => '/<!-- wp:paragraph[^>]*-->\s*<p[^>]*><mark style="color:#2a2a2a[^"]*"[^>]*>' . $text . '<\/mark><\/p>/';
+$assert(1 === preg_match($coloredParagraph('First paragraph\.<br>\x{200B}<br>Second paragraph\.<br><br>Lead-in for:') . 'u', $mixedMarkup), 'The lead copy is one native paragraph keeping its line breaks and color: ' . $mixedMarkup);
+$assert(1 === preg_match('/<!-- wp:list[^>]*-->.*Item one.*Item two.*<!-- \/wp:list -->/s', $mixedMarkup), 'The list materializes as a native list.');
+$assert(1 === preg_match($coloredParagraph('Closing sentence\.'), $mixedMarkup), 'The closing copy is a native paragraph keeping its color.');
+
+// 6. Genuine repeated units keep their generated component: content cards and
 // an image grid whose items share one shape.
 $cards = $transform($deep('<div class="story-collection">'
     . '<article><h3>One</h3><p>First story</p></article>'

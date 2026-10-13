@@ -2852,13 +2852,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function layoutTableColumnsAttributes(DOMElement $element): array
     {
         $attrs = $this->styleResolver->presentationAttributes($element);
-        // A table has no implicit phone breakpoint. Responsive source cell
-        // declarations remain projected, rather than borrowing Core's 782px.
+        // A table has no implicit phone breakpoint, so Core's 782px stacking
+        // stays off. Rows stack only where the source collapses their cells.
         $attrs['isStackedOnMobile'] = false;
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LAYOUT_TABLE_COLUMNS_CLASS);
         $table = 'table' === strtolower($element->tagName) ? $element : $this->ancestorElement($element, 'table');
         if ($table instanceof DOMElement && $this->layoutTableUsesAutoTracks($table)) {
             return $this->layoutTablePresentationCarrier($element, $attrs, 'table' === strtolower($element->tagName) ? 'table' : 'row');
+        }
+        $stacking = $this->layoutTableSourceStackingCss($element);
+        if ( '' !== $stacking ) {
+            $className = $this->layoutGeometry()->allocateCarrier('layout-table-stacking' . "\n" . $stacking);
+            $this->layoutGeometry()->registerRule($className, str_replace('{carrier}', $className, $stacking));
+            $attrs['className'] = trim((string) $attrs['className'] . ' ' . $className);
         }
         $spacing = $this->layoutTableTrackSpacing($element);
         if ( null !== $spacing ) {
@@ -2872,6 +2878,62 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $attrs;
+    }
+
+    /**
+     * Stacking rules for a layout-table row whose source CSS turns every cell
+     * into a block box under a media condition: the cells stop being table
+     * tracks there and stack full width, so the native row wraps its columns
+     * under that same condition. `{carrier}` stands for the carrier class.
+     */
+    private function layoutTableSourceStackingCss(DOMElement $element): string
+    {
+        $row = 'tr' === strtolower($element->tagName) ? $element : null;
+        foreach ( null === $row ? $element->getElementsByTagName('tr') : array() as $candidate ) {
+            if ( $candidate instanceof DOMElement && $this->belongsToTable($candidate, $element) ) {
+                $row = $candidate;
+                break;
+            }
+        }
+        if ( ! $row instanceof DOMElement ) {
+            return '';
+        }
+
+        $stacks = null;
+        foreach ( $row->childNodes as $cell ) {
+            if ( ! $cell instanceof DOMElement || 'td' !== strtolower($cell->tagName) ) {
+                continue;
+            }
+            $display = $this->styleResolver->declaredPresentation($cell, 'display');
+            $blockStacks = array();
+            foreach ( array_keys($display->conditional()) as $key ) {
+                $stack = explode('{', $key);
+                $value = $display->resolvedValueWhere(static fn (array $conditions): bool => $stack === array_values(array_filter(
+                    array_map('trim', $conditions),
+                    static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', $condition)
+                )));
+                $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
+                if ( in_array($value, array( 'block', 'flex', 'grid', 'flow-root', 'list-item' ), true) ) {
+                    $blockStacks[$key] = $stack;
+                }
+            }
+            $stacks = null === $stacks ? $blockStacks : array_intersect_key($stacks, $blockStacks);
+            if ( array() === $stacks ) {
+                return '';
+            }
+        }
+
+        $host = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '.{carrier}';
+        $css  = '';
+        foreach ( $stacks ?? array() as $stack ) {
+            $rule = $host . '{flex-wrap:wrap!important}' . $host . '>.wp-block-column{flex-basis:100%!important}';
+            foreach ( array_reverse($stack) as $condition ) {
+                $rule = $condition . '{' . $rule . '}';
+            }
+            $css .= $rule;
+        }
+
+        return $css;
     }
 
     private function layoutTableTrackSpacing(DOMElement $element): ?string
