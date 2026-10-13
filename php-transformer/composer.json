@@ -272,6 +272,7 @@
       "php tests/unit/unknown-block-position-element.php",
       "php tests/unit/search-landmark-element.php",
       "php tests/unit/richtext-mark-responsive-typography.php",
+      "php tests/unit/legacy-font-size-breakpoint-hint.php",
       "php tests/unit/inline-button-richtext-lowering.php",
       "php tests/unit/media-text-pattern.php",
       "php tests/unit/cover-style-resolver.php",
