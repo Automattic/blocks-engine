@@ -723,6 +723,41 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether the element is still one horizontal, non-wrapping flex row at
+     * the mobile reference viewport. Such a row never stacks its items, so a
+     * core/columns standing in for it must not stack below core's breakpoint.
+     */
+    public function isSingleFlexRowAtMobile(DOMElement $element): bool
+    {
+        $direction = 'row';
+        $wrap = 'nowrap';
+        $display = '';
+        foreach ( $this->collapsedViewportAuthorDeclarations($element, array( 'display', 'flex-direction', 'flex-wrap', 'flex-flow' )) as $property => $value ) {
+            $value = CssValueInspector::comparable($value);
+            if ( 'display' === $property ) {
+                $display = $value;
+                continue;
+            }
+            if ( 'flex-flow' === $property ) {
+                // The shorthand resets the longhand it leaves unstated.
+                $direction = 'row';
+                $wrap = 'nowrap';
+            }
+            foreach ( preg_split('/\s+/', $value) ?: array() as $token ) {
+                if ( in_array($token, array( 'row', 'row-reverse', 'column', 'column-reverse' ), true) ) {
+                    $direction = $token;
+                } elseif ( in_array($token, array( 'nowrap', 'wrap', 'wrap-reverse' ), true) ) {
+                    $wrap = $token;
+                }
+            }
+        }
+
+        return in_array($display, array( 'flex', 'inline-flex' ), true)
+            && str_starts_with($direction, 'row')
+            && 'nowrap' === $wrap;
+    }
+
+    /**
      * The same author-analysis cascade as
      * {@see collapsedViewportAuthorDeclarations()}, with conditions evaluated at
      * the desktop reference viewport ({@see self::DESKTOP_REFERENCE_WIDTH}).
@@ -2362,6 +2397,21 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * The custom properties an element's inline style defines that something
+     * still reads: an author rule matching it or a descendant, a descendant's
+     * own inline declaration, or one of `$carriedValues`. A carrier that
+     * replaces the element's inline style must keep these, or every reader
+     * falls back to its default.
+     *
+     * @param array<int|string, string> $carriedValues
+     * @return array<string, string>
+     */
+    public function consumedInlineCustomProperties(DOMElement $element, array $carriedValues = array()): array
+    {
+        return $this->inlineCustomPropertyDeclarations($element, $this->cssDeclarations(SourceDom::attr($element, 'style')), array_values($carriedValues));
+    }
+
+    /**
      * @param array<string, string> $declarations
      * @param array<int, string> $geometryValues
      * @return array<string, string>
@@ -2370,7 +2420,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $required = $this->inlineCustomPropertiesRequired(
             $declarations,
-            $this->inlineCustomPropertiesConsumedByAuthorStyles($element, $declarations) + $this->customPropertiesReferencedByValues($geometryValues)
+            $this->inlineCustomPropertiesConsumedByStyles($element, $declarations) + $this->customPropertiesReferencedByValues($geometryValues)
         );
         // Most callers case-fold declaration keys for matching, but custom
         // property names are case-sensitive: `--headerBg` and `--headerbg` are
@@ -2400,7 +2450,7 @@ final class StyleResolver implements ElementPresentationResolver
      * @param array<string, string> $declarations
      * @return array<string, true>
      */
-    private function inlineCustomPropertiesConsumedByAuthorStyles(DOMElement $element, array $declarations): array
+    private function inlineCustomPropertiesConsumedByStyles(DOMElement $element, array $declarations): array
     {
         $declared = array_fill_keys(array_filter(array_keys($declarations), static fn (string $property): bool => str_starts_with($property, '--')), true);
         if (array() === $declared) {
@@ -2408,7 +2458,12 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $consumed = array();
-        $inspect = function (DOMElement $target) use (&$consumed, $declared): void {
+        $inspect = function (DOMElement $target) use (&$consumed, $declared, $element): void {
+            // A descendant's inline declarations ride on its own carrier and
+            // read the definitions this element provides through inheritance.
+            if ($target !== $element) {
+                $consumed += array_intersect_key($this->customPropertiesReferencedByValues(array(SourceDom::attr($target, 'style'))), $declared);
+            }
             foreach ( $this->matchingStyleRules($target, 'static-conditional-pseudo') as $rule ) {
                 // Read the rule's UNFILTERED `var()` references. `declarations`
                 // is the `safeVisualDeclarations()` classification allow-list,

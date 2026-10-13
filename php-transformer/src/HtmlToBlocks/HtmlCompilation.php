@@ -92,6 +92,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DetailsElementC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DetailsElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgTextRunLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
@@ -615,7 +616,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (DOMElement $element, array &$fallbacks): void {
                 $this->captureInlineSvgFallback($element, $fallbacks);
             }
-        ), $this->svgMaterializer);
+        ), $this->svgMaterializer, new SvgTextRunLowering(
+            $this->styleResolver,
+            fn (string $value, DOMElement $element): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
+            $this,
+            function (array $finding): void {
+                $this->transformationEvidence()->recordFrozenHiddenState($finding);
+            }
+        ));
         $inlineContentConverter = new InlineContentElementConverter(new InlineContentElementContext(
             $this->sourceElementClassifier,
             fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
@@ -2378,7 +2386,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkLeadingIconRules($serializedBlocks));
         $afterAuthorCss->absorb($engineSupportCss->socialLinkCss($serializedBlocks));
         $afterAuthorCss->absorb($this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
-        $nativeSearchTriggerCss = $this->generatedSupportStyles()->beforeAuthorCss();
+        $nativeSearchTriggerCss = $this->generatedSupportStyles()->beforeAuthorCss($serializedBlocks);
         if ( '' !== $nativeSearchTriggerCss ) {
             $beforeAuthorCssParts[] = $nativeSearchTriggerCss;
         }
@@ -2845,13 +2853,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function layoutTableColumnsAttributes(DOMElement $element): array
     {
         $attrs = $this->styleResolver->presentationAttributes($element);
-        // A table has no implicit phone breakpoint. Responsive source cell
-        // declarations remain projected, rather than borrowing Core's 782px.
+        // A table has no implicit phone breakpoint, so Core's 782px stacking
+        // stays off. Rows stack only where the source collapses their cells.
         $attrs['isStackedOnMobile'] = false;
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LAYOUT_TABLE_COLUMNS_CLASS);
         $table = 'table' === strtolower($element->tagName) ? $element : $this->ancestorElement($element, 'table');
         if ($table instanceof DOMElement && $this->layoutTableUsesAutoTracks($table)) {
             return $this->layoutTablePresentationCarrier($element, $attrs, 'table' === strtolower($element->tagName) ? 'table' : 'row');
+        }
+        $stacking = $this->layoutTableSourceStackingCss($element);
+        if ( '' !== $stacking ) {
+            $className = $this->layoutGeometry()->allocateCarrier('layout-table-stacking' . "\n" . $stacking);
+            $this->layoutGeometry()->registerRule($className, str_replace('{carrier}', $className, $stacking));
+            $attrs['className'] = trim((string) $attrs['className'] . ' ' . $className);
         }
         $spacing = $this->layoutTableTrackSpacing($element);
         if ( null !== $spacing ) {
@@ -2865,6 +2879,62 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $attrs;
+    }
+
+    /**
+     * Stacking rules for a layout-table row whose source CSS turns every cell
+     * into a block box under a media condition: the cells stop being table
+     * tracks there and stack full width, so the native row wraps its columns
+     * under that same condition. `{carrier}` stands for the carrier class.
+     */
+    private function layoutTableSourceStackingCss(DOMElement $element): string
+    {
+        $row = 'tr' === strtolower($element->tagName) ? $element : null;
+        foreach ( null === $row ? $element->getElementsByTagName('tr') : array() as $candidate ) {
+            if ( $candidate instanceof DOMElement && $this->belongsToTable($candidate, $element) ) {
+                $row = $candidate;
+                break;
+            }
+        }
+        if ( ! $row instanceof DOMElement ) {
+            return '';
+        }
+
+        $stacks = null;
+        foreach ( $row->childNodes as $cell ) {
+            if ( ! $cell instanceof DOMElement || 'td' !== strtolower($cell->tagName) ) {
+                continue;
+            }
+            $display = $this->styleResolver->declaredPresentation($cell, 'display');
+            $blockStacks = array();
+            foreach ( array_keys($display->conditional()) as $key ) {
+                $stack = explode('{', $key);
+                $value = $display->resolvedValueWhere(static fn (array $conditions): bool => $stack === array_values(array_filter(
+                    array_map('trim', $conditions),
+                    static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', $condition)
+                )));
+                $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
+                if ( in_array($value, array( 'block', 'flex', 'grid', 'flow-root', 'list-item' ), true) ) {
+                    $blockStacks[$key] = $stack;
+                }
+            }
+            $stacks = null === $stacks ? $blockStacks : array_intersect_key($stacks, $blockStacks);
+            if ( array() === $stacks ) {
+                return '';
+            }
+        }
+
+        $host = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '.{carrier}';
+        $css  = '';
+        foreach ( $stacks ?? array() as $stack ) {
+            $rule = $host . '{flex-wrap:wrap!important}' . $host . '>.wp-block-column{flex-basis:100%!important}';
+            foreach ( array_reverse($stack) as $condition ) {
+                $rule = $condition . '{' . $rule . '}';
+            }
+            $css .= $rule;
+        }
+
+        return $css;
     }
 
     private function layoutTableTrackSpacing(DOMElement $element): ?string
@@ -3170,7 +3240,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             new ColumnsPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->cssDeclarationString($this->styleResolver->structuralPresentationDeclarations($sourceElement)),
-                fn (DOMElement $sourceElement): string => $this->styleResolver->controlSurfaceResolvedStyle($sourceElement)
+                fn (DOMElement $sourceElement): string => $this->styleResolver->controlSurfaceResolvedStyle($sourceElement),
+                fn (DOMElement $sourceElement): bool => $this->styleResolver->isSingleFlexRowAtMobile($sourceElement)
             ),
             new MarkupPatternContext(
                 fn (DOMElement $sourceElement): string => SourceDom::safeFallbackHtml($sourceElement, $this->authorSelectorProjections()->tagMarkers()),
@@ -5699,6 +5770,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             );
         }
 
+        // An SVG text run lowered to a native text block keeps its text and
+        // typography; its line box approximates the SVG glyph placement.
+        if ( 'text' === $tagName ) {
+            return array(
+                'conversion_classification' => 'editable_approximation',
+                'preservation_strategy'     => 'svg_text_run_as_native_text',
+            );
+        }
+
         if ( in_array($tagName, array('form', 'input', 'select', 'textarea'), true) && 'core/search' !== $blockName ) {
             return array(
                 'conversion_classification' => 'editable_approximation',
@@ -5996,12 +6076,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || $this->isEmptyVisualInlineCandidate($element);
         }
 
+        // A bare role, tabindex, aria-* or data-* attribute is not a reason to
+        // keep an empty element: a native group cannot save those attributes,
+        // so the kept block would be an empty box with no footprint. An
+        // aria-label alone already dropped the element; the rest now agree.
         $id = SourceDom::namedFragmentTargetId($element);
         if ( $this->runtimeIslands->isRuntimeDomTarget($element)
             || ( '' !== $id && SourceDom::documentReferencesFragmentId($element, $id) )
-            || '' !== trim($this->attr($element, 'role'))
-            || array() !== $this->interactiveAttributes($element)
-            || array() !== $this->safeDataAttributes($element)
+            || array() !== $this->eventMetadata($element)
             || array() !== $this->structureSignals($element, array())
             || $this->hasRenderableEmptyBlockBox($element)
             || $this->hasStaticPseudoElementRule($element)

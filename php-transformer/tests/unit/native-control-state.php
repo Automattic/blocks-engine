@@ -75,6 +75,18 @@ foreach (array('post' => '<form method="post" action="/contact.php">', 'unspecif
     $states = array_column($finding['controls'] ?? array(), 'native_state');
     $assert(3 === count($states) && 'Ann' === $states[0]['value'] && 'Hi' === $states[2]['value'], "{$case} provider control contract carries validated typed current/default state");
 }
+// The replay interpreter's selectors are not source runtime evidence: an ordinary
+// POST form under an app-root-token wrapper stays on the form path, while a
+// source script addressing the same wrapper still makes it an app shell.
+$replay = '<script data-blocks-engine-capture-native-control-runtime>document.querySelectorAll("input[data-blocks-engine-capture-native-control-state],textarea[data-blocks-engine-capture-native-control-state]").forEach(function(c){c.value=c.value;});</script>';
+$shellPage = static fn (string $extra): string => '<!doctype html><html><head><title>Contact</title></head><body><div class="site-canvas"><h1>Contact</h1>'
+    . '<form method="post" enctype="multipart/form-data" action="/contact.php">' . $typedControls . '</form>' . $extra . '</div>' . $replay . '</body></html>';
+$appShellIslands = static fn (string $html): array => array_values(array_filter(
+    (new ArtifactCompiler())->compile(array('block_namespace' => 'neutral', 'files' => array('index.html' => $html)))->toArray()['source_reports']['runtime_islands'] ?? array(),
+    static fn (array $island): bool => 'app_shell' === ($island['kind'] ?? '')
+));
+$assert(array() === $appShellIslands($shellPage('')), 'replayed native control state does not make an ordinary POST form wrapper an app shell');
+$assert(array() !== $appShellIslands($shellPage('<span data-cell></span><span data-cell></span><script>document.querySelectorAll("[data-cell]").forEach(function(c){c.textContent="x";});</script>')), 'source runtime targets still make the wrapper an app shell');
 
 // A2: the parser-dropped newline after <textarea> is not part of the value.
 $textareaBlock = static function (string $html) use ($flatten): array {
