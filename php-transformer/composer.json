@@ -216,6 +216,7 @@
       "php tests/unit/asset-target-case-collision.php",
       "php tests/unit/staged-transport.php",
       "php tests/unit/wordpress-site-plan-composer.php",
+      "php tests/unit/numeric-post-route-parent.php",
       "php tests/unit/wordpress-site-plan-stylesheet-order.php",
       "php tests/unit/wordpress-stylesheet-instances.php",
       "php tests/unit/wordpress-site-plan-inline-stylesheet-order.php",

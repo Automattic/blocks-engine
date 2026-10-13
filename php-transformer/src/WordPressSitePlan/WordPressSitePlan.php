@@ -4023,7 +4023,8 @@ PHP;
             $lines[] = '$blocks_engine_post_routes = ' . var_export($postRoutePaths, true) . ';';
             $lines[] = "add_action( 'init', static function () use ( \$blocks_engine_post_routes ): void {";
             foreach (array_keys($postRouteParents) as $parent) {
-                $pattern = '^' . preg_quote($parent, '/') . '/([^/]+)/?$';
+                // A numeric parent (`/2019/<slug>/`) is an int key.
+                $pattern = '^' . preg_quote((string) $parent, '/') . '/([^/]+)/?$';
                 $lines[] = "    add_rewrite_rule( " . var_export($pattern, true) . ", 'index.php?name=\$matches[1]', 'top' );";
             }
             $lines[] = "    \$signature = hash( 'sha256', wp_json_encode( \$blocks_engine_post_routes ) );";
