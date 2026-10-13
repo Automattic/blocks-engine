@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -4531,6 +4532,10 @@ final class StyleResolver implements ElementPresentationResolver
             // `--btnbg` are distinct properties, and `var(--btnBg)` only
             // reads the first.
             $name = str_starts_with($name, '--') ? $name : strtolower($name);
+            // A browser drops `0: none`; its name would also be an int key.
+            if ( CssPropertyName::startsLikeNumber($name) ) {
+                continue;
+            }
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
             // A consumed custom property can supply the URL to an authored
             // background rule. Keep it for the same sanitized carrier path.

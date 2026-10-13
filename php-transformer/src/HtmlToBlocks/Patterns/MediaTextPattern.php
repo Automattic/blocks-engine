@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use DOMElement;
@@ -833,7 +834,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
 
             $name  = strtolower(trim(substr($declaration, 0, $separator)));
             $value = trim(substr($declaration, $separator + 1));
-            if ( '' === $name || '' === $value || ! $this->isValidMediaTextCssDeclaration($name, $value) ) {
+            if ( '' === $name || '' === $value || CssPropertyName::startsLikeNumber($name) || ! $this->isValidMediaTextCssDeclaration($name, $value) ) {
                 continue;
             }
 

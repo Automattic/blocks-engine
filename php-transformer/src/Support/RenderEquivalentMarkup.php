@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 
 /**
  * One spelling for markup that renders identically but serializes differently.
@@ -77,7 +78,7 @@ final class RenderEquivalentMarkup
             if (false === $colon) continue;
             $property = strtolower(trim(substr($declaration, 0, $colon)));
             $value = trim(substr($declaration, $colon + 1));
-            if ('' === $property || '' === $value) continue;
+            if ('' === $property || '' === $value || CssPropertyName::startsLikeNumber($property)) continue;
             if (preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property)) {
                 $value = implode(' ', array_map(static fn (string $token): string => self::canonicalZeroLength($token), self::splitTokens($value)));
             }
