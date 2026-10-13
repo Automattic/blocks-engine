@@ -95,7 +95,7 @@ $assert(str_contains($legacyFontMarkup, '<mark ') && ! str_contains($legacyFontM
 
 $legacyFontCascade = ( new HtmlTransformer() )->transform('<style>.cascade{color:#456;font-family:CSS;font-size:19px}</style><p><font class="cascade" color="#123" face="Legacy" size="7">Cascade</font><font color="#123" face="Legacy" size="+2">Hints</font></p>')->toArray();
 $legacyFontCascadeMarkup = (string) ($legacyFontCascade['serialized_blocks'] ?? '');
-$assert(str_contains($legacyFontCascadeMarkup, 'color:#456;font-family:CSS;font-size:19px;background-color:transparent" role="none">Cascade') && str_contains($legacyFontCascadeMarkup, 'color:#123;font-family:Legacy;font-size:24px;background-color:transparent" role="none">Hints'), 'Resolved author CSS wins matching legacy font hints while absent cascade properties retain presentational fallback values.');
+$assert(1 === preg_match('/color:#456;font-family:CSS;font-size:19px;--blocks-engine-richtext-marker:[a-z0-9-]+" role="none">Cascade/', $legacyFontCascadeMarkup) && str_contains($legacyFontCascadeMarkup, 'color:#123;font-family:Legacy;font-size:24px;background-color:transparent" role="none">Hints'), 'Resolved author CSS wins matching legacy font hints while absent cascade properties retain presentational fallback values.');
 
 $legacyFontMatrix = ( new HtmlTransformer() )->transform('<p><font>Plain</font><font size="+2">Up</font><font size="-9">Down</font><font color="#123"><font size="-1">Nested</font></font><font size="+2"><font size="-1">Relative nested</font><font size="7"><font size="-9">Absolute nested</font></font></font></p>')->toArray();
 $legacyFontMatrixMarkup = (string) ($legacyFontMatrix['serialized_blocks'] ?? '');

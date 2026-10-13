@@ -57,6 +57,11 @@ replay by case:
   of its source inline's custom properties author rules read. The emitted
   blocks and stylesheets are unchanged; only the style-rule candidate cache
   miss and peak-entry counters rise by one in `c7fff215` and `f025cf28`.
+- **Empty attribute-only containers.** An empty element kept only for a bare
+  `role`, `tabindex`, `aria-*` or `data-*` attribute is dropped, since a native
+  group cannot save those attributes. The corpus input carries no CSS for its
+  empty Wix background and header layers, so they no longer emit empty groups
+  and their wrappers re-nest in `90234027`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.

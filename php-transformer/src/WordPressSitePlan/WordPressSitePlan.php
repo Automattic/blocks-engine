@@ -1704,7 +1704,7 @@ PHP;
         $projected = array();
         $emittedShared = array();
         foreach ($assets as $asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content']) || !StylesheetActivation::active($asset) || '' !== ($asset['stylesheet_activation']['title'] ?? '')) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content']) || !StylesheetActivation::active($asset)) {
                 $projected[] = $asset;
                 continue;
             }
