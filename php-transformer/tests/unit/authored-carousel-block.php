@@ -26,7 +26,8 @@ $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? 
 $serialized = (new Runtime())->serializeBlocks(array($block));
 $assert('custom/authored-carousel' === ((new Runtime())->parseBlocks($serialized)[0]['blockName'] ?? null), 'the carousel and its inner blocks persist through parse and serialize');
 
-$portableGallerySource = '<script data-blocks-engine-capture-gallery-runtime="">document.querySelectorAll("[data-blocks-engine-capture-gallery]");</script>'
+// The producer's published gallery runtime, which drives this src-swap shape.
+$portableGallerySource = '<script data-blocks-engine-capture-gallery-runtime="">' . trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-gallery-runtime.js')) . '</script>'
     . '<div class="neutral-gallery" id="neutral-gallery" data-blocks-engine-capture-gallery-capture-width="1440" data-blocks-engine-capture-gallery="" data-blocks-engine-capture-gallery-source="#neutral-gallery" data-blocks-engine-capture-gallery-sequence="[&quot;/media/photo-a.jpeg&quot;,&quot;/media/photo-b.jpeg&quot;,&quot;/media/photo-c.jpeg&quot;,&quot;/media/photo-d.jpeg&quot;,&quot;/media/photo-e.jpeg&quot;]" data-blocks-engine-capture-gallery-index="0">'
     . '<!-- leading slot --><div class="gallery-side gallery-side-left" id="left-slot" aria-hidden="true"><img id="left-image" alt="" src="/media/photo-e.jpeg" data-blocks-engine-capture-gallery-slot="-1"></div>'
     . '<!-- previous control --><button class="gallery-arrow gallery-arrow-left" id="previous-control" type="button" aria-label="Previous image" data-blocks-engine-capture-gallery-direction="-1"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M8 2 3 5l5 3"></path></svg></button>'
@@ -58,6 +59,10 @@ $assert(
         && str_contains($portableGalleryMarkup, 'data-blocks-engine-capture-gallery-slot="-1"')
         && str_contains($portableGalleryMarkup, 'data-blocks-engine-capture-gallery-slot="1"'),
     'portable gallery keeps its source three-slot layout, editable attachments, and functional controls without fallback blocks'
+);
+$assert(
+    !str_contains($portableGalleryMarkup, 'data-blocks-engine-capture-gallery-direction') && true === ($portableGallery['attrs']['wrap'] ?? null) && 0 === ($portableGallery['attrs']['initialSlide'] ?? null),
+    'native src-swap navigation owns the controls: it wraps from the captured index 0 like the gallery runtime, which no longer binds them'
 );
 
 $compoundMenuResult = (new HtmlTransformer())->transform(

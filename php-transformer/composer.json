@@ -187,6 +187,7 @@
       "php tests/unit/captured-dialog-projector.php",
       "php tests/unit/captured-dialog-dropdown-panel.php",
       "php tests/unit/scoped-mixed-dropdown.php",
+      "php tests/unit/capture-runtime-ancestor-parity.php",
       "php tests/unit/captured-selectable-set-projector.php",
       "php tests/unit/captured-collection-filter.php",
       "php tests/unit/captured-choice-group-projector.php",

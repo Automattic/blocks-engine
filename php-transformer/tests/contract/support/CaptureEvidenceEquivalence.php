@@ -188,6 +188,8 @@ final class CaptureEvidenceEquivalence
             foreach ( $value as $key => $item ) {
                 if ( is_string($key) && str_ends_with($key, '_duration_ms') ) {
                     $value[$key] = 0;
+                } elseif ( 'engine_version' === $key && is_string($item) ) {
+                    $value[$key] = '<engine-version>';
                 } elseif ( $lengthNeutral && is_string($key) && ( is_int($item) || is_bool($item) ) && 1 === preg_match('/bytes|length|size|offset|truncated/i', $key) ) {
                     $value[$key] = '<length>';
                 } else {

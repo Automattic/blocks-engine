@@ -172,8 +172,31 @@ allowed.
 
 | Name | Kind | Meaning |
 | ---- | ---- | ------- |
-| `3d350f5508bed44c931291f9f38e5d8d7c361d5d3ea729c51f1fe11b70ce75dc` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
-| `0a6bf62a6d9d6a04faf10e933d2362bbbdf3b5c8351c6452174f98bf29f723aa` | sha256 of the gallery helper | Body: [`tests/fixtures/capture-gallery-runtime.js`](../../tests/fixtures/capture-gallery-runtime.js), marker `data-blocks-engine-capture-gallery-runtime`, in `<head>`. |
+| `b545f43a77b79d075373048431101fe11d7ff8cdfe7987de6d7971512763d88f` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
+| `456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b` | sha256 of the gallery helper | Body: [`tests/fixtures/capture-gallery-runtime.js`](../../tests/fixtures/capture-gallery-runtime.js), marker `data-blocks-engine-capture-gallery-runtime`, in `<head>`. |
+
+Blocks Engine recognizes one body per runtime: the producer's current one.
+When the producer changes a body, Blocks Engine checks that its native
+replacement does what the new body does, then publishes the new body and
+digest in place of the old ones. An earlier body is no longer recognized: a
+page that carries it keeps its captured runtime wherever recognition is
+required (below).
+
+What the native replacement reproduces:
+
+- **Disclosure interpreter.** Opening and closing a dialog, and the ancestor
+  bindings in `data-blocks-engine-capture-dialog-ancestor-state`. A `class`
+  binding is replayed as tokens: tokens of the other state that the target
+  state lacks are removed, the target state's tokens are added, and every
+  other class on the ancestor is kept. The native dialog finds the ancestor by its tag and closed tokens.
+  `tests/unit/capture-runtime-ancestor-parity-browser.mjs` compares the two in
+  Chromium.
+- **Gallery helper.** Frame galleries become native carousels. A src-swap
+  gallery (`data-blocks-engine-capture-gallery-sequence` with
+  `data-blocks-engine-capture-gallery-slot` images) becomes a native src-swap
+  carousel. It starts at index 0, wraps in both directions, sets each slot to
+  the sequence image at the current index plus the slot's offset, and removes
+  the slot's `srcset`.
 
 **How Blocks Engine verifies them.** For each page with captured dialog
 scopes, `CapturedDialogProjector` scans every `<script>`:

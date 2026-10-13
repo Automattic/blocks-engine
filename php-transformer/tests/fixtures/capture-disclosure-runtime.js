@@ -4,10 +4,12 @@ function panel(trigger){var id=trigger.getAttribute('aria-controls');return id?d
 function closeFor(trigger){var id=trigger.getAttribute('aria-controls');return id?document.querySelector('[data-blocks-engine-capture-dialog-close="'+id+'"]'):null;}
 function concealed(trigger){var style=getComputedStyle(trigger);if(style.display==='none'||style.visibility==='hidden')return true;var rect=trigger.getBoundingClientRect();return rect.width===0||rect.height===0;}
 function ancestorBindings(trigger){try{return JSON.parse(trigger.getAttribute('data-blocks-engine-capture-dialog-ancestor-state')||'[]');}catch(error){return [];}}
+function classTokens(value){return (value||'').split(/\s+/).filter(Boolean);}
 function ancestorAt(trigger,depth){var node=trigger;while(depth--&&node)node=node.parentElement;return node;}
 function applyAncestors(trigger,open){ancestorBindings(trigger).forEach(function(binding){var node=ancestorAt(trigger,binding.depth);if(!node)return;
   Object.keys(binding.closed).forEach(function(name){var value=open?binding.opened[name]:binding.closed[name];
     if(!open){var owner=Array.prototype.find.call(triggers(),function(other){return other!==trigger&&!concealed(other)&&other.getAttribute('aria-expanded')==='true'&&ancestorBindings(other).some(function(row){return ancestorAt(other,row.depth)===node&&Object.prototype.hasOwnProperty.call(row.opened,name);});});if(owner){var row=ancestorBindings(owner).find(function(row){return ancestorAt(owner,row.depth)===node&&Object.prototype.hasOwnProperty.call(row.opened,name);});value=row.opened[name];}}
+    if(name==='class'){var target=classTokens(value);classTokens(open?binding.closed[name]:binding.opened[name]).forEach(function(token){if(target.indexOf(token)<0)node.classList.remove(token);});target.forEach(function(token){node.classList.add(token);});if(value===null&&!node.classList.length)node.removeAttribute(name);return;}
     if(value===null)node.removeAttribute(name);else node.setAttribute(name,value);
   });
 });}
