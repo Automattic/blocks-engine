@@ -40,7 +40,7 @@ function section(partial: Partial<SectionSpec>): SectionSpec {
 }
 
 describe('page reconstruct helper public surface', () => {
-  it('exports the DLA page-reconstruct helper surface from theme/index', () => {
+  it('exports the reference page-reconstruct helper surface from theme/index', () => {
     expect(theme).toEqual(
       expect.objectContaining({
         normalizeCopy: expect.any(Function),
@@ -70,14 +70,14 @@ describe('page reconstruct helper public surface', () => {
   });
 });
 
-describe('normalizeCopy DLA parity', () => {
+describe('normalizeCopy reference parity', () => {
   it('collapses whitespace and strips soft-hyphen and zero-width copy noise', () => {
     expect(normalizeCopy('  foo\u00ad\u200b   bar\n baz ')).toBe('foo bar baz');
     expect(normalizeCopy('\ufeffA\u200c\tB\u200d\r\nC\u00ad')).toBe('A B C');
   });
 });
 
-describe('sanitizePatternHeaderField DLA parity', () => {
+describe('sanitizePatternHeaderField reference parity', () => {
   it('strips PHP doc-comment and PHP-tag delimiters without rewriting visible text', () => {
     expect(sanitizePatternHeaderField('*/ evil(); /*')).toBe('evil();');
     expect(sanitizePatternHeaderField('a <?php b ?> c')).toBe('a php b  c');
@@ -87,7 +87,7 @@ describe('sanitizePatternHeaderField DLA parity', () => {
   });
 });
 
-describe('stripChrome DLA parity', () => {
+describe('stripChrome reference parity', () => {
   it('drops leading header chrome and trailing footer/nav chrome while preserving middle content', () => {
     const out = stripChrome([
       section({
@@ -129,7 +129,7 @@ describe('stripChrome DLA parity', () => {
   });
 });
 
-describe('sanitizeSvgAsset DLA parity', () => {
+describe('sanitizeSvgAsset reference parity', () => {
   it('removes active SVG content and keeps inert icon markup as concrete goldens', () => {
     expect(
       sanitizeSvgAsset(

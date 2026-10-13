@@ -263,7 +263,7 @@ function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet, state:
   // Un-convertible element kind (svg, table, form, media): keep it losslessly as a nested
   // core/html island instead of dropping it — preserves the visual AND its source classes
   // (so carried CSS still binds → visual parity) while the rest of the section stays native
-  // editable blocks. This is DLA's per-element island behavior (apply-block-recipe).
+  // editable blocks. This is the reference implementation's per-element island behavior (apply-block-recipe).
   const verbatim = $.html(el).trim();
   if (verbatim) return { markup: coreHtmlIsland(verbatim), clean: true };
   return { markup: '', clean: false };

@@ -14,10 +14,10 @@ if (!username_exists('navigation-proof')) {
 }
 $files = array('index.html' => $source, 'other.html' => $source);
 if ($scopedDropdown) {
-    $files['capture-receipt.json'] = json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'index.html'), array('url' => 'https://example.test/other', 'path' => 'other.html'))));
+    $files['capture-receipt.json'] = json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'index.html'), array('url' => 'https://example.test/other', 'path' => 'other.html'))));
     $pages = array();
     foreach (array('https://example.test/', 'https://example.test/other') as $url) $pages[] = array('sourceUrl' => $url, 'states' => array(array('status' => 'captured', 'trigger' => array('selector' => 'missing', 'label' => 'Open menu', 'tag' => 'div', 'ariaHaspopup' => 'menu'), 'dialog' => array('html' => '<div>Panel</div>', 'htmlBytes' => 16, 'htmlTruncated' => false, 'presentation' => 'dropdown'))));
-    $files['interaction-states.json'] = json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => $pages));
+    $files['interaction-states.json'] = json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => $pages));
 }
 $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files));
 $plan = $compiled->toWordPressSitePlanView()['wordpress_site_plan'];

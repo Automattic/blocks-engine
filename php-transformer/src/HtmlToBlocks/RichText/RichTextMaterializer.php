@@ -207,6 +207,10 @@ final class RichTextMaterializer implements RichTextMaterialization
         }
 
         $declarations = array_intersect_key($declarations, $allowed);
+        // The source inline's custom properties feed the author rules and
+        // carried values that style it (`font-family: var(--font)`); the
+        // carrier replaces its inline style, so it must define them too.
+        $declarations += $this->styleResolver->consumedInlineCustomProperties($element, $declarations);
         if ( ! SourceDom::hasAncestorTag($element, array( 'header' )) ) {
             unset($declarations['box-shadow'], $declarations['place-items']);
         }

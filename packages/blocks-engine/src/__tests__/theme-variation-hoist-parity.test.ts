@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import expectedGoldens from './fixtures/variation-hoist-dla-goldens.json' with { type: 'json' };
+import expectedGoldens from './fixtures/variation-hoist-reference-goldens.json' with { type: 'json' };
 import {
   runVariationHoistParity,
   variationHoistCases,
@@ -58,7 +58,7 @@ function collectDiffs(actual: VariationHoistParityFile, expected: VariationHoist
   for (const actualCase of actual.cases) {
     const expectedCase = expectedById.get(actualCase.id);
     if (!expectedCase) {
-      diffs.push(`${actualCase.id}: missing from checked-in DLA goldens`);
+      diffs.push(`${actualCase.id}: missing from checked-in reference goldens`);
       continue;
     }
     if (stableJson(actualCase.options) !== stableJson(expectedCase.options)) {
@@ -82,8 +82,8 @@ function collectDiffs(actual: VariationHoistParityFile, expected: VariationHoist
   return diffs;
 }
 
-describe('variation hoist DLA parity', () => {
-  it('matches checked-in DLA hoistVariations and applyHoistSwaps goldens byte-for-byte', () => {
+describe('variation hoist reference parity', () => {
+  it('matches checked-in reference hoistVariations and applyHoistSwaps goldens byte-for-byte', () => {
     const first = runVariationHoistParity(engineImpl) as VariationHoistParityFile;
     const second = runVariationHoistParity(engineImpl) as VariationHoistParityFile;
     expect(stableJson(first)).toBe(stableJson(second));

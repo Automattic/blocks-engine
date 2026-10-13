@@ -26,7 +26,7 @@ function collection_filter_artifact_path(string $name): string
 function collection_filter_finite_browser_artifact(): array
 {
     $card = static function (string $heading, string $answer, string $id): string {
-        return '<div class="card"><button aria-expanded="false" aria-controls="' . $id . '">' . $heading . '</button><div role="region" id="' . $id . '" data-dla-local-disclosure="true" hidden><p>' . $answer . '</p></div></div>';
+        return '<div class="card"><button aria-expanded="false" aria-controls="' . $id . '">' . $heading . '</button><div role="region" id="' . $id . '" data-blocks-engine-capture-local-disclosure="true" hidden><p>' . $answer . '</p></div></div>';
     };
     $names = array('apricot', 'blueberry', 'cranberry', 'dewberry', 'elderberry', 'figfruit', 'gooseberry', 'honeydew', 'kiwifruit', 'lemonfruit', 'mangofruit', 'nectarine', 'olivefruit', 'papayafruit', 'quincefruit', 'raspberry', 'strawberry', 'tangerine', 'uglifruit');
     $items = array();
@@ -48,7 +48,7 @@ function collection_filter_finite_browser_artifact(): array
     foreach ($membership[0] as $key) {
         $resting .= $items[(int) $key]['html'];
     }
-    $source = '<html><head><script data-dla-local-disclosure-runtime="true"></script><script data-dla-collection-runtime="true"></script></head><body><main><div class="scope"><div class="choices"><button class="active">All</button><button class="inactive">Alpha</button><button class="inactive">Beta</button><button class="inactive">Gamma</button></div><input type="search" placeholder="Looking for something?" aria-label="Looking for something?"><p class="status">19 questions</p><div id="results" data-dla-exclusive-disclosures="true"><div class="wrap">' . $resting . '</div></div></div></main></body></html>';
+    $source = '<html><head><script data-blocks-engine-capture-local-disclosure-runtime="true"></script><script data-blocks-engine-capture-collection-runtime="true"></script></head><body><main><div class="scope"><div class="choices"><button class="active">All</button><button class="inactive">Alpha</button><button class="inactive">Beta</button><button class="inactive">Gamma</button></div><input type="search" placeholder="Looking for something?" aria-label="Looking for something?"><p class="status">19 questions</p><div id="results" data-blocks-engine-capture-exclusive-disclosures="true"><div class="wrap">' . $resting . '</div></div></div></main></body></html>';
     $keys = array_column($items, 'key');
     $legacy = array();
     $categoryProbes = array();
@@ -72,7 +72,7 @@ function collection_filter_finite_browser_artifact(): array
         'replay' => 'verified',
         'network' => array('dataRequests' => 'observed-response-replay', 'verification' => 'intercepted-observed-responses'),
         'finiteBootstrap' => array(
-            'schema' => 'data-liberation/finite-bootstrap/v1',
+            'schema' => 'blocks-engine-capture/finite-bootstrap/v1',
             'mode' => 'category-or-global-search',
             'queryIndependent' => true,
             'completeness' => 'declared-finite',
@@ -95,7 +95,7 @@ function collection_filter_finite_browser_artifact(): array
                     array('query' => 's', 'keys' => $keys),
                     array('query' => 'apricot', 'keys' => array('0')),
                     array('query' => 'APRICOT', 'keys' => array('0')),
-                    array('query' => 'dla-no-match-7f39b2', 'keys' => array()),
+                    array('query' => 'data-blocks-engine-capture-no-match-7f39b2', 'keys' => array()),
                 ),
                 'categories' => $categoryProbes,
             ),
@@ -103,8 +103,8 @@ function collection_filter_finite_browser_artifact(): array
     );
     $projected = (new CapturedCollectionProjector())->project(array(
         array('path' => 'website/index.html', 'content' => $source),
-        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))))),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test/', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
     ));
     if (1 !== ($projected['projected_count'] ?? 0)) {
         throw new RuntimeException('Finite collection browser fixture did not project.');
@@ -140,7 +140,7 @@ function collection_filter_status_case(): array
         $categories[] = array('selector' => 'body > main > div > div > button:nth-of-type(' . ($index + 1) . ')', 'label' => $label, 'index' => $index, 'activeHtml' => '<button class="active">' . $label . '</button>', 'inactiveHtml' => '<button class="inactive">' . $label . '</button>');
     }
     $resting = $card($rows[0][1]) . $card($rows[1][1]) . $card($rows[2][1]);
-    $source = '<html><head><script data-dla-collection-runtime="true"></script></head><body><main><div class="scope"><div class="choices"><button class="active">All</button><button class="inactive">Other</button></div><input type="search" placeholder="Search" aria-label="Search"><div id="results">' . $resting . '</div></div></main></body></html>';
+    $source = '<html><head><script data-blocks-engine-capture-collection-runtime="true"></script></head><body><main><div class="scope"><div class="choices"><button class="active">All</button><button class="inactive">Other</button></div><input type="search" placeholder="Search" aria-label="Search"><div id="results">' . $resting . '</div></div></main></body></html>';
     $keys = array('0', '1', '2', '3');
     $evidence = array(
         'field' => array('selector' => 'body > main > div > input', 'value' => ''),
@@ -161,7 +161,7 @@ function collection_filter_status_case(): array
         'replay' => 'verified',
         'network' => array('dataRequests' => 'observed-response-replay', 'verification' => 'intercepted-observed-responses'),
         'finiteBootstrap' => array(
-            'schema' => 'data-liberation/finite-bootstrap/v1',
+            'schema' => 'blocks-engine-capture/finite-bootstrap/v1',
             'mode' => 'category-or-global-search',
             'queryIndependent' => true,
             'completeness' => 'declared-finite',
@@ -184,7 +184,7 @@ function collection_filter_status_case(): array
                     array('query' => 'a', 'keys' => $keys),
                     array('query' => 'berry', 'keys' => array('1', '2', '3')),
                     array('query' => 'APRICOT', 'keys' => array('0')),
-                    array('query' => 'dla-no-match-7f39b2', 'keys' => array()),
+                    array('query' => 'data-blocks-engine-capture-no-match-7f39b2', 'keys' => array()),
                 ),
                 'categories' => array(
                     array('category' => 0, 'keys' => array('0', '1', '2')),
@@ -192,7 +192,7 @@ function collection_filter_status_case(): array
                 ),
             ),
             'status' => array(
-                'schema' => 'data-liberation/collection-status/v1',
+                'schema' => 'blocks-engine-capture/collection-status/v1',
                 'nodes' => array(
                     array('html' => '<div role="status" class="saTKtkk" aria-live="polite" aria-atomic="true">{count} matching results found</div>', 'template' => '{count} matching results found', 'binds' => array('count'), 'placement' => 'before-items', 'hidesAtZero' => true),
                     array('html' => '<div class="styp7eL oY1h81f--resultFound" data-hook="questions-results-found"><div class="sC8z_ff"><span class="sf4zzLJ o__22sN2C---typography-11-runningText o__22sN2C---priority-7-primary" aria-hidden="false" data-hook="text-search-results-found">Showing results for: {query}</span></div></div>', 'template' => 'Showing results for: {query}', 'binds' => array('query'), 'placement' => 'before-items', 'hidesAtZero' => true),
@@ -201,12 +201,12 @@ function collection_filter_status_case(): array
         ),
     );
     $status = static function (string $id): string {
-        return '<div data-dla-collection-status="' . $id . '" hidden data-dla-status-hide-zero="true" role="status" class="saTKtkk" aria-live="polite" aria-atomic="true" data-dla-status-template="{count} matching results found">{count} matching results found</div><div data-dla-collection-status="' . $id . '" hidden data-dla-status-hide-zero="true" class="styp7eL oY1h81f--resultFound" data-hook="questions-results-found"><div class="sC8z_ff"><span class="sf4zzLJ o__22sN2C---typography-11-runningText o__22sN2C---priority-7-primary" aria-hidden="false" data-hook="text-search-results-found" data-dla-status-template="Showing results for: {query}">Showing results for: {query}</span></div></div>';
+        return '<div data-blocks-engine-capture-collection-status="' . $id . '" hidden data-blocks-engine-capture-status-hide-zero="true" role="status" class="saTKtkk" aria-live="polite" aria-atomic="true" data-blocks-engine-capture-status-template="{count} matching results found">{count} matching results found</div><div data-blocks-engine-capture-collection-status="' . $id . '" hidden data-blocks-engine-capture-status-hide-zero="true" class="styp7eL oY1h81f--resultFound" data-hook="questions-results-found"><div class="sC8z_ff"><span class="sf4zzLJ o__22sN2C---typography-11-runningText o__22sN2C---priority-7-primary" aria-hidden="false" data-hook="text-search-results-found" data-blocks-engine-capture-status-template="Showing results for: {query}">Showing results for: {query}</span></div></div>';
     };
     $copy = static function (string $id) use ($rows, $status): string {
         $items = '';
-        foreach ($rows as $row) $items .= '<div class="card" data-dla-collection-item="' . $row[0] . '" data-dla-collection-members="' . htmlspecialchars(json_encode($row[2]), ENT_QUOTES) . '"><p>' . $row[1] . '</p></div>';
-        return '<section class="copy"><div role="tab" data-dla-collection-category-control="' . $id . '" data-dla-collection-index="0">All</div><div role="tab" data-dla-collection-category-control="' . $id . '" data-dla-collection-index="1">Other</div><input data-dla-collection-field="' . $id . '" type="search" aria-label="Search">' . $status($id) . '<div data-dla-collection="' . $id . '">' . $items . '</div></section>';
+        foreach ($rows as $row) $items .= '<div class="card" data-blocks-engine-capture-collection-item="' . $row[0] . '" data-blocks-engine-capture-collection-members="' . htmlspecialchars(json_encode($row[2]), ENT_QUOTES) . '"><p>' . $row[1] . '</p></div>';
+        return '<section class="copy"><div role="tab" data-blocks-engine-capture-collection-category-control="' . $id . '" data-blocks-engine-capture-collection-index="0">All</div><div role="tab" data-blocks-engine-capture-collection-category-control="' . $id . '" data-blocks-engine-capture-collection-index="1">Other</div><input data-blocks-engine-capture-collection-field="' . $id . '" type="search" aria-label="Search">' . $status($id) . '<div data-blocks-engine-capture-collection="' . $id . '">' . $items . '</div></section>';
     };
-    return array('source' => $source, 'evidence' => $evidence, 'copies' => '<html><head><script data-dla-collection-runtime="true"></script></head><body><main>' . $copy('0') . $copy('1') . '</main></body></html>');
+    return array('source' => $source, 'evidence' => $evidence, 'copies' => '<html><head><script data-blocks-engine-capture-collection-runtime="true"></script></head><body><main>' . $copy('0') . $copy('1') . '</main></body></html>');
 }

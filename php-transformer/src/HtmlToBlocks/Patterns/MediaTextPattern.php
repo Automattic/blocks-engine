@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use DOMElement;
@@ -19,6 +20,8 @@ use DOMElement;
  * +-- text side out of flow (overlay)? -- yes -> null
  * |
  * +-- strict media/layout gates pass? ---- no --> null
+ * |
+ * +-- flex text pane alone grows? ------- yes -> null
  * |
  * +-- convert text child once
  * |
@@ -202,6 +205,16 @@ final class MediaTextPattern implements PatternRecognizerInterface
             $mediaStyle = $fullPresentationStyle($resolution['media']);
             $rootFontSize = $documentRootFontSize($element);
         } catch ( \Throwable ) {
+            return null;
+        }
+
+        // core/media-text sizes its panes as grid tracks: a percentage media
+        // track and the remainder for text. A flex row whose text pane alone
+        // grows into the free space beside a fixed-size media pane has no
+        // such split, and nesting the text item inside the content pane
+        // drops its flex sizing (a `flex: 1 0 0; width: 1px` column collapses
+        // to 1px). Keep the authored row through native group lowering.
+        if ( 'flex' === $displayType && $this->textPaneAloneGrows($childStyles[ $textIndex ], $childStyles[ $mediaIndex ]) ) {
             return null;
         }
 
@@ -833,7 +846,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
 
             $name  = strtolower(trim(substr($declaration, 0, $separator)));
             $value = trim(substr($declaration, $separator + 1));
-            if ( '' === $name || '' === $value || ! $this->isValidMediaTextCssDeclaration($name, $value) ) {
+            if ( '' === $name || '' === $value || CssPropertyName::startsLikeNumber($name) || ! $this->isValidMediaTextCssDeclaration($name, $value) ) {
                 continue;
             }
 
@@ -903,6 +916,19 @@ final class MediaTextPattern implements PatternRecognizerInterface
         }
 
         return null;
+    }
+
+    private function textPaneAloneGrows(string $textStyle, string $mediaStyle): bool
+    {
+        return 0.0 < $this->flexGrow($textStyle)
+            && 0.0 >= $this->flexGrow($mediaStyle)
+            && null === $this->mediaWidthFromMediaStyle($mediaStyle);
+    }
+
+    private function flexGrow(string $style): float
+    {
+        $grow = $this->normalizedCssValue((string) ($this->styleDeclarations($style)['flex-grow'] ?? ''));
+        return is_numeric($grow) ? (float) $grow : 0.0;
     }
 
     private function containerDisplayType(string $style): ?string
