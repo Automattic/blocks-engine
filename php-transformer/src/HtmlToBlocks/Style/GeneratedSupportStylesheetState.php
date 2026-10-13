@@ -44,6 +44,9 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, string> */
     private array $headerRichTextRules = array();
 
+    /** @var array<string, string> */
+    private array $richTextPresentationalHintRules = array();
+
     /** @var array<string, array<string, mixed>> */
     private array $listNavigationPadding = array();
 
@@ -164,6 +167,11 @@ final class GeneratedSupportStylesheetState
     public function registerHeaderRichText(string $marker, string $rule): void
     {
         $this->headerRichTextRules[$marker] = $rule;
+    }
+
+    public function registerRichTextPresentationalHint(string $marker, string $rule): void
+    {
+        $this->richTextPresentationalHintRules[$marker] = $rule;
     }
 
     /** @param array<string, mixed> $padding */
@@ -339,9 +347,17 @@ final class GeneratedSupportStylesheetState
         );
     }
 
-    public function beforeAuthorCss(): string
+    public function beforeAuthorCss(string $serializedBlocks): string
     {
-        return implode("\n", $this->nativeSearchTriggerRules);
+        $parts = array_values($this->nativeSearchTriggerRules);
+        // Presentational hints precede every author rule, as in the source.
+        foreach ($this->richTextPresentationalHintRules as $marker => $rule) {
+            if (str_contains($serializedBlocks, $marker)) {
+                $parts[] = $rule;
+            }
+        }
+
+        return implode("\n", $parts);
     }
 
     /**
