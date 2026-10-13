@@ -182,7 +182,10 @@ final class AuthorSelectorSemanticPreparer
                 $inlineTag = strtolower($element->tagName);
                 $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
                 $directAuthorLayoutItem = $directChildSelector && $this->context->isDirectChildOfAuthorOwnedLayout($element);
-                if ( ! $this->context->isInlineContentElement($inlineTag) || ('span' !== $inlineTag && ! $directAuthorLayoutItem) ) {
+                // `span` and `font` are replaced by a `<mark>` RichText carrier,
+                // so an author rule naming them needs a marker hook to keep
+                // matching after conversion.
+                if ( ! $this->context->isInlineContentElement($inlineTag) || (! in_array($inlineTag, array( 'span', 'font' ), true) && ! $directAuthorLayoutItem) ) {
                     continue;
                 }
                 if ( '' === $path ) {

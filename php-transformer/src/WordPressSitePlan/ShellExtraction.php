@@ -81,10 +81,14 @@ final class ShellExtraction
         $sourcePath = WordPressSitePlan::value($document, 'source_path');
         $occupiedAreas = array_column($candidates, 'area');
         $nestedLandmarks = $this->nestedLandmarkShellCandidates($canonical, $sourcePath, $occupiedAreas);
-        if (array() !== $nestedLandmarks) {
-            return array_merge($candidates, $nestedLandmarks);
+        if (array() === $nestedLandmarks) {
+            return array_merge($candidates, $this->nestedChromeCandidates($canonical, $sourcePath, $occupiedAreas));
         }
-        return array_merge($candidates, $this->nestedChromeCandidates($canonical, $sourcePath, $occupiedAreas));
+        // A labelled landmark claims only its own area. Unlabeled chrome still
+        // supplies the other one, so a page with a nested <footer> and an
+        // unlabeled leading masthead shares both.
+        $occupiedAreas = array_merge($occupiedAreas, array_column($nestedLandmarks, 'area'));
+        return array_merge($candidates, $nestedLandmarks, $this->unlabeledChromeCandidates($canonical, $sourcePath, $occupiedAreas));
     }
 
     /**
@@ -1994,12 +1998,36 @@ final class ShellExtraction
             arsort($counts, SORT_NUMERIC);
             $restingColorBySignature[$signature] = (string) array_key_first($counts);
         }
+        $routeState = self::navigationRouteState($markup);
         $navigationIndex = -1;
-        $markup = preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature, $restingPeers, &$navigationIndex): string {
+        $blockIndex = -1;
+        $markup = preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature, $restingPeers, $routeState, &$navigationIndex, &$blockIndex): string {
+            ++$blockIndex;
             if ('navigation' === $match[1]) ++$navigationIndex;
             $attrs = json_decode($match[2], true);
             if (!is_array($attrs)) return $match[0];
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+            $selfClosing = '' !== ($match[3] ?? '');
+            if ('navigation' === $match[1] && isset($routeState['current_navigations'][$navigationIndex])) {
+                // A menu that holds the served route is disclosed for that route only.
+                $resting = self::withoutDisclosureClasses($classes);
+                if ($resting !== $classes) {
+                    $classes = $resting;
+                    if (array() === array_filter($classes)) {
+                        unset($attrs['className']);
+                    } else {
+                        $attrs['className'] = implode(' ', $classes);
+                    }
+                    $match[0] = self::navigationBlockOpening($match[1], $attrs, $selfClosing);
+                }
+            }
+            $subject = $routeState['current_link_subjects'][$blockIndex] ?? null;
+            if (is_array($subject) && !isset($attrs['metadata']['blocksEngineNavigationAnchor'])) {
+                $classes = self::adoptedAnchorSubjectClasses($classes, $subject, $semanticIdentity);
+                $attrs['className'] = implode(' ', $classes);
+                $attrs['metadata']['blocksEngineNavigationAnchor'] = $subject;
+                $match[0] = self::navigationBlockOpening($match[1], $attrs, $selfClosing);
+            }
             $current = in_array('blocks-engine-current-navigation-item', $classes, true);
             $peer = $restingPeers[$navigationIndex] ?? null;
             if ($current && 'navigation-link' === $match[1] && is_array($peer)) {
@@ -2044,7 +2072,7 @@ final class ShellExtraction
                 return true;
             }));
             if ($semanticIdentity && $current && $isLink) {
-                $resting = $restingColorBySignature[implode(' ', $classes)] ?? null;
+                $resting = $restingColorBySignature[self::navigationClassSignature($classes)] ?? null;
                 $classes = array_values(array_unique(array_merge($classes, $sharedLinkColors, is_string($resting) ? array($resting) : array())));
             }
             $attrs['className'] = implode(' ', $classes);
@@ -2059,6 +2087,157 @@ final class ShellExtraction
         // the chrome's identity nor frozen into the part.
         $markup = preg_replace('/(<a\b[^>]*?)\s+aria-current\s*=\s*(["\'])page\2/i', '$1', $markup) ?? $markup;
         return self::withoutMenuSelectionState($markup, true);
+    }
+
+    /**
+     * Route state of the navigation blocks, indexed in the order
+     * withoutCurrentNavigationState() visits them:
+     *
+     * - current_navigations: navigation blocks (counted like its
+     *   $navigationIndex) that contain the current item.
+     * - current_link_subjects: for each current link (counted like its
+     *   $blockIndex), the anchor subject its resting siblings in the same
+     *   navigation or submenu share.
+     *
+     * @return array{current_navigations:array<int,true>,current_link_subjects:array<int,array<string,mixed>>}
+     */
+    private static function navigationRouteState(string $markup): array
+    {
+        $currentNavigations = array();
+        $currentLinkContainers = array();
+        $subjectCounts = array();
+        // Open navigation and submenu blocks, innermost last.
+        $containers = array();
+        $navigationIndex = -1;
+        $blockIndex = -1;
+        preg_match_all('/<!--\s*(?:wp:(navigation(?:-link|-submenu)?)(?:\s+(\{.*?\}))?\s*(\/)?|(\/)wp:navigation(?:-submenu)?\s*)-->/s', $markup, $matches, PREG_SET_ORDER);
+        foreach ($matches as $match) {
+            if ('' !== ($match[4] ?? '')) {
+                array_pop($containers);
+                continue;
+            }
+            $name = $match[1];
+            $attributes = $match[2] ?? '';
+            $selfClosing = '' !== ($match[3] ?? '');
+            // Only blocks with attributes are visited by withoutCurrentNavigationState().
+            if ('' !== $attributes) {
+                ++$blockIndex;
+            }
+            if ('navigation' === $name) {
+                $navigation = '' !== $attributes ? ++$navigationIndex : null;
+                if (!$selfClosing) {
+                    $containers[] = array('navigation' => $navigation, 'key' => 'navigation-' . $blockIndex);
+                }
+                continue;
+            }
+            $container = end($containers);
+            if ('navigation-submenu' === $name && !$selfClosing) {
+                $containers[] = array('navigation' => null, 'key' => 'submenu-' . $blockIndex);
+            }
+            $attrs = '' !== $attributes ? json_decode($attributes, true) : null;
+            if (!is_array($container) || !is_array($attrs)) {
+                continue;
+            }
+            if (str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-current-navigation-item')) {
+                foreach ($containers as $ancestor) {
+                    if (null !== $ancestor['navigation']) {
+                        $currentNavigations[$ancestor['navigation']] = true;
+                    }
+                }
+                if ('navigation-link' === $name) {
+                    $currentLinkContainers[$blockIndex] = $container['key'];
+                }
+                continue;
+            }
+            $subject = 'navigation-link' === $name ? self::sharedAnchorSubject($attrs) : null;
+            if (null === $subject) {
+                continue;
+            }
+            $subjectKey = (string) json_encode($subject);
+            $subjectCounts[$container['key']][$subjectKey]['count'] = ($subjectCounts[$container['key']][$subjectKey]['count'] ?? 0) + 1;
+            $subjectCounts[$container['key']][$subjectKey]['subject'] = $subject;
+        }
+        $currentLinkSubjects = array();
+        foreach ($currentLinkContainers as $link => $containerKey) {
+            $subject = self::dominantAnchorSubject($subjectCounts[$containerKey] ?? array());
+            if (null !== $subject) {
+                $currentLinkSubjects[$link] = $subject;
+            }
+        }
+        return array('current_navigations' => $currentNavigations, 'current_link_subjects' => $currentLinkSubjects);
+    }
+
+    /**
+     * The anchor subject a resting link renders through, without the parts
+     * that belong to that link alone: its id and inline geometry markers.
+     *
+     * @param array<string,mixed> $attrs
+     * @return array<string,mixed>|null
+     */
+    private static function sharedAnchorSubject(array $attrs): ?array
+    {
+        $subject = $attrs['metadata']['blocksEngineNavigationAnchor'] ?? null;
+        if (!is_array($subject)) {
+            return null;
+        }
+        unset($subject['id']);
+        if (is_string($subject['className'] ?? null)) {
+            $classes = preg_split('/\s+/', trim($subject['className'])) ?: array();
+            $subject['className'] = implode(' ', array_filter($classes, static fn(string $class): bool => 1 !== preg_match('/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/', $class)));
+        }
+        return $subject;
+    }
+
+    /**
+     * The most common anchor subject, when at least two links share it.
+     *
+     * @param array<string,array{count:int,subject:array<string,mixed>}> $counts
+     * @return array<string,mixed>|null
+     */
+    private static function dominantAnchorSubject(array $counts): ?array
+    {
+        uasort($counts, static fn(array $left, array $right): int => $right['count'] <=> $left['count']);
+        $top = reset($counts);
+        return is_array($top) && 2 <= $top['count'] ? $top['subject'] : null;
+    }
+
+    /**
+     * A menu block's classes without the disclosure state the source sets
+     * on the menu that holds the served route.
+     *
+     * @param array<int,string> $classes
+     * @return array<int,string>
+     */
+    private static function withoutDisclosureClasses(array $classes): array
+    {
+        return array_values(array_diff($classes, array('open', 'is-open', 'expanded', 'is-expanded')));
+    }
+
+    /**
+     * Classes of an authored current item that adopts its resting siblings'
+     * anchor subject. The item rendered its anchor classes on itself; they
+     * move back to the subject. Its link-state carrier and the anchor
+     * line-height/box markers that stood in for the subject only paint the
+     * served route, so they are not part of the chrome's identity.
+     *
+     * @param array<int,string> $classes
+     * @param array<string,mixed> $subject
+     * @return array<int,string>
+     */
+    private static function adoptedAnchorSubjectClasses(array $classes, array $subject, bool $semanticIdentity): array
+    {
+        $subjectClasses = preg_split('/\s+/', trim((string) ($subject['className'] ?? ''))) ?: array();
+        $classes = array_diff($classes, $subjectClasses);
+        if ($semanticIdentity) {
+            $classes = array_filter($classes, static fn(string $class): bool => 1 !== preg_match('/^blocks-engine-navigation-(?:link-color-states-\d+|anchor-line-height-[a-f0-9]{64}|link-box-[a-f0-9]{64})$/', $class));
+        }
+        return array_values($classes);
+    }
+
+    /** @param array<string,mixed> $attrs */
+    private static function navigationBlockOpening(string $name, array $attrs, bool $selfClosing): string
+    {
+        return '<!-- wp:' . $name . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . ($selfClosing ? '/' : '') . '-->';
     }
 
     private static function withoutMenuSelectionState(string $markup, bool $resting = false): string
