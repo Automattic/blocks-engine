@@ -53,6 +53,12 @@ replay by case:
   hashes and sizes derived from it change in `0a9c1bea`, `15082c2d`,
   `21e5cdbf`, `2915d21f`, `37284b0e`, `55b724ac`, `7a7af898`, `7c2d1217`,
   `927aa368`, `944dd63d`, `df9c24a8`, `e5ea5743`.
+- **Declared block menu items stack in core flow** (#2726). A list
+  navigation whose items all declare a block-level display, with no display
+  on the nav or its list, records `"layout":{"type":"default"}`. That adds
+  the attribute in `46f79246` and `e2e35d0c`. The extra display lookups only
+  move the style-rule candidate cache counters in `2448c3c2`, `2890e8f1`,
+  `448ead36`, `a5a08a86`, `b550beb0`, `c7fff215` and `f025cf28`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.

@@ -252,6 +252,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
         }
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
+        if ( 'never' === $navigationAttrs['overlayMenu'] && ! $label instanceof DOMElement ) {
+            $navigationAttrs = $this->withStackedBlockListLayout($navigationAttrs, $navigationSource, $listSource, $navigationContext);
+        }
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
@@ -1116,6 +1119,49 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( '' !== $display && ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
             // core/navigation defaults to flex when layout is omitted. Core maps
             // the explicit default layout to is-layout-flow at render time.
+            $attrs['layout'] = array( 'type' => 'default' );
+        }
+
+        return $attrs;
+    }
+
+    /**
+     * Carry a source list that stacks block items onto core's flow layout.
+     *
+     * An in-flow list navigation renders its generated list as
+     * `display:contents`, so the items lay out in the navigation host. With no
+     * layout the host is core's flex row, and items the source stacked full
+     * width shrink to their min-width instead. When neither the host nor its
+     * list declares a display, the source list is a block box; the items prove
+     * the stack only when every one declares a block-level display. Floated
+     * block items still need flow: a flex row ignores the float that the
+     * projected item rule carries. Without item evidence core's default stays.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withStackedBlockListLayout(array $attrs, DOMElement $host, ?DOMElement $list, ?NavigationPatternContext $navigationContext): array
+    {
+        if ( null === $navigationContext || ! $list instanceof DOMElement || is_array($attrs['layout'] ?? null)
+            || '' !== trim($navigationContext->resolvedDisplay($host))
+            || '' !== trim($navigationContext->resolvedDisplay($list))
+        ) {
+            return $attrs;
+        }
+
+        $items = 0;
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                continue;
+            }
+            $display = strtolower(trim($navigationContext->resolvedDisplay($child)));
+            if ( ! in_array($display, array( 'block', 'list-item', 'flow-root' ), true) ) {
+                return $attrs;
+            }
+            ++$items;
+        }
+
+        if ( 0 < $items ) {
             $attrs['layout'] = array( 'type' => 'default' );
         }
 
