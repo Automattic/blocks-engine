@@ -17,6 +17,9 @@ final class ScopedAnchorSelectorProjection
         foreach ($source->sourceElementIds() as $id) {
             $id = (string) $id;
             if ('' === SourceDom::safeAnchor($id)) continue;
+            // A projected captured dialog copies an element whose id stays on
+            // that hidden copy; the dialog carries the id as its anchor class.
+            if (array() !== $source->sourceElementsByClass(EngineMarker::editorAnchorClass($id))) { $ids[$id] = true; continue; }
             $elements = $source->sourceElementsById($id);
             if (count($elements) < 2) continue;
             foreach ($elements as $element) {

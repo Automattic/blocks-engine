@@ -298,10 +298,15 @@ JS;
         // rules have no specificity, so the source classes still win.
         // A dropdown kept at its observed source place flows there like the
         // source panel did: only the user agent's dialog box is reset.
+        // A modal whose source panel positions itself keeps the source's own
+        // placement: the user agent's box geometry (padding, border, auto
+        // margins, insets and size caps) is reset under its rules. Canvas
+        // paint stays as the backdrop for panel layers that paint over it.
         $style = 'dialog[data-blocks-engine-triggers]:not([open]){display:none!important}'
             . 'div[data-blocks-engine-presentation="dropdown"][data-blocks-engine-triggers]:not([open]){display:none!important}'
             . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="under-header"]){position:fixed;top:var(--blocks-engine-dropdown-top,0px);left:0;width:100%;max-width:none;max-height:calc(100vh - var(--blocks-engine-dropdown-top,0px));margin:0;overflow-y:auto;z-index:var(--blocks-engine-dropdown-layer,auto);background-color:var(--blocks-engine-dropdown-background,Canvas);-webkit-backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);backdrop-filter:var(--blocks-engine-dropdown-backdrop,none);color:inherit}'
-            . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="in-place"]){position:static;inset:auto;width:auto;height:auto;max-width:none;max-height:none;margin:0;padding:0;border-width:0;background-color:transparent;color:inherit;overflow:visible}';
+            . ':where(dialog[data-blocks-engine-presentation="dropdown"][data-blocks-engine-placement="in-place"]){position:static;inset:auto;width:auto;height:auto;max-width:none;max-height:none;margin:0;padding:0;border-width:0;background-color:transparent;color:inherit;overflow:visible}'
+            . ':where(dialog:not([data-blocks-engine-presentation])[data-blocks-engine-placement="source"]){inset:auto;max-width:none;max-height:none;margin:0;padding:0;border-width:0}';
 
         return array(
             'name' => self::LOCAL_NAME,
