@@ -9,8 +9,11 @@ declare(strict_types=1);
  *
  * - no PHP string in src/ outside the vocabulary spells a capture name, so
  *   every name the transformer reads or emits comes from a constant;
- * - every constant is used by src/, so the vocabulary has no dead entries;
- * - docs/contracts/capture-evidence.md documents exactly the published names;
+ * - every constant is used by src/, so the vocabulary has no dead entries,
+ *   except those explicitly flagged in PUBLISHED_FOR_DOWNSTREAM: names Blocks
+ *   Engine publishes for downstream importers and must itself never read;
+ * - docs/contracts/capture-evidence.md documents exactly the published names,
+ *   with the downstream-only names in their own section;
  * - each recognized capture runtime identity is the digest of its published
  *   body under tests/fixtures/.
  */
@@ -22,7 +25,17 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 $root = dirname(__DIR__, 2);
 $vocabularyFile = $root . '/src/Contract/CaptureEvidence.php';
 $constants = (new ReflectionClass(CaptureEvidence::class))->getConstants();
+$downstream = $constants['PUBLISHED_FOR_DOWNSTREAM'];
+unset($constants['PUBLISHED_FOR_DOWNSTREAM']);
 $failures = array();
+foreach ( $downstream as $name ) {
+    if ( ! is_string($constants[$name] ?? null) ) {
+        $failures[] = "PUBLISHED_FOR_DOWNSTREAM flags {$name}, which is not a published name";
+    }
+}
+if ( count($downstream) !== count(array_unique($downstream)) ) {
+    $failures[] = 'PUBLISHED_FOR_DOWNSTREAM flags a name twice';
+}
 $namePattern = '/(?:data-)?blocks-engine-capture(?:-|\/)/';
 
 $uses = array_fill_keys(array_keys($constants), 0);
@@ -50,8 +63,12 @@ foreach ( new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '
     }
 }
 foreach ( $uses as $name => $count ) {
-    if ( 0 === $count ) {
-        $failures[] = "CaptureEvidence::{$name} is published but nothing in src/ uses it";
+    $flagged = in_array($name, $downstream, true);
+    if ( 0 === $count && ! $flagged ) {
+        $failures[] = "CaptureEvidence::{$name} is published but nothing in src/ uses it; flag it in PUBLISHED_FOR_DOWNSTREAM only if a downstream importer reads it";
+    }
+    if ( 0 < $count && $flagged ) {
+        $failures[] = "CaptureEvidence::{$name} is flagged as downstream-only but src/ uses it; remove it from PUBLISHED_FOR_DOWNSTREAM";
     }
 }
 
@@ -75,6 +92,15 @@ foreach ( array_diff($documented, $published) as $extra ) {
 if ( count($documented) !== count(array_unique($documented)) ) {
     $failures[] = 'docs/contracts/capture-evidence.md lists a name twice';
 }
+$downstreamSection = preg_match('/^### Published for downstream importers\n(.*?)(?=^#{2,3} |\z)/ms', $doc, $section) ? $section[1] : '';
+preg_match_all('/^\|\s*`([^`]+)`/m', $downstreamSection, $documentedDownstream);
+$publishedDownstream = array_map(static fn (string $name): string => $constants[$name] ?? '', $downstream);
+sort($publishedDownstream);
+$documentedDownstream = $documentedDownstream[1];
+sort($documentedDownstream);
+if ( $publishedDownstream !== $documentedDownstream ) {
+    $failures[] = 'docs/contracts/capture-evidence.md "Published for downstream importers" must list exactly the PUBLISHED_FOR_DOWNSTREAM names';
+}
 
 $runtimes = array(
     'DISCLOSURE_RUNTIME_SHA256' => 'capture-disclosure-runtime.js',
@@ -92,4 +118,10 @@ if ( array() !== $failures ) {
     exit(1);
 }
 
-fwrite(STDOUT, sprintf("Capture-evidence vocabulary contract passed: %d published names used and documented; %d source files scanned.\n", count($constants), $sources));
+fwrite(STDOUT, sprintf(
+    "Capture-evidence vocabulary contract passed: %d published names (%d consumed by Blocks Engine, %d for downstream importers), all documented; %d source files scanned.\n",
+    count($constants),
+    count($constants) - count($downstream),
+    count($downstream),
+    $sources
+));

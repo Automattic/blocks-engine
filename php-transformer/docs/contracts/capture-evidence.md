@@ -22,15 +22,21 @@ constants and their use in `src/` identical.
   ignores as source styling, so capture classes must stay outside it.
 - Sidecar schemas are `blocks-engine-capture/<name>/v<n>`.
 - A producer that observes something this page does not list may still use
-  the namespace; the transformer ignores names it does not read. Other
-  consumers follow the same rule: for example Static Site Importer reads
-  `data-blocks-engine-capture-device-style`,
-  `data-blocks-engine-capture-selected-document` and
-  `data-blocks-engine-capture-member-login`.
+  the namespace; the transformer ignores names it does not read.
 - Attribute values are case-sensitive and trimmed unless noted. A flag
   attribute is present-or-absent; its value is ignored.
 
 ## Names
+
+Two audiences read this vocabulary:
+
+- **Consumed by Blocks Engine**: every section below except the last. The
+  transformer reads (and, where marked, emits) these names.
+- **Published for downstream importers**: the last section. Blocks Engine
+  never reads these names; it publishes them so importers such as Static Site
+  Importer and every producer share one spelling. They are flagged in
+  `CaptureEvidence::PUBLISHED_FOR_DOWNSTREAM`, and the contract test fails if
+  the transformer starts reading one without moving it to a consumed section.
 
 ### Prefixes
 
@@ -151,18 +157,62 @@ See [Native control state](../native-control-state.md).
 | `blocks-engine-capture/finite-bootstrap/v1` | filter `finiteBootstrap.schema` | Finite collection bootstrap record. |
 | `blocks-engine-capture/collection-status/v1` | filter `finiteBootstrap.status.schema` | Collection status labels. |
 
-### Recognized capture runtimes
+### Runtime scripts
 
-A runtime marker alone never establishes ownership of a script. The
-transformer retires or tolerates a capture helper only when the sha256 of its
-trimmed body is one of these. The bodies are published as
-`tests/fixtures/capture-disclosure-runtime.js` and
-`tests/fixtures/capture-gallery-runtime.js`.
+A capture may ship helper scripts that keep captured interactions working in
+the static page. Blocks Engine replaces them with native blocks only when it
+can prove it owns them, and a marker attribute alone never proves that. The
+body has to be the exact published script.
+
+**Producer requirement.** Emit each helper as one inline `<script>` that
+carries its marker attribute, with the **exact** published body as its text
+content. Write the body byte for byte from the fixture file. Do not minify,
+reformat, template or concatenate it. Leading and trailing whitespace is
+allowed.
 
 | Name | Kind | Meaning |
 | ---- | ---- | ------- |
-| `3d350f5508bed44c931291f9f38e5d8d7c361d5d3ea729c51f1fe11b70ce75dc` | disclosure interpreter sha256 | The site-independent disclosure interpreter (`disclosure-runtime`). |
-| `0a6bf62a6d9d6a04faf10e933d2362bbbdf3b5c8351c6452174f98bf29f723aa` | gallery helper sha256 | The gallery helper (`gallery-runtime`) that may coexist with it. |
+| `3d350f5508bed44c931291f9f38e5d8d7c361d5d3ea729c51f1fe11b70ce75dc` | sha256 of the disclosure interpreter | Body: [`tests/fixtures/capture-disclosure-runtime.js`](../../tests/fixtures/capture-disclosure-runtime.js), marker `data-blocks-engine-capture-disclosure-runtime` (value `true`), in `<head>`. |
+| `0a6bf62a6d9d6a04faf10e933d2362bbbdf3b5c8351c6452174f98bf29f723aa` | sha256 of the gallery helper | Body: [`tests/fixtures/capture-gallery-runtime.js`](../../tests/fixtures/capture-gallery-runtime.js), marker `data-blocks-engine-capture-gallery-runtime`, in `<head>`. |
+
+**How Blocks Engine verifies them.** For each page with captured dialog
+scopes, `CapturedDialogProjector` scans every `<script>`:
+
+1. If the script carries the disclosure marker, it computes
+   `sha256(trim(textContent))`, where `trim` strips spaces, tabs, CR, LF, NUL
+   and vertical tab at both ends. The page can retire the interpreter only if
+   that digest equals the published disclosure digest.
+2. If the script carries the gallery marker, the page keeps that eligibility
+   only if the digest equals the published gallery digest.
+3. If the page has any other executable script (classic or module), apart from
+   the native-control helper (`data-blocks-engine-capture-native-control-runtime`),
+   the interpreter is not retired.
+
+With a matching interpreter and every trigger/panel binding proven local and
+bounded, the scoped disclosures become native dialog blocks and the
+interpreter is retired with a recorded replacement. Any mismatch leaves the
+capture's script and markup in place. That page then keeps working through
+the capture's own runtime and loses no content; it just gets no native
+replacement.
+
+To check a body, run `php -r 'echo hash("sha256", trim(file_get_contents($argv[1])));' <file>`.
+`tests/contract/capture-evidence-vocabulary.php` holds the published
+constants to these fixture digests.
+
+### Published for downstream importers
+
+Blocks Engine does not read these names. Downstream importers do.
+
+| Name | Kind | Value | Meaning |
+| ---- | ---- | ----- | ------- |
+| `data-blocks-engine-capture-device-selection` | attribute (flag) on `<script>` | ignored | The capture's device-selection bootstrap in `<head>`. |
+| `data-blocks-engine-capture-device-body` | attribute (flag) on `<script>` | ignored | The capture's device-document overlay script at the start of `<body>`. |
+| `data-blocks-engine-capture-selected-document` | attribute on `<html>` | profile id | The device profile the selection runtime chose. Written at runtime, so author selectors on it stay live. |
+| `data-blocks-engine-capture-selected-viewport` | attribute (flag) on `<meta name="viewport">` | ignored | The viewport meta the selection runtime fills. |
+| `data-blocks-engine-capture-document-unavailable` | attribute (flag) on `<html>` | ignored | Set at runtime when no captured document applies to the device. |
+| `data-blocks-engine-capture-device-style` | attribute on `<style>`/`<link>` | profile id | The device profile the stylesheet belongs to. |
+| `data-blocks-engine-capture-member-login` | attribute | provider `[a-z0-9_-]+` | The link leads to a member login with that provider. |
+| `data-blocks-engine-capture-member-login-` | class prefix | `<prefix><provider>`, provider `[a-z0-9_-]+` | Class form of the member-login marker. It survives block conversion, which keeps classes. |
 
 ## Equivalence
 

@@ -14,7 +14,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\Contract;
  * docs/contracts/capture-evidence.md. Every name the transformer reads or
  * emits is declared here once and referenced by constant; the
  * capture-evidence contract test fails on a literal elsewhere in src/ and on
- * an entry nothing uses.
+ * an entry nothing uses. Names listed in PUBLISHED_FOR_DOWNSTREAM are not read
+ * by Blocks Engine; they are published so downstream importers and producers
+ * share one spelling.
  */
 final class CaptureEvidence
 {
@@ -178,4 +180,35 @@ final class CaptureEvidence
     public const DISCLOSURE_RUNTIME_SHA256 = '3d350f5508bed44c931291f9f38e5d8d7c361d5d3ea729c51f1fe11b70ce75dc';
     /** The gallery helper (GALLERY_RUNTIME) that may coexist with a replaced disclosure interpreter. */
     public const GALLERY_RUNTIME_SHA256 = '0a6bf62a6d9d6a04faf10e933d2362bbbdf3b5c8351c6452174f98bf29f723aa';
+
+    // Published for downstream importers; Blocks Engine does not read these.
+
+    /** Marker on the capture's device-selection bootstrap `<script>` in `<head>`. */
+    public const DEVICE_SELECTION = 'data-blocks-engine-capture-device-selection';
+    /** Marker on the capture's device-document overlay `<script>` at the start of `<body>`. */
+    public const DEVICE_BODY = 'data-blocks-engine-capture-device-body';
+    /** On `<html>`: the profile the device-selection runtime selected; written at runtime. */
+    public const SELECTED_DOCUMENT = 'data-blocks-engine-capture-selected-document';
+    /** Marker on the `<meta name="viewport">` the device-selection runtime fills. */
+    public const SELECTED_VIEWPORT = 'data-blocks-engine-capture-selected-viewport';
+    /** On `<html>`: set at runtime when no captured document applies to the device. */
+    public const DOCUMENT_UNAVAILABLE = 'data-blocks-engine-capture-document-unavailable';
+    /** On `<style>`/`<link>`: the device profile the stylesheet belongs to. */
+    public const DEVICE_STYLE = 'data-blocks-engine-capture-device-style';
+    /** Member-login provider on a link that leads to a member login. */
+    public const MEMBER_LOGIN = 'data-blocks-engine-capture-member-login';
+    /** Class prefix marking a member-login link: `<prefix><provider>`. */
+    public const MEMBER_LOGIN_CLASS_PREFIX = 'data-blocks-engine-capture-member-login-';
+
+    /** Constants above that are published for downstream importers only. */
+    public const PUBLISHED_FOR_DOWNSTREAM = array(
+        'DEVICE_SELECTION',
+        'DEVICE_BODY',
+        'SELECTED_DOCUMENT',
+        'SELECTED_VIEWPORT',
+        'DOCUMENT_UNAVAILABLE',
+        'DEVICE_STYLE',
+        'MEMBER_LOGIN',
+        'MEMBER_LOGIN_CLASS_PREFIX',
+    );
 }
