@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use DOMElement;
 use DOMText;
@@ -130,7 +131,7 @@ final class CollectionFilterBlockGenerator
             if ( spec.hook ) props[ 'data-hook' ] = spec.hook;
             if ( spec.style && Object.keys( spec.style ).length ) props.style = spec.style;
             if ( root ) Object.assign( props, saveProps( attrs ) );
-            if ( spec.bind ) props[ 'data-dla-status-template' ] = template;
+            if ( spec.bind ) props[ '__STATUS_TEMPLATE__' ] = template;
             var shown = attrs.visibility === 'empty' ? template.split( '{count}' ).join( '0' ) : template;
             var children = spec.bind ? [ shown ] : ( spec.text ? [ spec.text ] : [] ).concat( ( spec.children || [] ).map( function( child ) { return node( child, false ); } ) );
             return el.apply( null, [ spec.tag || 'div', props ].concat( children ) );
@@ -252,7 +253,7 @@ export function refresh( root, context ) {
 }
 
 const writeStatus = ( label, count, raw ) => {
-    const template = label.getAttribute( 'data-dla-status-template' );
+    const template = label.getAttribute( '__STATUS_TEMPLATE__' );
     if ( ! template ) return;
     const text = template.split( '{count}' ).join( String( count ) ).split( '{query}' ).join( raw );
     if ( ! label.children.length ) {
@@ -269,8 +270,8 @@ const applyStatus = ( root, count, raw, searching ) => {
         const hideZero = node.getAttribute( 'data-blocks-engine-status-hide-zero' ) === 'true';
         node.hidden = ! searching || ( count === 0 && hideZero );
         if ( node.hidden ) continue;
-        if ( node.hasAttribute( 'data-dla-status-template' ) ) writeStatus( node, count, raw );
-        node.querySelectorAll( '[data-dla-status-template]' ).forEach( ( label ) => writeStatus( label, count, raw ) );
+        if ( node.hasAttribute( '__STATUS_TEMPLATE__' ) ) writeStatus( node, count, raw );
+        node.querySelectorAll( '[__STATUS_TEMPLATE__]' ).forEach( ( label ) => writeStatus( label, count, raw ) );
     }
 };
 
@@ -356,7 +357,7 @@ store( namespace, {
     },
 } );
 JS;
-        $replace = array('__NAME__' => json_encode($name), '__STORE__' => json_encode($store), '__ROLE__' => json_encode($local), '__ATTRIBUTES__' => json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+        $replace = array('__NAME__' => json_encode($name), '__STORE__' => json_encode($store), '__ROLE__' => json_encode($local), '__ATTRIBUTES__' => json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), '__STATUS_TEMPLATE__' => CaptureEvidence::STATUS_TEMPLATE);
         $json = array('apiVersion' => 3, 'name' => $name, 'title' => match ($local) { self::ROOT => 'Filtered Collection', self::FIELD => 'Collection Search Field', self::CHOICE => 'Collection Category', self::CHOICES => 'Collection Categories', self::STATUS => 'Collection Status', default => 'Collection Empty State' }, 'category' => 'widgets', 'editorScript' => 'file:./index.js', 'attributes' => $attributes, 'supports' => array('html' => false, 'customClassName' => false, 'interactivity' => true));
         $definition = array('name' => $local, 'block_json' => $json, 'assets' => array('index.js' => strtr($editor, $replace)), 'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element')));
         if (self::ROOT === $local) {
@@ -490,13 +491,13 @@ JS;
             $children[] = $nested;
         }
         $own = trim(preg_replace('/\s+/u', ' ', $own) ?? '');
-        $bind = $element->hasAttribute('data-dla-status-template');
-        $templateAttr = $bind ? $element->getAttribute('data-dla-status-template') : '';
+        $bind = $element->hasAttribute(CaptureEvidence::STATUS_TEMPLATE);
+        $templateAttr = $bind ? $element->getAttribute(CaptureEvidence::STATUS_TEMPLATE) : '';
         $zero = 'empty' === $element->getAttribute('data-blocks-engine-status-bound') ? str_replace('{count}', '0', $templateAttr) : '';
         if ($bind && $own !== $templateAttr && $own !== $zero) return null;
         if ($bind && $children) return null;
         $hidden = $element->getAttribute('aria-hidden');
-        return array('tag' => $tag, 'className' => $element->getAttribute('class'), 'id' => $element->getAttribute('id'), 'role' => $element->getAttribute('role'), 'ariaLive' => $element->getAttribute('aria-live'), 'ariaAtomic' => $element->getAttribute('aria-atomic'), 'ariaHidden' => in_array($hidden, array('true', 'false'), true) ? $hidden : '', 'hook' => $element->getAttribute('data-hook'), 'style' => $this->sourceStyle($element->getAttribute('style')), 'bind' => $bind, 'template' => $bind ? $element->getAttribute('data-dla-status-template') : '', 'text' => $bind ? '' : $own, 'children' => $children);
+        return array('tag' => $tag, 'className' => $element->getAttribute('class'), 'id' => $element->getAttribute('id'), 'role' => $element->getAttribute('role'), 'ariaLive' => $element->getAttribute('aria-live'), 'ariaAtomic' => $element->getAttribute('aria-atomic'), 'ariaHidden' => in_array($hidden, array('true', 'false'), true) ? $hidden : '', 'hook' => $element->getAttribute('data-hook'), 'style' => $this->sourceStyle($element->getAttribute('style')), 'bind' => $bind, 'template' => $bind ? $element->getAttribute(CaptureEvidence::STATUS_TEMPLATE) : '', 'text' => $bind ? '' : $own, 'children' => $children);
     }
 
     private function publicShell(array $shell): array
@@ -526,7 +527,7 @@ JS;
             if ($hideZero) $attrs['data-blocks-engine-status-hide-zero'] = 'true';
             $attrs['data-wp-bind--hidden'] = $store . '::state.statusHidden';
         }
-        if (!empty($node['bind'])) $attrs['data-dla-status-template'] = $template;
+        if (!empty($node['bind'])) $attrs[CaptureEvidence::STATUS_TEMPLATE] = $template;
         $html = '<' . $tag;
         foreach ($attrs as $key => $value) {
             if (true === $value) $html .= ' ' . $key;

@@ -393,6 +393,11 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
     private function iconColor(DOMElement $anchor, PatternContext $context): string
     {
+        $captured = $this->capturedIconColor($anchor, $context);
+        if ( '' !== $captured ) {
+            return $captured;
+        }
+
         $image = $anchor->getElementsByTagName('img')->item(0);
         if ( $image instanceof DOMElement ) {
             $glyph = $this->glyphColor($image, $context);
@@ -427,8 +432,27 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         return $this->concreteColor($context->authoredIconColor($anchor));
     }
 
+    /** Rendered colour capture recorded on the anchor's glyph: an img, an inline svg, or an empty background-image element. */
+    private function capturedIconColor(DOMElement $anchor, PatternContext $context): string
+    {
+        foreach ( $anchor->getElementsByTagName('*') as $glyph ) {
+            $color = $context->capturedGlyphColor($glyph);
+            if ( '' !== $color ) {
+                return $color;
+            }
+        }
+
+        return '';
+    }
+
+    /** A captured rendered colour wins; the image bytes are decoded only without one. */
     private function glyphColor(DOMElement $image, PatternContext $context): string
     {
+        $captured = $context->capturedGlyphColor($image);
+        if ( '' !== $captured ) {
+            return $captured;
+        }
+
         $url = trim($this->attr($image, 'src'));
         if ( '' === $url ) {
             return '';
@@ -441,11 +465,24 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             $meta = substr($url, 0, $comma);
             $payload = substr($url, $comma + 1);
             $bytes = str_contains($meta, ';base64') ? base64_decode($payload, true) : rawurldecode($payload);
+            if ( ! is_string($bytes) ) {
+                return '';
+            }
+            $glyph = MonochromeGlyphColor::inspect($bytes);
+            if ( $glyph['undecodable'] ) {
+                $mimeType = strtolower(trim(explode(';', substr($meta, 5))[0]));
+                $context->glyphColorUndecodable($mimeType, 'data:' . $mimeType);
+            }
 
-            return is_string($bytes) ? MonochromeGlyphColor::fromBytes($bytes) : '';
+            return $glyph['color'];
         }
 
-        return $this->concreteColor($context->assetGlyphColor($url));
+        $asset = $context->assetMetadata($url);
+        if ( ! empty($asset['glyph_color_undecodable']) ) {
+            $context->glyphColorUndecodable((string) ($asset['mime_type'] ?? ''), (string) ($asset['path'] ?? $url));
+        }
+
+        return $this->concreteColor((string) ($asset['glyph_color'] ?? ''));
     }
 
     private function sameDestinationGlyphColor(DOMElement $anchor, PatternContext $context): string

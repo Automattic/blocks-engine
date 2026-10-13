@@ -12,16 +12,16 @@ $assert = static function (bool $condition, string $message): void { if (! $cond
 // landmark. Every page also starts with empty decorative blocks, and each page's own link is
 // the "current" one. All four pages share one header.
 $item = static fn (string $id, string $label, string $links): string =>
-    '<div class="item"><button id="' . $id . '" type="button" aria-haspopup="menu" aria-controls="p-' . $id . '" aria-expanded="false" data-dla-dialog-trigger="p-' . $id . '">' . $label . '</button>'
-    . '<div class="panel dla-dialog dla-dropdown" hidden id="p-' . $id . '" data-dla-dialog-panel="p-' . $id . '">' . $links . '</div></div>';
+    '<div class="item"><button id="' . $id . '" type="button" aria-haspopup="menu" aria-controls="p-' . $id . '" aria-expanded="false" data-blocks-engine-capture-dialog-trigger="p-' . $id . '">' . $label . '</button>'
+    . '<div class="panel data-blocks-engine-capture-dialog data-blocks-engine-capture-dropdown" hidden id="p-' . $id . '" data-blocks-engine-capture-dialog-panel="p-' . $id . '">' . $links . '</div></div>';
 $page = static fn (string $title): string => '<!doctype html><html><head><style>.glow{position:absolute;top:0;width:200px;height:200px}.row{display:flex;gap:24px}.inner{display:flex;justify-content:space-between}.bar{position:fixed;top:0;left:0;right:0}.mobile{display:none}.menu-link{text-decoration:none}.panel a{display:block;padding:8px 16px;font-size:14px;color:#333}.lone{font-size:14px;font-weight:500;letter-spacing:.02em;color:#333}</style></head><body>'
     . '<div id="root"><div class="shell"><div class="fade"><div class="glow"></div><div class="glow"></div>'
     . '<nav class="bar"><div class="inner"><a href="/index.html" class="logo"><span>Acme</span></a><div class="row">'
     . $item('shop', 'Shop', '<a class="menu-link" href="/index.html">Start</a><a class="menu-link" href="/about/index.html">Team</a><a class="menu-link" href="/pricing/index.html">Pricing</a>')
     . '<a href="/contact/index.html" class="lone">Contact</a>'
     . '<div class="lang"><button type="button" aria-pressed="true">EN</button><span>|</span><button type="button" aria-pressed="false">ES</button></div></div>'
-    . '<div class="mobile"><button type="button" aria-label="Menu" aria-haspopup="menu" aria-controls="m-menu" aria-expanded="false" data-dla-dialog-trigger="m-menu">Menu</button></div></div>'
-    . '<div class="mpanel dla-dialog" hidden id="m-menu" data-dla-dialog-panel="m-menu"><div><button type="button">Shop</button></div><a href="/contact/index.html">Contact</a></div></nav>'
+    . '<div class="mobile"><button type="button" aria-label="Menu" aria-haspopup="menu" aria-controls="m-menu" aria-expanded="false" data-blocks-engine-capture-dialog-trigger="m-menu">Menu</button></div></div>'
+    . '<div class="mpanel data-blocks-engine-capture-dialog" hidden id="m-menu" data-blocks-engine-capture-dialog-panel="m-menu"><div><button type="button">Shop</button></div><a href="/contact/index.html">Contact</a></div></nav>'
     . '<main><h1>' . $title . '</h1><p>Body of ' . $title . '</p></main>'
     . '<footer class="foot"><div class="foot-in"><p>Acme footer</p><a href="/contact/index.html">Write to us</a></div></footer></div></div></div></body></html>';
 $artifact = array('entrypoint' => 'index.html', 'files' => array(

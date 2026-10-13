@@ -49,11 +49,30 @@ materialization. Ordinary descriptive metadata retains its existing routing.
 - A link URL that is a `data:` URL, such as an inline SVG favicon, carries its own
   bytes. It has no write to bind, so the row keeps the URL as written, bounded to
   one MiB. Scripts keep the script-loading contract.
+- A link with no `href`, or an empty one, has no URL to bind. The head context
+  skips it, the same as document link metadata. An example is an image preload
+  that names its image only in `imagesrcset`.
 - The theme bootstrap selects the route by reconciliation identity (with existing
   front-page/page-route fallback), installs the head emitter after template
   selection and emits at `wp_head` priority `-1`. A declared unique viewport
   replaces Core's `_block_template_viewport_meta_tag` callback. Head-owned
   scripts/styles are not independently emitted by the theme enqueue path.
+- A page that declares more than one viewport meta keeps the last one, as
+  browsers do, and the plan records a `document_head_duplicate_viewport`
+  warning with the page's `source_path`. The import is not failed.
+- A local head `<link>` that names neither a captured asset nor an artifact route
+  (icon, canonical, alternate, preload, stylesheet) is dropped from the head and the
+  plan records a `wordpress_site_plan_omitted_link_declaration` warning
+  (`reason_code` `unresolved_local_url`). The import is not failed; the strict head
+  validator still rejects a head that declares such a link.
+- An attribute or element over those bounds is a page-local limit. Event-handler
+  attributes (`<link onload>`), invalid or reserved names and oversized or invalid
+  values are stripped from their element (`document_head_attribute_dropped`). An
+  element still over its attribute budget, an oversized `data:` link or inline data
+  block, and elements past the element budget are dropped
+  (`document_head_element_dropped`). Each is a warning with `unit` `item`,
+  `source_path`, `reason_code`, `tag` and, for attributes, `attribute`. The import
+  is not failed; the strict head validator still rejects a head that carries them.
 - `DocumentHeadContext::fromPlan()` accepts only a validated site plan, including
   its exact generated `functions.php` write. It returns the same head DOM used by
   the materializer. Source markup, body block markup, and metadata with a missing
@@ -66,10 +85,10 @@ materialization. Ordinary descriptive metadata retains its existing routing.
 ## Device-document source contracts
 
 Source-owned scope and authored-media attributes travel unchanged. In particular,
-`data-dla-document-scope` and `data-dla-source-media` are ordinary attribute data
+`data-blocks-engine-capture-document-scope` and `data-blocks-engine-capture-source-media` are ordinary attribute data
 to the head materializer; it contains no destination-specific selector logic.
 The source selector owns device activation. A stored `media="not all"` can be
-an inactive device's activation state, while `data-dla-source-media` records its
+an inactive device's activation state, while `data-blocks-engine-capture-source-media` records its
 author condition. These are distinct values; materialization preserves both and
 executes the source selectors in their declared head positions.
 

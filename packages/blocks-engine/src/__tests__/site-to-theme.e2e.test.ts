@@ -569,7 +569,7 @@ describe('site-to-theme P0-3 orchestration', () => {
     expect(carried.themeJson).not.toMatchObject({ settings: { spacing: { blockGap: false } } });
     // ...while a CSS rule zeroes the gap on the carried align:full section wrappers
     // so reconstructed sections sit flush. CSS-only keeps the block markup
-    // byte-identical to the DLA reference.
+    // byte-identical to the reference implementation.
     expect(carried.styleCss).toContain(
       ':where(.is-layout-flow, .is-layout-constrained) > .wp-block-group.alignfull{margin-block-start:0}'
     );

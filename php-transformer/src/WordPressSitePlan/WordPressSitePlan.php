@@ -103,6 +103,10 @@ PHP;
     private array $omittedLinkDeclarations = array();
     /** @var array<string,array<string,bool>> */
     private array $omittedLinkDeclarationPages = array();
+    /** @var array<string,int> Earlier viewport metas dropped per source path. */
+    private array $duplicateViewports = array();
+    /** @var array<string,array<string,mixed>> Dropped or rewritten units, keyed by their identity fields. */
+    private array $unitFindings = array();
     /** @var array<string,bool> */
     private array $omittedLinkDeclarationOverflow = array();
     /** @var array<int,array<string,mixed>> */
@@ -188,7 +192,8 @@ PHP;
                     || !is_string($route) || $route !== $page['route']['path']) {
                     throw new InvalidArgumentException('Whole-page candidate must name one canonical source page and producer entity row.');
                 }
-                if (isset($candidates[$source]) || count($candidates) >= 100) throw new InvalidArgumentException('Whole-page candidates must be unique and bounded by source page.');
+                // One fixed-size candidate per canonical page: the page set bounds the candidate set.
+                if (isset($candidates[$source])) throw new InvalidArgumentException('Whole-page candidates must be unique by source page.');
                 $candidates[$source][] = array(
                     'schema' => 'blocks-engine/whole-page-candidate/v1',
                     'source_path' => $source,
@@ -241,6 +246,8 @@ PHP;
         $this->omittedUnresolvedNavigationDiagnostics = 0;
         $this->omittedLinkDeclarations = array();
         $this->omittedLinkDeclarationPages = array();
+        $this->duplicateViewports = array();
+        $this->unitFindings = array();
         $this->omittedLinkDeclarationOverflow = array();
         $editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
@@ -330,7 +337,9 @@ PHP;
             }
             unset($asset);
         }
-        $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations);
+        $runtimeEntityRecords = $compiled['runtime_entity_records'] ?? array();
+        $eventDiagnostics = array();
+        $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations, $runtimeEntityRecords, $eventDiagnostics);
         $assets = $this->attachDocumentStylesheetInstances($assets, $pages);
         NativeListItemFallbackReconciler::reconcileBlockDocuments(
             $data['fallbacks'],
@@ -354,7 +363,6 @@ PHP;
         // Bindings anchor on the final canonical page markup before any shell
         // extraction. Asset and route projection can make source anchors equal,
         // so assign occurrences only after that shared projection is complete.
-        $runtimeEntityRecords = $compiled['runtime_entity_records'] ?? array();
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
@@ -380,7 +388,18 @@ PHP;
         $shells['diagnostics'] = array_merge($shells['diagnostics'], $footerContent['diagnostics']);
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
-        $assets = self::projectSharedChromeStylesheets($assets, $parts, $pages, $references);
+        $assetTargetCollisions = array();
+        $assets = self::projectSharedChromeStylesheets($assets, $parts, $pages, $references, $assetTargetCollisions);
+        foreach ($assetTargetCollisions as $collision) $this->recordUnitFinding(array(
+            'code' => 'wordpress_site_plan_colliding_asset_target',
+            'unit' => 'asset',
+            'message' => 'Two assets resolved to one target with different content; the later one was given a suffixed target.',
+            'source_path' => $collision['source_path'],
+            'reason_code' => 'colliding_asset_target',
+            'colliding_source_path' => $collision['colliding_source_path'],
+            'target_path' => $collision['target_path'],
+            'resolved_target_path' => $collision['resolved_target_path'],
+        ));
         $assets = self::projectDetachedChromePaintOrder($assets, $parts, $pages);
         $assets = self::orderPageStylesheetProjections($assets);
         $assets = self::placeSharedStylesheetProjections($assets, $pages);
@@ -424,7 +443,6 @@ PHP;
          }
          unset($taxonomyEntity);
         $operations = $this->operations($pages);
-        $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $assets = self::withVariantScopedIdSelectors($assets);
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
@@ -436,8 +454,17 @@ PHP;
             $tokens = array_merge($tokens, $this->tokens($placeholderAssets));
             $assetWrites = array_merge($assetWrites, $this->assetWrites($placeholderAssets, $references));
         }
+        // Asset bytes are final now. Integrity copied from the source must
+        // describe them before script loading and the head bootstrap emit it.
+        $integrity = new SubresourceIntegrity($assetWrites, $tokens);
+        $pages = $integrity->documents($pages);
+        $parts = $integrity->documents($parts);
+        foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) if (is_array($taxonomyEntity['archive']['document_head'] ?? null)) $taxonomyEntity['archive']['document_head'] = $integrity->head($taxonomyEntity['archive']['document_head']);
+        unset($taxonomyEntity);
+        $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $taxonomyProjection['entities']), $assetWrites);
-        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->missingMedia->diagnostics());
+        $unitFindings = $this->unitFindingDiagnostics();
+        $recoveryDiagnostics = array_merge($this->routeCollisionDiagnostics(), $this->unresolvedNavigationDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $this->duplicateViewportDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $eventDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
         $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
@@ -464,7 +491,8 @@ PHP;
             'runtime_records' => $runtimeRecords,
             'runtime_entity_records' => $runtimeEntityRecords,
             'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics),
-            'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $input->coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy),
+            // A dropped or rewritten unit is a warning on the plan, the same as withFindings().
+            'quality' => array('status' => self::statusWithFindings($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $input->coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy),
             'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), $surfaces),
         );
         $plan['reference_semantics']['navigation_entities'] = NavigationEntityProjection::REFERENCE_CONTRACT;
@@ -507,6 +535,34 @@ PHP;
                 }
             }
         }
+    }
+
+    /**
+     * Record findings measured against a finished plan, such as runtime
+     * dependency parity, without discarding the plan. The plan reports them as
+     * warnings and its identity is recomputed over the updated diagnostics.
+     *
+     * @param array<string,mixed> $plan
+     * @param array<int,array<string,mixed>> $diagnostics Warning-severity findings.
+     * @return array<string,mixed>
+     */
+    public static function withFindings(array $plan, array $diagnostics): array
+    {
+        if (array() === $diagnostics) return $plan;
+        foreach ($diagnostics as $diagnostic) {
+            $plan['diagnostics'][] = $diagnostic;
+            $plan['reporting']['diagnostic_codes'][] = (string) ($diagnostic['code'] ?? '');
+        }
+        $plan['quality']['status'] = self::statusWithFindings($plan['quality']['status'], $diagnostics);
+        $plan['plan_identity'] = self::planIdentity($plan);
+        self::assertValid($plan);
+        return $plan;
+    }
+
+    /** A plan that carries warning findings is at best `success_with_warnings`. @param array<int,array<string,mixed>> $findings */
+    private static function statusWithFindings(string $status, array $findings): string
+    {
+        return 'success' === $status && array() !== $findings ? 'success_with_warnings' : $status;
     }
 
     /** @param array<string,mixed> $plan */
@@ -798,7 +854,7 @@ PHP;
      */
     private static function documentIdentityDiagnostic(array $failure, int $documentCount): array
     {
-        $path = substr($failure['source_path'], 0, 256);
+        $path = mb_strcut($failure['source_path'], 0, 256, 'UTF-8');
         $kind = 'template_part' === $failure['document_kind'] ? 'template part' : 'page';
         $named = '' === $path ? 'Compiled ' . $kind : 'Compiled ' . $kind . ' "' . $path . '"';
         $message = 'unsafe_identity' === $failure['reason']
@@ -808,7 +864,7 @@ PHP;
         return array(
             'code' => 'wordpress_site_plan_not_self_contained',
             'severity' => 'error',
-            'message' => substr($message, 0, 256),
+            'message' => mb_strcut($message, 0, 256, 'UTF-8'),
             'source_path' => $path,
             'document_kind' => substr($failure['document_kind'], 0, 64),
             'reason' => substr($failure['reason'], 0, 64),
@@ -850,8 +906,8 @@ PHP;
      * Keep variant-scoped author rules on the ids the page actually renders.
      *
      * When a captured desktop/mobile pair shares an id, the mobile copy is
-     * rendered as `<id>--dla-mobile` so the page keeps unique ids. The delivered
-     * stylesheets still address the source id (`:where(.data-liberation-mobile-document)
+     * rendered as `<id>--data-blocks-engine-capture-mobile` so the page keeps unique ids. The delivered
+     * stylesheets still address the source id (`:where(.data-blocks-engine-capture-mobile-document)
      * #<id>`), so without this pass every mobile id rule misses its element.
      * It runs after shared-chrome extraction, which reasons about the source
      * ids, and only changes selectors scoped to a non-default document variant.
@@ -878,6 +934,7 @@ PHP;
     {
         if ( ! is_array($assets) ) throw new InvalidArgumentException('Compiled site assets must be an array.');
         $rows = array();
+        $rowByTarget = array();
         foreach ( $assets as $asset ) {
             if ( ! is_array($asset) || ! self::safePath($asset['path'] ?? null) ) throw new InvalidArgumentException('Compiled site asset lacks a safe source identity.');
             // The compiler retains rejected source assets for diagnostics. They have no
@@ -892,13 +949,18 @@ PHP;
             $reference = self::payloadReference($asset['payload_reference'] ?? null);
             if (null !== $reference && !self::referenceBackedBinaryAsset($asset)) throw new InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.');
             $transportHash = is_string($asset['content_base64'] ?? null) ? self::contentHash($asset['content_base64']) : null;
-            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) ? $asset['references'] : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'stylesheet_link_position' => is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $reference['sha256'] ?? self::contentHash($payload)), static fn(mixed $value): bool => null !== $value);
+            $contentHash = $reference['sha256'] ?? self::contentHash($payload);
+            $priorReferences = array();
+            if (isset($rowByTarget[strtolower($target)])) [$target, $priorReferences] = $this->collidingAssetTarget($rows, $rowByTarget, $target, (string) $asset['path'], $contentHash);
+            $rowByTarget[strtolower($target)] = count($rows);
+            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'source_role' => self::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'placement' => self::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => self::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) || array() !== $priorReferences ? self::mergedReferences($priorReferences, is_array($asset['references'] ?? null) ? $asset['references'] : array()) : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'stylesheet_link_position' => is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $contentHash), static fn(mixed $value): bool => null !== $value);
             if (isset($asset['source_media']) && is_string($asset['source_media'])) $rows[array_key_last($rows)]['source_media'] = $asset['source_media'];
             if (isset($asset['stylesheet_activation'])) {
                 $rows[array_key_last($rows)]['stylesheet_activation'] = $asset['stylesheet_activation'];
                 $rows[array_key_last($rows)]['stylesheet_source_path'] = $asset['stylesheet_source_path'] ?? $asset['path'];
             }
         }
+        $rows = array_values($rows);
         $assetsByPath = array_column($assets, null, 'path');
         foreach ($rows as &$row) {
             $source = $assetsByPath[$row['source_path']];
@@ -907,6 +969,44 @@ PHP;
         }
         unset($row);
         return $rows;
+    }
+
+    /**
+     * Two compiled assets that resolve to one theme target cannot both be
+     * written. When their bytes are identical they are one asset: the earlier
+     * row is removed and the later one, whose position wins the cascade for
+     * the same rules, keeps every reference. Otherwise the later asset gets a
+     * deterministic numbered target (`name-2.css`) and a token derived from
+     * it. Either way the plan records a `wordpress_site_plan_colliding_asset_target`
+     * finding; the strict validator keeps rejecting a plan that still collides.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @param array<string,int> $rowByTarget
+     * @return array{0:string,1:array<int,mixed>} The target for the incoming asset and references carried over from a removed duplicate.
+     */
+    private function collidingAssetTarget(array &$rows, array $rowByTarget, string $target, string $sourcePath, string $contentHash): array
+    {
+        $index = $rowByTarget[strtolower($target)];
+        $prior = $rows[$index];
+        $finding = array('code' => 'wordpress_site_plan_colliding_asset_target', 'unit' => 'asset', 'source_path' => $sourcePath, 'colliding_source_path' => (string) $prior['source_path'], 'target_path' => $target);
+        if ($contentHash === ($prior['content_hash'] ?? null)) {
+            unset($rows[$index]);
+            $this->recordUnitFinding($finding + array('message' => 'Two assets resolved to one target with identical content; they were written once.', 'reason_code' => 'identical_content', 'resolved_target_path' => $target));
+            return array($target, is_array($prior['references'] ?? null) ? $prior['references'] : array());
+        }
+        $dot = strrpos($target, '.');
+        $slash = strrpos($target, '/');
+        $stem = false !== $dot && (false === $slash || $dot > $slash) ? substr($target, 0, $dot) : $target;
+        $extension = $stem === $target ? '' : substr($target, strlen($stem));
+        for ($suffix = 2; isset($rowByTarget[strtolower($candidate = $stem . '-' . $suffix . $extension)]); ++$suffix);
+        $this->recordUnitFinding($finding + array('message' => 'Two assets resolved to one target with different content; the later one was given a suffixed target.', 'reason_code' => 'colliding_asset_target', 'resolved_target_path' => $candidate));
+        return array($candidate, array());
+    }
+    /** @param array<int,mixed> $prior @param array<int,mixed> $references @return array<int,mixed> */
+    private static function mergedReferences(array $prior, array $references): array
+    {
+        foreach ($references as $reference) if (!in_array($reference, $prior, true)) $prior[] = $reference;
+        return $prior;
     }
 
     /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
@@ -1136,7 +1236,7 @@ PHP;
         }
         if ('' !== $current) $compounds[] = $current;
         // A capture scopes a responsive variant's rules by that variant's root
-        // (`:where(.data-liberation-mobile-document) #page-root #footer`). The
+        // (`:where(.data-blocks-engine-capture-mobile-document) #page-root #footer`). The
         // variant root is not an ancestor the chrome was hoisted out of: the
         // part carries its own variant group. Keep the scope in front of the
         // run being re-anchored, and require it on the wrapper arm, so the
@@ -1171,7 +1271,7 @@ PHP;
         if ($first === $run) return $selector;
         $wrappers = array_map(static fn (string $root): string => ':has(> #' . CssIdent::escape($root) . ')', $roots);
         if (array() !== $scope) {
-            // The variant group is the part's own child wrapper (`.data-liberation-mobile-document > #footer`),
+            // The variant group is the part's own child wrapper (`.data-blocks-engine-capture-mobile-document > #footer`),
             // or an ancestor of the wrapper that holds the chrome.
             $scopeClass = implode('', array_map(static fn (string $class): string => '.' . CssIdent::escape($class), array_merge(...$scope)));
             $wrappers = array_merge(
@@ -1184,7 +1284,7 @@ PHP;
 
     /**
      * The responsive variant root classes a compound consists of, such as
-     * `:where(.data-liberation-mobile-document)`; null for any other compound.
+     * `:where(.data-blocks-engine-capture-mobile-document)`; null for any other compound.
      *
      * @return list<string>|null
      */
@@ -1564,9 +1664,10 @@ PHP;
      *
      * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $parts
+     * @param list<array<string,string>> $collisions Receives one row per projection given a suffixed target.
      * @return array<int,array<string,mixed>>
      */
-    private static function projectSharedChromeStylesheets(array $assets, array $parts, array $pages = array(), ?AssetReferenceCanonicalizer $references = null): array
+    private static function projectSharedChromeStylesheets(array $assets, array $parts, array $pages = array(), ?AssetReferenceCanonicalizer $references = null, array &$collisions = array()): array
     {
         $classes = array();
         $authored = array('class' => array(), 'id' => array());
@@ -1603,7 +1704,7 @@ PHP;
         $projected = array();
         $emittedShared = array();
         foreach ($assets as $asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content']) || !StylesheetActivation::active($asset) || '' !== ($asset['stylesheet_activation']['title'] ?? '')) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content']) || !StylesheetActivation::active($asset)) {
                 $projected[] = $asset;
                 continue;
             }
@@ -1665,14 +1766,24 @@ PHP;
             $projected[] = $asset;
             // The target and token are content-addressed, and the scope is global,
             // so one emission covers every page. Keep it only when relative url()
-            // resolution and the enqueue contract agree; a real conflict still emits
-            // both and fails uniqueness with both sources named.
+            // resolution and the enqueue contract agree. Otherwise the same text
+            // means different bytes once url() resolves, so this projection gets
+            // its own deterministic suffixed target, token and identity.
             $sharedKey = strtolower((string) $sharedAsset['path']);
-            if (isset($emittedShared[$sharedKey]) && $emittedShared[$sharedKey]['content'] === $shared && $emittedShared[$sharedKey]['contract'] === self::sharedChromeContract($sharedAsset) && self::sharedChromeOriginsAgree($shared, $emittedShared[$sharedKey]['origin'], (string) $sharedAsset['reference_origin'], $references)) {
-                $projected[$emittedShared[$sharedKey]['index']]['_stylesheet_projection_origins'][] = self::stylesheetProjectionOrigin($asset);
-                continue;
+            foreach ($emittedShared[$sharedKey] ?? array() as $emitted) {
+                if ($emitted['content'] === $shared && $emitted['contract'] === self::sharedChromeContract($sharedAsset) && self::sharedChromeOriginsAgree($shared, $emitted['origin'], (string) $sharedAsset['reference_origin'], $references)) {
+                    $projected[$emitted['index']]['_stylesheet_projection_origins'][] = self::stylesheetProjectionOrigin($asset);
+                    continue 2;
+                }
             }
-            $emittedShared[$sharedKey] = array('content' => $shared, 'origin' => (string) $sharedAsset['reference_origin'], 'contract' => self::sharedChromeContract($sharedAsset), 'index' => count($projected));
+            if (isset($emittedShared[$sharedKey])) {
+                $collidingTarget = (string) $sharedAsset['target_path'];
+                $sharedAsset['path'] = $sharedAsset['target_path'] = substr($collidingTarget, 0, -strlen('.css')) . '-' . (count($emittedShared[$sharedKey]) + 1) . '.css';
+                $sharedAsset['token'] = 'asset-' . substr(hash('sha256', $sharedAsset['target_path']), 0, 16);
+                $sharedAsset['reconciliation_identity'] = self::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
+                $collisions[] = array('source_path' => (string) $sharedAsset['source_path'], 'colliding_source_path' => (string) $projected[$emittedShared[$sharedKey][0]['index']]['source_path'], 'target_path' => $collidingTarget, 'resolved_target_path' => (string) $sharedAsset['target_path']);
+            }
+            $emittedShared[$sharedKey][] = array('content' => $shared, 'origin' => (string) $sharedAsset['reference_origin'], 'contract' => self::sharedChromeContract($sharedAsset), 'index' => count($projected));
             $projected[] = $sharedAsset;
         }
         return $projected;
@@ -1921,7 +2032,9 @@ PHP;
                 if ('links' !== $kind) continue;
                 $route = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes);
                 if (null !== $route) { $row['url'] = $route; continue; }
-                if (!$this->isOptionalFeedLink($row) && !$this->isOptionalDiscoveryLink($row) && !$this->isOptionalResourceHint($row) && !$this->isOptionalManifestLink($row) && !$this->isVendorLink($row) && !$this->isSourceProtocolEndpointLink($row)) continue;
+                // A local link that names neither a captured asset nor a route has nothing to bind.
+                // Omit it and say so; the strict link validator stays the integrity backstop.
+                if (self::explicitUrl($row['url'])) continue;
                 $this->recordOmittedLinkDeclaration(self::value($document, 'source_path'), $row);
                 $row = null;
             }
@@ -1931,97 +2044,30 @@ PHP;
             unset($row);
         }
         if (isset($metadata['head'])) {
+            if (is_array($metadata['head'])) {
+                [$metadata['head'], $droppedHead] = DocumentHeadContext::withoutUnrepresentable($metadata['head']);
+                foreach ($droppedHead as $drop) $this->recordDroppedHeadItem(self::value($document, 'source_path'), $drop);
+            }
+            DocumentHeadContext::assertValid($metadata['head'], false, false);
+            [$metadata['head'], $droppedViewports] = DocumentHeadContext::keepLastViewport($metadata['head']);
+            if (0 < $droppedViewports) $this->recordDuplicateViewport(self::value($document, 'source_path'), $droppedViewports);
             DocumentHeadContext::assertValid($metadata['head'], false);
             foreach ($metadata['head']['elements'] as &$row) {
                 if (!isset($row['url'])) continue;
                 $reference = $this->documentAssetReference($row['url'], self::value($document, 'source_path'), $references, $routes);
                 if (null !== $reference) { $row['asset_reference'] = $reference; unset($row['url']); }
                 elseif ('link' === $row['tag'] && DocumentHeadContext::isRouteLink($row['attributes']) && null !== ($route = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes))) $row['url'] = $route;
+                elseif ('link' === $row['tag'] && !self::explicitUrl($row['url'])) {
+                    $this->recordOmittedLinkDeclaration(self::value($document, 'source_path'), array('rel' => $row['attributes']['rel'] ?? '', 'url' => $row['url']));
+                    $row = null;
+                }
             }
             unset($row);
+            $metadata['head']['elements'] = array_values(array_filter($metadata['head']['elements'], static fn(mixed $row): bool => is_array($row)));
         }
         return $metadata;
     }
 
-    /** @param array<string,mixed> $link */
-    private function isOptionalFeedLink(array $link): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
-        return !self::explicitUrl($link['url'] ?? null) && in_array('alternate', $relations, true) && in_array(strtolower(trim((string) ($link['type'] ?? ''))), array('application/atom+xml', 'application/feed+json', 'application/rss+xml'), true);
-    }
-    /** @param array<string,mixed> $link */
-    private function isOptionalResourceHint(array $link): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
-        $resourceHints = array('dns-prefetch', 'modulepreload', 'preconnect', 'prefetch', 'preload', 'prerender');
-        return !self::explicitUrl($link['url'] ?? null) && array() !== $relations && array() === array_diff($relations, $resourceHints);
-    }
-    /**
-     * HTML link types (WHATWG `rel` keywords and registered extensions). A link
-     * whose relations are all outside this set is a vendor discovery endpoint
-     * (Shopify's `ucp`, for one) that the imported site cannot serve and no
-     * page presentation depends on, so an unresolved one is omitted rather than
-     * failing the import.
-     */
-    private const HTML_LINK_TYPES = array('alternate', 'author', 'bookmark', 'canonical', 'dns-prefetch', 'expect', 'external', 'feed', 'help', 'icon', 'license', 'manifest', 'modulepreload', 'next', 'nofollow', 'noopener', 'noreferrer', 'opener', 'pingback', 'preconnect', 'prefetch', 'preload', 'prerender', 'prev', 'privacy-policy', 'search', 'shortcut', 'stylesheet', 'tag', 'terms-of-service', 'apple-touch-icon', 'apple-touch-icon-precomposed', 'apple-touch-startup-image', 'mask-icon', 'me', 'webmention', 'hub', 'amphtml', 'shortlink', 'edituri', 'wlwmanifest', 'profile', 'openid.server', 'openid.delegate', 'openid2.provider', 'openid2.local_id');
-    /** @param array<string,mixed> $link */
-    private function isVendorLink(array $link): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
-        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
-        return !self::explicitUrl($link['url'] ?? null) && array() !== $relations && array() === array_intersect($relations, self::HTML_LINK_TYPES);
-    }
-    /** @param array<string,mixed> $link */
-    private function isOptionalManifestLink(array $link): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
-        return !self::explicitUrl($link['url'] ?? null) && array('manifest') === $relations;
-    }
-    /**
-     * Discovery endpoints for server-side protocols the source application
-     * served itself: XML-RPC pingback, RSD (`EditURI`), the Live Writer
-     * manifest, WebSub hubs, Webmention receivers and OpenID delegation.
-     *
-     * WordPress publishes all of these on every page, so a captured WordPress
-     * site arrives with `<link rel="pingback" href="/xmlrpc.php">` and
-     * `<link rel="EditURI" href="/xmlrpc.php?rsd">` in its head. Neither names
-     * a captured asset, and neither can become an artifact route: `routeUrl()`
-     * rejects a dotted segment. They are not subresources either -- nothing a
-     * page renders depends on them -- and the destination site publishes its
-     * own correct endpoints. Carrying the source copies forward is stale
-     * plumbing, so an unresolved one is omitted rather than failing the import.
-     */
-    private const SOURCE_PROTOCOL_LINK_TYPES = array('pingback', 'edituri', 'wlwmanifest', 'hub', 'webmention', 'openid.server', 'openid.delegate', 'openid2.provider', 'openid2.local_id');
-    /**
-     * oEmbed discovery. WordPress core prints both of these on every singular
-     * page, and `oembed/1.0/` carries a dotted segment, so `routeUrl()` rejects
-     * it for exactly the reason it rejects `/xmlrpc.php`. A consumer fetches
-     * these to embed the page somewhere else; nothing the page renders depends
-     * on them, and the destination publishes its own.
-     *
-     * Matched on the `+oembed` media-type suffix, which is what identifies the
-     * pair, and fail-closed on the relation set the way `isOptionalManifestLink()`
-     * is -- a `rel` carrying anything besides `alternate` is not this.
-     *
-     * @param array<string,mixed> $link
-     */
-    private function isOptionalDiscoveryLink(array $link): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
-        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
-        // A media type may carry parameters -- `application/json+oembed; charset=utf-8`
-        // is the same type -- and missing one costs the whole plan, so match the
-        // essence before the first `;` rather than the raw attribute.
-        $type = strtolower(trim(explode(';', (string) ($link['type'] ?? ''))[0]));
-        return !self::explicitUrl($link['url'] ?? null) && array('alternate') === $relations && str_ends_with($type, '+oembed');
-    }
-    /** @param array<string,mixed> $link */
-    private function isSourceProtocolEndpointLink(array $link): bool
-    {
-        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
-        $relations = array_values(array_filter($relations, static fn(string $relation): bool => '' !== $relation));
-        return !self::explicitUrl($link['url'] ?? null) && array() !== $relations && array() === array_diff($relations, self::SOURCE_PROTOCOL_LINK_TYPES);
-    }
     /**
      * Records one omitted link declaration. An omission is a reportable quality
      * defect, not a silent edit: the plan keeps a bounded, deduplicated warning
@@ -2074,6 +2120,55 @@ PHP;
      * to avoid, one layer up.
      */
     private static function clipDiagnosticField(string $value): string { return mb_strcut($value, 0, 256, 'UTF-8'); }
+    /**
+     * Records one unit the plan dropped or rewrote instead of failing. Findings
+     * with the same fields are one row whose `omitted_count` counts them.
+     *
+     * @param array<string,string> $finding code, unit, source_path, reason_code, message and unit identity fields.
+     */
+    private function recordUnitFinding(array $finding): void
+    {
+        $finding = array_map(static fn(string $value): string => self::clipDiagnosticField($value), $finding);
+        $key = json_encode($finding, JSON_THROW_ON_ERROR);
+        if (isset($this->unitFindings[$key])) { ++$this->unitFindings[$key]['omitted_count']; return; }
+        $this->unitFindings[$key] = array('code' => $finding['code'], 'severity' => 'warning') + $finding + array('omitted_count' => 1);
+    }
+    /** @return array<int,array<string,mixed>> */
+    private function unitFindingDiagnostics(): array { return array_values($this->unitFindings); }
+    /** @param array{code:string,reason_code:string,tag:string,name:string} $drop */
+    private function recordDroppedHeadItem(string $sourcePath, array $drop): void
+    {
+        $attribute = 'document_head_attribute_dropped' === $drop['code'];
+        $this->recordUnitFinding(array_filter(array(
+            'code' => $drop['code'],
+            'unit' => 'item',
+            'message' => $attribute ? sprintf('Document head <%s> attribute %s cannot be carried (%s); it was dropped.', $drop['tag'], $drop['name'], $drop['reason_code']) : sprintf('Document head <%s> element cannot be carried (%s); it was dropped.', $drop['tag'], $drop['reason_code']),
+            'source_path' => $sourcePath,
+            'reason_code' => $drop['reason_code'],
+            'tag' => $drop['tag'],
+            'attribute' => $attribute ? $drop['name'] : '',
+        ), static fn(string $value): bool => '' !== $value));
+    }
+    private function recordDuplicateViewport(string $sourcePath, int $dropped): void
+    {
+        $this->duplicateViewports[$sourcePath] = ($this->duplicateViewports[$sourcePath] ?? 0) + $dropped;
+    }
+    /** @return array<int,array<string,mixed>> */
+    private function duplicateViewportDiagnostics(): array
+    {
+        $diagnostics = array();
+        foreach ($this->duplicateViewports as $sourcePath => $dropped) {
+            $diagnostics[] = array(
+                'code' => 'document_head_duplicate_viewport',
+                'severity' => 'warning',
+                'message' => self::clipDiagnosticField(sprintf('Document head declared more than one viewport; kept the last and dropped %d earlier.', $dropped)),
+                'source_path' => self::clipDiagnosticField((string) $sourcePath),
+                'omitted_count' => $dropped,
+                'reason_code' => 'duplicate_viewport',
+            );
+        }
+        return $diagnostics;
+    }
     /** @return array<int,array<string,mixed>> */
     private function omittedLinkDeclarationDiagnostics(): array
     {
@@ -2097,6 +2192,45 @@ PHP;
         $reference = '' === $rooted ? null : $references->reference('/' . $rooted, $sourcePath);
         return $reference ?? $references->reference($url, '');
     }
+    /**
+     * Article markers alone (no publication date) are weak: page builders stamp
+     * Article JSON-LD on ordinary service pages. They only count as publication
+     * evidence when the page also looks like it belongs to a blog.
+     *
+     * @param array<int,array<string,string>> $evidence
+     * @param array<string,mixed> $document
+     * @param array<string,mixed>|null $parent
+     * @return array<int,array<string,string>>
+     */
+    private static function withoutUnsupportedArticleMarkers(array $evidence, array $document, string $route, ?array $parent): array
+    {
+        foreach ($evidence as $row) {
+            if (isset($row['publication_timestamp']) || !in_array($row['source'] ?? null, array('json-ld:Article', 'json-ld:BlogPosting', 'microdata:itemtype'), true)) {
+                return $evidence;
+            }
+        }
+        return self::hasBlogContext($document, $route, $parent) ? $evidence : array();
+    }
+    /** @param array<string,mixed> $document @param array<string,mixed>|null $parent */
+    private static function hasBlogContext(array $document, string $route, ?array $parent): bool
+    {
+        if (1 === preg_match('~/(?:blog|news|posts?|articles?|journal|stories|insights)(?:/|$)~i', $route)) return true;
+        foreach (array_filter(array($document, $parent)) as $candidate) {
+            $html = is_string($candidate['html'] ?? null) ? $candidate['html'] : (is_string($candidate['block_markup'] ?? null) ? $candidate['block_markup'] : '');
+            foreach (($candidate['document_metadata']['meta'] ?? array()) as $meta) {
+                if (is_array($meta) && 'og:type' === strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')) && 'article' === strtolower(trim((string) ($meta['content'] ?? '')))) return true;
+            }
+            foreach (($candidate['document_metadata']['links'] ?? array()) as $link) {
+                $rel = is_array($link) ? preg_split('/\s+/', strtolower((string) ($link['rel'] ?? ''))) : array();
+                $type = is_array($link) ? strtolower((string) ($link['type'] ?? '')) : '';
+                if (in_array('alternate', $rel, true) && (str_contains($type, 'rss') || str_contains($type, 'atom'))) return true;
+                if (in_array('prev', $rel, true) || in_array('next', $rel, true)) return true;
+            }
+            if (1 === preg_match('~<link\b[^>]*\brel=["\']?(?:prev|next)\b|<link\b[^>]*type=["\']?application/(?:rss|atom)\+xml~i', $html)) return true;
+        }
+        $html = is_array($parent) ? (is_string($parent['html'] ?? null) ? $parent['html'] : (string) ($parent['block_markup'] ?? '')) : '';
+        return preg_match_all('~<article\b~i', $html) >= 2 || 1 === preg_match('~read\s+more|continue\s+reading~i', strip_tags($html));
+    }
     /** @param mixed $documents @return array<int,array<string,mixed>> */
     private function decideDocuments(mixed $documents): array
     {
@@ -2110,6 +2244,11 @@ PHP;
             $path = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path'] ? $metadata['route_path'] : self::pageRoutePath((string) $document['source_path'], $entryRoot);
             $routes[$index] = '/' === $path ? '/' : '/' . trim($path, '/');
             $evidenceByIndex[$index] = $this->publicationEvidence($document);
+        }
+        $indexByRoute = array_flip($routes);
+        foreach ($evidenceByIndex as $index => $evidence) {
+            $parentIndex = $indexByRoute[self::parentRoutePath($routes[$index])] ?? null;
+            $evidenceByIndex[$index] = self::withoutUnsupportedArticleMarkers($evidence, $documents[$index], $routes[$index], null === $parentIndex ? null : $documents[$parentIndex]);
         }
         $datedByParent = array();
         foreach ($evidenceByIndex as $index => $evidence) {
@@ -2447,10 +2586,10 @@ PHP;
             'code' => 'wordpress_site_plan_colliding_page_route',
             'severity' => 'warning',
             'message' => substr(sprintf('%s derives the same route as %s (%s); it materializes at %s instead.', $sourcePath, $keptSourcePath, $routePath, $resolvedPath), 0, 256),
-            'source_path' => substr($sourcePath, 0, 256),
-            'colliding_source_path' => substr($keptSourcePath, 0, 256),
-            'route_path' => substr($routePath, 0, 256),
-            'resolved_route_path' => substr($resolvedPath, 0, 256),
+            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
+            'colliding_source_path' => mb_strcut($keptSourcePath, 0, 256, 'UTF-8'),
+            'route_path' => mb_strcut($routePath, 0, 256, 'UTF-8'),
+            'resolved_route_path' => mb_strcut($resolvedPath, 0, 256, 'UTF-8'),
             'reason_code' => 'colliding_page_route',
             'pattern_family' => 'site_plan_route',
             'repair_bucket' => 'restore_canonical_route_identity',
@@ -3928,7 +4067,8 @@ PHP;
             $lines[] = '$blocks_engine_post_routes = ' . var_export($postRoutePaths, true) . ';';
             $lines[] = "add_action( 'init', static function () use ( \$blocks_engine_post_routes ): void {";
             foreach (array_keys($postRouteParents) as $parent) {
-                $pattern = '^' . preg_quote($parent, '/') . '/([^/]+)/?$';
+                // A numeric parent (`/2019/<slug>/`) is an int key.
+                $pattern = '^' . preg_quote((string) $parent, '/') . '/([^/]+)/?$';
                 $lines[] = "    add_rewrite_rule( " . var_export($pattern, true) . ", 'index.php?name=\$matches[1]', 'top' );";
             }
             $lines[] = "    \$signature = hash( 'sha256', wp_json_encode( \$blocks_engine_post_routes ) );";
@@ -4113,6 +4253,18 @@ PHP;
         return $projection['declarations'];
     }
 
+    /**
+     * The source anchor a plan keeps beside a binding's canonical anchor, so the
+     * binding can be found again after its page markup is reprojected.
+     *
+     * @param array<string,mixed> $binding
+     * @return array<string,mixed>
+     */
+    public static function projectedBindingAnchor(array $binding): array
+    {
+        return array_filter(array('schema' => 'blocks-engine/projected-binding-anchor/v1', 'source_block_markup' => $binding['search_block_markup'] ?? null, 'source_occurrence' => $binding['occurrence'] ?? null, 'source_position' => $binding['position'] ?? null), static fn(mixed $value): bool => null !== $value);
+    }
+
     private function canonicalInlineEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array()): array
     {
         // A binding owned by a shared part was re-anchored on the part's final
@@ -4134,7 +4286,7 @@ PHP;
                 foreach ( $entity['bindings'] as &$binding ) {
                     if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
                         $sourceMarkup = $binding['search_block_markup'];
-                        if (!is_array($binding['projected_anchor'] ?? null)) $binding['projected_anchor'] = array_filter(array('schema' => 'blocks-engine/projected-binding-anchor/v1', 'source_block_markup' => $sourceMarkup, 'source_occurrence' => $binding['occurrence'] ?? null, 'source_position' => $binding['position'] ?? null), static fn(mixed $value): bool => null !== $value);
+                        if (!is_array($binding['projected_anchor'] ?? null)) $binding['projected_anchor'] = self::projectedBindingAnchor($binding);
                         if (isset($partSources[$binding['source_path']])) continue;
                         $markup = $references->content($sourceMarkup, $binding['source_path']);
                         $binding['search_block_markup'] = $this->routeLinks($markup, $binding['source_path'], $routes);
@@ -4149,10 +4301,14 @@ PHP;
         $markupBySource = array_column($pages, 'canonical_block_markup', 'source_path');
         $sourceMarkupBySource = array_column($pages, '_projected_source_block_markup', 'source_path');
         $groups = array();
+        // A binding whose block is not emitted has nothing to bind: the block
+        // stays static. These are dropped below and reported, not thrown.
+        $unanchored = array();
         foreach ($declarations as $declarationIndex => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entityIndex => $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $bindingIndex => $binding) {
             $source = $binding['source_path'] ?? null; $search = $binding['search_block_markup'] ?? null; $position = $binding['position'] ?? null;
             $markup = is_string($source) ? ($markupBySource[$source] ?? null) : null;
-            if (!is_string($source) || !is_string($search) || '' === $search || !is_int($binding['occurrence'] ?? null) || $binding['occurrence'] < 1 || !is_string($markup)) throw new InvalidArgumentException('A runtime entity binding lacks an exact emitted block anchor.');
+            if (!is_string($source) || !is_string($search) || '' === $search || !is_int($binding['occurrence'] ?? null) || $binding['occurrence'] < 1) throw new InvalidArgumentException('A runtime entity binding lacks an exact emitted block anchor.');
+            if (!is_string($markup)) { $unanchored[] = array('declaration' => $declarationIndex, 'entity' => $entityIndex, 'binding' => $bindingIndex, 'reason_code' => 'document_not_emitted'); continue; }
             if (is_array($position) && ('blocks-engine/runtime-binding-position/v1' !== ($position['schema'] ?? null) || !is_int($position['block_index'] ?? null) || $position['block_index'] < 0 || !is_int($position['offset'] ?? null) || $position['offset'] < 0 || !is_int($position['length'] ?? null) || $position['length'] < 1)) throw new InvalidArgumentException('A runtime entity binding has an invalid emitted block position.');
             $groups[$source . "\n" . $search][] = array('id' => $declarationIndex . ':' . $entityIndex . ':' . $bindingIndex, 'source' => $source, 'declaration' => $declarationIndex, 'entity' => $entityIndex, 'binding' => $bindingIndex, 'source_offset' => is_array($position) ? $position['offset'] : null, 'source_occurrence' => $binding['occurrence'], 'canonical_position' => false, 'markup' => $markup, 'source_markup' => $sourceMarkupBySource[$source] ?? null, 'search' => $search, 'role' => is_string($binding['role'] ?? null) ? $binding['role'] : null);
         }
@@ -4176,8 +4332,8 @@ PHP;
                 if (1 < count($members) && array() !== array_filter($members, static fn(array $member): bool => 'commerce_collection' !== $member['role'])) throw new InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.');
                 $claims[] = $members;
             }
-            $markup = $bindings[0]['markup']; $search = $bindings[0]['search']; $ranges = array_values(array_filter(self::blockRanges($markup), static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length'])));
-            if (count($ranges) < count($claims)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
+            $markup = $bindings[0]['markup']; $search = $bindings[0]['search'];
+            // Claims beyond the emitted matching blocks find no candidate below and are dropped.
             $claimedOffsets = array(); $claimedClaims = array(); $resolved = array();
             foreach ($claims as $claimIndex => $members) {
                 $identity = $members[0];
@@ -4213,6 +4369,13 @@ PHP;
                         }
                     }
                 }
+                // No unclaimed emitted block carries this markup at all: the anchor
+                // is gone, so the binding is dropped. An unclaimed match that cannot
+                // be told apart stays ambiguous and fails closed below.
+                if (array() === $candidates && array() === array_filter(self::blockRanges($markup), static fn(array $range): bool => !isset($claimedOffsets[$range['offset']]) && $search === substr($markup, $range['offset'], $range['length']))) {
+                    foreach ($members as $member) $unanchored[] = array('declaration' => $member['declaration'], 'entity' => $member['entity'], 'binding' => $member['binding'], 'reason_code' => 'anchor_not_emitted');
+                    continue;
+                }
                 if (1 !== count($candidates)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
                 $claimedOffsets[$candidates[0]['canonical']['offset']] = true;
                 foreach ($members as $member) $resolved[] = array($member, $candidates[0]['canonical']);
@@ -4231,6 +4394,8 @@ PHP;
             }
         }
 
+        $declarations = $this->withoutUnanchoredBindings($declarations, $unanchored);
+
         // Rewriting binding markup changes the payload, so drop the derived
         // hashes and re-normalize to recompute canonical identity and content
         // hashes; the reconciliation identity (source path + kind) is stable.
@@ -4244,6 +4409,48 @@ PHP;
         unset($declaration);
 
         return RuntimeDeclarations::normalizeForComposition($declarations);
+    }
+
+    /**
+     * Drops entity bindings whose block is not emitted and reports each one as
+     * a `runtime_entity_binding_unanchored` finding. The entity keeps its other
+     * bindings; the unbound block stays static.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @param list<array{declaration:int|string,entity:int|string,binding:int|string,reason_code:string}> $unanchored
+     * @return array<int,array<string,mixed>>
+     */
+    private function withoutUnanchoredBindings(array $declarations, array $unanchored): array
+    {
+        if (array() === $unanchored) return $declarations;
+        foreach ($unanchored as $drop) {
+            $declaration = $declarations[$drop['declaration']];
+            $entity = $declaration['payload']['entities'][$drop['entity']];
+            $binding = $entity['bindings'][$drop['binding']];
+            $this->recordUnitFinding(array_filter(array(
+                'code' => 'runtime_entity_binding_unanchored',
+                'unit' => 'binding',
+                'message' => self::unanchoredBindingMessage($drop['reason_code']),
+                'source_path' => (string) $binding['source_path'],
+                'reason_code' => $drop['reason_code'],
+                'declaration_source_path' => is_string($declaration['source_path'] ?? null) ? $declaration['source_path'] : '',
+                'entity_id' => is_string($entity['id'] ?? null) ? $entity['id'] : '',
+                'role' => is_string($binding['role'] ?? null) ? $binding['role'] : '',
+            ), static fn(string $value): bool => '' !== $value));
+            unset($declarations[$drop['declaration']]['payload']['entities'][$drop['entity']]['bindings'][$drop['binding']]);
+        }
+        foreach ($unanchored as $drop) {
+            $bindings = &$declarations[$drop['declaration']]['payload']['entities'][$drop['entity']]['bindings'];
+            $bindings = array_values($bindings);
+            unset($bindings);
+        }
+        return $declarations;
+    }
+    private static function unanchoredBindingMessage(string $reason): string
+    {
+        return 'document_not_emitted' === $reason
+            ? 'A runtime entity binding names a document the plan does not emit; the binding was dropped.'
+            : 'A runtime entity binding names a block the page does not emit; the binding was dropped and the block stays static.';
     }
 
     /** @internal Exposed for ShellExtraction, which canonicalizes shell-candidate links through the same route table as page content. @param array<int,array<string,mixed>> $routes */
@@ -4267,7 +4474,7 @@ PHP;
         return $this->unresolvedNavigationLinks($content, $origin, $routes);
     }
     /**
-     * A document-relative a/area href that names no artifact route cannot stay
+     * A document-relative a/area href or form action that names no artifact route cannot stay
      * in the plan: WordPress would resolve it against the imported page URL
      * (issue #636). It names a page on the source site, so point it there when
      * the artifact records its source URL, or neutralize it to a same-page
@@ -4279,14 +4486,16 @@ PHP;
      */
     private function unresolvedNavigationLinks(string $content, string $origin, array $routes): string
     {
-        if (!preg_match('~(?:<|\\\\u003c)(?:a|area)\b~i', $content)) return $content;
-        return preg_replace_callback('~(?:<|\\\\u003c)(?:a|area)(?=[\s/>\\\\])(?:[^>\\\\]|\\\\(?!u003e))*~i', function (array $tag) use ($origin, $routes): string {
+        if (!preg_match('~(?:<|\\\\u003c)(?:a|area|form)\b~i', $content)) return $content;
+        return preg_replace_callback('~(?:<|\\\\u003c)(?:a|area|form)(?=[\s/>\\\\])(?:[^>\\\\]|\\\\(?!u003e))*~i', function (array $tag) use ($origin, $routes): string {
             $replace = function (array $match) use ($origin, $routes): string {
                 $resolved = $this->unresolvedNavigationReference($match[2], $origin, $routes);
                 return null === $resolved ? $match[0] : $match[1] . $resolved . $match[3];
             };
             $markup = $tag[0];
-            foreach (array('~((?<![\w:-])href\s*=\s*")([^"]*)(")~i', "~((?<![\\w:-])href\\s*=\\s*')([^']*)(')~i", '~((?<![\w:-])href\s*=\s*\\\\")([^"\\\\]*)(\\\\")~i', '~((?<![\w:-])href\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~i') as $pattern) $markup = preg_replace_callback($pattern, $replace, $markup) ?? $markup;
+            // A form navigates through `action`; links navigate through `href`.
+            $attribute = 1 === preg_match('~^(?:<|\\\\u003c)form~i', $markup) ? 'action' : 'href';
+            foreach (array('~((?<![\w:-])' . $attribute . '\s*=\s*")([^"]*)(")~i', "~((?<![\\w:-])" . $attribute . "\\s*=\\s*')([^']*)(')~i", '~((?<![\w:-])' . $attribute . '\s*=\s*\\\\")([^"\\\\]*)(\\\\")~i', '~((?<![\w:-])' . $attribute . '\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~i') as $pattern) $markup = preg_replace_callback($pattern, $replace, $markup) ?? $markup;
             return $markup;
         }, $content) ?? $content;
     }
@@ -4305,11 +4514,11 @@ PHP;
             else $this->unresolvedNavigationDiagnostics[$key] = array_filter(array(
                 'code' => 'wordpress_site_plan_unresolved_navigation_link',
                 'severity' => 'warning',
-                'message' => substr(null === $absolute ? "Neutralized a link to {$url}, which names no artifact page and has no recorded source URL." : "Linked {$url} to the source site because it names no artifact page.", 0, 256),
-                'source_path' => substr($origin, 0, 256),
-                'value' => substr($url, 0, 256),
+                'message' => mb_strcut(null === $absolute ? "Neutralized a link to {$url}, which names no artifact page and has no recorded source URL." : "Linked {$url} to the source site because it names no artifact page.", 0, 256, 'UTF-8'),
+                'source_path' => mb_strcut($origin, 0, 256, 'UTF-8'),
+                'value' => mb_strcut($url, 0, 256, 'UTF-8'),
                 'resolution' => null === $absolute ? 'neutralized' : 'source_url',
-                'resolved_url' => null === $absolute ? null : substr($absolute . $suffix, 0, 512),
+                'resolved_url' => null === $absolute ? null : mb_strcut($absolute . $suffix, 0, 512, 'UTF-8'),
                 'reason_code' => 'unresolved_local_browser_reference',
             ), static fn(mixed $field): bool => null !== $field);
         }
@@ -4750,7 +4959,7 @@ PHP;
                 if (!is_string($key) || (!is_scalar($value) && null !== $value) || 20 === count($fields)) { ++$truncated; continue; }
                 $key = substr($key, 0, 64);
                 if (isset($fields[$key])) { ++$truncated; continue; }
-                $fields[$key] = is_string($value) ? substr($value, 0, 256) : $value;
+                $fields[$key] = is_string($value) ? mb_strcut($value, 0, 256, 'UTF-8') : $value;
             }
         }
         $context = array('source_path' => $sourcePath, 'document_kind' => $documentKind, 'declaration_kind' => $declarationKind, 'declaration_index' => $index, 'reason' => $reason, 'fields' => $fields);
@@ -4770,12 +4979,12 @@ PHP;
     {
         $key = strtolower($value);
         if (isset($values[$key])) {
-            $shown = substr($value, 0, 120);
+            $shown = mb_strcut($value, 0, 120, 'UTF-8');
             $prior = $values[$key];
             $message = '' !== $prior && '' !== $source
-                ? sprintf('WordPress site plan has colliding %ss: %s (%s, %s).', $kind, $shown, substr($prior, 0, 60), substr($source, 0, 60))
+                ? sprintf('WordPress site plan has colliding %ss: %s (%s, %s).', $kind, $shown, mb_strcut($prior, 0, 60, 'UTF-8'), mb_strcut($source, 0, 60, 'UTF-8'))
                 : sprintf('WordPress site plan has colliding %ss: %s.', $kind, $shown);
-            throw new InvalidArgumentException(substr($message, 0, 256));
+            throw new InvalidArgumentException(mb_strcut($message, 0, 256, 'UTF-8'));
         }
         $values[$key] = $source;
     }

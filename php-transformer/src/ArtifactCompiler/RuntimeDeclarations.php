@@ -21,6 +21,9 @@ final class RuntimeDeclarations
     public const MAX_TOTAL_DECLARATION_BYTES = ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES;
     public const MAX_PAYLOAD_BYTES = self::MAX_TOTAL_DECLARATION_BYTES;
     private const MAX_CANONICAL_DEPTH = self::MAX_PROVENANCE_DEPTH + 1;
+    // A site plan carries an entity at plan.runtime_declarations[i].payload.entities[j],
+    // and its identity hash walks the whole plan within MAX_CANONICAL_DEPTH.
+    public const PLAN_ENTITY_DEPTH = 5;
     public const RECORD_MANIFEST_SCHEMA = 'blocks-engine/runtime-record-references/v1';
     public const RECORD_SCHEMA = 'blocks-engine/runtime-record/v1';
 
@@ -336,6 +339,26 @@ final class RuntimeDeclarations
     {
         if (!is_string($payload['record_schema'] ?? null) || !is_array($payload['records'] ?? null) || !array_is_list($payload['records']) || array() === $payload['records'] || count($payload['records']) > self::MAX_DECLARATIONS) throw new InvalidArgumentException("Runtime declaration {$index} record manifest is invalid.");
         $seen = array(); foreach ($payload['records'] as $reference) { if (!is_array($reference) || !is_string($reference['id'] ?? null) || !preg_match('/^runtime-record-[a-f0-9]{64}$/', $reference['id']) || !self::isHash($reference['content_hash'] ?? null) || !is_int($reference['bytes'] ?? null) || $reference['bytes'] < 1 || $reference['bytes'] > self::MAX_PAYLOAD_BYTES || $reference['id'] !== 'runtime-record-' . $reference['content_hash'] || isset($seen[$reference['id']])) throw new InvalidArgumentException("Runtime declaration {$index} record manifest has an invalid reference."); $seen[$reference['id']] = true; }
+    }
+
+    /**
+     * Why no runtime declaration can carry this entity, or null when one can.
+     * `byte_limit`: its manifest record exceeds MAX_PAYLOAD_BYTES, so neither an
+     * inline payload nor a record holds it. `unsupported_value`: it is nested
+     * too deep for a site plan to hash, or holds a value canonical JSON rejects.
+     *
+     * @param array<mixed> $entity
+     */
+    public static function unrepresentableEntityReason(array $entity, ?int &$bytes = null): ?string
+    {
+        $bytes = null;
+        try {
+            $canonical = self::canonical($entity, self::PLAN_ENTITY_DEPTH);
+            $bytes = strlen(self::canonicalJson(array('content_hash' => self::hash($canonical), 'entity' => $canonical)));
+        } catch (InvalidArgumentException) {
+            return 'unsupported_value';
+        }
+        return $bytes > self::MAX_PAYLOAD_BYTES ? 'byte_limit' : null;
     }
 
     public static function canonicalJson(mixed $value): string

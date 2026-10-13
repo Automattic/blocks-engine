@@ -4,14 +4,20 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use DateTimeImmutable;
 
 /** Source-backed Event facts and explicit provider-neutral detail-page ownership candidates. */
 final class EventDeclarations
 {
-    /** @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @param array<int,array<string,mixed>> $declarations @return array<int,array<string,mixed>> */
-    public static function add(array $documents, array $routes, array $declarations): array
+    /**
+     * @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $records Runtime entity records; a collection over the inline payload limit adds its own.
+     * @param array<int,array<string,mixed>> $diagnostics
+     * @return array<int,array<string,mixed>>
+     */
+    public static function add(array $documents, array $routes, array $declarations, array &$records = array(), array &$diagnostics = array()): array
     {
         foreach ($declarations as $declaration) {
             if ('entity_collection' === ($declaration['kind'] ?? null) && 'events' === ($declaration['type'] ?? null)) return $declarations;
@@ -41,7 +47,11 @@ final class EventDeclarations
         if (array() === $entities) return $declarations;
         usort($entities, static fn(array $a, array $b): int => strcmp($a['source_path'], $b['source_path']));
         $source = $entities[0]['source_path'];
-        $declarations[] = array('kind' => 'entity_collection', 'type' => 'events', 'source_path' => $source, 'payload' => array('schema' => 'generic/events/v1', 'entities' => $entities));
+        $collection = RuntimeEntityManifest::declareCollection($declarations, 'events', 'generic/events/v1', $entities, $source, null);
+        array_push($diagnostics, ...$collection['diagnostics']);
+        if (null === $collection['payload']) return $declarations;
+        foreach ($collection['records'] as $record) $records[] = $record;
+        $declarations[] = array('kind' => 'entity_collection', 'type' => 'events', 'source_path' => $source, 'payload' => $collection['payload']);
         return RuntimeDeclarations::normalizeList($declarations);
     }
 
