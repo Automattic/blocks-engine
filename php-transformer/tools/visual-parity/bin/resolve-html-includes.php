@@ -8,6 +8,10 @@
  * Includes resolve against the source root ("/parts/<name>.html"). Missing
  * fragments, cycles, malformed directives and exceeded budgets exit non-zero,
  * so callers never mistake unresolved source for the captured document.
+ *
+ * The requested document is declared an entrypoint beside index.html. Index
+ * keeps the include root at the source root, and an entrypoint is never left
+ * unexpanded as a page-local limit: the document being measured has to resolve.
  */
 declare(strict_types=1);
 
@@ -35,7 +39,7 @@ try {
     }
     $resolved = (new HtmlFragmentIncludes())->expand(
         $files,
-        array('index.html'),
+        array('index.html', $page),
         array('max_file_bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES, 'max_total_bytes' => ArtifactNormalizer::DEFAULT_MAX_TOTAL_BYTES),
         static fn(array $file): array => array('content' => $file['content'], 'bytes' => strlen($file['content']))
     );

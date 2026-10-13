@@ -113,6 +113,14 @@ jobs:
           php tests/unit/captured-dialog-dropdown-panel.php
           PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/captured-dialog-dropdown-panel-browser.mjs
 
+      - name: Verify native dialog parity with the recognized capture disclosure runtime
+        working-directory: php-transformer
+        run: |
+          php tests/unit/capture-runtime-ancestor-parity.php
+          PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/capture-runtime-ancestor-parity-browser.mjs
+          php tests/unit/capture-runtime-attribute-parity.php
+          PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/capture-runtime-attribute-parity-browser.mjs
+
       - name: Verify native button default background neutralization
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/native-button-default-background-browser.mjs

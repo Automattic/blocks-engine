@@ -66,9 +66,9 @@ $assert(str_contains($hydratedBlocks, '<!-- wp:details') && str_contains($hydrat
 // A capture-owned local-disclosure runtime addresses the panel by attribute.
 // Once the widget is a native details block, that selector is superseded and
 // the runtime dependency contract must not report a missing DOM target.
-$runtimeScript = 'document.addEventListener("click",function(e){var t=e.target.closest("[aria-controls]");var p=t&&t.parentElement.querySelector("[data-dla-local-disclosure]");if(p)p.hidden=!p.hidden;});';
+$runtimeScript = 'document.addEventListener("click",function(e){var t=e.target.closest("[aria-controls]");var p=t&&t.parentElement.querySelector("[data-blocks-engine-capture-local-disclosure]");if(p)p.hidden=!p.hidden;});';
 $artifact = ( new ArtifactCompiler() )->compile(array('files' => array(
-    array('path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><script data-dla-local-disclosure-runtime="true">' . $runtimeScript . '</script></head><body><footer><p>Copyright <span class="anchor"><button type="button" aria-expanded="false" aria-controls="pn">Note</button><span id="pn" hidden role="region" data-dla-local-disclosure="true">Panel text</span></span></p></footer></body></html>'),
+    array('path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><script data-blocks-engine-capture-local-disclosure-runtime="true">' . $runtimeScript . '</script></head><body><footer><p>Copyright <span class="anchor"><button type="button" aria-expanded="false" aria-controls="pn">Note</button><span id="pn" hidden role="region" data-blocks-engine-capture-local-disclosure="true">Panel text</span></span></p></footer></body></html>'),
 )))->toArray();
 $parity = $artifact['source_reports']['runtime_dependency_parity'] ?? array();
 $missing = array_values(array_filter($parity['findings'] ?? array(), static fn (array $finding): bool => 'runtime_dependency_target_missing' === ($finding['code'] ?? '') && ! isset($finding['disposition'])));

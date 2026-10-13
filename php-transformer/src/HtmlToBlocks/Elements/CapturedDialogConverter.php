@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -67,7 +68,7 @@ final class CapturedDialogConverter implements ElementConverter
         $attrs = array_filter(array(
             'tagName' => 'div' === strtolower($element->tagName) ? 'div' : '',
             'sourceStyle' => SourceDom::attr($element, 'style'),
-            'ancestorUnverified' => SourceDom::attr($element, 'data-dla-dialog-ancestor-unverified'),
+            'ancestorUnverified' => SourceDom::attr($element, CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED),
             'dialogId' => trim(SourceDom::attr($element, 'id')),
             'triggerIds' => array_values(array_filter(preg_split('/\s+/', trim(SourceDom::attr($element, 'data-blocks-engine-triggers'))) ?: array())),
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')),
@@ -78,13 +79,13 @@ final class CapturedDialogConverter implements ElementConverter
             'placement' => in_array(SourceDom::attr($element, 'data-blocks-engine-placement'), array('in-place', 'under-header', 'source'), true) ? SourceDom::attr($element, 'data-blocks-engine-placement') : '',
             'addCloseButton' => 'true' === SourceDom::attr($element, 'data-blocks-engine-add-close'),
             'gallerySelection' => json_decode(SourceDom::attr($element, 'data-blocks-engine-gallery-selection'), true) ?: array(),
-            'ancestorState' => json_decode(SourceDom::attr($element, 'data-blocks-engine-ancestor-state'), true) ?: array(),
+            'ancestorState' => CapturedDialogBlockGenerator::ancestorState(json_decode(SourceDom::attr($element, 'data-blocks-engine-ancestor-state'), true)),
         ), static fn(mixed $value): bool => false !== $value && '' !== $value && array() !== $value);
         $children = ($this->convertChildren)($element, $fallbacks);
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $tag = $attrs['tagName'] ?? 'dialog';
         $opening = '<' . $tag;
-        foreach (array('dialogId' => 'id', 'className' => 'class', 'sourceStyle' => 'style', 'ancestorUnverified' => 'data-dla-dialog-ancestor-unverified', 'presentation' => 'data-blocks-engine-presentation', 'placement' => 'data-blocks-engine-placement', 'ariaLabel' => 'aria-label', 'ariaLabelledby' => 'aria-labelledby', 'ariaDescribedby' => 'aria-describedby') as $key => $attribute) {
+        foreach (array('dialogId' => 'id', 'className' => 'class', 'sourceStyle' => 'style', 'ancestorUnverified' => CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED, 'presentation' => 'data-blocks-engine-presentation', 'placement' => 'data-blocks-engine-placement', 'ariaLabel' => 'aria-label', 'ariaLabelledby' => 'aria-labelledby', 'ariaDescribedby' => 'aria-describedby') as $key => $attribute) {
             if (isset($attrs[$key])) $opening .= ' ' . $attribute . '="' . $escape((string) $attrs[$key]) . '"';
         }
         if (isset($attrs['triggerIds'])) $opening .= ' data-blocks-engine-triggers="' . $escape(implode(' ', $attrs['triggerIds'])) . '"';

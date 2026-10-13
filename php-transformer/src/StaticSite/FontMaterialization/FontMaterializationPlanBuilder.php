@@ -620,13 +620,17 @@ final class FontMaterializationPlanBuilder
                 if ( '' === $family ) {
                     return;
                 }
+                // Every selector in the list cites the same rule. Build its
+                // snippet once so the declarations share one string; a copy per
+                // selector grows with selectors x prelude length.
+                $snippet = trim($prelude) . '{font-family:' . trim((string) $match[1]) . '}';
                 foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
                     $selector = trim($selector);
                     if ( '' !== $selector ) {
                         $declarations[] = array(
                             'family' => $family,
                             'selector' => $selector,
-                            'source_snippet' => trim($prelude) . '{font-family:' . trim((string) $match[1]) . '}',
+                            'source_snippet' => $snippet,
                         );
                     }
                 }

@@ -69,7 +69,7 @@ $assert(
 
 // -- Issue #1625: capture stamps a fragment target's `id` with the component's
 // authored name, not a CSS-identifier slug. "Contact Us" is the exact shape
-// Data Liberation writes (`<span id="Contact Us" data-dla-anchor-target="Contact
+// A capture producer writes (`<span id="Contact Us" data-blocks-engine-capture-anchor-target="Contact
 // Us" ...>`), and the link that reaches it is percent-encoded to match
 // (`href="/#Contact%20Us"`). A block's `anchor` support has no CSS-identifier
 // constraint — only `save()` byte-parity matters — so the literal captured
@@ -77,7 +77,7 @@ $assert(
 // keeps its destination while the destination itself vanishes.
 $multiWordTarget = $transformer->transform(
     '<nav><a href="/#Contact%20Us">Contact</a></nav>'
-    . '<main><span id="Contact Us" data-dla-anchor-target="Contact Us" data-dla-anchor-source-id="comp-mmk30y0o" aria-hidden="true" style="position:absolute;top:1200px;left:0;width:0;height:0;overflow:hidden;pointer-events:none"></span>'
+    . '<main><span id="Contact Us" data-blocks-engine-capture-anchor-target="Contact Us" data-blocks-engine-capture-anchor-source-id="comp-mmk30y0o" aria-hidden="true" style="position:absolute;top:1200px;left:0;width:0;height:0;overflow:hidden;pointer-events:none"></span>'
     . '<h2>Contact</h2></main>'
 )->toArray();
 $multiWordMarkup = (string) ( $multiWordTarget['serialized_blocks'] ?? '' );
@@ -99,19 +99,19 @@ $assert(
 );
 
 // -- The same capture stamps distinct desktop and mobile documents with the
-// SAME source component id, disambiguated only by a `--dla-mobile` suffix on
+// SAME source component id, disambiguated only by a `--data-blocks-engine-capture-mobile` suffix on
 // the mobile copy. Both must survive as their own, independently addressable
 // targets: collapsing them onto one anchor would leave one document's link
 // pointing at the other document's target, or at nothing once one document is
 // hidden by breakpoint.
 $responsiveTargets = $transformer->transform(
-    '<div class="data-liberation-desktop-document">'
+    '<div class="data-blocks-engine-capture-desktop-document">'
     . '<nav><a href="/#Contact%20Us">Contact</a></nav>'
-    . '<main><span id="Contact Us" data-dla-anchor-target="Contact Us" data-dla-anchor-source-id="comp-mmk30y0o" aria-hidden="true" style="position:absolute;top:1200px;left:0;width:0;height:0;overflow:hidden;pointer-events:none"></span>'
+    . '<main><span id="Contact Us" data-blocks-engine-capture-anchor-target="Contact Us" data-blocks-engine-capture-anchor-source-id="comp-mmk30y0o" aria-hidden="true" style="position:absolute;top:1200px;left:0;width:0;height:0;overflow:hidden;pointer-events:none"></span>'
     . '<h2>Contact</h2></main></div>'
-    . '<div class="data-liberation-mobile-document">'
-    . '<nav><a href="/#Contact%20Us--dla-mobile">Contact</a></nav>'
-    . '<main><span id="Contact Us--dla-mobile" data-dla-anchor-target="Contact Us" data-dla-anchor-source-id="comp-mmk30y0o" aria-hidden="true" style="position:absolute;top:900px;left:0;width:0;height:0;overflow:hidden;pointer-events:none"></span>'
+    . '<div class="data-blocks-engine-capture-mobile-document">'
+    . '<nav><a href="/#Contact%20Us--data-blocks-engine-capture-mobile">Contact</a></nav>'
+    . '<main><span id="Contact Us--data-blocks-engine-capture-mobile" data-blocks-engine-capture-anchor-target="Contact Us" data-blocks-engine-capture-anchor-source-id="comp-mmk30y0o" aria-hidden="true" style="position:absolute;top:900px;left:0;width:0;height:0;overflow:hidden;pointer-events:none"></span>'
     . '<h2>Contact</h2></main></div>'
 )->toArray();
 $responsiveMarkup = (string) ( $responsiveTargets['serialized_blocks'] ?? '' );
@@ -122,7 +122,7 @@ $assert(
     $responsiveMarkup
 );
 $assert(
-    str_contains($responsiveMarkup, 'id="Contact Us--dla-mobile"'),
+    str_contains($responsiveMarkup, 'id="Contact Us--data-blocks-engine-capture-mobile"'),
     '8: the mobile document keeps its own, distinctly-suffixed target identity rather than colliding with the desktop target',
     $responsiveMarkup
 );

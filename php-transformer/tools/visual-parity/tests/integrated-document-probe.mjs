@@ -40,7 +40,7 @@ try {
         await page.route(destination, async route => {
           const response = await route.fetch();
           let index = 0;
-          const html = (await response.text()).replace(/(<style\b[^>]*\bdata-dla-[^>]*>)([\s\S]*?)(<\/style\s*>)/gi, (match, open, css, close) => {
+          const html = (await response.text()).replace(/(<style\b[^>]*\bdata-blocks-engine-capture-[^>]*>)([\s\S]*?)(<\/style\s*>)/gi, (match, open, css, close) => {
             if (index >= styles.length) throw new Error('Served head has more declared styles than candidate');
             return open + styles[index++] + close;
           });
@@ -59,12 +59,12 @@ try {
       const errors = []; page.on('pageerror', error => errors.push(error.message));
       const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
       if (kind === 'source' && (!response?.ok() || server.failures.length)) throw new Error(`Source document did not resolve: ${JSON.stringify(server.failures)}`);
-      await page.waitForFunction(() => document.documentElement.hasAttribute('data-dla-selected-document'), { timeout: 15000 });
+      await page.waitForFunction(() => document.documentElement.hasAttribute('data-blocks-engine-capture-selected-document'), { timeout: 15000 });
       await page.evaluate(() => Promise.race([document.fonts.ready, new Promise(resolve => setTimeout(resolve, 5000))]));
       await page.waitForTimeout(800);
       pair[kind] = await page.evaluate(() => {
-        const selected = document.documentElement.getAttribute('data-dla-selected-document');
-        const root = document.querySelector(`[data-dla-device-document="${selected}"]`);
+        const selected = document.documentElement.getAttribute('data-blocks-engine-capture-selected-document');
+        const root = document.querySelector(`[data-blocks-engine-capture-device-document="${selected}"]`);
         const props = ['display', 'position', 'width', 'min-width', 'max-width', 'height', 'min-height', 'left', 'right', 'transform', 'overflow-x', 'box-sizing', 'flex-basis', 'flex-shrink', 'grid-template-columns', 'margin-left', 'margin-right', 'padding-left', 'padding-right', 'font-size'];
         const describe = node => {
           if (!node) return null;
@@ -93,7 +93,7 @@ try {
           return state;
         });
         const overflow = [...document.body.querySelectorAll('*')].map(node => ({ node, rect: node.getBoundingClientRect() })).filter(row => row.rect.width > 0 && row.rect.right > document.documentElement.clientWidth + 1).sort((a, b) => b.rect.right - a.rect.right).slice(0, 35).map(row => describe(row.node));
-        return { selected, viewport: [...document.querySelectorAll('meta[name=viewport]')].map(node => ({ content: node.content, id: node.id, attributes: Object.fromEntries([...node.attributes].map(attr => [attr.name, attr.value])) })), innerWidth, innerHeight, clientWidth: document.documentElement.clientWidth, visualWidth: visualViewport?.width, documentWidth: document.documentElement.scrollWidth, body: describe(document.body), roots: [...document.querySelectorAll('[data-dla-device-document]')].map(describe), targets: targets.map(describe), ancestors, rules, sheets, overflow };
+        return { selected, viewport: [...document.querySelectorAll('meta[name=viewport]')].map(node => ({ content: node.content, id: node.id, attributes: Object.fromEntries([...node.attributes].map(attr => [attr.name, attr.value])) })), innerWidth, innerHeight, clientWidth: document.documentElement.clientWidth, visualWidth: visualViewport?.width, documentWidth: document.documentElement.scrollWidth, body: describe(document.body), roots: [...document.querySelectorAll('[data-blocks-engine-capture-device-document]')].map(describe), targets: targets.map(describe), ancestors, rules, sheets, overflow };
       });
       pair[kind].errors = errors;
       await page.screenshot({ path: path.join(output, `${profile.name}-${kind}.png`), fullPage: false });

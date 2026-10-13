@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
@@ -23,8 +24,8 @@ final class CapturedCollectionProjector
             if ('interaction-states.json' === basename($path)) $report = json_decode($file['content'] ?? '', true);
             if ('capture-receipt.json' === basename($path)) $receipt = json_decode($file['content'] ?? '', true);
         }
-        if ('data-liberation/captured-interactions/v1' !== ($report['schema'] ?? null)
-            || 'data-liberation/capture-receipt/v1' !== ($receipt['schema'] ?? null)
+        if (CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null)
+            || CaptureEvidence::CAPTURE_RECEIPT_SCHEMA !== ($receipt['schema'] ?? null)
             || !is_array($report['pages'] ?? null) || !is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
@@ -75,10 +76,10 @@ final class CapturedCollectionProjector
                 // native collection was established. Keep unrelated scripts.
                 $portableRemaining = false;
                 foreach ($document->getElementsByTagName('*') as $node) {
-                    if ($node->hasAttribute('data-dla-collection') && !$node->hasAttribute('data-blocks-engine-collection-target')) $portableRemaining = true;
+                    if ($node->hasAttribute(CaptureEvidence::COLLECTION) && !$node->hasAttribute('data-blocks-engine-collection-target')) $portableRemaining = true;
                 }
-                $shims = $portableRemaining ? array() : array('script' => 'data-dla-collection-runtime', 'style' => 'data-dla-collection-visibility');
-                if (!$portableRemaining && $this->localDisclosuresAreNative($document)) $shims['script-disclosure'] = 'data-dla-local-disclosure-runtime';
+                $shims = $portableRemaining ? array() : array('script' => CaptureEvidence::COLLECTION_RUNTIME, 'style' => CaptureEvidence::COLLECTION_VISIBILITY);
+                if (!$portableRemaining && $this->localDisclosuresAreNative($document)) $shims['script-disclosure'] = CaptureEvidence::LOCAL_DISCLOSURE_RUNTIME;
                 foreach ($shims as $tag => $attribute) {
                     $tag = str_starts_with($tag, 'script') ? 'script' : $tag;
                     foreach (iterator_to_array($document->getElementsByTagName($tag)) as $node) {
@@ -221,7 +222,7 @@ final class CapturedCollectionProjector
             || 'category-or-global-search' !== ($evidence['mode'] ?? null)
             || 'observed-response-replay' !== ($network['dataRequests'] ?? null)
             || 'intercepted-observed-responses' !== ($network['verification'] ?? null)
-            || 'data-liberation/finite-bootstrap/v1' !== ($bootstrap['schema'] ?? null)
+            || CaptureEvidence::FINITE_BOOTSTRAP_SCHEMA !== ($bootstrap['schema'] ?? null)
             || 'category-or-global-search' !== ($bootstrap['mode'] ?? null)
             || true !== ($bootstrap['queryIndependent'] ?? null)
             || 'declared-finite' !== ($bootstrap['completeness'] ?? null)
@@ -293,7 +294,7 @@ final class CapturedCollectionProjector
             $name = strtolower($attribute->name);
             if (str_starts_with($name, 'on')) return $name;
             if ('aria-hidden' === $name && !in_array($attribute->value, array('true', 'false'), true)) return $name;
-            if (!in_array($name, array('class', 'id', 'style', 'role', 'aria-live', 'aria-atomic', 'aria-hidden', 'data-hook', 'data-dla-status-template', 'data-dla-collection-status', 'data-dla-status-hide-zero', 'data-blocks-engine-collection-status', 'data-blocks-engine-status-hide-zero', 'hidden'), true)) return $name;
+            if (!in_array($name, array('class', 'id', 'style', 'role', 'aria-live', 'aria-atomic', 'aria-hidden', 'data-hook', CaptureEvidence::STATUS_TEMPLATE, CaptureEvidence::COLLECTION_STATUS, CaptureEvidence::STATUS_HIDE_ZERO, 'data-blocks-engine-collection-status', 'data-blocks-engine-status-hide-zero', 'hidden'), true)) return $name;
         }
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) {
@@ -310,7 +311,7 @@ final class CapturedCollectionProjector
         if (!is_array($bootstrap) || !array_key_exists('status', $bootstrap)) return true;
         $status = $bootstrap['status'];
         if (!is_array($status) || array('nodes', 'schema') !== $this->sortedKeys($status)
-            || 'data-liberation/collection-status/v1' !== ($status['schema'] ?? null)
+            || CaptureEvidence::COLLECTION_STATUS_SCHEMA !== ($status['schema'] ?? null)
             || !is_array($status['nodes'] ?? null) || array() === $status['nodes'] || count($status['nodes']) > 4
             || !array_is_list($status['nodes'])) return false;
         foreach ($status['nodes'] as $node) if (!$this->verifiedStatusNode($node)) return false;
@@ -324,7 +325,7 @@ final class CapturedCollectionProjector
             || !in_array($node['placement'], array('before-items', 'after-items'), true) || true !== $node['hidesAtZero']) return false;
         $tokens = $this->statusTokens($node['template']);
         if (null === $tokens || $tokens !== $node['binds']) return false;
-        if (str_contains($node['template'], 'dla-no-match') || str_contains($node['template'], 'dla-finite-probe')) return false;
+        if (str_contains($node['template'], CaptureEvidence::NO_MATCH_PROBE) || str_contains($node['template'], CaptureEvidence::FINITE_PROBE)) return false;
         $imported = $this->importStatusNode($this->document('<div></div>'), $node['html']);
         if (!$imported || $this->text($imported) !== $node['template'] || 1 !== $this->markStatusTemplates($imported)) return false;
         return $this->statusTemplateValue($imported) === $node['template'] && !$this->unsafeStatus($imported);
@@ -508,19 +509,19 @@ final class CapturedCollectionProjector
     {
         $targets = array();
         foreach ($document->getElementsByTagName('*') as $node) {
-            if (!$node instanceof DOMElement || !$node->hasAttribute('data-dla-collection')) continue;
-            $id = $node->getAttribute('data-dla-collection');
+            if (!$node instanceof DOMElement || !$node->hasAttribute(CaptureEvidence::COLLECTION)) continue;
+            $id = $node->getAttribute(CaptureEvidence::COLLECTION);
             if (1 !== preg_match('/^[0-9]{1,4}$/', $id) || isset($targets[$id])) return array();
             $targets[$id] = $node;
         }
         $copies = array();
         foreach ($targets as $id => $target) {
             $id = (string) $id;
-            $field = $this->marked($document, 'data-dla-collection-field', $id);
+            $field = $this->marked($document, CaptureEvidence::COLLECTION_FIELD, $id);
             if (!$field || 'input' !== strtolower($field->tagName)) continue;
             $controls = array();
             foreach ($evidence['categories'] as $index => $category) {
-                $control = $this->marked($document, 'data-dla-collection-category-control', $id, $index);
+                $control = $this->marked($document, CaptureEvidence::COLLECTION_CATEGORY_CONTROL, $id, $index);
                 if (!$control || !$this->isChoiceControl($control)) continue 2;
                 $controls[] = $control;
             }
@@ -535,7 +536,7 @@ final class CapturedCollectionProjector
         $found = null;
         foreach ($document->getElementsByTagName('*') as $node) {
             if (!$node instanceof DOMElement || $node->getAttribute($attribute) !== $id) continue;
-            if (null !== $index && (string) $index !== $node->getAttribute('data-dla-collection-index')) continue;
+            if (null !== $index && (string) $index !== $node->getAttribute(CaptureEvidence::COLLECTION_INDEX)) continue;
             if ($found) return null;
             $found = $node;
         }
@@ -546,10 +547,10 @@ final class CapturedCollectionProjector
     {
         $found = array();
         foreach ($target->getElementsByTagName('*') as $node) {
-            if (!$node instanceof DOMElement || !$node->hasAttribute('data-dla-collection-item')) continue;
-            $key = $node->getAttribute('data-dla-collection-item');
+            if (!$node instanceof DOMElement || !$node->hasAttribute(CaptureEvidence::COLLECTION_ITEM)) continue;
+            $key = $node->getAttribute(CaptureEvidence::COLLECTION_ITEM);
             if (isset($found[$key])) return false;
-            $members = json_decode($node->getAttribute('data-dla-collection-members'), true);
+            $members = json_decode($node->getAttribute(CaptureEvidence::COLLECTION_MEMBERS), true);
             $found[$key] = $members;
         }
         foreach ($evidence['items'] as $item) {
@@ -591,7 +592,7 @@ final class CapturedCollectionProjector
             $container = $target;
             $marked = array();
             foreach ($target->getElementsByTagName('*') as $node) {
-                if ($node instanceof DOMElement && $node->hasAttribute('data-dla-collection-item')) $marked[$node->getAttribute('data-dla-collection-item')] = $node;
+                if ($node instanceof DOMElement && $node->hasAttribute(CaptureEvidence::COLLECTION_ITEM)) $marked[$node->getAttribute(CaptureEvidence::COLLECTION_ITEM)] = $node;
             }
             $items = array();
             foreach ($evidence['items'] as $item) {
@@ -600,7 +601,7 @@ final class CapturedCollectionProjector
             }
         } else {
             if (!$container instanceof DOMElement) return false;
-            $items = array_values(array_filter(iterator_to_array($container->childNodes), static fn ($node): bool => $node instanceof DOMElement && !$node->hasAttribute('data-dla-collection-empty')));
+            $items = array_values(array_filter(iterator_to_array($container->childNodes), static fn ($node): bool => $node instanceof DOMElement && !$node->hasAttribute(CaptureEvidence::COLLECTION_EMPTY)));
         }
         if (!$container instanceof DOMElement) return false;
         if ($finite && null === $resolved) {
@@ -611,7 +612,7 @@ final class CapturedCollectionProjector
         } else {
             foreach ($items as $index => $node) {
                 if ($this->text($node) !== $evidence['items'][$index]['text']) return false;
-                if ($node->hasAttribute('data-dla-collection-item') && $node->getAttribute('data-dla-collection-item') !== $evidence['items'][$index]['key']) return false;
+                if ($node->hasAttribute(CaptureEvidence::COLLECTION_ITEM) && $node->getAttribute(CaptureEvidence::COLLECTION_ITEM) !== $evidence['items'][$index]['key']) return false;
             }
         }
         if ($finite && !$this->collectChoices($document, $root, $controls, $field, $target)) return false;
@@ -642,7 +643,7 @@ final class CapturedCollectionProjector
         }
         $empty = null;
         foreach ($root->getElementsByTagName('*') as $node) {
-            if ($node instanceof DOMElement && $node->hasAttribute('data-dla-collection-empty')) {
+            if ($node instanceof DOMElement && $node->hasAttribute(CaptureEvidence::COLLECTION_EMPTY)) {
                 if ($empty) return false;
                 $empty = $node;
             }
@@ -678,7 +679,7 @@ final class CapturedCollectionProjector
         foreach ($empty->childNodes as $child) {
             if (!$child instanceof DOMElement || $this->text($child) !== $zero || !$this->sameStatusIdentity($child, $source)) continue;
             $child->setAttribute('data-blocks-engine-collection-status', 'true');
-            $child->setAttribute('data-dla-status-template', $countNode['template']);
+            $child->setAttribute(CaptureEvidence::STATUS_TEMPLATE, $countNode['template']);
             $child->setAttribute('data-blocks-engine-status-bound', 'empty');
             return;
         }
@@ -729,7 +730,7 @@ final class CapturedCollectionProjector
         if (!preg_match('/^[0-9]{1,4}$/', $copyId)) return array();
         $found = array();
         foreach ($document->getElementsByTagName('*') as $node) {
-            if (!$node instanceof DOMElement || $node->getAttribute('data-dla-collection-status') !== $copyId || !$this->containsAll($root, array($node))) continue;
+            if (!$node instanceof DOMElement || $node->getAttribute(CaptureEvidence::COLLECTION_STATUS) !== $copyId || !$this->containsAll($root, array($node))) continue;
             $found[] = $node;
         }
         return $found;
@@ -753,7 +754,7 @@ final class CapturedCollectionProjector
         foreach ($element->childNodes as $child) if (XML_TEXT_NODE === $child->nodeType) $own .= $child->textContent;
         $own = $this->normalize($own);
         if (str_contains($own, '{count}') || str_contains($own, '{query}')) {
-            $element->setAttribute('data-dla-status-template', $own);
+            $element->setAttribute(CaptureEvidence::STATUS_TEMPLATE, $own);
             $count++;
         }
         foreach ($element->childNodes as $child) if ($child instanceof DOMElement) $count += $this->markStatusTemplates($child);
@@ -764,7 +765,7 @@ final class CapturedCollectionProjector
     {
         $found = null;
         $walk = static function (DOMElement $node) use (&$walk, &$found): void {
-            if ($node->hasAttribute('data-dla-status-template')) $found = $node->getAttribute('data-dla-status-template');
+            if ($node->hasAttribute(CaptureEvidence::STATUS_TEMPLATE)) $found = $node->getAttribute(CaptureEvidence::STATUS_TEMPLATE);
             foreach ($node->childNodes as $child) if ($child instanceof DOMElement) $walk($child);
         };
         $walk($element);
@@ -779,7 +780,7 @@ final class CapturedCollectionProjector
             foreach ($node->attributes ?? array() as $attribute) {
                 $name = strtolower($attribute->name);
                 if (str_starts_with($name, 'on') || str_contains(strtolower($attribute->value), 'javascript:')) return true;
-                if (!in_array($name, array('class', 'id', 'style', 'role', 'aria-live', 'aria-atomic', 'aria-hidden', 'data-hook', 'data-dla-status-template', 'data-dla-collection-status', 'data-dla-status-hide-zero', 'data-blocks-engine-collection-status', 'data-blocks-engine-status-hide-zero', 'hidden'), true)) return true;
+                if (!in_array($name, array('class', 'id', 'style', 'role', 'aria-live', 'aria-atomic', 'aria-hidden', 'data-hook', CaptureEvidence::STATUS_TEMPLATE, CaptureEvidence::COLLECTION_STATUS, CaptureEvidence::STATUS_HIDE_ZERO, 'data-blocks-engine-collection-status', 'data-blocks-engine-status-hide-zero', 'hidden'), true)) return true;
                 if ('aria-hidden' === $name && !in_array($attribute->value, array('true', 'false'), true)) return true;
                 if ('data-hook' === $name && 1 !== preg_match('/^[A-Za-z0-9_-]{1,80}$/', $attribute->value)) return true;
                 if ('style' === $name && (str_contains($attribute->value, '!important') || $this->hasResource($attribute->value))) return true;
@@ -930,7 +931,7 @@ final class CapturedCollectionProjector
     {
         $found = false;
         foreach ($document->getElementsByTagName('*') as $node) {
-            if (!$node instanceof DOMElement || 'true' !== strtolower($node->getAttribute('data-dla-local-disclosure'))) continue;
+            if (!$node instanceof DOMElement || 'true' !== strtolower($node->getAttribute(CaptureEvidence::LOCAL_DISCLOSURE))) continue;
             $found = true;
             $item = $node->parentNode;
             while ($item instanceof DOMElement && !$item->hasAttribute('data-blocks-engine-collection-item-marker')) $item = $item->parentNode;

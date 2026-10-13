@@ -18,6 +18,24 @@ if ( array( 'heading' => 'Playfair Display', 'body' => 'Lora' ) !== $roles ) {
     exit(1);
 }
 
+// Projected site CSS carries rules whose selector lists run to thousands of
+// selectors. Each selector's declaration cites the same rule, so 4,000
+// selectors over a ~200 KB prelude must stay near the prelude's size rather
+// than holding a copy per selector (~800 MB).
+$selectors = array();
+for ( $index = 0; $index < 4000; ++$index ) {
+    $selectors[] = sprintf('.wp-site-blocks .page-%04d .entry-content h2.heading', $index);
+}
+$listCss = implode(',', $selectors) . '{font-family:"Playfair Display",serif}body{font-family:Lora,serif}';
+$before = memory_get_usage();
+$declarations = ( new FontMaterializationPlanBuilder() )->fontFamilyDeclarationsFromCssSources(array($listCss));
+$retained = memory_get_usage() - $before;
+if ( 4001 !== count($declarations) || $declarations[0]['source_snippet'] !== $declarations[3999]['source_snippet'] || $retained > 16 * 1024 * 1024 ) {
+    fwrite(STDERR, sprintf('Selector-list font declarations were not bounded: %d declarations, %d bytes retained.', count($declarations), $retained) . PHP_EOL);
+    exit(1);
+}
+unset($declarations, $listCss, $selectors);
+
 // One shared stylesheet is scanned by several typography consumers on every
 // page. A shared cache builds that immutable analysis once and reuses it.
 $sharedCss = ':root{--heading:"Playfair Display",serif}h1{font-family:var(--heading)}body{font-family:Lora,serif}';

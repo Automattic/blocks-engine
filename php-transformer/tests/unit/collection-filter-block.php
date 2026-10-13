@@ -22,8 +22,8 @@ $evidence = array(
 $files = static function (string $html, array $evidence): array {
     return array(
         array('path' => 'website/index.html', 'content' => $html),
-        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test', 'path' => 'website/index.html'))))),
-        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'data-liberation/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test', 'path' => 'website/index.html'))))),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array('schema' => 'blocks-engine-capture/captured-interactions/v1', 'pages' => array(array('sourceUrl' => 'https://example.test', 'states' => array(array('kind' => 'typed-search', 'status' => 'captured', 'collectionFilter' => $evidence))))))),
     );
 };
 $projected = (new CapturedCollectionProjector())->project($files($source, $evidence));
@@ -66,7 +66,7 @@ $tabEvidence['categories'][0]['inactiveHtml'] = '<div id="cat-all" class="inacti
 $tabEvidence['categories'][1]['selector'] = '#cat-first';
 $tabEvidence['categories'][1]['activeHtml'] = '<div id="cat-first" class="active" role="tab" tabindex="0" aria-selected="true">First</div>';
 $tabEvidence['categories'][1]['inactiveHtml'] = '<div id="cat-first" class="inactive" role="tab" tabindex="-1" aria-selected="false">First</div>';
-$tabSource = '<html><body><main><div class="scope"><div role="tab" tabindex="0" aria-selected="true" class="active" id="cat-all" data-dla-collection-category-control="0" data-dla-collection-index="0">All</div><div role="tab" tabindex="-1" aria-selected="false" class="inactive" id="cat-first" data-dla-collection-category-control="0" data-dla-collection-index="1">First</div><input data-dla-collection-field="0" placeholder="Search"><div data-dla-collection="0"><div data-dla-collection-item="0" data-dla-collection-members="[0,1]"><p>Same question? Answer orchid.</p></div><div data-dla-collection-item="1" data-dla-collection-members="[0]"><p>Same question? Answer violet.</p></div></div></div></main></body></html>';
+$tabSource = '<html><body><main><div class="scope"><div role="tab" tabindex="0" aria-selected="true" class="active" id="cat-all" data-blocks-engine-capture-collection-category-control="0" data-blocks-engine-capture-collection-index="0">All</div><div role="tab" tabindex="-1" aria-selected="false" class="inactive" id="cat-first" data-blocks-engine-capture-collection-category-control="0" data-blocks-engine-capture-collection-index="1">First</div><input data-blocks-engine-capture-collection-field="0" placeholder="Search"><div data-blocks-engine-capture-collection="0"><div data-blocks-engine-capture-collection-item="0" data-blocks-engine-capture-collection-members="[0,1]"><p>Same question? Answer orchid.</p></div><div data-blocks-engine-capture-collection-item="1" data-blocks-engine-capture-collection-members="[0]"><p>Same question? Answer violet.</p></div></div></div></main></body></html>';
 $tabResult = (new HtmlTransformer())->transform((new CapturedCollectionProjector())->project($files($tabSource, $tabEvidence))['files'][0]['content'])->toArray();
 $tabMarkup = $tabResult['serialized_blocks'];
 $assert(str_contains($tabMarkup, 'role="tab"') && str_contains($tabMarkup, 'tabindex="0"') && str_contains($tabMarkup, 'tabindex="-1"') && str_contains($tabMarkup, 'data-wp-on--keydown='), 'a source div role=tab keeps its role, tabindex, and non-button keyboard hook');
@@ -92,19 +92,19 @@ $statusCase = collection_filter_status_case();
 $statusFiles = $files($statusCase['source'], $statusCase['evidence']);
 $statusProjected = (new CapturedCollectionProjector())->project($statusFiles);
 $assert(1 === ($statusProjected['projected_count'] ?? 0), 'source status projects one collection: ' . json_encode($statusProjected['diagnostics'] ?? array()));
-$assert(!str_contains($statusProjected['files'][0]['content'], 'data-dla-collection-runtime'), 'projected status labels replace the capture helper');
+$assert(!str_contains($statusProjected['files'][0]['content'], 'data-blocks-engine-capture-collection-runtime'), 'projected status labels replace the capture helper');
 $statusResult = (new HtmlTransformer())->transform($statusProjected['files'][0]['content'])->toArray();
 $statusMarkup = $statusResult['serialized_blocks'];
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($statusResult['blocks'] ?? array())['status'] ?? ''), 'source status blocks remain Gutenberg-valid');
 $assert(3 === substr_count($statusMarkup, '<!-- wp:custom/collection-filter-status ') && 2 === substr_count($statusMarkup, 'role="status"') && str_contains($statusMarkup, 'data-blocks-engine-status-bound="empty"') && str_contains($statusMarkup, 'aria-live="polite"') && str_contains($statusMarkup, 'aria-atomic="true"') && str_contains($statusMarkup, 'class="saTKtkk"') && str_contains($statusMarkup, 'aria-hidden="false"') && str_contains($statusMarkup, 'data-hook="questions-results-found"') && str_contains($statusMarkup, 'data-hook="text-search-results-found"'), 'source status topology, role, and classes stay on the generated block');
 $assert(1 === substr_count($statusMarkup, '>0 matching results found</div>') && !str_contains($statusMarkup, 'blocks-engine-synthetic-paragraph">0 matching'), 'the zero count keeps the source status role instead of a plain paragraph');
-$assert(str_contains($statusMarkup, 'data-dla-status-template="{count} matching results found"') && str_contains($statusMarkup, 'data-dla-status-template="Showing results for: {query}"'), 'status templates stay editable source attributes');
+$assert(str_contains($statusMarkup, 'data-blocks-engine-capture-status-template="{count} matching results found"') && str_contains($statusMarkup, 'data-blocks-engine-capture-status-template="Showing results for: {query}"'), 'status templates stay editable source attributes');
 $assert(1 === substr_count($statusMarkup, '0 matching results found') && str_contains($statusMarkup, 'Try another word.'), 'empty state owns the zero label once');
 $statusView = '';
 foreach ($statusResult['source_reports']['generated_blocks'] ?? array() as $definition) if ('collection-filter' === ($definition['name'] ?? null)) $statusView = (string) ($definition['view_js'] ?? '');
 $statusEditor = '';
 foreach ($statusResult['source_reports']['generated_blocks'] ?? array() as $definition) if ('collection-filter-status' === ($definition['name'] ?? null)) $statusEditor = (string) ($definition['assets']['index.js'] ?? '');
 $assert(str_contains($statusView, 'label.textContent = text') && str_contains($statusView, "split( '{query}' )") && !str_contains($statusView, 'innerHTML'), 'status runtime writes textContent and does not parse the query');
-$assert(str_contains($statusEditor, 'escapeStatus') && str_contains($statusEditor, 'data-dla-status-template') && str_contains($statusEditor, 'Collection status'), 'editor save keeps an escaped editable template');
+$assert(str_contains($statusEditor, 'escapeStatus') && str_contains($statusEditor, 'data-blocks-engine-capture-status-template') && str_contains($statusEditor, 'Collection status'), 'editor save keeps an escaped editable template');
 file_put_contents(collection_filter_artifact_path('collection-filter-status.json'), json_encode(array('markup' => $statusMarkup, 'view' => $statusView), JSON_UNESCAPED_SLASHES));
 fwrite(STDOUT, "PASS: verified canonical collection projection and native answer authoring\n");

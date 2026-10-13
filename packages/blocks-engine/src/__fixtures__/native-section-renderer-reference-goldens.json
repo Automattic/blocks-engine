@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "derivation": "Mechanically generated from DLA src/lib/replicate/page-reconstruct.ts reconstructPagePattern at DLA commit 1e393c5; section renderer markup strips the final reconstruct body newline.",
+  "derivation": "Mechanically generated from the reference implementation src/lib/replicate/page-reconstruct.ts reconstructPagePattern at reference commit 1e393c5; section renderer markup strips the final reconstruct body newline.",
   "renderers": {
     "renderReviewGrid": [
       {

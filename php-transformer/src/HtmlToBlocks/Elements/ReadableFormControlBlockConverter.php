@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -108,7 +109,7 @@ final class ReadableFormControlBlockConverter
             }
         }
 
-        if ( 'button' === $tagName && '' !== SourceDom::attr($element, 'data-dla-listbox-trigger') ) {
+        if ( 'button' === $tagName && '' !== SourceDom::attr($element, CaptureEvidence::LISTBOX_TRIGGER) ) {
             $listboxBlock = $this->authoredBlockConverter->listbox($element);
             if ( null !== $listboxBlock ) {
                 return $listboxBlock;

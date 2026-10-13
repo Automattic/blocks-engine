@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 
 /** Shared property codec/view asset for existing authored controls, not a registry. */
@@ -22,7 +23,7 @@ final class AuthoredControlState
     {
         $data = $attrs['dataAttributes'] ?? array(); ksort($data); $html = '';
         foreach ($data as $name => $value) if (preg_match('/^data-(?!wp-)[a-z0-9_.:-]+$/', $name)
-            && !in_array($name, array(NativeControlState::ATTRIBUTE, self::ATTRIBUTE), true)) {
+            && !in_array($name, array(CaptureEvidence::NATIVE_CONTROL_STATE, self::ATTRIBUTE), true)) {
             $html .= ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
         }
         return $html;
@@ -87,7 +88,7 @@ JS;
     /** Shared serialization helper in the three registered editors. */
     public static function editorHelpers(): string
     {
-        return <<<'JS'
+        $helpers = <<<'JS'
     function initialValue(attrs){return Object.prototype.hasOwnProperty.call(attrs,'initialValue')?attrs.initialValue:(attrs.value||'');}
     function initialChecked(attrs){return Object.prototype.hasOwnProperty.call(attrs,'initialChecked')?attrs.initialChecked:!!attrs.checked;}
     function controlState(kind,attrs){
@@ -103,8 +104,10 @@ JS;
         return stateAttribute({version:1,kind:kind,type:type,value:initialValue(attrs),defaultValue:attrs.value||'',checked:initialChecked(attrs),defaultChecked:!!attrs.checked,indeterminate:!!attrs.indeterminate});
     }
     function stateAttribute(state){return ' data-blocks-engine-control-state="'+escapeAttribute(JSON.stringify(state))+'"';}
-    function safeData(attrs){return Object.keys(attrs.dataAttributes||{}).reduce(function(output,name){if(/^data-(?!wp-)[a-z0-9_.:-]+$/.test(name)&&!['data-dla-native-control-state','data-blocks-engine-control-state'].includes(name))output[name]=attrs.dataAttributes[name];return output;},{});}
+    function safeData(attrs){return Object.keys(attrs.dataAttributes||{}).reduce(function(output,name){if(/^data-(?!wp-)[a-z0-9_.:-]+$/.test(name)&&!['__NATIVE_CONTROL_STATE__','data-blocks-engine-control-state'].includes(name))output[name]=attrs.dataAttributes[name];return output;},{});}
     function dataMarkup(attrs){return Object.keys(safeData(attrs)).sort().map(function(name){return ' '+name+'="'+escapeAttribute(attrs.dataAttributes[name])+'"';}).join('');}
 JS;
+
+        return str_replace('__NATIVE_CONTROL_STATE__', CaptureEvidence::NATIVE_CONTROL_STATE, $helpers);
     }
 }
