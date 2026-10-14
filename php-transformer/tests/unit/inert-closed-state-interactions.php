@@ -159,6 +159,29 @@ $assert(
     $navMarkup . "\n" . $navAfterAuthor
 );
 
+$capturedOpenNav = <<<'HTML'
+<style>
+.captured-panel { display: none; }
+.captured-menu:hover .captured-panel { display: block; }
+</style>
+<nav class="captured-menu"><ul><li><a href="/services">Services</a>
+  <div id="captured-panel" class="captured-panel is-open" style="display:none" data-blocks-engine-capture-dropdown>
+    <ul><li><a href="/consulting">Consulting</a></li></ul>
+  </div>
+</li></ul></nav>
+HTML;
+$capturedOpenNavResult = ( new HtmlTransformer() )->transform($capturedOpenNav)->toArray();
+$capturedOpenNavMarkup = (string) ($capturedOpenNavResult['serialized_blocks'] ?? '');
+$capturedOpenNavAfterAuthor = $cssContent($capturedOpenNavResult, 'after-author', 'both');
+$assert(
+    str_contains($capturedOpenNavMarkup, '<!-- wp:navigation-submenu')
+        && str_contains($capturedOpenNavMarkup, 'Consulting')
+        && ! str_contains($capturedOpenNavMarkup, 'is-open')
+        && ! str_contains($capturedOpenNavAfterAuthor, '#captured-panel{display:revert!important}'),
+    'native navigation owns the closed resting state and does not retain the captured open class',
+    $capturedOpenNavMarkup . "\n" . $capturedOpenNavAfterAuthor
+);
+
 $hiddenAnswer = <<<'HTML'
 <style>
 .answer { display: none !important; visibility: hidden; height: 0; overflow: hidden; }
