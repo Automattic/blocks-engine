@@ -23,6 +23,7 @@ final class AuthoredCarouselBlockGenerator
 {
     public const LOCAL_NAME = 'authored-carousel';
     private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right');
+    private const SLIDE_INDEX_ATTRIBUTES = array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item');
     private const GEOMETRY_VALUE_PATTERN = '^[0-9a-zA-Z.%()+*/,_ -]+(?:\\s*!important)?$';
 
     /**
@@ -858,7 +859,7 @@ JS;
                 if ( array() !== $rootControls
                     && $this->ownsCarouselIdentity($owner, $list)
                     && array() === array_filter($rootControls, fn(DOMElement $control): bool => ! $this->containsNode($owner, $control))
-                    && $this->hasAuthoredContentOutside($element, $owner)
+                    && $this->hasAuthoredContentOutside($element, $owner, $list)
                 ) {
                     return null;
                 }
@@ -1415,11 +1416,13 @@ JS;
 
     /**
      * Whether $root holds readable text, media or form controls outside
-     * $owner. Carousel controls (links and buttons) are not authored content
-     * here: the carousel shell rebuilds them.
+     * $owner. Parts the carousel shell rebuilds are not authored content
+     * here: previous/next and pagination controls, thumbnail pager items and
+     * pager collections (image-only or slide-indexed items).
      */
-    private function hasAuthoredContentOutside(DOMElement $root, DOMElement $owner): bool
+    private function hasAuthoredContentOutside(DOMElement $root, DOMElement $owner, DOMElement $list): bool
     {
+        $claimed = $this->thumbnailPagerItems($root, $list);
         $pending = array($root);
         while ( array() !== $pending ) {
             $node = array_pop($pending);
@@ -1430,21 +1433,15 @@ JS;
                     }
                     continue;
                 }
-                if ( ! $child instanceof DOMElement || $child === $owner ) {
+                if ( ! $child instanceof DOMElement || $child === $owner || in_array($child, $claimed, true) ) {
                     continue;
                 }
                 $tag = strtolower($child->tagName);
-                if ( in_array($tag, array('button', 'script', 'style', 'template', 'svg'), true) ) {
-                    continue;
-                }
-                // Text-less links are pagination or thumbnails the carousel
-                // rebuilds; a link with readable text is authored content.
-                if ( 'a' === $tag ) {
-                    if ( ! $this->sourceElementClassifier->isCarouselControl($child, $root)
-                        && '' !== trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? ''))
-                    ) {
-                        return true;
-                    }
+                if ( in_array($tag, array('script', 'style', 'template', 'svg'), true)
+                    || $this->isNavigationControl($child, $root)
+                    || $this->isPaginationControl($child)
+                    || $this->isPagerCollection($child)
+                ) {
                     continue;
                 }
                 if ( in_array($tag, array('img', 'picture', 'video', 'iframe', 'input', 'select', 'textarea', 'form'), true) ) {
@@ -1454,6 +1451,62 @@ JS;
             }
         }
         return false;
+    }
+
+    /** A previous or next control, by its label, title, class or text. */
+    private function isNavigationControl(DOMElement $element, DOMElement $root): bool
+    {
+        if ( ! $this->sourceElementClassifier->isCarouselControl($element, $root) ) {
+            return false;
+        }
+        $identity = strtolower(implode(' ', array(SourceDom::attr($element, 'aria-label'), SourceDom::attr($element, 'title'), SourceDom::attr($element, 'class'), trim((string) $element->textContent))));
+        return 1 === preg_match('/(?:^|[^a-z])(?:previous|prev|next)(?:[^a-z]|$)/', $identity);
+    }
+
+    /** A slide-indexed item, or a link or button that selects a numbered slide. */
+    private function isPaginationControl(DOMElement $element): bool
+    {
+        foreach ( self::SLIDE_INDEX_ATTRIBUTES as $attribute ) {
+            if ( ctype_digit(trim(SourceDom::attr($element, $attribute))) ) {
+                return true;
+            }
+        }
+        if ( ! in_array(strtolower($element->tagName), array('a', 'button'), true) ) {
+            return false;
+        }
+        $identity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array(
+            SourceDom::attr($element, 'aria-label'),
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'data-testid'),
+        ))));
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item)[^a-z0-9]*[0-9]+(?:[^a-z0-9]|$)/', $identity);
+    }
+
+    /**
+     * Two or more items that are each a pagination control or a single image
+     * with no readable text: a thumbnail strip or dot pager beside the stage.
+     */
+    private function isPagerCollection(DOMElement $element): bool
+    {
+        $items = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMText ) {
+                if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->data)) ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $imageOnly = 'img' === strtolower($child->tagName)
+                || (1 === $child->getElementsByTagName('img')->length && '' === trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? '')));
+            if ( ! $imageOnly && ! $this->isPaginationControl($child) ) {
+                return false;
+            }
+            ++$items;
+        }
+        return $items >= 2;
     }
 
     private function containsNavigationPair(DOMElement $element): bool
@@ -2060,19 +2113,7 @@ JS;
     {
         $count = 0;
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
-                continue;
-            }
-            $identity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array(
-                SourceDom::attr($candidate, 'aria-label'),
-                SourceDom::attr($candidate, 'class'),
-                SourceDom::attr($candidate, 'data-testid'),
-            ))));
-            $indexed = false;
-            foreach ( array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item') as $attribute ) {
-                $indexed = $indexed || ctype_digit(trim(SourceDom::attr($candidate, $attribute)));
-            }
-            if ( $indexed || 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item)[^a-z0-9]*[0-9]+(?:[^a-z0-9]|$)/', $identity) ) {
+            if ( $candidate instanceof DOMElement && in_array(strtolower($candidate->tagName), array('a', 'button'), true) && $this->isPaginationControl($candidate) ) {
                 ++$count;
             }
         }

@@ -41,6 +41,28 @@ foreach ($carousels as $carousel) {
     $assert(4 === count($carousel['innerBlocks']), 'the carousel keeps all four slides');
     $assert(!str_contains((new Runtime())->serializeBlocks(array($carousel)), 'Join our newsletter'), 'the carousel does not own the sibling sections');
 }
+// A section of only text links beside the gallery is authored navigation,
+// not a carousel control, so it survives too.
+$stage = '<div class="pro-gallery slider"><div class="gallery-horizontal-scroll" data-hook="gallery-column"><div class="gallery-horizontal-scroll-inner">' . $slides . '</div></div>'
+    . '<button class="nav-arrows-container" aria-label="Next Item" data-hook="nav-arrow-next"><svg viewBox="0 0 10 10"><path d="M0 0L10 5L0 10Z"></path></svg></button></div>';
+$transform = static fn (string $html): string => (new Runtime())->serializeBlocks((new HtmlTransformer())->transform($html)->toArray()['blocks']);
+$links = $transform('<div class="footer-grid"><div class="photo-strip">' . $stage . '</div><nav class="footer-column"><a href="/all">View all</a> <a href="/shop">Shop</a></nav></div>');
+$assert(str_contains($links, 'View all') && str_contains($links, 'Shop'), 'a text-links-only section beside the gallery survives');
+$assert(1 === substr_count($links, 'class="blocks-engine-authored-carousel '), 'the gallery beside the text links is still one carousel');
+
+// Pagers the carousel rebuilds are not authored content: a thumbnail strip or
+// a slide-indexed dot list keeps the outer wrapper as the carousel root.
+$pagers = array(
+    'image thumbnail strip' => '<div class="thumbs">' . implode('', array_map(static fn (int $i): string => '<div class="thumb"><img src="https://example.test/thumb-' . $i . '.jpg" alt="" width="40" height="40"></div>', range(1, 4))) . '</div>',
+    'linked thumbnail strip' => '<div class="thumbs">' . implode('', array_map(static fn (int $i): string => '<a href="#"><img src="https://example.test/thumb-' . $i . '.jpg" alt="" width="40" height="40"></a>', range(1, 4))) . '</div>',
+    'slide-indexed dot list' => '<ol class="dots">' . implode('', array_map(static fn (int $i): string => '<li data-slide-index="' . ($i - 1) . '">' . $i . '</li>', range(1, 4))) . '</ol>',
+    'labelled dot buttons' => '<ol class="dots">' . implode('', array_map(static fn (int $i): string => '<li><button aria-label="Go to slide ' . $i . '">' . $i . '</button></li>', range(1, 4))) . '</ol>',
+);
+foreach ($pagers as $label => $pager) {
+    $markup = $transform('<div class="carousel-frame">' . $stage . $pager . '</div>');
+    $assert(1 === preg_match('/^\s*<!-- wp:[a-z0-9-]+\/authored-carousel /', $markup), 'the ' . $label . ' beside the stage keeps the outer wrapper as the carousel root');
+}
+
 if ($failures) {
     fwrite(STDERR, "FAIL: " . implode("\nFAIL: ", $failures) . "\n");
     exit(1);
