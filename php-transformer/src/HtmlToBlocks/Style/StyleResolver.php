@@ -12,7 +12,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
-use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use DOMElement;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -2861,8 +2860,7 @@ final class StyleResolver implements ElementPresentationResolver
         // data hooks may be shared by otherwise independent components.
         // Keep source IDs as identity too, since author selectors may depend on
         // them, but never use a source-specific attribute as the restatement key.
-        $serializedElement = HtmlSerialization::normalizeCurrentSerialization((string) $element->ownerDocument?->saveHTML($element));
-        $scopeToken = substr(hash('sha256', (string) ($element->getNodePath() ?? '') . "\n" . $serializedElement), 0, 16);
+        $scopeToken = substr(hash('sha256', (string) ($element->getNodePath() ?? '') . "\n" . (string) $element->ownerDocument?->saveHTML($element)), 0, 16);
         $scopeAttribute = 'data-be-source-scope';
         $scopeValue = 'scope-' . $scopeToken;
         $attributes[$scopeAttribute] = $scopeValue;

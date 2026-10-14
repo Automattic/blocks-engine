@@ -274,7 +274,7 @@ final class CapturedChoiceGroupProjector
         }
 
         $output = $document->saveHTML();
-        $output = is_string($output) ? \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeSerializedHtml($output) : null;
+        $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
     }
 
@@ -399,7 +399,7 @@ final class CapturedChoiceGroupProjector
     {
         $html = '';
         foreach ($element->childNodes as $child) {
-            $html .= \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization((string) $element->ownerDocument?->saveHTML($child));
+            $html .= $element->ownerDocument?->saveHTML($child) ?? '';
         }
 
         return $html;
@@ -533,7 +533,7 @@ final class CapturedChoiceGroupProjector
         }
         $result = '';
         foreach ($root->childNodes as $node) {
-            $result .= \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization($document->saveHTML($node) ?: '');
+            $result .= $document->saveHTML($node);
         }
         return is_string($result) ? $result : null;
     }

@@ -265,7 +265,7 @@ final class CapturedDialogProjector
         }
 
         $output = $document->saveHTML();
-        $output = is_string($output) ? \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeSerializedHtml($output) : null;
+        $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired, 'script_bindings' => is_string($output) ? $scriptBindings : null);
     }
 
@@ -492,7 +492,7 @@ final class CapturedDialogProjector
                 if (array() !== array_filter($triggers, fn(DOMElement $trigger): bool => $this->isCapturedNavigationOverlayTrigger($trigger))) continue;
                 // Sanitize the panel envelope, retaining its content wrapper:
                 // that wrapper can own a menu's hierarchy and presentation.
-                $html = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization((string) $document->saveHTML($panel));
+                $html = (string) $document->saveHTML($panel);
                 if (strlen($html) > self::MAX_DIALOG_BYTES) continue;
                 // A declared document scope owns its wired panel's ancestry,
                 // stylesheet selectors and runtime. Moving it outside that
@@ -735,7 +735,7 @@ final class CapturedDialogProjector
             $pageRetired = $this->retireRecognizedRuntime($document, CaptureEvidence::DISCLOSURE_RUNTIME, 'native_navigation_submenu_replaces_capture_disclosure');
             if (array() === $pageRetired) continue;
             $html = $document->saveHTML();
-            $html = is_string($html) ? \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeSerializedHtml($html) : null;
+            $html = is_string($html) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $html) : null;
             if (!is_string($html)) continue;
             $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $html);
             $scriptBindings->rebind($files, $path);

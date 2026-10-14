@@ -41,7 +41,7 @@ final class ListingFieldProjection
             $document = new DOMDocument();
             $document->loadHTML('<?xml encoding="UTF-8"><body>' . $markup . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
             $paragraph = $document->getElementsByTagName('p')->item(0);
-            foreach ($paragraph?->childNodes ?? array() as $child) $content .= \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization($document->saveHTML($child) ?: '');
+            foreach ($paragraph?->childNodes ?? array() as $child) $content .= $document->saveHTML($child);
         }
         return $content;
     }

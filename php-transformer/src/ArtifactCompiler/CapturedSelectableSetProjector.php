@@ -296,7 +296,7 @@ final class CapturedSelectableSetProjector
         }
 
         $output = $document->saveHTML();
-        $output = is_string($output) ? \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeSerializedHtml($output) : null;
+        $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
     }
 
@@ -527,7 +527,7 @@ final class CapturedSelectableSetProjector
             return $unchanged;
         }
         $label = $element instanceof DOMElement ? $this->labelFromTriggerElement($element) : '';
-        $html = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization($document->saveHTML($region) ?: '');
+        $html = $document->saveHTML($region);
         $html = is_string($html) ? $this->safeRegionHtml($html) : null;
         if ('' === $label || null === $html || '' === trim($html) || strlen($html) > self::MAX_REGION_BYTES) {
             return $unchanged;
@@ -1045,7 +1045,7 @@ final class CapturedSelectableSetProjector
         }
         $html = '';
         foreach ($wrapper->childNodes as $node) {
-            $html .= \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization($document->saveHTML($node) ?: '');
+            $html .= $document->saveHTML($node);
         }
 
         return is_string($html) ? $html : null;

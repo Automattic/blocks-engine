@@ -24,39 +24,6 @@ require __DIR__ . '/support/CaptureEvidenceEquivalence.php';
 
 ini_set('memory_limit', '2G');
 
-$serialization = Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::class;
-foreach (array('<?xml encoding="UTF-8"><html>' => '<html>', '<!--?xml encoding="UTF-8"--><html>' => '<html>', '<!--/xml encoding="UTF-8"--><html>' => '<html>') as $serialized => $canonical) {
-    if ($canonical !== $serialization::normalizeSerializedHtml($serialized)) {
-        fwrite(STDERR, "HTML encoding marker serialization regression.\n");
-        exit(1);
-    }
-}
-if ("<!DOCTYPE html>\n<?xml encoding=\"UTF-8\"><html>" !== $serialization::normalizeSerializedHtml("<!DOCTYPE html>\n<!--?xml encoding=\"UTF-8\"--><html>")) {
-    fwrite(STDERR, "HTML encoding marker after doctype regression.\n");
-    exit(1);
-}
-if ("<!DOCTYPE html>\n<?xml encoding=\"UTF-8\"><?xml encoding=\"UTF-8\"><html>" !== $serialization::normalizeSerializedHtml("<!DOCTYPE html>\n<!--?xml encoding=\"UTF-8\"--><!--/xml encoding=\"UTF-8\"--><html>")) {
-    fwrite(STDERR, "Repeated HTML encoding markers regression.\n");
-    exit(1);
-}
-$quoteVariants = array('<div data-state=\'{"open":true}\'></div>', '<div data-state="{&quot;open&quot;:true}"></div>');
-if ($quoteVariants[0] !== $serialization::canonicalizeAttributeQuotes($quoteVariants[1])) {
-    fwrite(STDERR, "HTML attribute quote canonicalization regression.\n");
-    exit(1);
-}
-if ('<source srcset="small.avif"></source><track kind="captions"></track><wbr></wbr>' !== $serialization::normalizeHtml5VoidSerialization('<source srcset="small.avif"><track kind="captions"><wbr>')) {
-    fwrite(STDERR, "HTML5 void-element serialization regression.\n");
-    exit(1);
-}
-if ('<ul><li><li></ul>' !== $serialization::normalizeEmptyListItemClosers('<ul><li></li><li></li></ul>')) {
-    fwrite(STDERR, "Empty list-item closing-tag normalization regression.\n");
-    exit(1);
-}
-if ('A &sup2;' !== $serialization::canonicalizeEntityOutput('A ²')) {
-    fwrite(STDERR, "Non-ASCII entity canonicalization regression.\n");
-    exit(1);
-}
-
 $expected = json_decode((string) file_get_contents(CaptureEvidenceEquivalence::EXPECTED), true);
 if ( ! is_array($expected) || CaptureEvidenceEquivalence::SCHEMA !== ($expected['schema'] ?? null) ) {
     fwrite(STDERR, "Capture-evidence equivalence expectations are unreadable.\n");
