@@ -92,6 +92,7 @@
       "InvalidArgumentException(\"Runtime declaration {$index} external metrics require a bounded non-empty entity list.\")": {"class": "integrity", "count": 1},
       "InvalidArgumentException(\"Runtime declaration {$index} form layout graph must be an object.\")": {"class": "integrity", "count": 1},
       "InvalidArgumentException(\"Runtime declaration {$index} form presentation graph must be an object.\")": {"class": "integrity", "count": 1},
+      "InvalidArgumentException(\"Runtime declaration {$index} form steps require an object and their layout graph.\")": {"class": "integrity", "count": 1},
       "InvalidArgumentException(\"Runtime declaration {$index} has a duplicate reconciliation identity.\")": {"class": "integrity", "count": 1},
       "InvalidArgumentException(\"Runtime declaration {$index} has an unsafe or contradictory identity.\")": {"class": "integrity", "count": 1},
       "InvalidArgumentException(\"Runtime declaration {$index} has an unsupported type or capability.\")": {"class": "integrity", "count": 1},
@@ -332,6 +333,12 @@
       "InvalidArgumentException('Form presentation visual part is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form presentation visual part source CSS is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form presentation visual part unknown CSS state is invalid.')": {"class": "integrity", "count": 1}
+    },
+    "src/HtmlToBlocks/Style/FormStepTrackDetector.php": {
+      "InvalidArgumentException('Form step track completion must be a container child of the track.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Form step track envelope is invalid.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Form step track navigation must be a form-level container beside the track.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Form step track steps must be distinct container children of the track.')": {"class": "integrity", "count": 1}
     },
     "src/StaticSite/FontMaterialization/FontMaterializationPlanBuilder.php": {
       "InvalidArgumentException('Font materialization plan CSS and stylesheet projection disagree.')": {"class": "integrity", "count": 1},
