@@ -161,6 +161,14 @@ replay by case:
   always declares `group_captions`. The corpus form has no captioned choice
   group, so it gains an empty list and the hashes derived from the forms
   payload change in `c4469897`.
+- **Authored-button save escaping** (#2092). The JavaScript save renderer now
+  encodes apostrophes as `&#039;`, matching the PHP generator's serialization.
+  This changes the generated companion script and derived output digests in
+  `06596271`, `0b294e2c`, `17d97f2c`, `1cfefbc9`, `23fdbeb0`, `28699fde`,
+  `2df01069`, `31dfd889`, `33ae736a`, `4b20435a`, `52210e3a`, `6ed86c41`,
+  `796065fd`, `9389ce06`, `9cb93b72`, `a73ce3b0`, `b550beb0`, `b913b3b4`,
+  `bda59bb9`, `c98ea038`, `dc249610`, `e40ee9dc`, `eaad29ef`, `f0e1a42c`,
+  `f5a111b5`, `fcc75319` and `feef8efc`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
