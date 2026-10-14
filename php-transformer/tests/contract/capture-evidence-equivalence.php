@@ -26,10 +26,19 @@ ini_set('memory_limit', '2G');
 
 $serialization = Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::class;
 foreach (array('<?xml encoding="UTF-8"><html>' => '<html>', '<!--?xml encoding="UTF-8"--><html>' => '<html>', '<!--/xml encoding="UTF-8"--><html>' => '<html>') as $serialized => $canonical) {
-    if ($canonical !== $serialization::removeEncodingMarker($serialized)) {
+    if ($canonical !== $serialization::normalizeSerializedHtml($serialized)) {
         fwrite(STDERR, "HTML encoding marker serialization regression.\n");
         exit(1);
     }
+}
+if ('<!DOCTYPE html>\n<html>' !== $serialization::normalizeSerializedHtml('<!DOCTYPE html>\n<!--?xml encoding="UTF-8"--><html>')) {
+    fwrite(STDERR, "HTML encoding marker after doctype regression.\n");
+    exit(1);
+}
+$quoteVariants = array('<div data-state=\'{"open":true}\'></div>', '<div data-state="{&quot;open&quot;:true}"></div>');
+if ($quoteVariants[0] !== $serialization::canonicalizeAttributeQuotes($quoteVariants[1])) {
+    fwrite(STDERR, "HTML attribute quote canonicalization regression.\n");
+    exit(1);
 }
 
 $expected = json_decode((string) file_get_contents(CaptureEvidenceEquivalence::EXPECTED), true);

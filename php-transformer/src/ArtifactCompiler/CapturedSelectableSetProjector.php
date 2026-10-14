@@ -296,7 +296,7 @@ final class CapturedSelectableSetProjector
         }
 
         $output = $document->saveHTML();
-        $output = is_string($output) ? \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::removeEncodingMarker($output) : null;
+        $output = is_string($output) ? \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeSerializedHtml($output) : null;
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
     }
 

@@ -265,7 +265,7 @@ final class CapturedDialogProjector
         }
 
         $output = $document->saveHTML();
-        $output = is_string($output) ? \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::removeEncodingMarker($output) : null;
+        $output = is_string($output) ? \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeSerializedHtml($output) : null;
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired, 'script_bindings' => is_string($output) ? $scriptBindings : null);
     }
 
@@ -735,7 +735,7 @@ final class CapturedDialogProjector
             $pageRetired = $this->retireRecognizedRuntime($document, CaptureEvidence::DISCLOSURE_RUNTIME, 'native_navigation_submenu_replaces_capture_disclosure');
             if (array() === $pageRetired) continue;
             $html = $document->saveHTML();
-            $html = is_string($html) ? \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::removeEncodingMarker($html) : null;
+            $html = is_string($html) ? \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeSerializedHtml($html) : null;
             if (!is_string($html)) continue;
             $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $html);
             $scriptBindings->rebind($files, $path);

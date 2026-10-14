@@ -96,7 +96,7 @@ final class CapturedCollectionProjector
                         $node->parentNode?->removeChild($node);
                     }
                 }
-                $html = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::removeEncodingMarker($document->saveHTML() ?: '');
+                $html = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeSerializedHtml($document->saveHTML() ?: '');
                 $files[$index]['content'] = $html;
                 $files[$index]['bytes'] = strlen($html);
             }
