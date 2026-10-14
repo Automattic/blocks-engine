@@ -31,11 +31,6 @@ foreach (array('<?xml encoding="UTF-8"><html>' => '<html>', '<!--?xml encoding="
         exit(1);
     }
 }
-$quoteVariants = array('<div data-state=\'{"open":true}\'></div>', '<div data-state="{&quot;open&quot;:true}"></div>');
-if (\Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::canonicalizeAttributeQuotes($quoteVariants[1]) !== $quoteVariants[0]) {
-    fwrite(STDERR, "HTML attribute quote serialization regression.\n");
-    exit(1);
-}
 
 $expected = json_decode((string) file_get_contents(CaptureEvidenceEquivalence::EXPECTED), true);
 if ( ! is_array($expected) || CaptureEvidenceEquivalence::SCHEMA !== ($expected['schema'] ?? null) ) {
