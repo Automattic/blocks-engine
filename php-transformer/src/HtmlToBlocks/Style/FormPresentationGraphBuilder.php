@@ -490,7 +490,8 @@ final class FormPresentationGraphBuilder
                     foreach (FormCustomPropertyResolver::conditionsChanging($fact['value'], $element, $customPropertyAnalysis['rules'], true) as $condition) $conditional[json_encode($condition)][$property] ??= $fact;
                 }
                 $carried = array();
-                $buttonCaption = 'control' === $role && 'button' === strtolower($control->tagName);
+                // A button, or the element painting a hidden native submit, carries its caption.
+                $buttonCaption = 'control' === $role && ( 'button' === strtolower($control->tagName) || ! FormControlClassifier::isControlElement($control) );
                 if ( 'label' === $role || $buttonCaption ) {
                     // The label's text is painted by its sole text carrier (a `<p>`
                     // or `<span>` inside it). Typography that carrier declares wins
@@ -891,8 +892,9 @@ final class FormPresentationGraphBuilder
         // One shared enumeration keeps presentation-graph indexes aligned with
         // reported controls. A raw tag walk counted aria-hidden honeypots the
         // control manifest omits, so layered author CSS on the submit button
-        // landed on an unmapped index and providers declined the form.
-        return FormControlClassifier::controlElements($form);
+        // landed on an unmapped index and providers declined the form. Each
+        // index describes the element that paints its control.
+        return FormControlClassifier::presentedControlElements($form);
     }
 
     /** @return list<DOMElement> */
