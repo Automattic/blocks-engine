@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
@@ -362,7 +363,11 @@ final class SourceBlockAttributeProjector
         if ( $facts->hasAuthorControlProjection ) {
             $controlMarker = '' !== $logicalControlPath ? $context->selectorProjections->ensureControlMarker($logicalControlPath) : '';
             if ( '' !== $controlMarker ) {
-                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $controlMarker);
+                $attrs['className'] = SourceDom::mergeClassNames(
+                    (string) ($attrs['className'] ?? ''),
+                    $controlMarker,
+                    EngineMarker::roleClass($controlMarker)
+                );
                 if ( 'core/button' === $name ) {
                     $this->generatedStyleProjector->registerNativeButtonStyleRule($controlMarker, $attrs, $context->generatedStyles, $nativeButtonTextAlignment, $logicalControl);
                     $blockColor = is_array($attrs['style']['color'] ?? null) ? $attrs['style']['color'] : array();

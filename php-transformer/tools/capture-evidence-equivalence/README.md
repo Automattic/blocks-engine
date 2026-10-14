@@ -92,6 +92,31 @@ replay by case:
   there share one header. Only the shared header's `shell_identity` and the
   plan identity hash change in `0a9c1bea`, `15082c2d`, `37284b0e`, `55b724ac`,
   `7c2d1217`, `927aa368`, `944dd63d`, `df9c24a8`, `e5ea5743`.
+- **Context-seeded markers and role classes** (#2755). Per-element markers
+  are named from the source element's context and the author CSS identity
+  instead of the document seed, source-tag markers from the tag and the author
+  CSS identity, control and semantic carriers also carry
+  `blocks-engine-role-control` / `blocks-engine-role-semantic`, and the
+  authored arm of a rewritten rule excludes those carriers through the role
+  class instead of enumerating their markers. With marker seeds and counters
+  normalized and the role classes removed, the outputs are identical except
+  for the changes listed next, and every compiled page resolves the same
+  styles for every element under its own stylesheet sequence. Affected:
+  `131e42da`, `17d97f2c`, `2448c3c2`, `26110ab3`, `2d8a075b`, `2df01069`,
+  `2f3ed5f6`, `33274f74`, `40391902`, `46f79246`, `52210e3a`, `5245a285`,
+  `5b9c65c4`, `6220283c`, `6a28853f`, `6b0e8e51`, `6f5ff150`, `789c11ea`,
+  `7a6a2673`, `7d6524b6`, `81a94623`, `84a0d815`, `8ccdc054`, `90234027`,
+  `9389ce06`, `bc142047`, `c57bc18c`, `c7fff215`, `c98ea038`, `ca523d76`,
+  `e2e35d0c`, `e747c76f`, `ed102407`, `f025cf28`, `f06e5d4a`, `f0e1a42c`.
+  - The exclusion arm itself reads `:not(:where(.blocks-engine-role-semantic))`
+    in `6b0e8e51`.
+  - Identical page-scoped stylesheets become one resource with every page's
+    scope and document instance in `2d8a075b`, `6220283c` and `7a6a2673`.
+  - Identical chrome compiled for two pages now carries identical markers, so
+    the reusable-component evidence retains its repeated occurrences in
+    `7d6524b6`.
+  - A truncated `source_fragment` excerpt cuts through a different marker
+    hash in `f0e1a42c`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
