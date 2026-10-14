@@ -1365,7 +1365,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * layout the host is core's flex row, and items the source stacked full
      * width shrink to their min-width instead. When neither the host nor its
      * list declares a display, the source list is a block box; the items prove
-     * the stack only when every one declares a block-level display. Floated
+     * the stack only when the cascade gives every one a block-level display
+     * (ranked by specificity: `.menu>ul li{display:block}` beats a later
+     * `.item{display:flex}`, as it does in the browser). Floated
      * block items still need flow: a flex row ignores the float that the
      * projected item rule carries. Without item evidence core's default stays.
      *
@@ -1375,8 +1377,8 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function withStackedBlockListLayout(array $attrs, DOMElement $host, ?DOMElement $list, ?NavigationPatternContext $navigationContext): array
     {
         if ( null === $navigationContext || ! $list instanceof DOMElement || is_array($attrs['layout'] ?? null)
-            || '' !== trim($navigationContext->resolvedDisplay($host))
-            || '' !== trim($navigationContext->resolvedDisplay($list))
+            || '' !== $navigationContext->cascadeDisplay($host)
+            || '' !== $navigationContext->cascadeDisplay($list)
         ) {
             return $attrs;
         }
@@ -1386,8 +1388,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
                 continue;
             }
-            $display = strtolower(trim($navigationContext->resolvedDisplay($child)));
-            if ( ! in_array($display, array( 'block', 'list-item', 'flow-root' ), true) ) {
+            if ( ! in_array($navigationContext->cascadeDisplay($child), array( 'block', 'list-item', 'flow-root' ), true) ) {
                 return $attrs;
             }
             ++$items;
