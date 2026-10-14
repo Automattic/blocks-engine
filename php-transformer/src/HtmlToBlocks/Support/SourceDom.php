@@ -705,7 +705,7 @@ final class SourceDom
         if ( $clone instanceof DOMElement ) {
             self::materializeFallbackProjectionMarkers($element, $clone, $tagMarkers, $pathMarkers);
             self::materializeMissingImageSources($clone);
-            return self::safeFallbackHtmlString(trim($clone->ownerDocument->saveHTML($clone) ?: ''));
+            return self::safeFallbackHtmlString(trim(HtmlSerialization::normalizeCurrentSerialization($clone->ownerDocument->saveHTML($clone) ?: '')));
         }
 
         return self::safeFallbackHtmlString(self::outerHtml($element));
