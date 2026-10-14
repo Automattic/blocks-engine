@@ -68,8 +68,6 @@ $assert('custom/responsive-media' === ($result['blocks'][0]['blockName'] ?? null
 $linkedImage = ( new HtmlTransformer() )->transform('<a href="/item"><img src="item.jpg" alt="Item 1"></a>')->toArray();
 $assert('core/image' === ($linkedImage['blocks'][0]['blockName'] ?? null) && '/item' === ($linkedImage['blocks'][0]['attrs']['href'] ?? null) && 'custom' === ($linkedImage['blocks'][0]['attrs']['linkDestination'] ?? null), 'a plain image-only link promotes to core/image with its native destination');
 foreach (array(
-    '<img src="small.jpg" srcset="small.jpg 480w, large.jpg 1920w" sizes="(min-width: 1000px) 570px, 100vw" width="1920" height="700" alt="Width">',
-    '<a href="/item"><img src="small.jpg" srcset="small.jpg 1x, retina.jpg 2x" width="40" height="20" alt="Density"></a>',
     '<figure><img src="fallback.jpg" srcset="first,w_320.jpg, second,w_640.jpg" alt="Descriptorless"><figcaption>Caption</figcaption></figure>',
 ) as $plainSource) {
     $plain = ( new HtmlTransformer() )->transform($plainSource)->toArray();
@@ -77,6 +75,14 @@ foreach (array(
     $assert($plainSource === ($plain['blocks'][0]['attrs']['content'] ?? null), 'selection, source URL identity and authored geometry survive together');
     $assert(array() === ($plain['fallbacks'] ?? array()), 'safe authored selection needs no HTML fallback');
 }
+$linkedDensity = ( new HtmlTransformer() )->transform('<a href="/item"><img src="small.jpg" srcset="small.jpg 1x, retina.jpg 2x" width="40" height="20" alt="Density"></a>')->toArray();
+$assert('core/image' === ($linkedDensity['blocks'][0]['blockName'] ?? null) && '/item' === ($linkedDensity['blocks'][0]['attrs']['href'] ?? null), 'a density family with known display width uses native core/image and retains its link');
+$widthFamily = ( new HtmlTransformer() )->transform('<img src="small.jpg" srcset="small.jpg 480w, large.jpg 1920w" sizes="(min-width: 1000px) 570px, 100vw" style="width:570px" alt="Width">')->toArray();
+$assert('core/image' === ($widthFamily['blocks'][0]['blockName'] ?? null) && 'small.jpg' === ($widthFamily['blocks'][0]['attrs']['url'] ?? null), 'a plain width-descriptor family with known CSS display width lowers through core/image using src');
+$widthWithoutSrc = ( new HtmlTransformer() )->transform('<img srcset="small.jpg 480w, large.jpg 1920w" sizes="100vw" style="width:1000px" alt="Width">')->toArray();
+$assert('core/image' === ($widthWithoutSrc['blocks'][0]['blockName'] ?? null) && 'large.jpg' === ($widthWithoutSrc['blocks'][0]['attrs']['url'] ?? null), 'a plain width-descriptor family without src materializes its largest candidate');
+$densityWithoutWidth = ( new HtmlTransformer() )->transform('<img src="small.jpg" srcset="small.jpg 1x, large.jpg 2x" alt="Density">')->toArray();
+$assert('custom/responsive-media' === ($densityWithoutWidth['blocks'][0]['blockName'] ?? null), 'an x-descriptor family without a display width remains responsive media');
 $unsafePlain = ( new HtmlTransformer() )->transform('<img src="safe.jpg" srcset="javascript:alert(1) 2x" alt="Unsafe">')->toArray();
 $assert(!str_contains((string) ($unsafePlain['serialized_blocks'] ?? ''), 'javascript:'), 'plain-img admission retains the existing unsafe-source policy');
 $responsivePair = ( new HtmlTransformer() )->transform('<div style="display:flex"><img src="small.jpg" srcset="small.jpg 480w, large.jpg 1920w" sizes="50vw"><div><p>Editable description</p></div></div>')->toArray();

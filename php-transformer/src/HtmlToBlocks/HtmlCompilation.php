@@ -9786,11 +9786,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $picture instanceof DOMElement && $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
-        // Core's image save contract has no srcset/sizes attributes. Its
-        // attachment-generated candidates cannot reproduce an authored family
-        // (including density-corrected intrinsic sizing). Keep the same bounded
-        // media carrier used for picture selection, before choosing a fallback.
-        if ( ! $nativeImage && $this->sourceElementClassifier->hasResponsiveImageSources($image) ) {
+        // Outside <picture>, HTML defines a w-descriptor srcset as one image at
+        // several resolutions, so core/image may regenerate candidates from its
+        // attachment. Preserve x families (whose rendered width depends on
+        // density without a known display width) and other non-lowerable sources.
+        $hasDisplayWidth = fn (): bool => '' !== $this->imageDimensions()->imageDisplayDimension($image, 'width');
+        if ( ! $nativeImage && $this->sourceElementClassifier->requiresResponsiveImageCarrier($image, $hasDisplayWidth) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
 
@@ -10086,6 +10087,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $src = $this->safeImageUrl($this->attr($image, 'src'));
         if ( '' !== $src && ! str_starts_with(strtolower($src), 'data:') ) {
             return $src;
+        }
+
+        if ( '' === $src ) {
+            $largest = '';
+            $largestWidth = -1;
+            foreach ( SrcsetParser::parse($this->attr($image, 'srcset')) as $candidate ) {
+                if ( 1 !== preg_match('/^(\d+)w$/', $candidate['descriptor'], $matches) || (int) $matches[1] <= $largestWidth ) {
+                    continue;
+                }
+                $url = $this->safeImageUrl($candidate['url']);
+                if ( '' !== $url ) {
+                    $largest = $url;
+                    $largestWidth = (int) $matches[1];
+                }
+            }
+            if ( '' !== $largest ) {
+                return $largest;
+            }
         }
 
         foreach ( array( 'data-src', 'data-lazy-src', 'data-original', 'data-image-src' ) as $attribute ) {
