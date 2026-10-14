@@ -205,6 +205,28 @@ final class CssValueInspector
     }
 
     /**
+     * Whether a declaration set moves its box out of sight: an absolutely
+     * positioned box shifted by a negative `left` or `top` offset of at least
+     * 999px, the same off-screen threshold `hidesText()` applies to
+     * `text-indent`.
+     *
+     * @param array<string, string> $declarations
+     */
+    public static function isMovedOffscreenBox(array $declarations): bool
+    {
+        if ( ! in_array(self::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        foreach ( array( 'left', 'top' ) as $property ) {
+            if ( 1 === preg_match('/^-(\d+(?:\.\d+)?)(?:px)?$/D', self::comparable((string) ($declarations[$property] ?? '')), $match) && (float) $match[1] >= 999 ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Whether a declaration set clips its box out of sight: the screen-reader
      * text pattern (an absolutely positioned box of at most 1px, overflow
      * hidden, clipped by `clip`/`clip-path`) or a zero-size overflow-hidden box.

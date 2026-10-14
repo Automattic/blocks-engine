@@ -445,8 +445,9 @@ final class FormLayoutGraphBuilder
     {
         // One shared enumeration keeps `control-N` graph ids aligned with the
         // reported controls, and keeps non-authored controls (and the wrappers
-        // that exist only to hide them) out of the projected layout.
-        return FormControlClassifier::controlElements($form);
+        // that exist only to hide them) out of the projected layout. Each id
+        // describes the box that paints its control.
+        return FormControlClassifier::presentedControlElements($form);
     }
 
     /**
