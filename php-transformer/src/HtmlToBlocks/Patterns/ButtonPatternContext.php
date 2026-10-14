@@ -152,6 +152,7 @@ final class ButtonPatternContext
 
     public function accessibleNameCompanion(DOMElement $anchor, string $content): PatternRecognitionResult
     {
+        $this->session?->authorSelectorProjectionState()->markRetainedSourcePath($anchor->getNodePath() ?? '');
         $registry = $this->session?->generatedBlockRegistry()
             ?? throw new \LogicException('Generated block registry has not been prepared for this transform.');
         $generator = new AccessibleLinkBlockGenerator();

@@ -61,6 +61,15 @@ $assert(
     '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-#-0):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons){width:100%!important}:where(.blocks-engine-control-#-0):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons)>:where(.wp-block-button){width:100%!important}:where(.blocks-engine-control-#-0):not(.blocks-engine-specificity-class-site-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link){width:100%!important;max-width:100%!important}:where(.blocks-engine-control-#-0):not(.blocks-engine-specificity-class-site-0)>:where(.wp-block-button__link){display:inline-flex!important;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
     'G2: author-css contains only its leading at-rule preamble and rewritten author stylesheet'
 );
+$mixedAccessibleButton = ( new HtmlTransformer() )->transform(
+    '<style>.scope .btn{background:#1b293e;padding:9px 20px}</style>'
+        . '<div class="scope"><button class="btn">Native</button><a class="btn" href="mailto:a@example.test" target="_blank" aria-label="Email (opens in new tab)">Email</a></div>'
+)->toArray();
+$mixedAccessibleButtonCss = $cssFor($mixedAccessibleButton, 'author-css');
+$assert(
+    1 === preg_match('/\.scope \.btn:not\(:where\(\.blocks-engine-control-[^)]+\)\)[^{}]*\{[^}]*background:#1b293e/', $mixedAccessibleButtonCss),
+    'a lowered accessible link keeps authored paint through the retained source selector in a mixed native-control set'
+);
 $assert('author' === ($authorAssets[0]['stylesheet_placement'] ?? ''), 'G4: author-css record declares author placement');
 
 $geometry = ( new HtmlTransformer() )->transform(
