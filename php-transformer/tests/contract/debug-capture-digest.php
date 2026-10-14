@@ -9,9 +9,10 @@ foreach (CaptureEvidenceEquivalence::corpus() as $case) {
     if ($case['id'] !== $id) continue;
     $case['args'] = CaptureEvidenceEquivalence::renameValue($case['args']);
     $normalized = CaptureEvidenceEquivalence::normalized(CaptureEvidenceEquivalence::replay($case), $root);
-    $flatten = static function (mixed $value, string $path = '$', array &$leaves = array()) use (&$flatten): array {
+    $values = array();
+    $flatten = static function (mixed $value, string $path = '$', array &$leaves = array()) use (&$flatten, &$values): array {
         if (is_array($value)) { foreach ($value as $key => $item) $flatten($item, $path . '[' . $key . ']', $leaves); }
-        else $leaves[$path] = hash('sha256', serialize($value));
+        else { $leaves[$path] = hash('sha256', serialize($value)); $values[$path] = $value; }
         return $leaves;
     };
     $current = $flatten($normalized['result']['source_reports']['html'] ?? array(), 'html');
@@ -23,7 +24,11 @@ foreach (CaptureEvidenceEquivalence::corpus() as $case) {
     }
     $baseline = json_decode((string) file_get_contents($baselinePath), true, 512, JSON_THROW_ON_ERROR);
     foreach (array_unique(array_merge(array_keys($baseline), array_keys($current))) as $path) {
-        if (($baseline[$path] ?? null) !== ($current[$path] ?? null)) echo $path, ' ', ($baseline[$path] ?? '<missing>'), ' -> ', ($current[$path] ?? '<missing>'), "\n";
+        if (($baseline[$path] ?? null) !== ($current[$path] ?? null)) {
+            echo $path, ' ', ($baseline[$path] ?? '<missing>'), ' -> ', ($current[$path] ?? '<missing>');
+            if (str_ends_with($path, '[source_fragment]')) echo ' ', json_encode($values[$path] ?? null, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            echo "\n";
+        }
     }
     exit;
 }
