@@ -45,6 +45,17 @@ final class FormPresentationGraphBuilder
         'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
         'padding-block', 'padding-inline', 'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end',
     );
+    /** The text properties a visible group caption reports; a legend needs typography, not the wrapper's box. */
+    private const GROUP_CAPTION_PROPERTIES = array(
+        'color', 'font', 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight',
+        'letter-spacing', 'line-height', 'text-align', 'text-transform',
+    );
+    /** ARIA roles that make a non-fieldset wrapper a named group of controls, as in FormControlTopologyBuilder. */
+    private const GROUP_ROLES = array( 'radiogroup', 'group' );
+    /** Bounded caption resolution: a caption search walks at most 8 previous siblings per scope. */
+    private const MAX_CAPTION_SIBLINGS = 8;
+    /** Caption search may check the group and ancestors up to 3 wrapper levels above it before it gives up. */
+    private const MAX_CAPTION_ANCESTORS = 3;
     /** How far a text-carrier search may walk before the search, not the cascade, gives up. */
     private const MAX_CARRIER_CANDIDATES = 256;
     private const CONTROL_CONTAINER_PROPERTIES = array(
@@ -446,7 +457,8 @@ final class FormPresentationGraphBuilder
         $this->diagnostics = array();
         $this->truncated = false;
         $this->unrepresentable = array();
-        $controlsForCustomProperties = $this->presentationElements($form);
+        $groupCaptions = $this->captionElements($form);
+        $controlsForCustomProperties = array_merge($this->presentationElements($form), $groupCaptions['elements']);
         $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH, self::cascadeFilter($controlsForCustomProperties), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
@@ -607,13 +619,28 @@ final class FormPresentationGraphBuilder
             }
         }
 
+        $captures = array();
+        $seenCaptionIndexes = array();
+        foreach ( $groupCaptions['captions'] as $captionCandidates ) {
+            if ( count($captures) >= self::MAX_CONTROLS ) {
+                $this->truncated = true;
+                $this->diagnostics[] = 'group_caption_limit';
+                break;
+            }
+            $captionRow = $this->captionRow($captionCandidates, $groupCaptions['index_by_path'], $analysis['rules'], $customPropertyAnalysis['rules']);
+            if ( null !== $captionRow && ! isset($seenCaptionIndexes[$captionRow['index']]) ) {
+                $seenCaptionIndexes[$captionRow['index']] = true;
+                $captures[] = $captionRow;
+            }
+        }
+
         $diagnostics = array_values(array_unique($this->diagnostics));
         // Unsupported selectors can fill the diagnostic budget before the
         // actual bound that made this graph unsafe to publish. Keep that cause
         // visible so a dropped provider presentation graph is actionable.
         $bounds = array_values(array_filter($diagnostics, static fn (string $diagnostic): bool => str_ends_with($diagnostic, '_limit') || str_contains($diagnostic, '_truncated:')));
         $graph = array(
-            'schema' => array() === $visualParts && ! $hasRequiredMarker && array() === $controlContainers ? 'generic/computed-form-presentation/v1' : 'generic/computed-form-presentation/v2',
+            'schema' => array() === $visualParts && ! $hasRequiredMarker && array() === $controlContainers && array() === $captures ? 'generic/computed-form-presentation/v1' : 'generic/computed-form-presentation/v2',
             'basis' => 'source_css_cascade',
             'truncated' => $this->truncated,
             'limits' => array( 'controls' => self::MAX_CONTROLS, 'rules_per_role' => self::MAX_RULES_PER_ROLE ),
@@ -625,6 +652,7 @@ final class FormPresentationGraphBuilder
             $graph['visual_parts'] = $visualParts;
             $graph['visual_groups'] = $visualGroups;
             $graph['control_containers'] = $controlContainers;
+            $graph['group_captions'] = $captures;
         }
         self::assertValid($graph);
         return $graph;
@@ -636,8 +664,8 @@ final class FormPresentationGraphBuilder
         $version = $graph['schema'] ?? null;
         $v1 = 'generic/computed-form-presentation/v1' === $version;
         $v2 = 'generic/computed-form-presentation/v2' === $version;
-        $expectedKeys = $v2 ? array( 'schema', 'basis', 'truncated', 'limits', 'controls', 'visual_parts', 'visual_groups', 'control_containers', 'variants', 'diagnostics' ) : array( 'schema', 'basis', 'truncated', 'limits', 'controls', 'variants', 'diagnostics' );
-        if ( (! $v1 && ! $v2) || 'source_css_cascade' !== ($graph['basis'] ?? null) || ! is_bool($graph['truncated'] ?? null) || ! is_array($graph['limits'] ?? null) || array_diff(array_keys($graph['limits']), array( 'controls', 'rules_per_role' )) || self::MAX_CONTROLS !== ($graph['limits']['controls'] ?? null) || self::MAX_RULES_PER_ROLE !== ($graph['limits']['rules_per_role'] ?? null) || ! is_array($graph['controls'] ?? null) || ! array_is_list($graph['controls']) || count($graph['controls']) > self::MAX_CONTROLS || ($v2 && (! is_array($graph['visual_parts'] ?? null) || ! array_is_list($graph['visual_parts']) || count($graph['visual_parts']) > self::MAX_VISUAL_PARTS || ! is_array($graph['visual_groups'] ?? null) || ! array_is_list($graph['visual_groups']) || count($graph['visual_groups']) > self::MAX_VISUAL_PARTS || ! is_array($graph['control_containers'] ?? null) || ! array_is_list($graph['control_containers']) || count($graph['control_containers']) > self::MAX_CONTROLS)) || ! is_array($graph['variants'] ?? null) || ! array_is_list($graph['variants']) || count($graph['variants']) > self::MAX_VARIANTS || ! is_array($graph['diagnostics'] ?? null) || ! array_is_list($graph['diagnostics']) || count($graph['diagnostics']) > self::MAX_DIAGNOSTICS || array_filter($graph['diagnostics'], static fn (mixed $diagnostic): bool => ! is_string($diagnostic) || '' === trim($diagnostic) || strlen($diagnostic) > 1100) || array_diff(array_keys($graph), $expectedKeys) ) {
+        $expectedKeys = $v2 ? array( 'schema', 'basis', 'truncated', 'limits', 'controls', 'visual_parts', 'visual_groups', 'control_containers', 'group_captions', 'variants', 'diagnostics' ) : array( 'schema', 'basis', 'truncated', 'limits', 'controls', 'variants', 'diagnostics' );
+        if ( (! $v1 && ! $v2) || 'source_css_cascade' !== ($graph['basis'] ?? null) || ! is_bool($graph['truncated'] ?? null) || ! is_array($graph['limits'] ?? null) || array_diff(array_keys($graph['limits']), array( 'controls', 'rules_per_role' )) || self::MAX_CONTROLS !== ($graph['limits']['controls'] ?? null) || self::MAX_RULES_PER_ROLE !== ($graph['limits']['rules_per_role'] ?? null) || ! is_array($graph['controls'] ?? null) || ! array_is_list($graph['controls']) || count($graph['controls']) > self::MAX_CONTROLS || ($v2 && (! is_array($graph['visual_parts'] ?? null) || ! array_is_list($graph['visual_parts']) || count($graph['visual_parts']) > self::MAX_VISUAL_PARTS || ! is_array($graph['visual_groups'] ?? null) || ! array_is_list($graph['visual_groups']) || count($graph['visual_groups']) > self::MAX_VISUAL_PARTS || ! is_array($graph['control_containers'] ?? null) || ! array_is_list($graph['control_containers']) || count($graph['control_containers']) > self::MAX_CONTROLS || ! is_array($graph['group_captions'] ?? null) || ! array_is_list($graph['group_captions']) || count($graph['group_captions']) > self::MAX_CONTROLS)) || ! is_array($graph['variants'] ?? null) || ! array_is_list($graph['variants']) || count($graph['variants']) > self::MAX_VARIANTS || ! is_array($graph['diagnostics'] ?? null) || ! array_is_list($graph['diagnostics']) || count($graph['diagnostics']) > self::MAX_DIAGNOSTICS || array_filter($graph['diagnostics'], static fn (mixed $diagnostic): bool => ! is_string($diagnostic) || '' === trim($diagnostic) || strlen($diagnostic) > 1100) || array_diff(array_keys($graph), $expectedKeys) ) {
             throw new InvalidArgumentException('Form presentation graph envelope is invalid.');
         }
         $containerIndexes = array();
@@ -645,6 +673,12 @@ final class FormPresentationGraphBuilder
             if ( ! is_array($container) || array_diff(array_keys($container), array( 'index', 'source_selector', 'styles', 'provenance' )) || ! is_int($container['index'] ?? null) || $container['index'] < 0 || $container['index'] >= self::MAX_CONTROLS || isset($containerIndexes[$container['index']]) || ! is_string($container['source_selector'] ?? null) || '' === trim($container['source_selector']) || strlen($container['source_selector']) > 2048 || ! is_array($container['styles'] ?? null) || array_diff(array_keys($container['styles']), array_map(self::key(...), self::CONTROL_CONTAINER_PROPERTIES)) || ! is_array($container['provenance'] ?? null) ) throw new InvalidArgumentException('Form presentation control container is invalid.');
             self::assertStyles($container['styles']); self::assertProvenance($container['provenance'], $container['styles'], null);
             $containerIndexes[$container['index']] = array() !== $container['styles'];
+        }
+        $captionIndexes = array();
+        foreach ( $v2 ? $graph['group_captions'] : array() as $caption ) {
+            if ( ! is_array($caption) || array_diff(array_keys($caption), array( 'index', 'styles', 'provenance' )) || ! is_int($caption['index'] ?? null) || $caption['index'] < 0 || $caption['index'] >= self::MAX_CONTROLS || isset($captionIndexes[$caption['index']]) || ! is_array($caption['styles'] ?? null) || array() === $caption['styles'] || array_diff(array_keys($caption['styles']), array_map(self::key(...), self::GROUP_CAPTION_PROPERTIES)) || ! is_array($caption['provenance'] ?? null) ) throw new InvalidArgumentException('Form presentation group caption is invalid.');
+            self::assertStyles($caption['styles']); self::assertProvenance($caption['provenance'], $caption['styles'], null);
+            $captionIndexes[$caption['index']] = true;
         }
         $seen = array();
         foreach ( $graph['controls'] as $row ) {
@@ -863,6 +897,158 @@ final class FormPresentationGraphBuilder
         $paint = $painted[0];
         $container = array( 'index' => $index, 'source_selector' => SourceDom::elementSelector($paint['element']), 'styles' => $paint['styles'], 'provenance' => $this->provenance($paint['facts'], null) );
         return array( 'container' => $container, 'variants' => $paint['variants'] );
+    }
+
+    /**
+     * Every ARIA choice group wrapper in the form that has a visible caption
+     * element, with the flat controls each group needs for its caption row.
+     *
+     * Caption discovery is structural: an aria-labelledby target inside the
+     * form that is static copy, else the nearest preceding sibling of the group
+     * or of up to three of its ancestors whose text matches the group's
+     * aria-label and which holds no form controls. No caption means no fact.
+     *
+     * @param DOMElement $form @return array{captions: list<array{group: DOMElement, caption: DOMElement}>, elements: list<DOMElement>, index_by_path: array<string, int>}
+     */
+    private function captionElements(DOMElement $form): array
+    {
+        $controlIndexes = array();
+        foreach ( $this->controls($form) as $index => $control ) {
+            $controlIndexes[$control->getNodePath()] = $index;
+        }
+        $captions = array();
+        $elements = array();
+        $claimed = array();
+        foreach ( $form->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement ) continue;
+            if ( ! in_array(strtolower(trim($element->getAttribute('role'))), self::GROUP_ROLES, true) ) continue;
+            if ( FormControlClassifier::isControlElement($element) || $this->inertAncestor($element, $form) ) continue;
+            $caption = $this->captionElement($element, $form);
+            if ( null === $caption || isset($claimed[$caption->getNodePath()]) ) continue;
+            $claimed[$caption->getNodePath()] = true;
+            $captions[] = array( 'group' => $element, 'caption' => $caption );
+            $elements[] = $caption;
+        }
+        return array( 'captions' => $captions, 'elements' => $elements, 'index_by_path' => $controlIndexes );
+    }
+
+    /**
+     * One caption row: the flat index of the group's first native radio or
+     * checkbox input member, with the caption's own resolved typography plus
+     * the same text-carrier typography the label role reads, so the element a
+     * source paints the caption text on wins property by property.
+     *
+     * Base-only: conditional caption facts are not reported.
+     *
+     * @param list<array<string, mixed>> $rules @param list<array<string, mixed>> $customPropertyRules
+     * @param array<string, int> $controlIndexes
+     * @return array{index:int,styles:array<string,string>,provenance:list<array<string,mixed>>}|null
+     */
+    private function captionRow(array $candidates, array $controlIndexes, array $rules, array $customPropertyRules): ?array
+    {
+        $properties = array_flip(self::GROUP_CAPTION_PROPERTIES);
+        $caption = $candidates['caption'];
+        $firstIndex = $this->firstChoiceIndex($candidates['group'], $controlIndexes);
+        if ( ! is_int($firstIndex) || $firstIndex < 0 || $firstIndex >= self::MAX_CONTROLS ) return null;
+        $matched = $this->matched($caption, $rules);
+        $base = array_intersect_key($matched['base'], $properties);
+        $styles = $this->styles($base, $caption, null, $customPropertyRules, true);
+        $provenance = $this->provenance($base, null);
+        $carried = $this->carrierTypography(array(), $caption, $rules, $customPropertyRules);
+        if ( array() !== $carried ) {
+            $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
+            foreach ( $provenance as $factIndex => $fact ) {
+                $fact['properties'] = array_values(array_diff($fact['properties'], $overridden));
+                if ( array() === $fact['properties'] ) {
+                    unset($provenance[$factIndex]);
+                } else {
+                    $provenance[$factIndex] = $fact;
+                }
+            }
+            $provenance = array_values($provenance);
+            $styles = array_merge($styles, $carried['styles']);
+            ksort($styles);
+            $provenance = array_merge($provenance, $carried['provenance']);
+            if ( count($provenance) > self::MAX_PROVENANCE ) {
+                $provenance = array_slice($provenance, 0, self::MAX_PROVENANCE);
+                $this->truncated = true;
+                $this->diagnostics[] = 'provenance_limit';
+            }
+        }
+        if ( array() === $styles ) return null;
+
+        return array( 'index' => $firstIndex, 'styles' => $styles, 'provenance' => $provenance );
+    }
+
+    /**
+     * A wrapper with an ARIA group role is a named group of controls in a
+     * fieldset-like sense. Its caption travels with the group in the control
+     * topology, but nobody reported the visible caption's own typography, so a
+     * rendered legend keeps provider defaults. The caption element is the
+     * visible element the source paints that text on: the first aria-labelledby
+     * target inside the form, else the nearest preceding sibling of the group
+     * or of an ancestor up to three wrapper levels whose normalized text is the
+     * group's aria-label. Only static copy qualifies: a candidate holding form
+     * controls is a field host, not a caption.
+     */
+    private function captionElement(DOMElement $group, DOMElement $form): ?DOMElement
+    {
+        $document = $group->ownerDocument;
+        foreach ( preg_split('/\s+/', trim($group->getAttribute('aria-labelledby'))) ?: array() as $id ) {
+            $target = '' !== $id && $document instanceof DOMDocument ? $document->getElementById($id) : null;
+            if ( ! $target instanceof DOMElement || $target->isSameNode($group) ) continue;
+            if ( FormControlClassifier::isControlElement($target) || array() !== FormControlClassifier::controlElements($target) ) continue;
+            if ( ! $this->withinForm($form, $target) || '' === self::normalizedText($target) ) continue;
+            return $target;
+        }
+        $name = preg_replace('/\s+/', ' ', trim($group->getAttribute('aria-label')));
+        if ( ! is_string($name) || '' === $name ) return null;
+        for ( $scope = $group, $level = 0; $scope instanceof DOMElement && $level <= self::MAX_CAPTION_ANCESTORS && ! $scope->isSameNode($form); ++$level, $scope = $scope->parentNode instanceof DOMElement ? $scope->parentNode : null ) {
+            for ( $sibling = $scope->previousElementSibling, $visited = 0; $sibling instanceof DOMElement && $visited < self::MAX_CAPTION_SIBLINGS; ++$visited, $sibling = $sibling->previousElementSibling ) {
+                if ( FormControlClassifier::isControlElement($sibling) || array() !== FormControlClassifier::controlElements($sibling) ) continue;
+                if ( self::normalizedText($sibling) === $name ) return $sibling;
+            }
+        }
+        return null;
+    }
+
+    /** @param array<string, int> $controlIndexes */
+    private function firstChoiceIndex(DOMElement $group, array $controlIndexes): ?int
+    {
+        foreach ( $group->getElementsByTagName('input') as $input ) {
+            if ( ! $input instanceof DOMElement || 'input' !== strtolower($input->tagName) ) continue;
+            $type = FormControlClassifier::controlType($input);
+            if ( ! in_array($type, array( 'radio', 'checkbox' ), true) ) continue;
+            $index = $controlIndexes[$input->getNodePath()] ?? null;
+            if ( null !== $index ) return $index;
+        }
+        return null;
+    }
+
+    private static function normalizedText(DOMElement $element): string
+    {
+        $text = preg_replace('/\s+/', ' ', $element->textContent ?? '');
+
+        return is_string($text) ? trim($text) : '';
+    }
+
+    /** @return bool Whether $element is a straggler of the form subtree, or genuinely outside it. */
+    private function withinForm(DOMElement $form, DOMElement $element): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode instanceof DOMElement ? $parent->parentNode : null ) {
+            if ( $parent->isSameNode($form) ) return true;
+        }
+
+        return false;
+    }
+
+    private function inertAncestor(DOMElement $element, DOMElement $form): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement && ! $parent->isSameNode($form); $parent = $parent->parentNode instanceof DOMElement ? $parent->parentNode : null ) {
+            if ( in_array(strtolower($parent->tagName), array( 'template', 'script', 'style', 'noscript' ), true) ) return true;
+        }
+
+        return false;
     }
 
     /** A container paint requires a visible fill or border, not radius or neutral resets alone. */

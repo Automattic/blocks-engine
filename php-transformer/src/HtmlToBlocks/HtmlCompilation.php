@@ -1482,7 +1482,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return new DisclosureControlPresentation(
             $this->styleResolver,
             $this->generatedSupportStyles(),
-            fn (DOMElement $element): string => $this->svgMaterializer->ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
+            fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
         );
     }
 
