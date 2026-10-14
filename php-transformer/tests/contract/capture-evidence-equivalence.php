@@ -31,7 +31,7 @@ foreach (array('<?xml encoding="UTF-8"><html>' => '<html>', '<!--?xml encoding="
         exit(1);
     }
 }
-if ('<!DOCTYPE html>\n<html>' !== $serialization::normalizeSerializedHtml('<!DOCTYPE html>\n<!--?xml encoding="UTF-8"--><html>')) {
+if ("<!DOCTYPE html>\n<?xml encoding=\"UTF-8\"><html>" !== $serialization::normalizeSerializedHtml("<!DOCTYPE html>\n<!--?xml encoding=\"UTF-8\"--><html>")) {
     fwrite(STDERR, "HTML encoding marker after doctype regression.\n");
     exit(1);
 }

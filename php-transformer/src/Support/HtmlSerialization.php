@@ -9,7 +9,7 @@ final class HtmlSerialization
     public static function normalizeSerializedHtml(string $html): string
     {
         $html = preg_replace('/^(?:<\?xml encoding="UTF-8" ?\??>|<!--[?\/]xml encoding="UTF-8" ?-->)/i', '', $html) ?? $html;
-        $html = preg_replace('/<!--[?\/]xml encoding="UTF-8" ?-->/', '', $html) ?? $html;
+        $html = preg_replace_callback('/(^|\n)<!--[?\/]xml encoding="UTF-8" ?-->/', static fn (array $marker): string => '' === $marker[1] ? '' : $marker[1] . '<?xml encoding="UTF-8">', $html) ?? $html;
         if (defined('LIBXML_VERSION') && LIBXML_VERSION >= 21400) $html = self::canonicalizeAttributeQuotes($html);
         return $html;
     }
