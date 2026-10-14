@@ -66,8 +66,14 @@ $mixedAccessibleButton = ( new HtmlTransformer() )->transform(
         . '<div class="scope"><button class="btn">Native</button><a class="btn" href="mailto:a@example.test" target="_blank" aria-label="Email (opens in new tab)">Email</a></div>'
 )->toArray();
 $mixedAccessibleButtonCss = $cssFor($mixedAccessibleButton, 'author-css');
+// The retained source selector excludes the native controls by a class the
+// lowered link does not carry, so the link keeps the authored paint.
+$retainedExclusion = 1 === preg_match('/\.scope \.btn:not\(:where\(\.(blocks-engine-[a-z0-9-]+)\)\)[^{}]*\{[^}]*background:#1b293e/', $mixedAccessibleButtonCss, $retainedMatch) ? $retainedMatch[1] : '';
+$accessibleLinkClasses = 1 === preg_match('/<!-- wp:custom\/accessible-link (\{.*?\}) -->/', (string) ($mixedAccessibleButton['serialized_blocks'] ?? ''), $linkMatch)
+    ? (string) (json_decode($linkMatch[1], true)['className'] ?? '')
+    : '';
 $assert(
-    1 === preg_match('/\.scope \.btn:not\(:where\(\.blocks-engine-control-[^)]+\)\)[^{}]*\{[^}]*background:#1b293e/', $mixedAccessibleButtonCss),
+    '' !== $retainedExclusion && str_contains(' ' . $accessibleLinkClasses . ' ', ' btn ') && ! str_contains(' ' . $accessibleLinkClasses . ' ', ' ' . $retainedExclusion . ' '),
     'a lowered accessible link keeps authored paint through the retained source selector in a mixed native-control set'
 );
 $assert('author' === ($authorAssets[0]['stylesheet_placement'] ?? ''), 'G4: author-css record declares author placement');
