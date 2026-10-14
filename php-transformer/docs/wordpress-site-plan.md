@@ -152,6 +152,15 @@ value. This distinguishes duplicate post slugs and materialized page slugs that
 diverge from the planned route (WordPress reserves numeric hierarchical slugs)
 without assigning page ancestry or depending on a permalink structure.
 
+A page-scoped stylesheet asset can list several page `scopes` (and document
+`stylesheet_instances` for each of them). Page-scoped stylesheets with identical
+bytes and delivery contract (media, target, placement, parent stylesheet,
+directory) are published as one asset when that leaves every page's enqueue
+order unchanged: a page's slice of a shared stylesheet, its compatibility
+replay or its editor state is then one file for all the pages that produce it,
+instead of one copy per page. Consumers must enqueue such an asset for each
+scope, as they already do for an asset scoped by the pages that link it.
+
 Meta rows preserve `charset`, `name`, `property`, `http_equiv`, and `content`. Link rows preserve `rel`, `type`, `media`, `integrity`, `crossorigin`, `referrerpolicy`, `as`, `fetchpriority`, and `sizes`. Script rows preserve `type`, `integrity`, `crossorigin`, `referrerpolicy`, and `fetchpriority`, plus independent booleans for `async`, `defer`, `module`, and `nomodule`. Explicitly present empty values are retained as `''` so consumers can distinguish them from absent attributes, except `crossorigin`: its empty or boolean HTML state is normalized to `anonymous`, matching browser CORS semantics. `effective_loading` records browser loading semantics: `async` wins over `defer`; non-async module scripts are `defer`; other scripts are `blocking`. Inline scripts carry `source_kind: inline` and `body_hash`, not their source body.
 
 URL-bearing link and external-script declarations contain either an explicit absolute or protocol-relative `url`, or an `asset_reference` token. Local artifact URLs must use `asset_reference`; undeclared local URLs are invalid. Resolver output adds `resolved_url` for each `asset_reference`. That URL is exactly the URL of a declared resolved theme-asset write. Explicit external URLs remain unchanged.

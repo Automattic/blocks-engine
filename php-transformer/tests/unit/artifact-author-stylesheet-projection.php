@@ -554,7 +554,19 @@ $multiPageAssetPaths = array_column($multiPage['assets'] ?? array(), 'path');
 $multiPageWordPressAssets = $multiPage['source_reports']['wordpress_site_plan']['assets'] ?? array();
 $assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', $multiPageAssetPaths[0] ?? '') && 'shared.css' === ($multiPageAssetPaths[1] ?? '') && 'shared' === ($multiPageSupportAssets[0]['compilation']['scope'] ?? '') && 'global' === ($multiPageWordPressAssets[0]['scopes'][0]['kind'] ?? ''), 'identical multi-page support is ordered before author CSS and promoted to global scope');
 $multiPageAboutCss = $multiPage['assets'][2] ?? array();
-$assert(1 === preg_match('#^shared\.page-[a-f0-9]{12}\.css$#', (string) ($multiPageAboutCss['path'] ?? '')) && array( 'scope' => 'page', 'id' => 'about.html' ) === ($multiPageAboutCss['compilation'] ?? null) && 'page' === ($multiPageWordPressAssets[2]['scopes'][0]['kind'] ?? '') && ! str_contains((string) ($multiPage['assets'][1]['content'] ?? ''), (string) preg_replace('/^.*?(blocks-engine-richtext-[a-f0-9]{12})-.*$/s', '$1', (string) ($multiPageAboutCss['content'] ?? ''))), 'a page\'s own projection of a shared stylesheet is page-scoped, loads after it, and stays out of the site-wide copy');
+// Stable per-path markers make every page's projection byte-identical, so the
+// two consuming pages land in one shared asset with both pages in scope
+// instead of one page-scoped copy consuming the site-wide projection.
+$multiPagePlanSharedScopes = array();
+foreach ($multiPageWordPressAssets as $planAsset) {
+    if ('shared.css' === ($planAsset['source_path'] ?? '')) {
+        $multiPagePlanSharedScopes = $planAsset['scopes'] ?? array();
+        break;
+    }
+}
+$multiPageScopeSources = array_map(static fn (array $scope): string => (string) ($scope['source_path'] ?? ''), $multiPagePlanSharedScopes);
+$multiPageHasPageCopy = array() !== array_map(static fn (array $asset): string => (string) $asset['path'], array_values(array_filter($multiPage['assets'] ?? array(), static fn (array $asset): bool => 1 === preg_match('#^shared\.page-[a-f0-9]{12}\.css$#', (string) ($asset['path'] ?? '')))));
+$assert(array('index.html', 'about.html') === $multiPageScopeSources && ! $multiPageHasPageCopy, 'an identically projected shared stylesheet is emitted once and scoped to both consuming pages, with no per-page copy');
 $assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
 
 // A source grid's attribute-specific desktop winner must remain later than a

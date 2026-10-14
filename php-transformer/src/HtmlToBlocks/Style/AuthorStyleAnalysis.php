@@ -47,6 +47,14 @@ final class AuthorStyleAnalysis
     private readonly string $idSpecificityShim;
     /** @var array<string, string> */
     private array $sourceClassMarkers = array();
+    private readonly string $authorCssIdentity;
+    private ?\DOMXPath $sourceXPath = null;
+    /** @var array{classes: array<string, true>, ids: array<string, true>, predicates: list<array{attribute: string, operator: string, value: string, insensitive: bool}>, raw: bool}|null */
+    private ?array $markerContextPolicy = null;
+    /** @var \SplObjectStorage<DOMElement, string>|null */
+    private ?\SplObjectStorage $contextHashes = null;
+    /** @var \SplObjectStorage<DOMElement, string>|null */
+    private ?\SplObjectStorage $subtreeHashes = null;
 
     /** @param list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> $stylesheetAssets */
     public function __construct(string $html, string $combinedCss, array $stylesheetAssets, DOMElement $sourceBody)
@@ -65,6 +73,7 @@ final class AuthorStyleAnalysis
         hash_update($seed, "\0");
         hash_update($seed, $normalizedCss);
         $this->markerSeed = substr(hash_final($seed), 0, 12);
+        $this->authorCssIdentity = hash('sha256', $normalizedCss);
         $this->markerCollisionTexts = array($html, $combinedCss);
         // Shims only appear inside :not() and are never written onto an element,
         // so they need a name no element uses, not a page-scoped one. A
@@ -154,6 +163,214 @@ final class AuthorStyleAnalysis
             $marker = 'blocks-engine-' . $kind . '-' . $seed . '-' . $counter++;
         } while ( str_contains($this->markerCollisionTexts[0], $marker) || str_contains($this->markerCollisionTexts[1], $marker) );
         return $marker;
+    }
+
+    /**
+     * A per-element marker named from what can tell the element apart rather
+     * than from the compiled document.
+     *
+     * A rule arm naming a marker applies to every element that carries it in
+     * any document that loads the rule. With document-seeded markers, a
+     * stylesheet shared by N pages therefore projected to N different texts.
+     * Here the seed hashes the author CSS identity, the document type, the
+     * element's source path and full subtree (every attribute and text node),
+     * and every ancestor with all its siblings and their emptiness. Two
+     * documents give one element the same marker only when all of that
+     * agrees, so every author selector sees the same element in both and a
+     * rule projected for one of them is correct for the other.
+     *
+     * Around the element, a class or id attribute is reduced to what author
+     * CSS can observe of it: the class and id tokens it names, and the outcome
+     * of each `[class…=…]` / `[id…=…]` predicate. CMS pages stamp per-page
+     * tokens on the body and the content wrappers (`page-id-12`, `post-12`);
+     * keeping them would give shared chrome a different marker on every page.
+     * (`:has()` could observe any part of the document, but the source
+     * matcher never evaluates it, so no marker or rule arm depends on it.)
+     *
+     * Without a resolvable source element the document seed is used.
+     */
+    public function allocateContextMarker(string $kind, string $path): string
+    {
+        $element = '' === $path ? null : $this->sourceElementAtPath($path);
+        if ( null === $element ) {
+            return $this->allocateMarker($kind);
+        }
+        return $this->allocateStableMarker(
+            $kind,
+            "context\0" . $kind . "\0" . $path . "\0" . $this->authorCssIdentity . "\0" . $this->documentTypeIdentity($element) . "\0" . $this->contextHash($element) . "\0" . $this->subtreeHash($element)
+        );
+    }
+
+    /**
+     * The marker standing for a source tag, named from the tag and the author
+     * CSS identity rather than the document. Pages under the same author CSS
+     * project a type selector to the same text; a page under other author CSS
+     * gets another marker, so a rule lifted out of one page's stylesheet into
+     * site-wide chrome can never reach another page's elements of that tag.
+     */
+    public function allocateTagMarker(string $tagName): string
+    {
+        return $this->allocateStableMarker('source-' . $tagName, "tag\0" . $tagName . "\0" . $this->authorCssIdentity);
+    }
+
+    private function sourceElementAtPath(string $path): ?DOMElement
+    {
+        $document = $this->sourceBody->ownerDocument;
+        if ( ! $document instanceof \DOMDocument ) {
+            return null;
+        }
+        $this->sourceXPath ??= new \DOMXPath($document);
+        $nodes = @$this->sourceXPath->query($path);
+        if ( false === $nodes || 1 !== $nodes->length ) {
+            return null;
+        }
+        $node = $nodes->item(0);
+        return $node instanceof DOMElement && $node->getNodePath() === $path ? $node : null;
+    }
+
+    private function documentTypeIdentity(DOMElement $element): string
+    {
+        $type = $element->ownerDocument?->doctype;
+        return null === $type ? '' : $type->name . "\0" . $type->publicId . "\0" . $type->systemId;
+    }
+
+    /**
+     * What author CSS can observe of a class or id attribute: the `.name` and
+     * `#name` tokens it names, and every `[class…=…]` / `[id…=…]` predicate.
+     *
+     * @return array{classes: array<string, true>, ids: array<string, true>, predicates: list<array{attribute: string, operator: string, value: string, insensitive: bool}>, raw: bool}
+     */
+    private function markerContextPolicy(): array
+    {
+        if ( null !== $this->markerContextPolicy ) {
+            return $this->markerContextPolicy;
+        }
+        $css = $this->combinedCss;
+        $policy = array( 'classes' => array(), 'ids' => array(), 'predicates' => array(), 'raw' => false );
+        // Any `.name` / `#name` token, escapes resolved. Over-collecting (a
+        // hex colour, a file extension) only keeps a token that is harmless.
+        if ( preg_match_all('/([.#])((?:[A-Za-z0-9_\x80-\xff-]|\\\\.)+)/s', $css, $tokens, PREG_SET_ORDER) ) {
+            foreach ( $tokens as $token ) {
+                if ( 1 === preg_match('/\\\\[0-9a-fA-F]/', $token[2]) ) {
+                    // A hex escape can spell any token; keep every token.
+                    $policy['raw'] = true;
+                    continue;
+                }
+                $policy['.' === $token[1] ? 'classes' : 'ids'][strtolower(stripslashes($token[2]))] = true;
+            }
+        }
+        if ( preg_match_all('/\[\s*(class|id)\s*([~|^$*]?)=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s\]]*))\s*([is]?)\s*\]/i', $css, $attributes, PREG_SET_ORDER) ) {
+            foreach ( $attributes as $attribute ) {
+                $key = strtolower($attribute[1]) . $attribute[2] . "\0" . $attribute[3] . ($attribute[4] ?? '') . ($attribute[5] ?? '') . "\0" . strtolower($attribute[6] ?? '');
+                $policy['predicates'][$key] = array(
+                    'attribute' => strtolower($attribute[1]),
+                    'operator' => $attribute[2],
+                    'value' => stripslashes($attribute[3] . ($attribute[4] ?? '') . ($attribute[5] ?? '')),
+                    'insensitive' => 'i' === strtolower($attribute[6] ?? ''),
+                );
+            }
+        }
+        $policy['predicates'] = array_values($policy['predicates']);
+        return $this->markerContextPolicy = $policy;
+    }
+
+    /** Whether `$value` satisfies one CSS attribute-selector predicate. */
+    private static function attributePredicate(string $value, string $operator, string $expected, bool $insensitive): bool
+    {
+        if ( $insensitive ) {
+            $value = strtolower($value);
+            $expected = strtolower($expected);
+        }
+        return match ( $operator ) {
+            '' => $value === $expected,
+            '~' => '' !== $expected && 1 !== preg_match('/\s/', $expected) && in_array($expected, preg_split('/\s+/', trim($value)) ?: array(), true),
+            '|' => $value === $expected || str_starts_with($value, $expected . '-'),
+            '^' => '' !== $expected && str_starts_with($value, $expected),
+            '$' => '' !== $expected && str_ends_with($value, $expected),
+            '*' => '' !== $expected && str_contains($value, $expected),
+            default => false,
+        };
+    }
+
+    /**
+     * The element's start tag. In context (`$observable`) its class and id
+     * keep only what author CSS can observe of them, plus whether it is empty.
+     */
+    private function startTagIdentity(DOMElement $element, bool $observable = false): string
+    {
+        $tag = strtolower($element->tagName);
+        $attributes = array();
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
+        }
+        if ( $observable ) {
+            $attributes["\0empty"] = $element->hasChildNodes() ? '0' : '1';
+            $policy = $this->markerContextPolicy();
+            if ( ! $policy['raw'] ) {
+                $predicates = '';
+                foreach ( $policy['predicates'] as $predicate ) {
+                    $value = $attributes[$predicate['attribute']] ?? null;
+                    $predicates .= null !== $value && self::attributePredicate($value, $predicate['operator'], $predicate['value'], $predicate['insensitive']) ? '1' : '0';
+                }
+                $attributes["\0predicates"] = $predicates;
+                if ( isset($attributes['class']) ) {
+                    $named = array_filter(
+                        preg_split('/\s+/', trim($attributes['class'])) ?: array(),
+                        fn (string $class): bool => isset($policy['classes'][strtolower($class)])
+                    );
+                    sort($named);
+                    $attributes['class'] = implode(' ', array_unique($named));
+                }
+                if ( isset($attributes['id']) && ! isset($policy['ids'][strtolower($attributes['id'])]) ) {
+                    $attributes['id'] = '';
+                }
+            }
+        }
+        ksort($attributes);
+        return $tag . "\0" . json_encode($attributes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    }
+
+    /** The element's ancestors, each with all its siblings and its position among them. */
+    private function contextHash(DOMElement $element): string
+    {
+        $this->contextHashes ??= new \SplObjectStorage();
+        if ( isset($this->contextHashes[$element]) ) {
+            return $this->contextHashes[$element];
+        }
+        $parent = $element->parentNode;
+        $siblings = array();
+        $position = -1;
+        foreach ( $parent?->childNodes ?? array() as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( $child->isSameNode($element) ) {
+                    $position = count($siblings);
+                }
+                $siblings[] = $this->startTagIdentity($child, true);
+            }
+        }
+        $hash = hash('sha256', ( $parent instanceof DOMElement ? $this->contextHash($parent) : '' ) . "\0" . $position . "\0" . implode("\0", $siblings));
+        $this->contextHashes[$element] = $hash;
+        return $hash;
+    }
+
+    /** The element's full subtree: every start tag, attribute and text node. */
+    private function subtreeHash(DOMElement $element): string
+    {
+        $this->subtreeHashes ??= new \SplObjectStorage();
+        if ( isset($this->subtreeHashes[$element]) ) {
+            return $this->subtreeHashes[$element];
+        }
+        $parts = array($this->startTagIdentity($element));
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $parts[] = $this->subtreeHash($child);
+            } elseif ( XML_TEXT_NODE === $child->nodeType || XML_CDATA_SECTION_NODE === $child->nodeType ) {
+                $parts[] = '#text:' . (string) $child->nodeValue;
+            }
+        }
+        $hash = hash('sha256', implode("\0", $parts));
+        $this->subtreeHashes[$element] = $hash;
+        return $hash;
     }
 
     private function allocateSiteMarker(string $kind): string

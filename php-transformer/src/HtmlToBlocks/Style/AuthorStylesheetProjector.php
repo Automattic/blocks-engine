@@ -1693,11 +1693,25 @@ final class AuthorStylesheetProjector
                 $hasNonProjected = true;
             }
             if ( $hasNonProjected ) {
+                // Control and semantic carriers also carry their kind's role
+                // class, so the authored arm stays off all of them through one
+                // constant class per kind instead of a list of per-element
+                // markers that differs on every page. RichText markers, whose
+                // carriers have no role class, stay enumerated.
+                $roleExcluded = EngineMarker::roleClasses(array_merge($controls, $semanticLeaves));
+                $exclusion = array();
+                foreach ( $roleExcluded as $roleClass ) {
+                    $exclusion[] = '.' . $roleClass;
+                }
+                $enumerated = array_diff($projectedMarkers, $controls, $semanticLeaves);
+                foreach ( $enumerated as $marker ) {
+                    $exclusion[] = '.' . $marker;
+                }
                 $rewritten[] = $this->rewriteSourceTagTypes(
                     $selector,
                     $parsed,
                     $context,
-                    ':not(:where(.' . implode(',.', $projectedMarkers) . '))' . ( $supersededToggles ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION : '' )
+                    ':not(:where(' . implode(',', $exclusion) . '))' . ( $supersededToggles ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION : '' )
                 );
             }
             foreach ( $controls as $marker ) {
