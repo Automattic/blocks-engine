@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use DOMElement;
 
@@ -143,10 +144,7 @@ final class SearchBlockConverter
             return '';
         }
 
-        $svgMarkup = $this->context->restoreSvgCasing(SourceDom::outerHtml($svg));
-        if ( ! preg_match('/<svg\b[^>]*\bxmlns=/i', $svgMarkup) ) {
-            $svgMarkup = preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $svgMarkup, 1) ?? $svgMarkup;
-        }
+        $svgMarkup = SvgMaterializer::ensureSvgImageNamespace($this->context->restoreSvgCasing(SourceDom::outerHtml($svg)));
         $className = 'blocks-engine-source-search-icon-' . substr(hash('sha256', $svgMarkup), 0, 12);
         if ( $this->context->generatedSupportStyles()->hasNativeSearchTrigger($className) ) {
             return $className;
