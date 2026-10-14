@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CompanionPluginPayload;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
@@ -83,6 +84,21 @@ $widthWithoutSrc = ( new HtmlTransformer() )->transform('<img srcset="small.jpg 
 $assert('core/image' === ($widthWithoutSrc['blocks'][0]['blockName'] ?? null) && 'large.jpg' === ($widthWithoutSrc['blocks'][0]['attrs']['url'] ?? null), 'a plain width-descriptor family without src materializes its largest candidate');
 $densityWithoutWidth = ( new HtmlTransformer() )->transform('<img src="small.jpg" srcset="small.jpg 1x, large.jpg 2x" alt="Density">')->toArray();
 $assert('custom/responsive-media' === ($densityWithoutWidth['blocks'][0]['blockName'] ?? null), 'an x-descriptor family without a display width remains responsive media');
+// A responsive capture serializes each device document's author CSS behind
+// that document's viewport branch. A width declared in the branch covers
+// every viewport its copy of the image is displayed at.
+$deviceDocuments = static function (string $desktopCss, string $mobileCss): array {
+    $image = '<img class="photo" src="/photo-2048.webp" srcset="/photo-600.webp 600w, /photo-2048.webp 2048w" sizes="(max-width: 992px) 100vw, 50vw" alt="Photo">';
+    $html = '<!doctype html><html><head><style>.data-blocks-engine-capture-mobile-document{display:none!important}@media(max-width:1400px){.data-blocks-engine-capture-desktop-document{display:none!important}.data-blocks-engine-capture-mobile-document{display:contents!important}}</style>'
+        . '<style media="(min-width:1401px)">' . $desktopCss . '</style><style media="(max-width:1400px)">' . $mobileCss . '</style></head><body>'
+        . '<div class="data-blocks-engine-capture-desktop-document"><main><h1>Desktop</h1>' . $image . '</main></div>'
+        . '<div class="data-blocks-engine-capture-mobile-document"><main><h1>Mobile</h1>' . $image . '</main></div></body></html>';
+    $serialized = (string) (( new ArtifactCompiler() )->compile(array( 'entrypoint' => 'index.html', 'files' => array( 'index.html' => $html ) ))->toArray()['serialized_blocks'] ?? '');
+
+    return array( substr_count($serialized, '/responsive-media '), substr_count($serialized, '<!-- wp:image') );
+};
+$assert(array( 0, 2 ) === $deviceDocuments('.photo{width:100%}', ':where(.data-blocks-engine-capture-mobile-document) .photo{width:100%}'), 'a width-descriptor family sized in each captured device branch lowers both copies to core/image');
+$assert(array( 1, 1 ) === $deviceDocuments('.photo{height:auto}', ':where(.data-blocks-engine-capture-mobile-document) .photo{width:100%}'), 'a device copy whose branch leaves its width intrinsic keeps the responsive media carrier');
 $unsafePlain = ( new HtmlTransformer() )->transform('<img src="safe.jpg" srcset="javascript:alert(1) 2x" alt="Unsafe">')->toArray();
 $assert(!str_contains((string) ($unsafePlain['serialized_blocks'] ?? ''), 'javascript:'), 'plain-img admission retains the existing unsafe-source policy');
 $responsivePair = ( new HtmlTransformer() )->transform('<div style="display:flex"><img src="small.jpg" srcset="small.jpg 480w, large.jpg 1920w" sizes="50vw"><div><p>Editable description</p></div></div>')->toArray();

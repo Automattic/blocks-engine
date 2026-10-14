@@ -63,6 +63,42 @@ final class ImageDimensionResolver
     }
 
     /**
+     * Whether author CSS, not the image's intrinsic size, sets its rendered
+     * width wherever it is displayed.
+     *
+     * A viewport-invariant dimension ({@see imageDisplayDimension()}) answers
+     * this directly. Otherwise the width is read from the author cascade at
+     * the desktop and mobile reference viewports. A captured responsive
+     * document variant is displayed only inside its own viewport branch, so a
+     * reference viewport where that document is `display:none` places no
+     * demand on the image: a width declared in that branch's
+     * `@media`-conditioned stylesheet still covers every viewport the image
+     * renders at.
+     */
+    public function hasAuthorDisplayWidth(DOMElement $image): bool
+    {
+        if ( '' !== $this->imageDisplayDimension($image, 'width') ) {
+            return true;
+        }
+        $document = $image->parentNode;
+        while ( $document instanceof DOMElement && ! SourceDom::isDocumentVariantRoot($document) ) {
+            $document = $document->parentNode;
+        }
+        $displayed = false;
+        foreach ( array( 'referenceViewportAuthorDeclarations', 'collapsedViewportAuthorDeclarations' ) as $atViewport ) {
+            if ( $document instanceof DOMElement && 'none' === CssValueInspector::comparable(CssValueInspector::withoutImportant($this->styles->$atViewport($document, array( 'display' ))['display'] ?? '')) ) {
+                continue;
+            }
+            $displayed = true;
+            if ( '' === $this->imageDimensionValue(CssValueInspector::withoutImportant($this->styles->$atViewport($image, array( 'width' ))['width'] ?? '')) ) {
+                return false;
+            }
+        }
+
+        return $displayed;
+    }
+
+    /**
      * Whether author CSS -- inline or a matched stylesheet rule, cascade-
      * resolved at the desktop reference viewport the same way {@see
      * imageStylesheetDimension()} resolves a usable length -- states this axis

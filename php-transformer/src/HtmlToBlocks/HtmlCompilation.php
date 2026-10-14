@@ -9790,7 +9790,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // several resolutions, so core/image may regenerate candidates from its
         // attachment. Preserve x families (whose rendered width depends on
         // density without a known display width) and other non-lowerable sources.
-        $hasDisplayWidth = fn (): bool => '' !== $this->imageDimensions()->imageDisplayDimension($image, 'width');
+        $hasDisplayWidth = fn (): bool => $this->imageDimensions()->hasAuthorDisplayWidth($image);
         if ( ! $nativeImage && $this->sourceElementClassifier->requiresResponsiveImageCarrier($image, $hasDisplayWidth) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
