@@ -188,10 +188,24 @@ foreach ($linkedPlan['assets'] ?? array() as $asset) {
 
 // A generated class named only inside :not() excludes that element; the rule
 // still styles the page's own content and must keep its source cascade order.
+$matcher = (new ReflectionMethod(WordPressSitePlan::class, 'generatedClassMatcher'))->invoke(null, array('blocks-engine-control-abc-6' => true));
 $exclusion = new ReflectionMethod(WordPressSitePlan::class, 'selectorTargetsGeneratedClass');
-$assert(false === $exclusion->invoke(null, '.text-sm:not(:where(.blocks-engine-control-abc-6))', array('blocks-engine-control-abc-6' => true)), 'A selector that only excludes a shared-chrome class stays page-owned.');
-$assert(true === $exclusion->invoke(null, '.blocks-engine-control-abc-6 .text-sm:not(.x)', array('blocks-engine-control-abc-6' => true)), 'A selector that targets a shared-chrome class is projected.');
-$assert(true === $exclusion->invoke(null, ':not(.a) .blocks-engine-control-abc-6', array('blocks-engine-control-abc-6' => true)), 'A class outside :not() still counts after an earlier :not().');
+$assert(false === $exclusion->invoke(null, '.text-sm:not(:where(.blocks-engine-control-abc-6))', $matcher), 'A selector that only excludes a shared-chrome class stays page-owned.');
+$assert(true === $exclusion->invoke(null, '.blocks-engine-control-abc-6 .text-sm:not(.x)', $matcher), 'A selector that targets a shared-chrome class is projected.');
+$assert(true === $exclusion->invoke(null, ':not(.a) .blocks-engine-control-abc-6', $matcher), 'A class outside :not() still counts after an earlier :not().');
+// One compiled matcher answers for every class it was built from, including
+// classes that share a prefix, need CSS escaping, or are rich-text markers.
+$many = array('nav-item' => true, 'nav-item-current' => true, '2col' => true, 'blocks-engine-richtext-ab12-3' => true);
+for ($index = 0; $index < 450; ++$index) {
+    $many['be-chrome-' . $index] = true;
+}
+$manyMatcher = (new ReflectionMethod(WordPressSitePlan::class, 'generatedClassMatcher'))->invoke(null, $many);
+$assert(true === $exclusion->invoke(null, '.menu .nav-item-current > a', $manyMatcher), 'A longer class sharing a prefix with another still matches.');
+$assert(false === $exclusion->invoke(null, '.menu .nav-item-currently', $manyMatcher), 'A class only prefixed by a chrome class is not a match.');
+$assert(true === $exclusion->invoke(null, '.\\32 col p', $manyMatcher), 'A CSS-escaped chrome class matches.');
+$assert(true === $exclusion->invoke(null, 'p .be-chrome-449', $manyMatcher), 'Classes beyond the first alternation chunk match.');
+$assert(true === $exclusion->invoke(null, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-ab12-3"]', $manyMatcher), 'A rich-text marker attribute selector matches.');
+$assert(false === $exclusion->invoke(null, '.page-content p', $manyMatcher), 'A selector naming no chrome class stays page-owned.');
 
 // Two different stylesheets can project the same shared-chrome rules. The
 // content-addressed target must be emitted once, with one token and one

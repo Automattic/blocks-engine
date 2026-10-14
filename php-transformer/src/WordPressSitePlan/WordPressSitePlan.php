@@ -1365,16 +1365,44 @@ PHP;
      * cluster; the matching rules must follow the canonical marker onto the
      * shared part instead of remaining page-scoped.
      *
-     * @param array<string,true> $classes
+     * @param array{patterns:list<string>,richtext:list<string>} $matcher from generatedClassMatcher()
      */
-    private static function selectorTargetsGeneratedClass(string $selector, array $classes): bool
+    private static function selectorTargetsGeneratedClass(string $selector, array $matcher): bool
     {
         $positive = self::positiveSelector($selector);
-        foreach (array_keys($classes) as $class) {
-            if (1 === preg_match('/' . CssIdent::classSelectorRegex($class) . '(?![\\w-])/', $positive)) return true;
-            if (1 === preg_match('/^blocks-engine-richtext-[a-f0-9]+-\d+$/', $class) && str_contains($positive, $class)) return true;
+        foreach ($matcher['patterns'] as $pattern) {
+            if (1 === preg_match($pattern, $positive)) return true;
+        }
+        foreach ($matcher['richtext'] as $class) {
+            if (str_contains($positive, $class)) return true;
         }
         return false;
+    }
+
+    /**
+     * Compile the generated-class test once per projection. Every selector of
+     * the site stylesheet is checked against every shared-part class, so one
+     * regex per class per selector grows with rules x classes; a few
+     * alternation patterns keep it linear in the selector count.
+     *
+     * @param array<string,true> $classes
+     * @return array{patterns:list<string>,richtext:list<string>}
+     */
+    private static function generatedClassMatcher(array $classes): array
+    {
+        $alternatives = array();
+        $richtext = array();
+        foreach (array_keys($classes) as $class) {
+            $class = (string) $class;
+            $alternatives[] = CssIdent::classSelectorRegex($class);
+            if (1 === preg_match('/^blocks-engine-richtext-[a-f0-9]+-\d+$/', $class)) $richtext[] = $class;
+        }
+        $patterns = array();
+        foreach (array_chunk($alternatives, 200) as $chunk) {
+            $patterns[] = '/(?:' . implode('|', $chunk) . ')(?![\\w-])/';
+        }
+
+        return array('patterns' => $patterns, 'richtext' => $richtext);
     }
 
     /**
@@ -1709,7 +1737,8 @@ PHP;
             }
         }
         if (array() === $classes && array() === $authored['class'] && array() === $authored['id']) return $assets;
-        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classes) || self::selectorTargetsAuthoredChrome($selector, $authored, $context);
+        $classMatcher = self::generatedClassMatcher($classes);
+        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher) || self::selectorTargetsAuthoredChrome($selector, $authored, $context);
         $reanchor = static fn (string $selector): string => self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
 
         $projected = array();
