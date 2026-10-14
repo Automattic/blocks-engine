@@ -382,7 +382,7 @@ $cardCanonicalizer = new AssetReferenceCanonicalizer(array(array('source_path' =
 $localizedCard = $cardCanonicalizer->content($actualCaptureCard, 'website/actualites/index.html');
 $cardAttributes = json_decode((string) (preg_match('~<!-- wp:ssi-imported-site/authored-button (\{.*?\}) -->~', $localizedCard, $cardComment) ? $cardComment[1] : ''), true);
 $cardSaveStyle = $cardAttributes['contentParts'][0]['attributes']['style'] ?? '';
-$assert(is_string($cardSaveStyle) && str_contains($cardSaveStyle, WordPressSitePlan::TOKEN_PREFIX . $cardAssetToken . '}}') && 2 === substr_count($localizedCard, WordPressSitePlan::TOKEN_PREFIX . $cardAssetToken . '}}'), 'Real /actualites event-card markup localizes the authored-button save() style attribute and its rendered HTML consistently.');
+$assert(is_string($cardSaveStyle) && str_contains($cardSaveStyle, WordPressSitePlan::TOKEN_PREFIX . $cardAssetToken . '}}') && 2 === substr_count($localizedCard, WordPressSitePlan::TOKEN_PREFIX . $cardAssetToken . '}}') && str_contains(implode('', $buttonGenerator->assets('ssi-imported-site')), "replace( /'/g, '&#039;' )"), 'Real /actualites event-card markup localizes the authored-button save() style attribute and its rendered HTML consistently.');
 $escapedStyleCanonicalizer = new AssetReferenceCanonicalizer($plan['reference_tokens']);
 $escapedStyleToken = $escapedStyleCanonicalizer->reference('assets/logo.svg', 'index.html');
 $escapedQuoteStyle = $escapedStyleCanonicalizer->content('<!-- wp:blocks-engine/collection {"content":"<div title=\\"Fish &amp; Chips\\" style=\\"background-image:url(&quot;assets/logo.svg&quot;)\\"></div>"} /-->', 'index.html');
