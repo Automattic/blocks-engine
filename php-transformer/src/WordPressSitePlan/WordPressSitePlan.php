@@ -2925,6 +2925,7 @@ PHP;
         }
         $shared = $this->sharedPostChromeIdentities($posts);
         $single = null;
+        $singleMenus = array();
         $bodies = array();
         foreach ($posts as $postIndex => $post) {
             $route = is_string($post['route']['path'] ?? null) ? $post['route']['path'] : '';
@@ -2942,6 +2943,13 @@ PHP;
             }
             if (null === $single) {
                 $single = $this->replaceListingArchives($transformed['template'], $posts);
+                $singleMenus = NavigationEntityProjection::renderedMenus($single);
+            }
+            // Every post renders the single template's chrome. A chrome menu
+            // the single template does not render would be lost (and its
+            // entity left with no reference), so the articles stay page-owned.
+            if (array() !== array_diff_key(NavigationEntityProjection::renderedMenus($transformed['template']), $singleMenus)) {
+                return array('pages' => $pages, 'single' => null);
             }
             $bodies[$indexes[$postIndex]] = $transformed['body'];
         }
@@ -3196,6 +3204,9 @@ PHP;
             foreach ($bindingsBySource[$page['source_path']] ?? array() as $anchor) {
                 if (substr_count($replaced, $anchor) !== substr_count($page['canonical_block_markup'], $anchor)) continue 2;
             }
+            // The query loop repeats the first card. A card menu the loop does
+            // not render would be lost, so the listing stays as captured.
+            if (array() !== array_diff_key(NavigationEntityProjection::renderedMenus($page['canonical_block_markup']), NavigationEntityProjection::renderedMenus($replaced))) continue;
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = self::contentHash($replaced);
             $firstCard = ($this->listingCardRanges($sourceListingMarkup, $posts) ?? array())[0] ?? null;
