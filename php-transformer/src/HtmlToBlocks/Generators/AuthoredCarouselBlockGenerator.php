@@ -1428,8 +1428,9 @@ JS;
         $slideImages = array();
         foreach ( $slides as $slide ) {
             foreach ( $slide->getElementsByTagName('img') as $image ) {
-                if ( $image instanceof DOMElement && '' !== ($name = self::imageFileName($image)) ) {
-                    $slideImages[$name] = true;
+                if ( $image instanceof DOMElement && '' !== ($identity = self::imageIdentity($image))['path'] ) {
+                    $slideImages['path:' . $identity['path']] = true;
+                    $slideImages['name:' . $identity['name']] = true;
                 }
             }
         }
@@ -1515,7 +1516,7 @@ JS;
             $image = 'img' === strtolower($child->tagName) ? $child : $child->getElementsByTagName('img')->item(0);
             $slideThumbnail = $image instanceof DOMElement
                 && ($image === $child || (1 === $child->getElementsByTagName('img')->length && '' === trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? ''))))
-                && isset($slideImages[self::imageFileName($image)]);
+                && self::isSlideImage($image, $slideImages);
             if ( ! $slideThumbnail && ! $this->isPaginationControl($child) ) {
                 return false;
             }
@@ -1524,12 +1525,44 @@ JS;
         return $items >= 2;
     }
 
-    /** The image's file name without its directory, query or size suffix. */
-    private static function imageFileName(DOMElement $image): string
+    /**
+     * Whether $image shows one of the slides: the same media identity or
+     * path, or a resized (-WxH) derivative of a slide file.
+     *
+     * @param array<string, true> $slideImages
+     */
+    private static function isSlideImage(DOMElement $image, array $slideImages): bool
     {
-        $path = (string) parse_url(trim(SourceDom::attr($image, 'src')), PHP_URL_PATH);
-        $name = strtolower(basename($path));
-        return (string) preg_replace('/-\d+x\d+(?=\.[a-z0-9]+$)/', '', $name);
+        $identity = self::imageIdentity($image);
+        if ( '' === $identity['path'] ) {
+            return false;
+        }
+        return isset($slideImages['path:' . $identity['path']])
+            || ($identity['resized'] && isset($slideImages['name:' . $identity['name']]));
+    }
+
+    /**
+     * A source image's identity, independent of host, query and rendition.
+     * A media-library URL (`/media/<id>/v1/<op>/<params>/<name>`) is keyed by
+     * its media id, since its trailing name is often generic. Any other URL
+     * keeps its directory, so different files that share a generic name stay
+     * different; only a -WxH size suffix is stripped from the file name.
+     *
+     * @return array{path: string, name: string, resized: bool}
+     */
+    private static function imageIdentity(DOMElement $image): array
+    {
+        $path = strtolower((string) parse_url(trim(SourceDom::attr($image, 'src')), PHP_URL_PATH));
+        if ( 1 === preg_match('#/media/([^/]+)#', $path, $media) ) {
+            return array('path' => 'media/' . $media[1], 'name' => 'media/' . $media[1], 'resized' => false);
+        }
+        $path = (string) preg_replace('#/v1/[^/]+/[^/]+/[^/]*$#', '', $path);
+        if ( '' === trim($path, '/') ) {
+            return array('path' => '', 'name' => '', 'resized' => false);
+        }
+        $name = basename($path);
+        $bare = (string) preg_replace('/-\d+x\d+(?=\.[a-z0-9]+$)/', '', $name);
+        return array('path' => rtrim(dirname($path), '/') . '/' . $bare, 'name' => $bare, 'resized' => $bare !== $name);
     }
 
     private function containsNavigationPair(DOMElement $element): bool

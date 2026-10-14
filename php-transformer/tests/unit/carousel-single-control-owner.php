@@ -76,6 +76,22 @@ foreach ($contents as $label => [$content, $needle]) {
     $assert(str_contains($markup, $needle), 'a ' . $label . ' beside the gallery survives');
 }
 
+// Different images that share a generic file name are not the slides.
+$button = '<button aria-label="Next">Next</button>';
+$sharedName = $transform('<div class="footer-grid"><div class="slider-frame"><ul class="slides"><li class="slide"><img src="https://example.test/s1/image.jpg" alt="S1"></li><li class="slide"><img src="https://example.test/s2/image.jpg" alt="S2"></li></ul>' . $button . '</div>'
+    . '<div class="badges"><img src="https://example.test/c1/image.jpg" alt="Badge X"><img src="https://example.test/c2/image.jpg" alt="Badge Y"></div></div>');
+$assert(str_contains($sharedName, 'Badge X'), 'badges that share the slides\' generic file name in other directories survive');
+$media = static fn (string $id, string $size): string => 'https://media.example.test/media/' . $id . '~mv2.png/v1/fill/' . $size . '/file.png';
+$mediaName = $transform('<div class="footer-grid"><div class="slider-frame"><ul class="slides"><li class="slide"><img src="' . $media('aaa', 'w_600,h_400') . '" alt="S1"></li><li class="slide"><img src="' . $media('bbb', 'w_600,h_400') . '" alt="S2"></li></ul>' . $button . '</div>'
+    . '<div class="badges"><img src="' . $media('ccc', 'w_80,h_80') . '" alt="Badge X"><img src="' . $media('ddd', 'w_80,h_80') . '" alt="Badge Y"></div></div>');
+$assert(str_contains($mediaName, 'Badge X'), 'media-library badges whose friendly name matches the slides survive');
+$mediaPager = $transform('<div class="carousel-frame"><div class="slider-frame"><ul class="slides"><li class="slide"><img src="' . $media('aaa', 'w_600,h_400') . '" alt="S1"></li><li class="slide"><img src="' . $media('bbb', 'w_600,h_400') . '" alt="S2"></li></ul>' . $button . '</div>'
+    . '<div class="thumbs"><div><img src="' . $media('aaa', 'w_91,h_91') . '" alt=""></div><div><img src="' . $media('bbb', 'w_91,h_91') . '" alt=""></div></div></div>');
+$assert(1 === preg_match('/^\s*<!-- wp:[a-z0-9-]+\/authored-carousel /', $mediaPager), 'media-library thumbnails of the slides stay a pager of the outer carousel');
+$resizedPager = $transform('<div class="carousel-frame"><div class="slider-frame"><ul class="slides"><li class="slide"><img src="https://example.test/p1.jpg" alt="S1"></li><li class="slide"><img src="https://example.test/p2.jpg" alt="S2"></li></ul>' . $button . '</div>'
+    . '<div class="thumbs"><div><img src="https://example.test/thumbs/p1-150x100.jpg" alt=""></div><div><img src="https://example.test/thumbs/p2-150x100.jpg" alt=""></div></div></div>');
+$assert(1 === preg_match('/^\s*<!-- wp:[a-z0-9-]+\/authored-carousel /', $resizedPager), 'resized thumbnails of the slides stay a pager of the outer carousel');
+
 if ($failures) {
     fwrite(STDERR, "FAIL: " . implode("\nFAIL: ", $failures) . "\n");
     exit(1);
