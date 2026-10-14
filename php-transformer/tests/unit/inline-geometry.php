@@ -82,7 +82,8 @@ $geometry = new InlineGeometry(
     static fn (DOMElement $element): array => array(),
     static fn (DOMElement $element, string $family): bool => false,
     static fn (string $property): string => $property,
-    static fn (DOMElement $element): bool => false
+    static fn (DOMElement $element): bool => false,
+    static fn (DOMElement $element, array $properties): array => array( 0, 0, 0 )
 );
 
 $assert(! is_a(InlineGeometry::class, StyleResolver::class, true), 'inline-geometry-is-not-styleresolver');
