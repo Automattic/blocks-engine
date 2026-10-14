@@ -114,6 +114,8 @@
       "php tests/contract/html-transformer-editability-policy.php",
       "php tests/contract/shared-shell-plan.php",
       "php tests/contract/shared-shell-route-state.php",
+      "php tests/contract/shared-header-with-landmark-footer.php",
+      "php tests/unit/shell-identity-navigation-levels.php",
       "php tests/contract/canonical-html-includes.php",
       "php tests/contract/html-include-page-local-limits.php",
       "php tests/contract/captured-navigation-runtime.php",
