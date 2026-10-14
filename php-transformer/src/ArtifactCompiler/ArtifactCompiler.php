@@ -3229,6 +3229,10 @@ final class ArtifactCompiler
             // The native control replay interpreter addresses captured control
             // state, not source behavior; its state lowers into control blocks.
             if (NativeControlState::isReplayScript($script['tag'])) continue;
+            // Capture activators describe engine-owned evidence, not source
+            // runtime behavior. Treating their query as a dependency would
+            // preserve every captured target as a runtime island.
+            if (array_key_exists(CaptureEvidence::VIEWPORT_ENTRANCE_ACTIVATOR, HtmlTagScanner::attributes($script['tag']))) continue;
             $src = $this->htmlAttribute($script['tag'], 'src');
             if ( '' === $src ) {
                 $scripts[] = $script['content'];
