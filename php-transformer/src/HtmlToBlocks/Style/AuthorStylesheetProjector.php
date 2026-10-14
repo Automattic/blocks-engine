@@ -443,20 +443,15 @@ final class AuthorStylesheetProjector
 
         // Linked author CSS precedes Gutenberg's inline flow resets, so authored margins cannot rely on source order.
         $shim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-        return implode(',', array_map(static fn (string $selector): string => self::withSubjectSuffix($selector, $shim), $selectors));
-    }
-
-    /**
-     * Legacy single-colon pseudo-elements must remain last. Appending a
-     * suffix after :before/:after invalidates their entire selector list.
-     */
-    private static function withSubjectSuffix(string $selector, string $suffix): string
-    {
-        $selector = trim($selector);
-        if ( 1 !== preg_match('/(?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?$/', $selector) ) {
-            return $selector . $suffix;
-        }
-        return preg_replace('/((?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?)$/', $suffix . '$1', $selector, 1) ?? $selector;
+        return implode(',', array_map(static function (string $selector) use ($shim): string {
+            $selector = trim($selector);
+            // Legacy single-colon pseudo-elements must remain last. Appending the
+            // shim after :before/:after invalidates their entire selector list.
+            if ( 1 !== preg_match('/(?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?$/', $selector) ) {
+                return $selector . $shim;
+            }
+            return preg_replace('/((?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?)$/', $shim . '$1', $selector, 1) ?? $selector;
+        }, $selectors));
     }
 
     private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
@@ -1438,35 +1433,6 @@ final class AuthorStylesheetProjector
     }
 
     private function rewriteSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false, bool $subjectArms = false, bool $semanticSubjectArms = false): string
-    {
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors || array() === array_filter($selectors, fn (string $selector): bool => $this->hasFigureSubject($selector, $context)) ) {
-            return $this->rewriteSelectorPreludeVariants($prelude, $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
-        }
-        // A bare source image lowers into a synthesized core/image figure that
-        // the source never had. Author figure rules addressed authored figures
-        // only, so they stay off that wrapper (as Bootstrap's figure margin).
-        $exclusion = ':not(:where(.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '))';
-        $projected = array();
-        foreach ( $selectors as $selector ) {
-            $own = $this->rewriteSelectorPreludeVariants(trim($selector), $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
-            if ( $this->hasFigureSubject($selector, $context) ) {
-                $own = implode(',', array_map(static fn (string $ownSelector): string => self::withSubjectSuffix($ownSelector, $exclusion), CssStylesheetTransformer::splitSelectorList($own) ?? array()));
-            }
-            if ( '' !== trim($own) ) {
-                $projected[] = $own;
-            }
-        }
-        return implode(',', $projected);
-    }
-
-    private function hasFigureSubject(string $selector, AuthorStylesheetProjectionContext $context): bool
-    {
-        $compounds = $context->sourceStyles->parsedSelector(trim($selector))['compounds'] ?? array();
-        return 'figure' === strtolower((string) ($compounds[array_key_last($compounds) ?? 0]['type'] ?? ''));
-    }
-
-    private function rewriteSelectorPreludeVariants(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false, bool $subjectArms = false, bool $semanticSubjectArms = false): string
     {
         $projected = $this->rewriteSelectorPreludeOnce($prelude, $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
         if ( ! $context->selectorProjections->hasAncestorAttributeStateConditions() ) {
