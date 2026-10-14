@@ -169,7 +169,9 @@ $assert(
 
 $dormantAncestorState = $transform('<style>.nav.scrolled .nav-logo{color:#211}.nav.scrolled .nav-logo:hover{color:#a42}</style><main class="nav"><button class="nav-logo" style="padding:1px;background:#eee">Brand</button><p>Copy</p></main>');
 $dormantAncestorStateCss = $css($dormantAncestorState);
-$assert(str_contains($dormantAncestorStateCss, '.nav.scrolled :where(.blocks-engine-control-') && 2 === substr_count($dormantAncestorStateCss, '> :where(.wp-block-button__link)') && str_contains($dormantAncestorStateCss, ':hover'), 'dormant ancestor-state selectors retain their runtime state while projecting native control leaves');
+// The context-free leaf (`.nav-logo`) reaches its control carrier through the
+// carrier's role and subject classes rather than a per-element marker.
+$assert(1 === preg_match('/\.nav\.scrolled :where\(\.blocks-engine-role-control\.blocks-engine-subject\.blocks-engine-subject-class-[a-f0-9]{12}\)/', $dormantAncestorStateCss) && 2 === substr_count($dormantAncestorStateCss, '> :where(.wp-block-button__link)') && str_contains($dormantAncestorStateCss, ':hover'), 'dormant ancestor-state selectors retain their runtime state while projecting native control leaves');
 
 $order = $transform('<style>a.cta:hover{color:red}a.cta:hover{color:blue}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
 $orderCss = $css($order);

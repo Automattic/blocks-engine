@@ -12,6 +12,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $passes = 0;
@@ -83,9 +85,11 @@ $styled = $controls($plan(array(
 ), $css));
 $assert(($styled['index.html'] ?? null) !== ($styled['about.html'] ?? null), 'a page with other author CSS gives the element another marker', (string) json_encode($styled));
 
-// 5b. Source-tag markers follow the author CSS too: a type rule lifted out of
-//     one page's own stylesheet into site-wide chrome must not reach the
-//     other page's elements of that tag.
+// 5b. Source-tag markers name the tag alone, so a type rule projects to the
+//     same text under any author CSS. A type rule from one page's own
+//     stylesheet still reaches only that page: shared-chrome extraction never
+//     lifts a rule into a global asset through a source-tag marker, even when
+//     the shared chrome has elements of that tag.
 $tagMarkers = static function (array $plan): array {
     $markers = array();
     foreach ( array_merge($plan['pages'] ?? array(), $plan['template_parts'] ?? array()) as $document ) {
@@ -94,22 +98,57 @@ $tagMarkers = static function (array $plan): array {
     }
     return $markers;
 };
-$typed = '<main><section class="band"><p>Copy</p></section></main>';
-$sameCss = $tagMarkers($plan(array( 'index.html' => $document($typed), 'about.html' => $document($typed) ), $css . 'section p{color:#123}'));
-$otherCss = $tagMarkers($plan(array( 'index.html' => $document($typed), 'about.html' => $document($typed, '', '<style>p{color:#f00}</style>') ), $css . 'section p{color:#123}'));
-$assert(array() !== ($sameCss['index.html'] ?? array()) && $sameCss['index.html'] === ($sameCss['about.html'] ?? null), 'pages under the same author CSS share source-tag markers', (string) json_encode($sameCss));
-$assert(array() !== ($otherCss['about.html'] ?? array()) && array() === array_intersect($otherCss['index.html'] ?? array(), $otherCss['about.html']), 'a page with other author CSS gets its own source-tag markers', (string) json_encode($otherCss));
+$typedChrome = '<header class="site-header"><p class="brand">Brand</p><nav><a href="/">Home</a><a href="/about.html">About</a></nav></header>';
+$typed = static fn (string $copy): string => $typedChrome . '<main><section class="band"><p>' . $copy . '</p></section></main><footer class="site-footer"><p>Foot</p></footer>';
+$otherCssPlan = $plan(array(
+    'index.html' => $document($typed('Copy')),
+    'contact.html' => $document($typed('Write')),
+    'about.html' => $document($typed('About'), '', '<style>p{color:#f00}</style>'),
+), $css . 'section p{color:#123}.site-header .brand{font-weight:700}');
+$otherCss = $tagMarkers($otherCssPlan);
+$assert(in_array('header', array_column($otherCssPlan['template_parts'] ?? array(), 'area'), true), 'the shared header is extracted as a template part', (string) json_encode(array_column($otherCssPlan['template_parts'] ?? array(), 'area')));
+$assert(array() !== ($otherCss['index.html'] ?? array()) && ($otherCss['index.html'] ?? null) === ($otherCss['about.html'] ?? array()), 'pages under different author CSS share source-tag markers', (string) json_encode($otherCss));
+$pageColor = static function (array $plan, string $source): array {
+    $assets = array_column($plan['assets'] ?? array(), null, 'target_path');
+    $sheet = '';
+    foreach ( WordPressSitePlan::documentStylesheets($plan, $source) as $stylesheet ) {
+        $sheet .= "\n" . (string) ($assets[$stylesheet['target_path']]['content'] ?? '');
+    }
+    $markup = '';
+    foreach ( $plan['template_parts'] ?? array() as $part ) {
+        $markup .= (string) ($part['canonical_block_markup'] ?? '');
+    }
+    foreach ( $plan['pages'] ?? array() as $page ) {
+        if ( $source === ($page['source_path'] ?? null) ) {
+            $markup .= (string) ($page['canonical_block_markup'] ?? '');
+        }
+    }
+    $dom = new DOMDocument();
+    @$dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($markup) . '</body></html>');
+    $cascade = new StaticCssCascade($dom, $sheet);
+    $colors = array();
+    foreach ( $dom->getElementsByTagName('p') as $paragraph ) {
+        $colors[trim($paragraph->textContent)] = strtolower((string) ($cascade->resolve($paragraph, array( 'color' ), array())['color'] ?? ''));
+    }
+    return $colors;
+};
+$indexColors = $pageColor($otherCssPlan, 'index.html');
+$aboutColors = $pageColor($otherCssPlan, 'about.html');
+$assert(isset($indexColors['Brand'], $indexColors['Copy'], $indexColors['Foot']) && ! in_array('#f00', $indexColors, true) && '#123' === ($indexColors['Copy'] ?? null), "another page's own type rule reaches neither the chrome nor the content of this page", (string) json_encode($indexColors));
+$assert('#f00' === ($aboutColors['Brand'] ?? null) && '#f00' === ($aboutColors['Foot'] ?? null), "the page's own type rule still reaches its own chrome", (string) json_encode($aboutColors));
 
 // 6. The site-wide copy is the projection most pages share; the pages that
 //    need the same extra slice share one asset, enqueued on each of them
-//    right after the site-wide copy.
+//    right after the site-wide copy. `main>.actions .btn` depends on where
+//    the actions sit in `main`, so its control arm stays per element and
+//    differs between the two layouts.
 $sliced = $plan(array(
     'index.html' => $document('<main><p id="lead">Lead</p>' . $chrome . '</main>'),
     'd.html' => $document('<main><p id="lead">Lead</p>' . $chrome . '</main>'),
     'a.html' => $document('<main>' . $chrome . '<p>A</p></main>'),
     'b.html' => $document('<main>' . $chrome . '<p>B</p></main>'),
     'c.html' => $document('<main>' . $chrome . '<p>C</p></main>'),
-), $css . 'main>p:first-child{margin:0}#lead{font-weight:700}');
+), $css . 'main>p:first-child{margin:0}#lead{font-weight:700}main>.actions .btn{letter-spacing:1px}');
 $siteCopy = '';
 $slices = array();
 foreach ( $sliced['assets'] ?? array() as $asset ) {

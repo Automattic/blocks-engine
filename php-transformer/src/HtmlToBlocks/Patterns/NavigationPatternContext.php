@@ -16,7 +16,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
-use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
 /** Navigation-only evidence and policy, backed by real collaborators. */
@@ -76,7 +75,7 @@ final class NavigationPatternContext
                 $subject = $compounds[array_key_last($compounds)];
                 if (!in_array(strtolower((string) ($subject['type'] ?? '')), array('ul', 'ol'), true)) continue;
                 $match = $styles->selectorMatchCache()->matches($element, $record['selector'], $parsed);
-                if (($match['supported'] ?? false) && ($match['matches'] ?? false)) return implode(' ', EngineMarker::withRole($this->session->authorSelectorProjectionState()->ensureSemanticMarker($element->getNodePath() ?? '')));
+                if (($match['supported'] ?? false) && ($match['matches'] ?? false)) { $projections = $this->session->authorSelectorProjectionState(); return implode(' ', $projections->semanticCarrierClasses($projections->ensureSemanticMarker($element->getNodePath() ?? ''), $element->getNodePath() ?? '')); }
             }
         }
         return '';

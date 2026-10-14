@@ -133,6 +133,110 @@ $first = $resolved['a.html'] ?? array();
 $assert('#123456' === strtolower((string) ($first['control']['background-color'] ?? '')) && '1rem' === ($first['intro']['font-size'] ?? null), 'authored control and paragraph styles resolve on the entry page', (string) json_encode($first));
 $assert(1 === count(array_unique(array_map('serialize', $resolved))), 'every page resolves the same styles under its own cascade', (string) json_encode(array_slice($resolved, 0, 3)));
 
+// Context-free rules reaching page-specific content. Every page has its own
+// buttons, list items, links and native buttons, in different numbers and
+// places. `a`, `.btn`, `ul`, `li` and `button` decide their match from the
+// element alone, and `.card .btn:hover` matches no source element as a whole,
+// so its `.btn` subject is projected onto every button. Before, each of those
+// arms named every matched element's own marker, so every page projected the
+// stylesheet differently and loaded a slice that grew with its content. Now
+// the arms name the carriers' role and subject classes: the stylesheet
+// compiles to one asset whatever the pages hold, and each page still resolves
+// the same styles.
+$variedCss = 'a{color:#0a7c45;text-decoration:none}.btn{background-color:#123456;color:#fff;border-radius:4px}.card .btn:hover{color:#ff0}ul{list-style:none;padding-left:0}li{line-height:1.6}button{font-weight:700}';
+$variedPage = static function (int $index): string {
+    $buttons = '';
+    $items = '';
+    $links = '';
+    for ( $k = 0; $k <= $index; ++$k ) {
+        $buttons .= '<a class="btn" href="/p' . $index . '/buy-' . $k . '" style="padding:8px 16px">Buy ' . $index . '.' . $k . '</a>';
+    }
+    for ( $k = 0; $k < 2 + $index % 3; ++$k ) {
+        $items .= '<li>Item ' . $index . '.' . $k . '</li>';
+    }
+    for ( $k = 0; $k <= $index % 4; ++$k ) {
+        $links .= '<p>Read <a href="/p' . $index . '/more-' . $k . '">more ' . $k . '</a> here.</p>';
+    }
+    $extra = 0 === $index % 2
+        ? '<section class="promo"><h2>Promo ' . $index . '</h2><ul class="features"><li>Fast</li><li>Cheap ' . $index . '</li></ul><button type="button">Send ' . $index . '</button></section>'
+        : '<div class="aside"><button type="button" class="ghost">Ask ' . $index . '</button></div>';
+    return '<!doctype html><html><head><title>Page ' . $index . '</title><link rel="stylesheet" href="base.css"></head>'
+        . '<body class="page page-id-' . (200 + $index) . '"><header class="site-header"><nav><a href="/a.html">Home</a><a href="/b.html">Catalog</a></nav></header>'
+        . '<main><h1>Page ' . $index . '</h1><div class="actions">' . $buttons . '</div><ul class="list">' . $items . '</ul>' . $links . $extra . '</main></body></html>';
+};
+$variedPlan = static function (int $pageCount) use ($variedPage, $variedCss): array {
+    $files = array();
+    for ( $index = 0; $index < $pageCount; ++$index ) {
+        $files[] = array( 'path' => chr(97 + $index) . '.html', 'kind' => 'html', 'content' => $variedPage($index) );
+    }
+    $files[] = array( 'path' => 'base.css', 'kind' => 'css', 'content' => $variedCss );
+    return ( new ArtifactCompiler() )->compile(array( 'entrypoint' => 'a.html', 'files' => $files ))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+};
+$authoredAssets = static function (array $plan): array {
+    $assets = array();
+    foreach ( $plan['assets'] ?? array() as $asset ) {
+        if ( 'css' === ($asset['kind'] ?? '') && in_array('base.css', array( $asset['source_path'] ?? '', $asset['stylesheet_parent'] ?? '' ), true) ) {
+            $assets[(string) $asset['target_path']] = (string) ($asset['content'] ?? '');
+        }
+    }
+    return $assets;
+};
+$variedTwo = $variedPlan(2);
+$variedTen = $variedPlan(10);
+$twoAssets = $authoredAssets($variedTwo);
+$tenAssets = $authoredAssets($variedTen);
+$assert(1 === count($twoAssets) && 1 === count($tenAssets), 'the stylesheet compiles to one asset however different the pages are', (string) json_encode(array( array_keys($twoAssets), array_keys($tenAssets) )));
+$assert($twoAssets === $tenAssets, 'its bytes do not depend on the page count or on what the pages hold', strlen(implode('', $twoAssets)) . ' vs ' . strlen(implode('', $tenAssets)));
+$assert(! preg_match('/blocks-engine-(?:control|semantic)-[a-f0-9]{12}-\d+/', implode('', $tenAssets)), 'no arm of the shared stylesheet names a per-element marker', (string) (preg_match('/[^{}]*blocks-engine-(?:control|semantic)-[a-f0-9]{12}-\d+[^{}]*/', implode('', $tenAssets), $named) ? $named[0] : ''));
+
+$variedAssetsByTarget = array_column($variedTen['assets'] ?? array(), null, 'target_path');
+$variedResolved = array();
+foreach ( $variedTen['pages'] ?? array() as $planPage ) {
+    $sheet = '';
+    foreach ( WordPressSitePlan::documentStylesheets($variedTen, (string) $planPage['source_path']) as $stylesheet ) {
+        $sheet .= "\n" . (string) ($variedAssetsByTarget[$stylesheet['target_path']]['content'] ?? '');
+    }
+    $document = new DOMDocument();
+    @$document->loadHTML('<?xml encoding="UTF-8"><html><body>' . StaticStyleParityRunner::candidateHtmlFromSerializedBlocks((string) ($planPage['canonical_block_markup'] ?? '')) . '</body></html>');
+    $cascade = new StaticCssCascade($document, $sheet);
+    $probe = array();
+    foreach ( $document->getElementsByTagName('*') as $element ) {
+        if ( ! $element instanceof DOMElement ) {
+            continue;
+        }
+        $classes = ' ' . $element->getAttribute('class') . ' ';
+        $text = trim($element->textContent);
+        $role = match ( true ) {
+            str_contains($classes, ' wp-block-button__link ') && str_starts_with($text, 'Buy') => 'button-link',
+            str_contains($classes, ' wp-block-button__link ') => 'native-button',
+            'a' === $element->tagName && str_starts_with($text, 'more') => 'text-link',
+            'li' === $element->tagName && str_starts_with($text, 'Item') => 'list-item',
+            default => '',
+        };
+        if ( '' === $role ) {
+            continue;
+        }
+        $style = $cascade->resolve($element, array( 'color', 'background-color', 'font-weight', 'line-height', 'text-decoration' ), array());
+        $probe[$role] ??= array();
+        if ( ! in_array($style, $probe[$role], true) ) {
+            $probe[$role][] = $style;
+        }
+    }
+    ksort($probe);
+    $variedResolved[(string) $planPage['source_path']] = $probe;
+}
+$entry = $variedResolved['a.html'] ?? array();
+$assert(
+    array( 'button-link', 'list-item', 'native-button', 'text-link' ) === array_keys($entry)
+        && '#123456' === strtolower((string) ($entry['button-link'][0]['background-color'] ?? ''))
+        && '#0a7c45' === strtolower((string) ($entry['text-link'][0]['color'] ?? ''))
+        && '1.6' === (string) ($entry['list-item'][0]['line-height'] ?? '')
+        && '700' === (string) ($entry['native-button'][0]['font-weight'] ?? ''),
+    'authored button, link, list and native button styles resolve on the entry page',
+    (string) json_encode($entry)
+);
+$assert(10 === count($variedResolved) && 1 === count(array_unique(array_map('serialize', $variedResolved))), 'every page resolves the same styles for its own buttons, links and list items', (string) json_encode(array_slice($variedResolved, 0, 3)));
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "shared-author-stylesheet scaling FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);
