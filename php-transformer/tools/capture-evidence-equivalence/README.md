@@ -123,6 +123,10 @@ replay by case:
   leading copy. A page projected more than once no longer carries repeated
   hints after its doctype. Only the page markup, its byte counts and the
   companion plugin artifact hash derived from it change in `08209f9d`, `1092de6e`, `1fdf1238`, `46d57331`, `5b83e5f7`, `71c3c5d4`, `73824e37`, `76cfd1b8`, `95b3bd5a`, `a674b388`, `b763ab02`, `b7953315`, `c6229f80`, `df9fb671`, `f50c6998`, `ff715749`.
+- **Group caption presentation** (#2760). A v2 form presentation graph
+  always declares `group_captions`. The corpus form has no captioned choice
+  group, so it gains an empty list and the hashes derived from the forms
+  payload change in `c4469897`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
