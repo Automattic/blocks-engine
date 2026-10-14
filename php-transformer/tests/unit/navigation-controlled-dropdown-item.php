@@ -59,6 +59,13 @@ $assert(
 $unbound = $items(' aria-controls="elsewhere"', ' id="about-us"');
 $assert(! in_array('submenu:About Us', $unbound, true), 'a button that names another element does not claim the panel', json_encode($unbound));
 
+$hiddenLabel = (string) (( new HtmlTransformer() )->transform(
+    '<nav class="nav-list"><div class="nav-item"><a href="/">Home</a></div><div class="nav-item"><button aria-controls="p" aria-expanded="false">'
+    . '<span class="sr-only">Open submenu for </span>About</button><div id="p"><div><a href="/m">Mission</a></div></div></div></nav>',
+    array()
+)->toArray()['serialized_blocks'] ?? '');
+$assert(str_contains($hiddenLabel, '"label":"About"'), 'the submenu label leaves out screen-reader-only text', $hiddenLabel);
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "Navigation controlled dropdown item: {$failures} failed, {$passes} passed\n");
     exit(1);

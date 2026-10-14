@@ -3166,7 +3166,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             // A cluster of child links that follows the item's own anchor is its
             // submenu, not a second anchor carrier. An anchor found inside a
             // sibling wrapper is a peer item's, so the next wrapper is a peer too.
-            if ( array() !== $anchors && $element->isSameNode($anchors[0]->parentNode) && $this->isAnchorOnlyCluster($child) ) {
+            if ( array() !== $anchors && $this->ownsSubmenuCluster($element, $anchors[0], $child) ) {
                 continue;
             }
 
@@ -3235,7 +3235,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $tagName = strtolower($child->tagName);
             if ( in_array($tagName, array( 'nav', 'ul', 'ol' ), true)
                 || $this->hasSubmenuSignal($child)
-                || ( $element->isSameNode($primaryAnchor->parentNode) && $this->isAnchorOnlyCluster($child) )
+                || $this->ownsSubmenuCluster($element, $primaryAnchor, $child)
                 || ( $this->isNavigationWrapperElement($child)
                     && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length ) )
             ) {
@@ -3397,26 +3397,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         [ $button, $panel ] = $children;
         $controls = trim($button->getAttribute('aria-controls'));
-        $label = trim(preg_replace('/\s+/', ' ', $button->textContent ?? '') ?? '');
+        $label = trim(preg_replace('/\s+/', ' ', $this->visibleText($button)) ?? '');
         if ( '' === $controls || $controls !== trim($panel->getAttribute('id')) || '' === $label ) {
             return null;
         }
-        $links = 0;
-        foreach ( $panel->childNodes as $item ) {
-            if ( XML_COMMENT_NODE === $item->nodeType || ( XML_TEXT_NODE === $item->nodeType && '' === trim($item->textContent ?? '') ) ) {
-                continue;
-            }
-            $link = $item instanceof DOMElement && in_array(strtolower($item->tagName), array( 'div', 'span', 'li' ), true)
-                ? $this->soleMeaningfulChild($item)
-                : $item;
-            if ( ! $link instanceof DOMElement || 'a' !== strtolower($link->tagName)
-                || '' === trim($link->textContent ?? '') || '' === trim($link->getAttribute('href')) ) {
-                return null;
-            }
-            ++$links;
-        }
-
-        return 0 < $links ? array( 'label' => $label, 'cluster' => $panel, 'button' => $button ) : null;
+        return $this->isWrappedLinkPanel($panel) ? array( 'label' => $label, 'cluster' => $panel, 'button' => $button ) : null;
     }
 
     /**
@@ -3429,6 +3414,84 @@ final class NavigationPattern implements PatternRecognizerInterface
      * the wrapper's own direct child owns it: in `<div><div><a>One</a></div>
      * <div><a>Two</a></div></div>` the wrappers are peer items of one list.
      */
+    /**
+     * Whether `$cluster` is the submenu of the item whose own link is
+     * `$anchor`. The item must own that link: as its direct child, or as the
+     * only content of a label wrapper of another tag
+     * (`<div><span><a>Parent</a></span><div><a>Child</a></div></div>`). A
+     * wrapper of the same tag beside it is a peer item, not a submenu. The
+     * cluster holds only links, bare or one per wrapper.
+     */
+    private function ownsSubmenuCluster(DOMElement $element, DOMElement $anchor, DOMElement $cluster): bool
+    {
+        $carrier = $anchor->parentNode;
+        if ( ! $carrier instanceof DOMElement ) {
+            return false;
+        }
+        if ( ! $element->isSameNode($carrier) ) {
+            $parent = $carrier->parentNode;
+            $sole = $this->soleMeaningfulChild($carrier);
+            if ( ! $parent instanceof DOMElement || ! $element->isSameNode($parent)
+                || ! $sole instanceof DOMElement || ! $anchor->isSameNode($sole)
+                || strtolower($carrier->tagName) === strtolower($cluster->tagName)
+            ) {
+                return false;
+            }
+        }
+
+        return $this->isAnchorOnlyCluster($cluster) || $this->isWrappedLinkPanel($cluster);
+    }
+
+    /**
+     * The text a control paints: screen-reader-only (`sr-only`,
+     * `visually-hidden`, `screen-reader-text`) and `hidden` descendants are
+     * left out, so a visible label does not repeat assistive text.
+     */
+    private function visibleText(DOMElement $element): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $text .= $child->textContent;
+            } elseif ( $child instanceof DOMElement && ! $child->hasAttribute('hidden')
+                && 1 !== preg_match('/(?:^|[\s_-])(?:visually-hidden|sr-only|screen-reader-only|screen-reader-text)(?:$|[\s_-])/', strtolower($child->getAttribute('class')))
+            ) {
+                $text .= ' ' . $this->visibleText($child) . ' ';
+            }
+        }
+
+        return $text;
+    }
+
+    /**
+     * A panel whose entries are all destination links, each bare or the only
+     * child of its own wrapper (`<div><div><a>One</a></div><div><a>Two</a></div></div>`).
+     */
+    private function isWrappedLinkPanel(DOMElement $panel): bool
+    {
+        if ( ! in_array(strtolower($panel->tagName), array( 'div', 'span', 'ul', 'ol' ), true) ) {
+            return false;
+        }
+        $links = 0;
+        foreach ( $panel->childNodes as $item ) {
+            if ( XML_COMMENT_NODE === $item->nodeType || ( XML_TEXT_NODE === $item->nodeType && '' === trim($item->textContent ?? '') ) ) {
+                continue;
+            }
+            $link = $item instanceof DOMElement && in_array(strtolower($item->tagName), array( 'div', 'span', 'li' ), true)
+                ? $this->soleMeaningfulChild($item)
+                : $item;
+            if ( ! $link instanceof DOMElement || 'a' !== strtolower($link->tagName)
+                || '' === trim($link->textContent ?? '') || '' === trim($link->getAttribute('href'))
+                || $link->hasAttribute('aria-controls') || $link->hasAttribute('aria-expanded')
+            ) {
+                return false;
+            }
+            ++$links;
+        }
+
+        return 0 < $links;
+    }
+
     private function isAnchorOnlyCluster(DOMElement $element): bool
     {
         if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) ) {
