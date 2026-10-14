@@ -71,7 +71,7 @@
         {
             "id": "08209f9d73b381c852df6e291dc68e05fb65848a",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "c202975e79d41cdbfa194d837d20ea27ac3f0f802c77004da16783c6ea503177",
+            "expected_sha256": "4034a669d6547aa24755ddd93ca9c177e99003772635595a95d82ed4e0b47fff",
             "outcome": "output"
         },
         {
@@ -113,7 +113,7 @@
         {
             "id": "1092de6e52f085c18a24356685479c261ddf4f95",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "dd0a8abf4d40330bebd08abf25867de6bdf0ff4eb4b7eed9cb9a53254d6da7e6",
+            "expected_sha256": "2546420d79c032883543c7a46179d880cbb7adf1ece6501989fcd9cd2bee443b",
             "outcome": "output"
         },
         {
@@ -233,7 +233,7 @@
         {
             "id": "1fdf1238344745a117f3dc508c53d3f899e6db63",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "06fc462455b25d593be2be7d5a7dd4c78b210d321144573a143d9ffaa68ccfab",
+            "expected_sha256": "e68f6811ca45789a3ea2802dff4e0f88da9f9762d105328988b9d66cd0e241a1",
             "outcome": "output"
         },
         {
@@ -563,7 +563,7 @@
         {
             "id": "46d57331d0c6798e7c10a1d776571fa95100fe0a",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "cf52f1fac4ed158eae05be911b8043b747654ce5635c184a4c14873821b4fa16",
+            "expected_sha256": "b79035ce50954cd4e9d683ab3d8110f17b6dd6123b9747fd74248acd4e2b161c",
             "outcome": "output"
         },
         {
@@ -707,7 +707,7 @@
         {
             "id": "5b83e5f74d9fdb5882a062fd51ee27523cbf5e9a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "0ef5cf3079f7ec0418f7547419540daae3e5b54dc4dcb9b816dca113535c3ee9",
+            "expected_sha256": "d754e79b6aff8d03834a6179c3f6c1730bf487babc27c2965b17f13436e93a41",
             "outcome": "output"
         },
         {
@@ -905,7 +905,7 @@
         {
             "id": "71c3c5d4e767095dae6e4699572298ceeefa19f8",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "9841fb82aab353ce82a439640dbdb51cbcd18803bc365ace314bfe6c7f1e37d3",
+            "expected_sha256": "39c61625315f33b2193c014989b6c840603d5e8bd15d5dcafe5871988ed5fa1a",
             "outcome": "output"
         },
         {
@@ -929,7 +929,7 @@
         {
             "id": "73824e3736a862f9bfc9258404f75f739ec790d8",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "31517f217dd574927221acfd4d0aa0897fe6b0598e2be537d27add506b3d6e9b",
+            "expected_sha256": "20ed8754370c25b44c9abb3c99f753d1156ca52e5fde9967f9411dd185d2f25c",
             "outcome": "output"
         },
         {
@@ -941,7 +941,7 @@
         {
             "id": "76cfd1b857ad884e97d4d16e6311da3a9e359d40",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "0d389d179af6ee6e10c55a5bb0b48aa0d4c364fa9a22c2d8404f0f56141df8ee",
+            "expected_sha256": "968637f4a2e57e948620a54cfa76021090f4bf1462c83e2806fed785e469b8cc",
             "outcome": "output"
         },
         {
@@ -1271,7 +1271,7 @@
         {
             "id": "95b3bd5a8ce871e3aec047bc629d3f8498c4829c",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "0d7576d5648738a675fa04de6f86da6f064d8efcdc0704802e22e9bf4131fc44",
+            "expected_sha256": "7b23969fb3e7a8c4a8f7d0407bbc33108ca01ae43b85fdf654f7d6c6adfe8d45",
             "outcome": "output"
         },
         {
@@ -1355,7 +1355,7 @@
         {
             "id": "a674b388cb27ac0b1e993325c51d15fbf3fa7401",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "86ad3e7f84ea9c5e6d3402d62a4bda475e9192e1c3f0836d0900a76b3cb6fda8",
+            "expected_sha256": "32e210775dd1355ed21b81a3d004bd37f0c9ca2aa67e38c2a465afcb3a4b68ef",
             "outcome": "output"
         },
         {
@@ -1457,13 +1457,13 @@
         {
             "id": "b763ab024aa672d02247023460e63a59e49ea878",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "672771f33cf8d90d19c34418b2dd8310add645887f1d669b1ed38968454a5fc1",
+            "expected_sha256": "af9aa7a5e5b8085313dc7abc412b09abb879ee0658ec7c03f5a3cc257d6153ef",
             "outcome": "output"
         },
         {
             "id": "b79533155fdf23c409b907a7d7cf1388d381d7d9",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "4d9ef4edc39189c02aff6b9f63c306132e2b81a420be416d903c5a2b4efd8f41",
+            "expected_sha256": "a9786428cfec83a4e32973052f5449fed4dc204f5ccbb13d735b82db49c59e2a",
             "outcome": "output"
         },
         {
@@ -1589,7 +1589,7 @@
         {
             "id": "c6229f801810f12a695eadfc1dea055190bfe324",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "6518769a505310ba0876921e969f10f52f34e007693e7c4fa183e9be6f7454b1",
+            "expected_sha256": "f133bb4b948bf6177e3abc9d3b9ce9a17a1112f7b6bb0878d48effe718dca052",
             "outcome": "output"
         },
         {
@@ -1799,7 +1799,7 @@
         {
             "id": "df9fb671dd16e90c376147ea9110bb31855c3143",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "34db98256b58308dfa1f32019cee994df5fce9e665ee267c07bef8db55108d62",
+            "expected_sha256": "865331efb87b1b189c4b2cb9dea4ba904459f4829280628bbbb7e648a11ba880",
             "outcome": "output"
         },
         {
@@ -1997,7 +1997,7 @@
         {
             "id": "f50c699836b88c6bed0cb4b816dafb1995c3451d",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "bccc6410aad69be1592153b4a115f1be781805f904590b2e745b022eab4240cb",
+            "expected_sha256": "2c2bf9051d260bb92bb0e1040ca54c02c2c4b701b7633f36ea0a90dbb8d389c0",
             "outcome": "output"
         },
         {
@@ -2093,7 +2093,7 @@
         {
             "id": "ff7157491623331641f3f79d3a75c9423da68d33",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "bee74e03e70370199502a4b369ebf66ca138a70c81c0ddaec6b8a2aaf8327f7e",
+            "expected_sha256": "7a193c0e6cd0f09a4f9316c614818d8471f6ee095b645f2716e31d6e0d8249ac",
             "outcome": "output"
         }
     ]
