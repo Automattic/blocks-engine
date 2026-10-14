@@ -13,7 +13,7 @@ final class HtmlSerialization
         if (defined('LIBXML_VERSION') && LIBXML_VERSION >= 21400) {
             $html = self::canonicalizeAttributeQuotes($html);
             $html = self::normalizeHtml5VoidSerialization($html);
-            $html = self::canonicalizeEntityOutput($html);
+            if (!preg_match('/^\s*<svg\b/i', $html)) $html = self::canonicalizeEntityOutput($html);
         }
         return $html;
     }
