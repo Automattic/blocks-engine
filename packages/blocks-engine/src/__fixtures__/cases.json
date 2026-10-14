@@ -136,6 +136,12 @@
     "expected": "<!-- wp:media-text {\"mediaType\":\"image\"} -->\n<div class=\"wp-block-media-text is-stacked-on-mobile\"><figure class=\"wp-block-media-text__media\"><img src=\"https://cdn.test/a.jpg\" alt=\"A\"/></figure><div class=\"wp-block-media-text__content\"><h3>Title</h3><p>copy</p></div></div>\n<!-- /wp:media-text -->"
   },
   {
+    "id": "compose.generic-form",
+    "op": "compose",
+    "input": "<form class=\"space-y-4\"><div class=\"space-y-1.5\"><label for=\"login-email\">Email</label><input type=\"email\" id=\"login-email\" placeholder=\"m@example.com\" required/><label for=\"login-name\">Full name</label><input type=\"text\" id=\"login-name\"/><button type=\"submit\">Request a quote</button></div></form>",
+    "expected": "<!-- wp:jetpack/contact-form {\"style\":{\"spacing\":{\"padding\":{\"top\":\"16px\",\"right\":\"16px\",\"bottom\":\"16px\",\"left\":\"16px\"}}}} -->\n<div class=\"wp-block-jetpack-contact-form\">\n<!-- wp:jetpack/field-email {\"label\":\"Email\",\"required\":true,\"placeholder\":\"m@example.com\"} /-->\n<!-- wp:jetpack/field-text {\"label\":\"Full name\"} /-->\n<!-- wp:button {\"tagName\":\"button\",\"type\":\"submit\",\"lock\":{\"remove\":true},\"className\":\"form-button-submit is-submit\",\"metadata\":{\"name\":\"Submit button\"}} -->\n<div class=\"wp-block-button form-button-submit is-submit\"><button type=\"submit\" class=\"wp-block-button__link wp-element-button\">Request a quote</button></div>\n<!-- /wp:button -->\n</div>\n<!-- /wp:jetpack/contact-form -->"
+  },
+  {
     "id": "compose.sample-youtube-iframe",
     "op": "compose",
     "input": "<figure class=\"video\"><iframe src=\"https://www.youtube.com/embed/abc123\"></iframe></figure>",

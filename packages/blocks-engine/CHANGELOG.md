@@ -4,6 +4,11 @@ All notable changes to `@automattic/blocks-engine` will be documented in this fi
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- convert `form` elements (labels, inputs, selects, textareas, radio/checkbox groups, submit buttons) to editable `jetpack/contact-form` block markup instead of a `core/html` fallback island
+
 ## [0.3.3] - 2026-10-13
 
 ### Changed

@@ -4,6 +4,8 @@ import type { CheerioAPI } from 'cheerio';
 import { PIPELINE_ISLAND_OPENER } from './block-policy.js';
 import { buildEmbedBlock, guessEmbedProvider } from './embed.js';
 import { escapeHtmlAttr as escapeAttr, escapeHtmlText as escapeHtml } from './escape.js';
+import { parseHtmlForm } from './form-html.js';
+import { formToBlocks } from './theme/form-blocks.js';
 import { sanitize } from './sanitize.js';
 import type { ConversionContext } from './types.js';
 
@@ -66,6 +68,8 @@ function convertElement(
   if (buttons) return { matched: true, markup: buttons };
   const mediaText = tryMediaText($, el, ctx, htmlFallback);
   if (mediaText) return { matched: true, markup: mediaText };
+  const form = tryForm($, el);
+  if (form) return { matched: true, markup: form };
   return { matched: false, markup: htmlFallback($.html(el)) };
 }
 
@@ -310,4 +314,11 @@ function tryMediaText(
     `</div>\n` +
     `<!-- /wp:media-text -->`
   );
+}
+
+function tryForm($: CheerioAPI, el: Element): string | null {
+  if (el.tagName !== 'form') return null;
+  const parsed = parseHtmlForm($, el);
+  if (!parsed) return null;
+  return formToBlocks(parsed).markup;
 }
