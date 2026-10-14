@@ -3,10 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
-
-require dirname(__DIR__) . '/contract/support/CaptureEvidenceEquivalence.php';
 
 $assert = static function (bool $condition, string $message): void {
     if (! $condition) {
@@ -27,10 +24,6 @@ foreach (array('', 'auto', '1px', '0.5px', '10%', 'calc(0px + 1px)', 'var(--gap)
 $server = '<div style="grid-row:1 / span 1;grid-column:1 / span 12;margin:0 0 0 0;display:flex" class="cell a"><a href="#x" data-blocks-engine-capture-anchor-unresolved="timeout">X</a></div>';
 $browser = '<div class="a cell" style="grid-area: 1 / 1 / span 1 / span 12; display: flex; margin: calc(0px) 0% 0% 0px;"><a href="#x">X</a></div>';
 $assert(RenderEquivalentMarkup::canonical($server) === RenderEquivalentMarkup::canonical($browser), 'Render-equivalent serializations are one canonical form: ' . RenderEquivalentMarkup::canonical($server) . ' vs ' . RenderEquivalentMarkup::canonical($browser));
-$libxml29 = array('markup' => '<div data-state=\' {"mode":"open"}\'></div>');
-$libxml215 = array('markup' => '<div data-state=" {&quot;mode&quot;:&quot;open&quot;}"></div>');
-$assert(\CaptureEvidenceEquivalence::canonicalLibxmlSerialization($libxml29['markup'], false) === \CaptureEvidenceEquivalence::canonicalLibxmlSerialization($libxml215['markup'], true), 'libxml2 attribute quote escaping has one digest form.');
-$assert(\CaptureEvidenceEquivalence::normalized(array('markup' => '<div data-state="open"></div>'), '') !== \CaptureEvidenceEquivalence::normalized(array('markup' => '<div data-state="closed"></div>'), ''), 'libxml serialization normalization preserves actual attribute value differences.');
 // Real differences stay different, and overlapping shorthands keep their order.
 $assert(RenderEquivalentMarkup::canonical('<div style="margin:1px">x</div>') !== RenderEquivalentMarkup::canonical('<div style="margin:0">x</div>'), 'A non-zero margin differs from a zero one.');
 $assert('margin:0px;margin-top:4px' === RenderEquivalentMarkup::canonicalStyle('margin: 0; margin-top: 4px'), 'A shorthand and its longhand keep their written order.');

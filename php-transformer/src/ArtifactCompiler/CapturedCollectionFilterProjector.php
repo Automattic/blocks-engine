@@ -91,7 +91,7 @@ final class CapturedCollectionFilterProjector
                     foreach ($controls as $control) $control->setAttribute('data-blocks-engine-collection-control', 'category');
                     $empty->item(0)->setAttribute('data-blocks-engine-collection-control', 'empty');
                 }
-                $file['content'] = preg_replace('/^<\?xml encoding="UTF-8">/', '', $document->saveHTML());
+                $file['content'] = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::removeEncodingMarker($document->saveHTML() ?: '');
                 $file['bytes'] = strlen($file['content']);
             }
             unset($file);

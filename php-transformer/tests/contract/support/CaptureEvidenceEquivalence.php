@@ -182,10 +182,6 @@ final class CaptureEvidenceEquivalence
             if ( $lengthNeutral ) {
                 $value = preg_replace(array('/(?<![0-9a-f])[0-9a-f]{12,}(?![0-9a-f])/', '/^(.*)\.\.\.$/s'), array('<hex>', '<excerpt>'), $value) ?? $value;
             }
-            // libxml2 2.14+ emits double-quoted HTML attributes with inner
-            // double quotes escaped; older versions use single quotes around
-            // the same value. Normalize only that serializer spelling.
-            $value = self::canonicalLibxmlSerialization($value, defined('LIBXML_VERSION') && LIBXML_VERSION >= 21400);
             return $value;
         }
         if ( is_array($value) ) {
@@ -203,11 +199,5 @@ final class CaptureEvidenceEquivalence
         }
 
         return $value;
-    }
-
-    public static function canonicalLibxmlSerialization(string $value, bool $newSerializer): string
-    {
-        if (!$newSerializer) return $value;
-        return preg_replace_callback('/([a-zA-Z_:][a-zA-Z0-9_.:-]*)="([^"]*&quot;[^"]*)"/', static fn (array $attribute): string => $attribute[1] . "='" . str_replace('&quot;', '"', $attribute[2]) . "'", $value) ?? $value;
     }
 }

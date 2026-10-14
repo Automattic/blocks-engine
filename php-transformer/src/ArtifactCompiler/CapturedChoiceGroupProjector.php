@@ -274,7 +274,7 @@ final class CapturedChoiceGroupProjector
         }
 
         $output = $document->saveHTML();
-        $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
+        $output = is_string($output) ? \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::removeEncodingMarker($output) : null;
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
     }
 

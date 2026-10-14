@@ -24,6 +24,14 @@ require __DIR__ . '/support/CaptureEvidenceEquivalence.php';
 
 ini_set('memory_limit', '2G');
 
+$serialization = Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::class;
+foreach (array('<?xml encoding="UTF-8"><html>' => '<html>', '<!--?xml encoding="UTF-8"--><html>' => '<html>', '<!--/xml encoding="UTF-8"--><html>' => '<html>') as $serialized => $canonical) {
+    if ($canonical !== $serialization::removeEncodingMarker($serialized)) {
+        fwrite(STDERR, "HTML encoding marker serialization regression.\n");
+        exit(1);
+    }
+}
+
 $expected = json_decode((string) file_get_contents(CaptureEvidenceEquivalence::EXPECTED), true);
 if ( ! is_array($expected) || CaptureEvidenceEquivalence::SCHEMA !== ($expected['schema'] ?? null) ) {
     fwrite(STDERR, "Capture-evidence equivalence expectations are unreadable.\n");
