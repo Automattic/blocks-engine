@@ -90,6 +90,12 @@ replay by case:
   there share one header. Only the shared header's `shell_identity` and the
   plan identity hash change in `0a9c1bea`, `15082c2d`, `37284b0e`, `55b724ac`,
   `7c2d1217`, `927aa368`, `944dd63d`, `df9c24a8`, `e5ea5743`.
+- **Plain srcset resolution families** (#2763). Outside `<picture>` source
+  selection, a descriptor family whose rendered width is known lowers to
+  native `core/image` instead of the responsive media carrier. The Wix
+  `x`-descriptor thumbnails with `width="280"` in `90234027` become
+  `core/image` blocks and the responsive media companion definition drops
+  out. Only the style-rule candidate cache hit counter moves in `c210d1f9`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
