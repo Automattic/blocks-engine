@@ -159,6 +159,34 @@ $assert(
     $navMarkup . "\n" . $navAfterAuthor
 );
 
+$existingPanelState = htmlspecialchars(json_encode(array(
+    'resting' => array('style' => null, 'class' => 'closed-panel data-blocks-engine-capture-dropdown', 'hidden' => false),
+    'opened' => array('style' => 'display:block;visibility:visible!important', 'class' => 'closed-panel is-open data-blocks-engine-capture-dropdown', 'hidden' => false),
+), JSON_THROW_ON_ERROR), ENT_QUOTES);
+$capturedOpenNav = <<<HTML
+<style>
+.closed-panel { display: none; }
+.menu:hover .closed-panel { display: block; }
+</style>
+<nav class="menu"><ul><li><a href="/services">Services</a>
+  <nav id="captured-panel" class="closed-panel is-open data-blocks-engine-capture-dropdown" aria-labelledby="services-toggle" style="display:block;visibility:visible!important" data-blocks-engine-capture-existing-panel="{$existingPanelState}" hidden="" data-blocks-engine-capture-dialog-panel="captured-panel">
+    <ul><li><a href="/consulting">Consulting</a></li></ul>
+  </nav>
+</li></ul></nav>
+HTML;
+$capturedOpenNavResult = ( new HtmlTransformer() )->transform($capturedOpenNav)->toArray();
+$capturedOpenNavMarkup = (string) ($capturedOpenNavResult['serialized_blocks'] ?? '');
+$capturedOpenNavAfterAuthor = $cssContent($capturedOpenNavResult, 'after-author', 'both');
+$assert(
+    str_contains($capturedOpenNavMarkup, '<!-- wp:navigation-submenu')
+        && str_contains($capturedOpenNavMarkup, 'Consulting')
+        && ! str_contains($capturedOpenNavMarkup, 'is-open')
+        && ! str_contains($capturedOpenNavMarkup, 'data-blocks-engine-capture-existing-panel')
+        && ! str_contains($capturedOpenNavAfterAuthor, '#captured-panel{display:revert!important}'),
+    'native navigation owns the closed resting state and does not retain the captured open class',
+    $capturedOpenNavMarkup . "\n" . $capturedOpenNavAfterAuthor
+);
+
 $hiddenAnswer = <<<'HTML'
 <style>
 .answer { display: none !important; visibility: hidden; height: 0; overflow: hidden; }
