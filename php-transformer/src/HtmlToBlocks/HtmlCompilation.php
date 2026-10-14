@@ -4259,6 +4259,37 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $innerBlocks;
     }
 
+    /**
+     * Whether any trigger of a captured dialog can show at some viewport: no
+     * element from the trigger up declares `display:none` at its base without
+     * a conditional value that shows it, and none carries `hidden`.
+     */
+    private function capturedDialogHasReachableTrigger(DOMElement $dialog): bool
+    {
+        $document = $dialog->ownerDocument;
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($dialog, 'data-blocks-engine-triggers'))) ?: array() as $id ) {
+            $trigger = '' !== $id && null !== $document ? $document->getElementById($id) : null;
+            if ( ! $trigger instanceof DOMElement ) {
+                continue;
+            }
+            $reachable = true;
+            for ( $node = $trigger; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
+                $display = $this->styleResolver->declaredPresentation($node, 'display');
+                $base = CssValueInspector::comparable($display->base());
+                $shownSomewhere = array() !== array_filter($display->conditional(), static fn (string $value): bool => 'none' !== CssValueInspector::comparable($value));
+                if ( $node->hasAttribute('hidden') || ( 'none' === $base && ! $shownSomewhere ) ) {
+                    $reachable = false;
+                    break;
+                }
+            }
+            if ( $reachable ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function sourceElementStartsHidden(DOMElement $element): bool
     {
         if ( SourceDom::documentVariantRoot($element) === $element ) {
@@ -4267,7 +4298,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // A projected captured dialog is the panel's open state. Its source
         // rest rules hide it until script opens it; the dialog block owns that
         // closed state, so they do not make the dialog hidden content.
-        if ( 'dialog' === strtolower($element->tagName) && 'true' === SourceDom::attr($element, 'data-blocks-engine-captured-dialog') ) {
+        // A dialog none of whose triggers can ever show is still dropped.
+        if ( 'dialog' === strtolower($element->tagName) && 'true' === SourceDom::attr($element, 'data-blocks-engine-captured-dialog')
+            && $this->capturedDialogHasReachableTrigger($element)
+        ) {
             return false;
         }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);

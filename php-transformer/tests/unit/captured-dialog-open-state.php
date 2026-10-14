@@ -18,6 +18,9 @@ declare(strict_types=1);
  * - a rest rule that hides the panel (by id or by class) made the dialog
  *   hidden content, and the dialog block was dropped;
  * - without a captured ancestor state the rest rule won on the open dialog.
+ * State rules are trusted only when they agree, or when they name the opened
+ * ancestor class the capture recorded; only an out-of-view translate counts
+ * as a rest offset.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -36,12 +39,12 @@ $assert = static function (bool $ok, string $message, string $detail = '') use (
 };
 
 /** The rendered `<dialog>` opening tag of the compiled dialog block, or ''. */
-$dialog = static function (string $css): string {
+$dialog = static function (string $css, string $triggerAttributes = ''): string {
     $panel = '<div id="panel" class="panel" role="dialog"><nav class="menu"><a href="/a">Alpha</a><a href="/b">Beta</a></nav></div>';
     $wired = '<div class="data-blocks-engine-capture-dialog" role="dialog" aria-modal="true" hidden id="wired" data-blocks-engine-capture-dialog-panel="wired">' . $panel . '</div>';
     $html = '<html><head><style>' . $css . '</style></head><body><header><a href="/">Home</a>'
         . '<button id="menu" type="button" aria-label="Open menu" aria-haspopup="dialog" aria-expanded="false" aria-controls="wired"'
-        . ' data-blocks-engine-capture-dialog-trigger="wired" data-blocks-engine-capture-disclosure-label="Open menu"><span></span></button>'
+        . ' data-blocks-engine-capture-dialog-trigger="wired" data-blocks-engine-capture-disclosure-label="Open menu"' . $triggerAttributes . '><span></span></button>'
         . $wired . '</header><main><p>Body</p></main></body></html>';
     $state = array(
         'status' => 'captured',
@@ -81,6 +84,25 @@ $assert(str_contains($positioned, 'data-blocks-engine-placement="source"') && ! 
 
 $centred = $dialog('.panel{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)}body.nav-open .panel{transform:translate(-50%,-50%) scale(1)}');
 $assert(! str_contains($centred, 'transform:'), 'a transform the open state keeps is not treated as a rest offset', $centred);
+
+$centredNoJs = $dialog('#panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%)}.no-js #panel{transform:none}');
+$assert(! str_contains($centredNoJs, 'style='), 'a centring translate is in view, so another state rule does not un-centre the modal', $centredNoJs);
+
+$theme = $dialog('#panel{opacity:0;position:fixed}body.nav-open #panel{opacity:1}.dark-theme #panel{opacity:.5}');
+$assert('' !== $theme && ! str_contains($theme, 'opacity:'), 'state rules that disagree carry nothing', $theme);
+
+$noJs = $dialog('#panel{display:none;position:fixed}body.nav-open #panel{display:flex}.no-js #panel{display:block}');
+$assert('' !== $noJs && ! str_contains($noJs, 'display:'), 'state rules that disagree on display carry nothing', $noJs);
+
+$recordedState = ' data-blocks-engine-capture-dialog-ancestor-state="' . htmlspecialchars((string) json_encode(array(array('tag' => 'body', 'closed' => array('class' => ''), 'opened' => array('class' => 'nav-open')))), ENT_QUOTES) . '"';
+$recorded = $dialog('#panel{display:none;position:fixed}body.nav-open #panel{display:flex}.no-js #panel{display:block}', $recordedState);
+$assert(str_contains($recorded, 'style="display:flex"'), 'the state rule naming the recorded opened class wins over other state rules', $recorded);
+
+$unreachable = $dialog('#menu{display:none}#panel{display:none;position:fixed}body.nav-open #panel{display:block}');
+$assert('' === $unreachable, 'a dialog whose trigger never shows is still dropped', $unreachable);
+
+$phoneTrigger = $dialog('#menu{display:none}@media (max-width:767px){#menu{display:block}}#panel{display:none;position:fixed}body.nav-open #panel{display:block}');
+$assert(str_contains($phoneTrigger, 'style="display:block"'), 'a dialog whose trigger shows at some viewport is kept', $phoneTrigger);
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "Captured dialog open state: {$failures} failed, {$passes} passed\n");
