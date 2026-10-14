@@ -179,9 +179,6 @@ final class CaptureEvidenceEquivalence
             foreach ( $roots as $root ) {
                 $value = str_replace(array($root, dirname($root)), array('<transformer-root>', '<repository-root>'), $value);
             }
-            if (defined('LIBXML_VERSION') && LIBXML_VERSION >= 21400) {
-                $value = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::canonicalizeAttributeQuotes($value);
-            }
             if ( $lengthNeutral ) {
                 $value = preg_replace(array('/(?<![0-9a-f])[0-9a-f]{12,}(?![0-9a-f])/', '/^(.*)\.\.\.$/s'), array('<hex>', '<excerpt>'), $value) ?? $value;
             }
