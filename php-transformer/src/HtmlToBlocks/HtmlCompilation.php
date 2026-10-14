@@ -19,6 +19,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
@@ -1481,7 +1482,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return new DisclosureControlPresentation(
             $this->styleResolver,
             $this->generatedSupportStyles(),
-            fn (DOMElement $element): string => $this->svgMaterializer->ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
+            fn (DOMElement $element): string => SvgMaterializer::ensureSvgImageNamespace($this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element)))
         );
     }
 
@@ -9926,7 +9927,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $projections->installImageLinkMarker($selectorAnchor, $link->getNodePath() ?? '');
                     $attrs['className'] = $this->mergeClassNames(
                         (string) ($attrs['className'] ?? ''),
-                        $projections->ensureImageWrapperMarker($image->getNodePath() ?? '')
+                        ...EngineMarker::withRole($projections->ensureImageWrapperMarker($image->getNodePath() ?? ''))
                     );
                 }
                 if ( empty($attrs['anchor']) || $linkAnchor === $attrs['anchor'] ) {

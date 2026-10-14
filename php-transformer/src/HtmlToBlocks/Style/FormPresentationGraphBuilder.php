@@ -36,6 +36,15 @@ final class FormPresentationGraphBuilder
     private const TYPOGRAPHY_PROPERTIES = array(
         'color', 'font', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height',
     );
+    /** A button caption carrier also sets the caption's case. */
+    private const CAPTION_PROPERTIES = array(
+        'color', 'font', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'text-transform',
+    );
+    /** A block-level caption carrier fills its button, so its padding sizes the button box. */
+    private const CAPTION_BOX_PROPERTIES = array(
+        'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+        'padding-block', 'padding-inline', 'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end',
+    );
     /** How far a text-carrier search may walk before the search, not the cascade, gives up. */
     private const MAX_CARRIER_CANDIDATES = 256;
     private const CONTROL_CONTAINER_PROPERTIES = array(
@@ -497,7 +506,7 @@ final class FormPresentationGraphBuilder
                     // or `<span>` inside it). Typography that carrier declares wins
                     // over the label's own for that text, property by property, so a
                     // provider label that renders the text directly keeps it.
-                    $carried = $this->carrierTypography($buttonCaption ? array() : $roles, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $conditional);
+                    $carried = $this->carrierTypography($buttonCaption ? array() : $roles, $element, $analysis['rules'], $customPropertyAnalysis['rules'], $conditional, $buttonCaption && ! $this->hasPadding($styles));
                     if ( array() !== $carried ) {
                         $overridden = array_map(static fn (string $key): string => str_replace('_', '-', $key), array_keys(array_intersect_key($styles, $carried['styles'])));
                         foreach ( $provenance as $factIndex => $fact ) {
@@ -698,8 +707,9 @@ final class FormPresentationGraphBuilder
      * @param list<array<string, mixed>> $customPropertyRules
      * @return array<string, mixed>
      */
-    private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules, array $labelConditional = array()): array
+    private function carrierTypography(array $roles, DOMElement $label, array $rules, array $customPropertyRules, array $labelConditional = array(), bool $captionBox = false): array
     {
+        $properties = array_flip(array() === $roles ? self::CAPTION_PROPERTIES : self::TYPOGRAPHY_PROPERTIES);
         $excluded = array_values(array_filter(
             array( $roles['control'] ?? null, $roles['required_marker'] ?? null ),
             static fn (mixed $element): bool => $element instanceof DOMElement
@@ -709,13 +719,19 @@ final class FormPresentationGraphBuilder
         $conditions = array_fill_keys(array_keys($labelConditional), true);
         for ( $element = $carrier; $element instanceof DOMElement && ! $element->isSameNode($label); $element = $element->parentNode instanceof DOMElement ? $element->parentNode : null ) {
             $matched = $this->matched($element, $rules);
-            $base = array_intersect_key($matched['base'], array_flip(self::TYPOGRAPHY_PROPERTIES));
+            $carried = $properties;
+            // The caption carrier's own padding sizes an unpadded button only
+            // when the carrier is block-level; inline padding leaves the line box.
+            if ( $captionBox && $element->isSameNode($carrier) && self::isBlockLevelDisplay((string) ($matched['base']['display']['value'] ?? '')) ) {
+                $carried += array_flip(self::CAPTION_BOX_PROPERTIES);
+            }
+            $base = array_intersect_key($matched['base'], $carried);
             $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
             foreach ($base as $property => $fact) {
                 foreach (FormCustomPropertyResolver::conditionsChanging($fact['value'], $element, $customPropertyRules, true) as $condition) $conditional[json_encode($condition)][$property] ??= $fact;
             }
             foreach ( $conditional as $encoded => &$facts ) {
-                $facts = array_intersect_key($facts, array_flip(self::TYPOGRAPHY_PROPERTIES));
+                $facts = array_intersect_key($facts, $carried);
                 if ( array() !== $facts ) $conditions[$encoded] = true;
             }
             unset($facts);
@@ -759,6 +775,20 @@ final class FormPresentationGraphBuilder
      * @param list<array<string, mixed>> $rules
      * @param list<array<string, mixed>> $customPropertyRules
      */
+    private static function isBlockLevelDisplay(string $display): bool
+    {
+        return in_array(CssValueInspector::comparable($display), array( 'block', 'inline-block', 'flex', 'inline-flex', 'grid', 'inline-grid', 'flow-root' ), true);
+    }
+
+    /** @param array<string, string> $styles */
+    private function hasPadding(array $styles): bool
+    {
+        foreach ( $styles as $key => $value ) {
+            if ( str_starts_with($key, 'padding') && 1 !== preg_match('/^(?:0(?:\.0+)?(?:px|em|rem|%)?\s*)+$/', trim($value)) ) return true;
+        }
+        return false;
+    }
+
     private function carryFieldGroupGapOntoLabel(array &$row, DOMElement $control, array $ancestors, array $rules, array $customPropertyRules): void
     {
         if ( isset($row['label']['styles']['margin_block_end']) || isset($row['label']['styles']['margin_bottom']) ) {

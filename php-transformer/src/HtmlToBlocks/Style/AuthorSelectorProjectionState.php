@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Closure;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
 /** Per-transform source identities projected from author CSS selectors. */
@@ -174,7 +175,9 @@ final class AuthorSelectorProjectionState
     public function ensureTagMarker(string $tagName): string
     {
         $tagName = strtolower($tagName);
-        return $this->tagMarkers[$tagName] ??= $this->allocateMarker('source-' . $tagName);
+        return $this->tagMarkers[$tagName] ??= ($this->authorStyles
+            ?? throw new \LogicException('Author styles have not been installed for selector projection.'))
+            ->allocateTagMarker($tagName);
     }
 
     public function tagMarker(string $tagName): string
@@ -212,7 +215,7 @@ final class AuthorSelectorProjectionState
 
     public function ensureControlMarker(string $path): string
     {
-        return $this->controlMarkers[$path] ??= $this->allocateMarker('control');
+        return $this->controlMarkers[$path] ??= $this->allocatePathMarker('control', $path);
     }
 
     public function controlMarker(string $path): string
@@ -275,7 +278,7 @@ final class AuthorSelectorProjectionState
 
     public function ensureImageWrapperMarker(string $path): string
     {
-        return $this->imageWrapperMarkers[$path] ??= $this->allocateMarker('semantic');
+        return $this->imageWrapperMarkers[$path] ??= $this->allocatePathMarker('semantic', $path);
     }
 
     public function imageWrapperMarker(string $path): string
@@ -285,7 +288,7 @@ final class AuthorSelectorProjectionState
 
     public function ensureSemanticMarker(string $path): string
     {
-        return $this->semanticMarkers[$path] ??= $this->allocateMarker('semantic');
+        return $this->semanticMarkers[$path] ??= $this->allocatePathMarker('semantic', $path);
     }
 
     public function semanticMarker(string $path): string
@@ -295,7 +298,7 @@ final class AuthorSelectorProjectionState
 
     public function ensureRichTextMarker(string $path): string
     {
-        return $this->richTextMarkers[$path] ??= $this->allocateMarker('richtext');
+        return $this->richTextMarkers[$path] ??= $this->allocatePathMarker('richtext', $path);
     }
 
     public function richTextMarker(string $path): string
@@ -388,7 +391,7 @@ final class AuthorSelectorProjectionState
             return $this->stableAttributeMarkers[$path][$stableIdentity]
                 ??= $this->allocateStableAttributeMarker($stableIdentity);
         }
-        return $this->attributeMarkers[$path] ??= $this->allocateMarker('attribute');
+        return $this->attributeMarkers[$path] ??= $this->allocatePathMarker('attribute', $path);
     }
 
     private function allocateStableAttributeMarker(string $identity): string
@@ -554,7 +557,7 @@ final class AuthorSelectorProjectionState
 
     public function ensureRootChildMarker(string $path): string
     {
-        return $this->rootChildMarkers[$path] ??= $this->allocateMarker('root-child');
+        return $this->rootChildMarkers[$path] ??= $this->allocatePathMarker('root-child', $path);
     }
 
     public function rootChildMarker(string $path): string
@@ -564,7 +567,7 @@ final class AuthorSelectorProjectionState
 
     public function ensureMediaTextImageMarker(string $path): string
     {
-        return '' === $path ? '' : ($this->mediaTextImageMarkers[$path] ??= $this->allocateMarker('media-text-image'));
+        return '' === $path ? '' : ($this->mediaTextImageMarkers[$path] ??= $this->allocatePathMarker('media-text-image', $path));
     }
 
     public function mediaTextImageMarker(string $path): string
@@ -575,8 +578,12 @@ final class AuthorSelectorProjectionState
     /** @return list<string> */
     public function semanticMarkersForPath(string $path): array
     {
+        // A semantic carrier also carries the kind's role class, so a rule arm
+        // that has to stay off carriers excludes them through one constant
+        // class instead of enumerating every carrier's marker.
         return array_values(array_filter(array_merge(
-            array($this->semanticMarker($path), $this->attributeMarkers[$path] ?? ''),
+            EngineMarker::withRole($this->semanticMarker($path)),
+            array($this->attributeMarkers[$path] ?? ''),
             array_values($this->stableAttributeMarkers[$path] ?? array()),
             $this->attributeStateMarkers($path),
             array($this->rootChildMarker($path))
@@ -592,7 +599,7 @@ final class AuthorSelectorProjectionState
      */
     public function ensureTableMarker(string $path, ?\DOMElement $table = null): string
     {
-        return $this->tableMarkers[$path] ??= self::existingTableMarker($table) ?? $this->allocateMarker('table');
+        return $this->tableMarkers[$path] ??= self::existingTableMarker($table) ?? $this->allocatePathMarker('table', $path);
     }
 
     private static function existingTableMarker(?\DOMElement $table): ?string
@@ -627,10 +634,15 @@ final class AuthorSelectorProjectionState
         return $paths[$elementId] ?? '';
     }
 
-    private function allocateMarker(string $kind): string
+    /**
+     * A per-element marker named from the source element's context (see
+     * AuthorStyleAnalysis::allocateContextMarker()), so the same element under
+     * the same author CSS projects the same class on every page.
+     */
+    private function allocatePathMarker(string $kind, string $path): string
     {
         return ($this->authorStyles
             ?? throw new \LogicException('Author styles have not been installed for selector projection.'))
-            ->allocateMarker($kind);
+            ->allocateContextMarker($kind, $path);
     }
 }

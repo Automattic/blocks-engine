@@ -193,7 +193,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
         $html = $this->withStandaloneDescendantPaint($element, $html);
 
-        $html = $this->ensureSvgImageNamespace($this->minifyInlineSvgForImage($html));
+        $html = self::ensureSvgImageNamespace($this->minifyInlineSvgForImage($html));
         if ( $this->cssOwnsMediaBox($element) && ! $this->cssDefinesMediaSize($element) ) {
             // CSS that only limits the box (max-height, min-width, aspect-ratio)
             // still sizes from the image's natural dimensions. A standalone SVG
@@ -1057,13 +1057,22 @@ final class SvgMaterializer implements SvgElementMaterializer
         return preg_replace('/<(?:title|desc)\b[^>]*>.*?<\/(?:title|desc)>/is', '', $html) ?? $html;
     }
 
-    public function ensureSvgImageNamespace(string $html): string
+    /**
+     * A standalone SVG document (an image file or a data URI) must declare
+     * every namespace it uses. Inline SVG gets them from the HTML parser; on
+     * its own, an undeclared `xlink:` prefix makes the browser reject the
+     * whole image, so a sprite icon (`<use xlink:href="#id">`) shows as broken.
+     */
+    public static function ensureSvgImageNamespace(string $html): string
     {
-        if ( preg_match('/<svg\b[^>]*\sxmlns\s*=/i', $html) ) {
-            return $html;
+        if ( ! preg_match('/<svg\b[^>]*\sxmlns\s*=/i', $html) ) {
+            $html = preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $html, 1) ?? $html;
+        }
+        if ( preg_match('/<[a-z][^>]*\sxlink:[a-z]+\s*=/i', $html) && ! preg_match('/^\s*<svg\b[^>]*\sxmlns:xlink\s*=/i', $html) ) {
+            $html = preg_replace('/<svg\b/i', '<svg xmlns:xlink="http://www.w3.org/1999/xlink"', $html, 1) ?? $html;
         }
 
-        return preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $html, 1) ?? $html;
+        return $html;
     }
 
     private function resolveMaterializedSvgColors(string $html, DOMElement $element): string
