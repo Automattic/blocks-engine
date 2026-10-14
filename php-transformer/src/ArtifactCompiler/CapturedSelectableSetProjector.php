@@ -527,7 +527,7 @@ final class CapturedSelectableSetProjector
             return $unchanged;
         }
         $label = $element instanceof DOMElement ? $this->labelFromTriggerElement($element) : '';
-        $html = $document->saveHTML($region);
+        $html = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization($document->saveHTML($region) ?: '');
         $html = is_string($html) ? $this->safeRegionHtml($html) : null;
         if ('' === $label || null === $html || '' === trim($html) || strlen($html) > self::MAX_REGION_BYTES) {
             return $unchanged;
@@ -1045,7 +1045,7 @@ final class CapturedSelectableSetProjector
         }
         $html = '';
         foreach ($wrapper->childNodes as $node) {
-            $html .= $document->saveHTML($node);
+            $html .= \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization($document->saveHTML($node) ?: '');
         }
 
         return is_string($html) ? $html : null;

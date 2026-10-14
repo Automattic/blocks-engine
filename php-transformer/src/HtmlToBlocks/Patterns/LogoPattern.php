@@ -202,7 +202,7 @@ final class LogoPattern implements PatternRecognizerInterface
 
         $content = '';
         foreach ( $body->childNodes as $child ) {
-            $content .= $document->saveHTML($child);
+            $content .= \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization($document->saveHTML($child) ?: '');
         }
         return $content;
     }

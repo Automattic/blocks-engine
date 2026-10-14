@@ -1753,7 +1753,7 @@ final class ArtifactCompiler
 
         $result = '';
         foreach ( $body->childNodes as $child ) {
-            $result .= $document->saveHTML($child) ?: '';
+            $result .= \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization($document->saveHTML($child) ?: '');
         }
 
         return $result;
@@ -3269,7 +3269,7 @@ final class ArtifactCompiler
                     $content = $insideContent || in_array($tag, array('main', 'article', 'section', 'aside'), true);
                     $area = ShellLandmarkPolicy::landmarkKind($tag, trim($child->getAttribute('role')));
                     if (!$content && isset($rows[$area])) {
-                        $markup = $dom->saveHTML($child);
+                        $markup = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization($dom->saveHTML($child) ?: '');
                         if (is_string($markup) && '' !== $markup) $rows[$area][] = array('markup' => $markup, 'identity' => self::normalizeSourceShellIdentity($markup));
                     }
                     $walk($child, $content);
@@ -3363,7 +3363,7 @@ final class ArtifactCompiler
         }
         $body = $dom->getElementsByTagName('body')->item(0);
         $root = $body instanceof \DOMElement ? $body->firstElementChild : null;
-        $identity = $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $markup) : $markup;
+        $identity = $root instanceof \DOMElement ? \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization($dom->saveHTML($root) ?: $markup) : $markup;
         return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($identity);
     }
 

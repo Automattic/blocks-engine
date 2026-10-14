@@ -112,7 +112,7 @@ trait DomHelpersTrait
     {
         $fallback = $this->sourceTagProjectedClone($element);
         if ( $fallback instanceof DOMElement ) {
-            return $this->safeFallbackHtmlString(trim($fallback->ownerDocument->saveHTML($fallback) ?: ''));
+            return $this->safeFallbackHtmlString(trim(\Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization($fallback->ownerDocument->saveHTML($fallback) ?: '')));
         }
 
         return $this->safeFallbackHtmlString($this->outerHtml($element));

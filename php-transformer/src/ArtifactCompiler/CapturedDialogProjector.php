@@ -492,7 +492,7 @@ final class CapturedDialogProjector
                 if (array() !== array_filter($triggers, fn(DOMElement $trigger): bool => $this->isCapturedNavigationOverlayTrigger($trigger))) continue;
                 // Sanitize the panel envelope, retaining its content wrapper:
                 // that wrapper can own a menu's hierarchy and presentation.
-                $html = (string) $document->saveHTML($panel);
+                $html = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization((string) $document->saveHTML($panel));
                 if (strlen($html) > self::MAX_DIALOG_BYTES) continue;
                 // A declared document scope owns its wired panel's ancestry,
                 // stylesheet selectors and runtime. Moving it outside that

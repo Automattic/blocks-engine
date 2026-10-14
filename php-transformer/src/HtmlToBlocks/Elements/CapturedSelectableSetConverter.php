@@ -116,7 +116,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
             $markup = '';
             if ('' !== $label) {
                 foreach ($candidate->childNodes as $node) {
-                    $markup .= (string) $candidate->ownerDocument?->saveHTML($node);
+                    $markup .= \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization((string) $candidate->ownerDocument?->saveHTML($node));
                 }
             } else {
                 $label = trim(preg_replace('/\s+/', ' ', $candidate->textContent ?? '') ?? '');

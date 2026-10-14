@@ -399,7 +399,7 @@ final class CapturedChoiceGroupProjector
     {
         $html = '';
         foreach ($element->childNodes as $child) {
-            $html .= $element->ownerDocument?->saveHTML($child) ?? '';
+            $html .= \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization((string) $element->ownerDocument?->saveHTML($child));
         }
 
         return $html;
@@ -533,7 +533,7 @@ final class CapturedChoiceGroupProjector
         }
         $result = '';
         foreach ($root->childNodes as $node) {
-            $result .= $document->saveHTML($node);
+            $result .= \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::normalizeCurrentSerialization($document->saveHTML($node) ?: '');
         }
         return is_string($result) ? $result : null;
     }
