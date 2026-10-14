@@ -35,6 +35,10 @@ if ("<!DOCTYPE html>\n<?xml encoding=\"UTF-8\"><html>" !== $serialization::norma
     fwrite(STDERR, "HTML encoding marker after doctype regression.\n");
     exit(1);
 }
+if ("<!DOCTYPE html>\n<?xml encoding=\"UTF-8\"><?xml encoding=\"UTF-8\"><html>" !== $serialization::normalizeSerializedHtml("<!DOCTYPE html>\n<!--?xml encoding=\"UTF-8\"--><!--/xml encoding=\"UTF-8\"--><html>")) {
+    fwrite(STDERR, "Repeated HTML encoding markers regression.\n");
+    exit(1);
+}
 $quoteVariants = array('<div data-state=\'{"open":true}\'></div>', '<div data-state="{&quot;open&quot;:true}"></div>');
 if ($quoteVariants[0] !== $serialization::canonicalizeAttributeQuotes($quoteVariants[1])) {
     fwrite(STDERR, "HTML attribute quote canonicalization regression.\n");
