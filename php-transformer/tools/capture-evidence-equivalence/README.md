@@ -92,6 +92,12 @@ replay by case:
   there share one header. Only the shared header's `shell_identity` and the
   plan identity hash change in `0a9c1bea`, `15082c2d`, `37284b0e`, `55b724ac`,
   `7c2d1217`, `927aa368`, `944dd63d`, `df9c24a8`, `e5ea5743`.
+- **UTF-8 parse hint removed from documents.** Projectors that serialize a
+  whole document now remove the `<?xml encoding="UTF-8">` hint that
+  `DOMDocument::loadHTML()` needs as parser input, instead of stripping only a
+  leading copy. A page projected more than once no longer carries repeated
+  hints after its doctype. Only the page markup, its byte counts and the
+  companion plugin artifact hash derived from it change in `08209f9d`, `1092de6e`, `1fdf1238`, `46d57331`, `5b83e5f7`, `71c3c5d4`, `73824e37`, `76cfd1b8`, `95b3bd5a`, `a674b388`, `b763ab02`, `b7953315`, `c6229f80`, `df9fb671`, `f50c6998`, `ff715749`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.
