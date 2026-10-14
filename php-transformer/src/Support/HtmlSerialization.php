@@ -13,7 +13,7 @@ final class HtmlSerialization
         if (defined('LIBXML_VERSION') && LIBXML_VERSION >= 21400) {
             $html = self::canonicalizeAttributeQuotes($html);
             $html = self::normalizeHtml5VoidSerialization($html);
-            $html = self::normalizeOptionalListItemClosers($html);
+            $html = self::normalizeEmptyListItemClosers($html);
             if (!preg_match('/^\s*<svg\b/i', $html)) $html = self::canonicalizeEntityOutput($html);
         }
         return $html;
@@ -29,9 +29,9 @@ final class HtmlSerialization
         }, $html) ?? $html;
     }
 
-    public static function normalizeOptionalListItemClosers(string $html): string
+    public static function normalizeEmptyListItemClosers(string $html): string
     {
-        return preg_replace('/<\/li>(?=\s*<(?:li\b|\/(?:ul|ol)\b))/i', '', $html) ?? $html;
+        return preg_replace('/<(li\b[^>]*)><\/li>(?=<li\b|<\/ul>)/i', '<$1>', $html) ?? $html;
     }
 
     public static function canonicalizeEntityOutput(string $html): string

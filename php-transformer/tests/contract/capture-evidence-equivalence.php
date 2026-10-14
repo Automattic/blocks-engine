@@ -48,8 +48,8 @@ if ('<source srcset="small.avif"></source><track kind="captions"></track><wbr></
     fwrite(STDERR, "HTML5 void-element serialization regression.\n");
     exit(1);
 }
-if ('<ul><li>One<li>Two</ul>' !== $serialization::normalizeOptionalListItemClosers('<ul><li>One</li><li>Two</li></ul>')) {
-    fwrite(STDERR, "Optional list-item closing-tag normalization regression.\n");
+if ('<ul><li><li></ul>' !== $serialization::normalizeEmptyListItemClosers('<ul><li></li><li></li></ul>')) {
+    fwrite(STDERR, "Empty list-item closing-tag normalization regression.\n");
     exit(1);
 }
 if ('A &sup2;' !== $serialization::canonicalizeEntityOutput('A ²')) {
