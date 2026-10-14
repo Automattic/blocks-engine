@@ -48,6 +48,10 @@ if ('<source srcset="small.avif"></source><track kind="captions"></track><wbr></
     fwrite(STDERR, "HTML5 void-element serialization regression.\n");
     exit(1);
 }
+if ('A &sup2;' !== $serialization::canonicalizeEntityOutput('A ²')) {
+    fwrite(STDERR, "Non-ASCII entity canonicalization regression.\n");
+    exit(1);
+}
 
 $expected = json_decode((string) file_get_contents(CaptureEvidenceEquivalence::EXPECTED), true);
 if ( ! is_array($expected) || CaptureEvidenceEquivalence::SCHEMA !== ($expected['schema'] ?? null) ) {

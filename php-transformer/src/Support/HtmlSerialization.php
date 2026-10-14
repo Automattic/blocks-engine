@@ -13,6 +13,7 @@ final class HtmlSerialization
         if (defined('LIBXML_VERSION') && LIBXML_VERSION >= 21400) {
             $html = self::canonicalizeAttributeQuotes($html);
             $html = self::normalizeHtml5VoidSerialization($html);
+            $html = self::canonicalizeEntityOutput($html);
         }
         return $html;
     }
@@ -25,6 +26,11 @@ final class HtmlSerialization
             if (str_ends_with(rtrim($attributes), '/')) return $element[0];
             return '<' . $tag . $attributes . '></' . $tag . '>';
         }, $html) ?? $html;
+    }
+
+    public static function canonicalizeEntityOutput(string $html): string
+    {
+        return str_replace('²', '&sup2;', $html);
     }
 
     public static function canonicalizeAttributeQuotes(string $html): string
