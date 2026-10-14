@@ -162,6 +162,8 @@ final class CaptureEvidence
     public const ANCHOR_UNRESOLVED = 'data-blocks-engine-capture-anchor-unresolved';
     /** Recorded scroll-entrance states of an element the source reveals on viewport entry. */
     public const VIEWPORT_ENTRANCE = 'data-blocks-engine-capture-viewport-entrance';
+    /** Marks the capture's viewport-entrance activator script; engine-owned, not source behavior. */
+    public const VIEWPORT_ENTRANCE_ACTIVATOR = 'data-blocks-engine-capture-viewport-entrances';
 
     // Sidecar schemas.
 
