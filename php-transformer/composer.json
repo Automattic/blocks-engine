@@ -573,7 +573,8 @@
       "php tests/unit/consumed-inline-custom-properties.php",
       "php tests/unit/button-block-level-grid-item-fill.php",
       "php tests/unit/hidden-positioned-layer-opacity.php",
-      "php tests/unit/unreachable-text-trap-controls.php"
+      "php tests/unit/unreachable-text-trap-controls.php",
+      "php tests/unit/form-step-track.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",

@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormStepTrackDetector;
 use DOMElement;
 
 /** Builds the provider-materializable diagnostic for a form-like element. */
@@ -91,6 +92,10 @@ final class FormFallbackFindingBuilder
         );
         if ( array() !== $choiceGroups ) {
             $finding['choice_groups'] = $choiceGroups;
+        }
+        $steps = true === ($layoutGraph['truncated'] ?? true) ? null : (new FormStepTrackDetector())->detect($element, $layoutGraph, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        if ( null !== $steps ) {
+            $finding['steps'] = $steps;
         }
         if ( 'form' !== strtolower($element->tagName) ) {
             $finding['form_boundary'] = $this->pseudoFormAnalyzer->boundaryMetadata($element);

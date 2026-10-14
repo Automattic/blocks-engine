@@ -26,6 +26,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormStepTrackDetector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
@@ -1155,6 +1156,16 @@ final class ArtifactCompiler
                         $form['layout_graph'] = $fallback['layout_graph'];
                     } catch ( \InvalidArgumentException $error ) {
                         if ( $declarable ) $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'layout_graph', $error->getMessage());
+                    }
+                }
+                // A step track names layout graph nodes, so it travels only with
+                // the graph it was read from.
+                if ( isset($form['layout_graph']) && is_array($fallback['steps'] ?? null) ) {
+                    try {
+                        FormStepTrackDetector::assertValid($fallback['steps'], $form['layout_graph']);
+                        $form['steps'] = $fallback['steps'];
+                    } catch ( \InvalidArgumentException $error ) {
+                        if ( $declarable ) $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'steps', $error->getMessage());
                     }
                 }
                 if (true === ($fallback['layout_graph']['truncated'] ?? false)) {
