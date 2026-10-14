@@ -3405,21 +3405,14 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
-     * A plain wrapper that holds nothing but labelled destination anchors, set
-     * beside an item's own anchor. Builders that render a nested menu without
-     * list semantics or a `dropdown`-style name still express it this way:
-     * `<div><a>Parent</a><div><a>Child</a><a>Child</a></div></div>`. Structure
-     * alone carries the parent/child relationship, so no class vocabulary is
-     * needed to read the wrapper as the item's submenu. Only an anchor that is
-     * the wrapper's own direct child owns it: in `<div><div><a>One</a></div>
-     * <div><a>Two</a></div></div>` the wrappers are peer items of one list.
-     */
-    /**
      * Whether `$cluster` is the submenu of the item whose own link is
      * `$anchor`. The item must own that link: as its direct child, or as the
-     * only content of a label wrapper of another tag
+     * only content of a label wrapper
      * (`<div><span><a>Parent</a></span><div><a>Child</a></div></div>`). A
-     * wrapper of the same tag beside it is a peer item, not a submenu. The
+     * wrapped label only owns the cluster when the item holds nothing else,
+     * the label is not a heading (a footer column's linked heading titles
+     * its links, it does not open them), and the two do not share a tag or a
+     * class: wrappers alike in either way are peer items of one list. The
      * cluster holds only links, bare or one per wrapper.
      */
     private function ownsSubmenuCluster(DOMElement $element, DOMElement $anchor, DOMElement $cluster): bool
@@ -3433,7 +3426,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             $sole = $this->soleMeaningfulChild($carrier);
             if ( ! $parent instanceof DOMElement || ! $element->isSameNode($parent)
                 || ! $sole instanceof DOMElement || ! $anchor->isSameNode($sole)
+                || 2 !== $element->childElementCount
+                || 1 === preg_match('/^h[1-6]$/i', $carrier->tagName)
                 || strtolower($carrier->tagName) === strtolower($cluster->tagName)
+                || array() !== array_intersect(
+                    SourceDom::boundedClassTokens($carrier->getAttribute('class')),
+                    SourceDom::boundedClassTokens($cluster->getAttribute('class'))
+                )
             ) {
                 return false;
             }
@@ -3492,6 +3491,16 @@ final class NavigationPattern implements PatternRecognizerInterface
         return 0 < $links;
     }
 
+    /**
+     * A plain wrapper that holds nothing but labelled destination anchors, set
+     * beside an item's own anchor. Builders that render a nested menu without
+     * list semantics or a `dropdown`-style name still express it this way:
+     * `<div><a>Parent</a><div><a>Child</a><a>Child</a></div></div>`. Structure
+     * alone carries the parent/child relationship, so no class vocabulary is
+     * needed to read the wrapper as the item's submenu. Only an anchor that is
+     * the wrapper's own direct child owns it: in `<div><div><a>One</a></div>
+     * <div><a>Two</a></div></div>` the wrappers are peer items of one list.
+     */
     private function isAnchorOnlyCluster(DOMElement $element): bool
     {
         if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) ) {

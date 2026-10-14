@@ -14,8 +14,9 @@ declare(strict_types=1);
  * - a parent link inside a label wrapper,
  *   `div.entry > span > a + div > a`: the guard wanted the link as the item's
  *   direct child, so the whole menu was dropped.
- * Peers stay peers: a wrapper of the same tag beside the label is another
- * item, not a submenu.
+ * Peers stay peers: a wrapped label only owns the cluster when the item
+ * holds nothing else, the label is not a heading, and the two share neither
+ * a tag nor a class.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -83,6 +84,18 @@ $peers = $items(
     . '</div></nav></div></div></header>'
 );
 $assert(! in_array('submenu:Home', $labels($peers), true), 'a wrapper of the same tag beside the label stays a peer', json_encode($labels($peers)));
+
+// Shapes that read as peers or as titled columns stay as trunk: no submenu.
+$noSubmenu = array(
+    'a label of another tag beside peer items in a list' => '<nav class="nav"><div class="list"><span class="item current"><a href="/">Home</a></span><div class="item"><a href="/about">About</a></div><div class="item"><a href="/contact">Contact</a></div></div></nav>',
+    'a paragraph item beside a div item sharing its class' => '<nav class="nav"><div class="row"><p class="item"><a href="/">Home</a></p><div class="item"><a href="/about">About</a><a href="/team">Team</a></div></div></nav>',
+    'footer columns titled by linked headings' => '<footer><nav aria-label="Footer" class="cols"><div class="col"><h4><a href="/shop">Shop</a></h4><div class="links"><a href="/shoes">Shoes</a><a href="/bags">Bags</a></div></div>'
+        . '<div class="col"><h4><a href="/help">Help</a></h4><div class="links"><a href="/faq">FAQ</a><a href="/returns">Returns</a></div></div></nav></footer>',
+);
+foreach ( $noSubmenu as $case => $html ) {
+    $read = $labels($items($html));
+    $assert(array() === array_filter($read, static fn (string $item): bool => str_starts_with($item, 'submenu:')), $case . ' gets no submenu', json_encode($read));
+}
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "Navigation owned submenu panel: {$failures} failed, {$passes} passed\n");
