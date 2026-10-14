@@ -1032,7 +1032,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
                 return $convertChildren($element, $fallbacks, true);
             },
-            fn (DOMElement $element): string => $this->styleResolver->specificityResolvedPresentationStyle($element)
+            fn (DOMElement $element): string => $this->styleResolver->specificityResolvedPresentationStyle($element),
+            fn (DOMElement $element): array => $this->styleResolver->capturedDialogOpenStateValues($element)
         );
         $this->wrapperCoalescer = new WrapperCoalescer(
             $this->sourceElementClassifier,
@@ -4261,6 +4262,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function sourceElementStartsHidden(DOMElement $element): bool
     {
         if ( SourceDom::documentVariantRoot($element) === $element ) {
+            return false;
+        }
+        // A projected captured dialog is the panel's open state. Its source
+        // rest rules hide it until script opens it; the dialog block owns that
+        // closed state, so they do not make the dialog hidden content.
+        if ( 'dialog' === strtolower($element->tagName) && 'true' === SourceDom::attr($element, 'data-blocks-engine-captured-dialog') ) {
             return false;
         }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);

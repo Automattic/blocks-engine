@@ -4715,6 +4715,95 @@ final class StyleResolver implements ElementPresentationResolver
         return (bool) ($this->context->parsedCssSelector($selector)['supported'] ?? false);
     }
 
+    /**
+     * The open-state values a captured modal dialog needs over its rest state.
+     *
+     * A projected dialog is the panel's captured open state. Its source panel
+     * is often hidden or slid away at rest (`#panel{display:none;transform:
+     * translateX(-100%)}`) and shown by a rule that only matches once script
+     * marks an ancestor (`body.nav-open #panel{display:block;transform:none}`).
+     * When that ancestor state was not captured, the rest rule wins on the
+     * open dialog and it opens invisible. For each hiding or offsetting
+     * property that a state rule on the same panel reverses, return the state
+     * rule's value, so the dialog can carry it while it is open.
+     *
+     * A state rule here is a static rule whose rightmost compound matches the
+     * dialog but whose full selector does not.
+     *
+     * @return array<string, string>
+     */
+    public function capturedDialogOpenStateValues(DOMElement $dialog): array
+    {
+        $hidden = array(
+            'display' => static fn (string $value): bool => 'none' === $value,
+            'visibility' => static fn (string $value): bool => 'hidden' === $value,
+            'opacity' => static fn (string $value): bool => is_numeric($value) && 0.0 === (float) $value,
+            'transform' => static fn (string $value): bool => ! self::isIdentityTransform($value),
+        );
+        $rest = array();
+        $state = array();
+        $order = 0;
+        // Raw author rules: the static analysis keeps neither `transform` nor
+        // rules that match no source element, and a state rule matches none
+        // until script adds its ancestor class.
+        (new CssStylesheetTransformer())->visitStyleRules(
+            $this->context->authorStyles()->combinedCss(),
+            function (string $prelude, string $body, array $conditions) use ($dialog, $hidden, &$rest, &$state, &$order): void {
+                if ( array() !== $conditions ) {
+                    return;
+                }
+                $declarations = array_intersect_key($this->cssDeclarations($body), $hidden);
+                if ( array() === $declarations ) {
+                    return;
+                }
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $selector = trim($selector);
+                    $parsed = $this->context->parsedCssSelector($selector);
+                    $span = $parsed['rightmost_compound_span'] ?? null;
+                    if ( ! ($parsed['supported'] ?? false) || ! is_array($span) ) {
+                        continue;
+                    }
+                    if ( $this->matchesCssSelector($dialog, $selector) ) {
+                        $rest[] = array('specificity' => $this->mediaTextSelectorSpecificity($selector), 'order' => $order++, 'declarations' => $declarations);
+                        continue;
+                    }
+                    $subject = substr($selector, (int) $span['start'], (int) $span['end'] - (int) $span['start']);
+                    if ( 0 < (int) $span['start'] && $this->matchesCssSelector($dialog, $subject) ) {
+                        $state[] = $declarations;
+                    }
+                }
+            }
+        );
+        usort($rest, static fn (array $left, array $right): int => array($left['specificity'], $left['order']) <=> array($right['specificity'], $right['order']));
+        $resting = array();
+        foreach ( $rest as $rule ) {
+            $resting = array_merge($resting, $rule['declarations']);
+        }
+
+        $open = array();
+        foreach ( $state as $declarations ) {
+            foreach ( $hidden as $property => $isHidden ) {
+                $restValue = CssValueInspector::comparable((string) ( $resting[$property] ?? '' ));
+                $stateValue = trim((string) preg_replace('/\s*!important\s*$/i', '', (string) ( $declarations[$property] ?? '' )));
+                if ( '' !== $restValue && '' !== $stateValue && $isHidden($restValue) && ! $isHidden(CssValueInspector::comparable($stateValue)) ) {
+                    $open[$property] = $stateValue;
+                }
+            }
+        }
+
+        return $open;
+    }
+
+    private static function isIdentityTransform(string $value): bool
+    {
+        $value = strtolower(trim($value));
+        if ( '' === $value || 'none' === $value ) {
+            return true;
+        }
+
+        return 1 === preg_match('/^(?:translate(?:x|y|z|3d)?\(\s*0(?:px|%)?\s*(?:,\s*0(?:px|%)?\s*){0,2}\)\s*)+$/', $value);
+    }
+
     public function matchesCssSelector(DOMElement $element, string $selector): bool
     {
         $cache = $this->context->sourceStyles();
