@@ -583,6 +583,7 @@ final class NavigationPatternContext
         if ( '' === $markup || ! SourceDom::isSafeSvgContent($markup) ) {
             return '';
         }
+        $markup = SvgMaterializer::ensureSvgImageNamespace($markup);
 
         $box = $this->navigationLinkIconBox($svg);
         if ( '' === $box ) {
