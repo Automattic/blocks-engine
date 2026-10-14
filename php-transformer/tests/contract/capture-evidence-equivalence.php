@@ -40,6 +40,10 @@ if ($quoteVariants[0] !== $serialization::canonicalizeAttributeQuotes($quoteVari
     fwrite(STDERR, "HTML attribute quote canonicalization regression.\n");
     exit(1);
 }
+if ('<source srcset="small.avif"></source><track kind="captions"></track><wbr></wbr>' !== $serialization::normalizeHtml5VoidSerialization('<source srcset="small.avif"><track kind="captions"><wbr>')) {
+    fwrite(STDERR, "HTML5 void-element serialization regression.\n");
+    exit(1);
+}
 
 $expected = json_decode((string) file_get_contents(CaptureEvidenceEquivalence::EXPECTED), true);
 if ( ! is_array($expected) || CaptureEvidenceEquivalence::SCHEMA !== ($expected['schema'] ?? null) ) {

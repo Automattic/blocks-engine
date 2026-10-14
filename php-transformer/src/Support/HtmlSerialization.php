@@ -10,8 +10,21 @@ final class HtmlSerialization
     {
         $html = preg_replace('/^(?:<\?xml encoding="UTF-8" ?\??>|<!--[?\/]xml encoding="UTF-8" ?-->)/i', '', $html) ?? $html;
         $html = preg_replace_callback('/(^|\n)<!--[?\/]xml encoding="UTF-8" ?-->/', static fn (array $marker): string => '' === $marker[1] ? '' : $marker[1] . '<?xml encoding="UTF-8">', $html) ?? $html;
-        if (defined('LIBXML_VERSION') && LIBXML_VERSION >= 21400) $html = self::canonicalizeAttributeQuotes($html);
+        if (defined('LIBXML_VERSION') && LIBXML_VERSION >= 21400) {
+            $html = self::canonicalizeAttributeQuotes($html);
+            $html = self::normalizeHtml5VoidSerialization($html);
+        }
         return $html;
+    }
+
+    public static function normalizeHtml5VoidSerialization(string $html): string
+    {
+        return preg_replace_callback('/<(source|track|wbr)\b([^>]*)>(?!\s*<\/\1\s*>)/i', static function (array $element): string {
+            $tag = strtolower($element[1]);
+            $attributes = $element[2];
+            if (str_ends_with(rtrim($attributes), '/')) return $element[0];
+            return '<' . $tag . $attributes . '></' . $tag . '>';
+        }, $html) ?? $html;
     }
 
     public static function canonicalizeAttributeQuotes(string $html): string
