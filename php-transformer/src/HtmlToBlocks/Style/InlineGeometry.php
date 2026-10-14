@@ -33,6 +33,7 @@ final class InlineGeometry
      * @param Closure(DOMElement, string): bool $hasConditionalStyleFamily
      * @param Closure(string): string $responsivePropertyFamily
      * @param Closure(DOMElement): bool $hasConditionalGridTemplateColumns
+     * @param Closure(DOMElement, list<string>): array{int, int, int} $authorNormalDeclarationSpecificity
      */
     public function __construct(
         private readonly StyleResolutionContext $context,
@@ -48,7 +49,8 @@ final class InlineGeometry
         private readonly Closure $structuralPresentationDeclarations,
         private readonly Closure $hasConditionalStyleFamily,
         private readonly Closure $responsivePropertyFamily,
-        private readonly Closure $hasConditionalGridTemplateColumns
+        private readonly Closure $hasConditionalGridTemplateColumns,
+        private readonly Closure $authorNormalDeclarationSpecificity
     ) {
     }
 
@@ -502,6 +504,7 @@ final class InlineGeometry
         $sourceOrder = array_flip(array_keys($declarations));
         uksort($geometry, static fn (string $a, string $b): int => (($sourceOrder[$a] ?? PHP_INT_MAX) <=> ($sourceOrder[$b] ?? PHP_INT_MAX)) ?: strcmp($a, $b));
         $normalPriorityDeclarations = array();
+        $normalPriorityOverrides = array();
         $importantDeclarations = array();
         $forcedPropertyLookup = array_fill_keys($forcedProperties, true);
         $inlineLayoutPropertyLookup = array_fill_keys($this->layoutCarrierProperties(), true);
@@ -527,6 +530,9 @@ final class InlineGeometry
                 // Preserve source inline layout and list markers over a later
                 // plain author class without introducing !important.
                 $normalPriorityDeclarations[] = $property . ':' . $value;
+                if ( isset($overridePropertyLookup[$property]) ) {
+                    $normalPriorityOverrides[] = $property;
+                }
                 continue;
             }
 
@@ -539,7 +545,8 @@ final class InlineGeometry
         $className = $this->context->layoutGeometry()->allocateCarrier(($this->geometryStructuralPath)($element) . "\n" . $signature . ($imageLeaf ? "\nimage-leaf" : ''));
         $rules = array();
         if ( array() !== $normalPriorityDeclarations ) {
-            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors(':root .' . $className) : ':root .' . $className;
+            $carrier = ':root ' . $this->normalTierCarrierCompound($element, $className, $normalPriorityOverrides);
+            $selector = $imageLeaf ? NativeImageLeafPresentation::selectors($carrier) : $carrier;
             $rules[] = $selector . '{' . implode(';', $normalPriorityDeclarations) . '}';
         }
         if ( array() !== $importantDeclarations ) {
@@ -570,6 +577,33 @@ final class InlineGeometry
         $this->context->layoutGeometry()->registerRule($className, implode("\n", $rules));
 
         return $className;
+    }
+
+    /**
+     * The carrier class compound for the non-important tier.
+     *
+     * A source inline declaration outranks every normal author rule, but its
+     * restated carrier only wins on specificity: `:root .x` is (0,2,0) and
+     * ties with, then loses by rule order to, a later author rule such as
+     * `.page .section`. Repeating the carrier class lifts the selector just
+     * past the most specific class-level author rule that declares one of
+     * the override properties, the inline declarations already known to
+     * conflict with an author rule. Rules with ID selectors keep their
+     * existing outcome.
+     *
+     * @param list<string> $overrides
+     */
+    private function normalTierCarrierCompound(DOMElement $element, string $className, array $overrides): string
+    {
+        if ( array() === $overrides ) {
+            return '.' . $className;
+        }
+        [$ids, $classes] = ($this->authorNormalDeclarationSpecificity)($element, $overrides);
+        // `:root` contributes one class-level unit, so a single carrier class
+        // already beats any rule with fewer than two.
+        $repeat = 0 === $ids ? max(1, $classes) : 1;
+
+        return str_repeat('.' . $className, $repeat);
     }
 
     /**

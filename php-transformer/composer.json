@@ -266,6 +266,7 @@
       "php tests/unit/conditional-empty-visual-boundary.php",
       "php tests/unit/cover-block-factory.php",
       "php tests/unit/cover-pattern.php",
+      "php tests/unit/inline-override-carrier-specificity.php",
       "php tests/unit/embed-block-factory.php",
       "php tests/unit/embed-height-preservation.php",
       "php tests/unit/media-text-block-factory.php",

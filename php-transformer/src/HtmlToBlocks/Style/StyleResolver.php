@@ -178,7 +178,8 @@ final class StyleResolver implements ElementPresentationResolver
             $this->structuralPresentationDeclarations(...),
             $this->hasConditionalStyleFamily(...),
             $this->responsivePropertyFamily(...),
-            $this->hasConditionalGridTemplateColumns(...)
+            $this->hasConditionalGridTemplateColumns(...),
+            $this->authorNormalDeclarationSpecificity(...)
         );
     }
 
@@ -2056,6 +2057,38 @@ final class StyleResolver implements ElementPresentationResolver
         $cache->authorDeclaredPropertyValues[ $cacheKey ] = $declared;
 
         return $declared;
+    }
+
+    /**
+     * Highest specificity among the matching author rules that declare any of
+     * the given properties without `!important`, at any viewport.
+     *
+     * A source inline declaration outranks every such rule whatever its
+     * specificity. A carrier that restates the inline value in a generated
+     * stylesheet only keeps that priority when its selector is more specific
+     * than each rule it competes with, because it cannot rely on rule order.
+     *
+     * @param list<string> $properties
+     * @return array{int, int, int}
+     */
+    public function authorNormalDeclarationSpecificity(DOMElement $element, array $properties): array
+    {
+        $wanted = array_fill_keys(array_map('strtolower', $properties), true);
+        $highest = array( 0, 0, 0 );
+        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
+            foreach ( $rule['declarations'] as $property => $value ) {
+                if ( ! isset($wanted[ strtolower((string) $property) ]) || CssValueInspector::isImportant((string) $value) ) {
+                    continue;
+                }
+                $specificity = $this->mediaTextSelectorSpecificity((string) ( $rule['selector'] ?? '' ));
+                if ( $this->compareMediaTextSpecificity($specificity, $highest) > 0 ) {
+                    $highest = $specificity;
+                }
+                break;
+            }
+        }
+
+        return $highest;
     }
 
     /**
