@@ -3367,7 +3367,56 @@ final class NavigationPattern implements PatternRecognizerInterface
     /** @return array{label:string, cluster:DOMElement, button:DOMElement}|null */
     private function buttonDropdownItem(DOMElement $element): ?array
     {
-        return self::buttonDropdownItemParts($element);
+        return self::buttonDropdownItemParts($element) ?? $this->controlledDropdownItemParts($element);
+    }
+
+    /**
+     * An item made of a labelled button and the sibling panel it names with
+     * `aria-controls`, the panel holding nothing but links, each bare or in its
+     * own wrapper: `<div><button aria-controls="p">About</button><div id="p">
+     * <div><a>Mission</a></div><div><a>Team</a></div></div></div>`. The
+     * button's own declaration ties the panel to it, so no class vocabulary is
+     * needed to read the panel as the button's submenu.
+     *
+     * @return array{label:string, cluster:DOMElement, button:DOMElement}|null
+     */
+    private function controlledDropdownItemParts(DOMElement $element): ?array
+    {
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+            $children[] = $child;
+        }
+        if ( 2 !== count($children) || 'button' !== strtolower($children[0]->tagName) ) {
+            return null;
+        }
+        [ $button, $panel ] = $children;
+        $controls = trim($button->getAttribute('aria-controls'));
+        $label = trim(preg_replace('/\s+/', ' ', $button->textContent ?? '') ?? '');
+        if ( '' === $controls || $controls !== trim($panel->getAttribute('id')) || '' === $label ) {
+            return null;
+        }
+        $links = 0;
+        foreach ( $panel->childNodes as $item ) {
+            if ( XML_COMMENT_NODE === $item->nodeType || ( XML_TEXT_NODE === $item->nodeType && '' === trim($item->textContent ?? '') ) ) {
+                continue;
+            }
+            $link = $item instanceof DOMElement && in_array(strtolower($item->tagName), array( 'div', 'span', 'li' ), true)
+                ? $this->soleMeaningfulChild($item)
+                : $item;
+            if ( ! $link instanceof DOMElement || 'a' !== strtolower($link->tagName)
+                || '' === trim($link->textContent ?? '') || '' === trim($link->getAttribute('href')) ) {
+                return null;
+            }
+            ++$links;
+        }
+
+        return 0 < $links ? array( 'label' => $label, 'cluster' => $panel, 'button' => $button ) : null;
     }
 
     /**
