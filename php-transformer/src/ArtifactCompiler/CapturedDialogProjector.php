@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
@@ -264,8 +265,7 @@ final class CapturedDialogProjector
             $retired = array_merge($retired, $this->retireRecognizedRuntime($document, CaptureEvidence::DISCLOSURE_RUNTIME, $reason));
         }
 
-        $output = $document->saveHTML();
-        $output = is_string($output) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $output) : null;
+        $output = HtmlSerialization::documentHtml($document);
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired, 'script_bindings' => is_string($output) ? $scriptBindings : null);
     }
 
@@ -734,8 +734,7 @@ final class CapturedDialogProjector
             if ($this->hasDialogCloseHelper($document)) continue;
             $pageRetired = $this->retireRecognizedRuntime($document, CaptureEvidence::DISCLOSURE_RUNTIME, 'native_navigation_submenu_replaces_capture_disclosure');
             if (array() === $pageRetired) continue;
-            $html = $document->saveHTML();
-            $html = is_string($html) ? preg_replace('/^<\?xml encoding="UTF-8">/i', '', $html) : null;
+            $html = HtmlSerialization::documentHtml($document);
             if (!is_string($html)) continue;
             $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $html);
             $scriptBindings->rebind($files, $path);

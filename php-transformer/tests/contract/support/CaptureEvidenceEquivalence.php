@@ -159,6 +159,59 @@ final class CaptureEvidenceEquivalence
         return self::rootless($output, array_values($roots), $lengthNeutral);
     }
 
+    /**
+     * One spelling for HTML that libxml2 versions serialize differently.
+     *
+     * DOMDocument::saveHTML() output is not stable across libxml2 releases:
+     * 2.14+ writes a quote-bearing attribute as "&quot;" where 2.9 writes it
+     * single-quoted, writes a non-ASCII character literally where 2.9 writes a
+     * named entity, drops the legacy closing tag of HTML5 void elements, closes
+     * list items 2.9 left open, and keeps a stray `<?xml ...>` instruction as a
+     * bogus comment. Each pair parses to the same document, so the gate
+     * compares this form: attributes double-quoted with only `&` and `"`
+     * escaped, text with only `&`, `<` and `>` escaped, no void-element or
+     * `</li>` closers, and the instruction spelling. Non-markup text passes
+     * through unchanged.
+     */
+    public static function canonicalHtml(string $text): string
+    {
+        if ( 1 !== preg_match('/<[a-zA-Z!?\/]/', $text) ) {
+            return $text;
+        }
+        $text = preg_replace('/<!--([?\/]xml\b[^>]*?)-->/i', '<?$1>', $text) ?? $text;
+        $text = preg_replace('/<\?\?xml\b/i', '<?xml', $text) ?? $text;
+        $parts = preg_split('/(<!--.*?-->|<[?!][^>]*>|<\/?[a-zA-Z][a-zA-Z0-9:-]*(?:\s+[^\s"\'>\/=]+(?:\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]*))?)*\s*\/?>)/s', $text, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if ( false === $parts ) {
+            return $text;
+        }
+        $out = '';
+        foreach ( $parts as $index => $part ) {
+            if ( 0 === $index % 2 ) {
+                $out .= htmlspecialchars(html_entity_decode($part, ENT_QUOTES | ENT_HTML5, 'UTF-8'), ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                continue;
+            }
+            if ( 1 === preg_match('/^<\/(?:area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr|li)\s*>$/i', $part) ) {
+                continue;
+            }
+            if ( 1 !== preg_match('/^<([a-zA-Z][a-zA-Z0-9:-]*)(.*?)(\/?)>$/s', $part, $tag) ) {
+                $out .= $part;
+                continue;
+            }
+            preg_match_all('/([^\s"\'>\/=]+)(?:\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]*)))?/', $tag[2], $attributes, PREG_SET_ORDER);
+            $out .= '<' . $tag[1];
+            foreach ( $attributes as $attribute ) {
+                $out .= ' ' . $attribute[1];
+                if ( isset($attribute[2]) ) {
+                    $raw = $attribute[2] . ($attribute[3] ?? '') . ($attribute[4] ?? '');
+                    $out .= '="' . htmlspecialchars(html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8'), ENT_COMPAT | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                }
+            }
+            $out .= $tag[3] . '>';
+        }
+
+        return $out;
+    }
+
     private static function resultOutput(object $result): array
     {
         $output = array('result' => $result->toArray());
@@ -179,14 +232,19 @@ final class CaptureEvidenceEquivalence
             foreach ( $roots as $root ) {
                 $value = str_replace(array($root, dirname($root)), array('<transformer-root>', '<repository-root>'), $value);
             }
+            $value = self::canonicalHtml($value);
             if ( $lengthNeutral ) {
                 $value = preg_replace(array('/(?<![0-9a-f])[0-9a-f]{12,}(?![0-9a-f])/', '/^(.*)\.\.\.$/s'), array('<hex>', '<excerpt>'), $value) ?? $value;
             }
             return $value;
         }
         if ( is_array($value) ) {
+            $content = is_string($value['content'] ?? null) ? self::canonicalHtml($value['content']) : null;
             foreach ( $value as $key => $item ) {
-                if ( is_string($key) && str_ends_with($key, '_duration_ms') ) {
+                if ( 'bytes' === $key && is_int($item) && null !== $content ) {
+                    // A payload's byte count follows its serialization.
+                    $value[$key] = strlen($content);
+                } elseif ( is_string($key) && str_ends_with($key, '_duration_ms') ) {
                     $value[$key] = 0;
                 } elseif ( 'engine_version' === $key && is_string($item) ) {
                     $value[$key] = '<engine-version>';

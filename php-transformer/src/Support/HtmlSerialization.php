@@ -3,51 +3,45 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
-/** Removes the UTF-8 parsing marker serialized by DOMDocument::loadHTML(). */
+use DOMComment;
+use DOMDocument;
+use DOMProcessingInstruction;
+
+/**
+ * Serializes a whole document that was parsed with the `<?xml encoding="UTF-8">`
+ * hint DOMDocument::loadHTML() needs to read UTF-8.
+ *
+ * The hint is parser input, never page content. libxml2 2.9 keeps it as an
+ * `xml` processing instruction and libxml2 2.14+ keeps it as a bogus comment
+ * (`<!--?xml encoding="UTF-8"-->`); either way saveHTML() would write it into
+ * the page, and a page projected more than once would accumulate one per pass.
+ * Removing the parsed nodes keeps every libxml version's output free of it.
+ */
 final class HtmlSerialization
 {
-    public static function normalizeSerializedHtml(string $html): string
+    public static function documentHtml(DOMDocument $document): ?string
     {
-        $html = preg_replace('/^(?:<\?xml encoding="UTF-8" ?\??>|<!--[?\/]xml encoding="UTF-8" ?-->)/i', '', $html) ?? $html;
-        $html = preg_replace('/<!--[?\/]xml encoding="UTF-8" ?-->/', '<?xml encoding="UTF-8">', $html) ?? $html;
-        if (defined('LIBXML_VERSION') && LIBXML_VERSION >= 21400) {
-            $html = self::canonicalizeAttributeQuotes($html);
-            $html = self::normalizeHtml5VoidSerialization($html);
-            $html = self::normalizeEmptyListItemClosers($html);
-            if (!preg_match('/^\s*<svg\b/i', $html)) $html = self::canonicalizeEntityOutput($html);
+        self::removeEncodingHints($document);
+        $html = $document->saveHTML();
+
+        return is_string($html) ? $html : null;
+    }
+
+    public static function removeEncodingHints(DOMDocument $document): void
+    {
+        foreach ( iterator_to_array($document->childNodes) as $node ) {
+            if ( self::isEncodingHint($node) ) {
+                $document->removeChild($node);
+            }
         }
-        return $html;
     }
 
-    public static function normalizeHtml5VoidSerialization(string $html): string
+    private static function isEncodingHint(\DOMNode $node): bool
     {
-        return preg_replace_callback('/<(source|track|wbr)\b([^>]*)>(?!\s*<\/\1\s*>)/i', static function (array $element): string {
-            $tag = strtolower($element[1]);
-            $attributes = $element[2];
-            if (str_ends_with(rtrim($attributes), '/')) return $element[0];
-            return '<' . $tag . $attributes . '></' . $tag . '>';
-        }, $html) ?? $html;
-    }
+        if ( $node instanceof DOMProcessingInstruction ) {
+            return 'xml' === strtolower($node->target);
+        }
 
-    public static function normalizeEmptyListItemClosers(string $html): string
-    {
-        return preg_replace('/<(li\b[^>]*)><\/li>(?=<li\b|<\/ul>)/i', '<$1>', $html) ?? $html;
+        return $node instanceof DOMComment && 1 === preg_match('/^[?\/]xml\s+encoding=/i', $node->data);
     }
-
-    public static function canonicalizeEntityOutput(string $html): string
-    {
-        return str_replace('²', '&sup2;', $html);
-    }
-
-    public static function canonicalizeAttributeQuotes(string $html): string
-    {
-        if (!str_contains($html, '&quot;') || !preg_match('/<[a-zA-Z][a-zA-Z0-9:-]*(?:\s|\/?>)/', $html)) return $html;
-        return preg_replace_callback('/([a-zA-Z_:][a-zA-Z0-9_.:-]*)="([^"]*&quot;[^"]*)"/', static fn (array $attribute): string => $attribute[1] . "='" . str_replace('&quot;', '"', $attribute[2]) . "'", $html) ?? $html;
-    }
-
-    public static function normalizeCurrentSerialization(string $html): string
-    {
-        return defined('LIBXML_VERSION') && LIBXML_VERSION >= 21400 ? self::normalizeSerializedHtml($html) : $html;
-    }
-
 }

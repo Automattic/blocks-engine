@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -96,7 +97,7 @@ final class CapturedCollectionProjector
                         $node->parentNode?->removeChild($node);
                     }
                 }
-                $html = preg_replace('/^<\?xml encoding="UTF-8">/i', '', $document->saveHTML() ?: '');
+                $html = HtmlSerialization::documentHtml($document) ?? '';
                 $files[$index]['content'] = $html;
                 $files[$index]['bytes'] = strlen($html);
             }

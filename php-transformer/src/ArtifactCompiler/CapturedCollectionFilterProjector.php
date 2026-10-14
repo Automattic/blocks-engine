@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMDocument;
 use DOMElement;
@@ -91,7 +92,7 @@ final class CapturedCollectionFilterProjector
                     foreach ($controls as $control) $control->setAttribute('data-blocks-engine-collection-control', 'category');
                     $empty->item(0)->setAttribute('data-blocks-engine-collection-control', 'empty');
                 }
-                $file['content'] = preg_replace('/^<\?xml encoding="UTF-8">/', '', $document->saveHTML());
+                $file['content'] = HtmlSerialization::documentHtml($document) ?? '';
                 $file['bytes'] = strlen($file['content']);
             }
             unset($file);

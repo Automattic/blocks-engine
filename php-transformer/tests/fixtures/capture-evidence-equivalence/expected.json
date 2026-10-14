@@ -5,37 +5,37 @@
         {
             "id": "0044a9a82a692a866ae90a30f2fc8c49d22b1253",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "118f9c84326d100128338a29c3636ea37c2124d55ccc90a1c17afe31ff2ac876",
+            "expected_sha256": "a9e4b453d606f3c1f202542639e452ef3aaf769a248fd63378af47f22491b6db",
             "outcome": "output"
         },
         {
             "id": "00857f35b1a15763a8904cf6eb5711a022ada477",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "b47cf9df75bd53f613dd5609d67092ba407e79907e673085044e667dcdc1d72d",
+            "expected_sha256": "b530c9dcb1caa9e6e5049771089c0392f4a43076df444dbc7de468ca9aa158b7",
             "outcome": "output"
         },
         {
             "id": "01675006ff9c3d42fec80a96b42d799090352529",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "9fe00d33fffea59e3aa87e47d4324a2a7b0da49910b6ccbdfbd20726087e4a52",
+            "expected_sha256": "bebd86288938800ceb194e1a00a9823df4818573e53c29b534fc07b6b6de192a",
             "outcome": "output"
         },
         {
             "id": "05d72663385cec3b244475181766e60515c6980e",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "be20b6a87354f8966fd4eaab18c60101bf19d35ee9d71af663b63d2a8d9af9bc",
+            "expected_sha256": "150d32d3d9c582abe2cf60f213e9513bbedb0edeee57c4e50d4307ca5f530a76",
             "outcome": "output"
         },
         {
             "id": "0611be0a3a1a1341590ee3a3156f30fd86fa5388",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "bf3c92671b563c578eb93f05572122e4df6cbccf4e853c8db1590fb743b229a4",
+            "expected_sha256": "8076c358c0e33828b04313be0f32db339cc01eb6307c3fe85970589097b86941",
             "outcome": "output"
         },
         {
             "id": "06596271895ea1dd30fc3c9cc208b958f07a44ad",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "077dbb5564bbd77b80540d2c4ab1a6653f83488361209fded336ca9e8d152a23",
+            "expected_sha256": "964e67f8d6d8279d18bd668b549e7fb52ff26465f808633fa576ffb8d2533aa7",
             "outcome": "output"
         },
         {
@@ -47,55 +47,55 @@
         {
             "id": "0793a0d5a18e7d00bfc6d7564b67aa4185913031",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "c214f328fd4ee831d1191d02a6386d909f7b33ca3fc0805f1f5381f3867fbc6a",
+            "expected_sha256": "d7429cc3a21d52ae6aeafa7ceff741e2c6089cd0da2999a816d4735c471bddae",
             "outcome": "output"
         },
         {
             "id": "079cf87b1afffb73da0025c9589adeb8382cf6db",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "fd0dc8739b24ad1da368fc0a1820a483a5d146c9b60cc8608095578aaf732ab7",
+            "expected_sha256": "e0a9958a327942441c596cf2b363d74a386d848ca97f88d28a63d21b7d59ac15",
             "outcome": "output"
         },
         {
             "id": "07f8a0bd8ea86b1740d01e7aad529128fa10e5c6",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "618e1a797c88c832ac514aedaab418ac7b281589bb6aeb4d05e16ccb79394cd6",
+            "expected_sha256": "59fac87a0098deed8ba072793ff66b7becd427dbf30000c1afde548faa8e5417",
             "outcome": "output"
         },
         {
             "id": "080bd752794f03ea390e288e87a141b6f30d1257",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "476cad738d64d965236ce673f5612bab9ed3fc79a17fd9553085f67e738a722e",
+            "expected_sha256": "2853bcc8bae595e6200a3a1a9859bb1562c257a125efd598f074f7ee65f32c2b",
             "outcome": "output"
         },
         {
             "id": "08209f9d73b381c852df6e291dc68e05fb65848a",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "c202975e79d41cdbfa194d837d20ea27ac3f0f802c77004da16783c6ea503177",
+            "expected_sha256": "4a5118ebfbc62a6249f2600c3b3320b147af38e42c4a1030e3a7d0b1af149d2c",
             "outcome": "output"
         },
         {
             "id": "0a7a277ac143784f2f86c620f264359c1423e14e",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "41fe0997b247c0a3d8102068974e8f11adf8b3058a27755a4174ed7e25d9c336",
+            "expected_sha256": "995e6926bf4087e66882e56e28931d67e709043017c14065feb4026bdfb9b93c",
             "outcome": "output"
         },
         {
             "id": "0a9c1bea54021ba60093b14cc124cefca0e60616",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "eb7abe4742d4dc7110900e0a9e2f5f1dec7d9f2b6045572011ac95ce665814e2",
+            "expected_sha256": "bd77e0b7a179467f4a5aacc5060d2626cbeaa259cda342da0cfccb6c7266cdb2",
             "outcome": "output"
         },
         {
             "id": "0aec729c82236484670764cb89daebff801abb05",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "6babb5365474cabe7cc904b46502ba286654ffa55f59b1d9038792026ee4a502",
+            "expected_sha256": "11a8a73eb021a8342a499214277e296080879231158938abd2dea106010dd5cd",
             "outcome": "output"
         },
         {
             "id": "0b294e2c7717464c3fe1233ef35f06986124c78d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "8cbcd7f8229277eb7294d9df9e77dc8d216e592ce755e0a95e67f60e97a114ed",
+            "expected_sha256": "ce7a5225d1715d9673c6b72193915a7179f1654af701c06d28a8e099582348bb",
             "outcome": "output"
         },
         {
@@ -107,13 +107,13 @@
         {
             "id": "0d818f11f565c44e364fae0427f06382088600ec",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "e5d19a7b45badf79568cf70f942b54e627de44b64f993e9f6e30beccca447dbe",
+            "expected_sha256": "d0a81f9ec3cbf1df73d8503782d2f3d5d6cf6efea5a0a47e39bf0c13d948c081",
             "outcome": "output"
         },
         {
             "id": "1092de6e52f085c18a24356685479c261ddf4f95",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "dd0a8abf4d40330bebd08abf25867de6bdf0ff4eb4b7eed9cb9a53254d6da7e6",
+            "expected_sha256": "c24ff3d2795d08a71fc11942bc0cf176e42535e52403a68f6eef37c99c1556fe",
             "outcome": "output"
         },
         {
@@ -125,103 +125,103 @@
         {
             "id": "131e42daf4e8a02894d2c05feec3153ee25d2c76",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "e6633ad5cfc098ced79665404ed7bf2183fa3a1ed8c297337105c5fcbb2e749f",
+            "expected_sha256": "8fa9bf2e09e0a72e74c0d2f3ccacfd9f88e8c8cd5b0c188051764ae1531b76dd",
             "outcome": "output"
         },
         {
             "id": "138228eab545cc8020a77e808efb8d9eca5b4f8b",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "7d694f33d4e72fb311864842beea1041b315ece68eb5c7bb86c8d1a3ed41ae1f",
+            "expected_sha256": "b5ff5e1166ac4d45416028ed1c00ba8cca569d9ed8ea426ca8d5a6d345d902be",
             "outcome": "output"
         },
         {
             "id": "148922140808ace8b526a33e5aaaea6301a4d77a",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "908c837fff4f98e91b70dddbce1bda0c95685fb82a9a42fb5ce4ac23cd0a9460",
+            "expected_sha256": "7655f28ab45940a6d48b7f967941e1db5104c831fa56d392f01b1530879dbd78",
             "outcome": "output"
         },
         {
             "id": "15082c2dc6a6f26471c6b1b16a41446c0c3ed22a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "605d152ee940eaf6f90ca2a91c7494dc17cec2a927cbe91e7460ed77dbdf886f",
+            "expected_sha256": "f897ee804d4da44a3337367ed3ccc6a9d754ddf5014479ed0ea81b4c697efbde",
             "outcome": "output"
         },
         {
             "id": "151bc8427841a6bc77377d0a90344fb4de21088b",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "af1c98aca61128dcbeabcf1e75d7442385b2f24e6970092a8a145fd7390341d3",
+            "expected_sha256": "d0e32de15356e7cf6e383cf8210cceb1bef857f2f49aea558f1b82126bb7a052",
             "outcome": "output"
         },
         {
             "id": "16b431d3626c18c29818e7314baa7b50900074b4",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "e8507046a0426318d3fbeefdd2fa9a0bc6c4cd2ffec62a208465457609c58abf",
+            "expected_sha256": "a44b8210f45c5c26e81286a41da4d4e35310efa43fb15f36a00980e82c6014aa",
             "outcome": "output"
         },
         {
             "id": "173a88a283867dfce8eae3c9de9eec9704d5e8f6",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "266c15ec5c753ddadb01dee3a73eb6bb4562c227c546be9df08a75c3e8917619",
+            "expected_sha256": "30712e7b56fb73dc801d0dbe20850b20ba2f989d0f5a49d3e79c733843f7f344",
             "outcome": "output"
         },
         {
             "id": "17d97f2cc668f1c6ffda89bf7497cc9b27cad37e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "6803ccade9b58578070c5291d2ceb5143e5d39c2ddfb008a0a8ec3b36a3b69cc",
+            "expected_sha256": "ebefd6260fc20b56c1d67e5f950b2c723bafcc1c296d54440333a5a0d980c6a5",
             "outcome": "output"
         },
         {
             "id": "19060adef0ea7932f54b1f917815360b25a4ec35",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "d7a8b2b476821609ea8a0fcff8da7b48bb26ca83c6b1fa4141a416ec731352bb",
+            "expected_sha256": "24e8ea7840e63e728d76873963efb3a74a1bed1543b11dedc7d516933d8a60ea",
             "outcome": "output"
         },
         {
             "id": "1c3990dc6e5102e9efa1a529ed18626e3cd63014",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "924c21dd7e6e4bd62793cb6e6c02aa673801619a22992bf6b85b777a405ad3a2",
+            "expected_sha256": "fa54081fce5d4fc4b994cd4914bf31dbf1d5f6d7a20855b6e5094849686036d1",
             "outcome": "output"
         },
         {
             "id": "1cfefbc9c4826f74e82159aa064fb495c905dae9",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "2926266fb8f624c4792568f32ccba74ce20a5cf96569dd97d11df987ac2e0ac0",
+            "expected_sha256": "549bb75578ff6596cd88fcb1c703f4439ab3cb589ef7fb2379f58819b82cd805",
             "outcome": "output"
         },
         {
             "id": "1d9d49546e0513de47fa9b54186e8b14a08f4f1f",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "431b1112b07f07edcd2bb1986b3e08081eaff78ed7049abd7abdc16751fcee1e",
+            "expected_sha256": "b6f1a10043cdc3a94b598d843a636a74456ca76ecfa657e8c631eb4fe1fadb1d",
             "outcome": "output"
         },
         {
             "id": "1e4b57d08e5f05ed2260a273e20bfb7c3288374b",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "e62c49d5592f5df9c79b4b004ff00b14f8d22596696db609597a4bdd393d3962",
+            "expected_sha256": "c1722297174e2d69b2e1bbee13870d5e69639f79659da166610b54e9ee5ab8df",
             "outcome": "output"
         },
         {
             "id": "1e6ba980bc72af8fdf848f28ab845a234099965d",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "35f6d424ae17e0ec881ebc6236bd06a46a6aa916f3e0d1ccf0dcb67bf0a18adf",
+            "expected_sha256": "ddb1e7ea9493b7e04dc4589c4f1530287b75081bc6a453143469b7ca303b6846",
             "outcome": "output"
         },
         {
             "id": "1e87fd7170484fa6c8288d2d21ab9e181c982bd1",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "b8092f01263cd5d1647e56d1e33d737aeab2da310757c376748774312741e7a1",
+            "expected_sha256": "780c958840da434bdb2fec422c1d53cf86f706f11ab92fbdb85b4c45e6ab0b8e",
             "outcome": "output"
         },
         {
             "id": "1f9e24004688876e7356b55f6002e774e751e876",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "5ffe5fb5b6117efc15a06f309b17d3ffcc53cff1322f2ab776133bbb6172e6d7",
+            "expected_sha256": "762ece7774fb7c8d623bad16a9fc4e60a63f5717ae0ef1f9bc90075065d11d4d",
             "outcome": "output"
         },
         {
             "id": "1fc8c0c39465e443e69256bb458c0cbddacd6832",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "0efcac04b4ce808336f40ba8f474e9ae46f5829bb841dbaa1f392a39846262b1",
+            "expected_sha256": "e84537d897360749baba1f1ea5f0cfee32bd7881be57bb17a01ecab293674406",
             "outcome": "output"
         },
         {
@@ -233,145 +233,145 @@
         {
             "id": "1fdf1238344745a117f3dc508c53d3f899e6db63",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "06fc462455b25d593be2be7d5a7dd4c78b210d321144573a143d9ffaa68ccfab",
+            "expected_sha256": "93f4c915b2393543d127744b4e043f06dd2524d170043bc8d76df27d92d02a05",
             "outcome": "output"
         },
         {
             "id": "2159f43947caf4909e74abf673b57a69210c3b2d",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "5b832c0fd4994c4639c0cef371f2536bdd339d386d2bd5bada91ca8cdb1b187e",
+            "expected_sha256": "45f3b66d8d5badeefa5886b7010d65e1b2f745f8b6619d9c7d6f318d0d6add64",
             "outcome": "output"
         },
         {
             "id": "21e5cdbf5ec5e6081029d84c0c34ccac47171153",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "fb9786813c92f8ac79f6110c4a8b16cde5d7ca93ed1f60df258c7580dcfaa617",
+            "expected_sha256": "7a4100d2ccdcf54e65159b79b6a4f88a4a4d7ca592f9603820158e84742bbab7",
             "outcome": "output"
         },
         {
             "id": "2322e02155a0da77d1bfbb1de742c7a858aba0e6",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "1260b2d1f689f3e3844ac4dcc6698810ab68ac5476a948237b91e23f9e6ad976",
+            "expected_sha256": "e5b6f18d4615fca87c671c53fa152353a19d541f014916d583ab6c5d2be2da19",
             "outcome": "output"
         },
         {
             "id": "235dab445c2195da91648e0b4e070c67b2fe4a31",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "21331eb409bcdd2196cf57a51a224a5b936e9c1957a5b116711ff010f17a110b",
+            "expected_sha256": "c43c6a87a672ca9df8d31693ac277e32e6a30ce30242ca052f0a0f6d22cef705",
             "outcome": "output"
         },
         {
             "id": "23fdbeb0fd920e2d4c011890e4b9853603060658",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "a024892f32721fdeb8a43db7e6209040fdd543163a8c666978e4981158194108",
+            "expected_sha256": "2b374efff17d4be360cc9e46ef2cdfb8792225421e39a6e42695304cf7238e95",
             "outcome": "output"
         },
         {
             "id": "240406822ca2c5b683f2ae02e94300c9031280cd",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "f8e7a02cdfe882b135a1da87c0625142f552fdf2bccd821de8d52961362b5a78",
+            "expected_sha256": "89814716bf99d255e7d34e5534c1355174953e5defb04e69abc810d884448c0f",
             "outcome": "output"
         },
         {
             "id": "2448c3c2ebf7c03839a1ad542beec24efd2a805c",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "34bb1ec6191c0dfbdfbcfe8dbadb24b63b3a4f9e0e0d168d0d28165b34452e4f",
+            "expected_sha256": "f13510e9f0ebaa7651659d408ea2b2addf724502653b0b05aa4e44b2fc368486",
             "outcome": "output"
         },
         {
             "id": "24e107c8c52b897f1fb24537f46642da62f72a9b",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "9256a9a4ee269839dc7dc0d86e91394c647abe15fe0ee085ef5cb9960f4973e5",
+            "expected_sha256": "8e6ea94de977e9f7daf010cae06ab22814c2dd59d05537aa606b6e566a383f91",
             "outcome": "output"
         },
         {
             "id": "258bd52ce6be61b58216294eae44bd952b70a428",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "a3f47169f67a82182299bce660bc255af26551fe111ed0d28bc833e83f57dadd",
+            "expected_sha256": "370dd7e56bfc52bfd8bee65457c29d9dc6fddb363d1685a27ba8d9e47af74178",
             "outcome": "output"
         },
         {
             "id": "25b86bf04d5b1d1b6fe316daec2c603868662f2d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "368b9043f4006e1bdeba808c95963ae44cc67192326f0dbcaae3ac95ed0046f6",
+            "expected_sha256": "f991883c0ed49a035bca359b6037dc6ab9bdcd7cade5e958b0756628833ee5f5",
             "outcome": "output"
         },
         {
             "id": "26110ab3df1bcffcc9a1ce8e351a781950cc1bad",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "619404904b487c5ff3314c7f663d5e4aa891f1b9923a3e82421bc16f1bb58887",
+            "expected_sha256": "a17b8897fa934c6effa9c04a5724c65548c9ca2d3b14a0e08d194b14d3e900db",
             "outcome": "output"
         },
         {
             "id": "2664560a1dd52967803a3ce93dc130c2ea663a20",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "89ba8341172d01d8ed19c55207eefabd0b1a64dc2e9d10078df6866682d6c78f",
+            "expected_sha256": "196c06df046f632a83af30b71f67bce4b5e3655dc4df989da5ac97b32ad3593d",
             "outcome": "output"
         },
         {
             "id": "26f0879275d871f4ec68db391742844a74441150",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "63ce2788e88a05049cb0bffd0c061adba37acce9c4db99298a34679ee0e68bbf",
+            "expected_sha256": "aa3a6f46e5c022a889bce8caf0b05980f74d2cb6b5c45f2dc85dd688a6510aa8",
             "outcome": "output"
         },
         {
             "id": "28699fde8cc7b55e46dceff5674ab9379ed8a6f8",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "2ec9f9858441f37697f0d1418bd93b9abf56d571cfa8f2d2de8ea4603206cda1",
+            "expected_sha256": "4d482718de69b39e02c4c0a9f920495f73af95518274dbb0d0a6332138f31b3b",
             "outcome": "output"
         },
         {
             "id": "2890e8f1ed5ae188e261c80d3c9a1ad1e1928cd2",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "85c3db03ccb2d40a35a28b76f653930c86141ca0f465a8a02241b06d03ca030f",
+            "expected_sha256": "f7de728a320623b4e20abb85b2a66ea95039de1dff934a2780bb8aa908033070",
             "outcome": "output"
         },
         {
             "id": "28ace0c7e222e9c4feb1c94734ba65814716e711",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "aa5482445eb5c227219f706a79652f65a7abd4aaa2dfe28d2e847556d57ba21d",
+            "expected_sha256": "1e39593116054c75bc1002cf14642aa8a39b955ab29573bb8fdf8ad7175f248f",
             "outcome": "output"
         },
         {
             "id": "28e1a0f1b5bef11b70c18dc39033d6a84461621b",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "940c7193476016e11e979d37d44f83cce58a6c49d92e69d84edfa589ba353e15",
+            "expected_sha256": "3bec058fac0d30e6b8c84aeb8b97d07109034ab26215d0460622cae21343de7d",
             "outcome": "output"
         },
         {
             "id": "2915d21f717a45ad97cc901e84ead8debcb5e07b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "3bbd431f4618ff388971fd7062932e4ef9ec2736f34bc15677f7161567ba8b18",
+            "expected_sha256": "87fbe1b822cf4f06499df22146b13face637d874a22587ef94f359da331db41b",
             "outcome": "output"
         },
         {
             "id": "293778dc7bd285cd67ebe22023cd98b831a9de07",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "1485eb6bd87112a040dd520924b2e8a8ce2d1a0429c10da706e06e45c212cd55",
+            "expected_sha256": "01682e5f36d49ae4462ea8b6f192936f2491620424ce8659620ca6b7e24c35ff",
             "outcome": "output"
         },
         {
             "id": "29d9bd4aa019c214ad098d8dd997002fb6a6279c",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "e7cda6d3d48b7e1947d7699452da4472037932dc3a7d9cd5ff0511aa9b5a03cc",
+            "expected_sha256": "9a2103986141415041a949840a68e1f4aa1b7547243f5f127879381ff98c991d",
             "outcome": "output"
         },
         {
             "id": "2d8a075b9aa4c8c089f4ed5fc108884e9d8842c2",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "3d22f3d3972ea0303ede7d023a75853e78e82516e68e4a3487356b656826b5e9",
+            "expected_sha256": "99a60699973a0b4eb9eca055e3718ada09c09a0210f2db0d6db64e5d76ac30e9",
             "outcome": "output"
         },
         {
             "id": "2df01069239489730e5eb069ba3ba39c848e7a1e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "ab6352636fa8be8c56b145869aa9fc0fceb4f4bb2eb027473faa8548b59a0577",
+            "expected_sha256": "74bea7541b25ba327a7be9ebb33ce61c7ed32c6a171ce0f78cea79e9b04653c7",
             "outcome": "output"
         },
         {
             "id": "2f226a74ef0780b6689f60f346b5a3095aa46b17",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "5e0c965f70e7245a458d2f55a5ccab0bddbf1afda576920c866286c7a385a3c6",
+            "expected_sha256": "50ffbea181704862feced58e5690d40a84e6bdc893cc4d58de247d471703f74c",
             "outcome": "output"
         },
         {
@@ -383,43 +383,43 @@
         {
             "id": "2f545afa2f6cffe9b9b8fa287e1bac1c40271b17",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "b4e28feac2ab33d7d30afc50c6695fed7ed6be7e6c974ef1b16c2d9e7a9eaef6",
+            "expected_sha256": "c8fc0935639b7e971315e53dd86c23006cccbb22729c10faf78dd9a5049e030b",
             "outcome": "output"
         },
         {
             "id": "2f7671db2407305ed19afc58debe8b23b1c54604",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "0e431f0b50fb2ea1ab57139d3fefc5abc156040e2799c12a9713831d345853a2",
+            "expected_sha256": "9e5c4e699849b8a4e111841381b55f5b34d25fc43d62538dfff13ebb0bda7a77",
             "outcome": "output"
         },
         {
             "id": "2f87008688a3ecb6f5fe933fa0044b39b22c4134",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "067fc580bad016008e879a62ebe7dfca53750151883b935e22ce29b97086d962",
+            "expected_sha256": "60feceaca3a72d2903336da73d003d1406b2cbb2cd6358b19d6a94a079c3d6b6",
             "outcome": "output"
         },
         {
             "id": "31dfd889cce35be7249012c8067d779384f43dad",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "13e8dee549aa9064f762ee5d3d11f49469c8834cc434cad0629e92100c8dad8e",
+            "expected_sha256": "abd32dc90dd2c901b615be9cac191e898129de1e872d6893f723f01fa47d4c55",
             "outcome": "output"
         },
         {
             "id": "3317930e5bae9630e1a2dfa63325692d65285d7d",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "1db59911142ab8fe373824c7c5e7275df23aa9bed9cc2653823264d66c1fef05",
+            "expected_sha256": "7a6772de48fa365cd3962aa2ac2dfbe71323aba924ca854cfddd321ea35ca570",
             "outcome": "output"
         },
         {
             "id": "33274f74c24ccdb12745ff11429f5722110a7f88",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "8305b836ac90cf951822ca83019b8de2cc6e56263a4cf56fc4420869cc82ce30",
+            "expected_sha256": "afacf849e5fcfeb8943efd2f215a64e3cd3cd908c37ba00c36b9b84bc7fe67bd",
             "outcome": "output"
         },
         {
             "id": "33ae736adede6b6c99a3a0fe9d91381917bb715a",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "5b353e795cf8abdc3cc502a13614528fa08dcbf5cb5f673e529880e4c0580dfb",
+            "expected_sha256": "47a75c26328584fa840c7930e74234fa2427788b3faf556ba6726191edc65073",
             "outcome": "output"
         },
         {
@@ -431,19 +431,19 @@
         {
             "id": "366a6664923b3a4c3dff386af7f1da8864806998",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "97c5926fc7386b249bc0ef311dfebcbb9a414c947d0e113459426234ba4abe83",
+            "expected_sha256": "4d60b2c89a20668027d39f0bb560de8d2f277a68aedd427350f30757ee0e903d",
             "outcome": "output"
         },
         {
             "id": "37284b0ef56612a5ff0cda0976e9baf91af033cb",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "4edc2667b7cd72919dff899b5268dea5e7213e9f6065b53a6928f0a09f617b92",
+            "expected_sha256": "4599e53f782fd1fcda822a35107d2a4f145306a174841a7a4da4352303234f29",
             "outcome": "output"
         },
         {
             "id": "3767a14be9e7b603f2cd1c422d7bf849acf8558d",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "fe97fcf7d269953a0bc88f2cec490330a3c1001f34b0f1c41bd01a59ab56050b",
+            "expected_sha256": "85bc63dff855b7b0051a3e4909fdb7f7b7b6ba92065c6aec91ac43c19c416b0a",
             "outcome": "output"
         },
         {
@@ -455,25 +455,25 @@
         {
             "id": "38aa59b4b8d988a9b44977db6c15c0ae83d60259",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "b47cf9df75bd53f613dd5609d67092ba407e79907e673085044e667dcdc1d72d",
+            "expected_sha256": "b530c9dcb1caa9e6e5049771089c0392f4a43076df444dbc7de468ca9aa158b7",
             "outcome": "output"
         },
         {
             "id": "398e5ce8ab31d7ac9f3a020ff4b54a083d7f5c84",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "962a56cdc4851ee3ac0685cbbc710864605416a5609a9e9b2638e30ac811d630",
+            "expected_sha256": "4f6028fdbe19d5d7382c59bc0564213f12a242b0af5a9bb35e90d811061b1ca5",
             "outcome": "output"
         },
         {
             "id": "3ac0d0bbe76c13b33e1af1dddcfb90b450411f6d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "c5597d3218ebe158a242d6fe7948409dffa75c03f4fb39303a61b7fa1f2e933c",
+            "expected_sha256": "e2fbd5f63329a446450770580c4758ac06bcc5711f02e3879a1ad944b8239ce0",
             "outcome": "output"
         },
         {
             "id": "3b0aed43853d869d1ae9c0a6eb7f65fb8d41333c",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "4b3a56aee901f2bc4bea3b5202d218a4fa9a6ba4d3bfa24a424ddc3cb0039730",
+            "expected_sha256": "beda9f7a8fec1c8cd8f0f53a50c0353bd8045ebd4deded7f211cb6b1993eafac",
             "outcome": "output"
         },
         {
@@ -485,25 +485,25 @@
         {
             "id": "3e2836686c56a0d68490a0e9ee8c602eda3897fa",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "f0f2712ea771605babc757e41e2eed257d108641fcd3ff992360281708ac1585",
+            "expected_sha256": "bb5b3d4d7f8d1aac4cac3e75e181e8cfa5621416cedb74d3235de679e6ace739",
             "outcome": "output"
         },
         {
             "id": "401f020550e668c0de94600229f55e3052ef9584",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "a0f72a727c7eca3788f249a88da6bcf75ca301ad5a2a0e3566cec882d48b5c6f",
+            "expected_sha256": "78f87a61f245843b79e303514d6fa93dc6168b4fbcec76908cc740707b8b92e3",
             "outcome": "output"
         },
         {
             "id": "403919026a1f385294622adb5528a72706964a5b",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "2998fbc88c456799eb1fae36524dc2d4b581cbca3453a0d8c1b9ff190295e7e4",
+            "expected_sha256": "f9bf7861e6ab701c7a899edeb713725f626eb79d5d79730d68a274f191e10f4f",
             "outcome": "output"
         },
         {
             "id": "414224e267d612c19554ee41edbbae9c9493d5d3",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "6a6f4af20220d0a15e0c39e789aafbb0c224de18a2b333dc7bddef34fdc85ced",
+            "expected_sha256": "327c4093b91adc1546fe708ca9b4cf728f9245eabbbf940defe6ead56c715771",
             "outcome": "output"
         },
         {
@@ -515,7 +515,7 @@
         {
             "id": "41640122c3db9bde464bfc951a00ee205726cdf5",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "78b57406e457389cdf718cea17b1521159e65153c56a0966adbe6816210a271f",
+            "expected_sha256": "31f35b74ab25e433af3d41d8b630c358d657f2052ca4b048733ab83498b6676b",
             "outcome": "output"
         },
         {
@@ -527,85 +527,85 @@
         {
             "id": "4217cdcd5a214f5fbbb536056438d3e251cb464c",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "5525b2add90f8bf7942c328ade16a03f42609adfe6a6d5f1ace470b75760ad7e",
+            "expected_sha256": "5b7b3ec036b2ed0281954efbac1f00dc09bf6680fc7a81f063ae47aa11102166",
             "outcome": "output"
         },
         {
             "id": "4246b3e2b7c0ecb73948db835c59ff49c56e0a23",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "3affe9063378a8ba124531c1e403337da47bd438ef8be5fb6610f6cb63a471e0",
+            "expected_sha256": "ff3079edce20f7215e67f4566b8d7fe0279704e47dbd2aaa3cad40b51f9d93a9",
             "outcome": "output"
         },
         {
             "id": "448ead36f649a72e98e642cebc29f9f71af779f5",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "9d22d09441c07ef4697e28793f495c136fcbf0fbea1e671713742f8eea12e959",
+            "expected_sha256": "59ee66b06d1b13f1cc649927469353375483167a101c02a776629074d863d262",
             "outcome": "output"
         },
         {
             "id": "4495225c2857cfd08d5cfbaae7329e9137498454",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "b3cbd660e95c7d48b56a4e2b6477e5a3dd4081dede939b7a999697a071e4f745",
+            "expected_sha256": "ebe954daa44d87256b26bb0b35bacd9ff402eb1cc05f9668e2b029799297f44c",
             "outcome": "output"
         },
         {
             "id": "45b984e9da16be5363994c1b8080ff9d3775c070",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "24e4fc0e187bd63de6b41764cf05e0fd8822f18fd1fcc5e98f58845847b871e6",
+            "expected_sha256": "87c531e15c877ba338b63b4c7aa52da498322f3dfeb425b09b681d4bbb5977f6",
             "outcome": "output"
         },
         {
             "id": "461f0a83156f31f02e338679420d68a4cc6c9201",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "ef40052763b3d4c414b1640965de1bab109deb3fa0b62e57451079618f068bae",
+            "expected_sha256": "b7608a4d43dc07b9c08422023eb60f4845608070377e6dbfb363bf6828ffbfa8",
             "outcome": "output"
         },
         {
             "id": "46d57331d0c6798e7c10a1d776571fa95100fe0a",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "cf52f1fac4ed158eae05be911b8043b747654ce5635c184a4c14873821b4fa16",
+            "expected_sha256": "734c47dbc90304f7919140706438929d6f057443d7661e4fd2396bc2f8280587",
             "outcome": "output"
         },
         {
             "id": "46f79246a3c128cd0672e296d1164e4d6882750a",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "79b360ac60c13dc82ec6e71ffe4002e2c612154e58896d64e68a9698efb21a6c",
+            "expected_sha256": "9ebfbaed90464a264a500c929c3c69341eb469e2d34d39ba1d2bbc2096a43c14",
             "outcome": "output"
         },
         {
             "id": "477397df6188e562a6335c6530af97f177e74a8a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "8d6b7f488de4418ae42bdaafffbb815baf1bb112c5cda0e5e6b0be79f65810d2",
+            "expected_sha256": "22892b8274915619dab33d34613fc63e18ffc303e675e022c22c1ba484d99087",
             "outcome": "output"
         },
         {
             "id": "479823422058ec516bd5ef6d5027749c2d4f4c0c",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "523090028e145d64fb16c4eb42a1af20f53cbb43af08c954316309d0a78a8b81",
+            "expected_sha256": "e95bcb1c41a2668f94ab6e695f549da44677e8b527d49a0cb296b42a70e114b0",
             "outcome": "output"
         },
         {
             "id": "487e7d77bc7fe3eb53f0ae739e92dc44eab1e705",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "de1910c9bec69aa590dc1c756c5f0c096a311fe1ef2fb14ca11a2a70b1c990cd",
+            "expected_sha256": "f120394e1bb80ff0864a307cbd9fbc806945a120c795880b748f0a62094abe21",
             "outcome": "output"
         },
         {
             "id": "493ddae72217e5c7617b57d43b4bcb17772f1aa6",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "635170ff6caa64fa3faf2b4b026d515970aff08f25e4afb8befb931a3a25354b",
+            "expected_sha256": "cfc00c6a5cdfb6ee4747875cc9703a89567d123e7c3aef3a61ec13cb298e52d1",
             "outcome": "output"
         },
         {
             "id": "4ab8113af87a9afa23ee83cdcf9ef1940d9923b0",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "4973c2a9b1651fbc3e99be010ba9616a852f561981a42b171076490ca1653889",
+            "expected_sha256": "6a73fe00324034165da58ae5e3b2453ee703caaca4315ab85c960e56d08968bd",
             "outcome": "output"
         },
         {
             "id": "4b20435a135c37dd281fcfb61e14a61997ae7452",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "1491d3c0ba3147221d6c94d77d44aea9fdf170416640bc272f0db6f385a98a8b",
+            "expected_sha256": "a41617a1f308b01072aae0ec7e000dfb7ccd17f77dc42ae90bd9433b2962dbc6",
             "outcome": "output"
         },
         {
@@ -617,25 +617,25 @@
         {
             "id": "4e8912d71d61b194b2904623ea37873408c02d25",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "29032343f5da4843223dad56ac33ca78a8be8c9c4533c887160a4daa2fd5213b",
+            "expected_sha256": "83dc64cb516716a6ca76b9adadd041b7d69bbba871b6fdb6017055a7675a72c8",
             "outcome": "output"
         },
         {
             "id": "4ee3cc133b3c246d00fe425f64d0fccc494abe39",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "9bb55dc726fb554acd0cca49f1979dee031fe5199b5770cf22e47e4fa4884f4c",
+            "expected_sha256": "541cf359f19348bf5265a2f3154b59c1ff2301babb1add4602d8d8790940634c",
             "outcome": "output"
         },
         {
             "id": "52210e3ab333cc684b93444bf01ed39943a03c0b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "01d2b059a871bc3e307f1418ec58eef2c51640dc4bd51a4f720a3e8a37059726",
+            "expected_sha256": "b539042f52cb6258c85071e55cecb0945393173a33b2c8ef908a391dbd98fb36",
             "outcome": "output"
         },
         {
             "id": "5245a2855412c346e3665fc60046bc2b1d2393e8",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "f094bccc73092368070600ccae6799af51095f2e42d4c4400c55e1e5f0acc4de",
+            "expected_sha256": "53475ded130c6e3cd79072e7c813b87c5b4d32f16741064fa2501bed1e51570d",
             "outcome": "output"
         },
         {
@@ -647,97 +647,97 @@
         {
             "id": "548f376f2dc0e46fd37bb6c4c2081e2d5cdb50d6",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "15476d815e61937e1762aa9f2fb9522027245b4db892785519bdfb28062fca7e",
+            "expected_sha256": "152a673bfff96160b914d5ed9e88f1689cede15a2f0ad00ca38d679f3f26b889",
             "outcome": "output"
         },
         {
             "id": "55b724ac2c76d2fde1959aeee3370f76b3d8129d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "60d13608a521a5c659060d9ed6a86db00f6ee289cc47b51519e3d87fb793efa2",
+            "expected_sha256": "8fdb3a10ed8e7a64838c7fcb96523aeb3aacb8a721dfac56e260e45ee40dcb3f",
             "outcome": "output"
         },
         {
             "id": "56cfc02ba8cd9ddd2f614d6be5285e1c86f03237",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "1f5bd357724986ba22c36890f97967b1a3dc09f8d429c3104f4704347d2c87c3",
+            "expected_sha256": "179a88fbd8e6e597ab1f038b984ccf8c32d0ca380378d575d54cdf7eb44a29a5",
             "outcome": "output"
         },
         {
             "id": "587e3a2de7a175872e04413e17703cd15d55e31e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "0b714f97b9827a397ad44882933dfe10bb5100aa626f83f4f4b3f6f6deeacd96",
+            "expected_sha256": "10fade7815622a5c333cf1a08de69236a0131ead05c8dd5427c2116f5d25385a",
             "outcome": "output"
         },
         {
             "id": "58edd44cd3ab05caa04f21943ea245f5569f6140",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "ed5832e65a4448bccc78a6751c6cd76e511e4bc8acb2c01f030d8f95a26e37bd",
+            "expected_sha256": "602050a5a9f0f39e837b2bb907848ee912e15b41d8882fb92235fdbcf4ec3261",
             "outcome": "output"
         },
         {
             "id": "59f08e9aca191a9c43ba2afab88659d8edfefae5",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "f1f8d18992ebfb27d46fd7bfa53a80732051927d3b7fa7824f9da810b2befa59",
+            "expected_sha256": "764d945f55c8dfb1e1373bf0e1c6293165112e2c912e4131475626e2386e7a4b",
             "outcome": "output"
         },
         {
             "id": "5ad295f609ae49ec87f20beb4a484727a05736a3",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "cda596877ea6100c721273f9e947231da899f0c7c9dc215e241a12ac25b284df",
+            "expected_sha256": "d9770d461ca865f368c69537994a256756c4ebbda8f8fa3e4444fead51f31c3f",
             "outcome": "output"
         },
         {
             "id": "5af9c0c165a91e3af547deee936dff52660372d3",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "643e1abb5d97dc80a0496bb915b0b47899e4225f310687e19bda59083fdc98a3",
+            "expected_sha256": "9c7cec09d9961ebe0e9b45cd984dce285c8fd0b9814c62cf9a9533fa0a93aa29",
             "outcome": "output"
         },
         {
             "id": "5b3fa62f5d2e551bc62ec8dbe709537770b21b62",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "00d9a284facb7b47baa815c541938dd232bc455a0c5beb7b6dc5b3e1283d3b62",
+            "expected_sha256": "93687a7abfd272e3024c929cdd322600e9212c50d2cf6aa13d414008c401dc1e",
             "outcome": "output"
         },
         {
             "id": "5b45f6c984f3a114f52ab6b3f5ff08771a898cea",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "dceafc99c0bb8179b799376dc390bba08f71c1f328e9f546189043f2f09a2c66",
+            "expected_sha256": "1f5a44af66c9952cbcc1ce79b47a9b4a6749d794d13b3546c0e371dba9a152b1",
             "outcome": "output"
         },
         {
             "id": "5b83e5f74d9fdb5882a062fd51ee27523cbf5e9a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "0ef5cf3079f7ec0418f7547419540daae3e5b54dc4dcb9b816dca113535c3ee9",
+            "expected_sha256": "f9faf8d59857ea9b520d1c9cbda1f557aca96413539ad5ff6c378bfd03000474",
             "outcome": "output"
         },
         {
             "id": "5b9c65c4937a4c05d261d1eefd4e380a6b45ce80",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "1dd9706e6ab15cbe9b24680c9486979ac58e87369cc688271c7f009235d3b2b1",
+            "expected_sha256": "08b3f33665249c753758cc35f73bc08e807b65cbdc9170cb7cd054f9ff10141a",
             "outcome": "output"
         },
         {
             "id": "5c38feab1d90f4fe8b2855964bdcf8df0b05011a",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "7011a7b650ec50025739cca5ef8722b52baa8cfb88885aa49cc7b62c0a8eba81",
+            "expected_sha256": "0563c52abacacce2ebfb37dbeb7a7e502d04c633a35cbb07009f20aed5c0d7c5",
             "outcome": "output"
         },
         {
             "id": "5d5803dd6555e66ba80e5c7d9327e211885f5a10",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "d8f4cbcf48500a9577f933cffde816946345bad968f56529a7f5f0467a893097",
+            "expected_sha256": "b2b0764b59d5e32ce79c48ebd65f01e7fafd7d33427d5f817c50d7f75548a4a5",
             "outcome": "output"
         },
         {
             "id": "5e95c191f700fd1390c28ece749d3b77acf63b3e",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "f6410508092116805ddf06f87d615758ab26e7c55997fb45554befa7aff3dd1b",
+            "expected_sha256": "cc8699b2c9cb9111cd1755569d8a16b532bc012f698ec6ff83b5aab7cea4f4eb",
             "outcome": "output"
         },
         {
             "id": "5eccb5417a80e008e3b8ee0e81acf7096f7b3ad6",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "aeeafe7aff9e0f1d00546d1f2cfbeaa6c69407e440962328eb5cdbfcf8e830e5",
+            "expected_sha256": "58142ff4482a0f3089e50cf7d1ff0aece337c6e491f553f8400484edb3caef2f",
             "outcome": "output"
         },
         {
@@ -749,307 +749,307 @@
         {
             "id": "5ffc97938b68e0a69f1b52f9fd82f5b9c06992b2",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "e7cda6d3d48b7e1947d7699452da4472037932dc3a7d9cd5ff0511aa9b5a03cc",
+            "expected_sha256": "9a2103986141415041a949840a68e1f4aa1b7547243f5f127879381ff98c991d",
             "outcome": "output"
         },
         {
             "id": "6068d3a731cb489886bda5280a2c6e1d57420fcd",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "d9d677520ce1acfee30de362ea5eff6da7326042b9a13bb796b881eecddb22c7",
+            "expected_sha256": "fe1a7f47d50ba63e7916ecc267df7ebebc5ffdaeddb83627f83f36fbf6d34674",
             "outcome": "output"
         },
         {
             "id": "60e0a279f48dbf942278c15aa14f0d0707c292a1",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "421c1b84831ab38b42d109eed9980a25d2e587bf9513da6b14d89009715f18c6",
+            "expected_sha256": "31eefe7006993177eab3ccef2aabcc844ba45580a4847fb9db92294da0310de5",
             "outcome": "output"
         },
         {
             "id": "613378e1785869c14bab12462246d1983a6ddca1",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "e7cda6d3d48b7e1947d7699452da4472037932dc3a7d9cd5ff0511aa9b5a03cc",
+            "expected_sha256": "9a2103986141415041a949840a68e1f4aa1b7547243f5f127879381ff98c991d",
             "outcome": "output"
         },
         {
             "id": "6220283ca7e079f9b3abcecd4b647a4fd2dcfc28",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "d1abecc1722f3f95043ca907f7c80bb41edb38ba3de74aa5751a63010d153fe9",
+            "expected_sha256": "0757895786575a9ce424e8f03ff74364b9cf4c4bb6183e38d03582114c191ebd",
             "outcome": "output"
         },
         {
             "id": "62d3b1f89f1b9de974a11a027f5831c2797a4a5f",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "16b3846361d71f3145a7c319755bb530a426215e4c1df9fd22505b56b9c0903b",
+            "expected_sha256": "8d15bc8702ed8e0c45023d2de79b3a75322f25916acfbaf78a8e13ef4d53d3ab",
             "outcome": "output"
         },
         {
             "id": "63625188503bfa3c16b549bf46aeef14167aeae6",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "bb7f8d8edd55c38447d368dfc941ef06daf3e51c013e5f2246ebd6e81b4e8338",
+            "expected_sha256": "13791848c138ccbfb5cd7329b5f3ded69968b653f08bdf8c82712cb681a939e7",
             "outcome": "output"
         },
         {
             "id": "644d4661ed0c63088748a5570bff54e8c3be5a1d",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "e14982dbdddc31f7a48ee2ccb5483b3b0bfd388f36d443ab0ed4b8388ec2e3a0",
+            "expected_sha256": "d6c3a676c1c242a9320e68c2cd342efff8b61c515efc98d9647bffd79f0c2974",
             "outcome": "output"
         },
         {
             "id": "647b8b53e0e915a0c5d5499d4c3c31eae62e3e70",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "a700043a869149614aba31ae8caad6e088a2812d38bec81c588b5350512f4e98",
+            "expected_sha256": "5c52466df83dc3cfcaf1991aecad34634694d4bd172f661ba9eebe268d0b8d31",
             "outcome": "output"
         },
         {
             "id": "6657cdacd444aa522207d0a457b8f29748738bea",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "a0aa1099c917237d366fbf3b29d700650c6cf942b0bc2fd3ebbacad2a17aaeef",
+            "expected_sha256": "c4b6fec614b4f621d626f7f116a67fb9fca06cfa07b3671763cd6416efd1b773",
             "outcome": "output"
         },
         {
             "id": "665f2fedeb8bbcba82e5f1a5d5256cee0e4c84a5",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "89652245efa4dd063748b5274d442db8ea5780fe6620422c130f809e67779a43",
+            "expected_sha256": "ddca5fc679eb6c37c260fd5ac1672bd45a09f61c33a5cac9cc6eedb29e5e3bda",
             "outcome": "output"
         },
         {
             "id": "66b1abf0f132cf02c5e9e3a75eb28d4bb0ffc697",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "5c8feb63f3541aa49d26f74399966f530035251e85bb14532f9336359c68e0a9",
+            "expected_sha256": "9fa36245ff370251558be81986378c1ee2d03b8a5ae69ff02fb7b12d58349a8d",
             "outcome": "output"
         },
         {
             "id": "683aa732f6d1d3bdbf466a568f765e97298c1e91",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "00d9a284facb7b47baa815c541938dd232bc455a0c5beb7b6dc5b3e1283d3b62",
+            "expected_sha256": "93687a7abfd272e3024c929cdd322600e9212c50d2cf6aa13d414008c401dc1e",
             "outcome": "output"
         },
         {
             "id": "687e653dc9c4b915423cac2bf52d47189f61f8a2",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "353152966384fdf714fc75fea60cc2aab4ec021a2fa808564f6a2ff06b985891",
+            "expected_sha256": "44c0d65e5ce38f635122e84c78e4f4a193c96ec8e1d587afa56dc4d7c50d99d5",
             "outcome": "output"
         },
         {
             "id": "69437d97d7514bf555786533af76e98652500cf2",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "09fa27713a173001bdc44047956100fb0e93e534f981061919f5290cdb5e7937",
+            "expected_sha256": "4953cb470f6317fa779b8320d3a30cef0b0594e5e87c0fa26bdaab94cbfd125d",
             "outcome": "output"
         },
         {
             "id": "695b367710bb6baa92f47fe2854aeebe5c8f8cbe",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "39c567624890249d57822cc50f9d32c8307c12e56de80151e34fb84e6d6668a4",
+            "expected_sha256": "6462f664da9bc05338a5033bfb840c3c6eb8a235d572385c8bd73d777bfcd121",
             "outcome": "output"
         },
         {
             "id": "6982a81d4f33075cb7aafea143e729fb62128c06",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "7d90ed6b71e351bd2f6aaf2a826c4a0664ecd1c72c5722fb78413e203e34e87e",
+            "expected_sha256": "e2e793524158053d43262bbdeb03f14c76ec5aea497d28cc4bb006e28e66fa41",
             "outcome": "output"
         },
         {
             "id": "6a28853f94ff8b3038cb87c6653ee6b6e609659b",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "832d6712a306b8ce2e87dad19b427616f8d144b81f80a435fb478795504808ea",
+            "expected_sha256": "25f7b1887a0b5f586cfa71b72e91ba211ad1b308de268d84bad650b228588392",
             "outcome": "output"
         },
         {
             "id": "6a79dc903f5df497efc761687eabd534e3f5819f",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "16d736b4c928333edbcae9883600d0a738ab94433f1e95fc0d1d83b674eb3fc2",
+            "expected_sha256": "198ce5582a77f7e3965ba6bded4918ae2f010891169c8a06dd22af8ac36cfb1e",
             "outcome": "output"
         },
         {
             "id": "6a7f627fd36ab7d46cb322ea56e959a6ffbb684e",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "e67e56e34e11de5a29b50687ab18c28d2757c4680b7148c058be94b82bac7ea9",
+            "expected_sha256": "4f306d033feb6a62ee8fb61b06c5fa8a286b06433b7c7ca43ac413333c10eaab",
             "outcome": "output"
         },
         {
             "id": "6b0e8e51e2be5ad86fd70a90adbf20e26169ab8a",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "7e473d923625944e2f00966c75cc5c86e3cbb7c39ddf3b877ef2e58edb6bb561",
+            "expected_sha256": "bc5d734aa9398176328ffae7401ebb892f9fd7584071f5d28010edded18b4a24",
             "outcome": "output"
         },
         {
             "id": "6b1e163beb1b48d18323e0a321523394eba27605",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "1df103a589afaf83c16d6676f40165b71f5a775f7375040230856f7f1ed384ab",
+            "expected_sha256": "0eabd7c728486226d00c10c108ddd5be1881c57d39ceca512ffd897468fe5822",
             "outcome": "output"
         },
         {
             "id": "6bba1e16a1e6b77cd8346556491309ac449d0eac",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "01547dd5e250ad76c5fdfa7e2da0d60e3822d4c319dad72d6be640b9538f3ada",
+            "expected_sha256": "9a3a511f408108498bc5b87ac2d3a0c7a6ae32d90697afcc95a8ab641ac64318",
             "outcome": "output"
         },
         {
             "id": "6cdada8661e0d9b04d40ce5b170625900cbd3bf1",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "bacb3d661f2700183abd71564c02d6534128c8fdeb74602567a8c7d6fd2e37e4",
+            "expected_sha256": "34fc5bfad210cbc76dbcb7644006bfa3645253f65a6bcb48778270cb5e49f558",
             "outcome": "output"
         },
         {
             "id": "6ed86c41afcf40c191e8f8c33d9ab000c8b72e3f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "4883967c7ca09e5573779e8cf686dcf998bafd4d6180c286d8e179c48c76a4bc",
+            "expected_sha256": "d86e795832f0cb032f2306db628fc18fd5a3eaae683a79caae8d0e61f1dd459f",
             "outcome": "output"
         },
         {
             "id": "6f5ff15098c4847ea1b37a65fa4d7a5f762a1eea",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "edb94abcc0288ad9111dbcc09bf9d9718287737ef754a61f5d3ce20a81499b34",
+            "expected_sha256": "f48dd8f11a43f66dd734a50383f30280455930501eed9f8a019e36f7d7e6e26d",
             "outcome": "output"
         },
         {
             "id": "71c3c5d4e767095dae6e4699572298ceeefa19f8",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "9841fb82aab353ce82a439640dbdb51cbcd18803bc365ace314bfe6c7f1e37d3",
+            "expected_sha256": "1100addab32038e51a1be8fc9e40b055fde1a526b3141c5010edb62ff335071e",
             "outcome": "output"
         },
         {
             "id": "721b9bbfeee3fa1431e5242ba2f9c30ab108d484",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "25d71471a0f5b0a79f14268073f410fdd096e5fd34658d88e4c3815e589c4066",
+            "expected_sha256": "3436ce5b7a4cecff7a9788cc206056b21e4d7e9887acbb2ef93394cd0c28f53e",
             "outcome": "output"
         },
         {
             "id": "7343d5fdd0e808d39562313226b4b4a3fec2fc25",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "1a4975cde25af759e285e69771171b3b0798f1d9377595df4baadd010b51cc0f",
+            "expected_sha256": "37eaab204aa484d6381d7082d54952d4273880d60a012585b118e9d53e76a38f",
             "outcome": "output"
         },
         {
             "id": "736bb58153dde7a2d36941d0ad0f01331b8ae34f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "9b63bf8bba42babadf2bbcc51d2169fe37c71917bb1d21916eb5dcf74121ecc1",
+            "expected_sha256": "18235a4e17eb820ff702cac65d7fa8c5b4650637e88514331036ec704e2600df",
             "outcome": "output"
         },
         {
             "id": "73824e3736a862f9bfc9258404f75f739ec790d8",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "31517f217dd574927221acfd4d0aa0897fe6b0598e2be537d27add506b3d6e9b",
+            "expected_sha256": "7b56ed8a39cbf449f7850919684289ffc15111359af2d7acb1395200d012bc1d",
             "outcome": "output"
         },
         {
             "id": "75ae597bf2f679b5cfc512256449b1a933aa47d6",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "ea2931889139b405f8b091d6dc625ec22730ca5dd1b8d8c7f0a27106ea0c6db2",
+            "expected_sha256": "79f9bfcd0d285aeab30c98c17633b05ac7a2283617583e24f53e18d42d88dde2",
             "outcome": "output"
         },
         {
             "id": "76cfd1b857ad884e97d4d16e6311da3a9e359d40",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "0d389d179af6ee6e10c55a5bb0b48aa0d4c364fa9a22c2d8404f0f56141df8ee",
+            "expected_sha256": "bf3f016625e2839227e9ef185ab0b9bccadceeefef8761f9aee74924691266ef",
             "outcome": "output"
         },
         {
             "id": "7719362cb0d2275c96454ed64b311f8a4ebb6e6f",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "106bb2d89fd7042819642869c20f8c912d5d0a3e81e6fe32db0f004cb12a92e1",
+            "expected_sha256": "0535e805b1a5e3deae1afa346d7add58be5ed1cd15db1e2119e870da124f2e63",
             "outcome": "output"
         },
         {
             "id": "771a8a460e63141f8b0101e7109dc8867df7272d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "3924dd7befd6ff4d32815465551f2b12fe2655603b9957fc0c4a2d8e6cb49136",
+            "expected_sha256": "f21d393dd39f9fbfb717a4da245f5e7e3eb490be64a07101de25725b471286d7",
             "outcome": "output"
         },
         {
             "id": "77dc4f3650c7544a1b10fe39fb99e3a9989c8896",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "8974d99c3a9140c58c801e12c8e8bc59cc19d6aa6742af21fc34d0345298fe5a",
+            "expected_sha256": "7c601bb1be77a384be395d2fb8bff22e929d01b3ea558e29b036b1147e30ba3a",
             "outcome": "output"
         },
         {
             "id": "77f446a6276117581f8d93b311bea4f9e0ad4a8f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "77bc618603502ee8c07e445eab87bcc95b91d2f3354a32de0506fca71a137756",
+            "expected_sha256": "1869a5a1f804d011492faafd1d2c1c3445cad3aa8259bf946662aabee1fc7684",
             "outcome": "output"
         },
         {
             "id": "7840162cb03ebf0c59a36d95d29b2aec148b46f8",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "2fe51db3832ed0076d7214d46f7c48d0bd4478c0589b989c41dee0786254c8bb",
+            "expected_sha256": "9565d2112232a414061b79dafb5f407b501467b678e0ada6b18d078185f03faf",
             "outcome": "output"
         },
         {
             "id": "789c11ea189367eeb7dc933bcab27ba26648b6ef",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "efa6c4bc2fd68089116c7e8ca580d2aac575a4245274d3799ebc4d5801f34c90",
+            "expected_sha256": "b9ff81adc1478da45c05335fa81008fd0b322f5edea84b3aa844af5beb483086",
             "outcome": "output"
         },
         {
             "id": "78f25f02761ad3fe3a6ad1df8300c403d09ad510",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "f453c909fec6ba0509a4b2b808bfbc0295da3a750bcdbef3b30f74888c2f7159",
+            "expected_sha256": "89b953addd19e890714c2751981834b76b740ebf970a7524f21ba1d63ffb0209",
             "outcome": "output"
         },
         {
             "id": "793be960bf16e4f36f41fac8087289db68644c1e",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "ef318b75853440db946b195eaaff10b2604a8c5e7637701f8aef3c7548ca0f25",
+            "expected_sha256": "246f018ea8a57cdb8f22e3c84c08a8184a74933186bd2ce78ea39049870b761e",
             "outcome": "output"
         },
         {
             "id": "796065fdb0fc80934a5e6e74a1a4ed2b6c065ec1",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "f8dc0fb4666fa5c687414554e17a34f90f942eecd6b00825232e055c8eda86d6",
+            "expected_sha256": "8cd114a534b6c9b26c9f7fa1eb54cc4123835b36f0de792704b1cbc6d9c1c223",
             "outcome": "output"
         },
         {
             "id": "7a0c8922c23364f166e4fadd7a7536fddd2cc6a0",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "6a9c947bcfabd3132c7317d14566d0187e61bf754bc563545d2d0fe07629bc69",
+            "expected_sha256": "f6b9388948f1e05477e55f9bbae3f67ca8ab6e025eeef23793fbbdd9c60f9828",
             "outcome": "output"
         },
         {
             "id": "7a290431f201a0a83cc789feaf7b594bbe635a2d",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "993f6a0193fef811e6d0cae947d01b27d922215a3ca881053cdd3aa53f50da98",
+            "expected_sha256": "1a3e2340611b9d30a4329dec8bda96cc277262f8b70f47eb36ee5a29a8d5d1ca",
             "outcome": "output"
         },
         {
             "id": "7a6a2673d88d75e570056d8a5a291fd15768f1d1",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "e2cd75bdee49b5f377dc4bb9246183c764454dcb89488ee3d1bb67a6a9b875e3",
+            "expected_sha256": "23dc80326fbcf76c3971975e393edcc5e20ec897c70d5c603a409bc12dbb156d",
             "outcome": "output"
         },
         {
             "id": "7a7af8982960e28f4cf964953c85b58a510699e0",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "ce5d6431831c016aad5641f3baf9bf9c703dfc848a4d73c1a02036ef14ce933c",
+            "expected_sha256": "702200a2328102fdc3e099af51c550c6239c45cb5d679d00f68c42eb1a5cc03d",
             "outcome": "output"
         },
         {
             "id": "7ab6b92f1aeceef1bbc33808c464e2ad526516a1",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "c2613738b19b4b4e7f380681eb80bcb6a950b484130325af10ee42d10ef35b5f",
+            "expected_sha256": "bf105d6ebf75230257549f0496907daf13e1e14b476e53586ceace1c5a2db12c",
             "outcome": "output"
         },
         {
             "id": "7b02adda3739ab7727da06b8a50dd787551f9ce3",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "f497b7800b196fe69827e2cc92b65718ba6c5cd7014d284eefeded90fea6bb2f",
+            "expected_sha256": "c81813d389aa01791b9ee078b1c8203682c550d5200fab350e84b13dbd16e9c2",
             "outcome": "output"
         },
         {
             "id": "7b5ed425a9a715004e1b133013371ad52b65b387",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "6f33083431947e747bab5f8ecb3c1decbf51be84a4a898ac7422187860835945",
+            "expected_sha256": "4cc5e6c0cf7b10e2b4b7599e5094ae95af36b250d77141d47665ed455cad5c7d",
             "outcome": "output"
         },
         {
             "id": "7c2d1217f68f1eeed57e660c70936247d937c414",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "2275eb511c96ce4c77399f6f2c9c6fc031d60b955e7486b568540d4cafae9b1b",
+            "expected_sha256": "a4cd151d2f24a6070416d0134a1c773a26704f54cd3cf817e0eec58a7cba3bfc",
             "outcome": "output"
         },
         {
             "id": "7d6524b6e97cbd7108b586263ef28d5795260f66",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "0e36a7962cf29dc5cb0cd487393a4b45197d2fb4fd54d739d4bed719bf3e26bb",
+            "expected_sha256": "2984a0df465bc27c7a443ea24f1fd22c439b5e61a6d791bb1d8556ab989527ce",
             "outcome": "output"
         },
         {
@@ -1061,43 +1061,43 @@
         {
             "id": "7defee5a2dc89982f93b80e1604edb23e72e6651",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "118f9c84326d100128338a29c3636ea37c2124d55ccc90a1c17afe31ff2ac876",
+            "expected_sha256": "a9e4b453d606f3c1f202542639e452ef3aaf769a248fd63378af47f22491b6db",
             "outcome": "output"
         },
         {
             "id": "7e42b948e2718075120ef742a5fe7da8e8aeeb2c",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "0eccc14224f91494c0969ebb58ae3596151e8e380b63a60c49e64c654ee115eb",
+            "expected_sha256": "e7ac969fade4f4d37e68d78d62c9c67c06778ea9a668fda496e96b7f74826ce1",
             "outcome": "output"
         },
         {
             "id": "80de13e5847b625e8355e88c492d4923c0766ab9",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "64ff31245b8c45938141e22791d44d8000de8074b8bd96324e9e61a841af3d99",
+            "expected_sha256": "62a926b97602feb9469db0ecbed009e267b8a066c19a9b9d9a52ad4d963dd237",
             "outcome": "output"
         },
         {
             "id": "81a94623de887f97af99ca9fe18508f00f79b3be",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "cd41d0159faf399fbe2cabd55f78a168e08bc1c49ffbc84a224ae8a5191e7dca",
+            "expected_sha256": "0044ee475c2428679692ffaf564232de9874f88b1f9abd93e540fd9a3bd4b1b7",
             "outcome": "output"
         },
         {
             "id": "825b3e80e27a7f97221e0dbbdf2f58f1d77c9b8b",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "269d4e4b10f016a79f3399f89e17c95a12180f6ab191dfbf2db7cf6d6108732d",
+            "expected_sha256": "4906f0c9e4c01c97b5318d9a4f77719c2958f7605419f1fb29263327a868165e",
             "outcome": "output"
         },
         {
             "id": "83e2956d0d5161ae8ac6fda422ba21b477b4ff8e",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "c5b3b6d05d80798a2383d1a57808f0a540c707f486731df0f2bc2f9e2bfaee7d",
+            "expected_sha256": "40afc8f6265c7477a6b873b850a8f306e874312fb11975923d0b05f1e761671e",
             "outcome": "output"
         },
         {
             "id": "84a0d815ce0c90fea092f909bd72546722e582d4",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "fea72ff7559a80465f0e59a90627c5406eab50075f091ab4fe76bf5a39253541",
+            "expected_sha256": "19452d89ee31b196783b73d0d5b39757ae8880fd752b9b6a99e01d8e8545d128",
             "outcome": "output"
         },
         {
@@ -1115,85 +1115,85 @@
         {
             "id": "867fe3db1fbc65a2c58a1cb3d48075f8ba0601c7",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "c12db5e3e1388eec8e0e472470f8614ca72b1fe14fc7b32b60cf753f7f29e64b",
+            "expected_sha256": "ad1354432c738d3c9a82cddc0a308519e4316d93b38987dba65fcd33fcd14593",
             "outcome": "output"
         },
         {
             "id": "868d3967f2ce6a44aeeff7cb97290a7ec551cc34",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "8df45e3aa969a82239db69752eee2cee8ffad5369e43aad0976ce039c84e9795",
+            "expected_sha256": "2d87e78572eefeab6a45fd263bbba4f25bd7d74341a0fc8259f1c41cd7895b49",
             "outcome": "output"
         },
         {
             "id": "88ac82df0f259bc2c9588ed3ef6216a07be123b9",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "bfd7070dd108539c3027cf9d0cb47ce320fa9d371ad13fc23657b8a2e89ad55c",
+            "expected_sha256": "f5fd027696efdad24ef2de21a4ce47755f022e516555d99b8bec5b86c2153baf",
             "outcome": "output"
         },
         {
             "id": "890cd2736b8b6d31242e62c10ccbc7452ade5972",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "993f6a0193fef811e6d0cae947d01b27d922215a3ca881053cdd3aa53f50da98",
+            "expected_sha256": "1a3e2340611b9d30a4329dec8bda96cc277262f8b70f47eb36ee5a29a8d5d1ca",
             "outcome": "output"
         },
         {
             "id": "8a631c3cfa09ab74f3dfd8bc3e0c73d998137c62",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "afdd6001e2ee1181fc4474f70d92f5ab8b181c62b22057f3a7fc7cad7ceda1f8",
+            "expected_sha256": "a2882bfdbf3bcdfeceb24cd69574d2fc644cde0e9244548ce10db7001f1c2e6f",
             "outcome": "output"
         },
         {
             "id": "8a9965d5391be89e7e361ac39c8ecadc13bab05b",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "2276a93b7727ce18dd0be36ad29b883871ec3e4a421447126a3b5ac725bd755d",
+            "expected_sha256": "48f62b41ef2226f2e6eeaeb0264c12c623e4765a1b9aedd66be9b32b4244484d",
             "outcome": "output"
         },
         {
             "id": "8b755d285a2dced36a147ddcc799e655086d4797",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "d61e50670d82b1717b67eb038e4b02d7b4b0844e334caebf2cba0ee3379cf9a6",
+            "expected_sha256": "dd13e8c815f1fa6f21e5899ad81894d9a3230271546ff52658afd7b7a43dd0bc",
             "outcome": "output"
         },
         {
             "id": "8b7d686205ae8417ebf254814b7d86bae9500398",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "6362f4d4f3b4412ddfb0c10fe0a9e52167f042af67fe2625525150e51dc53a71",
+            "expected_sha256": "bc81618a06c7e14ba8770bf3d08e9bb297475e64d55e2cfbee4f3e6ff583cedb",
             "outcome": "output"
         },
         {
             "id": "8c22a3218541e3ba5880c3a80a75f56bad927a7b",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "51175fa67e704edc91e2e8d89ebf33e561aeaa10cb5ef24f324e9fa5b47e6ca1",
+            "expected_sha256": "a6c81e0da563ca5d459204d72e1351bfd79c22dcbf6aa175d9c2f55910f72c05",
             "outcome": "output"
         },
         {
             "id": "8ccdc054dec2088d604fd943896331ff23dee0d1",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "bec4f7f4aafadb5f1604646b3d73a0a0e092585ee3ee3eb02a48ac52f1f16641",
+            "expected_sha256": "2732f89a03dd390383feeda3ffcea04f4923c93c93e0531792bb779abce17e1c",
             "outcome": "output"
         },
         {
             "id": "8d155e3be64f60344947488082b39546db16069e",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "dd2c012c867dce02280fbe9d3261edc3337e0ea2cba42ed1a112e686d976d47c",
+            "expected_sha256": "d15d27022b8b211c08b85146673e9aba218a1509e10ba322f7938de91c7306ad",
             "outcome": "output"
         },
         {
             "id": "8d253879738cf31dc4f62e287fbe51ae54a649dc",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "c6e2942b1579134b62dfc0c2e8c5e46321e310ef433fd806036930559be564a7",
+            "expected_sha256": "1b5ef56f7a15d77e028d8190b3f3868473c9e2b0c8870e7ddf99ea4e61bf7252",
             "outcome": "output"
         },
         {
             "id": "8d5b6ccc04e6bf29f1879e7ec785590b44104bd6",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "c01009d3300ab46ccab88077caa8ac84d3331f482476bb801651bf94870e6c09",
+            "expected_sha256": "342cf3ce37a727488f30f38f49b00b59670aefc1529f3833867c8d3650980a74",
             "outcome": "output"
         },
         {
             "id": "8ea9b354cdff96c5c44b732ddedc532c2795d419",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "6ff5429e4518a7d2bffe328e0b7b9879fd7361ad99e43b277b9d85fcec3ca5a5",
+            "expected_sha256": "711537b439fc812dedfb44ec363cfe5906b7acdb79cba478aec78aab5a3c853f",
             "outcome": "output"
         },
         {
@@ -1205,25 +1205,25 @@
         {
             "id": "8fab344f24a36cb1e7b3a76990c695e6150e5d69",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "f7aaedb9baa264cf148785528f491424c6ed23d59e87a9fc6aa1b6e84a954ddd",
+            "expected_sha256": "f75516d20e6b47906dc9cfe63aeea8b033771fa8ee74eb605f65534104d425b9",
             "outcome": "output"
         },
         {
             "id": "90115e6057a6d61f3fed2e2e94db98e9abbe9ba2",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "4f5de40861ea1609ea179c2a80d790dfcfc6e0000432ae5d3d67345c34480144",
+            "expected_sha256": "768ea2bc28707e1887b2bd54f8b0a4afc9db6cf0ab84780ec4bfacf1f4073b03",
             "outcome": "output"
         },
         {
             "id": "90234027dbc4e72421081dd41f5331c2fe37e456",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "1ad2d228bb96dce93228b1c876a861428e1409d0a0f754245b2e495220c71c76",
+            "expected_sha256": "151f6f5dc54d736050540efa8cc5bb6887d83c85e4de150b08ce4fcde3150402",
             "outcome": "output"
         },
         {
             "id": "9080c8a8cdd8e01113efed5bbffe67faec469e87",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "e10504dd534fd4efa6bfc6e4416344d2d62edf947ba0d8bbd3384d989570e924",
+            "expected_sha256": "0bddb1ad96b68d74bfbc7f8b944aed1eb02bb40b827c49cfd58024c3d06f10e0",
             "outcome": "output"
         },
         {
@@ -1235,31 +1235,31 @@
         {
             "id": "90f2a32f33f1d649074b3c2b77964288e92b0a66",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "f57141c8d13b43cf2e4dbacf758ff50ee7ae3d832834445db15812f0f372ef9b",
+            "expected_sha256": "df65676e86c175cc12f7f476c74c2ffa14c98941f9c421285aa0c299ca7672ed",
             "outcome": "output"
         },
         {
             "id": "927aa36875da93af28e278f37359f0c3fbbee7d8",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "f508cf42177b4f50fe4afa0e322d826d324b592d21fda03e24ea75d9086d72f1",
+            "expected_sha256": "25a73af4c380c23219346fff7ff821e14204f562b025ed0efcf070af8efcbc02",
             "outcome": "output"
         },
         {
             "id": "935023cebba0487bedd151f15053105724491d2a",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "e3042dc905aa2791fb79049ccf6d80610f6df4935d38471fed7b3d10938fc200",
+            "expected_sha256": "d5c15e6c499c14bf6e39050c129c904a5998f66fc92e71356f60c531007702a1",
             "outcome": "output"
         },
         {
             "id": "9389ce06adc9858ecf2a1cef4a47a19b2c2e2d96",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "fe861d5ea3863da646c5dd4f40a973731d1469665ee9ec6e42ac6ed2b1171b80",
+            "expected_sha256": "97916484b3e331aeb265d9608de1adea265e69e456d730f8c1acd1a6405a09cb",
             "outcome": "output"
         },
         {
             "id": "944dd63db631afc5664d39d5f49658f016e89e27",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "34be8b0d9a045d131d4f4976d1a1044247452dd2d7144eded7e800ad13bb56bb",
+            "expected_sha256": "5a06f2028f96263cd894b7a8b6b009bc2158f0e5dc38ef21764c7bc4e8a50f3f",
             "outcome": "output"
         },
         {
@@ -1271,133 +1271,133 @@
         {
             "id": "95b3bd5a8ce871e3aec047bc629d3f8498c4829c",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "0d7576d5648738a675fa04de6f86da6f064d8efcdc0704802e22e9bf4131fc44",
+            "expected_sha256": "650814d04af8d36656c3490b59d9b039aca92453b4cd075203309c13bfd7aef4",
             "outcome": "output"
         },
         {
             "id": "95c8417b7eb39c48231f5fd243dbb3e22b9ee7de",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "79fdb4ee1da6e0b60c650aa3b3191d94d78c6cf2ff16928333111785315cde58",
+            "expected_sha256": "429dfb657e5c63233c37e7c989814ceb009f81e2f51a2318fae67889c0cf3c43",
             "outcome": "output"
         },
         {
             "id": "95e02197cf07e9ccbe6f4a011f6e1f52afeee2e5",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "505de5fc7710680914d209e89156d4c7a1a0db459f2cac8164158d79062d7a64",
+            "expected_sha256": "d7745c7a9dc46e961c5b224ae5beb5ad59d7cb0a8e768c9176e0ce23613fa83b",
             "outcome": "output"
         },
         {
             "id": "97f7de832133b303dde0c406c4cac51ead827c21",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "1a4975cde25af759e285e69771171b3b0798f1d9377595df4baadd010b51cc0f",
+            "expected_sha256": "37eaab204aa484d6381d7082d54952d4273880d60a012585b118e9d53e76a38f",
             "outcome": "output"
         },
         {
             "id": "983aa90985b87e7f473dab9e3b40b083552436b5",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "6a1282857cbb707b47763e51b00dff7161b5c6978792ee07a1d22cfede338ff4",
+            "expected_sha256": "f0784f30a6d0d47eb27f8643c75ba6de5a4e211a4801ec6f8afe9e678441e1fa",
             "outcome": "output"
         },
         {
             "id": "9885239b939b4e2953b2124cb161eb272a33e208",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "99d360b04ce99e3de01e7f4344b11bdbb36542a7c2e4148558a4e7987299b395",
+            "expected_sha256": "4743036e56a6e0df9f985267941acdce0f2085a5c3f4aa22fbeb0055ab94aeef",
             "outcome": "output"
         },
         {
             "id": "9b15cffe3c3912b670bd84a76e7d361d458637fc",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "30d07566399ce1d47a15ea4fcb6ff5fc1bc0037dc64bad8e7bc7e4408fae7f6e",
+            "expected_sha256": "794aa4e8394c036b903def7431e3f5883e218eac5801037d842095d9aefa5fc2",
             "outcome": "output"
         },
         {
             "id": "9c230f371c822a0771773257133f75c628752f37",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "106bb2d89fd7042819642869c20f8c912d5d0a3e81e6fe32db0f004cb12a92e1",
+            "expected_sha256": "0535e805b1a5e3deae1afa346d7add58be5ed1cd15db1e2119e870da124f2e63",
             "outcome": "output"
         },
         {
             "id": "9c7cc7c490ccb2c0796fc587cbdde99957ef1e84",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "e61a7be547202904754c468a95f5ce1a518d90d978637ab7147d33b01d9765ba",
+            "expected_sha256": "46c428dd9fc860be2c8f0c6d1c270d5dd53f34202b97554d4925b5bf52c19695",
             "outcome": "output"
         },
         {
             "id": "9cb93b7292f65713303d2ef562f6726eaf034e33",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "dd7fd7c70ffa4daa4daf738e61aaeb0c49c0d4af70660b6251440da1adeeec38",
+            "expected_sha256": "b69f7ec9094d208d8dc7c011e18f63d9fd53f9a52adea3afed7e607dd1ee0b82",
             "outcome": "output"
         },
         {
             "id": "9e7bce7678d5213aeb922320aefd56037c02c58e",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "d79c17e70658978604d66eb03b9021ee8990117391a1e312dfff7ab72f304d68",
+            "expected_sha256": "b6fcfa1f7c7a69c2a0219bf7afcdf45a354a37defae8a92d6afb050b8f88d47a",
             "outcome": "output"
         },
         {
             "id": "9ea7f1bdc1af646b9b52cc368f40e7f4c6abd708",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "eca23c6243a8f7fc418e23fea8f2fd2f1baf83691cdba20df9ea969b91e55081",
+            "expected_sha256": "515ab1177ad24fa08b947bf82a2d348cfe72f6aa643545cc1709c87fa0b6a466",
             "outcome": "output"
         },
         {
             "id": "9f6e1167cce9e7e8436f441cce9a21ad0558a512",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "b2286151d42ba12e5dbfe4970581718085df540355124763d9b4b5b50e47f7e2",
+            "expected_sha256": "6a9f8f3a4d41129a8c3d48e3479bacdf41da4f8c41d1f0166c51b16be5f95023",
             "outcome": "output"
         },
         {
             "id": "a5a08a8615d2682ce0d38a5053bcec23199be36f",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "e49df13f9e79748eec3621044d15f1303522e2a0623e8320a95b251345eb7dcd",
+            "expected_sha256": "da841417f1e3b897242b1ef5bf6a468783b4e14d174e2ef8617dbf39e9cc9b36",
             "outcome": "output"
         },
         {
             "id": "a674b388cb27ac0b1e993325c51d15fbf3fa7401",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "86ad3e7f84ea9c5e6d3402d62a4bda475e9192e1c3f0836d0900a76b3cb6fda8",
+            "expected_sha256": "91ed5bad20fce725e9a39e661b792dd489b893f7e4e69a11c83371fa9a6c1b2a",
             "outcome": "output"
         },
         {
             "id": "a683ee23c2246fb6c0e13fdbd1eca9940693bbf9",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "89b78162b59cde85cab24efdcf599cb3c80a9c673d2633e0d2eea6390139eb1c",
+            "expected_sha256": "3970a1f3f5ba3142b3f03a3a306d6aea021e59b7797d8424ae4558a17386e39d",
             "outcome": "output"
         },
         {
             "id": "a73ce3b04cfe9d999b42457b98c34e91037ed049",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "42687eae1d4c1901c7d8eebf881c5754b08182c365bbea859b2aa95f4e73ec4a",
+            "expected_sha256": "4708e153858b56f394b290a391c2dac449b137a11938f65a3830ea06a577e645",
             "outcome": "output"
         },
         {
             "id": "a951f005b977a0c960186bae33cdd047d18caae1",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "df7d7e86a0b753ff7fff7fba7d3c3dea6bce6f85edc4bb769d77457973721c2f",
+            "expected_sha256": "f598d3006ba6801130317c46fa0b66cc74aa423ac7ef96bc432d37c8dccd6d6a",
             "outcome": "output"
         },
         {
             "id": "a98742a01f9e63be4e5d0e116aaea459f221161d",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "df218913b05978431cd1f5052efc14afb37ca7aaf225ed5b17dd8ec4678fc733",
+            "expected_sha256": "5277aeb9e2ea96fb3a45ebcb1e98c882781013257151fae14ff013fa76ba10ba",
             "outcome": "output"
         },
         {
             "id": "a99ae9bba8f85e6ff850f050f0f1800df19aa3e4",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "ea9afdad61ca76da35eb5209ef9300312281131d3b70f4f790d2dc9a743029b9",
+            "expected_sha256": "26b62b43f6cf55aa986536fb88a67b5c84122984126497dc804e3b5a3492062f",
             "outcome": "output"
         },
         {
             "id": "a9db830d9fe842f04c12d3125948c24aebbb713c",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "239a965871bc1059f5782d5f75b06e5c9ac408aa414a065e84cbdbf2c9136763",
+            "expected_sha256": "4176cc1abb5b3f4f6bbca46e9fce23b0464396bbd52221b481a20375c0e5da48",
             "outcome": "output"
         },
         {
             "id": "abbef1b86e0156792ef13c169694528109416298",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "3128fbe413075879f3d067871331f4b38f16051b15f7734e6665d75cc75b685d",
+            "expected_sha256": "b818a7c29eeabcca2a0133c97b0acf8335c08a8f6267956272a6b41b9f925663",
             "outcome": "output"
         },
         {
@@ -1409,25 +1409,25 @@
         {
             "id": "ae8197159e63beecd5a94ff303cd1934f9c6eb36",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "0391faf71157c1ba2ba1d043506516a676261383070734496029491fe7f53c1f",
+            "expected_sha256": "d58c2365707b582c40ed0aa2eafe106a3ec4170b436ab3bf04ea577e2b4b47ec",
             "outcome": "output"
         },
         {
             "id": "aea0d3037b5775ff8428477442f6b0798454dd15",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "85fa9f04c21a45e90fb9ca470d58a4f3b4912e8f41ccc91bdc96e6aa9458b459",
+            "expected_sha256": "a25d329f61a8c90c1750da8874cd807b253a69ba9e82a6e95ca659baa099bf3f",
             "outcome": "output"
         },
         {
             "id": "b08c59fbb40d27ee462e281bd03036db83419f20",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "df7d7e86a0b753ff7fff7fba7d3c3dea6bce6f85edc4bb769d77457973721c2f",
+            "expected_sha256": "f598d3006ba6801130317c46fa0b66cc74aa423ac7ef96bc432d37c8dccd6d6a",
             "outcome": "output"
         },
         {
             "id": "b0e045a784bd2fa915641303d79bbb3d5a5310ab",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "e88f3bc0c7ab5d0831ed511d66b930916438a49476b7c38a1b43213d874b01e4",
+            "expected_sha256": "b1b7ca830ed172c539c5f3b37008fc7213b012eb46b24d54e1e497ac51423d19",
             "outcome": "output"
         },
         {
@@ -1439,115 +1439,115 @@
         {
             "id": "b550beb0271acdd852382b101d2fc6653b1cb107",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "af43162504a5b754c023e2f286a5a62b3679530b4ca2b8b2710f2a40acf25ac8",
+            "expected_sha256": "0673cc124c031622d7ac491c48a85edae36a4e43b713860be8c8c7dd9fa8a934",
             "outcome": "output"
         },
         {
             "id": "b663b3ad2ba218ab3b4dd23593dac2e4e0eb4d5c",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "ecf100ab82237cdd54ab7e2e814343bace0b21bee77700c4474bdc88f8ec4bef",
+            "expected_sha256": "b799e807542f160469ac08c82bcda5cfcdb905e53412258ad567f2c0f11268a3",
             "outcome": "output"
         },
         {
             "id": "b7408474da431a5906765bf91cc6af329f4a1854",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "ef318b75853440db946b195eaaff10b2604a8c5e7637701f8aef3c7548ca0f25",
+            "expected_sha256": "246f018ea8a57cdb8f22e3c84c08a8184a74933186bd2ce78ea39049870b761e",
             "outcome": "output"
         },
         {
             "id": "b763ab024aa672d02247023460e63a59e49ea878",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "672771f33cf8d90d19c34418b2dd8310add645887f1d669b1ed38968454a5fc1",
+            "expected_sha256": "6d20ba82ea6868c756aa099e104b9e6d8b8a09ed7e1295894fc6fcd2bbb71104",
             "outcome": "output"
         },
         {
             "id": "b79533155fdf23c409b907a7d7cf1388d381d7d9",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "4d9ef4edc39189c02aff6b9f63c306132e2b81a420be416d903c5a2b4efd8f41",
+            "expected_sha256": "732a299f9379266b44b24b69ef0136e3f84127219b48270437633aa485230044",
             "outcome": "output"
         },
         {
             "id": "b87588612d79c6b8b262c4f3b42cbfa554db9b4c",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "024c91dcafd6f91a9a93be1460fbc6c55bdc21c9495b4a83277465915bc14631",
+            "expected_sha256": "8afe5cbd0b872e4fff5c119c99e858435a4d90d73f656492ef4d090549352218",
             "outcome": "output"
         },
         {
             "id": "b913b3b49e19c7dd90ced1e39951b0cd843dbb42",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "ecc3ef0adc7d2d46d59aad557f1e85eacc2cc49c1685c9dfb02cbd5d91402f5f",
+            "expected_sha256": "c5fe36b66370c5925a684d8ff83d941aa6ddc5c7262b6471d6073e0e28b5fbed",
             "outcome": "output"
         },
         {
             "id": "bab702ca37fa3cfa6c3222704fcd92dd6482ce75",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "1251758a9067379d72a42674e810f0bf10db705b30827ec4383de41dcbfb5b63",
+            "expected_sha256": "0332fd0f21fcebfc1075191d395967fe37c0aadcd0fa556b6aee436ddd6a00ea",
             "outcome": "output"
         },
         {
             "id": "bc14204799f30a6a3eef1a065c0b8b73e7e00115",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "2e5e3fc206c84b781b7cf5011b27bf011d47edf4d3c8d850bcb2ef5e63c46398",
+            "expected_sha256": "72f02d962a7f0ae906a0f42d0468f61af8c105554c3d023c99c9f154165e50d0",
             "outcome": "output"
         },
         {
             "id": "bc6e6f72833e11504e6d3146550b65588466eb62",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "b6463306432175b379bbb66837cdd3fac72ebc4c29e99f15a135eb00642651b4",
+            "expected_sha256": "8e450a9b819555f1c931971eb670d3e829085da9cfd608ee82a68fafd86d8cd3",
             "outcome": "output"
         },
         {
             "id": "bcd4e29be7c894ed7848a5937bb9f660ee280779",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "197d9fd90d42aa9d3a0a8e5a6171cb59c16cbc66a4938469e04a7ff8b60d6607",
+            "expected_sha256": "38e4728352674103d0340f545244d50226468bd65d71c13463a3055e2af445df",
             "outcome": "output"
         },
         {
             "id": "bd647f481f1426f6b32c01b9149486cc5ae20fcc",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "d77dcaa04f62826910d6bcc6c1470d69af439964390d6a923f30972228151801",
+            "expected_sha256": "ec4feb8cfa815f3874301f83c08ed22b93e96656c98d27685dfb37eaefe7d591",
             "outcome": "output"
         },
         {
             "id": "bda59bb962f6f24b9dfe35cae8df1391b943874f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "bda6ca41f4539757e0eecd939456f65cb6e529854fb4db61168fdba9be588c5f",
+            "expected_sha256": "0e098d14cde99a50d23da5e14b898ed4e3b8930b176257c5a5f3dddd148c6a41",
             "outcome": "output"
         },
         {
             "id": "bded56e6915f3026444c6f480c6f89ff23d47331",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "5c1d867cf5127996f2cf288647c25641427b458f8574e9d725f482aaa3e0696f",
+            "expected_sha256": "7b4d36a0989d2ee9c97bf7748f32ef2ebf0cfceb11c715a5ee232eabef143dcd",
             "outcome": "output"
         },
         {
             "id": "beb91ca659caa3e89ad7dde52af67d7457d04f08",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "9e8c8f25a3745c80cbf2f7c1250ff7a4aaf9e96642f3e7a50f7637ba65105cc0",
+            "expected_sha256": "60f52918ae37444adca06f4622b40de4939418705edc86f24f288f0dca879b61",
             "outcome": "output"
         },
         {
             "id": "bf638a45e71d94db904e734d8175ba36bcccf713",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "4bb13ab79bd1ef537f94ab2cc71e39690a6d3cff93fe4421cc5c8b4eb591594c",
+            "expected_sha256": "70ce98927f4045d83f7904f06a273720ff6b0d3cc891ef8d0a149b86b85cfeb3",
             "outcome": "output"
         },
         {
             "id": "c015fa89363ce421a7de71b0bed995c12e287bfb",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "9965f076d8feff21478c12b3425de621e954a5129c9c3c9d332210db503b4cb7",
+            "expected_sha256": "47a7788ed9ed7dd2a86b96ff38f8fa157e10519c4172c602ac305098708f0e2d",
             "outcome": "output"
         },
         {
             "id": "c15f68fa22ce0fe44ebb32bf103c335f231f97be",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "b74c944126162504d1a99a8108fef8ae5296963ea48c054f57f1c915d4f48f91",
+            "expected_sha256": "1ad7a2011a866d72e3fb57c1f7ff72bd3e21128049753c421a75fb496f2ed745",
             "outcome": "output"
         },
         {
             "id": "c210d1f99b8652f7b7ff1dcc9446774c0255e5aa",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "1a6e096fa0805a236381262466814225415fd8ad641d39bfd1301ee00d762942",
+            "expected_sha256": "056d5f51f0f2c39f44db52a919c2e408399e67bd07ce4f42053363bf1e31c34e",
             "outcome": "output"
         },
         {
@@ -1559,19 +1559,19 @@
         {
             "id": "c4469897f8d601627d48b9ce8109a9602eed0f06",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "d4bbf000c993ef797f3d7d11bd563e4512af26748ff906ec051d0cadea443b1f",
+            "expected_sha256": "3c18a82cac730794c79d3b2e9c21fcd0b82a0e501c860bc107a405ceeebfcb93",
             "outcome": "output"
         },
         {
             "id": "c4fcb46ef6f109fd5337dd57e78b3b5adb18d4db",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "32780691093cfff8dc0af95f586a1a4b980dde11a97c75736890f44850e2fe8e",
+            "expected_sha256": "3b86303825cede67c7a4c07eab53da77d7426fb06ee1da3981e755f8e841633f",
             "outcome": "output"
         },
         {
             "id": "c57bc18c3683941c94a1dfa1100825e524a3b98e",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "b1bee99523ec4191473419522f7d45711067781e4fc61c38af238c0296b9e186",
+            "expected_sha256": "dd6e17383305acb57c793f0a60463ec0f079f679dddfeddef82bc101bc7108a5",
             "outcome": "output"
         },
         {
@@ -1583,73 +1583,73 @@
         {
             "id": "c5db1f0fab531790b351a4f3c6e77208d60d0df5",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "f51a82e2dbf83d98f2b11fd69339a6ad8484494d47aaeb31978e23def1a1b688",
+            "expected_sha256": "d39e905a0463774317e8722b49ba792c8e33b2491e15e18ce2f379f6a468d161",
             "outcome": "output"
         },
         {
             "id": "c6229f801810f12a695eadfc1dea055190bfe324",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "6518769a505310ba0876921e969f10f52f34e007693e7c4fa183e9be6f7454b1",
+            "expected_sha256": "5eced119cbfc4b0f3be11be4eab8b3668288f613930eb38762590832277aad2f",
             "outcome": "output"
         },
         {
             "id": "c74d7034fb67cdf786af4be34568ae5b0b504cbd",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "77e61bf93239c0062a3640092ec7f392af47971871e6c9d73f4d3792b50cf2e6",
+            "expected_sha256": "46fc0345feb4f022eae225ad1d0e97eec299969d376f7b4839617253880e946b",
             "outcome": "output"
         },
         {
             "id": "c7a369884dd117f4df69ea2a9ddd023bd157cdd4",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "b1f0b62a7987dcbaf3addb6b99d6fca6e0cbbbc65d93c6d98f4e565fcf7ec125",
+            "expected_sha256": "1a91d30f6cdd9f5c5562a6ddb2190fce9a9cb00109445db9a80ec6cf7e8a6d44",
             "outcome": "output"
         },
         {
             "id": "c7fff215fed715e93aa155c4e0e5e31d7db084b1",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "27eaba8ed0fb4473fee7243c1aa3afbbceb78d3a4c3d9f433043f37e2bddc69a",
+            "expected_sha256": "69d0cde901b7ca7103e89a93e8057aa8b1fff2b0c8741a3682b56ac63cb1ed4b",
             "outcome": "output"
         },
         {
             "id": "c98ea0382a0e11ab21ed687a0c528a3df60881ff",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "a46d6b20cde78bc233fc1b0a65f85253fb8e471bedfcc4d4ed0ea1eab320bbc0",
+            "expected_sha256": "610df31390d64236d65cf2fedf45620b5a0e68ea8654a72194c8199525791436",
             "outcome": "output"
         },
         {
             "id": "ca0b670dca5dc1fa4f907d6d4cd0519c8a21011b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "59fa9bca525908d1746177a5cce2384aaf2afc70b1cdac93c7429de54d0a1f3c",
+            "expected_sha256": "6de68b887d7fd59b1917f3f339cc13c4b8ec5f4edcd10e9a5a79615a34c81685",
             "outcome": "output"
         },
         {
             "id": "ca523d765f8084c0c4cd50f5dbed198b8d793010",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "4d0628c208eb3a6fe327def4b384499a3a4978f2bbe58021777ae9ac7545b54e",
+            "expected_sha256": "284a6bb67efaeedbf530b613940cf5359b57dd98c6ea32fd6ee93aa39b63c678",
             "outcome": "output"
         },
         {
             "id": "cb67757827efbd8fa68aa9c2a3bc9adb132efaf7",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "f453c909fec6ba0509a4b2b808bfbc0295da3a750bcdbef3b30f74888c2f7159",
+            "expected_sha256": "89b953addd19e890714c2751981834b76b740ebf970a7524f21ba1d63ffb0209",
             "outcome": "output"
         },
         {
             "id": "cf7ea728dd2147a9de494d1c235de1069b79d2d2",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "38751cee380e70126be607293d6225b2e7b93584f1a1c07e3555610df6c0caca",
+            "expected_sha256": "dac5dbaca73240ca78c038e83c87b78fd68aefcdb1ee263633e65a57d7a1964b",
             "outcome": "output"
         },
         {
             "id": "d13573697ca7ebaa0708df1571a7202ff8d0617a",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "fdd46c775c608c65392c5d034bbbdb79116283c63ee1f8751be769427d6aed08",
+            "expected_sha256": "c9c757a2b397becd040df8ab4e322a05b1cb68740bf659851156d2297acf198e",
             "outcome": "output"
         },
         {
             "id": "d155dabd3acf3a7324a5d9d430a53355e2a958e6",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "7f168d28a47c0fa041f5e2754f32127daac851f8705c9669fa8ee1d32c6555d9",
+            "expected_sha256": "363b51c89f48994a003f349925e70fd780406e9618973e8b0ea8ad23ebff9569",
             "outcome": "output"
         },
         {
@@ -1667,91 +1667,91 @@
         {
             "id": "d28fa8458fa6e62f7071db9c695684c53c07ae87",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "5b331f45a11e2ef9b969ed2e6e353c64dcf675da901b6f49343fff23dfb59615",
+            "expected_sha256": "55936ee49234ee33297a77bdbf2ef9d426896167a7cba1fb3b847acde55048a3",
             "outcome": "output"
         },
         {
             "id": "d2ea164bd6ad4bab2cbd420b8b9df7634699d6cc",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "cabf52989ec6637c4c90d1c6635c77920c20f116cc2ba34491f134042b988f73",
+            "expected_sha256": "a0807acd28609840dcfb4b88b0baa521381881bf85b5b0344cd7fed166e534e1",
             "outcome": "output"
         },
         {
             "id": "d363788ed548924b9db663ecf3f1efe9d1dc73bf",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "f1cf6edf8a30c6989df9921637e2e0cc4887d2c47e1a5a0243e1e5808cd2ae89",
+            "expected_sha256": "548c1aad3dc080ad3e2046500a54e26265aec075a537e0179998ad8c119c04d3",
             "outcome": "output"
         },
         {
             "id": "d3b1b8925de7a1e1f74a892cd597d5773caff059",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "3d5f54499802b330a49cc8d780803892fcae8295442ae3b5adc090262497dd84",
+            "expected_sha256": "55360fcfd7c9ec7f6614996f2201ed1d9571ca0287f13bd063c7a5ebbd56908e",
             "outcome": "output"
         },
         {
             "id": "d428acf0f2ff263aa46a5be21316b1428bc3fe5b",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "bfc292e04df61de9d8810e713aa1f0b6d4c9516f2311c115c383601d0f1f9be1",
+            "expected_sha256": "64d1a6aa94cca13d92f4cba76f6f59a4c4ce53f8e3525ec213f413db189ab357",
             "outcome": "output"
         },
         {
             "id": "d463795ed0f393e3b53b95db45709e05f27c1f26",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "ea2931889139b405f8b091d6dc625ec22730ca5dd1b8d8c7f0a27106ea0c6db2",
+            "expected_sha256": "79f9bfcd0d285aeab30c98c17633b05ac7a2283617583e24f53e18d42d88dde2",
             "outcome": "output"
         },
         {
             "id": "d484bf8e7eb2ce1972508acaa8d7a0f0457945aa",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "39ae81d2ea6a04ce19bfeb172aa50eea2f14dae12e0cdda8c669b1b3b819d3de",
+            "expected_sha256": "13c773b0e537da26789969ef94e52907af5236efc8c6132075ba2256543a6473",
             "outcome": "output"
         },
         {
             "id": "d57476c797b0b0708423123b3c4e34812f7871c1",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "3cbb5ea9c13286ec8bbcb3a67df2803c91a918b6748c48fa93688e23e6535173",
+            "expected_sha256": "21bbc9f2feffddeda1686ec6d4c68605afefa45c921e18eb4a9b70e270b960ca",
             "outcome": "output"
         },
         {
             "id": "d76cc2452b7e71d7e7e389b23721168d5eed1c01",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "73e3089ec8483ea125232cbb074d7b4488c646ab54377ecdd0f3178a997b2efb",
+            "expected_sha256": "a3a281a504eb6c00bd4978d008d58faf8c05d558b4a82a219fad8dd45cfe1495",
             "outcome": "output"
         },
         {
             "id": "d7ccf849b5be76cc4728d3120d90ab7898326cf2",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "dfe80389ea535f8874ff29ea3689ade6ed82769db1f81de6da37593b61e7579e",
+            "expected_sha256": "0525ca7d865806a83623a74177a3168115b7a1e15fcc47609ac266fae31a951a",
             "outcome": "output"
         },
         {
             "id": "d9a4c8081b8ed16fe4232c53f9e9f4dfc051386f",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "bfc292e04df61de9d8810e713aa1f0b6d4c9516f2311c115c383601d0f1f9be1",
+            "expected_sha256": "64d1a6aa94cca13d92f4cba76f6f59a4c4ce53f8e3525ec213f413db189ab357",
             "outcome": "output"
         },
         {
             "id": "d9e76520df74860129bf526dde4810d0f36a244f",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "29128910e6c887b2633c9cf5c67d387c77d314ce87ed8c96aa1b2c38abfbfac5",
+            "expected_sha256": "874589f57580682fec8a98d818b339616f1ae2ff6c775ffa0a7812008df55db0",
             "outcome": "output"
         },
         {
             "id": "da7b405d235479b38bd9e5264a97a3e4d926a6d2",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "8cbd5fe706a3cc45436d252c5df18c89d8be9823af24ab5237fbd6fdcebbf650",
+            "expected_sha256": "bab9b0195e97d175c5bc6dbd46b4068ca39dc6004bc36c13feac7f2e4045c611",
             "outcome": "output"
         },
         {
             "id": "dae00d128fd981634fc197a6a101ca52966da2ee",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "3dabb08239b02115883d71da782c5b70a98bfb14f358e34a01fe357181b1a75a",
+            "expected_sha256": "13f3b4b8b3f93c71e395aa45bccc98d59a2577bcc0e6ce186c01ca69b38f3e52",
             "outcome": "output"
         },
         {
             "id": "db84687e590a0ade0a54a3a7142160f658d6fc2b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "bda9b089d157133cda2c876dada25bcc64e3250688b744ad7a9ba72bc8008ed4",
+            "expected_sha256": "cffb37eaf9875542aa72f32993a3c282a2677eb13172fabf736dc587d32dd669",
             "outcome": "output"
         },
         {
@@ -1763,103 +1763,103 @@
         {
             "id": "dc249610a35474c304d11943e5b5ce54b3eeeaae",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "735620b71b0638a81c345cd1bddb44c29bfaf7afa6fc9ff1de10ccb496d0cb1b",
+            "expected_sha256": "84c1f6c0247f508a861ec1dd501e8546879e7847f7e68387854c7ddf49e3861d",
             "outcome": "output"
         },
         {
             "id": "dd6435155416263a22f34c06e14e0ae933652de7",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "da5fbfcd28c172a4af834c33aa82a601c2d4d21bd07b57048887aca6f45f5118",
+            "expected_sha256": "335a861b18132a1293a269704f600cbce0da26123c800c3c294097f33b02a249",
             "outcome": "output"
         },
         {
             "id": "dde6860346978c50cd85afb2ce42688d1d685004",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "e3042dc905aa2791fb79049ccf6d80610f6df4935d38471fed7b3d10938fc200",
+            "expected_sha256": "d5c15e6c499c14bf6e39050c129c904a5998f66fc92e71356f60c531007702a1",
             "outcome": "output"
         },
         {
             "id": "decc86ce46b145d5df3de753aa2a5c8bd45d49d5",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "eb4b339ce12f4bec0144c757802c9cce6e54b6ddd8d179fd9d410aced5e7e850",
+            "expected_sha256": "48f5fb1291a3b25641075c51f49f0f89183e01b46e0877957e848ed602821f79",
             "outcome": "output"
         },
         {
             "id": "df7fe272714151e12093e6497098b86a8b779cb0",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "38e8ac555ca1587540903139e795f147c35f54fc01a01671f19a656dc34c7426",
+            "expected_sha256": "3945755d0455d0b9192807764615633df5c62c30e8e52c000c38fe24168fb271",
             "outcome": "output"
         },
         {
             "id": "df9c24a89732ac84a5fb55a4fd84cb89492722c3",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "d2ea1f33c44d2c30c19634bee5e8c312a47453d2c61db3fc6c5ba68e972e28ca",
+            "expected_sha256": "d1bb6c0a1f202bdd0e9ff20dd3e414586e7ef031bb1f8fb9d5edc83841019445",
             "outcome": "output"
         },
         {
             "id": "df9fb671dd16e90c376147ea9110bb31855c3143",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "34db98256b58308dfa1f32019cee994df5fce9e665ee267c07bef8db55108d62",
+            "expected_sha256": "13111d3501dfc3b41e027272e9a019b2ecff6b279ebac7d4113d4b798f3f7041",
             "outcome": "output"
         },
         {
             "id": "e0896760448c3dce7662c8860a3c53873d6e45ea",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "993f6a0193fef811e6d0cae947d01b27d922215a3ca881053cdd3aa53f50da98",
+            "expected_sha256": "1a3e2340611b9d30a4329dec8bda96cc277262f8b70f47eb36ee5a29a8d5d1ca",
             "outcome": "output"
         },
         {
             "id": "e2c48cbef90360a9e86e10e23d212cb2b110da18",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "ffe1c28849bfe012f4e0377811927a3a3c6e0dd5ce33751d73890fb610c32100",
+            "expected_sha256": "ac63e5d8238346267894be76a2a16872a6498cb3b62b1951a485386c3a2dc4c3",
             "outcome": "output"
         },
         {
             "id": "e2e35d0c5c02ff06b23bc87fb59bc585201bc46f",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "6a675cb25b3b2a350fbbaa7d435a4164d764e6497f476bba50cb3b3d54c78188",
+            "expected_sha256": "23b8bc24bbebee3a27d11966ec4836a1c9eae297b4ca1755bf36d168612755eb",
             "outcome": "output"
         },
         {
             "id": "e39feabd8357f3cec4f5febe061b23c5866f158f",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "397116a0a3a42b03c97973dfc160a9c4bb10c2d744a6669e094157faf1fa88ec",
+            "expected_sha256": "5a05366980ab59ec5d1253419dba13c2ae5ef0b446e0693f1a9b1db5ba9cbc0d",
             "outcome": "output"
         },
         {
             "id": "e40ee9dcecfe029b6bb1d6c682d8006ad513c1c4",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "4ace30e01c9d83ecbea9617b049bcbae856f9a6bef0a797f940c9e8771719f71",
+            "expected_sha256": "986bd63a03ebce39aec40e4cb4b56bbcae5f0526cfa39474cfb34655ba3d9e2c",
             "outcome": "output"
         },
         {
             "id": "e595d8f28e745951e084fc940a9a52813dc11b27",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "106bb2d89fd7042819642869c20f8c912d5d0a3e81e6fe32db0f004cb12a92e1",
+            "expected_sha256": "0535e805b1a5e3deae1afa346d7add58be5ed1cd15db1e2119e870da124f2e63",
             "outcome": "output"
         },
         {
             "id": "e5ea57430e2ac12b29b8351684acc9fde5ba6431",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "3e57b4727bacd2fd475c90d9fad292d16f44b71cf18fb21d850424ae07fb8cf5",
+            "expected_sha256": "5dc36bac19411ebfea453b8e652c61daa78d9e6cc0437df6bbbc9ac2f56424a8",
             "outcome": "output"
         },
         {
             "id": "e63b2d57301a9c95141bfe588b96792fe8440050",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "75e74ad857c4c330a79d52b96dd64f85cd87549797fd845f8eaa561939f31ba4",
+            "expected_sha256": "96585219cf3eb777ea9336fc39b2abb6c0e18530b15ebb79d533113171a7958a",
             "outcome": "output"
         },
         {
             "id": "e7450ca5bd05c5ab9641a0e4a1910d49b1a0aade",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "64fed6571bbd3d492aef2ba92466c45494c26c7df1b4a6b4a2d535ecf3b3582a",
+            "expected_sha256": "fa40e5763aab1c44e13456c5062b220224accab10c72e302d82bfa674dbee717",
             "outcome": "output"
         },
         {
             "id": "e747c76fc6f4a451652a658130745e1574136615",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "c51b645ea7ff6ea50b48dd45b4626fba341afd73dbacb4fef8492727affdcdd5",
+            "expected_sha256": "6bd190d01ae96be9bcbca00ab6b80fb215307f821b07340fda4287bf2070824f",
             "outcome": "output"
         },
         {
@@ -1871,205 +1871,205 @@
         {
             "id": "e970e58c3c477747ba87b749ca7575c096199e4b",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "658417c79a614ae9cd00f7c6cfa247faf10c0f8aad3103c9a264e5a30d7d4370",
+            "expected_sha256": "eda8409d89c8a4efc399da0b219030f0b54df0442f7121364deaa0d6ce8bd4e6",
             "outcome": "output"
         },
         {
             "id": "e99fa2072cc914be45cc27c6f8f1c253395c5291",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "c769dd538467707cbc8b990aab5f00c86db2bd1de7a17426f0806a25f2e918bc",
+            "expected_sha256": "fd6bbb0452cef23eb066baa4ef8f58f48adf8b00daa6bad365d7007e7bc97a7b",
             "outcome": "output"
         },
         {
             "id": "ea0e02cef76533be46296019610c805c70b9f858",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "fd1221dcca360d22283c31f854ff6d2216a6b1662ab4a29e48615ee607595358",
+            "expected_sha256": "a5108a12cacd99cb6150abc8405f1fcf5203826538613d1fa056118b694be8d9",
             "outcome": "output"
         },
         {
             "id": "ea465aa148be34063cfeac7688773d10579dfdd4",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "ccbebad0cdcfd9df90b658dd31f3d25c6430633f0fbee989363aef0c0931aba6",
+            "expected_sha256": "027eef8633bc4b6a6ca2fb62549b3a8ac00764825f0859fba02fec0456d46b39",
             "outcome": "output"
         },
         {
             "id": "eaad29efccc2e7fa6a01a2334673eeef84e9e98f",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "0f35fdd70612421eab146f3abf9748755b69b7b9838c75700c4cc80f04c195ca",
+            "expected_sha256": "48b82a177e1955edbf4a3ceded5bacc999078303046634a972847ba26ddd608b",
             "outcome": "output"
         },
         {
             "id": "eb40b37326eb847c0c56c95695952f3c481f3aac",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "b59eab8f9016ae656bff8e76415c8528367b815d6451d233b405f6cc3abfd0b5",
+            "expected_sha256": "d2b88a0bda37c111356cece86ec9d523c39b6fc90050c11ecbec62a3b53ffdb7",
             "outcome": "output"
         },
         {
             "id": "ed102407fccc74ad3a5d3f9c542972fa46faa517",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "c489234679eedce7e511a5b6a62fd676b56f93f9f3ed0f74f18a459647e0605b",
+            "expected_sha256": "75a58511db09acd8fafaa38d353961e8ac552191533ab099d5a78909059d4fae",
             "outcome": "output"
         },
         {
             "id": "ed2327af33164932fd37be72ac7e743e4f337327",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "1a4975cde25af759e285e69771171b3b0798f1d9377595df4baadd010b51cc0f",
+            "expected_sha256": "37eaab204aa484d6381d7082d54952d4273880d60a012585b118e9d53e76a38f",
             "outcome": "output"
         },
         {
             "id": "ee5f79edfcf438524a8061f2811561e5945ae1bb",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "a9a692f4be1ee2a0eaa126ed556b7cd9d69fe52fd66fc8de2f304878fe9d2381",
+            "expected_sha256": "0f8922ea6e88c275cd18557397041f481a55082e8fa28894ea0c6de7936e0c5d",
             "outcome": "output"
         },
         {
             "id": "eee4d421b752adae9a87da399ce4f55d9420a6d9",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "c4d6e4311733ef8a4b548822a08e65e844e6685bb4b7a9d1badffb2864acbdf5",
+            "expected_sha256": "1ccb1d015340276f7ca7de12e853410121820108da6d8f4cec6747866fd0e79c",
             "outcome": "output"
         },
         {
             "id": "eef990de7624782591011804baf956998cb6dc23",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "8129966804de64fd2ab3571cfc080d7f062620322ce11a2bad264c6df1bad5c2",
+            "expected_sha256": "ef25fbde5e60be8e6664798d90af7cef34d883cce3485c908c169904dd3d620d",
             "outcome": "output"
         },
         {
             "id": "f025cf281f15d03cf61d0c76c1f4bd7adc3b257e",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "90a312d2875f21338941beb332ff46a640c17d7807941b11e09772688983269c",
+            "expected_sha256": "8ed9a72fdfe21b12a3a7aee023609a02490781d373d3b14a23c8c21c68a8bf09",
             "outcome": "output"
         },
         {
             "id": "f056b27475c18a8ad35935fc507ad705bfc877bc",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "948b469ff8678154c457614922a63eeb486f1f8326e9af0d2e146c6ca0e6d66a",
+            "expected_sha256": "59527bafb9c60fe01798722852df223751f5eb74fe63dd89bf7de0f16d643eae",
             "outcome": "output"
         },
         {
             "id": "f06e5d4a656365702c7dd96c7a27eee97c232574",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "6e6f02808cb43fb85b7fde50bf4704e87d12464d496baf9f0728ff8ae470bbb3",
+            "expected_sha256": "881ffda722e0a350a8bf11170dd91cae20d6685e5b13128baad878b0d904a518",
             "outcome": "output"
         },
         {
             "id": "f0e1a42cec172b213f08a09f5c7d3b1231af846a",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "d2d93951ab608071868d14500d98968ed6faa9643923de4115b13ed789841bc6",
+            "expected_sha256": "844327bdcbc0ebbdb75c84333a06d9fd2f5a08928de32e427bbb635c5dd6ec25",
             "outcome": "output"
         },
         {
             "id": "f0e2868b19689abc1f9e21b8c0dad97e91b16ddf",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "3695ce8a5ef6320aea3a90c1abe0c928f99e7ac9ce6570199d89b0aecbc7dafa",
+            "expected_sha256": "15235770f7536b305f14b91a09bd647ed09b28a2a5a455d11f710586d2dc36a6",
             "outcome": "output"
         },
         {
             "id": "f159a7b63a3e77af373cac9dd2100c94dced0f55",
             "entry": "CapturedSelectableSetProjector::project",
-            "expected_sha256": "409bd0a44155eaf8030c73451e2289e1f2bc5c46a098dc6bbe2d2fb74c8f2956",
+            "expected_sha256": "0bd6ea63334002a025195b96c8e546b9b5cd0e718faa2511dbd95a2813ec6337",
             "outcome": "output"
         },
         {
             "id": "f2390e98c1d5de9d888c15243041fbc370bf4067",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "43b0278bf89617305b9ed0fa15a50f4da2644bf1fa6d5fed00c6c9848b0cf029",
+            "expected_sha256": "0bb550c826f9dcd472a60d4421130cf76ac1e7f6b1fd52f24dbd45648ce40fe1",
             "outcome": "output"
         },
         {
             "id": "f2640f2d9ad2189c3ad4b52023715f30ce8a75fe",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "f037b37449286a92ea97b6b171e6eda1a71560d01c52d94918d6fb708cc4abad",
+            "expected_sha256": "18f2012830b251469cc3625e9fff978b6b5b07db5305dfecd18b36689cbf3089",
             "outcome": "output"
         },
         {
             "id": "f2a509d45413880dc0d7cafde266299ad509e644",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "4ab1ce2e02dab7516241b1b4a9b055d5951f00d68a05532c6963bbf9c83aa450",
+            "expected_sha256": "344213ec7a102cf2173771b7b7fefc6486dcce7494d8c78378036dde87337852",
             "outcome": "output"
         },
         {
             "id": "f500b861144ad5bf09e5d65c6ea937b938a90099",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "34461ef3a8f1a30a90c36e1190b9382f0b74dd4fe88d9fe4737a7ea0f79ab5a5",
+            "expected_sha256": "3fa18f8269f239d288817f70078357e294524cd876bfea7cf8f4028a9ea39ffb",
             "outcome": "output"
         },
         {
             "id": "f50c699836b88c6bed0cb4b816dafb1995c3451d",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "bccc6410aad69be1592153b4a115f1be781805f904590b2e745b022eab4240cb",
+            "expected_sha256": "75b2146bd10e1f39b6ed700dc95d4729ce91bfc5e6f2f54c57cfbce36453fe2d",
             "outcome": "output"
         },
         {
             "id": "f5a111b558c15cf5bd97b1fb720135272fadb021",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "89701acb61f9b4543036395dbee1580f8bcadda2d3e812cccd862b4b77fa6502",
+            "expected_sha256": "b189927e2b006159347599fcaae9dcb1aa8a4472fcb07bcdf1cc3cf620dbab75",
             "outcome": "output"
         },
         {
             "id": "f61e306e3408135052e877a2f695037e311abb66",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "24774908ecaf47c6249f67f7dc1c3eab7019c75cc39ca87b822e18ad9f7ebdf2",
+            "expected_sha256": "599156e443369b1ad4b8b844bbf0805d754e0e1174ee31b4e235ba38867ea039",
             "outcome": "output"
         },
         {
             "id": "f67e5ca643c0cb67a0008dc6a6b5a7addd005df0",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "6beb68890c7380553ada39737f6fc0ab4c0947dbac7868ad5a94af80cfd4b631",
+            "expected_sha256": "f832bbeec2905d0b9ec6d31717b1b283d705a38152306ff786c76d01a134979b",
             "outcome": "output"
         },
         {
             "id": "f6c56cd74455bfeb402a2051632c87b6daa30b1f",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "0aba74ec4f43d64d4e423f1558f777ebbb42dfc79e6a7009fb67f7adad297a02",
+            "expected_sha256": "35bb7ffbc1437b751ac0167885eb894687c2be6cb2cc5c5a284b602fafeb0a1c",
             "outcome": "output"
         },
         {
             "id": "f91b0717a83b4554f659b91841e2e6875e3c9c7a",
             "entry": "ArtifactNormalizer::normalize",
-            "expected_sha256": "5212994707f9af5113788b2f243538fc669dc1ecbb13bbcfe7415c615142d346",
+            "expected_sha256": "49dfad5ba9f88fc8d292585cdfb79e6e5c56441326a180d92fac5b061eb2af76",
             "outcome": "output"
         },
         {
             "id": "f99132fca586fc5bf06e0730e69a186315eaf87c",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "2f8887d94ea37a17ec4171fe9545621672cd03cf48e3235b81b7f5bd33d05ea7",
+            "expected_sha256": "2498010d5e6d224e4ab86e95c6a2f5de736eee64287a67bd9bfd426f3ebe6b12",
             "outcome": "output"
         },
         {
             "id": "f99f9e57e360b34a7c35113ff755575e185fdc93",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "706e09f1ffe07cc43a90ba876d00e54c6b4cb14f3ce096d8695d647da3a8054e",
+            "expected_sha256": "d1426a6d0e9d5d40053c4435e95b77c846bbb392227c358df64d9551a60b7fa0",
             "outcome": "output"
         },
         {
             "id": "fa13bd5f213e8c2fc041946a9eb5ca01beaf6997",
             "entry": "CapturedChoiceGroupProjector::project",
-            "expected_sha256": "be20b6a87354f8966fd4eaab18c60101bf19d35ee9d71af663b63d2a8d9af9bc",
+            "expected_sha256": "150d32d3d9c582abe2cf60f213e9513bbedb0edeee57c4e50d4307ca5f530a76",
             "outcome": "output"
         },
         {
             "id": "fa4240b9c6ad1e75de48ce7ba1a832b1c14ab037",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "c90628122d7d73cf28d168b8130b70baf672d040c06d0789580315b960fba338",
+            "expected_sha256": "ad18cb9f039d365a6516b4afc843aee5b036a1e088a9c927d10e53f454b277aa",
             "outcome": "output"
         },
         {
             "id": "fbb78813d4a49ab3569d1f4b28f7074f3ab7dc41",
             "entry": "CapturedCollectionProjector::project",
-            "expected_sha256": "1122ff25a6dd6a54f1cce06fa2c1c3a70ba3843bc8497b57399e260bfde36009",
+            "expected_sha256": "5420aa7462893f25e311053083bf3f09f81c3b2ede0b357b7a3be8e68535aad5",
             "outcome": "output"
         },
         {
             "id": "fc76a016c6c89dd0724863be976fde13119259e5",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "a7b20da4f38499414406145e7174f8a01c0ac7da710f67305cd31d5596bd30e2",
+            "expected_sha256": "7e5bc9f9bd345b86590f0d79d2e14e959b7ea6c926b212e92fe7f77a271060d6",
             "outcome": "output"
         },
         {
             "id": "fcc75319509e48a8405c1f14f69d2e1f7e66cb4a",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "352d3b3190efa465fd70615a76648dd7aaacd2fa0b564ffc6fbb948b3d459603",
+            "expected_sha256": "1f1b2c38318b154911058df5f5559f9e15a83e3b4bd2571908ef5ba3860202b1",
             "outcome": "output"
         },
         {
@@ -2081,19 +2081,19 @@
         {
             "id": "feef8efc18785eed32b02bb0eb3a90d94ac4d840",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "40e3d81b14e143c11336a182a27bfc47d36d0f2c078665ed7864bfe255fd2b3c",
+            "expected_sha256": "e01190721cdea74d701a1f1b1f5437760834942f64f64070089c7454c8d6ec7a",
             "outcome": "output"
         },
         {
             "id": "ff11cd59bd4c89aea9336fa7df2561fb9ca45c67",
             "entry": "CapturedDialogProjector::project",
-            "expected_sha256": "06868ac74e825c37a91029148429f3f8ef944e4beda880671540e17f9a47cc76",
+            "expected_sha256": "ffa4af3571f1adda89eab68f3bcc90f4164d1230bdc7e53d3cf16722a92a5e90",
             "outcome": "output"
         },
         {
             "id": "ff7157491623331641f3f79d3a75c9423da68d33",
             "entry": "ArtifactCompiler::compile",
-            "expected_sha256": "bee74e03e70370199502a4b369ebf66ca138a70c81c0ddaec6b8a2aaf8327f7e",
+            "expected_sha256": "9f6a1c21106c79a457159c438a043fa4a756da33efe3befef9e9c9c84a8b8de1",
             "outcome": "output"
         }
     ]
