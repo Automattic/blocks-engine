@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
-use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use DOMElement;
 
@@ -410,7 +410,9 @@ final class AuthorStyleAnalysis
         $rightmost = $compounds[array_key_last($compounds)] ?? array();
         $candidates = array();
         foreach ( $rightmost['ids'] ?? array() as $id ) {
-            $candidates[] = $this->sourceElementsById[$id] ?? array();
+            // A projected captured dialog stands in for the id's holder through
+            // its editor anchor class, so it is a candidate for the id too.
+            $candidates[] = array_merge($this->sourceElementsById[$id] ?? array(), $this->sourceElementsByClass[EngineMarker::editorAnchorClass((string) $id)] ?? array());
         }
         foreach ( $rightmost['classes'] ?? array() as $class ) {
             $candidates[] = $this->sourceElementsByClass[$class] ?? array();
@@ -452,7 +454,7 @@ final class AuthorStyleAnalysis
                 return false;
             }
             foreach ( $compound['ids'] ?? array() as $id ) {
-                if ( ! isset($this->sourceIds[$id]) ) {
+                if ( ! isset($this->sourceIds[$id]) && ! isset($this->sourceElementsByClass[EngineMarker::editorAnchorClass((string) $id)]) ) {
                     return false;
                 }
             }

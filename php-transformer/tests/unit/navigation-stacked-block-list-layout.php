@@ -49,7 +49,8 @@ $layout = static function (string $css, string $scope = '') use ($items): ?array
 $menu = static fn (string $scope, string $itemRule): string => $scope . '.menu{direction:ltr}'
     . $scope . '.menu>ul{box-sizing:border-box;width:100%}'
     . $scope . '.menu>ul li{' . $itemRule . '}'
-    . $scope . '.item{min-width:100px}'
+    // Later in source order but weaker: the typed item rule still wins.
+    . $scope . '.item{display:flex;min-width:100px}'
     . $scope . '.item .box{display:grid;height:45px}';
 
 $scope = ':where([data-dla-device-document="mobile"]) ';
@@ -73,6 +74,7 @@ $assert(
 );
 $assert(null === $layout($menu('', 'display:block') . '.menu>ul{display:flex}'), 'a flex list keeps core\'s row');
 $assert(null === $layout('.menu{direction:ltr}'), 'a menu without item display evidence keeps core\'s default');
+$assert(null === $layout('.item{display:flex}'), 'flex items keep core\'s row');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "Navigation stacked block list layout: {$failures} failed, {$passes} passed\n");

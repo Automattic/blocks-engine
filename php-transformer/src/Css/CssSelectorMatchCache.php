@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
@@ -199,6 +200,10 @@ final class CssSelectorMatchCache
         }
         foreach ( $this->classTokens($element) as $class ) {
             $candidates = array_merge($candidates, $index['classes'][$class] ?? array());
+            $anchoredId = EngineMarker::editorAnchorId($class);
+            if ( null !== $anchoredId && $anchoredId !== $id ) {
+                $candidates = array_merge($candidates, $index['ids'][$anchoredId] ?? array());
+            }
         }
         $candidates = array_merge($candidates, $index['tags'][strtolower($element->tagName)] ?? array());
         foreach ( $this->attributeNames($element) as $name ) {

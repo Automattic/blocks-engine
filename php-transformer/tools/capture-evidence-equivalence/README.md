@@ -71,7 +71,9 @@ replay by case:
   on the nav or its list, records `"layout":{"type":"default"}`. That adds
   the attribute in `46f79246` and `e2e35d0c`. The extra display lookups only
   move the style-rule candidate cache counters in `2448c3c2`, `2890e8f1`,
-  `448ead36`, `a5a08a86`, `b550beb0`, `c7fff215` and `f025cf28`.
+  `448ead36`, `a5a08a86`, `b550beb0`, `c7fff215` and `f025cf28`. Ranking
+  the item displays by specificity (#2726 follow-up) moves those counters
+  again in all nine cases; the output is otherwise unchanged.
 - **Self-placed modal box reset** (#2726). The captured-dialog block
   stylesheet gains the zero-specificity reset for a modal whose source panel
   positions itself. Only the emitted `style.css` text and the hashes derived
