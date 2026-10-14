@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocab
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlAttributeName;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Closure;
 use DOMDocument;
 use DOMElement;
@@ -46,7 +47,7 @@ final class SourceDom
             $html .= $element->ownerDocument->saveHTML($child);
         }
 
-        return trim($html);
+        return trim(HtmlSerialization::normalizeCurrentSerialization($html));
     }
 
     /**
@@ -96,7 +97,7 @@ final class SourceDom
             $html .= $clone->ownerDocument->saveHTML($child);
         }
 
-        return trim($html);
+        return trim(HtmlSerialization::normalizeCurrentSerialization($html));
     }
 
     public static function innerHtmlPreservingWhitespace(DOMElement $element): string
@@ -107,13 +108,13 @@ final class SourceDom
             $html .= $element->ownerDocument->saveHTML($child);
         }
 
-        return $html;
+        return HtmlSerialization::normalizeCurrentSerialization($html);
     }
 
     public static function outerHtml(DOMElement $element): string
     {
         $element = self::canonicalizedSerializationClone($element);
-        return trim($element->ownerDocument->saveHTML($element) ?: '');
+        return trim(HtmlSerialization::normalizeCurrentSerialization($element->ownerDocument->saveHTML($element) ?: ''));
     }
 
     public static function canonicalizedSerializationClone(DOMElement $element): DOMElement
@@ -704,7 +705,7 @@ final class SourceDom
         if ( $clone instanceof DOMElement ) {
             self::materializeFallbackProjectionMarkers($element, $clone, $tagMarkers, $pathMarkers);
             self::materializeMissingImageSources($clone);
-            return self::safeFallbackHtmlString(trim($clone->ownerDocument->saveHTML($clone) ?: ''));
+            return self::safeFallbackHtmlString(trim(HtmlSerialization::normalizeCurrentSerialization($clone->ownerDocument->saveHTML($clone) ?: '')));
         }
 
         return self::safeFallbackHtmlString(self::outerHtml($element));

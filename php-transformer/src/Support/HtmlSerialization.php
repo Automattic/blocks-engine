@@ -20,4 +20,9 @@ final class HtmlSerialization
         return preg_replace_callback('/([a-zA-Z_:][a-zA-Z0-9_.:-]*)="([^"]*&quot;[^"]*)"/', static fn (array $attribute): string => $attribute[1] . "='" . str_replace('&quot;', '"', $attribute[2]) . "'", $html) ?? $html;
     }
 
+    public static function normalizeCurrentSerialization(string $html): string
+    {
+        return defined('LIBXML_VERSION') && LIBXML_VERSION >= 21400 ? self::normalizeSerializedHtml($html) : $html;
+    }
+
 }
