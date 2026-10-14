@@ -18,6 +18,9 @@ final class FormControlTopologyBuilder
 
     private const MAX_LEGEND_BYTES = 200;
 
+    /** ARIA roles that make a non-fieldset wrapper a named group of controls. */
+    private const GROUP_ROLES = array( 'radiogroup', 'group' );
+
     /** @var array<int, string> */
     private const WRAPPER_TAGS = array(
         'article', 'aside', 'dd', 'div', 'dl', 'dt', 'fieldset', 'footer', 'header',
@@ -77,7 +80,7 @@ final class FormControlTopologyBuilder
         $orders = array();
         foreach ( $nodes as $node ) {
             $wrapper = is_array($node) && 'wrapper' === ($node['kind'] ?? null);
-            if ( ! is_array($node) || array_diff(array_keys($node), $wrapper ? array( 'id', 'kind', 'parent', 'order', 'depth', 'tag', 'source_id', 'class', 'fieldset_semantics', 'legend' ) : array( 'id', 'kind', 'parent', 'order', 'depth', 'control' )) || ! is_string($node['id'] ?? null) || 1 !== preg_match('/^(?:wrapper|control)-[A-Za-z0-9_-]{1,80}$/D', $node['id']) || isset($seen[$node['id']]) || ! in_array($node['kind'] ?? null, array( 'wrapper', 'control' ), true) || ! str_starts_with($node['id'], $node['kind'] . '-') || ! is_int($node['order'] ?? null) || $node['order'] < 0 || ! is_int($node['depth'] ?? null) || $node['depth'] < 0 || $node['depth'] > $maxDepth ) {
+            if ( ! is_array($node) || array_diff(array_keys($node), $wrapper ? array( 'id', 'kind', 'parent', 'order', 'depth', 'tag', 'source_id', 'class', 'fieldset_semantics', 'legend', 'group_role', 'group_label' ) : array( 'id', 'kind', 'parent', 'order', 'depth', 'control' )) || ! is_string($node['id'] ?? null) || 1 !== preg_match('/^(?:wrapper|control)-[A-Za-z0-9_-]{1,80}$/D', $node['id']) || isset($seen[$node['id']]) || ! in_array($node['kind'] ?? null, array( 'wrapper', 'control' ), true) || ! str_starts_with($node['id'], $node['kind'] . '-') || ! is_int($node['order'] ?? null) || $node['order'] < 0 || ! is_int($node['depth'] ?? null) || $node['depth'] < 0 || $node['depth'] > $maxDepth ) {
                 throw new InvalidArgumentException('Form control topology node is invalid.');
             }
             $parent = $node['parent'] ?? null;
@@ -103,6 +106,9 @@ final class FormControlTopologyBuilder
                 }
                 if ( isset($node['legend']) && ('labelled_group' !== ($node['fieldset_semantics'] ?? '') || ! is_string($node['legend']) || '' === trim($node['legend']) || strlen($node['legend']) > self::MAX_LEGEND_BYTES) ) {
                     throw new InvalidArgumentException('Form control topology legends must be bounded labelled-group text.');
+                }
+                if ( (isset($node['group_role']) && ! in_array($node['group_role'], self::GROUP_ROLES, true)) || (isset($node['group_label']) && (! isset($node['group_role']) || ! is_string($node['group_label']) || '' === trim($node['group_label']) || strlen($node['group_label']) > self::MAX_LEGEND_BYTES)) ) {
+                    throw new InvalidArgumentException('Form control topology group labels must be bounded text on an ARIA group wrapper.');
                 }
             }
             $seen[$node['id']] = array( 'kind' => $node['kind'], 'depth' => $node['depth'] );
@@ -306,7 +312,41 @@ final class FormControlTopologyBuilder
             }
         }
 
+        // An ARIA group is the same named control group a captioned fieldset is,
+        // built from generic elements. Its accessible name is the group's only
+        // caption, so it travels with the role, bounded like a legend.
+        $role = strtolower(trim($element->getAttribute('role')));
+        if ( in_array($role, self::GROUP_ROLES, true) ) {
+            $presentation['group_role'] = $role;
+            $label = $this->accessibleName($element);
+            if ( '' !== $label ) {
+                $presentation['group_label'] = $label;
+            }
+        }
+
         return $presentation;
+    }
+
+    /**
+     * Read a group's accessible name from aria-labelledby, then aria-label, as
+     * bounded single-line text. An oversized name is dropped, not truncated.
+     */
+    private function accessibleName(DOMElement $element): string
+    {
+        $parts = array();
+        $document = $element->ownerDocument;
+        foreach ( preg_split('/\s+/', trim($element->getAttribute('aria-labelledby'))) ?: array() as $id ) {
+            $target = '' !== $id && $document instanceof \DOMDocument ? $document->getElementById($id) : null;
+            if ( $target instanceof DOMElement ) {
+                $parts[] = $target->textContent ?? '';
+            }
+        }
+        $name = preg_replace('/\s+/', ' ', trim(implode(' ', $parts)));
+        if ( ! is_string($name) || '' === $name ) {
+            $name = preg_replace('/\s+/', ' ', trim($element->getAttribute('aria-label')));
+        }
+
+        return is_string($name) && '' !== $name && self::MAX_LEGEND_BYTES >= strlen($name) ? $name : '';
     }
 
     /**

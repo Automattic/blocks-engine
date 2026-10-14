@@ -25,6 +25,9 @@ final class FormLayoutGraphBuilder
     private const MAX_VARIANTS = 256;
     private const MAX_PROVENANCE = 16;
     private const SOURCE_BOX_PROPERTIES = array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'position', 'top', 'right', 'bottom', 'left', 'place-self');
+    // Shorthands read from source and expanded into their longhands before the
+    // cascade; they never appear as graph keys themselves.
+    private const SHORTHAND_PROPERTIES = array('flex-flow');
     private const SOURCE_BOX_KEYS = array('margin_top', 'margin_right', 'margin_bottom', 'margin_left', 'position', 'top', 'right', 'bottom', 'left');
     private const PROPERTIES = array( 'display', 'width', 'height', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-items', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end' );
     private const LAYOUT_KEYS = array( 'display', 'width', 'height', 'min_height', 'padding', 'padding_top', 'padding_right', 'padding_bottom', 'padding_left', 'padding_block_start', 'padding_block_end', 'padding_inline_start', 'padding_inline_end', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_items', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis', 'margin_block_start', 'margin_block_end', 'margin_inline_start', 'margin_inline_end' );
@@ -86,7 +89,7 @@ final class FormLayoutGraphBuilder
         $analysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
-            array_merge(self::PROPERTIES, self::SOURCE_BOX_PROPERTIES),
+            array_merge(self::PROPERTIES, self::SOURCE_BOX_PROPERTIES, self::SHORTHAND_PROPERTIES),
             CssAnalysisLimits::MAX_STYLESHEET_BYTES,
             self::MAX_RULES,
             self::MAX_SELECTORS,
@@ -712,7 +715,7 @@ final class FormLayoutGraphBuilder
         $base = array();
         if ( $element->hasAttribute('style') ) {
             $inline = $element->getAttribute('style');
-            foreach ( $this->boxDeclarations(CssRuleAnalyzer::declarations($inline, array_merge(self::PROPERTIES, self::SOURCE_BOX_PROPERTIES))) as $declaration ) {
+            foreach ( $this->boxDeclarations(CssRuleAnalyzer::declarations($inline, array_merge(self::PROPERTIES, self::SOURCE_BOX_PROPERTIES, self::SHORTHAND_PROPERTIES))) as $declaration ) {
                 $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
                 $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
                 CssCascade::apply($base, $declaration['name'], array( 'value' => $value, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'selector' => '[style]', 'order' => PHP_INT_MAX, 'specificity' => PHP_INT_MAX, 'important' => $important ));
@@ -799,7 +802,7 @@ final class FormLayoutGraphBuilder
         $expanded = array();
         foreach ($declarations as $declaration) {
             $name = $declaration['name'];
-            if (!in_array($name, array('margin', 'place-self'), true)) {
+            if (!in_array($name, array('margin', 'place-self', 'flex-flow'), true)) {
                 $expanded[] = $declaration;
                 continue;
             }
@@ -808,9 +811,17 @@ final class FormLayoutGraphBuilder
             $parts = CssValueSplitter::splitTopLevelWhitespace($value);
             if ('margin' === $name && count($parts) >= 1 && count($parts) <= 4) {
                 foreach (array_combine(array('top', 'right', 'bottom', 'left'), CssValueInspector::expandBoxShorthand($value)) as $side => $part) $expanded[] = array('name' => 'margin-' . $side, 'value' => $part . $important);
+            } elseif ('flex-flow' === $name && null !== ($flow = self::flexFlow($parts))) {
+                // `flex-flow` resets both longhands; an omitted one is its initial value.
+                $expanded[] = array('name' => 'flex-direction', 'value' => $flow[0] . $important);
+                $expanded[] = array('name' => 'flex-wrap', 'value' => $flow[1] . $important);
             } elseif ('place-self' === $name && count($parts) >= 1 && count($parts) <= 2) {
                 $expanded[] = array('name' => 'align-self', 'value' => $parts[0] . $important);
                 $expanded[] = array('name' => 'justify-self', 'value' => ($parts[1] ?? $parts[0]) . $important);
+            } elseif ('flex-flow' === $name) {
+                // An unresolved flow (a custom property, say) names its gap
+                // without discarding every other proven fact in the graph.
+                $this->diagnostics[] = 'unsupported_flex_flow';
             } else {
                 $this->truncated = true;
                 $this->diagnostics[] = 'unsupported_box_shorthand:' . $name;
@@ -819,7 +830,28 @@ final class FormLayoutGraphBuilder
         return $expanded;
     }
 
-    /** @param array<string, mixed> $node @param array<string, array<string, mixed>> $nodes @return array<string, string>|null */
+    /**
+     * @param list<string> $parts
+     * @return array{0: string, 1: string}|null Direction and wrap, or null when a token is not a keyword.
+     */
+    private static function flexFlow(array $parts): ?array
+    {
+        $direction = null;
+        $wrap = null;
+        foreach ( $parts as $part ) {
+            $token = strtolower(trim($part));
+            if ( null === $direction && in_array($token, array( 'row', 'row-reverse', 'column', 'column-reverse' ), true) ) {
+                $direction = $token;
+            } elseif ( null === $wrap && in_array($token, array( 'nowrap', 'wrap', 'wrap-reverse' ), true) ) {
+                $wrap = $token;
+            } else {
+                return null;
+            }
+        }
+        return array() === $parts || count($parts) > 2 ? null : array( $direction ?? 'row', $wrap ?? 'nowrap' );
+    }
+
+        /** @param array<string, mixed> $node @param array<string, array<string, mixed>> $nodes @return array<string, string>|null */
     private function sizing(array $node, array $nodes): ?array
     {
         if ( 'control' !== $node['kind'] || isset($node['layout']['width']) || ! is_string($node['parent'] ?? null) || ! isset($nodes[$node['parent']]) ) {

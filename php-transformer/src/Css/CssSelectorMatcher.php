@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 use DOMNode;
 
@@ -822,13 +823,20 @@ final class CssSelectorMatcher
             return false;
         }
         $actualId = array() !== $compound['ids'] ? (null !== $cache ? ($cache->attribute($element, 'id') ?? '') : $element->getAttribute('id')) : '';
+        $classes = null;
         foreach ( $compound['ids'] as $id ) {
             if ( $actualId !== $id ) {
-                return false;
+                // An element that stands in for the id's holder carries the id
+                // as its editor anchor class (a projected captured dialog whose
+                // source panel id stays on the capture's hidden copy).
+                $classes ??= $cache?->classTokens($element) ?? (preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array());
+                if ( ! in_array(EngineMarker::editorAnchorClass($id), $classes, true) ) {
+                    return false;
+                }
             }
         }
         if ( array() !== $compound['classes'] ) {
-            $classes = $cache?->classTokens($element) ?? (preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array());
+            $classes ??= $cache?->classTokens($element) ?? (preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array());
             foreach ( $compound['classes'] as $class ) {
                 if ( ! in_array($class, $classes, true) ) {
                     return false;

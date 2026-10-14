@@ -179,7 +179,8 @@ final class StyleResolver implements ElementPresentationResolver
             $this->structuralPresentationDeclarations(...),
             $this->hasConditionalStyleFamily(...),
             $this->responsivePropertyFamily(...),
-            $this->hasConditionalGridTemplateColumns(...)
+            $this->hasConditionalGridTemplateColumns(...),
+            $this->authorNormalDeclarationSpecificity(...)
         );
     }
 
@@ -2057,6 +2058,38 @@ final class StyleResolver implements ElementPresentationResolver
         $cache->authorDeclaredPropertyValues[ $cacheKey ] = $declared;
 
         return $declared;
+    }
+
+    /**
+     * Highest specificity among the matching author rules that declare any of
+     * the given properties without `!important`, at any viewport.
+     *
+     * A source inline declaration outranks every such rule whatever its
+     * specificity. A carrier that restates the inline value in a generated
+     * stylesheet only keeps that priority when its selector is more specific
+     * than each rule it competes with, because it cannot rely on rule order.
+     *
+     * @param list<string> $properties
+     * @return array{int, int, int}
+     */
+    public function authorNormalDeclarationSpecificity(DOMElement $element, array $properties): array
+    {
+        $wanted = array_fill_keys(array_map('strtolower', $properties), true);
+        $highest = array( 0, 0, 0 );
+        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
+            foreach ( $rule['declarations'] as $property => $value ) {
+                if ( ! isset($wanted[ strtolower((string) $property) ]) || CssValueInspector::isImportant((string) $value) ) {
+                    continue;
+                }
+                $specificity = $this->mediaTextSelectorSpecificity((string) ( $rule['selector'] ?? '' ));
+                if ( $this->compareMediaTextSpecificity($specificity, $highest) > 0 ) {
+                    $highest = $specificity;
+                }
+                break;
+            }
+        }
+
+        return $highest;
     }
 
     /**
@@ -4715,6 +4748,154 @@ final class StyleResolver implements ElementPresentationResolver
     private function isSupportedCssSelector(string $selector): bool
     {
         return (bool) ($this->context->parsedCssSelector($selector)['supported'] ?? false);
+    }
+
+    /**
+     * The open-state values a captured modal dialog needs over its rest state.
+     *
+     * A projected dialog is the panel's captured open state. Its source panel
+     * is often hidden or slid out of view at rest (`#panel{display:none;
+     * transform:translateX(-100%)}`) and shown by a rule that only matches once
+     * script marks an ancestor (`body.nav-open #panel{display:block;
+     * transform:none}`). When that ancestor state was not captured, the rest
+     * rule wins on the open dialog and it opens invisible.
+     *
+     * A state rule is an unconditioned rule whose rightmost compound matches
+     * the dialog but whose full selector does not. Several can exist
+     * (`.dark-theme #panel`, `.no-js #panel`), so the one to trust is chosen:
+     * - when the capture recorded classes on an opened ancestor
+     *   (`data-blocks-engine-ancestor-state`), only rules naming one of them
+     *   are the open state (none naming one: nothing is carried);
+     * - otherwise every state rule is a candidate.
+     * A property is carried only when the rest cascade hides it, or moves the
+     * panel a full panel or viewport out of view, and every chosen candidate
+     * that declares it agrees on one value that shows it. Anything else is
+     * left to the source rules.
+     *
+     * @return array<string, string>
+     */
+    public function capturedDialogOpenStateValues(DOMElement $dialog): array
+    {
+        $hidden = array(
+            'display' => static fn (string $value): bool => 'none' === $value,
+            'visibility' => static fn (string $value): bool => 'hidden' === $value,
+            'opacity' => static fn (string $value): bool => is_numeric($value) && 0.0 === (float) $value,
+            'transform' => static fn (string $value): bool => self::isOutOfViewTransform($value),
+        );
+        $openedClasses = self::openedAncestorClasses($dialog);
+        $rest = array();
+        $state = array();
+        $order = 0;
+        // Raw author rules: the static analysis keeps neither `transform` nor
+        // rules that match no source element, and a state rule matches none
+        // until script adds its ancestor class.
+        (new CssStylesheetTransformer())->visitStyleRules(
+            $this->context->authorStyles()->combinedCss(),
+            function (string $prelude, string $body, array $conditions) use ($dialog, $hidden, $openedClasses, &$rest, &$state, &$order): void {
+                if ( array() !== $conditions ) {
+                    return;
+                }
+                $declarations = array_intersect_key($this->cssDeclarations($body), $hidden);
+                if ( array() === $declarations ) {
+                    return;
+                }
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $selector = trim($selector);
+                    $parsed = $this->context->parsedCssSelector($selector);
+                    $span = $parsed['rightmost_compound_span'] ?? null;
+                    if ( ! ($parsed['supported'] ?? false) || ! is_array($span) ) {
+                        continue;
+                    }
+                    if ( $this->matchesCssSelector($dialog, $selector) ) {
+                        $rest[] = array('specificity' => $this->mediaTextSelectorSpecificity($selector), 'order' => $order++, 'declarations' => $declarations);
+                        continue;
+                    }
+                    $subject = substr($selector, (int) $span['start'], (int) $span['end'] - (int) $span['start']);
+                    if ( 0 < (int) $span['start'] && $this->matchesCssSelector($dialog, $subject) ) {
+                        $context = substr($selector, 0, (int) $span['start']);
+                        $state[] = array(
+                            'recorded' => array() !== array_filter($openedClasses, static fn (string $class): bool => 1 === preg_match('/\.' . preg_quote($class, '/') . '(?![\w-])/', $context)),
+                            'declarations' => $declarations,
+                        );
+                    }
+                }
+            }
+        );
+        usort($rest, static fn (array $left, array $right): int => array($left['specificity'], $left['order']) <=> array($right['specificity'], $right['order']));
+        $resting = array();
+        foreach ( $rest as $rule ) {
+            $resting = array_merge($resting, $rule['declarations']);
+        }
+        // A recorded open state names the rules to trust; with none recorded,
+        // every state rule is a candidate and they must agree.
+        $candidates = array() !== $openedClasses
+            ? array_values(array_filter($state, static fn (array $rule): bool => $rule['recorded']))
+            : $state;
+
+        $open = array();
+        foreach ( $hidden as $property => $isHidden ) {
+            $restValue = CssValueInspector::comparable((string) ( $resting[$property] ?? '' ));
+            if ( '' === $restValue || ! $isHidden($restValue) ) {
+                continue;
+            }
+            $values = array();
+            foreach ( $candidates as $rule ) {
+                $value = trim((string) preg_replace('/\s*!important\s*$/i', '', (string) ( $rule['declarations'][$property] ?? '' )));
+                if ( '' !== $value ) {
+                    $values[CssValueInspector::comparable($value)] = $value;
+                }
+            }
+            if ( 1 === count($values) && ! $isHidden((string) array_key_first($values)) ) {
+                $open[$property] = (string) reset($values);
+            }
+        }
+
+        return $open;
+    }
+
+    /**
+     * Class tokens the capture recorded on an ancestor only while the dialog
+     * was open (`data-blocks-engine-ancestor-state`).
+     *
+     * @return list<string>
+     */
+    private static function openedAncestorClasses(DOMElement $dialog): array
+    {
+        $rows = json_decode($dialog->getAttribute('data-blocks-engine-ancestor-state'), true);
+        $classes = array();
+        foreach ( is_array($rows) ? $rows : array() as $row ) {
+            $opened = preg_split('/\s+/', trim((string) ( $row['opened']['class'] ?? '' ))) ?: array();
+            $closed = preg_split('/\s+/', trim((string) ( $row['closed']['class'] ?? '' ))) ?: array();
+            foreach ( array_diff($opened, $closed) as $class ) {
+                if ( 1 === preg_match('/^-?[_a-zA-Z][\w-]*$/', $class) ) {
+                    $classes[] = $class;
+                }
+            }
+        }
+
+        return array_values(array_unique($classes));
+    }
+
+    /**
+     * Whether a transform moves the panel out of view: a translation of a full
+     * panel size (100%) or a full viewport (100vw, 100vh) or more along an
+     * axis. A centring `translate(-50%,-50%)` or a small nudge keeps it in view.
+     */
+    private static function isOutOfViewTransform(string $value): bool
+    {
+        $value = strtolower(trim($value));
+        if ( 0 === preg_match_all('/\btranslate(?:x|y|3d)?\(([^)]*)\)/', $value, $calls) ) {
+            return false;
+        }
+        foreach ( $calls[1] as $arguments ) {
+            foreach ( preg_split('/\s*,\s*|\s+/', trim($arguments)) ?: array() as $argument ) {
+                if ( 1 === preg_match('/^-?(\d+(?:\.\d+)?)(%|vw|vh)$/', $argument, $length) && 100.0 <= (float) $length[1] ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     public function matchesCssSelector(DOMElement $element, string $selector): bool
