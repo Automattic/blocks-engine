@@ -373,6 +373,19 @@ $assert(
     'an offset that does not centre its own layer is not read as a fitted stage'
 );
 
+// A page region holding a carousel among other copy is not itself a carousel:
+// converting it would replace the region's heading and copy with slides.
+$regionSource = '<div class="site-wrapper"><h2>About us</h2><p>Region copy that is not a slide.</p>'
+    . '<a href="/one"><img src="logo-one.png" alt=""></a><a href="/two"><img src="logo-two.png" alt=""></a>'
+    . '<section class="list-carousel"><ul class="list-carousel__slides"><li class="list-item"><img src="a.jpg" alt="A"></li><li class="list-item"><img src="b.jpg" alt="B"></li><li class="list-item"><img src="c.jpg" alt="C"></li></ul></section></div>';
+$regionResult = (new HtmlTransformer())->transform($regionSource)->toArray();
+$regionMarkup = (string) ($regionResult['serialized_blocks'] ?? '');
+$assert(
+    'custom/authored-carousel' !== ($regionResult['blocks'][0]['blockName'] ?? null)
+        && str_contains($regionMarkup, 'About us') && str_contains($regionMarkup, 'Region copy that is not a slide.'),
+    'a page region containing a carousel keeps its own heading and copy'
+);
+
 $playbackSource = '<div id="gallery-showcase" class="photo-slideshow"><div class="stage"><div class="slides">'
     . '<div class="slide"><img src="one.jpg"></div>'
     . '<div class="slide" style="display:none"><img src="two.jpg"></div>'

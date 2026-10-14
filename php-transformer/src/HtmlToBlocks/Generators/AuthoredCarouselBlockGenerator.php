@@ -863,6 +863,21 @@ JS;
                     return null;
                 }
             }
+            // Converting a root replaces everything in it with slides. When the
+            // list and its controls sit inside a smaller owner and the root holds
+            // other authored content, the root is a page region, not a carousel.
+            // Text-less image links (thumbnail pagers) are not authored content,
+            // so they never hold the owner open to the root.
+            $owner = $this->commonAncestor(array_merge(
+                array($list),
+                $rootControls,
+                array_filter(array($this->playbackToggleElement($element)))
+            ));
+            if ( $owner instanceof DOMElement && $owner !== $element && $this->containsNode($element, $owner)
+                && $this->hasAuthoredContentOutside($element, $owner)
+            ) {
+                return null;
+            }
         }
         if ( count($items) < 2 ) {
             foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $counterpart ) {
