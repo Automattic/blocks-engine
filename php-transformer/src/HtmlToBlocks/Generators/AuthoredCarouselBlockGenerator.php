@@ -875,7 +875,7 @@ JS;
                 array_filter(array($this->playbackToggleElement($element)))
             ));
             if ( $owner instanceof DOMElement && $owner !== $element && $this->containsNode($element, $owner)
-                && $this->hasAuthoredContentOutside($element, $owner)
+                && $this->hasAuthoredContentOutside($element, $owner, $list, $items)
             ) {
                 return null;
             }
