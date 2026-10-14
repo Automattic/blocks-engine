@@ -852,6 +852,7 @@ final class ShellExtraction
             $disallowedAncestor = false;
             foreach ($stack as $ancestor) if (in_array($ancestor['tag_name'] ?? null, array('main', 'article', 'section', 'aside'), true)) { $disallowedAncestor = true; break; }
             $tagName = is_array($attrs) ? ($attrs['tagName'] ?? null) : null;
+            $role = is_array($attrs) && is_string($attrs['role'] ?? null) ? $attrs['role'] : '';
             $className = is_array($attrs) && is_string($attrs['className'] ?? null) ? $attrs['className'] : '';
             $anchor = is_array($attrs) && is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
             $hasShellWrapperContract = false;
@@ -860,6 +861,7 @@ final class ShellExtraction
                 foreach ($attrs['wrappers'] as $wrapper) {
                     if (!is_array($wrapper)) continue;
                     $wrapperAttributes = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
+                    if ('' === $role && is_string($wrapperAttributes['role'] ?? null)) $role = $wrapperAttributes['role'];
                     if ('' === $anchor && is_string($wrapperAttributes['id'] ?? null)) $anchor = $wrapperAttributes['id'];
                     $wrapperClass = trim((string) ($wrapperAttributes['class'] ?? ''));
                     if ('' !== $wrapperClass) $className = trim($className . ' ' . $wrapperClass);
@@ -870,7 +872,7 @@ final class ShellExtraction
             // source has no layout wrapper. The footer still requires an
             // enclosing wrapper, and article-owned landmarks stay excluded.
             $footerClass = $hasShellWrapperContract ? self::footerAreaFromClassName($className) : null;
-            if ('footer' !== $tagName) $tagName = $footerClass ?? $tagName;
+            $tagName = ShellLandmarkPolicy::landmarkKind((string) $tagName, $role) ?: ($footerClass ?? $tagName);
             $candidate = ('header' === $area || 0 < count($stack)) && !$disallowedAncestor && $area === $tagName && (self::isShellLandmarkBlock($name) || ('footer' === $area && $hasShellWrapperContract && 'footer' === $footerClass));
             // Whether page content precedes the landmark inside its ancestors: a
             // block other than the enclosing openings started or ended before it.
