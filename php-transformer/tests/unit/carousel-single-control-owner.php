@@ -53,7 +53,7 @@ $assert(1 === substr_count($links, 'class="blocks-engine-authored-carousel '), '
 // Pagers the carousel rebuilds are not authored content: a thumbnail strip or
 // a slide-indexed dot list keeps the outer wrapper as the carousel root.
 $pagers = array(
-    'image thumbnail strip' => '<div class="thumbs">' . implode('', array_map(static fn (int $i): string => '<div class="thumb"><img src="https://example.test/thumb-' . $i . '.jpg" alt="" width="40" height="40"></div>', range(1, 4))) . '</div>',
+    'image thumbnail strip of the slides' => '<div class="thumbs">' . implode('', array_map(static fn (int $i): string => '<div class="thumb"><img src="https://example.test/photo-' . $i . '.jpg?w=40" alt="" width="40" height="40"></div>', range(1, 4))) . '</div>',
     'linked thumbnail strip' => '<div class="thumbs">' . implode('', array_map(static fn (int $i): string => '<a href="#"><img src="https://example.test/thumb-' . $i . '.jpg" alt="" width="40" height="40"></a>', range(1, 4))) . '</div>',
     'slide-indexed dot list' => '<ol class="dots">' . implode('', array_map(static fn (int $i): string => '<li data-slide-index="' . ($i - 1) . '">' . $i . '</li>', range(1, 4))) . '</ol>',
     'labelled dot buttons' => '<ol class="dots">' . implode('', array_map(static fn (int $i): string => '<li><button aria-label="Go to slide ' . $i . '">' . $i . '</button></li>', range(1, 4))) . '</ol>',
@@ -61,6 +61,19 @@ $pagers = array(
 foreach ($pagers as $label => $pager) {
     $markup = $transform('<div class="carousel-frame">' . $stage . $pager . '</div>');
     $assert(1 === preg_match('/^\s*<!-- wp:[a-z0-9-]+\/authored-carousel /', $markup), 'the ' . $label . ' beside the stage keeps the outer wrapper as the carousel root');
+}
+
+// Repeated images that are not the slides are authored content: logos,
+// figures, badges and unrelated thumbnails beside the stage survive.
+$contents = array(
+    'logo row' => array('<div class="partners"><img src="https://example.test/logo-a.png" alt="Partner A"><img src="https://example.test/logo-b.png" alt="Partner B"><img src="https://example.test/logo-c.png" alt="Partner C"></div>', 'Partner A'),
+    'caption-less figure grid' => array('<div class="figure-grid"><figure><img src="https://example.test/g1.jpg" alt="Cake one"></figure><figure><img src="https://example.test/g2.jpg" alt="Cake two"></figure><figure><img src="https://example.test/g3.jpg" alt="Cake three"></figure></div>', 'Cake one'),
+    'paragraph of badges' => array('<p><img src="https://example.test/a.png" alt="Badge A"><img src="https://example.test/b.png" alt="Badge B"></p>', 'Badge A'),
+    'strip of other images' => array('<div class="thumbs">' . implode('', array_map(static fn (int $i): string => '<div class="thumb"><img src="https://example.test/other-' . $i . '.jpg" alt="Other ' . $i . '"></div>', range(1, 3))) . '</div>', 'Other 1'),
+);
+foreach ($contents as $label => [$content, $needle]) {
+    $markup = $transform('<div class="footer-grid">' . $stage . $content . '</div>');
+    $assert(str_contains($markup, $needle), 'a ' . $label . ' beside the gallery survives');
 }
 
 if ($failures) {

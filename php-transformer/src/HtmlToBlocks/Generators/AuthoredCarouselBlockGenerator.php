@@ -859,7 +859,7 @@ JS;
                 if ( array() !== $rootControls
                     && $this->ownsCarouselIdentity($owner, $list)
                     && array() === array_filter($rootControls, fn(DOMElement $control): bool => ! $this->containsNode($owner, $control))
-                    && $this->hasAuthoredContentOutside($element, $owner, $list)
+                    && $this->hasAuthoredContentOutside($element, $owner, $list, $items)
                 ) {
                     return null;
                 }
@@ -1418,11 +1418,21 @@ JS;
      * Whether $root holds readable text, media or form controls outside
      * $owner. Parts the carousel shell rebuilds are not authored content
      * here: previous/next and pagination controls, thumbnail pager items and
-     * pager collections (image-only or slide-indexed items).
+     * pager collections (slide-indexed items, or images of the slides).
+     *
+     * @param array<int, DOMElement> $slides
      */
-    private function hasAuthoredContentOutside(DOMElement $root, DOMElement $owner, DOMElement $list): bool
+    private function hasAuthoredContentOutside(DOMElement $root, DOMElement $owner, DOMElement $list, array $slides): bool
     {
         $claimed = $this->thumbnailPagerItems($root, $list);
+        $slideImages = array();
+        foreach ( $slides as $slide ) {
+            foreach ( $slide->getElementsByTagName('img') as $image ) {
+                if ( $image instanceof DOMElement && '' !== ($name = self::imageFileName($image)) ) {
+                    $slideImages[$name] = true;
+                }
+            }
+        }
         $pending = array($root);
         while ( array() !== $pending ) {
             $node = array_pop($pending);
@@ -1440,7 +1450,7 @@ JS;
                 if ( in_array($tag, array('script', 'style', 'template', 'svg'), true)
                     || $this->isNavigationControl($child, $root)
                     || $this->isPaginationControl($child)
-                    || $this->isPagerCollection($child)
+                    || $this->isPagerCollection($child, $slideImages)
                 ) {
                     continue;
                 }
@@ -1483,10 +1493,13 @@ JS;
     }
 
     /**
-     * Two or more items that are each a pagination control or a single image
-     * with no readable text: a thumbnail strip or dot pager beside the stage.
+     * Two or more items that are each a pagination control, or a single image
+     * with no readable text that shows one of the slides (a thumbnail strip).
+     * Images that are not slides are authored content, however they repeat.
+     *
+     * @param array<string, true> $slideImages
      */
-    private function isPagerCollection(DOMElement $element): bool
+    private function isPagerCollection(DOMElement $element, array $slideImages): bool
     {
         $items = 0;
         foreach ( $element->childNodes as $child ) {
@@ -1499,14 +1512,24 @@ JS;
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
-            $imageOnly = 'img' === strtolower($child->tagName)
-                || (1 === $child->getElementsByTagName('img')->length && '' === trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? '')));
-            if ( ! $imageOnly && ! $this->isPaginationControl($child) ) {
+            $image = 'img' === strtolower($child->tagName) ? $child : $child->getElementsByTagName('img')->item(0);
+            $slideThumbnail = $image instanceof DOMElement
+                && ($image === $child || (1 === $child->getElementsByTagName('img')->length && '' === trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? ''))))
+                && isset($slideImages[self::imageFileName($image)]);
+            if ( ! $slideThumbnail && ! $this->isPaginationControl($child) ) {
                 return false;
             }
             ++$items;
         }
         return $items >= 2;
+    }
+
+    /** The image's file name without its directory, query or size suffix. */
+    private static function imageFileName(DOMElement $image): string
+    {
+        $path = (string) parse_url(trim(SourceDom::attr($image, 'src')), PHP_URL_PATH);
+        $name = strtolower(basename($path));
+        return (string) preg_replace('/-\d+x\d+(?=\.[a-z0-9]+$)/', '', $name);
     }
 
     private function containsNavigationPair(DOMElement $element): bool
