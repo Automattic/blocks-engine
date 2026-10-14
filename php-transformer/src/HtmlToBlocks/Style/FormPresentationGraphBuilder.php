@@ -197,41 +197,6 @@ final class FormPresentationGraphBuilder
      *
      * @param list<array<string, mixed>> $stylesheets @return array<string, string>
      */
-    /**
-     * The styles a button caption carrier gives the button a provider renders
-     * the caption into: its typography and case, plus its padding when the
-     * carrier is block-level and so fills an otherwise unpadded box.
-     *
-     * @param list<array{path: string, css: string}> $stylesheets
-     * @return array<string, string>
-     */
-    public function captionStyles(DOMElement $carrier, bool $sizesBox, array $stylesheets, string $inlineCss = ''): array
-    {
-        $this->typographyAnalysis ??= $this->typographyAnalysis($stylesheets, $inlineCss);
-        if ( $this->typographyAnalysis['truncated'] ) {
-            return array();
-        }
-        $matched = $this->matched($carrier, $this->typographyAnalysis['rules']);
-        return $this->styles(
-            array_intersect_key($matched['base'], array_flip(self::captionProperties($matched['base'], $sizesBox))),
-            $carrier,
-            null,
-            $this->typographyAnalysis['customProperties']
-        );
-    }
-
-    /**
-     * @param array<string, array<string, mixed>> $base The carrier's matched base facts.
-     * @return list<string>
-     */
-    private static function captionProperties(array $base, bool $sizesBox): array
-    {
-        // Inline padding leaves the line box, so only a block-level carrier sizes the button.
-        return $sizesBox && self::isBlockLevelDisplay((string) ($base['display']['value'] ?? ''))
-            ? array_merge(self::CAPTION_PROPERTIES, self::CAPTION_BOX_PROPERTIES)
-            : self::CAPTION_PROPERTIES;
-    }
-
     public function typographyStyles(DOMElement $element, array $stylesheets, string $inlineCss = ''): array
     {
         $this->typographyAnalysis ??= $this->typographyAnalysis($stylesheets, $inlineCss);
@@ -754,7 +719,12 @@ final class FormPresentationGraphBuilder
         $conditions = array_fill_keys(array_keys($labelConditional), true);
         for ( $element = $carrier; $element instanceof DOMElement && ! $element->isSameNode($label); $element = $element->parentNode instanceof DOMElement ? $element->parentNode : null ) {
             $matched = $this->matched($element, $rules);
-            $carried = $captionBox && $element->isSameNode($carrier) ? array_flip(self::captionProperties($matched['base'], true)) : $properties;
+            $carried = $properties;
+            // The caption carrier's own padding sizes an unpadded button only
+            // when the carrier is block-level; inline padding leaves the line box.
+            if ( $captionBox && $element->isSameNode($carrier) && self::isBlockLevelDisplay((string) ($matched['base']['display']['value'] ?? '')) ) {
+                $carried += array_flip(self::CAPTION_BOX_PROPERTIES);
+            }
             $base = array_intersect_key($matched['base'], $carried);
             $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
             foreach ($base as $property => $fact) {

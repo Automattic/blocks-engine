@@ -598,13 +598,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): string => $this->elementSelector($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (DOMElement $element): array => $this->formContextTypography($element),
-            fn (DOMElement $element, DOMElement $boundary): ?array => $this->formContextHiddenState($element, $boundary),
-            fn (DOMElement $carrier, bool $sizesBox): array => ($this->formContextTypographyBuilder ??= new FormPresentationGraphBuilder())->captionStyles(
-                $carrier,
-                $sizesBox,
-                $this->authorStyles()->stylesheetAssets(),
-                $this->sourceStyles()->formLayoutCss()
-            )
+            fn (DOMElement $element, DOMElement $boundary): ?array => $this->formContextHiddenState($element, $boundary)
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);

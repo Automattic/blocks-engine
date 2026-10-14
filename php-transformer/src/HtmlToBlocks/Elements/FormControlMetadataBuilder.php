@@ -33,15 +33,12 @@ final class FormControlMetadataBuilder
      *     facts for one element, through the form presentation graph's cascade.
      * @param Closure(DOMElement, DOMElement): (array<string, string>|null)|null $hiddenState The declaration
      *     that hides an element below a form boundary, if the source hides it unconditionally.
-     * @param Closure(DOMElement, bool): array<string, string>|null $captionStyles Resolved snake_case facts a
-     *     button caption carrier gives its button; the flag allows the carrier's padding to size the box.
      */
     public function __construct(
         private readonly Closure $elementSelector,
         private readonly ?Closure $presentationAttributes = null,
         private readonly ?Closure $typographyStyles = null,
-        private readonly ?Closure $hiddenState = null,
-        private readonly ?Closure $captionStyles = null
+        private readonly ?Closure $hiddenState = null
     ) {
     }
 
@@ -268,17 +265,6 @@ final class FormControlMetadataBuilder
      *
      * @return array<string, string>
      */
-    /** @param mixed $padding A block style `spacing.padding` value. */
-    private static function hasPadding(mixed $padding): bool
-    {
-        foreach ( is_array($padding) ? $padding : array( $padding ) as $side ) {
-            if ( is_string($side) && 1 !== preg_match('/^0(?:\.0+)?(?:px|em|rem|%)?$/', trim($side)) && '' !== trim($side) ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private function contextTypography(DOMElement $node): array
     {
         if ( null === $this->typographyStyles ) {
@@ -434,15 +420,11 @@ final class FormControlMetadataBuilder
                 }
             }
             // A provider flattens the editable label independently from its box.
-            // Read the whole-text carrier of the element that paints the submit
-            // through the form presentation cascade, so a styled caption keeps its
-            // typography, case, and the padding a block-level carrier gives an
-            // unpadded box.
-            $carrier = FormPresentationGraphBuilder::soleTextCarrier(FormControlClassifier::presentingElement($control));
+            // Read the existing whole-text carrier through the form typography
+            // cascade so a styled paragraph/div chain does not become button defaults.
+            $carrier = FormPresentationGraphBuilder::soleTextCarrier($control);
             if ($carrier instanceof DOMElement) {
-                $typography = null !== $this->captionStyles
-                    ? ($this->captionStyles)($carrier, ! self::hasPadding($metadata['presentation']['style']['spacing']['padding'] ?? array()))
-                    : $this->contextTypography($carrier);
+                $typography = $this->contextTypography($carrier);
                 $declarations = array();
                 foreach ($typography as $property => $value) {
                     $declarations[str_replace('_', '-', $property)] = $value;
