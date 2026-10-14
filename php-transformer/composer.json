@@ -177,6 +177,7 @@
       "php tests/unit/image-link-anchor.php",
       "php tests/unit/image-transform-reference-box.php",
       "php tests/unit/image-class-figure-carrier.php",
+      "php tests/unit/synthetic-image-figure-author-rules.php",
       "php tests/unit/visual-iframe-block.php",
       "php tests/unit/fixed-width-media-overflow.php",
       "php tests/unit/authored-carousel-block.php",
