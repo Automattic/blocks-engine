@@ -73,6 +73,36 @@ final class NavigationEntityProjection
         return array('pages' => $pages, 'parts' => $parts, 'menus' => $entities);
     }
 
+    /**
+     * The menus a markup renders: a factored host by its entity reference, an
+     * inline menu by its content identity. Projections that keep one copy of
+     * repeated markup compare these so a copy is dropped only when the kept
+     * copy renders the same menus.
+     *
+     * @return array<string,true>
+     */
+    public static function renderedMenus(string $markup): array
+    {
+        $menus = array();
+        if (!str_contains($markup, 'wp:navigation')) return $menus;
+        foreach (WordPressSitePlan::blockRanges($markup) as $range) {
+            $block = substr($markup, $range['offset'], $range['length']);
+            if (!preg_match('/^<!--\s*wp:navigation(?:\s+(\{.*?\}))?\s*(\/)?-->/s', $block, $opening)) continue;
+            $attrs = isset($opening[1]) && '' !== $opening[1] ? json_decode($opening[1], true) : array();
+            if (!is_array($attrs)) continue;
+            if (is_string($attrs['ref'] ?? null)) {
+                $menus['ref:' . $attrs['ref']] = true;
+                continue;
+            }
+            $end = strrpos($block, '<!-- /wp:navigation');
+            if (isset($opening[2]) || false === $end) continue;
+            $inner = substr($block, strlen($opening[0]), $end - strlen($opening[0]));
+            if (0 === self::itemCount($inner)) continue;
+            $menus['content:' . self::contentIdentity(ShellExtraction::withoutCurrentNavigationState($inner))] = true;
+        }
+        return $menus;
+    }
+
     /** Apply only recognized positions, without another content match. */
     private static function replaceOccurrences(array &$documents, array $replacements): void
     {

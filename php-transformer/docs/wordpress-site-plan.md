@@ -213,6 +213,10 @@ full destinations, link behavior, rich labels and item presentation. Different
 presentation remains separate unless its serialized content is equivalent.
 Native `core/details` owns its panel even when a desktop sibling repeats the same
 menu; capture-specific class names do not determine this ownership.
+Post article chrome (one single template) and listing cards (one query loop
+template) keep one copy of repeated markup. They do so only when the kept copy
+renders the same menus as every dropped copy; otherwise the posts or the listing
+stay as captured, so no menu entity is left without a reference.
 
 Consumers persist declared entities and resolve their references to integer IDs.
 They do not rediscover menu equivalence. The plan validator checks declarations
