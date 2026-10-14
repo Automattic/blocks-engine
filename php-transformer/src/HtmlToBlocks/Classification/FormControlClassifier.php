@@ -271,7 +271,7 @@ final class FormControlClassifier
             return true;
         }
 
-        return 'button' === $tagName || ( 'input' === $tagName && in_array(self::controlType($control), array( 'checkbox', 'email', 'number', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url' ), true) );
+        return 'button' === $tagName || ( 'input' === $tagName && in_array(self::controlType($control), array( 'checkbox', 'email', 'number', 'password', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url' ), true) );
     }
 
     public static function isSubmitLikeControl(DOMElement $control): bool
