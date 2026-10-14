@@ -1719,7 +1719,12 @@ PHP;
             // Its ancestor-scoped rules belong to that page, not global chrome.
             if ('inline_shared_shell' === ($part['placement']['kind'] ?? '') && 1 === count($part['placement']['source_paths'] ?? array())) continue;
             $markup = (string) ($part['canonical_block_markup'] ?? '');
-            if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) $classes[$class] = true;
+            // A source-tag marker names every element of its tag on every page
+            // under any author CSS, not this chrome: a rule reaching it only
+            // through such a marker (`p{…}` from one page's own stylesheet)
+            // must stay where its stylesheet applies rather than become global.
+            // Each page's own type rules already reach the chrome's elements.
+            if (preg_match_all(self::GENERATED_CLASS_PATTERN, $markup, $matches)) foreach ($matches[0] as $class) if (!str_starts_with((string) EngineMarker::markerKind($class), 'source-')) $classes[$class] = true;
             // The chrome's own authored hooks: rules written for them styled it
             // on every page, so they follow it into the shared part.
             foreach (self::authoredChromeHooks($markup) as $kind => $names) $authored[$kind] += $names;

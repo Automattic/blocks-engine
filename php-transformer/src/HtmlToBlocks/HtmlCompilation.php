@@ -1754,7 +1754,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $documentRootMarkers = array();
         $analysisRoot = $document->documentElement;
         if ( $analysisRoot instanceof DOMElement && 'html' === strtolower($analysisRoot->tagName) ) {
-            $documentRootMarkers = \Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker::all($analysisRoot->getAttribute('class'));
+            $documentRootMarkers = EngineMarker::all($analysisRoot->getAttribute('class'));
         }
         $blockCompilationOutput = new BlockCompilationOutput(
             sourceProvenance: $sourceProvenance,
@@ -9927,7 +9927,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $projections->installImageLinkMarker($selectorAnchor, $link->getNodePath() ?? '');
                     $attrs['className'] = $this->mergeClassNames(
                         (string) ($attrs['className'] ?? ''),
-                        ...EngineMarker::withRole($projections->ensureImageWrapperMarker($image->getNodePath() ?? ''))
+                        ...$projections->semanticCarrierClasses($projections->ensureImageWrapperMarker($image->getNodePath() ?? ''), $image->getNodePath() ?? '')
                     );
                 }
                 if ( empty($attrs['anchor']) || $linkAnchor === $attrs['anchor'] ) {

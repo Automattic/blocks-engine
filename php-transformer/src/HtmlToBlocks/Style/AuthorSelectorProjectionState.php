@@ -23,6 +23,24 @@ final class AuthorSelectorProjectionState
     /** @var array<string, string> */
     private array $controlMarkers = array();
 
+    /**
+     * Marker carriers that received subject classes, by role kind (`control`,
+     * `semantic`) and marker: the source tag and class tokens the subject
+     * classes state, or null when the source element could not be resolved.
+     *
+     * @var array<string, array<string, array{tag: string, classes: array<string, true>}|null>>
+     */
+    private array $subjectCarriers = array();
+
+    /**
+     * Markers some carrier block was emitted for without subject classes
+     * (see routesOutsideRoleArms()). A marker in both maps may sit on blocks
+     * with and without them, so its own arm stays.
+     *
+     * @var array<string, array<string, true>>
+     */
+    private array $withheldSubjectCarriers = array();
+
     /** @var array<string, true> */
     private array $buttonPresentationPaths = array();
 
@@ -221,6 +239,122 @@ final class AuthorSelectorProjectionState
     public function controlMarker(string $path): string
     {
         return $this->controlMarkers[$path] ?? '';
+    }
+
+    /**
+     * Classes for the block that carries the control at `$path`: its marker,
+     * the control role class, and the subject classes of the source element
+     * (see EngineMarker::subjectTagClass()). The carrier is recorded with the
+     * tag and class tokens those subject classes were made from, so a projected
+     * subject arm can be checked against exactly what the markup carries.
+     *
+     * @return list<string>
+     */
+    public function controlCarrierClasses(string $path): array
+    {
+        return $this->carrierClasses('' === $path ? '' : $this->ensureControlMarker($path), $path);
+    }
+
+    /**
+     * Classes for a block that carries a semantic marker (a semantic or image
+     * wrapper marker) of the source element at `$path`: the marker, the
+     * semantic role class and the element's subject classes, recorded as for
+     * controlCarrierClasses().
+     *
+     * @return list<string>
+     */
+    public function semanticCarrierClasses(string $marker, string $path): array
+    {
+        return $this->carrierClasses($marker, $path);
+    }
+
+    /** @return list<string> */
+    private function carrierClasses(string $marker, string $path): array
+    {
+        if ( '' === $marker ) {
+            return array();
+        }
+        $role = EngineMarker::roleClass($marker);
+        $kind = (string) EngineMarker::markerKind($marker);
+        if ( '' === $role ) {
+            return array($marker);
+        }
+        if ( $this->routesOutsideRoleArms($path) ) {
+            $this->withheldSubjectCarriers[$kind][$marker] = true;
+            return array($marker, $role);
+        }
+        if ( ! array_key_exists($marker, $this->subjectCarriers[$kind] ?? array()) ) {
+            $element = '' === $path ? null : $this->authorStyles?->sourceElementAtPath($path);
+            $this->subjectCarriers[$kind][$marker] = null === $element ? null : array(
+                'tag' => strtolower($element->tagName),
+                'classes' => array_fill_keys(array_values(array_filter(preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array(), static fn (string $class): bool => '' !== $class)), true),
+            );
+        }
+        $carrier = $this->subjectCarriers[$kind][$marker];
+        if ( null === $carrier ) {
+            return array($marker, $role);
+        }
+        return array($marker, $role, ...EngineMarker::subjectClasses($carrier['tag'], array_map('strval', array_keys($carrier['classes']))));
+    }
+
+    /**
+     * Whether selector projection gives the element at `$path` an arm of its
+     * own instead of the plain control or semantic arm: a RichText or inline
+     * layout carrier, a toggle Core's overlay supersedes, a source box a shell
+     * retains, or something core/navigation or core/social-links renders. Its
+     * carrier gets no subject classes, so a subject arm (which some other
+     * page's copy of a stylesheet may hold) never reaches it; its rules keep
+     * naming its marker.
+     */
+    private function routesOutsideRoleArms(string $path): bool
+    {
+        if ( '' !== $this->richTextMarker($path) || $this->isInlineLayoutCarrierPath($path) || $this->isSupersededControlPath($path)
+            || $this->isRetainedSourcePath($path) || '' !== $this->navigationSubject($path) || '' !== $this->socialAnchorMarker($path)
+        ) {
+            return true;
+        }
+        foreach ( $this->navigationSourcePaths as $paths ) {
+            if ( isset($paths[$path]) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The `$kind` carriers whose recorded source tag and classes satisfy a
+     * context-free compound (type or `*`, plus classes): `reached`, every
+     * marker some block carries with those subject classes, and `covered`,
+     * those whose every block carries them. Null when a carrier could not
+     * record its source element: then the subject classes do not describe
+     * every carrier and a subject arm is unsound.
+     *
+     * @param array<string, mixed> $compound
+     * @return array{reached: list<string>, covered: list<string>}|null
+     */
+    public function carrierMarkersMatching(string $kind, array $compound): ?array
+    {
+        $type = is_string($compound['type'] ?? null) ? strtolower($compound['type']) : null;
+        $reached = array();
+        $covered = array();
+        foreach ( $this->subjectCarriers[$kind] ?? array() as $marker => $carrier ) {
+            if ( null === $carrier ) {
+                return null;
+            }
+            if ( null !== $type && $type !== $carrier['tag'] ) {
+                continue;
+            }
+            foreach ( $compound['classes'] ?? array() as $class ) {
+                if ( ! isset($carrier['classes'][(string) $class]) ) {
+                    continue 2;
+                }
+            }
+            $reached[] = (string) $marker;
+            if ( ! isset($this->withheldSubjectCarriers[$kind][$marker]) ) {
+                $covered[] = (string) $marker;
+            }
+        }
+        return array( 'reached' => $reached, 'covered' => $covered );
     }
 
     public function installButtonPresentationMarker(string $path, string $marker): void
@@ -578,11 +712,12 @@ final class AuthorSelectorProjectionState
     /** @return list<string> */
     public function semanticMarkersForPath(string $path): array
     {
-        // A semantic carrier also carries the kind's role class, so a rule arm
-        // that has to stay off carriers excludes them through one constant
-        // class instead of enumerating every carrier's marker.
+        // A semantic carrier also carries the kind's role class and its
+        // source's subject classes, so a rule arm that has to stay off carriers
+        // excludes them through one constant class, and a context-free arm
+        // reaches them without enumerating every carrier's marker.
         return array_values(array_filter(array_merge(
-            EngineMarker::withRole($this->semanticMarker($path)),
+            $this->semanticCarrierClasses($this->semanticMarker($path), $path),
             array($this->attributeMarkers[$path] ?? ''),
             array_values($this->stableAttributeMarkers[$path] ?? array()),
             $this->attributeStateMarkers($path),

@@ -117,6 +117,40 @@ replay by case:
     `7d6524b6`.
   - A truncated `source_fragment` excerpt cuts through a different marker
     hash in `f0e1a42c`.
+- **Subject classes and page-independent arms** (#2755, follow-up 1). Control
+  and semantic carriers also carry `blocks-engine-subject`, a
+  `blocks-engine-subject-tag-<tag>` class and one
+  `blocks-engine-subject-class-<hash>` class per source class token. A
+  context-free subject (`a`, `.btn`, `a.btn`, `*`) projects one arm naming the
+  carriers' role and subject classes instead of one arm per matched marker,
+  when every carrier it reaches is one this page routes to that arm.
+  Source-tag markers are named from the tag alone. Every re-recorded case was
+  replayed on both sides and every element of every compiled document
+  resolves the same styles under its own stylesheet sequence
+  (`StaticCssCascade`, 690 elements in 12 documents, 0 differences). With
+  subject classes removed and marker seeds normalized, the remaining text
+  differences are the projected arms, and values derived from changed text:
+  byte counts, content hashes and digests, the content-addressed
+  engine-support asset path and runtime-island ids. Affected: `2448c3c2`,
+  `2df01069`, `2f3ed5f6`, `46f79246`, `52210e3a`, `6b0e8e51`, `90234027`,
+  `c7fff215`, `e2e35d0c`, `f025cf28`.
+  - Only the carriers' class lists change in `2448c3c2`, `2f3ed5f6` and
+    `90234027`; only source-tag marker names change in `46f79246` and
+    `e2e35d0c`.
+  - A navigation container's recorded `target_selector` names the carrier's
+    subject classes in `c7fff215` and `f025cf28`.
+  - The dead-projected-selector findings quote the projected selector, which
+    now holds the role arm, in `6b0e8e51`.
+  - Outside this corpus, the same change re-pins generated names only:
+    `tests/fixtures/parity/html-button-sibling-marker-labels.json` (its
+    carriers gain subject classes), the semantic arm a
+    `html-positioned-inline-geometry-carrier.json` assertion looks for, the
+    dormant-ancestor arm in `tests/unit/author-selector-semantics.php`, the
+    label rule lookup in `tests/unit/fixed-size-button-label-centering.php`,
+    and in `tests/contract/context-seeded-markers.php` the source-tag case
+    (now: another page's type rule reaches neither this page's chrome nor its
+    content) and a context-dependent rule that keeps the shared-slice case
+    needing a slice.
 - **UTF-8 parse hint removed from documents.** Projectors that serialize a
   whole document now remove the `<?xml encoding="UTF-8">` hint that
   `DOMDocument::loadHTML()` needs as parser input, instead of stripping only a

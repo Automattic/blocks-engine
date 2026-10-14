@@ -202,18 +202,20 @@ final class AuthorStyleAnalysis
     }
 
     /**
-     * The marker standing for a source tag, named from the tag and the author
-     * CSS identity rather than the document. Pages under the same author CSS
-     * project a type selector to the same text; a page under other author CSS
-     * gets another marker, so a rule lifted out of one page's stylesheet into
-     * site-wide chrome can never reach another page's elements of that tag.
+     * The marker standing for a source tag, named from the tag alone. Every
+     * element of the tag carries it, and a type selector means the same thing
+     * in any stylesheet on any page, so pages under different author CSS
+     * project a shared stylesheet's type rules to the same text. Shared-chrome
+     * extraction does not treat these markers as chrome hooks
+     * (WordPressSitePlan::projectSharedChromeStylesheets()), so a type rule
+     * from one page's own stylesheet is never lifted into a global asset.
      */
     public function allocateTagMarker(string $tagName): string
     {
-        return $this->allocateStableMarker('source-' . $tagName, "tag\0" . $tagName . "\0" . $this->authorCssIdentity);
+        return $this->allocateStableMarker('source-' . $tagName, "tag\0" . $tagName);
     }
 
-    private function sourceElementAtPath(string $path): ?DOMElement
+    public function sourceElementAtPath(string $path): ?DOMElement
     {
         $document = $this->sourceBody->ownerDocument;
         if ( ! $document instanceof \DOMDocument ) {
