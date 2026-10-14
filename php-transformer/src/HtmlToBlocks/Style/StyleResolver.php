@@ -3399,7 +3399,10 @@ final class StyleResolver implements ElementPresentationResolver
 
     private function isNativeNavigationDropdownPanel(DOMElement $element): bool
     {
-        if (! $element->hasAttribute(CaptureEvidence::DROPDOWN_CLASS)) {
+        if (
+            'nav' !== strtolower($element->tagName)
+            || ! SourceDom::hasClass($element, CaptureEvidence::DROPDOWN_CLASS)
+        ) {
             return false;
         }
 

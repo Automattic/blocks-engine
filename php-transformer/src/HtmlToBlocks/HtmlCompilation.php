@@ -1595,6 +1595,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $resultComposer->emptyBody($html, $provenance, $context, $startedAt, $selectorCache);
         }
         SourceDom::removeIntegerKeyAttributes($body);
+        $this->restoreCapturedExistingPanelRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
         $this->capturedGlyphColors = CapturedGlyphColor::detach($body);
 
@@ -2072,6 +2073,43 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( $link instanceof DOMElement && $this->isNonRenderedMetadataLink($link) ) {
                 $link->parentNode?->removeChild($link);
             }
+        }
+    }
+
+    private function restoreCapturedExistingPanelRestingStates(DOMElement $body): void
+    {
+        foreach ($body->getElementsByTagName('*') as $element) {
+            if (
+                !$element instanceof DOMElement
+                || 'nav' !== strtolower($element->tagName)
+                || !SourceDom::hasClass($element, CaptureEvidence::DROPDOWN_CLASS)
+                || !$element->hasAttribute(CaptureEvidence::EXISTING_PANEL)
+                || !$this->hasAncestorTag($element, array('nav'))
+            ) {
+                continue;
+            }
+
+            $snapshot = json_decode($element->getAttribute(CaptureEvidence::EXISTING_PANEL), true);
+            $resting = is_array($snapshot) ? ($snapshot['resting'] ?? null) : null;
+            if (!is_array($resting)) {
+                continue;
+            }
+
+            foreach (array('style', 'class', 'hidden') as $attribute) {
+                if (!array_key_exists($attribute, $resting)) {
+                    continue;
+                }
+                $value = $resting[$attribute];
+                if ('hidden' === $attribute) {
+                    if (true === $value) $element->setAttribute('hidden', '');
+                    elseif (false === $value) $element->removeAttribute('hidden');
+                    continue;
+                }
+                if (null === $value) $element->removeAttribute($attribute);
+                elseif (is_string($value)) $element->setAttribute($attribute, $value);
+            }
+
+            $element->removeAttribute(CaptureEvidence::EXISTING_PANEL);
         }
     }
 

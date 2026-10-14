@@ -159,15 +159,19 @@ $assert(
     $navMarkup . "\n" . $navAfterAuthor
 );
 
-$capturedOpenNav = <<<'HTML'
+$existingPanelState = htmlspecialchars(json_encode(array(
+    'resting' => array('style' => null, 'class' => 'closed-panel data-blocks-engine-capture-dropdown', 'hidden' => false),
+    'opened' => array('style' => 'display:block;visibility:visible!important', 'class' => 'closed-panel is-open data-blocks-engine-capture-dropdown', 'hidden' => false),
+), JSON_THROW_ON_ERROR), ENT_QUOTES);
+$capturedOpenNav = <<<HTML
 <style>
-.captured-panel { display: none; }
-.captured-menu:hover .captured-panel { display: block; }
+.closed-panel { display: none; }
+.menu:hover .closed-panel { display: block; }
 </style>
-<nav class="captured-menu"><ul><li><a href="/services">Services</a>
-  <div id="captured-panel" class="captured-panel is-open" style="display:none" data-blocks-engine-capture-dropdown>
+<nav class="menu"><ul><li><a href="/services">Services</a>
+  <nav id="captured-panel" class="closed-panel is-open data-blocks-engine-capture-dropdown" aria-labelledby="services-toggle" style="display:block;visibility:visible!important" data-blocks-engine-capture-existing-panel="{$existingPanelState}" hidden="" data-blocks-engine-capture-dialog-panel="captured-panel">
     <ul><li><a href="/consulting">Consulting</a></li></ul>
-  </div>
+  </nav>
 </li></ul></nav>
 HTML;
 $capturedOpenNavResult = ( new HtmlTransformer() )->transform($capturedOpenNav)->toArray();
@@ -177,6 +181,7 @@ $assert(
     str_contains($capturedOpenNavMarkup, '<!-- wp:navigation-submenu')
         && str_contains($capturedOpenNavMarkup, 'Consulting')
         && ! str_contains($capturedOpenNavMarkup, 'is-open')
+        && ! str_contains($capturedOpenNavMarkup, 'data-blocks-engine-capture-existing-panel')
         && ! str_contains($capturedOpenNavAfterAuthor, '#captured-panel{display:revert!important}'),
     'native navigation owns the closed resting state and does not retain the captured open class',
     $capturedOpenNavMarkup . "\n" . $capturedOpenNavAfterAuthor
