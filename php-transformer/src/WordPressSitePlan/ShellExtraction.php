@@ -227,11 +227,16 @@ final class ShellExtraction
     private function collectNestedChrome(string $markup, int $baseOffset, array &$headers, array &$footers): void
     {
         $ranges = self::topLevelBlockRanges($markup);
-        if (2 <= count($ranges)) {
-            $first = substr($markup, $ranges[0]['offset'], $ranges[0]['length']);
+        // Empty decoration groups ahead of the header do not move it: the first
+        // block that holds anything is the one that may be the header.
+        $lead = 0;
+        while ($lead < count($ranges) - 1 && self::isEmptyVisualGroup(substr($markup, $ranges[$lead]['offset'], $ranges[$lead]['length']))) ++$lead;
+        if (2 <= count($ranges) - $lead) {
+            $head = $ranges[$lead];
+            $first = substr($markup, $head['offset'], $head['length']);
             if (self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($first)) {
                 $restHasContent = false;
-                foreach (array_slice($ranges, 1) as $range) {
+                foreach (array_slice($ranges, $lead + 1) as $range) {
                     $sibling = substr($markup, $range['offset'], $range['length']);
                     if (!self::isEmptyVisualGroup($sibling)) {
                         $restHasContent = true;
@@ -239,15 +244,15 @@ final class ShellExtraction
                     }
                 }
                 if ($restHasContent) {
-                    $headers[] = $this->nestedChromeRow($first, $baseOffset + $ranges[0]['offset'], $ranges[0]['length']);
+                    $headers[] = $this->nestedChromeRow($first, $baseOffset + $head['offset'], $head['length']);
                     // A projected modal dialog mounts at the end of its document;
                     // it renders in the top layer, so the footer is the last
                     // sibling before it.
                     $lastIndex = count($ranges) - 1;
-                    while ($lastIndex > 0 && self::isCapturedModalDialogBlock(substr($markup, $ranges[$lastIndex]['offset'], $ranges[$lastIndex]['length']))) --$lastIndex;
+                    while ($lastIndex > $lead && self::isCapturedModalDialogBlock(substr($markup, $ranges[$lastIndex]['offset'], $ranges[$lastIndex]['length']))) --$lastIndex;
                     $last = $ranges[$lastIndex];
                     $lastMarkup = substr($markup, $last['offset'], $last['length']);
-                    if ($last !== $ranges[0] && self::isFooterChrome($lastMarkup)) {
+                    if ($last !== $head && self::isFooterChrome($lastMarkup)) {
                         $footers[] = $this->nestedChromeRow($lastMarkup, $baseOffset + $last['offset'], $last['length']);
                     }
                     return;
@@ -1212,21 +1217,42 @@ final class ShellExtraction
             if ($found['blocked'] || array() !== $found['refs']) continue;
             $split[$index] = $frame;
         }
+        // The generic page template carries the frame most inner pages share in
+        // structure (compared without per-document marker seeds and dialog ids),
+        // so a page made later in WordPress gets the site chrome. A page uses it
+        // only when its frame is byte-identical to that one: the seeded markers
+        // in a frame are what the page's own stylesheet targets, so a frame with
+        // other seeds stays in its own route template. A page with another
+        // structure, or none, gets a route template as well.
         $inner = array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null) && empty($page['entrypoint']) && empty($page['synthetic']));
-        $sharedFrame = null;
-        if (array() !== $inner && count(array_intersect_key($split, $inner)) === count($inner)) {
-            $signatures = array_unique(array_map(static fn(int $index): string => serialize(array($split[$index]['opening'], $split[$index]['closing'])), array_keys($inner)));
-            if (1 === count($signatures)) $sharedFrame = array('opening' => $split[array_key_first($inner)]['opening'], 'closing' => $split[array_key_first($inner)]['closing']);
-        }
+        $groups = array();
+        foreach (array_intersect_key($split, $inner) as $index => $frame) $groups[self::frameIdentity($frame)][] = $index;
+        $generic = null;
+        foreach ($groups as $indexes) if (null === $generic || count($indexes) > count($generic)) $generic = $indexes;
+        $generic = null !== $generic ? $split[$generic[0]] : null;
         foreach ($split as $index => $frame) {
             $page = $pages[$index];
-            $slug = !empty($page['entrypoint']) ? 'front-page' : (null !== $sharedFrame ? 'page' : 'page-' . $page['slug']);
+            $shared = null !== $generic && isset($inner[$index]) && $frame['opening'] === $generic['opening'] && $frame['closing'] === $generic['closing'];
+            $slug = !empty($page['entrypoint']) ? 'front-page' : ($shared ? 'page' : 'page-' . $page['slug']);
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
             $frames[$slug] = array('opening' => $frame['opening'], 'closing' => $frame['closing'], 'shells' => array_values(array_unique($slugs[1])));
             $pages[$index]['canonical_block_markup'] = $frame['content'];
             $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($frame['content']);
         }
+        if (null !== $generic && !isset($frames['page'])) {
+            preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $generic['opening'] . $generic['closing'], $slugs);
+            $frames['page'] = array('opening' => $generic['opening'], 'closing' => $generic['closing'], 'shells' => array_values(array_unique($slugs[1])));
+        }
+        // A page that keeps its chrome in its own content must not also get the
+        // generic frame, so it renders through a plain route template.
+        if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames['page-' . $page['slug']] = array('opening' => '', 'closing' => '', 'shells' => array());
         return array('pages' => $pages, 'frames' => $frames);
+    }
+
+    /** @param array{opening:string,closing:string} $frame */
+    private static function frameIdentity(array $frame): string
+    {
+        return (string) preg_replace('/blocks-engine-dialog(?:-trigger)?-[0-9a-f]{16}/', 'blocks-engine-dialog', EngineMarker::withoutDocumentSeeds($frame['opening'] . "\0" . $frame['closing']));
     }
 
     /**

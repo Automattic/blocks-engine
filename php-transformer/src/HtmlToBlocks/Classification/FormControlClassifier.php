@@ -101,6 +101,9 @@ final class FormControlClassifier
         if ( 'new-password' === strtolower(trim($control->getAttribute('autocomplete'))) ) {
             return true;
         }
+        if ( self::isUnreachableTextTrap($control) ) {
+            return true;
+        }
         $insideNativeForm = false;
         for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
             if ( in_array(strtolower($parent->tagName), array( 'template', 'script', 'style', 'noscript' ), true) ) {
@@ -118,6 +121,25 @@ final class FormControlClassifier
         }
 
         return false;
+    }
+
+    /**
+     * A free-text field hidden from assistive technology on itself and removed
+     * from the tab order cannot be reached by a person, so it is a bot trap.
+     * Choice and select value carriers share those attributes beside their
+     * visible widget, so only free-text entry qualifies.
+     */
+    private static function isUnreachableTextTrap(DOMElement $control): bool
+    {
+        if ( 'true' !== strtolower(trim($control->getAttribute('aria-hidden')))
+            || ! is_numeric(trim($control->getAttribute('tabindex')))
+            || 0 <= (int) trim($control->getAttribute('tabindex')) ) {
+            return false;
+        }
+        $tag = strtolower($control->tagName);
+
+        return 'textarea' === $tag || ( 'input' === $tag
+            && in_array(self::controlType($control), array( 'text', 'email', 'url', 'tel', 'search', 'number' ), true) );
     }
 
     /**

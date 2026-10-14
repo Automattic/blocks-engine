@@ -81,6 +81,10 @@ replay by case:
   inside a layout frame keeps only the blocks between them; the frame and the
   template-part references move to its route template around post-content.
   Only the site plan page, template and write payloads change in `dae00d12`.
+- **Layout shell labels.** The layout-shell editor script now skips utility
+  classes when naming a shell, names `<li>` shells and labels viewport-entrance
+  targets "Scroll reveal". Only the emitted `index.js` text and the companion
+  plugin artifact hash derived from it change in `06596271`, `0b294e2c`, `0bf7a2ea`, `17d97f2c`, `1cfefbc9`, `2322e021`, `23fdbeb0`, `26110ab3`, `26f08792`, `28699fde`, `2890e8f1`, `2df01069`, `2f545afa`, `366a6664`, `3ac0d0bb`, `3b0aed43`, `3e283668`, `448ead36`, `46f79246`, `477397df`, `493ddae7`, `4cdf968e`, `52210e3a`, `587e3a2d`, `5d5803dd`, `6220283c`, `6982a81d`, `6b0e8e51`, `6ed86c41`, `771a8a46`, `77f446a6`, `796065fd`, `7b5ed425`, `81a94623`, `867fe3db`, `8d155e3b`, `8ea9b354`, `90234027`, `90e29340`, `90f2a32f`, `9389ce06`, `94fdfe3f`, `95c8417b`, `9e7bce76`, `a5a08a86`, `a98742a0`, `ae819715`, `b0e045a7`, `b550beb0`, `b7953315`, `b913b3b4`, `bab702ca`, `bcd4e29b`, `bda59bb9`, `c015fa89`, `c7fff215`, `c98ea038`, `d155dabd`, `d243e2be`, `d3b1b892`, `dae00d12`, `df7fe272`, `e2e35d0c`, `e40ee9dc`, `eaad29ef`, `ed102407`, `f025cf28`, `f0e1a42c`, `f2390e98`, `f2a509d4`, `fcc75319`, `feef8efc`.
 - **Header identity across dialog triggers.** Shell identity ignores the
   per-document hash in a captured dialog trigger id, so pages that differ only
   there share one header. Only the shared header's `shell_identity` and the
