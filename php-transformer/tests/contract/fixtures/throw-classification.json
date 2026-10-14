@@ -318,6 +318,7 @@
       "InvalidArgumentException('Form presentation control container is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form presentation control is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form presentation graph envelope is invalid.')": {"class": "integrity", "count": 1},
+      "InvalidArgumentException('Form presentation group caption is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form presentation precedence is invalid.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form presentation provenance exceeds its limit.')": {"class": "integrity", "count": 1},
       "InvalidArgumentException('Form presentation provenance has unknown keys.')": {"class": "integrity", "count": 1},
