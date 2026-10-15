@@ -1760,7 +1760,7 @@ final class NavigationToggleSuppressor
      * reads hidden and a `hidden md:flex` menu reads visible. Reading only
      * unconditional declarations inverted both.
      */
-    private function isHiddenAtDefaultViewport(DOMElement $element): bool
+    public function isHiddenAtDefaultViewport(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( SourceDom::isDocumentVariantRoot($node) || in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
