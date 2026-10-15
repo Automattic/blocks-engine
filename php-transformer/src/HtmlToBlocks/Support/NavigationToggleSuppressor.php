@@ -86,7 +86,11 @@ final class NavigationToggleSuppressor
                 continue;
             }
 
-            foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
+            // `popovertarget` names the controlled panel as explicitly as
+            // `aria-controls`; the toggle must never fall back to guessing
+            // another hidden menu in its scope.
+            $controlledIds = preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls') . ' ' . SourceDom::attr($control, 'popovertarget'))) ?: array();
+            foreach ( $controlledIds as $controlledId ) {
                 $target = $elementsById[ltrim($controlledId, '#')] ?? null;
                 if ( ! $target instanceof DOMElement || $this->isInsideOwnDisclosurePanel($control, $target) ) {
                     continue;
@@ -102,7 +106,7 @@ final class NavigationToggleSuppressor
             if ( $this->context->navigationProjection()->hasTargetForControl($control) ) {
                 continue;
             }
-            if ( $this->isBoundCapturedDialogTrigger($control) ) {
+            if ( $this->isBoundCapturedDialogTrigger($control) || '' !== trim(SourceDom::attr($control, 'popovertarget')) ) {
                 continue;
             }
 
@@ -385,6 +389,7 @@ final class NavigationToggleSuppressor
     {
         if ( $this->context->sourceElementStartsHidden($element)
             || $element->hasAttribute('hidden')
+            || $element->hasAttribute('popover')
             || 'true' === strtolower(SourceDom::attr($element, 'aria-hidden'))
             || 'false' === strtolower(SourceDom::attr($element, 'data-visible')) ) {
             return true;
@@ -409,6 +414,7 @@ final class NavigationToggleSuppressor
     private function targetHiddenAtReferenceViewport(DOMElement $target): bool
     {
         if ( $target->hasAttribute('hidden')
+            || $target->hasAttribute('popover')
             || 'true' === strtolower(SourceDom::attr($target, 'aria-hidden'))
             || 'false' === strtolower(SourceDom::attr($target, 'data-visible'))
             || $this->context->sourceElementOrAncestorStartsHidden($target) ) {

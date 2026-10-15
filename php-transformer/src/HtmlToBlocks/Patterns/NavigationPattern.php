@@ -3377,7 +3377,10 @@ final class NavigationPattern implements PatternRecognizerInterface
      * own wrapper: `<div><button aria-controls="p">About</button><div id="p">
      * <div><a>Mission</a></div><div><a>Team</a></div></div></div>`. The
      * button's own declaration ties the panel to it, so no class vocabulary is
-     * needed to read the panel as the button's submenu.
+     * needed to read the panel as the button's submenu. A panel may also wrap
+     * one link list (`<div id="p" hidden><ul><li><a>Mission</a></li></ul></div>`);
+     * the list is then the submenu, so the panel closed on load stays closed
+     * behind its trigger instead of becoming a visible standalone menu.
      *
      * @return array{label:string, cluster:DOMElement, button:DOMElement}|null
      */
@@ -3402,7 +3405,15 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( '' === $controls || $controls !== trim($panel->getAttribute('id')) || '' === $label ) {
             return null;
         }
-        return $this->isWrappedLinkPanel($panel) ? array( 'label' => $label, 'cluster' => $panel, 'button' => $button ) : null;
+        if ( $this->isWrappedLinkPanel($panel) ) {
+            return array( 'label' => $label, 'cluster' => $panel, 'button' => $button );
+        }
+        $list = 'div' === strtolower($panel->tagName) ? $this->soleMeaningfulChild($panel) : null;
+        if ( $list instanceof DOMElement && in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true) && $this->isWrappedLinkPanel($list) ) {
+            return array( 'label' => $label, 'cluster' => $list, 'button' => $button );
+        }
+
+        return null;
     }
 
     /**
@@ -3552,7 +3563,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             return false;
         }
 
-        if ( $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded') ) {
+        // A popover show/hide/toggle button is the drawer's own open/close
+        // chrome, which core/navigation's overlay supplies natively.
+        if ( $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded') || $element->hasAttribute('popovertarget') ) {
             return true;
         }
 
