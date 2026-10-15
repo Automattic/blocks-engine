@@ -3563,9 +3563,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return false;
         }
 
-        // A popover show/hide/toggle button is the drawer's own open/close
-        // chrome, which core/navigation's overlay supplies natively.
-        if ( $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded') || $element->hasAttribute('popovertarget') ) {
+        if ( $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded') ) {
             return true;
         }
 

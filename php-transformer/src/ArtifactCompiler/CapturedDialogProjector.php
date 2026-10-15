@@ -36,6 +36,19 @@ final class CapturedDialogProjector
      */
     public function project(array $files): array
     {
+        $popovers = $this->adoptSourcePopovers($files);
+        $result = $this->projectCapturedStates($popovers['files']);
+        $result['projected_count'] += $popovers['projected_count'];
+
+        return $result;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array{files:array<int, array<string, mixed>>, diagnostics:array<int, array<string, mixed>>, projected_count:int}
+     */
+    private function projectCapturedStates(array $files): array
+    {
         $diagnostics = array();
         $report = $this->jsonFile($files, 'interaction-states.json');
         if (null === $report) {
@@ -106,6 +119,113 @@ final class CapturedDialogProjector
         $proofs = $this->omitRetiredDisclosureScripts($files, $retired);
 
         return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'native_runtime_replacements' => $proofs);
+    }
+
+    /**
+     * An element carrying the `popover` attribute is closed on load by the user
+     * agent, whatever it holds, and opens only from a `popovertarget` control.
+     * Adopt each such element in place as the native captured dialog bound to
+     * its openers, so it stays closed at every viewport. Its own
+     * `popovertargetaction="hide"` (or toggle) controls close it, recognized by
+     * that attribute rather than by label language, and Escape closes the modal
+     * dialog natively. A capture panel nested in the popover and hidden only
+     * because no trigger of its own exists is part of the popover's open
+     * content, so it is shown whenever the popover is.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array{files:array<int, array<string, mixed>>, projected_count:int}
+     */
+    private function adoptSourcePopovers(array $files): array
+    {
+        $projected = 0;
+        foreach ($files as $index => $file) {
+            $content = $file['content'] ?? null;
+            $path = (string) ($file['path'] ?? '');
+            if (! preg_match('/\.html?$/i', $path) || ! is_string($content) || 1 !== preg_match('/\spopover(?:\s|=|>)/i', $content) || ! str_contains(strtolower($content), 'popovertarget')) continue;
+            $previous = libxml_use_internal_errors(true);
+            $document = new DOMDocument('1.0', 'UTF-8');
+            $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            if (! $loaded) continue;
+            $count = 0;
+            $xpath = new DOMXPath($document);
+            foreach (iterator_to_array($xpath->query('//*[@popover][@id]') ?: array()) as $popover) {
+                if ($popover instanceof DOMElement && $this->adoptSourcePopover($document, $popover, $path)) ++$count;
+            }
+            if (0 === $count) continue;
+            $html = HtmlSerialization::documentHtml($document);
+            if (! is_string($html)) continue;
+            $files[$index] = ArtifactNormalizer::withTextPayload($files[$index], $html);
+            $projected += $count;
+        }
+
+        return array('files' => $files, 'projected_count' => $projected);
+    }
+
+    private function adoptSourcePopover(DOMDocument $document, DOMElement $popover, string $sourcePath): bool
+    {
+        $id = SourceDom::safeAnchor($popover->getAttribute('id'));
+        if ('' === $id || $this->insideProjectedDialog($popover)) return false;
+        $xpath = new DOMXPath($document);
+        $ids = $xpath->query('//*[@id=' . $this->xpathLiteral($id) . ']');
+        if (! $ids || 1 !== $ids->length) return false;
+        $openers = array();
+        $closers = array();
+        foreach ($xpath->query('//*[@popovertarget=' . $this->xpathLiteral($id) . ']') ?: array() as $control) {
+            if (! $control instanceof DOMElement) continue;
+            $action = strtolower(trim($control->getAttribute('popovertargetaction')));
+            if (SourceDom::elementContains($popover, $control)) {
+                if ('show' !== $action) $closers[] = $control;
+            } elseif ('hide' !== $action) {
+                $openers[] = $control;
+            }
+        }
+        if (array() === $openers || count($openers) > self::MAX_STATES_PER_PAGE) return false;
+        foreach (iterator_to_array($popover->getElementsByTagName('*')) as $panel) {
+            if (! $panel instanceof DOMElement || ! $panel->hasAttribute('hidden')) continue;
+            $key = trim($panel->getAttribute(CaptureEvidence::DIALOG_PANEL));
+            if ('' === $key) continue;
+            $triggers = $xpath->query('//*[@' . CaptureEvidence::DIALOG_TRIGGER . '=' . $this->xpathLiteral($key) . ']');
+            if ($triggers && 0 === $triggers->length) $panel->removeAttribute('hidden');
+        }
+        $identity = substr(hash('sha256', $sourcePath . "\npopover\n" . $id), 0, 16);
+        $closerIds = $this->boundControlIds($xpath, $closers, 'blocks-engine-dialog-close-' . $identity);
+        $html = (string) $document->saveHTML($popover);
+        if (strlen($html) > self::MAX_DIALOG_BYTES) return false;
+        $fragment = $this->safeDialogFragment($html);
+        if (null === $fragment) return false;
+        $fragment['has_close_control'] = $fragment['has_close_control'] || array() !== $closerIds;
+        $triggerIds = $this->boundControlIds($xpath, $openers, 'blocks-engine-dialog-trigger-' . $identity);
+        $dialog = $this->appendProjectedDialog($document, $fragment, $openers, $triggerIds, $identity, false, $popover);
+        // The copied close controls keep the ids they are bound by.
+        if (array() !== $closerIds) $dialog->setAttribute('data-blocks-engine-closers', implode(' ', $closerIds));
+        // Replaced in place, the dialog keeps the popover's source id for author rules.
+        $dialog->setAttribute('id', $id);
+
+        return true;
+    }
+
+    /**
+     * Give each control a document-unique id to bind by, keeping its own.
+     *
+     * @param array<int, DOMElement> $controls
+     * @return array<int, string>
+     */
+    private function boundControlIds(DOMXPath $xpath, array $controls, string $prefix): array
+    {
+        $ids = array();
+        foreach (array_values($controls) as $index => $control) {
+            $id = trim($control->getAttribute('id'));
+            $matches = '' !== $id ? $xpath->query('//*[@id=' . $this->xpathLiteral($id) . ']') : null;
+            if ('' === $id || ! $matches || 1 !== $matches->length) {
+                $id = $prefix . '-' . ($index + 1);
+                $control->setAttribute('id', $id);
+            }
+            $ids[] = $id;
+        }
+
+        return $ids;
     }
 
     /** @param array<int, mixed> $pages */

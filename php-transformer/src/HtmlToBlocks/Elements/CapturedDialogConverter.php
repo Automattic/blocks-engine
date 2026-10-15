@@ -114,6 +114,7 @@ final class CapturedDialogConverter implements ElementConverter
             'ancestorUnverified' => SourceDom::attr($element, CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED),
             'dialogId' => trim(SourceDom::attr($element, 'id')),
             'triggerIds' => array_values(array_filter(preg_split('/\s+/', trim(SourceDom::attr($element, 'data-blocks-engine-triggers'))) ?: array())),
+            'closerIds' => array_values(array_filter(preg_split('/\s+/', trim(SourceDom::attr($element, 'data-blocks-engine-closers'))) ?: array())),
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')),
             'ariaLabelledby' => trim(SourceDom::attr($element, 'aria-labelledby')),
             'ariaDescribedby' => trim(SourceDom::attr($element, 'aria-describedby')),
@@ -132,6 +133,7 @@ final class CapturedDialogConverter implements ElementConverter
             if (isset($attrs[$key])) $opening .= ' ' . $attribute . '="' . $escape((string) $attrs[$key]) . '"';
         }
         if (isset($attrs['triggerIds'])) $opening .= ' data-blocks-engine-triggers="' . $escape(implode(' ', $attrs['triggerIds'])) . '"';
+        if (isset($attrs['closerIds'])) $opening .= ' data-blocks-engine-closers="' . $escape(implode(' ', $attrs['closerIds'])) . '"';
         if (isset($attrs['gallerySelection'])) $opening .= ' data-blocks-engine-gallery-selection="' . $escape(json_encode($attrs['gallerySelection'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)) . '"';
         if (isset($attrs['ancestorState'])) $opening .= ' data-blocks-engine-ancestor-state="' . $escape(json_encode($attrs['ancestorState'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)) . '"';
         $opening .= '>';
