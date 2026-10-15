@@ -114,6 +114,13 @@ final class EngineSupportCss
             // its layout box so the source image retains its native replaced-
             // element min-content and flex-shrink behavior.
             $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}';
+            // With no figure box there is nothing for the image to fit, so the
+            // `max-width:100%` that core and the image projection bridge put on
+            // a core/image <img> is not the source's: its percentage zeroes the
+            // replaced element's min-content contribution and lets the flex
+            // item shrink below its own width. A max-width the author states
+            // for the image still reaches it through its projected rule.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ').wp-block-image>img{max-width:none}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS) ) {
             // The source image fills both axes of its parent. Its core/image

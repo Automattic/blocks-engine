@@ -639,9 +639,7 @@ PHP;
             self::assertNoLocalBrowserReferences($menu['block_markup']);
         }
         $partSlugs = array();
-        $overrideTemplateSlugs = array();
-        foreach ($plan['template_parts'] as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (is_string($slug)) $overrideTemplateSlugs[$slug] = true;
-        foreach ($plan['template_parts'] as $part) foreach (array_keys($part['placement']['template_wrappers'] ?? array()) as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrideTemplateSlugs[$slug] = true;
+        $overrideTemplateSlugs = self::overrideTemplateSlugs($plan['template_parts'], array_column(array_filter($plan['templates'], static fn(array $template): bool => array_key_exists('shell_frame', $template)), 'slug'));
         foreach ( $plan['template_parts'] as $part ) {
             self::assertDocument($part, 'template part', true, $tokens);
             if ($part['content_hash'] !== self::contentHash($part['canonical_block_markup'])) throw new InvalidArgumentException('WordPress site plan template part has a stale content hash.');
@@ -2806,8 +2804,35 @@ PHP;
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
     private function routesForPages(array $pages): array { $routes = array(); foreach ($pages as $page) $routes[] = array('kind' => 'route', 'source_path' => $page['source_path'], 'target_path' => $page['route']['path'], 'target_slug' => $page['slug'], 'title' => $page['title'], 'parent_source_path' => $page['parent_source_path'], 'source_relation' => !empty($page['synthetic']) ? 'synthetic_parent' : (!empty($page['entrypoint']) ? 'entrypoint' : 'document'), 'order' => count($routes)); return $routes; }
 
-    /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,string>> */
-     private function templates(array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array(), ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array()): array
+    /**
+     * Per-route override templates: slugs a part is excluded from, wrapper
+     * templates, and frame templates. Excluded slugs are kept as given; the
+     * other sources count only page-* and single-* slugs.
+     *
+     * @param array<int,array<string,mixed>> $parts @param array<int,mixed> $frameSlugs @return array<string,bool>
+     */
+    private static function overrideTemplateSlugs(array $parts, array $frameSlugs): array
+    {
+        $slugs = array();
+        foreach ($parts as $part) {
+            foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (is_string($slug)) $slugs[$slug] = true;
+            foreach (array_keys($part['placement']['template_wrappers'] ?? array()) as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $slugs[$slug] = true;
+        }
+        foreach ($frameSlugs as $slug) if (is_string($slug) && preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $slugs[$slug] = true;
+        return $slugs;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<int,array<string,mixed>> $surfaces
+     * @param array<int,array<string,mixed>> $tokens
+     * @param array<int,array<string,mixed>> $routes
+     * @param array<int,array<string,mixed>> $taxonomyEntities
+     * @param array<string,array<string,mixed>> $frames
+     * @return array<int,array<string,mixed>>
+     */
+    private function templates(array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array(), ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array()): array
      {
          $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
          usort($bound, static function (array $left, array $right): int {
@@ -2851,10 +2876,7 @@ PHP;
          $templates[] = $make('404', 'templates/404.html', $markup('404'));
         if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
-        $overrides = array();
-        foreach ($bound as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
-        foreach ($bound as $part) foreach (array_keys($part['placement']['template_wrappers'] ?? array()) as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
-        foreach (array_keys($frames) as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
+        $overrides = array_filter(self::overrideTemplateSlugs($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
         foreach ($templates as &$template) if (isset($frames[$template['slug']])) $template['shell_frame'] = $frames[$template['slug']]['shells']; unset($template);
          $explicitSlugs = array_fill_keys(array_map(static fn(array $surface): string => $surface['template_surface']['slug'], $surfaces), true);

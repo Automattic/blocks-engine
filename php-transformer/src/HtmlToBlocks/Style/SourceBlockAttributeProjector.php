@@ -246,8 +246,20 @@ final class SourceBlockAttributeProjector
             return false;
         }
 
-        $display = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? ''));
-        return in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+        // A responsive capture states each document's layout only inside its
+        // media condition, so the parent is a flex item container whenever any
+        // viewport says so. Where it is plain flow instead, the figure's
+        // `display:contents` still leaves the image in its parent as the
+        // source had it.
+        $displays = $this->styleResolver->authorDeclaredValuesAtAnyViewport($parent, array( 'display' ))['display'] ?? array();
+        $displays[] = (string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? '');
+        foreach ( $displays as $display ) {
+            if ( in_array(CssValueInspector::comparable($display), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function isHiddenAccessibilitySupportElement(DOMElement $element): bool
@@ -545,7 +557,7 @@ final class SourceBlockAttributeProjector
             return false;
         }
         foreach ( $children as $child ) {
-            $display = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', (string) ($this->styleResolver->cssDeclarations($child->getAttribute('style'))['display'] ?? ''))));
+            $display = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($child->getAttribute('style'))['display'] ?? ''));
             if ( ! in_array($display, array( 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) {
                 return false;
             }

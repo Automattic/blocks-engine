@@ -2345,7 +2345,7 @@ final class AuthorStylesheetProjector
         }
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
             $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->mediaTextPresentationStyle($parent));
-            if ( in_array(strtolower(trim((string) ($declarations['display'] ?? ''))), array( 'flex', 'grid' ), true)
+            if ( in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'flex', 'grid' ), true)
                 && $this->hasMediaTextBranches($parent, $element) ) {
                 return true;
             }
