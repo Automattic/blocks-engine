@@ -20,10 +20,10 @@ final class CapturedDialogProjector
     private const MAX_PAGES = 128;
     private const MAX_STATES_PER_PAGE = 8;
     private const MAX_DIALOG_BYTES = 65536;
-    /** Capture runtime marker => sha256 of its published, trimmed body. */
+    /** Capture runtime marker => accepted hashes of published, trimmed bodies. */
     private const RECOGNIZED_RUNTIMES = array(
-        CaptureEvidence::DISCLOSURE_RUNTIME => CaptureEvidence::DISCLOSURE_RUNTIME_SHA256,
-        CaptureEvidence::GALLERY_RUNTIME => CaptureEvidence::GALLERY_RUNTIME_SHA256,
+        CaptureEvidence::DISCLOSURE_RUNTIME => array(CaptureEvidence::DISCLOSURE_RUNTIME_SHA256),
+        CaptureEvidence::GALLERY_RUNTIME => array(CaptureEvidence::GALLERY_RUNTIME_SHA256, CaptureEvidence::GALLERY_TRACK_RUNTIME_SHA256),
     );
 
 
@@ -692,9 +692,9 @@ final class CapturedDialogProjector
      */
     private static function isRecognizedRuntimeScript(DOMElement $script, string $marker): bool
     {
-        $digest = self::RECOGNIZED_RUNTIMES[$marker] ?? null;
-        return null !== $digest && 'script' === strtolower($script->tagName) && $script->hasAttribute($marker)
-            && $digest === hash('sha256', trim($script->textContent ?? ''));
+        $digests = self::RECOGNIZED_RUNTIMES[$marker] ?? array();
+        return 'script' === strtolower($script->tagName) && $script->hasAttribute($marker)
+            && in_array(hash('sha256', trim($script->textContent ?? '')), $digests, true);
     }
 
     /** Whether a page carries a capture runtime marker whose body is not the published one. */

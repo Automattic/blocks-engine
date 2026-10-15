@@ -101,6 +101,8 @@ final class CaptureEvidence
     public const GALLERY_SLOT = 'data-blocks-engine-capture-gallery-slot';
     /** Presence marks the gallery stage element. */
     public const GALLERY_STAGE = 'data-blocks-engine-capture-gallery-stage';
+    /** Observed inactive opacity of a verified translated gallery track. */
+    public const GALLERY_TRACK = 'data-blocks-engine-capture-gallery-track';
     /** Integer initial frame of a gallery list. */
     public const GALLERY_INITIAL = 'data-blocks-engine-capture-gallery-initial';
     /** Observed CSS `display` keyword of a gallery item. */
@@ -186,6 +188,8 @@ final class CaptureEvidence
     public const DISCLOSURE_RUNTIME_SHA256 = 'b545f43a77b79d075373048431101fe11d7ff8cdfe7987de6d7971512763d88f';
     /** The gallery helper (GALLERY_RUNTIME) that may coexist with a replaced disclosure interpreter. */
     public const GALLERY_RUNTIME_SHA256 = '456af76323601e51d851d3a4d6fe4ff6e3989c9969562f425fd72103c5c57c6b';
+    /** Published gallery helper adding translated-track and touch replay. */
+    public const GALLERY_TRACK_RUNTIME_SHA256 = 'd177c3ad775434d80e7863f728418e8ac969544ece4a9dafee7761907ea3792a';
 
     // Published for downstream importers; Blocks Engine does not read these.
 

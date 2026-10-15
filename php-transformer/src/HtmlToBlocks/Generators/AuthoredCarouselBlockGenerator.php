@@ -64,6 +64,7 @@ final class AuthoredCarouselBlockGenerator
             'nextControlVisual' => array('type' => 'string', 'default' => ''),
             'itemsPerView' => array('type' => 'number', 'default' => 4),
             'wrap' => array('type' => 'boolean', 'default' => true),
+            'swipe' => array('type' => 'boolean', 'default' => false),
             'presentation' => array('type' => 'string', 'default' => 'track'),
             'slideCount' => array('type' => 'number', 'default' => 0),
             'initialSlide' => array('type' => 'number', 'default' => 0),
@@ -123,7 +124,7 @@ final class AuthoredCarouselBlockGenerator
         if ( attributes.stageMinHeight ) { style = style || {}; style[ '--blocks-engine-carousel-stage-min-height' ] = attributes.stageMinHeight; }
         var carouselClasses = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle );
         if ( 'src-swap' === presentation ) carouselClasses = 'blocks-engine-authored-carousel--src-swap';
-        var props = { className: carouselClasses + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        var props = { className: carouselClasses + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( Object.assign( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 }, attributes.swipe ? { swipe: true } : {} ) ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
         Object.keys( attributes.sourceIdentityAttributes || {} ).forEach( function( name ) { props[ name ] = attributes.sourceIdentityAttributes[ name ]; } );
         if ( attributes.sourceControlArtwork ) { props.className += ' blocks-engine-authored-carousel--source-control-artwork'; }
         if ( attributes.showStatus ) { props.className += ' blocks-engine-authored-carousel--show-status'; }
@@ -406,8 +407,34 @@ store( 'blocks-engine/carousel', {
                 if ( Number.isInteger( index ) && index >= 0 && index < context.count ) show( index );
             } );
             root.addEventListener( 'blocks-engine-carousel-select', select );
+            // Only a captured horizontal cycle opts into swipe navigation.
+            // Vertical movement continues to scroll the surrounding page.
+            let touch = null;
+            const touchStart = ( event ) => {
+                const point = event.touches.length === 1 ? event.touches[ 0 ] : null;
+                touch = point ? { x: point.clientX, y: point.clientY } : null;
+            };
+            const touchEnd = withScope( ( event ) => {
+                const point = event.changedTouches[ 0 ];
+                if ( ! touch || ! point ) return;
+                const horizontal = point.clientX - touch.x;
+                const vertical = point.clientY - touch.y;
+                touch = null;
+                if ( Math.abs( horizontal ) < 40 || Math.abs( horizontal ) <= Math.abs( vertical ) ) return;
+                event.preventDefault();
+                show( context.index + ( horizontal < 0 ? 1 : -1 ) );
+            } );
+            if ( context.swipe ) {
+                root.addEventListener( 'touchstart', touchStart, { passive: true } );
+                root.addEventListener( 'touchend', touchEnd, { passive: false } );
+            }
             if ( 'slideshow' === context.presentation && context.playing ) startAutoplay( root, context );
-            return () => { root.removeEventListener( 'blocks-engine-carousel-select', select ); stopAutoplay( root ); };
+            return () => {
+                root.removeEventListener( 'blocks-engine-carousel-select', select );
+                root.removeEventListener( 'touchstart', touchStart );
+                root.removeEventListener( 'touchend', touchEnd );
+                stopAutoplay( root );
+            };
         },
     },
     actions: {
@@ -598,7 +625,7 @@ JS;
         $styleAttribute = array() === $styleDeclarations ? '' : ' style="' . implode(';', $styleDeclarations) . '"';
 
         $context = htmlspecialchars(
-            (string) json_encode(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false, 'playing' => 0 < $autoplayInterval), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            (string) json_encode(array_merge(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false, 'playing' => 0 < $autoplayInterval), !empty($attributes['swipe']) ? array('swipe' => true) : array()), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
             ENT_QUOTES | ENT_SUBSTITUTE,
             'UTF-8'
         );
@@ -826,6 +853,7 @@ JS;
                 continue;
             }
             $metadataIdentity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
+                $this->capturedControlDirection($candidate),
                 SourceDom::attr($candidate, 'aria-label'),
                 SourceDom::attr($candidate, 'title'),
                 SourceDom::attr($candidate, 'class'),
@@ -843,6 +871,8 @@ JS;
             $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
         [$list, $items] = $this->richestCarouselList($element);
+        $capturedTrack = $list instanceof DOMElement && $list->hasAttribute(CaptureEvidence::GALLERY_STAGE)
+            && $list->hasAttribute(CaptureEvidence::GALLERY_TRACK) && $list->hasAttribute(CaptureEvidence::GALLERY_INITIAL);
         $localList = $list;
         // Let the smallest complete carousel own its list and controls. An
         // enclosing gallery section still converts its heading and other copy.
@@ -897,7 +927,7 @@ JS;
         // slide selector, so it is pagination even when the builder ships no
         // labelled previous/next control.
         $pagerItems = $list instanceof DOMElement ? $this->thumbnailPagerItems($element, $list) : array();
-        if ( (! $hasPrevious && ! $hasNext && $paginationCount < 2 && count($pagerItems) < 2) || ! $list instanceof DOMElement || count($items) < 2 ) {
+        if ( (! $capturedTrack && ! $hasPrevious && ! $hasNext && $paginationCount < 2 && count($pagerItems) < 2) || ! $list instanceof DOMElement || count($items) < 2 ) {
             return null;
         }
 
@@ -1099,7 +1129,8 @@ JS;
             'previousControlPresentation' => $sourceControls['previous'] instanceof DOMElement ? $this->resolvedControlPresentation($sourceControls['previous'], $styleResolver) : array(),
             'nextControlPresentation' => $sourceControls['next'] instanceof DOMElement ? $this->resolvedControlPresentation($sourceControls['next'], $styleResolver) : array(),
             'itemsPerView' => 'slideshow' === $presentation ? 1 : min(4, count($slides)),
-            'wrap' => $hasPrevious && $hasNext,
+            'wrap' => $capturedTrack || ($hasPrevious && $hasNext),
+            'swipe' => $capturedTrack,
             'presentation' => $presentation,
             'slideCount' => count($slides),
             'initialSlide' => $initialSlide,
@@ -1123,6 +1154,7 @@ JS;
             'playControlPosition' => $playbackPlacement['position'],
             'playControlInset' => $playbackPlacement['inset'],
         );
+        if (!$capturedTrack) unset($attributes['swipe']);
         $shell = $this->shell($attributes);
         $innerContent = array($shell['opening']);
         foreach ( $slides as $_ ) {
@@ -1177,7 +1209,7 @@ JS;
             if (!$candidate instanceof DOMElement || !$this->sourceElementClassifier->isCarouselControl($candidate, $root)) {
                 continue;
             }
-            $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'title'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
+            $identity = $this->navigationControlIdentity($candidate);
             if (preg_match('/(?:^|[^a-z])(?:previous|prev)(?:[^a-z]|$)/', $identity) || preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity)) {
                 $controls[] = $candidate;
             }
@@ -1193,7 +1225,7 @@ JS;
             if (!$candidate instanceof DOMElement || !$this->sourceElementClassifier->isCarouselControl($candidate, $root)) {
                 continue;
             }
-            $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'title'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
+            $identity = $this->navigationControlIdentity($candidate);
             if (preg_match('/(?:^|[^a-z])(?:previous|prev)(?:[^a-z]|$)/', $identity)) {
                 $previous[] = $candidate;
             } elseif (preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity)) {
@@ -1216,7 +1248,7 @@ JS;
                     if (!$this->containsNode($container, $sourceControl)) {
                         continue;
                     }
-                    $sourceIdentity = strtolower(implode(' ', array(SourceDom::attr($sourceControl, 'aria-label'), SourceDom::attr($sourceControl, 'title'), SourceDom::attr($sourceControl, 'class'), trim((string) $sourceControl->textContent))));
+                    $sourceIdentity = $this->navigationControlIdentity($sourceControl);
                     $mappedControls[spl_object_id($sourceControl)] = array('element' => $sourceControl, 'next' => 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $sourceIdentity));
                 }
                 $groups[$key] = array(
@@ -1588,11 +1620,26 @@ JS;
             if (!$candidate instanceof DOMElement || !$this->sourceElementClassifier->isCarouselControl($candidate, $element)) {
                 continue;
             }
-            $identity = strtolower(implode(' ', array(SourceDom::attr($candidate, 'aria-label'), SourceDom::attr($candidate, 'title'), SourceDom::attr($candidate, 'class'), trim((string) $candidate->textContent))));
+            $identity = $this->navigationControlIdentity($candidate);
             $previous = $previous || 1 === preg_match('/(?:^|[^a-z])(?:previous|prev)(?:[^a-z]|$)/', $identity);
             $next = $next || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
         return $previous && $next;
+    }
+
+    /** Observed direction is sufficient for an otherwise unnamed icon control. */
+    private function capturedControlDirection(DOMElement $control): string
+    {
+        return match (trim($control->getAttribute(CaptureEvidence::GALLERY_DIRECTION))) {
+            '-1' => 'previous',
+            '1' => 'next',
+            default => '',
+        };
+    }
+
+    private function navigationControlIdentity(DOMElement $control): string
+    {
+        return strtolower(implode(' ', array($this->capturedControlDirection($control), SourceDom::attr($control, 'aria-label'), SourceDom::attr($control, 'title'), SourceDom::attr($control, 'class'), trim((string) $control->textContent))));
     }
 
     private function sourceControlVisual(DOMElement $control): string
