@@ -1577,13 +1577,91 @@ final class StyleResolver implements ElementPresentationResolver
         array $forcedDeclarations = array(),
         bool $carrierOwnsInlineGeometry = false
     ): string {
-        return $this->inlineGeometry()->className(
+        $carrier = $this->inlineGeometry()->className(
             $element,
             $excludedProperties,
             $forcedProperties,
             $forcedDeclarations,
             $carrierOwnsInlineGeometry
         );
+
+        return SourceDom::mergeClassNames(
+            $carrier,
+            $this->conditionalInlinePositioningClassName($element, $excludedProperties, $forcedProperties)
+        );
+    }
+
+    /**
+     * A media-owned containing block proves inline absolute placement only in
+     * that condition. Keep those source conditions with the child's offsets;
+     * never turn a reference-width observation into an unconditional layer.
+     *
+     * @param array<int, string> $excludedProperties
+     * @param array<int, string> $forcedProperties
+     */
+    private function conditionalInlinePositioningClassName(DOMElement $element, array $excludedProperties, array $forcedProperties): string
+    {
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        if ('absolute' !== CssValueInspector::comparable((string) ($inline['position'] ?? ''))
+            || in_array('position', array_merge($excludedProperties, $forcedProperties), true)
+            || $this->inlineGeometry()->inlineDeclaresPositioning($element, $inline)
+        ) return '';
+        if (!CssValueInspector::isImportant((string) $inline['position'])) {
+            foreach ($this->declarationSequence($element, 'position') as $entry) {
+                if ($entry['important'] && 'absolute' !== CssValueInspector::comparable($entry['value'])) return '';
+            }
+        }
+
+        $placement = array();
+        foreach (array('position', 'top', 'right', 'bottom', 'left', 'inset', 'z-index') as $property) {
+            if (in_array($property, $excludedProperties, true)) continue;
+            $value = $this->carriedDeclarationValue((string) ($inline[$property] ?? ''));
+            if ('' !== $value) $placement[$property] = $value;
+        }
+        $fact = static fn (array $entry): array => array(
+            'important' => $entry['important'], 'inline' => false, 'layer' => $entry['layerRank'],
+            'specificity' => $entry['specificity'], 'order' => $entry['order'],
+        );
+        for ($parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode) {
+            if (in_array(strtolower($parent->tagName), array('body', 'html'), true)) break;
+            // Inline ancestor positioning already owns its cascade. Do not
+            // infer a replacement winner from stylesheet conditions alone.
+            if (isset($this->cssDeclarations(SourceDom::attr($parent, 'style'))['position'])) continue;
+            $base = null;
+            $conditional = array();
+            foreach ($this->declarationSequence($parent, 'position') as $entry) {
+                if (array() === $entry['queries']) {
+                    if (null === $base || CssCascade::wins($fact($entry), $fact($base))) $base = $entry;
+                    continue;
+                }
+                $key = serialize($entry['queries']);
+                if (!isset($conditional[$key]) || CssCascade::wins($fact($entry), $fact($conditional[$key]))) $conditional[$key] = $entry;
+            }
+            $conditional = array_values(array_filter($conditional, static fn (array $entry): bool => null === $base || CssCascade::wins($fact($entry), $fact($base))));
+            $positioned = array_filter($conditional, static fn (array $entry): bool => in_array(CssValueInspector::comparable($entry['value']), array('relative', 'absolute', 'fixed', 'sticky'), true));
+            if (array() === $positioned) continue;
+            // Same generated selector for every condition: replay cascade
+            // losers first so overlapping conditions retain the source winner.
+            usort($conditional, static function (array $left, array $right) use ($fact): int {
+                $leftWins = CssCascade::wins($fact($left), $fact($right));
+                $rightWins = CssCascade::wins($fact($right), $fact($left));
+                return $leftWins === $rightWins ? $left['order'] <=> $right['order'] : ($leftWins ? 1 : -1);
+            });
+            $className = 'blocks-engine-conditional-inline-position-' . substr(hash('sha256', $this->geometryStructuralPath($element) . serialize($placement) . serialize($conditional)), 0, 12);
+            $rules = array();
+            foreach ($conditional as $entry) {
+                $isPositioned = in_array(CssValueInspector::comparable($entry['value']), array('relative', 'absolute', 'fixed', 'sticky'), true);
+                $declarations = $isPositioned ? $placement : array('position' => 'static', 'inset' => 'auto');
+                $body = array();
+                foreach ($declarations as $property => $value) $body[] = $property . ':' . $value . ' !important';
+                $rule = '.' . $className . '{' . implode(';', $body) . '}';
+                foreach (array_reverse($entry['queries']) as $query) $rule = $query . '{' . $rule . '}';
+                $rules[] = $rule;
+            }
+            $this->context->layoutGeometry()->registerRule($className, implode("\n", $rules));
+            return $className;
+        }
+        return '';
     }
 
     /**
