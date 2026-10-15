@@ -173,8 +173,10 @@ replay by case:
   carrier rule now reads `.wp-block-image.<carrier>>img,.wp-block-image.<carrier>>a>img`
   instead of `.<carrier>>img`, so it outranks the author image bridge and
   reaches a linked image, and it states the source's reference-viewport
-  `vertical-align`. Carrier classes are unchanged; the engine-support CSS and
-  its derived asset hashes change in `366a6664`, `736bb581` and `90234027`.
+  `vertical-align`, and restores `display:block` under each media condition
+  that makes the source parent a flex or grid container. Carrier classes are
+  unchanged; the engine-support CSS and its derived asset hashes change in
+  `366a6664`, `736bb581` and `90234027`.
 
 When regenerating from the pre-move commit, re-record these cases from the
 checkout that introduced them, and only after checking the difference again.

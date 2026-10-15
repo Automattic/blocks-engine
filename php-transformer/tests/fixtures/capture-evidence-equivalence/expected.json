@@ -1217,7 +1217,7 @@
         {
             "id": "90234027dbc4e72421081dd41f5331c2fe37e456",
             "entry": "HtmlTransformer::transform",
-            "expected_sha256": "a7531219404e8474bc9b07c27c00d1b87af184aefb40065c2469957db4b66ba5",
+            "expected_sha256": "044e82a93b3e355159b4f97077068ab7f3371bd6b9585fe982b13deeebcb5c91",
             "outcome": "output"
         },
         {

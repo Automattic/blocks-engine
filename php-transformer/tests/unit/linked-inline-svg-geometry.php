@@ -16,11 +16,13 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 //   (0,1,3)) must not outrank it;
 // - an author `img,svg{vertical-align:middle}` centers the icon on the line,
 //   and core/image's `vertical-align:bottom` must not replace it.
+// - under a media condition that makes the parent a flex/grid container,
+//   the SVG is a blockified flex item, so the inline display must yield.
 // A browser otherwise gives the linked badge a block image inside an
 // inline-block anchor, and the row grows by the line's descent (28px -> 35px).
 $svg = '<svg width="145" height="26" viewBox="0 0 145 26" fill="none"><path d="M0 0h145v26H0z" fill="#000"></path></svg>';
 
-/** @return array{figure: string, css: string} */
+/** @return array{class: string, css: string} */
 $compile = static function (string $styles, string $body): array {
     $source = $styles . '<main><p>Body</p></main><footer>' . $body . '</footer>';
     $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $source)))->toArray();
@@ -28,9 +30,14 @@ $compile = static function (string $styles, string $body): array {
     if ( ! preg_match('/<figure class="[^"]*(be-inline-geometry-[a-f0-9]+)[^"]*">/', $output, $figure) ) {
         throw new RuntimeException("Fixture must lower the inline SVG to a core/image with an inline geometry carrier.\n");
     }
-    preg_match_all('/[^{}]*' . preg_quote($figure[1], '/') . '[^{}]*\{[^}]*\}/', $output, $rules);
+    $css = '';
+    foreach ( $compiled['assets'] ?? array() as $asset ) {
+        if ( 'engine-support' === ( $asset['source'] ?? '' ) ) {
+            $css .= (string) ( $asset['content'] ?? '' );
+        }
+    }
 
-    return array( 'class' => $figure[1], 'css' => implode("\n", array_unique(array_map('trim', $rules[0]))) );
+    return array( 'class' => $figure[1], 'css' => $css );
 };
 
 $assertions = 0;
@@ -80,6 +87,22 @@ $assert(
     str_contains($unsafe['css'], '{display:inline;vertical-align:baseline'),
     'an unresolvable vertical-align falls back to baseline',
     $unsafe['css']
+);
+
+// Under a condition that makes the source parent a flex container, the SVG
+// is blockified into a flex item with no line box, so the carrier yields its
+// inline display there (row 26px, not 28px).
+$conditional = $compile('<style>img,svg{vertical-align:middle}.badge{display:flex}.logo{display:block}@media (max-width:600px){.logo{display:flex}}</style>', '<a class="badge" href="https://example.com/"><span class="logo">' . $svg . '</span></a>');
+$carrier = preg_quote($conditional['class'], '/');
+$assert(
+    1 === preg_match('/@media \(max-width:600px\)\{\.wp-block-image\.' . $carrier . '>img,\.wp-block-image\.' . $carrier . '>a>img\{display:block\}\}/', $conditional['css']),
+    'a media-conditioned flex parent blockifies the image under that condition',
+    $conditional['css']
+);
+$assert(
+    1 === preg_match('/\.wp-block-image\.' . $carrier . '>a>img\{display:inline;vertical-align:middle\}/', $conditional['css']),
+    'outside the condition the image keeps its inline geometry',
+    $conditional['css']
 );
 
 echo "Linked inline SVG geometry passed: {$assertions} assertions\n";
