@@ -151,7 +151,7 @@ final class AuthorStylesheetProjector
         $svgImageRule = '' === $svgImagePrelude
             ? ''
             : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
-        $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context);
+        $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context) . $this->separatorBorderRule($prelude, $declarations, $context);
         $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
@@ -425,6 +425,46 @@ final class AuthorStylesheetProjector
             $cursor = $offset + 1;
         }
         return $relaxed . substr($selector, $cursor);
+    }
+
+    /**
+     * Core restyles every lowered `<hr>` with a class rule
+     * (`.wp-block-separator{border:none;border-top:2px solid}`) that outranks an
+     * author `hr` type rule. Re-emit the borders of each author rule reaching a
+     * source `hr`, scoped to the separator and raised by one uniform class
+     * shim, so they beat Core's default while keeping their own cascade order.
+     * Elements other than separators keep the unshimmed rule.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function separatorBorderRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $borders = array_filter($declarations, static fn (string $name): bool => 1 === preg_match('/^border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-(?:width|style|color))?$/', $name), ARRAY_FILTER_USE_KEY);
+        $selectors = array() === $borders ? null : CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return '';
+        }
+        $reaching = array();
+        foreach ( $selectors as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector(trim($selector));
+            if ( ! ($parsed['supported'] ?? false) ) {
+                continue;
+            }
+            foreach ( $this->matchingSourceElements(trim($selector), $parsed, $context) as $element ) {
+                if ( 'hr' === strtolower($element->tagName) ) {
+                    $reaching[] = trim($selector);
+                    break;
+                }
+            }
+        }
+        $projected = array() === $reaching ? null : CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude(implode(',', $reaching), $context));
+        if ( null === $projected ) {
+            return '';
+        }
+        $scope = ':where(.wp-block-separator):not(.' . $context->authorStyles->classSpecificityShim() . ')';
+
+        return implode(',', array_map(static fn (string $selector): string => trim($selector) . $scope, $projected))
+            . '{' . $this->styleResolver->cssDeclarationString($borders) . '}';
     }
 
     private function marginSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
@@ -2305,7 +2345,7 @@ final class AuthorStylesheetProjector
         }
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
             $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->mediaTextPresentationStyle($parent));
-            if ( in_array(strtolower(trim((string) ($declarations['display'] ?? ''))), array( 'flex', 'grid' ), true)
+            if ( in_array(CssValueInspector::comparable((string) ($declarations['display'] ?? '')), array( 'flex', 'grid' ), true)
                 && $this->hasMediaTextBranches($parent, $element) ) {
                 return true;
             }

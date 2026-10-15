@@ -11,7 +11,7 @@ final class CssValueInspector
 {
     public static function comparable(string $value): string
     {
-        return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value));
+        return strtolower(self::withoutImportant($value));
     }
 
     /**
