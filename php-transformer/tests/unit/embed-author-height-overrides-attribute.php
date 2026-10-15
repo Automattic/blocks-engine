@@ -37,6 +37,11 @@ $ratio = $embed('<style>.frame{width:100%;height:auto;aspect-ratio:16/9}</style>
 $assert('' === $ratio['wrapper'], 'an author height:auto overrides the height attribute; no fixed wrapper height (got "' . $ratio['wrapper'] . '")');
 $assert(str_contains($ratio['figure'], 'wp-embed-aspect-16-9 wp-has-aspect-ratio'), 'the author aspect-ratio still selects the 16:9 preset');
 
+// Responsive captures state the rule per device document, in `<style media>`,
+// alongside an unconditioned rule for the same frame.
+$mediaRatio = $embed('<style>iframe{border:0}</style><style media="(min-width:1401px)">.frame{width:100%;height:auto;aspect-ratio:16/9}</style><style media="(max-width:1400px)">.frame{width:100%;height:auto;aspect-ratio:16/9}</style><iframe class="frame" ' . $src . ' width="901" height="507"></iframe>');
+$assert('' === $mediaRatio['wrapper'] && str_contains($mediaRatio['figure'], 'wp-embed-aspect-16-9'), 'a media-scoped author height:auto overrides the attribute next to a resting rule (got "' . $mediaRatio['wrapper'] . '")');
+
 $ratioOnly = $embed('<style>.frame{width:100%;aspect-ratio:4/3}</style><iframe class="frame" ' . $src . '></iframe>');
 $assert(str_contains($ratioOnly['figure'], 'wp-embed-aspect-4-3 wp-has-aspect-ratio'), 'a class-authored aspect-ratio alone selects its preset');
 

@@ -606,10 +606,12 @@ JS;
      * `height:auto;aspect-ratio:16/9` renders at its ratio, so only the
      * ratio may size the embed; pinning the wrapper to the attribute both
      * freezes it at one viewport and drifts from the ratio's own rounding.
+     * The author value is the cascade winner at the reference viewport, so a
+     * height stated in a `<style media>` block or `@media` rule counts.
      */
     private function authorFixedIframeHeight(DOMElement $iframe, StyleResolver $styleResolver): ?float
     {
-        $authored = $styleResolver->authoredPresentationDeclarations($iframe)['height'] ?? null;
+        $authored = $styleResolver->referenceViewportAuthorDeclarations($iframe, array( 'height' ))['height'] ?? null;
         if ( null !== $authored ) {
             $authored = CssValueInspector::withoutImportant((string) $authored);
 
@@ -658,7 +660,7 @@ JS;
      */
     private function embedAspectRatioCssValue(DOMElement $iframe, StyleResolver $styleResolver): ?float
     {
-        $value = CssValueInspector::withoutImportant(trim((string) ($styleResolver->authoredPresentationDeclarations($iframe)['aspect-ratio'] ?? '')));
+        $value = CssValueInspector::withoutImportant(trim((string) ($styleResolver->referenceViewportAuthorDeclarations($iframe, array( 'aspect-ratio' ))['aspect-ratio'] ?? '')));
         if ( '' === $value || 1 !== preg_match('/^(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?))?$/', $value, $matches) ) {
             return null;
         }
