@@ -236,7 +236,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         // boundary instead; the boundary joins the marker hash so two menus
         // that differ only in where they collapse keep separate rules.
         $collapseBoundary = $always ? '' : $this->sourceCollapseBoundary($navigation, $toggle);
-        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary )), 0, 12);
+        $absentAbove = $always ? '' : $this->sourceAbsentAboveBoundary($navigation, $toggle);
+        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary ) . ( '' === $absentAbove ? '' : ';absent:' . $absentAbove )), 0, 12);
         $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.' . $marker;
         $hostRule = $host . '{' . implode(';', $this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement)) . '}';
         $openRule = $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $openDeclarations) . '}';
@@ -272,13 +273,22 @@ final class ProjectedNavigationConverter implements ElementConverter
                 $extraRules .= $this->nativeNavigationBoundPanelCss($host, $navigation);
             }
         }
+        // A mobile-only drawer opens in place under its header, like the
+        // captured panel of an always-overlay control. It can open only where
+        // its button shows, so the rules stay inside the collapsed range.
+        $drawerRules = '' === $absentAbove || $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle)
+            ? ''
+            : $this->nativeNavigationBoundPanelCss($host, $navigation);
         if ( $always ) {
             $rule = $hostRule . $openRule . $extraRules;
         } elseif ( '' === $collapseBoundary ) {
-            $rule = '@media(max-width:' . ( self::CORE_OVERLAY_BREAKPOINT - 1 ) . 'px){' . $hostRule . $openRule . '}';
+            $rule = '@media(max-width:' . ( self::CORE_OVERLAY_BREAKPOINT - 1 ) . 'px){' . $hostRule . $openRule . $drawerRules . '}';
         } else {
-            $rule = '@media(max-width:' . $collapseBoundary . '){' . $hostRule . $openRule . '}'
+            $rule = '@media(max-width:' . $collapseBoundary . '){' . $hostRule . $openRule . $drawerRules . '}'
                 . $this->sourceBoundaryOverlayCss($host, $collapseBoundary);
+        }
+        if ( '' !== $absentAbove ) {
+            $rule .= '@media(min-width:' . $absentAbove . '){' . $host . '{display:none!important}}';
         }
         $this->session->generatedSupportStylesheetState()->registerNativeNavigationToggle($marker, $rule);
         return $marker;
@@ -440,6 +450,30 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return rtrim(rtrim(number_format($boundary, 3, '.', ''), '0'), '.') . 'px';
+    }
+
+    /**
+     * The smallest width (`768px`) from which the source shows neither this
+     * menu nor its toggle, or '' when it shows one of them at the reference
+     * viewport or states no boundary.
+     *
+     * A mobile-only drawer (`md:hidden` toggle opening a panel that is closed
+     * at rest) has no presence on wide screens, where a separate desktop menu
+     * takes over. Core would lay the drawer's links out inline there, so the
+     * host is hidden above the source boundary instead.
+     */
+    private function sourceAbsentAboveBoundary(DOMElement $navigation, DOMElement $toggle): string
+    {
+        if ( ! $this->navigationToggleSuppressor->isHiddenAtDefaultViewport($toggle)
+            || ! $this->navigationToggleSuppressor->isHiddenAtDefaultViewport($navigation) ) {
+            return '';
+        }
+        $boundary = $this->navigationToggleSuppressor->sourceCollapseBreakpoint($navigation, $toggle);
+        if ( null === $boundary ) {
+            return '';
+        }
+
+        return rtrim(rtrim(number_format($boundary + 1.0, 3, '.', ''), '0'), '.') . 'px';
     }
 
     /**

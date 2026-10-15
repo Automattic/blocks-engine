@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
 
@@ -18,12 +19,187 @@ final class CapturedChoiceGroupProjector
     private const MAX_STATES = 32;
     private const MAX_STATE_BYTES = 65536;
     private const MAX_GROUP_BYTES = 262144;
+    private const MAX_RUNTIME_BYTES = 2097152;
+    private const RUNTIME_CONFIG_START = '(function(){var configs=';
+    private const RUNTIME_CONFIG_END = ';function configFor(';
+    private const RUNTIME_EMPTY_CONFIG = '[]';
 
     /**
      * @param array<int, array<string, mixed>> $files
      * @return array{files:array<int, array<string, mixed>>, diagnostics:array<int, array<string, mixed>>, projected_count:int}
      */
     public function project(array $files): array
+    {
+        $inline = $this->projectInline($files);
+        $report = $this->projectReport($inline['files']);
+
+        return array(
+            'files' => $report['files'],
+            'diagnostics' => array_merge($inline['diagnostics'], $report['diagnostics']),
+            'projected_count' => $inline['projected_count'] + $report['projected_count'],
+        );
+    }
+
+    /**
+     * Projects the producer's inline contract: a group marked with
+     * CHOICE_GROUP, its choices marked with CHOICE_INDEX, and one recognized
+     * CHOICE_RUNTIME script whose `configs[key].transitions[index]` holds the
+     * group's markup after selecting that choice. A page is rewritten only when
+     * every marked group projects; it then no longer needs the runtime.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array{files:array<int, array<string, mixed>>, diagnostics:array<int, array<string, mixed>>, projected_count:int}
+     */
+    private function projectInline(array $files): array
+    {
+        $diagnostics = array();
+        $projected = 0;
+        foreach ($files as $index => $file) {
+            $path = is_string($file['path'] ?? null) ? $file['path'] : '';
+            $content = $file['content'] ?? null;
+            if (! preg_match('/\.html?$/i', $path) || ! is_string($content) || ! str_contains($content, CaptureEvidence::CHOICE_RUNTIME)) {
+                continue;
+            }
+            $document = $this->loadDocument($content);
+            $count = null === $document ? 0 : $this->projectInlinePage($document, $path, $diagnostics);
+            $output = 0 < $count ? HtmlSerialization::documentHtml($document) : null;
+            if (is_string($output)) {
+                $files[$index]['content'] = $output;
+                $files[$index]['bytes'] = strlen($output);
+                $projected += $count;
+            }
+        }
+
+        return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
+    }
+
+    /** @param array<int, array<string, mixed>> $diagnostics */
+    private function projectInlinePage(DOMDocument $document, string $sourcePath, array &$diagnostics): int
+    {
+        $xpath = new \DOMXPath($document);
+        $scripts = iterator_to_array($xpath->query('//script[@' . CaptureEvidence::CHOICE_RUNTIME . ']') ?: array());
+        $configs = 1 === count($scripts) ? $this->inlineConfigs($scripts[0]) : null;
+        $roots = array();
+        foreach ($xpath->query('//*[@' . CaptureEvidence::CHOICE_GROUP . ']') ?: array() as $root) {
+            if ($root instanceof DOMElement) {
+                $roots[$root->getAttribute(CaptureEvidence::CHOICE_GROUP)][] = $root;
+            }
+        }
+        if (null === $configs || array() === $roots) {
+            $diagnostics[] = $this->diagnostic('captured_choice_group_invalid', 'warning', 'A captured choice group was omitted because its evidence shape is incomplete.', array('source_path' => $sourcePath));
+            return 0;
+        }
+        if (count($roots) > self::MAX_GROUPS_PER_PAGE) {
+            $diagnostics[] = $this->diagnostic('captured_choice_group_limit_exceeded', 'warning', 'A captured interaction page exceeded the choice-group limit.', array('source_path' => $sourcePath));
+            return 0;
+        }
+
+        $projected = 0;
+        foreach ($roots as $key => $regions) {
+            $config = ctype_digit((string) $key) ? ($configs[(int) $key] ?? null) : null;
+            $transitions = is_array($config) && is_array($config['transitions'] ?? null) ? $config['transitions'] : array();
+            $groups = $this->groupedGroups($this->inlineStates($regions[0], $transitions), $sourcePath, $diagnostics);
+            $count = 1 === count($groups) ? $this->projectGroup(reset($groups), $regions, $sourcePath, $diagnostics) : 0;
+            if (0 === $count) {
+                return 0;
+            }
+            $projected += $count;
+        }
+
+        $scripts[0]->parentNode?->removeChild($scripts[0]);
+        foreach (iterator_to_array($xpath->query('//*[@' . CaptureEvidence::CHOICE_GROUP . ' or @' . CaptureEvidence::CHOICE_INDEX . ']') ?: array()) as $element) {
+            if ($element instanceof DOMElement) {
+                $element->removeAttribute(CaptureEvidence::CHOICE_GROUP);
+                $element->removeAttribute(CaptureEvidence::CHOICE_INDEX);
+            }
+        }
+
+        return $projected;
+    }
+
+    /**
+     * Reads the config list from a choice runtime whose body, with an empty
+     * config list in its place, is the published runtime.
+     *
+     * @return array<int, mixed>|null
+     */
+    private function inlineConfigs(DOMElement $script): ?array
+    {
+        $body = trim($script->textContent ?? '');
+        $split = strrpos($body, self::RUNTIME_CONFIG_END);
+        if (strlen($body) > self::MAX_RUNTIME_BYTES || ! str_starts_with($body, self::RUNTIME_CONFIG_START) || false === $split
+            || CaptureEvidence::CHOICE_RUNTIME_SHA256 !== hash('sha256', self::RUNTIME_CONFIG_START . self::RUNTIME_EMPTY_CONFIG . substr($body, $split))) {
+            return null;
+        }
+        $configs = json_decode(substr($body, strlen(self::RUNTIME_CONFIG_START), $split - strlen(self::RUNTIME_CONFIG_START)), true);
+
+        return is_array($configs) && array_is_list($configs) ? $configs : null;
+    }
+
+    /**
+     * Restates one inline group as report-shaped choice-group states, so it is
+     * validated by the same bounds and sanitization as the report.
+     *
+     * @param array<mixed> $transitions
+     * @return array<int, array<string, mixed>>
+     */
+    private function inlineStates(DOMElement $root, array $transitions): array
+    {
+        $marked = array();
+        foreach ((new \DOMXPath($root->ownerDocument))->query('.//*[@' . CaptureEvidence::CHOICE_INDEX . ']', $root) ?: array() as $node) {
+            if ($node instanceof DOMElement) {
+                $marked[$node->getAttribute(CaptureEvidence::CHOICE_INDEX)] = $node;
+            }
+        }
+        ksort($marked);
+        $choices = array();
+        foreach ($marked as $index => $node) {
+            $choices[] = array(
+                'index' => ctype_digit((string) $index) ? (int) $index : -1,
+                'selector' => SourceDom::elementSelector($node),
+                'tag' => strtolower($node->tagName),
+                'id' => $node->getAttribute('id'),
+                'role' => $node->getAttribute('role'),
+                'label' => $node->hasAttribute('aria-label') ? $node->getAttribute('aria-label') : (string) preg_replace('/\s+/', ' ', $node->textContent),
+                'value' => $node->hasAttribute('value') ? $node->getAttribute('value') : null,
+            );
+        }
+        $group = array(
+            'selector' => SourceDom::elementSelector($root),
+            'tag' => $root->tagName,
+            'id' => $root->getAttribute('id'),
+            'label' => $root->getAttribute('aria-label'),
+        );
+        $states = array();
+        foreach ($transitions as $selectedIndex => $html) {
+            $states[] = array(
+                'status' => 'captured',
+                'kind' => self::KIND,
+                'choiceGroup' => array(
+                    'group' => $group,
+                    'choices' => $choices,
+                    'transition' => array(
+                        'selectedIndex' => ctype_digit((string) $selectedIndex) ? (int) $selectedIndex : -1,
+                        'selected' => array_fill(0, count($choices), null),
+                        'html' => is_string($html) ? $html : '',
+                        'htmlBytes' => is_string($html) ? strlen($html) : -1,
+                    ),
+                    // The producer inlines only replayable, verified, complete groups.
+                    'replay' => 'activation-determined',
+                    'restoration' => 'verified',
+                    'coverage' => 'complete',
+                ),
+            );
+        }
+
+        return $states;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array{files:array<int, array<string, mixed>>, diagnostics:array<int, array<string, mixed>>, projected_count:int}
+     */
+    private function projectReport(array $files): array
     {
         $report = $this->jsonFile($files, 'interaction-states.json');
         if (null === $report || CaptureEvidence::CAPTURED_INTERACTIONS_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
@@ -220,12 +396,8 @@ final class CapturedChoiceGroupProjector
     /** @param array<string, array<string, mixed>> $groups @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int} */
     private function projectPage(string $html, array $groups, string $sourcePath): array
     {
-        $previous = libxml_use_internal_errors(true);
-        $document = new DOMDocument('1.0', 'UTF-8');
-        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if (! $loaded) {
+        $document = $this->loadDocument($html);
+        if (null === $document) {
             return array('html' => $html, 'diagnostics' => array($this->diagnostic('captured_choice_group_source_invalid', 'warning', 'Captured choice groups were not projected because the source HTML could not be parsed.', array('source_path' => $sourcePath))), 'projected_count' => 0);
         }
 
@@ -241,41 +413,66 @@ final class CapturedChoiceGroupProjector
                 $diagnostics[] = $this->diagnostic('captured_choice_group_unmatched', 'warning', 'A captured choice-group selector did not match a source element.', array('source_path' => $sourcePath, 'selector' => $group['group']['selector'] ?? ''));
                 continue;
             }
-            $stateRoots = array();
-            $configStates = array();
-            foreach ($group['states'] as $state) {
-                $stateRoot = $this->fragmentRoot((string) ($state['html'] ?? ''));
-                if (! $stateRoot instanceof DOMElement) {
-                    continue 2;
-                }
-                $stateRoots[] = $stateRoot;
-                $configStates[] = array(
-                    'selectedIndex' => $state['selectedIndex'],
-                    'selected' => $state['selected'],
-                    'html' => $this->innerHtml($stateRoot),
-                );
-            }
-            $bindings = $this->stateBindings($stateRoots, $group['choices']);
-            if (null === $bindings) {
-                $diagnostics[] = $this->diagnostic('captured_choice_group_state_invalid', 'warning', 'A captured choice group was omitted because a replay state did not contain its ordered choice controls.', array('source_path' => $sourcePath, 'selector' => $group['group']['selector'] ?? ''));
-                continue;
-            }
-            foreach ($configStates as $index => &$state) $state['bindings'] = $bindings[$index];
-            unset($state);
-            $config = array(
-                'group' => $group['group'],
-                'choices' => $group['choices'],
-                'states' => $configStates,
-            );
-            $encoded = json_encode($config, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
-            foreach ($regions['elements'] as $region) {
-                $this->markRegion($region, $encoded);
-                ++$projected;
-            }
+            $projected += $this->projectGroup($group, $regions['elements'], $sourcePath, $diagnostics);
         }
 
         $output = HtmlSerialization::documentHtml($document);
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
+    }
+
+    private function loadDocument(string $html): ?DOMDocument
+    {
+        $previous = libxml_use_internal_errors(true);
+        $document = new DOMDocument('1.0', 'UTF-8');
+        $loaded = $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        return $loaded ? $document : null;
+    }
+
+    /**
+     * Marks each region with the group's replay config; returns the number of
+     * marked regions (0 when the states do not bind to the ordered choices).
+     *
+     * @param array<string, mixed> $group
+     * @param array<int, DOMElement> $regions
+     * @param array<int, array<string, mixed>> $diagnostics
+     */
+    private function projectGroup(array $group, array $regions, string $sourcePath, array &$diagnostics): int
+    {
+        $stateRoots = array();
+        $configStates = array();
+        foreach ($group['states'] as $state) {
+            $stateRoot = $this->fragmentRoot((string) ($state['html'] ?? ''));
+            if (! $stateRoot instanceof DOMElement) {
+                return 0;
+            }
+            $stateRoots[] = $stateRoot;
+            $configStates[] = array(
+                'selectedIndex' => $state['selectedIndex'],
+                'selected' => $state['selected'],
+                'html' => $this->innerHtml($stateRoot),
+            );
+        }
+        $bindings = $this->stateBindings($stateRoots, $group['choices']);
+        if (null === $bindings) {
+            $diagnostics[] = $this->diagnostic('captured_choice_group_state_invalid', 'warning', 'A captured choice group was omitted because a replay state did not contain its ordered choice controls.', array('source_path' => $sourcePath, 'selector' => $group['group']['selector'] ?? ''));
+            return 0;
+        }
+        foreach ($configStates as $index => &$state) $state['bindings'] = $bindings[$index];
+        unset($state);
+        $config = array(
+            'group' => $group['group'],
+            'choices' => $group['choices'],
+            'states' => $configStates,
+        );
+        $encoded = json_encode($config, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+        foreach ($regions as $region) {
+            $this->markRegion($region, $encoded);
+        }
+
+        return count($regions);
     }
 
     private function markRegion(DOMElement $region, string $config): void
@@ -522,7 +719,7 @@ final class CapturedChoiceGroupProjector
             foreach (iterator_to_array($element->attributes) as $attribute) {
                 $name = strtolower($attribute->name);
                 $value = trim($attribute->value);
-                if (str_starts_with($name, 'on') || 'srcdoc' === $name || CaptureEvidence::CHOICE_INDEX === $name || (in_array($name, array('href', 'src'), true) && preg_match('/^\s*(?:javascript|data\s*:\s*text\/html)/i', $value))) {
+                if (str_starts_with($name, 'on') || 'srcdoc' === $name || in_array($name, array(CaptureEvidence::CHOICE_GROUP, CaptureEvidence::CHOICE_INDEX), true) || (in_array($name, array('href', 'src'), true) && preg_match('/^\s*(?:javascript|data\s*:\s*text\/html)/i', $value))) {
                     $element->removeAttribute($attribute->name);
                 }
             }

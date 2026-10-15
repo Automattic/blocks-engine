@@ -79,6 +79,11 @@ replay by case:
   positions itself. Only the emitted `style.css` text and the hashes derived
   from it change again in the twelve native dialog cases above (`7a7af898`
   also gains one style-rule candidate cache hit from the position lookup).
+- **Declared dialog closers** (#2823). The captured-dialog block gains a
+  `closerIds` attribute, saved as `data-blocks-engine-closers`, and its view
+  script closes from those bound controls. Only the block definition (the
+  attribute schema, `index.js` and `view.js` text) and the companion plugin
+  artifact hash derived from it change in the twelve native dialog cases above.
 - **Shell frame in the template.** A page whose shared header and footer sit
   inside a layout frame keeps only the blocks between them; the frame and the
   template-part references move to its route template around post-content.
@@ -177,6 +182,13 @@ replay by case:
   fall, because the walk no longer probes the source-style candidate cache.
   This changes the digests of `90234027`, `d21657bb` and `f0e1a42c`.
 
+- **Reference-viewport menu visibility** (#2667). Navigation toggle and
+  menu visibility is read through the resolved cascade, media-conditional
+  rules included, and a captured dialog trigger opens an `always` overlay
+  only when it is visible at the reference viewport. The emitted output is
+  unchanged for every corpus case; only the selector-match and style-rule candidate cache counters move in
+  `31dfd889`, `448ead36`, `90234027`, `a5a08a86`, `b550beb0`, `c7fff215`,
+  `f025cf28` and `fe07751f`.
 - **Text-run paragraph carriers** (#2803). A paragraph synthesized for a
   source text run carries `blocks-engine-synthetic-paragraph`, so the page
   gains the engine-support stylesheet holding that carrier's zero-specificity

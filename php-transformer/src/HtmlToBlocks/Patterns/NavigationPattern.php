@@ -481,11 +481,27 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function overlayMenu(DOMElement $element, ?NavigationPatternContext $context): string
     {
-        if ( $this->isInsideCapturedDisclosurePanel($element) || $this->isMenuPanelContent($element) ) {
+        if ( $this->isInsideCapturedDisclosurePanel($element) || $this->isMenuPanelContent($element) || $this->isInsideCapturedDialog($element) ) {
             return 'never';
         }
 
         return $context?->overlayMenu($element) ?? 'never';
+    }
+
+    /**
+     * A projected native dialog (an adopted popover drawer, say) is already the
+     * open/close mechanism for everything it holds. Links inside it are its open
+     * content, so they never collapse behind a second, Core overlay hamburger.
+     */
+    private function isInsideCapturedDialog(DOMElement $element): bool
+    {
+        for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'true' === $ancestor->getAttribute('data-blocks-engine-captured-dialog') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** A native disclosure already supplies the only mobile open/close control. */
@@ -3377,7 +3393,10 @@ final class NavigationPattern implements PatternRecognizerInterface
      * own wrapper: `<div><button aria-controls="p">About</button><div id="p">
      * <div><a>Mission</a></div><div><a>Team</a></div></div></div>`. The
      * button's own declaration ties the panel to it, so no class vocabulary is
-     * needed to read the panel as the button's submenu.
+     * needed to read the panel as the button's submenu. A panel may also wrap
+     * one link list (`<div id="p" hidden><ul><li><a>Mission</a></li></ul></div>`);
+     * the list is then the submenu, so the panel closed on load stays closed
+     * behind its trigger instead of becoming a visible standalone menu.
      *
      * @return array{label:string, cluster:DOMElement, button:DOMElement}|null
      */
@@ -3402,7 +3421,15 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( '' === $controls || $controls !== trim($panel->getAttribute('id')) || '' === $label ) {
             return null;
         }
-        return $this->isWrappedLinkPanel($panel) ? array( 'label' => $label, 'cluster' => $panel, 'button' => $button ) : null;
+        if ( $this->isWrappedLinkPanel($panel) ) {
+            return array( 'label' => $label, 'cluster' => $panel, 'button' => $button );
+        }
+        $list = 'div' === strtolower($panel->tagName) ? $this->soleMeaningfulChild($panel) : null;
+        if ( $list instanceof DOMElement && in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true) && $this->isWrappedLinkPanel($list) ) {
+            return array( 'label' => $label, 'cluster' => $list, 'button' => $button );
+        }
+
+        return null;
     }
 
     /**
