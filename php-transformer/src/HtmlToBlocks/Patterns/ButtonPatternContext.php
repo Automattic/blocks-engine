@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization;
@@ -211,7 +212,7 @@ final class ButtonPatternContext
 
         $inline = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
 
-        return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', (string) ($inline['display'] ?? $display)) ?? ''));
+        return CssValueInspector::comparable((string) ($inline['display'] ?? $display));
     }
 
     private function safeFileUrl(string $url): string
