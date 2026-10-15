@@ -383,8 +383,17 @@ final class NavigationToggleSuppressor
 
     private function sourceElementIsHidden(DOMElement $element): bool
     {
-        if ( $this->context->sourceElementStartsHidden($element)
-            || $element->hasAttribute('hidden')
+        return $this->context->sourceElementStartsHidden($element) || $this->sourceElementIsHiddenByMarkup($element);
+    }
+
+    /**
+     * Hiding that does not depend on the viewport: a `hidden` or
+     * `aria-hidden` state, a `data-visible="false"` flag, or a static
+     * `max-height:0` clip.
+     */
+    private function sourceElementIsHiddenByMarkup(DOMElement $element): bool
+    {
+        if ( $element->hasAttribute('hidden')
             || 'true' === strtolower(SourceDom::attr($element, 'aria-hidden'))
             || 'false' === strtolower(SourceDom::attr($element, 'data-visible')) ) {
             return true;
@@ -408,18 +417,7 @@ final class NavigationToggleSuppressor
      */
     private function targetHiddenAtReferenceViewport(DOMElement $target): bool
     {
-        if ( $target->hasAttribute('hidden')
-            || 'true' === strtolower(SourceDom::attr($target, 'aria-hidden'))
-            || 'false' === strtolower(SourceDom::attr($target, 'data-visible'))
-            || $this->context->sourceElementOrAncestorStartsHidden($target) ) {
-            return true;
-        }
-
-        $maxHeight = CssValueInspector::comparable(
-            (string) ($this->styleResolver->structuralPresentationDeclarations($target)['max-height'] ?? '')
-        );
-
-        return in_array($maxHeight, array( '0', '0px' ), true);
+        return $this->sourceElementIsHiddenByMarkup($target) || $this->context->sourceElementOrAncestorStartsHidden($target);
     }
 
     public function projectedNavigationTargetForControl(DOMElement $control): ?DOMElement
@@ -457,7 +455,7 @@ final class NavigationToggleSuppressor
      */
     public function isRedundantMenuToggleControl(DOMElement $element): bool
     {
-        if ( $this->isCapturedDialogControl($element) || $this->isBoundCapturedDialogTrigger($element) ) {
+        if ( $this->isCapturedDialogControl($element) || $this->isBoundCapturedDialogTrigger($element) || SourceDom::isBoundCapturedDialogCloser($element) ) {
             return false;
         }
 
@@ -1555,11 +1553,15 @@ final class NavigationToggleSuppressor
         if ( $this->context->navigationProjection()->foldForTrigger($control) instanceof CapturedMenuDialogFold ) {
             return 'mobile';
         }
-        if ( $control->hasAttribute(CaptureEvidence::DIALOG_TRIGGER) ) {
+        // A captured dialog trigger the source shows at the reference viewport
+        // opens its menu at every width. One the source hides there (a
+        // mobile-only hamburger beside a desktop menu) falls through to the
+        // responsive checks below.
+        if ( $control->hasAttribute(CaptureEvidence::DIALOG_TRIGGER) && ! $this->isHiddenAtDefaultViewport($control) ) {
             return 'always';
         }
         if ( ! NavigationPattern::ownsCapturedSubmenuTrigger($control)
-            && ( $control->hasAttribute(CaptureEvidence::DIALOG_TRIGGER) || 'dialog' === strtolower(trim(SourceDom::attr($control, 'aria-haspopup'))) )
+            && 'dialog' === strtolower(trim(SourceDom::attr($control, 'aria-haspopup')))
             && ! $this->isHiddenAtDefaultViewport($control)
             && ! $this->hasDefaultViewportVisibleNavigationTwin($control)
         ) {
@@ -1750,18 +1752,26 @@ final class NavigationToggleSuppressor
         return false;
     }
 
-    private function isHiddenAtDefaultViewport(DOMElement $element): bool
+    /**
+     * Whether the element is hidden at the desktop reference viewport.
+     *
+     * Display, visibility and opacity are read through the resolved cascade,
+     * media-conditional rules included, so a mobile-first `md:hidden` toggle
+     * reads hidden and a `hidden md:flex` menu reads visible. Reading only
+     * unconditional declarations inverted both.
+     */
+    public function isHiddenAtDefaultViewport(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( SourceDom::isDocumentVariantRoot($node) || in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
                 break;
             }
-            if ( $this->sourceElementIsHidden($node) ) {
+            if ( $this->sourceElementIsHiddenByMarkup($node) ) {
                 return true;
             }
         }
 
-        return false;
+        return $this->context->sourceElementOrAncestorStartsHidden($element);
     }
 
     private function isProjectableHashAnchorMenuToggle(DOMElement $element): bool

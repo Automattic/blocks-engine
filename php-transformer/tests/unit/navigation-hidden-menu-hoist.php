@@ -73,6 +73,31 @@ $capturedMenu = ( new HtmlTransformer() )->transform(
 $capturedMenuMarkup = (string) ($capturedMenu['serialized_blocks'] ?? '');
 $assertions[] = array(str_contains($capturedMenuMarkup, '"overlayMenu":"always"') && str_contains($capturedMenuMarkup, 'Social') && str_contains($capturedMenuMarkup, 'Contact') && !str_contains($capturedMenuMarkup, '/captured-dialog') && !str_contains($capturedMenuMarkup, '<!-- wp:button'), 'a capture-wired CSS-bar trigger owns its hidden overlay navigation at every width');
 $assertions[] = array(!str_contains($capturedMenuMarkup, '<!-- destination note -->') && !str_contains($capturedMenuMarkup, '&lt;!-- destination note'), 'navigation labels exclude HTML comments');
+// A capture-wired trigger keeps its source viewport: one visible at every
+// width opens an `always` overlay, while a mobile-first `md:hidden` trigger
+// beside a `hidden md:flex` desktop menu stays a mobile-only overlay whose
+// host leaves the layout from the source boundary up.
+$capturedTriggerOverlay = static function (string $toggleClass, string $desktopNav): array {
+    $result = ( new HtmlTransformer() )->transform(
+        '<html><head><style>.hidden{display:none}.toggle{display:inline-flex;width:40px;height:40px}@media (min-width:48rem){.md\\:flex{display:flex}.md\\:hidden{display:none}}</style></head><body>'
+        . '<header><a href="/">Northwind</a>' . $desktopNav
+        . '<button type="button" class="' . $toggleClass . '" aria-label="Open menu" aria-controls="drawer" aria-expanded="false" aria-haspopup="menu" data-blocks-engine-capture-dialog-trigger="drawer"><span></span><span></span><span></span></button>'
+        . '<nav id="drawer" aria-label="Mobile" class="md:hidden" hidden data-blocks-engine-capture-dialog-panel="drawer"><a href="/#services">Services</a><a href="/#contact">Contact</a><a href="tel:+15550100">Call</a></nav></header></body></html>'
+    )->toArray();
+    preg_match_all('/"overlayMenu":"(\w+)"/', (string) ($result['serialized_blocks'] ?? ''), $matches);
+    $css = implode("\n", array_map(
+        static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+        is_array($result['assets'] ?? null) ? $result['assets'] : array()
+    ));
+
+    return array( implode(',', $matches[1]), 1 === preg_match('/@media\(min-width:768px\)\{\.wp-block-navigation[^{}]*blocks-engine-native-navigation-toggle-[a-f0-9]{12}\{display:none!important\}\}/', $css) );
+};
+[ $alwaysOverlay, $alwaysHiddenAbove ] = $capturedTriggerOverlay('toggle', '');
+$assertions[] = array('always' === $alwaysOverlay && ! $alwaysHiddenAbove, 'a capture-wired trigger visible at every width opens an always overlay: ' . $alwaysOverlay);
+[ $mobileOnlyOverlay, $mobileOnlyHiddenAbove ] = $capturedTriggerOverlay('toggle md:hidden', '<nav aria-label="Main" class="hidden md:flex"><a href="/#services">Services</a><a href="/#contact">Contact</a></nav>');
+$assertions[] = array(str_contains($mobileOnlyOverlay, 'mobile') && ! str_contains($mobileOnlyOverlay, 'always'), 'a mobile-only capture-wired trigger beside a visible desktop menu keeps a mobile overlay: ' . $mobileOnlyOverlay);
+$assertions[] = array($mobileOnlyHiddenAbove, 'a mobile-only drawer leaves the layout from the source boundary up instead of laying its links out inline');
+
 $capturedFallback = ( new HtmlTransformer() )->transform(
     '<header><button id="menu-trigger" type="button" aria-label="Open menu" aria-controls="overlay" aria-haspopup="dialog"><span></span><span></span><span></span></button><div id="overlay" hidden></div></header>'
     . '<dialog data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="menu-trigger"><nav><a href="/social">Social</a><a href="mailto:hello@example.test">Contact</a></nav></dialog>'
