@@ -69,7 +69,7 @@ final class FormStepTrackDetector
 
         $cascade = null;
         foreach ( $nodes as $id => $node ) {
-            if ( 'container' !== $node['kind'] || 'form' === $id || ! in_array(strtolower(trim((string) ($node['layout']['display'] ?? ''))), array( 'flex', 'inline-flex' ), true) || count($children[$id] ?? array()) < 2 ) {
+            if ( 'container' !== $node['kind'] || 'form' === $id || ! in_array(CssValueInspector::comparable((string) ($node['layout']['display'] ?? '')), array( 'flex', 'inline-flex' ), true) || count($children[$id] ?? array()) < 2 ) {
                 continue;
             }
             $cascade ??= $this->cascade($elements, $stylesheets, $inlineCss);

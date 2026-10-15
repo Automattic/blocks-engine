@@ -962,7 +962,7 @@ JS;
             $active = 0;
             foreach ( $items as $item ) {
                 $active += str_contains(' ' . strtolower(SourceDom::attr($item, 'class')) . ' ', ' active ') ? 1 : 0;
-                $display = strtolower(trim((string) ($styleResolver->structuralPresentationDeclarations($item)['display'] ?? '')));
+                $display = CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations($item)['display'] ?? ''));
                 if ( 'none' === $display ) {
                     ++$hidden;
                 } elseif ( '' !== $display ) {
@@ -2007,7 +2007,7 @@ JS;
             return $block;
         }
         $declarations = $styleResolver->sourceGeometryPresentationDeclarations($sourceItem);
-        $display = strtolower(trim((string) ($declarations['display'] ?? '')));
+        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
         if (!in_array($display, array('flex', 'inline-flex'), true)) {
             return $block;
         }

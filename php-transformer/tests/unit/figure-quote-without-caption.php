@@ -18,9 +18,11 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 $withoutCaption = ( new HtmlTransformer() )->transform('<figure class="testimonial"><blockquote><p>Great service, would book again.</p></blockquote><div class="author">Jane Doe</div></figure>')->toArray();
-$quote = $withoutCaption['blocks'][0] ?? array();
-$assert('core/quote' === ($quote['blockName'] ?? null), 'A captionless figure with a blockquote and a sibling element converts to a quote.');
-$assert(str_contains((string) json_encode($quote), 'Great service, would book again.'), 'The quote keeps its text.');
+$card = $withoutCaption['blocks'][0] ?? array();
+$cardJson = (string) json_encode($card);
+$assert('core/group' === ($card['blockName'] ?? null) && str_contains($cardJson, '"blockName":"core\\/quote"'), 'A captionless figure with a blockquote and a sibling element keeps the quote inside a group.');
+$assert(str_contains($cardJson, 'Great service, would book again.'), 'The quote keeps its text.');
+$assert(str_contains($cardJson, 'Jane Doe'), 'The sibling element is not dropped.');
 
 $withCaption = ( new HtmlTransformer() )->transform('<figure><blockquote><p>Great service.</p></blockquote><div aria-hidden="true">Decor</div><figcaption>Jane Doe</figcaption></figure>')->toArray();
 $captioned = $withCaption['blocks'][0] ?? array();
