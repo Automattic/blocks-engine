@@ -1182,6 +1182,198 @@ final class ShellExtraction
     }
 
     /**
+     * Shared chrome is a cross-route fact: the blocks that repeat at the
+     * leading and trailing edges of many routes' content. Landmarks only name
+     * the region; they do not find it. This pass reads the edges of the pages
+     * the semantic passes left with chrome, so a header made of a top bar plus
+     * a banner, a header that compiled without its landmark, or a footer band
+     * that is not a `<footer>` still becomes one editable part.
+     *
+     * A page's edge descends through a sole wrapper (the app frame) to the
+     * level where content diverges. Each block is compared by its route-free
+     * identity (current-navigation state, ids and document tokens removed).
+     * Routes that open with the same blocks form a group; every group of two
+     * or more routes yields one part, kept at its authored position as an
+     * inline shared shell so the frame hoist can move it into the template.
+     * An edge never takes the main landmark, the page's last content block,
+     * an existing part reference, or a block a runtime binding anchors on.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<string,true> $reservedSlugs
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
+     */
+    public function edgeSharedShells(array $pages, array $parts, array $reservedSlugs, array $runtimeDeclarations): array
+    {
+        $diagnostics = array(); $newParts = array();
+        $applicable = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
+        if (count($applicable) < 2) return array('pages' => $pages, 'parts' => array(), 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => array());
+        $owned = array_fill_keys(array_column($parts, 'area'), true);
+        foreach (array('header', 'footer') as $area) {
+            if (isset($owned[$area])) continue;
+            $edges = array();
+            foreach ($applicable as $index => $page) {
+                $edge = $this->routeEdge((string) $page['canonical_block_markup'], $page, $area, $runtimeDeclarations);
+                if (array() !== $edge) $edges[$index] = $edge;
+            }
+            $groups = self::edgeGroups($edges, $pages);
+            if (array() === $groups) continue;
+            foreach ($groups as $rank => $group) {
+                $slug = 0 === $rank ? $area : $area . '-' . substr($group['identity'], 0, 12);
+                if (isset($reservedSlugs[$slug])) continue;
+                $reservedSlugs[$slug] = true;
+                $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"' . $area . '","tagName":"div"} /-->';
+                $representative = $group['indexes'][0];
+                $range = $group['ranges'][$representative];
+                $partMarkup = self::withoutCurrentNavigationState(substr((string) $pages[$representative]['canonical_block_markup'], $range['offset'], $range['length']));
+                // A runtime binding in the edge moves into the part when every
+                // route binds the same entities there, as for any shared shell.
+                $bindings = array();
+                foreach ($group['indexes'] as $index) {
+                    $found = $this->runtimeBindingsInRanges($runtimeDeclarations, $pages[$index], array($group['ranges'][$index]));
+                    if (array() !== $found['refs']) $bindings[$index] = $found['refs'];
+                }
+                $hoist = null;
+                if (array() !== $bindings) {
+                    $hoist = $this->sharedShellBindingHoist($runtimeDeclarations, $pages, $group['indexes'], $bindings, array('source_path' => $pages[$representative]['source_path'], 'template_part_markup' => $partMarkup), $area);
+                    if (null === $hoist) {
+                        $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "The repeated {$area} edge remains page-owned because its runtime entity bindings differ between routes.", 'area' => $area, 'source_path' => $pages[$representative]['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding'));
+                        unset($reservedSlugs[$slug]);
+                        continue;
+                    }
+                }
+                foreach ($group['indexes'] as $index) {
+                    $range = $group['ranges'][$index];
+                    $markup = (string) $pages[$index]['canonical_block_markup'];
+                    $markup = substr($markup, 0, $range['offset']) . $reference . substr($markup, $range['offset'] + $range['length']);
+                    $pages[$index]['canonical_block_markup'] = $markup;
+                    $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
+                }
+                $sourcePath = 'wordpress-site-plan/shared/' . $slug;
+                if (null !== $hoist) {
+                    $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $hoist, $sourcePath . '#' . $area);
+                    foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
+                    $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
+                }
+                $sources = array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $group['indexes']));
+                $title = 0 === $rank ? ucfirst($area) : ucfirst($area) . ' Variant ' . ($rank + 1);
+                $newParts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $slug, 'title' => $title, 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => $sources, 'variant' => $rank + 1), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'route_edge', array(), $group['identity']), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $slug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup));
+                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_edge_extracted', 'severity' => 'info', 'message' => "Extracted the {$area} blocks that open or close the same routes as one editable template part.", 'area' => $area, 'slug' => $slug, 'block_count' => $group['length'], 'page_count' => count($group['indexes']), 'source_paths' => $sources);
+            }
+        }
+        return array('pages' => $pages, 'parts' => $newParts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * The edge blocks of one route, outermost first for a header and last
+     * first for a footer, each with its byte range and route-free identity.
+     *
+     * @param array<string,mixed> $page
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @return list<array{offset:int,length:int,identity:string}>
+     */
+    private function routeEdge(string $markup, array $page, string $area, array $runtimeDeclarations): array
+    {
+        $base = 0;
+        $ranges = self::topLevelBlockRanges($markup);
+        // Descend through a sole wrapper: the app frame around chrome and main.
+        while (1 === count($ranges)) {
+            $block = substr($markup, $base + $ranges[0]['offset'], $ranges[0]['length']);
+            if (!self::isGroupBlock($block) || preg_match('/^<!--\s*wp:group\s+\{[^}]*"tagName":"main"/', $block)) return array();
+            $children = self::directChildBlockRanges($block);
+            if (array() === $children) return array();
+            $base += $ranges[0]['offset'];
+            $ranges = $children;
+        }
+        if (count($ranges) < 2) return array();
+        if ('footer' === $area) $ranges = array_reverse($ranges);
+        $edge = array();
+        // The last block of a route is its content, never chrome.
+        foreach (array_slice($ranges, 0, count($ranges) - 1) as $range) {
+            $offset = $base + $range['offset'];
+            $block = substr($markup, $offset, $range['length']);
+            if (str_contains($block, 'wp:template-part') || preg_match('/"tagName":"main"/', $block)) break;
+            $found = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array(array('offset' => $offset, 'length' => $range['length'])));
+            if ($found['blocked']) break;
+            $edge[] = array('offset' => $offset, 'length' => $range['length'], 'identity' => self::edgeBlockIdentity($block));
+        }
+        return $edge;
+    }
+
+    private static function edgeBlockIdentity(string $block): string
+    {
+        $markup = self::identityMarkup(self::withoutCurrentNavigationState($block, true));
+        $markup = preg_replace('/\b(?:id|anchor)="[^"]*"/i', '', $markup) ?? $markup;
+        $markup = preg_replace('/"anchor":"[^"]*"/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\{\{(?:wordpress-site-plan|blocks-engine):[^}]+\}\}/', '{{token}}', $markup) ?? $markup;
+        return hash('sha256', preg_replace('/\s+/', ' ', trim($markup)) ?? trim($markup));
+    }
+
+    /**
+     * Group routes by the longest edge they share. Larger groups win; a route
+     * joins one group only. Each group's edge stops at the first block where
+     * its routes disagree, and must hold more than a lone skip link: chrome
+     * carries navigation, a landmark or links.
+     *
+     * @param array<int,list<array{offset:int,length:int,identity:string}>> $edges
+     * @param array<int,array<string,mixed>> $pages
+     * @return list<array{identity:string,indexes:list<int>,length:int,ranges:array<int,array{offset:int,length:int}>}>
+     */
+    private static function edgeGroups(array $edges, array $pages): array
+    {
+        $all = $edges; $groups = array();
+        while (true) {
+            // Each prefix length proposes the largest set of routes that share
+            // it. The edge that moves the most chrome out of pages wins, so a
+            // banner most routes repeat is not cut short by one route that
+            // shares only the top bar above it.
+            $best = null;
+            for ($length = 1; ; ++$length) {
+                $byPrefix = array();
+                foreach ($edges as $index => $edge) if (count($edge) >= $length) $byPrefix[implode("\0", array_column(array_slice($edge, 0, $length), 'identity'))][] = $index;
+                $byPrefix = array_filter($byPrefix, static fn(array $indexes): bool => count($indexes) >= 2);
+                if (array() === $byPrefix) break;
+                foreach ($byPrefix as $indexes) {
+                    $bytes = array_sum(array_column(array_slice($edges[$indexes[0]], 0, $length), 'length'));
+                    $score = count($indexes) * $bytes;
+                    if (null === $best || $score > $best['score'] || ($score === $best['score'] && self::holdsEntry($indexes, $pages) > self::holdsEntry($best['indexes'], $pages))) $best = array('score' => $score, 'indexes' => $indexes, 'length' => $length);
+                }
+            }
+            if (null === $best) break;
+            $indexes = $best['indexes']; $length = $best['length'];
+            foreach ($indexes as $index) unset($edges[$index]);
+            usort($indexes, static fn(int $left, int $right): int => (int) empty($pages[$left]['entrypoint']) <=> (int) empty($pages[$right]['entrypoint']) ?: $left <=> $right);
+            $ranges = array();
+            foreach ($indexes as $index) {
+                $blocks = array_slice($all[$index], 0, $length);
+                $first = min(array_column($blocks, 'offset'));
+                $last = max(array_map(static fn(array $block): int => $block['offset'] + $block['length'], $blocks));
+                $ranges[$index] = array('offset' => $first, 'length' => $last - $first);
+            }
+            $sample = substr((string) $pages[$indexes[0]]['canonical_block_markup'], $ranges[$indexes[0]]['offset'], $ranges[$indexes[0]]['length']);
+            if (!self::carriesChrome($sample)) continue;
+            $identity = hash('sha256', implode("\0", array_column(array_slice($all[$indexes[0]], 0, $length), 'identity')));
+            $groups[] = array('identity' => $identity, 'indexes' => $indexes, 'length' => $length, 'ranges' => $ranges);
+        }
+        return $groups;
+    }
+
+    /** @param list<int> $indexes @param array<int,array<string,mixed>> $pages */
+    private static function holdsEntry(array $indexes, array $pages): int
+    {
+        foreach ($indexes as $index) if (!empty($pages[$index]['entrypoint'])) return 1;
+        return 0;
+    }
+
+    /** Chrome carries navigation, a header/footer/nav landmark or links. */
+    private static function carriesChrome(string $markup): bool
+    {
+        if (str_contains($markup, '<!-- wp:navigation ') || preg_match('/"tagName":"(?:header|footer|nav)"/', $markup) || preg_match('/<(?:header|footer|nav)\b/i', $markup)) return true;
+        return preg_match_all('/<a\b[^>]*\bhref=/i', $markup) >= 2;
+    }
+
+    /**
      * Move the layout frame around an in-place shared header/footer out of the
      * page and into the route's template.
      *

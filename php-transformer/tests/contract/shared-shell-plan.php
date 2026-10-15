@@ -194,7 +194,12 @@ $mixedShells = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.ht
 $mixedWrites = $writes($mixedShells);
 $assert(str_contains($mixedWrites['templates/page-contact.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($mixedWrites['templates/page-contact.html']['payload']['data'] ?? '', '"slug":"footer"') && str_contains($mixedWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($mixedWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'A footer-only exclusion creates a route template that retains the globally shared header and excludes only the divergent footer.');
 $assert(str_contains($mixedWrites['templates/search.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($mixedWrites['templates/search.html']['payload']['data'] ?? '', '"slug":"footer"'), 'The search template rides along with index for both the shared header and the shared footer, not only the header.');
-$assert(!array_filter($multiple['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)) && in_array('wordpress_site_plan_shell_retained_incomplete', array_column($multiple['diagnostics'], 'code'), true), 'Multiple shell candidates remain page-local with bounded incomplete diagnostics.');
+// No single landmark is the header, but both open every route: the route
+// edge holds both, so they become one part instead of page-local copies.
+$multipleHeaders = array_values(array_filter($multiple['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$multiplePages = $pages($multiple);
+$assert(1 === count($multipleHeaders) && str_contains((string) $multipleHeaders[0]['canonical_block_markup'], 'One') && str_contains((string) $multipleHeaders[0]['canonical_block_markup'], 'Two') && in_array('wordpress_site_plan_shell_edge_extracted', array_column($multiple['diagnostics'], 'code'), true), 'Several header landmarks that open every route form one shared header part.');
+foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) $assert(!str_contains($multiplePages[$source]['canonical_block_markup'] ?? '', 'One') && str_contains($multiplePages[$source]['canonical_block_markup'] ?? '', $title), "{$source} drops both repeated header landmarks and keeps its content.");
 
 // Authored visibility belongs around each route's shared part reference, not
 // inside the owner-editable part (where it would affect unrelated routes).
