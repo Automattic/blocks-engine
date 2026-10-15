@@ -1106,6 +1106,23 @@ final class SourceDom
      */
     public static function isBoundCapturedDialogTrigger(DOMElement $element): bool
     {
+        return self::isBoundCapturedDialogControl($element, 'data-blocks-engine-triggers');
+    }
+
+    /**
+     * Whether the element is a declared close control of a projected native
+     * dialog (a popover's `popovertargetaction="hide"` button): its id is named
+     * by a captured dialog's `data-blocks-engine-closers`. The dialog's view
+     * script closes from it by id, so it is dialog chrome that must render,
+     * never a redundant menu toggle, whatever its label or icon.
+     */
+    public static function isBoundCapturedDialogCloser(DOMElement $element): bool
+    {
+        return self::isBoundCapturedDialogControl($element, 'data-blocks-engine-closers');
+    }
+
+    private static function isBoundCapturedDialogControl(DOMElement $element, string $binding): bool
+    {
         $id = trim(self::attr($element, 'id'));
         $document = $element->ownerDocument;
         if ( '' === $id || null === $document ) {
@@ -1114,7 +1131,7 @@ final class SourceDom
         foreach ( $document->getElementsByTagName('*') as $dialog ) {
             if ( $dialog instanceof DOMElement
                 && 'true' === self::attr($dialog, 'data-blocks-engine-captured-dialog')
-                && in_array($id, preg_split('/\s+/', trim(self::attr($dialog, 'data-blocks-engine-triggers'))) ?: array(), true)
+                && in_array($id, preg_split('/\s+/', trim(self::attr($dialog, $binding))) ?: array(), true)
             ) {
                 return true;
             }

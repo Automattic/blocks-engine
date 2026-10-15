@@ -79,6 +79,11 @@ replay by case:
   positions itself. Only the emitted `style.css` text and the hashes derived
   from it change again in the twelve native dialog cases above (`7a7af898`
   also gains one style-rule candidate cache hit from the position lookup).
+- **Declared dialog closers** (#2823). The captured-dialog block gains a
+  `closerIds` attribute, saved as `data-blocks-engine-closers`, and its view
+  script closes from those bound controls. Only the block definition (the
+  attribute schema, `index.js` and `view.js` text) and the companion plugin
+  artifact hash derived from it change in the twelve native dialog cases above.
 - **Shell frame in the template.** A page whose shared header and footer sit
   inside a layout frame keeps only the blocks between them; the frame and the
   template-part references move to its route template around post-content.
