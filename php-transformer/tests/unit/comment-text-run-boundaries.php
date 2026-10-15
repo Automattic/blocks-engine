@@ -47,6 +47,22 @@ preg_match_all('/<(p|h2)\b[^>]*>(.*?)<\/\1>/s', $first, $one);
 preg_match_all('/<(p|h2)\b[^>]*>(.*?)<\/\1>/s', $second, $two);
 $assert($one[2] === $two[2], 'converting the saved RichText content again is a fixed point', json_encode(array( $one[2], $two[2] )) ?: '');
 
+// Author `mark` rules (Bootstrap's reboot pads every mark) address source
+// marks only. Engine carriers were never marks in the source.
+$marked = $transformer->transform('<html><head><style>.mark,mark{padding:.1875em;background-color:#fcf8e3}.hl{font-weight:700}</style></head><body><main>'
+    . '<p>"<!-- -->Quote<!-- -->"</p><p>Real <mark>hit</mark> and <span class="hl">bold</span></p>'
+    . '</main></body></html>', array())->toArray();
+$markCss = '';
+foreach ( $marked['assets'] ?? array() as $asset ) {
+    if ( is_array($asset) && 'css' === ($asset['kind'] ?? null) ) {
+        $markCss .= (string) ($asset['content'] ?? '');
+    }
+}
+$markBlocks = (string) ($marked['serialized_blocks'] ?? '');
+$assert(0 === preg_match('/(?:^|[},])\s*(?:\.mark\s*,\s*)?mark\s*[{,]/', $markCss), 'no author mark rule keeps a bare mark subject that reaches engine carriers', $markCss);
+$assert(1 === preg_match('/:where\(\.blocks-engine-source-mark-[0-9a-f]+-\d+\)[^{]*\{padding:\.1875em/', $markCss), 'the author mark rule addresses the source mark marker', $markCss);
+$assert(str_contains($markBlocks, '<mark style="padding:.1875em;background-color:#fcf8e3;color:inherit">hit</mark>'), 'a source mark keeps its author presentation', $markBlocks);
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "comment text run boundaries FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);
