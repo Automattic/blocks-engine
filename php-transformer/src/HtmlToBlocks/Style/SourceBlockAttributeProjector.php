@@ -246,6 +246,14 @@ final class SourceBlockAttributeProjector
             return false;
         }
 
+        // An absolutely positioned child is out of flow, not a flex/grid item.
+        // Its figure carries the author's positioned geometry, so it must keep
+        // a real box instead of the transparent flex-item treatment.
+        $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($image)['position'] ?? ''));
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+
         // A responsive capture states each document's layout only inside its
         // media condition, so the parent is a flex item container whenever any
         // viewport says so. Where it is plain flow instead, the figure's
