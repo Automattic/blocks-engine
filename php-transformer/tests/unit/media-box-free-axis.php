@@ -39,7 +39,7 @@ $transform = static function (string $html): array {
 };
 
 $mediaRule = static function (string $css): string {
-    return preg_match('/\.be-inline-geometry-[0-9a-f]+>img\{[^{}]*\}/', $css, $match) ? $match[0] : '';
+    return preg_match('/\.be-inline-geometry-[0-9a-f]+(?:>img,\.wp-block-image\.be-inline-geometry-[0-9a-f]+>a)?>img\{[^{}]*\}/', $css, $match) ? $match[0] : '';
 };
 
 // gameover.ai: `<svg style="max-height:50vh" viewBox="0 0 260 511.59">`. Only the
